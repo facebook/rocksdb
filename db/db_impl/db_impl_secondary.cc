@@ -879,7 +879,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
   // input instead of recreating it in the remote worker
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->CompactFiles(
+  c.reset(cfd->compaction_picker()->PickCompactionForCompactFiles(
       comp_options, input_files, input.output_level, vstorage,
       cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0,
       /*earliest_snapshot=*/job_context.snapshot_seqs.empty()

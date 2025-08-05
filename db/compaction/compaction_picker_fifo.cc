@@ -440,7 +440,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   return c;
 }
 
-Compaction* FIFOCompactionPicker::CompactRange(
+Compaction* FIFOCompactionPicker::PickCompactionForCompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     int input_level, int output_level,

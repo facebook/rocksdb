@@ -2689,13 +2689,14 @@ TEST_F(CompactionPickerTest, CompactRangeMaxCompactionBytes) {
   bool manual_conflict = false;
   InternalKey manual_end;
   InternalKey* manual_end_ptr = &manual_end;
-  std::unique_ptr<Compaction> compaction(level_compaction_picker.CompactRange(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      /*input_level=*/1, /*output_level=*/2,
-      /*compact_range_options*/ {}, /*begin=*/nullptr, /*end=*/nullptr,
-      &manual_end_ptr, &manual_conflict,
-      /*max_file_num_to_ignore=*/std::numeric_limits<uint64_t>::max(),
-      /*trim_ts=*/""));
+  std::unique_ptr<Compaction> compaction(
+      level_compaction_picker.PickCompactionForCompactRange(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          /*input_level=*/1, /*output_level=*/2,
+          /*compact_range_options*/ {}, /*begin=*/nullptr, /*end=*/nullptr,
+          &manual_end_ptr, &manual_conflict,
+          /*max_file_num_to_ignore=*/std::numeric_limits<uint64_t>::max(),
+          /*trim_ts=*/""));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_levels());
   ASSERT_EQ(2, compaction->output_level());
@@ -3627,7 +3628,7 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
   bool manual_conflict = false;
   InternalKey* manual_end = nullptr;
   std::unique_ptr<Compaction> compaction(
-      universal_compaction_picker.CompactRange(
+      universal_compaction_picker.PickCompactionForCompactRange(
           cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
           ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(),
           nullptr, nullptr, &manual_end, &manual_conflict,
@@ -3831,9 +3832,10 @@ TEST_F(CompactionPickerU64TsTest, Overlap) {
   std::vector<CompactionInputFiles> input_files;
   ASSERT_OK(level_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input, vstorage_.get(), CompactionOptions()));
-  std::unique_ptr<Compaction> comp1(level_compaction_picker.CompactFiles(
-      CompactionOptions(), input_files, level, vstorage_.get(),
-      mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
+  std::unique_ptr<Compaction> comp1(
+      level_compaction_picker.PickCompactionForCompactFiles(
+          CompactionOptions(), input_files, level, vstorage_.get(),
+          mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
 
   {
     // [600, ts=50000] to [600, ts=50000] is the range to check.
@@ -3942,9 +3944,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, OverlapWithNormalCompaction) {
   ASSERT_OK(level_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(level_compaction_picker.CompactFiles(
-      comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      level_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   input_set.clear();
   input_files.clear();
@@ -3988,9 +3991,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlap) {
   ASSERT_OK(level_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(level_compaction_picker.CompactFiles(
-      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      level_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   input_set.clear();
   input_files.clear();
@@ -4030,9 +4034,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   input_set.clear();
   input_files.clear();
@@ -4077,9 +4082,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlapUniversal) {
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   input_set.clear();
   input_files.clear();
@@ -4125,9 +4131,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, ProximalOverlapUniversal) {
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   input_set.clear();
   input_files.clear();
@@ -4176,9 +4183,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, LastLevelOnlyOverlapUniversal) {
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   // cannot compact file 41 if the preclude_last_level feature is on, otherwise
   // compact file 41 is okay.
@@ -4234,9 +4242,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   ASSERT_TRUE(comp1);
   ASSERT_EQ(comp1->GetProximalLevel(), Compaction::kInvalidLevel);
@@ -4252,9 +4261,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_FALSE(universal_compaction_picker.FilesRangeOverlapWithCompaction(
       input_files, 5, Compaction::kInvalidLevel));
 
-  std::unique_ptr<Compaction> comp2(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp2(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
   ASSERT_TRUE(comp2);
   ASSERT_EQ(Compaction::kInvalidLevel, comp2->GetProximalLevel());
 }
@@ -4290,9 +4300,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   ASSERT_TRUE(comp1);
   ASSERT_EQ(comp1->GetProximalLevel(), Compaction::kInvalidLevel);
@@ -4310,9 +4321,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
                     vstorage_.get(), mutable_cf_options_, ioptions_, 6, 6)));
 
   if (!enable_per_key_placement_) {
-    std::unique_ptr<Compaction> comp2(universal_compaction_picker.CompactFiles(
-        comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-        mutable_db_options_, 0));
+    std::unique_ptr<Compaction> comp2(
+        universal_compaction_picker.PickCompactionForCompactFiles(
+            comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+            mutable_db_options_, 0));
     ASSERT_TRUE(comp2);
     ASSERT_EQ(Compaction::kInvalidLevel, comp2->GetProximalLevel());
   }
@@ -4350,9 +4362,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage_.get(), comp_options));
 
-  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp1(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 5, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
 
   ASSERT_TRUE(comp1);
   ASSERT_EQ(comp1->GetProximalLevel(), Compaction::kInvalidLevel);
@@ -4370,9 +4383,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
                                         ioptions_, 6, 6)));
 
   // 2 compactions can be run in parallel
-  std::unique_ptr<Compaction> comp2(universal_compaction_picker.CompactFiles(
-      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
-      mutable_db_options_, 0));
+  std::unique_ptr<Compaction> comp2(
+      universal_compaction_picker.PickCompactionForCompactFiles(
+          comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+          mutable_db_options_, 0));
   ASSERT_TRUE(comp2);
   if (enable_per_key_placement_) {
     ASSERT_NE(Compaction::kInvalidLevel, comp2->GetProximalLevel());
