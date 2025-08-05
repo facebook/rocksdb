@@ -867,12 +867,6 @@ Status CompactionJob::Run() {
   if (status.ok() && ok) {
     if (job_stats_->has_num_input_records) {
       status = VerifyInputRecordCount(num_input_range_del);
-      if (!status.ok()) {
-        ROCKS_LOG_WARN(
-            db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
-            compact_->compaction->column_family_data()->GetName().c_str(),
-            job_context_->job_id, status.ToString().c_str());
-      }
     }
     UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
   }
@@ -881,39 +875,11 @@ Status CompactionJob::Run() {
   // Verify number of output records
   // Only verify on table with format collects table properties
   const auto& mutable_cf_options = compact_->compaction->mutable_cf_options();
-  if (status.ok() &&
-      (mutable_cf_options.table_factory->IsInstanceOf(
-           TableFactory::kBlockBasedTableName()) ||
-       mutable_cf_options.table_factory->IsInstanceOf(
-           TableFactory::kPlainTableName())) &&
-      db_options_.compaction_verify_record_count) {
-    uint64_t total_output_num = 0;
-    for (const auto& state : compact_->sub_compact_states) {
-      for (const auto& output : state.GetOutputs()) {
-        total_output_num += output.table_properties->num_entries -
-                            output.table_properties->num_range_deletions;
-      }
-    }
-
-    uint64_t expected = internal_stats_.output_level_stats.num_output_records;
-    if (internal_stats_.has_proximal_level_output) {
-      expected += internal_stats_.proximal_level_stats.num_output_records;
-    }
-    if (expected != total_output_num) {
-      char scratch[2345];
-      compact_->compaction->Summary(scratch, sizeof(scratch));
-      std::string msg =
-          "Number of keys in compaction output SST files does not match "
-          "number of keys added. Expected " +
-          std::to_string(expected) + " but there are " +
-          std::to_string(total_output_num) +
-          " in output SST files. Compaction summary: " + scratch;
-      ROCKS_LOG_WARN(
-          db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
-          compact_->compaction->column_family_data()->GetName().c_str(),
-          job_context_->job_id, msg.c_str());
-      status = Status::Corruption(msg);
-    }
+  if (status.ok() && (mutable_cf_options.table_factory->IsInstanceOf(
+                          TableFactory::kBlockBasedTableName()) ||
+                      mutable_cf_options.table_factory->IsInstanceOf(
+                          TableFactory::kPlainTableName()))) {
+    status = VerifyOutputRecordCount();
   }
 
   RecordCompactionIOStats();
@@ -2378,9 +2344,48 @@ Status CompactionJob::VerifyInputRecordCount(
           "number of keys processed. Expected " +
           std::to_string(expected) + " but processed " +
           std::to_string(actual) + ". Compaction summary: " + scratch;
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] VerifyInputRecordCount() Status: %s",
+          compact_->compaction->column_family_data()->GetName().c_str(),
+          job_context_->job_id, msg.c_str());
       if (db_options_.compaction_verify_record_count) {
         return Status::Corruption(msg);
       }
+    }
+  }
+  return Status::OK();
+}
+
+Status CompactionJob::VerifyOutputRecordCount() const {
+  uint64_t total_output_num = 0;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.GetOutputs()) {
+      total_output_num += output.table_properties->num_entries -
+                          output.table_properties->num_range_deletions;
+    }
+  }
+
+  uint64_t expected = internal_stats_.output_level_stats.num_output_records;
+  if (internal_stats_.has_proximal_level_output) {
+    expected += internal_stats_.proximal_level_stats.num_output_records;
+  }
+  if (expected != total_output_num) {
+    char scratch[2345];
+    compact_->compaction->Summary(scratch, sizeof(scratch));
+    std::string msg =
+        "Number of keys in compaction output SST files does not match "
+        "number of keys added. Expected " +
+        std::to_string(expected) + " but there are " +
+        std::to_string(total_output_num) +
+        " in output SST files. Compaction summary: " + scratch;
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "[%s] [JOB %d] VerifyOutputRecordCount() status: %s",
+        compact_->compaction->column_family_data()->GetName().c_str(),
+        job_context_->job_id, msg.c_str());
+    if (db_options_.compaction_verify_record_count) {
+      return Status::Corruption(msg);
     }
   }
   return Status::OK();
