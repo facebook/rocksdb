@@ -158,6 +158,14 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
       s = SetOldTableOptions();
     }
     options_.comparator = internal_comparator_.user_comparator();
+
+    {
+      Status status = ReadMetaIndexBlockInFile(
+          file_.get(), file_size, magic_number, ImmutableOptions(options_),
+          ReadOptions(), &meta_index_contents_);
+      // Ignore any errors since this is required for a specific CLI option
+      status.PermitUncheckedError();
+    }
   }
 
   if (s.ok()) {

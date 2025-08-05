@@ -51,6 +51,8 @@ class SstFileDumper {
   Status ShowCompressionSize(size_t block_size, CompressionType compress_type,
                              const CompressionOptions& compress_opt);
 
+  BlockContents& GetMetaIndexContents() { return meta_index_contents_; }
+
  private:
   // Get the TableReader implementation for the sst file
   Status GetTableReader(const std::string& file_path);
@@ -96,6 +98,7 @@ class SstFileDumper {
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;
   std::unique_ptr<TableProperties> table_properties_;
+  BlockContents meta_index_contents_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
