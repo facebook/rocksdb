@@ -1798,13 +1798,21 @@ class MultiScanOptions {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
   }
-
-  MultiScanOptions(MultiScanOptions& other) = default;
-  MultiScanOptions& operator=(MultiScanOptions& other) = default;
+  MultiScanOptions(MultiScanOptions&& other) noexcept
+      : comp_(other.comp_),
+        original_ranges_(std::move(other.original_ranges_)) {}
 
   MultiScanOptions& operator=(const MultiScanOptions& other) {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
+    return *this;
+  }
+
+  MultiScanOptions& operator=(MultiScanOptions&& other) noexcept {
+    if (this != &other) {
+      comp_ = other.comp_;
+      original_ranges_ = std::move(other.original_ranges_);
+    }
     return *this;
   }
 

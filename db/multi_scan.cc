@@ -22,7 +22,7 @@ MultiScan::MultiScan(const ReadOptions& read_options,
   } else {
     read_options_.iterate_upper_bound = nullptr;
   }
-  for (auto opts : scan_opts.GetScanOptions()) {
+  for (const auto& opts : scan_opts.GetScanOptions()) {
     // Check that all the ScanOptions either specify an upper bound or not. If
     // its mixed we take the slow path which avoids calling Prepare: we have to
     // reallocate the Iterator with updated read_options everytime we switch
