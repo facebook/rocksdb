@@ -343,9 +343,8 @@ default_params = {
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
-    "allow_unprepared_value": lambda: random.choice([0, 1]),
-    # TODO(jaykorean): re-enable remote compaction stress test once fixed
-    "remote_compaction_worker_threads": lambda: 0,
+    "allow_unprepared_value": lambda: random.choice([0, 1]),    
+    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
