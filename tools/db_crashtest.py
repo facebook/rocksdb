@@ -1086,6 +1086,9 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
+    # TODO Fix races when both Remote Compaction + BlobDB enabled
+    if dest_params.get("remote_compaction_worker_threads") > 0:
+       dest_params["enable_blob_files"] = 0
     return dest_params
 
 
