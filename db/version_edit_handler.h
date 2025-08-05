@@ -85,7 +85,7 @@ class FileChecksumRetriever : public VersionEditHandlerBase {
 
   ~FileChecksumRetriever() override {}
 
-  void FetchFileChecksumList(FileChecksumList& file_checksum_list);
+  Status FetchFileChecksumList(FileChecksumList& file_checksum_list);
 
  protected:
   Status ApplyVersionEdit(VersionEdit& edit,

@@ -117,14 +117,20 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
   return s;
 }
 
-void FileChecksumRetriever::FetchFileChecksumList(
+Status FileChecksumRetriever::FetchFileChecksumList(
     FileChecksumList& file_checksum_list) {
-  for (const auto& [_, file_checksums] : cf_file_checksums_) {
+  Status s = Status::OK();
+  for (const auto& [cf, file_checksums] : cf_file_checksums_) {
+    [[maybe_unused]] const auto& _ = cf;
     for (const auto& [file_number, info] : file_checksums) {
-      file_checksum_list.InsertOneFileChecksum(file_number, info.first,
-                                               info.second);
+      if (!(s = file_checksum_list.InsertOneFileChecksum(
+                file_number, info.first, info.second))
+               .ok()) {
+        break;
+      }
     }
   }
+  return s;
 }
 
 Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
