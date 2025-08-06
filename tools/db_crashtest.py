@@ -811,6 +811,15 @@ def finalize_and_sanitize(src_params):
             dest_params["allow_concurrent_memtable_write"] = 1
         else:
             dest_params["unordered_write"] = 0
+    if dest_params.get("remote_compaction_worker_threads", 0) > 0:
+       # TODO Fix races when both Remote Compaction + BlobDB enabled
+       dest_params["enable_blob_files"] = 0
+       # TODO Fix - Remote worker shouldn't recover from WAL
+       dest_params["disable_wal"] = 1
+       # Disable Incompatible Ones
+       dest_params["checkpoint_one_in"] = 0
+       dest_params["enable_pipelined_write"] = 0
+       dest_params["use_timed_put_one_in"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
@@ -880,6 +889,8 @@ def finalize_and_sanitize(src_params):
         dest_params["use_multi_cf_iterator"] = 0
         # only works with write committed policy
         dest_params["commit_bypass_memtable_one_in"] = 0
+        # not compatible with Remote Compaction yet
+        dest_params["remote_compaction_worker_threads"] = 0
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -1010,6 +1021,9 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
+
+            # TODO Fix - Remote worker shouldn't recover from WAL 
+            dest_params["remote_compaction_worker_threads"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
         if dest_params.get("block_align") == 1:
@@ -1085,16 +1099,7 @@ def finalize_and_sanitize(src_params):
         dest_params["ingest_wbwi_one_in"] = 0
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
-        dest_params["continuous_verification_interval"] = 0
-    if dest_params.get("remote_compaction_worker_threads") > 0:
-       # TODO Fix races when both Remote Compaction + BlobDB enabled
-       dest_params["enable_blob_files"] = 0
-       # TODO Fix - Remote worker shouldn't recover from WAL
-       dest_params["disable_wal"] = 1
-       # Disable Incompatible Ones
-       dest_params["checkpoint_one_in"] = 0
-       dest_params["enable_pipelined_write"] = 0
-       dest_params["use_timed_put_one_in"] = 0
+        dest_params["continuous_verification_interval"] = 0   
     return dest_params
 
 
