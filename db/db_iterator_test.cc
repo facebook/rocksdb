@@ -4190,7 +4190,10 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4216,8 +4219,9 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0]);
-  scan_options.GetScanOptions()[1] = ScanOptions(key_ranges[2]);
+  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4294,10 +4298,10 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     abort();
   }
   iter.reset();
-  auto& opts = scan_options.GetScanOptions();
-  opts[0] = ScanOptions(key_ranges[0]);
-  opts[1] = ScanOptions(key_ranges[2], key_ranges[3]);
-  opts[2] = ScanOptions(key_ranges[4]);
+  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;

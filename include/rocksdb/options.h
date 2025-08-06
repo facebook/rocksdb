@@ -1820,7 +1820,21 @@ class MultiScanOptions {
     original_ranges_.emplace_back(s, b);
   }
 
+  void insert(const Slice& s, const Slice& b,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s, b);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
   void insert(const Slice& s) { original_ranges_.emplace_back(s); }
+
+  void insert(const Slice& s,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s);
+    original_ranges_.back().property_bag = property_bag;
+  }
 
   size_t size() const { return original_ranges_.size(); }
   bool empty() const { return original_ranges_.empty(); }
@@ -1832,8 +1846,6 @@ class MultiScanOptions {
   operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
   // Destructor
   ~MultiScanOptions() {}
-
-  std::vector<ScanOptions>& GetScanOptions() { return original_ranges_; }
 
   const std::vector<ScanOptions>& GetScanOptions() const {
     return original_ranges_;

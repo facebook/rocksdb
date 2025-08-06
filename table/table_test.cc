@@ -7227,7 +7227,10 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+
   iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7253,9 +7256,9 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
   iter.reset();
 
   // Test the no limit scan case
-  auto& opts = scan_options.GetScanOptions();
-  opts[0] = ScanOptions(key_ranges[0]);
-  opts[1] = ScanOptions(key_ranges[2]);
+  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2]);
   iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7813,9 +7816,10 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
   MultiScanOptions scan_opts(BytewiseComparator());
-  scan_opts.insert("key20");
-  scan_opts.GetScanOptions()[0].property_bag.emplace().emplace(
-      "count", std::to_string(25));
+
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(25);
+  scan_opts.insert("key20", property_bag);
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
@@ -7973,9 +7977,9 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   MultiScanOptions scan_opts;
-  scan_opts.insert(Slice("key20"));
-  scan_opts.GetScanOptions()[0].property_bag.emplace().emplace(
-      "count", std::to_string(25));
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(25);
+  scan_opts.insert(Slice("key20"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
