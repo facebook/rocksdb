@@ -135,12 +135,14 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   std::vector<ThreadState*> remote_compaction_worker_threads;
-  remote_compaction_worker_threads.reserve(
-      remote_compaction_worker_thread_count);
-  for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
-    ThreadState* ts = new ThreadState(i, shared);
-    remote_compaction_worker_threads.push_back(ts);
-    db_stress_env->StartThread(RemoteCompactionWorkerThread, ts);
+  if (remote_compaction_worker_thread_count > 0) {
+    remote_compaction_worker_threads.reserve(
+        remote_compaction_worker_thread_count);
+    for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
+      ThreadState* ts = new ThreadState(i, shared);
+      remote_compaction_worker_threads.push_back(ts);
+      db_stress_env->StartThread(RemoteCompactionWorkerThread, ts);
+    }
   }
 
   // Each thread goes through the following states:
