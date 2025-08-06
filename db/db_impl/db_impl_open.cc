@@ -599,7 +599,7 @@ Status DBImpl::Recover(
         // allow_ingest_behind does not support Level Compaction,
         // and per_key_placement can have infinite compaction loop for Level
         // Compaction. Adjust to_level here just to be safe.
-        if (cfd->ioptions().allow_ingest_behind ||
+        if (cfd->AllowIngestBehind() ||
             moptions.preclude_last_level_data_seconds > 0) {
           to_level -= 1;
         }

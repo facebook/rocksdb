@@ -600,6 +600,11 @@ class ColumnFamilyData {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
 
+  // thread-safe, DB mutex not needed.
+  bool AllowIngestBehind() const {
+    return ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind;
+  }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(

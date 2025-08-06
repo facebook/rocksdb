@@ -3528,7 +3528,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
-  int max_output_level = MaxOutputLevel(immutable_options.allow_ingest_behind);
+  int max_output_level =
+      MaxOutputLevel(immutable_options.cf_allow_ingest_behind ||
+                     immutable_options.allow_ingest_behind);
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -3713,6 +3715,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction(max_output_level);
   ComputeBottommostFilesMarkedForCompaction(
+      immutable_options.cf_allow_ingest_behind ||
       immutable_options.allow_ingest_behind);
   ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   ComputeFilesMarkedForPeriodicCompaction(
@@ -4710,8 +4713,7 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
   if (restart_epoch) {
     cfd->ResetNextEpochNumber();
 
-    bool reserve_epoch_num_for_file_ingested_behind =
-        cfd->ioptions().allow_ingest_behind;
+    bool reserve_epoch_num_for_file_ingested_behind = cfd->AllowIngestBehind();
     if (reserve_epoch_num_for_file_ingested_behind) {
       uint64_t reserved_epoch_number = cfd->NewEpochNumber();
       assert(reserved_epoch_number ==
@@ -4719,7 +4721,8 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
       ROCKS_LOG_INFO(cfd->ioptions().info_log.get(),
                      "[%s]CF has reserved epoch number %" PRIu64
                      " for files ingested "
-                     "behind since `Options::allow_ingest_behind` is true",
+                     "behind since `Options::allow_ingest_behind` or "
+                     "`Options::cf_allow_ingest_behind` is true",
                      cfd->GetName().c_str(), reserved_epoch_number);
     }
   }

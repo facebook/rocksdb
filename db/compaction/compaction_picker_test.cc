@@ -544,41 +544,48 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
 }
 
 TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
-  const uint64_t kFileSize = 100000;
-  NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
-  ioptions_.allow_ingest_behind = true;
-  ioptions_.num_levels = 3;
-  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
-  UpdateVersionStorageInfo();
-  // must return false when there's no files.
-  ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
-            false);
+  for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
+    const uint64_t kFileSize = 100000;
+    NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
+    if (cf_option) {
+      ioptions_.cf_allow_ingest_behind = true;
+    } else {
+      ioptions_.allow_ingest_behind = true;
+    }
+    ioptions_.num_levels = 3;
+    UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+    UpdateVersionStorageInfo();
+    // must return false when there's no files.
+    ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
+              false);
 
-  NewVersionStorage(3, kCompactionStyleUniversal);
+    NewVersionStorage(3, kCompactionStyleUniversal);
 
-  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
-  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
-  Add(0, 4U, "260", "300", kFileSize, 0, 260, 300);
-  Add(1, 5U, "100", "151", kFileSize, 0, 200, 251);
-  Add(1, 3U, "301", "350", kFileSize, 0, 101, 150);
-  Add(2, 6U, "120", "200", kFileSize, 0, 20, 100);
+    Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+    Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+    Add(0, 4U, "260", "300", kFileSize, 0, 260, 300);
+    Add(1, 5U, "100", "151", kFileSize, 0, 200, 251);
+    Add(1, 3U, "301", "350", kFileSize, 0, 101, 150);
+    Add(2, 6U, "120", "200", kFileSize, 0, 20, 100);
 
-  UpdateVersionStorageInfo();
+    UpdateVersionStorageInfo();
 
-  std::unique_ptr<Compaction> compaction(
-      universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_,
-          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
-          vstorage_.get(), &log_buffer_));
+    std::unique_ptr<Compaction> compaction(
+        universal_compaction_picker.PickCompaction(
+            cf_name_, mutable_cf_options_, mutable_db_options_,
+            /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+            vstorage_.get(), &log_buffer_));
 
-  // output level should be the one above the bottom-most
-  ASSERT_EQ(1, compaction->output_level());
+    // output level should be the one above the bottom-most
+    ASSERT_EQ(1, compaction->output_level());
 
-  // input should not include the reserved level
-  const std::vector<CompactionInputFiles>* inputs = compaction->inputs();
-  for (const auto& compaction_input : *inputs) {
-    if (!compaction_input.empty()) {
-      ASSERT_LT(compaction_input.level, 2);
+    // input should not include the reserved level
+    const std::vector<CompactionInputFiles>* inputs = compaction->inputs();
+    for (const auto& compaction_input : *inputs) {
+      if (!compaction_input.empty()) {
+        ASSERT_LT(compaction_input.level, 2);
+      }
     }
   }
 }

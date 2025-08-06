@@ -145,7 +145,8 @@ class CompactionIterator {
     }
 
     bool allow_ingest_behind() const override {
-      return compaction_->immutable_options().allow_ingest_behind;
+      return compaction_->immutable_options().cf_allow_ingest_behind ||
+             compaction_->immutable_options().allow_ingest_behind;
     }
 
     bool allow_mmap_reads() const override {
