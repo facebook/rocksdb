@@ -817,8 +817,7 @@ def finalize_and_sanitize(src_params):
        # TODO Fix - Remote worker shouldn't recover from WAL
        dest_params["disable_wal"] = 1
        # Disable Incompatible Ones
-       dest_params["checkpoint_one_in"] = 0
-       dest_params["enable_pipelined_write"] = 0
+       dest_params["checkpoint_one_in"] = 0       
        dest_params["use_timed_put_one_in"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
