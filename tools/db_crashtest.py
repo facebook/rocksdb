@@ -343,9 +343,8 @@ default_params = {
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
-    "allow_unprepared_value": lambda: random.choice([0, 1]),
-    # TODO(jaykorean): re-enable remote compaction stress test once fixed
-    "remote_compaction_worker_threads": lambda: 0,
+    "allow_unprepared_value": lambda: random.choice([0, 1]),    
+    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -1087,6 +1086,9 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
+    # TODO Fix races when both Remote Compaction + BlobDB enabled
+    if dest_params.get("remote_compaction_worker_threads") > 0:
+       dest_params["enable_blob_files"] = 0
     return dest_params
 
 

@@ -139,9 +139,9 @@ bool RunStressTestImpl(SharedState* shared) {
     remote_compaction_worker_threads.reserve(
         remote_compaction_worker_thread_count);
     for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
-      remote_compaction_worker_threads[i] = new ThreadState(i, shared);
-      db_stress_env->StartThread(RemoteCompactionWorkerThread,
-                                 remote_compaction_worker_threads[i]);
+      ThreadState* ts = new ThreadState(i, shared);
+      remote_compaction_worker_threads.push_back(ts);
+      db_stress_env->StartThread(RemoteCompactionWorkerThread, ts);
     }
   }
 
@@ -253,7 +253,7 @@ bool RunStressTestImpl(SharedState* shared) {
       FLAGS_continuous_verification_interval > 0 ||
       FLAGS_compressed_secondary_cache_size > 0 ||
       FLAGS_compressed_secondary_cache_ratio > 0.0 ||
-      FLAGS_remote_compaction_worker_threads > 0) {
+      remote_compaction_worker_thread_count > 0) {
     MutexLock l(shared->GetMutex());
     shared->SetShouldStopBgThread();
     while (!shared->BgThreadsFinished()) {
@@ -261,14 +261,13 @@ bool RunStressTestImpl(SharedState* shared) {
     }
   }
 
-  // Kill remote compaction workers
+  assert(remote_compaction_worker_threads.size() ==
+         remote_compaction_worker_thread_count);
   if (remote_compaction_worker_thread_count > 0) {
-    assert(remote_compaction_worker_threads.capacity() ==
-           remote_compaction_worker_thread_count);
-    for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
-      delete remote_compaction_worker_threads[i];
-      remote_compaction_worker_threads[i] = nullptr;
+    for (ThreadState* thread_state : remote_compaction_worker_threads) {
+      delete thread_state;
     }
+    remote_compaction_worker_threads.clear();
   }
 
   if (shared->HasVerificationFailedYet()) {
