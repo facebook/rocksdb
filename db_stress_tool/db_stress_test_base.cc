@@ -3642,6 +3642,21 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
+    // TODO(jaykorean) Remove this after fix - remote worker shouldn't recover
+    // from WAL
+    if (!FLAGS_disable_wal) {
+      fprintf(stderr,
+              "WAL is not compatible with Remote Compaction in Stress Test\n");
+      exit(1);
+    }
+    if ((options_.enable_blob_files ||
+         options_.enable_blob_garbage_collection ||
+         FLAGS_allow_setting_blob_options_dynamically)) {
+      fprintf(stderr,
+              "Integrated BlobDB is currently incompatible with Remote "
+              "Compaction\n");
+      exit(1);
+    }
     options_.compaction_service =
         std::make_shared<DbStressCompactionService>(shared);
   }
