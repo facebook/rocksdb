@@ -56,13 +56,13 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   void OnKeyAdded(const Slice& key,
                   const std::optional<Slice>& value) override {
+    ParsedInternalKey pkey;
     if (status_.ok()) {
       if (!value.has_value()) {
         status_ = Status::InvalidArgument(
             "user_defined_index_factory not supported with parallel "
             "compression");
       } else {
-        ParsedInternalKey pkey;
         status_ = ParseInternalKey(key, &pkey, /*lof_err_key*/ false);
         if (status_.ok() && pkey.type != ValueType::kTypeValue) {
           status_ = Status::InvalidArgument(
@@ -77,20 +77,29 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     // Forward the call to both index builders
     internal_index_builder_->OnKeyAdded(key, value);
     user_defined_index_builder_->OnKeyAdded(
-        key, UserDefinedIndexBuilder::ValueType::kValue, value.value());
+        pkey.user_key, UserDefinedIndexBuilder::ValueType::kValue,
+        value.value());
   }
 
   Status Finish(IndexBlocks* index_blocks,
                 const BlockHandle& last_partition_block_handle) override {
-    if (!status_.ok()) {
+    if (!status_.ok() && !status_.IsIncomplete()) {
       return status_;
     }
 
-    // Finish the internal index builder
-    status_ = internal_index_builder_->Finish(index_blocks,
-                                              last_partition_block_handle);
-    if (!status_.ok()) {
-      return status_;
+    if (!internal_index_building_finished_) {
+      // Finish the internal index builder
+      status_ = internal_index_builder_->Finish(index_blocks,
+                                                last_partition_block_handle);
+      if (!status_.ok()) {
+        return status_;
+      } else {
+        internal_index_building_finished_ = true;
+        // We should still mark the status as incomplete, since the user defined
+        // index builder may not be finished yet.
+        status_ = Status::Incomplete();
+        return status_;
+      }
     }
 
     // Finish the user defined index builder
@@ -117,6 +126,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
  private:
   const std::string name_;
+  bool internal_index_building_finished_{false};
   std::unique_ptr<IndexBuilder> internal_index_builder_;
   std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder_;
   Status status_;

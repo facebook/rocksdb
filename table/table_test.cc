@@ -7687,6 +7687,10 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.partition_filters = true;
+  table_options.decouple_partitioned_filters = true;
+  table_options.index_type =
+      rocksdb::BlockBasedTableOptions::kTwoLevelIndexSearch;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
