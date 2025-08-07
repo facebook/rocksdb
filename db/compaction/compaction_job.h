@@ -283,7 +283,7 @@ class CompactionJob {
   void RunSubcompactions();
   void UpdateTimingStats(uint64_t start_micros);
   void RemoveEmptyOutputs();
-  bool HasNewBlobFiles();
+  bool HasNewBlobFiles() const;
   Status CollectSubcompactionErrors();
   Status SyncOutputDirectories();
   Status VerifyOutputFiles();

@@ -697,6 +697,10 @@ void CompactionJob::RunSubcompactions() {
   for (auto& thread : thread_pool) {
     thread.join();
   }
+  RemoveEmptyOutputs();
+
+  ReleaseSubcompactionResources();
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources");
 }
 
 void CompactionJob::UpdateTimingStats(uint64_t start_micros) {
@@ -718,7 +722,7 @@ void CompactionJob::RemoveEmptyOutputs() {
   }
 }
 
-bool CompactionJob::HasNewBlobFiles() {
+bool CompactionJob::HasNewBlobFiles() const {
   for (const auto& state : compact_->sub_compact_states) {
     if (state.Current().HasBlobFileAdditions()) {
       return true;
@@ -890,11 +894,6 @@ Status CompactionJob::VerifyCompactionRecordCounts(
   if (stats_built_from_input_table_prop && job_stats_->has_num_input_records) {
     status = VerifyInputRecordCount(num_input_range_del);
     if (!status.ok()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log,
-          "[%s] [JOB %d] Input record count verification failed: %s",
-          compact_->compaction->column_family_data()->GetName().c_str(),
-          job_context_->job_id, status.ToString().c_str());
       return status;
     }
   }
@@ -906,11 +905,6 @@ Status CompactionJob::VerifyCompactionRecordCounts(
            TableFactory::kPlainTableName()))) {
     status = VerifyOutputRecordCount();
     if (!status.ok()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log,
-          "[%s] [JOB %d] Output record count verification failed: %s",
-          compact_->compaction->column_family_data()->GetName().c_str(),
-          job_context_->job_id, status.ToString().c_str());
       return status;
     }
   }
@@ -920,9 +914,6 @@ Status CompactionJob::VerifyCompactionRecordCounts(
 void CompactionJob::FinalizeCompactionRun(
     const Status& input_status, bool stats_built_from_input_table_prop,
     uint64_t num_input_range_del) {
-  ReleaseSubcompactionResources();
-  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources");
-
   if (stats_built_from_input_table_prop) {
     UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
   }
