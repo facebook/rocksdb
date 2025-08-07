@@ -668,16 +668,17 @@ void CompactionJob::GenSubcompactionBoundaries() {
                extra_num_subcompaction_threads_reserved_));
 }
 
-Status CompactionJob::Run() {
+void CompactionJob::InitializeCompactionRun() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
   TEST_SYNC_POINT("CompactionJob::Run():Start");
   log_buffer_->FlushBufferToLog();
   LogCompaction();
+}
 
+void CompactionJob::RunSubcompactions() {
   const size_t num_threads = compact_->sub_compact_states.size();
   assert(num_threads > 0);
-  const uint64_t start_micros = db_options_.clock->NowMicros();
   compact_->compaction->GetOrInitInputTableProperties();
 
   // Launch a thread for each of subcompactions 1...num_threads-1
@@ -696,25 +697,39 @@ Status CompactionJob::Run() {
   for (auto& thread : thread_pool) {
     thread.join();
   }
+}
 
+void CompactionJob::UpdateTimingStats(uint64_t start_micros) {
   internal_stats_.SetMicros(db_options_.clock->NowMicros() - start_micros);
 
   for (auto& state : compact_->sub_compact_states) {
     internal_stats_.AddCpuMicros(state.compaction_job_stats.cpu_micros);
-    state.RemoveLastEmptyOutput();
   }
 
   RecordTimeToHistogram(stats_, COMPACTION_TIME,
                         internal_stats_.output_level_stats.micros);
   RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
                         internal_stats_.output_level_stats.cpu_micros);
+}
 
-  TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
+void CompactionJob::RemoveEmptyOutputs() {
+  for (auto& state : compact_->sub_compact_states) {
+    state.RemoveLastEmptyOutput();
+  }
+}
 
-  // Check if any thread encountered an error during execution
+bool CompactionJob::HasNewBlobFiles() {
+  for (const auto& state : compact_->sub_compact_states) {
+    if (state.Current().HasBlobFileAdditions()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Status CompactionJob::CollectSubcompactionErrors() {
   Status status;
   IOStatus io_s;
-  bool wrote_new_blob_files = false;
 
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
@@ -722,125 +737,131 @@ Status CompactionJob::Run() {
       io_s = state.io_status;
       break;
     }
-
-    if (state.Current().HasBlobFileAdditions()) {
-      wrote_new_blob_files = true;
-    }
   }
 
   if (io_status_.ok()) {
     io_status_ = io_s;
   }
-  if (status.ok()) {
-    constexpr IODebugContext* dbg = nullptr;
 
-    if (output_directory_) {
-      io_s = output_directory_->FsyncWithDirOptions(
-          IOOptions(), dbg,
-          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
-    }
+  return status;
+}
 
-    if (io_s.ok() && wrote_new_blob_files && blob_output_directory_ &&
-        blob_output_directory_ != output_directory_) {
-      io_s = blob_output_directory_->FsyncWithDirOptions(
-          IOOptions(), dbg,
-          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
-    }
+Status CompactionJob::SyncOutputDirectories() {
+  Status status;
+  IOStatus io_s;
+  constexpr IODebugContext* dbg = nullptr;
+  const bool wrote_new_blob_files = HasNewBlobFiles();
+  if (output_directory_) {
+    io_s = output_directory_->FsyncWithDirOptions(
+        IOOptions(), dbg,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
   }
+
+  if (io_s.ok() && wrote_new_blob_files && blob_output_directory_ &&
+      blob_output_directory_ != output_directory_) {
+    io_s = blob_output_directory_->FsyncWithDirOptions(
+        IOOptions(), dbg,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
+  }
+
   if (io_status_.ok()) {
     io_status_ = io_s;
   }
   if (status.ok()) {
     status = io_s;
   }
-  if (status.ok()) {
-    thread_pool.clear();
-    std::vector<const CompactionOutputs::Output*> files_output;
-    for (const auto& state : compact_->sub_compact_states) {
-      for (const auto& output : state.GetOutputs()) {
-        files_output.emplace_back(&output);
-      }
+
+  return status;
+}
+
+Status CompactionJob::VerifyOutputFiles() {
+  Status status;
+  std::vector<port::Thread> thread_pool;
+  std::vector<const CompactionOutputs::Output*> files_output;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.GetOutputs()) {
+      files_output.emplace_back(&output);
     }
-    ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-    std::atomic<size_t> next_file_idx(0);
-    auto verify_table = [&](Status& output_status) {
-      while (true) {
-        size_t file_idx = next_file_idx.fetch_add(1);
-        if (file_idx >= files_output.size()) {
-          break;
-        }
-        // Verify that the table is usable
-        // We set for_compaction to false and don't
-        // OptimizeForCompactionTableRead here because this is a special case
-        // after we finish the table building No matter whether
-        // use_direct_io_for_flush_and_compaction is true, we will regard this
-        // verification as user reads since the goal is to cache it here for
-        // further user reads
-        ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
-        verify_table_read_options.rate_limiter_priority =
-            GetRateLimiterPriority();
-        InternalIterator* iter = cfd->table_cache()->NewIterator(
-            verify_table_read_options, file_options_,
-            cfd->internal_comparator(), files_output[file_idx]->meta,
-            /*range_del_agg=*/nullptr,
-            compact_->compaction->mutable_cf_options(),
-            /*table_reader_ptr=*/nullptr,
-            cfd->internal_stats()->GetFileReadHist(
-                compact_->compaction->output_level()),
-            TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
-            /*skip_filters=*/false, compact_->compaction->output_level(),
-            MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
-            /*smallest_compaction_key=*/nullptr,
-            /*largest_compaction_key=*/nullptr,
-            /*allow_unprepared_value=*/false);
-        auto s = iter->status();
+  }
+  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  std::atomic<size_t> next_file_idx(0);
+  auto verify_table = [&](Status& output_status) {
+    while (true) {
+      size_t file_idx = next_file_idx.fetch_add(1);
+      if (file_idx >= files_output.size()) {
+        break;
+      }
+      // Verify that the table is usable
+      // We set for_compaction to false and don't
+      // OptimizeForCompactionTableRead here because this is a special case
+      // after we finish the table building No matter whether
+      // use_direct_io_for_flush_and_compaction is true, we will regard this
+      // verification as user reads since the goal is to cache it here for
+      // further user reads
+      ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
+      verify_table_read_options.rate_limiter_priority =
+          GetRateLimiterPriority();
+      InternalIterator* iter = cfd->table_cache()->NewIterator(
+          verify_table_read_options, file_options_, cfd->internal_comparator(),
+          files_output[file_idx]->meta,
+          /*range_del_agg=*/nullptr, compact_->compaction->mutable_cf_options(),
+          /*table_reader_ptr=*/nullptr,
+          cfd->internal_stats()->GetFileReadHist(
+              compact_->compaction->output_level()),
+          TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
+          /*skip_filters=*/false, compact_->compaction->output_level(),
+          MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
+          /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key=*/nullptr,
+          /*allow_unprepared_value=*/false);
+      auto s = iter->status();
 
-        if (s.ok() && paranoid_file_checks_) {
-          OutputValidator validator(cfd->internal_comparator(),
-                                    /*_enable_hash=*/true);
-          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-            s = validator.Add(iter->key(), iter->value());
-            if (!s.ok()) {
-              break;
-            }
-          }
-          if (s.ok()) {
-            s = iter->status();
-          }
-          if (s.ok() &&
-              !validator.CompareValidator(files_output[file_idx]->validator)) {
-            s = Status::Corruption("Paranoid checksums do not match");
+      if (s.ok() && paranoid_file_checks_) {
+        OutputValidator validator(cfd->internal_comparator(),
+                                  /*_enable_hash=*/true);
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+          s = validator.Add(iter->key(), iter->value());
+          if (!s.ok()) {
+            break;
           }
         }
-
-        delete iter;
-
-        if (!s.ok()) {
-          output_status = s;
-          break;
+        if (s.ok()) {
+          s = iter->status();
+        }
+        if (s.ok() &&
+            !validator.CompareValidator(files_output[file_idx]->validator)) {
+          s = Status::Corruption("Paranoid checksums do not match");
         }
       }
-    };
-    for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
-      thread_pool.emplace_back(
-          verify_table, std::ref(compact_->sub_compact_states[i].status));
-    }
-    verify_table(compact_->sub_compact_states[0].status);
-    for (auto& thread : thread_pool) {
-      thread.join();
-    }
 
-    for (const auto& state : compact_->sub_compact_states) {
-      if (!state.status.ok()) {
-        status = state.status;
+      delete iter;
+
+      if (!s.ok()) {
+        output_status = s;
         break;
       }
     }
+  };
+  for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
+    thread_pool.emplace_back(verify_table,
+                             std::ref(compact_->sub_compact_states[i].status));
+  }
+  verify_table(compact_->sub_compact_states[0].status);
+  for (auto& thread : thread_pool) {
+    thread.join();
   }
 
-  ReleaseSubcompactionResources();
-  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources");
+  for (const auto& state : compact_->sub_compact_states) {
+    if (!state.status.ok()) {
+      status = state.status;
+      break;
+    }
+  }
 
+  return status;
+}
+
+void CompactionJob::SetOutputTableProperties() {
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.GetOutputs()) {
       auto fn =
@@ -850,7 +871,9 @@ Status CompactionJob::Run() {
                                                      output.table_properties);
     }
   }
+}
 
+void CompactionJob::AggregateSubcompactionStats() {
   // Before the compaction starts, is_remote_compaction was set to true if
   // compaction_service is set. We now know whether each sub_compaction was
   // done remotely or not. Reset is_remote_compaction back to false and allow
@@ -859,34 +882,98 @@ Status CompactionJob::Run() {
 
   // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
+}
 
-  uint64_t num_input_range_del = 0;
-  bool ok = BuildStatsFromInputTableProperties(&num_input_range_del);
-  // (Sub)compactions returned ok, do sanity check on the number of input
-  // keys.
-  if (status.ok() && ok) {
-    if (job_stats_->has_num_input_records) {
-      status = VerifyInputRecordCount(num_input_range_del);
+Status CompactionJob::VerifyCompactionRecordCounts(
+    bool stats_built_from_input_table_prop, uint64_t num_input_range_del) {
+  Status status;
+  if (stats_built_from_input_table_prop && job_stats_->has_num_input_records) {
+    status = VerifyInputRecordCount(num_input_range_del);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] Input record count verification failed: %s",
+          compact_->compaction->column_family_data()->GetName().c_str(),
+          job_context_->job_id, status.ToString().c_str());
+      return status;
     }
+  }
+
+  const auto& mutable_cf_options = compact_->compaction->mutable_cf_options();
+  if ((mutable_cf_options.table_factory->IsInstanceOf(
+           TableFactory::kBlockBasedTableName()) ||
+       mutable_cf_options.table_factory->IsInstanceOf(
+           TableFactory::kPlainTableName()))) {
+    status = VerifyOutputRecordCount();
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] Output record count verification failed: %s",
+          compact_->compaction->column_family_data()->GetName().c_str(),
+          job_context_->job_id, status.ToString().c_str());
+      return status;
+    }
+  }
+  return status;
+}
+
+void CompactionJob::FinalizeCompactionRun(
+    const Status& input_status, bool stats_built_from_input_table_prop,
+    uint64_t num_input_range_del) {
+  ReleaseSubcompactionResources();
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources");
+
+  if (stats_built_from_input_table_prop) {
     UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
   }
-  UpdateCompactionJobOutputStats(internal_stats_);
 
-  // Verify number of output records
-  // Only verify on table with format collects table properties
-  const auto& mutable_cf_options = compact_->compaction->mutable_cf_options();
-  if (status.ok() && (mutable_cf_options.table_factory->IsInstanceOf(
-                          TableFactory::kBlockBasedTableName()) ||
-                      mutable_cf_options.table_factory->IsInstanceOf(
-                          TableFactory::kPlainTableName()))) {
-    status = VerifyOutputRecordCount();
-  }
+  UpdateCompactionJobOutputStats(internal_stats_);
 
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
-  compact_->status = status;
-  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():EndStatusSet", &status);
+  compact_->status = input_status;
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():EndStatusSet",
+                           const_cast<Status*>(&input_status));
+}
+
+Status CompactionJob::Run() {
+  InitializeCompactionRun();
+
+  const uint64_t start_micros = db_options_.clock->NowMicros();
+
+  RunSubcompactions();
+
+  UpdateTimingStats(start_micros);
+
+  TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
+
+  Status status = CollectSubcompactionErrors();
+
+  if (status.ok()) {
+    status = SyncOutputDirectories();
+  }
+
+  if (status.ok()) {
+    status = VerifyOutputFiles();
+  }
+
+  SetOutputTableProperties();
+
+  AggregateSubcompactionStats();
+
+  uint64_t num_input_range_del = 0;
+  bool stats_built_from_input_table_prop =
+      BuildStatsFromInputTableProperties(&num_input_range_del);
+
+  if (status.ok()) {
+    status = VerifyCompactionRecordCounts(stats_built_from_input_table_prop,
+                                          num_input_range_del);
+  }
+
+  FinalizeCompactionRun(status, stats_built_from_input_table_prop,
+                        num_input_range_del);
+
   return status;
 }
 
