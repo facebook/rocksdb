@@ -7198,7 +7198,7 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  MultiScanOptions scan_options(BytewiseComparator());
+  MultiScanArgs scan_options(BytewiseComparator());
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
   std::unique_ptr<MultiScan> iter = db->NewMultiScan(ro, cfh, scan_options);
@@ -7227,7 +7227,7 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
 
@@ -7256,7 +7256,7 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(key_ranges[0]);
   scan_options.insert(key_ranges[2]);
   iter = db->NewMultiScan(ro, cfh, scan_options);
@@ -7815,7 +7815,7 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
-  MultiScanOptions scan_opts(BytewiseComparator());
+  MultiScanArgs scan_opts(BytewiseComparator());
 
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
@@ -7823,7 +7823,7 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts.GetScanOptions()[0].range.start.value());
+  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
     key_count++;
   }
@@ -7976,14 +7976,14 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
-  MultiScanOptions scan_opts;
+  MultiScanArgs scan_opts;
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
   scan_opts.insert(Slice("key20"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts.GetScanOptions()[0].range.start.value());
+  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
     key_count++;
   }

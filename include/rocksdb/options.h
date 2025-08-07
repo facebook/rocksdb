@@ -1787,28 +1787,28 @@ struct ScanOptions {
 // Container for multiple scan ranges that can be used with MultiScan.
 // This replaces std::vector<ScanOptions> with a more efficient implementation
 // that can merge overlapping ranges.
-class MultiScanOptions {
+class MultiScanArgs {
  public:
   // Constructor that takes a comparator
-  explicit MultiScanOptions(const Comparator* comparator = BytewiseComparator())
+  explicit MultiScanArgs(const Comparator* comparator = BytewiseComparator())
       : comp_(comparator) {}
 
   // Copy Constructor
-  MultiScanOptions(const MultiScanOptions& other) {
+  MultiScanArgs(const MultiScanArgs& other) {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
   }
-  MultiScanOptions(MultiScanOptions&& other) noexcept
+  MultiScanArgs(MultiScanArgs&& other) noexcept
       : comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
 
-  MultiScanOptions& operator=(const MultiScanOptions& other) {
+  MultiScanArgs& operator=(const MultiScanArgs& other) {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
     return *this;
   }
 
-  MultiScanOptions& operator=(MultiScanOptions&& other) noexcept {
+  MultiScanArgs& operator=(MultiScanArgs&& other) noexcept {
     if (this != &other) {
       comp_ = other.comp_;
       original_ranges_ = std::move(other.original_ranges_);
@@ -1845,9 +1845,9 @@ class MultiScanOptions {
 
   operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
   // Destructor
-  ~MultiScanOptions() {}
+  ~MultiScanArgs() {}
 
-  const std::vector<ScanOptions>& GetScanOptions() const {
+  const std::vector<ScanOptions>& GetScanRanges() const {
     return original_ranges_;
   }
 

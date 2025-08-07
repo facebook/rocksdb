@@ -1024,7 +1024,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Should coalesce into a single I/O
-  MultiScanOptions scan_options(BytewiseComparator());
+  MultiScanArgs scan_options(BytewiseComparator());
   scan_options.insert(ExtractUserKey(kv[0].first),
                       ExtractUserKey(kv[kEntriesPerBlock].first));
   scan_options.insert(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
@@ -1057,7 +1057,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // No IO coalesce, should do MultiRead with 2 read requests.
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(ExtractUserKey(kv[70 * kEntriesPerBlock].first),
                       ExtractUserKey(kv[75 * kEntriesPerBlock].first));
   scan_options.insert(ExtractUserKey(kv[90 * kEntriesPerBlock].first),
@@ -1090,7 +1090,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
   // reads from blocks 50-79 and 82-.. are co
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(ExtractUserKey(kv[50 * kEntriesPerBlock].first));
   read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
@@ -1111,7 +1111,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
                       ExtractUserKey(kv[20 * kEntriesPerBlock].first));
   scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
@@ -1138,7 +1138,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first));
   scan_options.insert(ExtractUserKey(kv[11 * kEntriesPerBlock].first));
   iter->Prepare(&scan_options);

@@ -4159,7 +4159,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  MultiScanOptions scan_options(BytewiseComparator());
+  MultiScanArgs scan_options(BytewiseComparator());
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
@@ -4190,7 +4190,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
 
@@ -4219,7 +4219,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(key_ranges[0]);
   scan_options.insert(key_ranges[2]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4261,7 +4261,7 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   std::vector<std::string> key_ranges(
       {"k03", "k10", "k25", "k50", "k75", "k90"});
   ReadOptions ro;
-  MultiScanOptions scan_options(BytewiseComparator());
+  MultiScanArgs scan_options(BytewiseComparator());
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2]);
   scan_options.insert(key_ranges[4], key_ranges[5]);
@@ -4275,12 +4275,12 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
       for (auto it : range) {
         ASSERT_GE(
             it.first.ToString().compare(
-                scan_options.GetScanOptions()[idx].range.start->ToString()),
+                scan_options.GetScanRanges()[idx].range.start->ToString()),
             0);
-        if (scan_options.GetScanOptions()[idx].range.limit) {
+        if (scan_options.GetScanRanges()[idx].range.limit) {
           ASSERT_LT(
               it.first.ToString().compare(
-                  scan_options.GetScanOptions()[idx].range.limit->ToString()),
+                  scan_options.GetScanRanges()[idx].range.limit->ToString()),
               0);
         }
         count++;
@@ -4298,7 +4298,7 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     abort();
   }
   iter.reset();
-  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(key_ranges[0]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
   scan_options.insert(key_ranges[4]);
@@ -4310,12 +4310,12 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
       for (auto it : range) {
         ASSERT_GE(
             it.first.ToString().compare(
-                scan_options.GetScanOptions()[idx].range.start->ToString()),
+                scan_options.GetScanRanges()[idx].range.start->ToString()),
             0);
-        if (scan_options.GetScanOptions()[idx].range.limit) {
+        if (scan_options.GetScanRanges()[idx].range.limit) {
           ASSERT_LT(
               it.first.ToString().compare(
-                  scan_options.GetScanOptions()[idx].range.limit->ToString()),
+                  scan_options.GetScanRanges()[idx].range.limit->ToString()),
               0);
         }
         count++;
@@ -4354,7 +4354,7 @@ TEST_F(DBMultiScanIteratorTest, RangeAcrossFiles) {
   ASSERT_EQ(2, NumTableFilesAtLevel(49));
   std::vector<std::string> key_ranges({Key(10), Key(90)});
   ReadOptions ro;
-  MultiScanOptions scan_options(BytewiseComparator());
+  MultiScanArgs scan_options(BytewiseComparator());
   scan_options.insert(key_ranges[0], key_ranges[1]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =

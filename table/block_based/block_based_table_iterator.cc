@@ -932,7 +932,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
 // end key. So these Seeks can cause iterator to fall back to normal
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
-void BlockBasedTableIterator::Prepare(const MultiScanOptions* multiscan_opts) {
+void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   index_iter_->Prepare(multiscan_opts);
 
   assert(!multi_scan_);
@@ -944,7 +944,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanOptions* multiscan_opts) {
     return;
   }
 
-  const std::vector<ScanOptions>* scan_opts = &multiscan_opts->GetScanOptions();
+  const std::vector<ScanOptions>* scan_opts = &multiscan_opts->GetScanRanges();
   const bool has_limit = scan_opts->front().range.limit.has_value();
   if (!has_limit && scan_opts->size() > 1) {
     // Abort: overlapping ranges
@@ -1203,7 +1203,7 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
                  multi_scan_->scan_opts
-                     ->GetScanOptions()[multi_scan_->next_scan_idx]
+                     ->GetScanRanges()[multi_scan_->next_scan_idx]
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key

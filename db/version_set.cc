@@ -95,7 +95,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-using ScanOptionsMap = std::unordered_map<size_t, MultiScanOptions>;
+using ScanOptionsMap = std::unordered_map<size_t, MultiScanArgs>;
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
@@ -1101,7 +1101,7 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
-  void Prepare(const MultiScanOptions* so) override {
+  void Prepare(const MultiScanArgs* so) override {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     if (so == nullptr) {
@@ -1111,7 +1111,7 @@ class LevelIterator final : public InternalIterator {
 
     file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
     for (size_t k = 0; k < scan_opts_->size(); k++) {
-      const ScanOptions& opt = scan_opts_->GetScanOptions().at(k);
+      const ScanOptions& opt = scan_opts_->GetScanRanges().at(k);
       auto start = opt.range.start;
       auto end = opt.range.limit;
 
@@ -1271,7 +1271,7 @@ class LevelIterator final : public InternalIterator {
   bool prefix_exhausted_ = false;
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
-  const MultiScanOptions* scan_opts_;
+  const MultiScanArgs* scan_opts_ = nullptr;
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
@@ -1541,7 +1541,7 @@ bool LevelIterator::SkipEmptyFileForward() {
       // specified by the scan opts
       if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
         const ScanOptions& opts =
-            file_to_scan_opts_->at(file_index_).GetScanOptions().front();
+            file_to_scan_opts_->at(file_index_).GetScanRanges().front();
         if (opts.range.start.has_value()) {
           InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
                              kValueTypeForSeek);
@@ -1600,7 +1600,7 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (iter && scan_opts_) {
     if (file_to_scan_opts_.get() &&
         file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      const MultiScanOptions& new_opts = file_to_scan_opts_->at(file_index_);
+      const MultiScanArgs& new_opts = file_to_scan_opts_->at(file_index_);
       file_iter_.Prepare(&new_opts);
     } else {
       file_iter_.Prepare(scan_opts_);
