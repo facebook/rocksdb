@@ -77,17 +77,46 @@ class IndexBuilder {
                               const BlockHandle& block_handle,
                               std::string* separator_scratch) = 0;
 
-  // Extensible
+  // An abstract (extensible) holder for passing data from PrepareIndexEntry to
+  // FinishIndexEntry (see below).
   struct PreparedIndexEntry {
     virtual ~PreparedIndexEntry() = default;
   };
-  // TODO: doc
+
+  // Parallel compression/construction alternative to AddIndexEntry, 1/3
+  //
+  // This function creates a holder for data that needs to be passed from
+  // PrepareIndexEntry to FinishIndexEntry, depending on the implementation
+  // of those. Few of these are created and reused, so construction/destruction
+  // performance is not critical.
   virtual std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() = 0;
-  // TODO: doc
+
+  // Parallel compression/construction alternative to AddIndexEntry, 2/3
+  //
+  // One thread calls this function for successive index entries to compute and
+  // record in `out` what is needed to build the index entry EXCEPT for the
+  // BlockHandle, which will only be known later. That thread is generally the
+  // same thread as calls every other function such as OnKeyAdded EXCEPT
+  // FinishIndexEntry (see below). This function should be considered "mostly
+  // stateless" but might modify state distinct from what is modified by
+  // FinishIndexEntry. Ideally synchronization within the IndexBuilder can be
+  // avoided.
+  //
+  // The passed-in PreparedIndexEntry object is likely reused so might be
+  // passed-in in any state.
   virtual void PrepareIndexEntry(const Slice& last_key_in_current_block,
                                  const Slice* first_key_in_next_block,
                                  PreparedIndexEntry* out) = 0;
-  // TODO: doc
+
+  // Parallel compression/construction alternative to AddIndexEntry, 3/3
+  //
+  // This function is called by a different thread than PrepareIndexEntry, but
+  // is called on entries in the same order as PrepareIndexEntry, passed in the
+  // PreparedIndexEntry objects populated by PrepareIndexEntry. This function
+  // finishes the same effect of AddIndexEntry but split across a few functions.
+  //
+  // External synchronization ensures Finish is only called after all the
+  // FinishIndexEntry calls have completed.
   virtual void FinishIndexEntry(const BlockHandle& block_handle,
                                 PreparedIndexEntry* entry) = 0;
 

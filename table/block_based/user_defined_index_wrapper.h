@@ -65,7 +65,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     (void)first_key_in_next_block;
     (void)out;
     assert(false);
-  };
+  }
   void FinishIndexEntry(const BlockHandle& block_handle,
                         PreparedIndexEntry* entry) override {
     (void)block_handle;

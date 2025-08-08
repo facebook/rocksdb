@@ -91,7 +91,7 @@ class BlockHandle {
 };
 
 struct EncodedBlockHandle {
-  EncodedBlockHandle(const BlockHandle& h) {
+  explicit EncodedBlockHandle(const BlockHandle& h) {
     auto end = h.EncodeTo(buffer.data());
     size = end - buffer.data();
   }
