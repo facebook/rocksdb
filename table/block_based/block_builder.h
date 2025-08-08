@@ -80,6 +80,8 @@ class BlockBuilder {
   // Return true iff no entries have been added since the last Reset()
   bool empty() const { return buffer_.empty(); }
 
+  std::string& MutableBuffer() { return buffer_; }
+
  private:
   inline void AddWithLastKeyImpl(const Slice& key, const Slice& value,
                                  const Slice& last_key,
