@@ -34,10 +34,9 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include <atomic>
-
 #include "memory/allocator.h"
 #include "port/port.h"
+#include "util/atomic.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -128,7 +127,7 @@ class SkipList {
 
   // Modified only by Insert().  Read racily by readers, but stale
   // values are ok.
-  std::atomic<int> max_height_;  // Height of the entire list
+  RelaxedAtomic<int> max_height_;  // Height of the entire list
 
   // Used for optimizing sequential insert patterns.  Tricky.  prev_[i] for
   // i up to max_height_ is the predecessor of prev_[0] and prev_height_
@@ -137,9 +136,7 @@ class SkipList {
   int32_t prev_height_;
   Node** prev_;
 
-  inline int GetMaxHeight() const {
-    return max_height_.load(std::memory_order_relaxed);
-  }
+  inline int GetMaxHeight() const { return max_height_.LoadRelaxed(); }
 
   Node* NewNode(const Key& key, int height);
   int RandomHeight();
@@ -179,35 +176,35 @@ struct SkipList<Key, Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return (next_[n].load(std::memory_order_acquire));
+    return (next_[n].Load());
   }
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    next_[n].store(x, std::memory_order_release);
+    next_[n].Store(x);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return next_[n].load(std::memory_order_relaxed);
+    return next_[n].LoadRelaxed();
   }
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    next_[n].store(x, std::memory_order_relaxed);
+    next_[n].StoreRelaxed(x);
   }
 
  private:
   // Array of length equal to the node height.  next_[0] is lowest level link.
-  std::atomic<Node*> next_[1];
+  AcqRelAtomic<Node*> next_[1];
 };
 
 template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
     const Key& key, int height) {
   char* mem = allocator_->AllocateAligned(
-      sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
+      sizeof(Node) + sizeof(AcqRelAtomic<Node*>) * (height - 1));
   return new (mem) Node(key);
 }
 
@@ -494,7 +491,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
     // the loop below.  In the former case the reader will
     // immediately drop to the next level since nullptr sorts after all
     // keys.  In the latter case the reader will use the new node.
-    max_height_.store(height, std::memory_order_relaxed);
+    max_height_.StoreRelaxed(height);
   }
 
   Node* x = NewNode(key, height);

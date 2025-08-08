@@ -44,8 +44,6 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include <algorithm>
-#include <atomic>
 #include <type_traits>
 
 #include "memory/allocator.h"
@@ -53,7 +51,7 @@
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
-#include "util/coding.h"
+#include "util/atomic.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -215,18 +213,17 @@ class InlineSkipList {
   Comparator const compare_;
   Node* const head_;
 
-  // Modified only by Insert().  Read racily by readers, but stale
-  // values are ok.
-  std::atomic<int> max_height_;  // Height of the entire list
+  // Maximum height of any node in the list (or in the process of being added).
+  //  Modified only by Insert().  Relaxed reads are always OK because starting
+  // from higher levels only helps efficiency, not correctness.
+  RelaxedAtomic<int> max_height_;
 
   // seq_splice_ is a Splice used for insertions in the non-concurrent
   // case.  It caches the prev and next found during the most recent
   // non-concurrent insertion.
   Splice* seq_splice_;
 
-  inline int GetMaxHeight() const {
-    return max_height_.load(std::memory_order_relaxed);
-  }
+  inline int GetMaxHeight() const { return max_height_.LoadRelaxed(); }
 
   int RandomHeight();
 
@@ -311,7 +308,7 @@ struct InlineSkipList<Comparator>::Node {
   // Stores the height of the node in the memory location normally used for
   // next_[0].  This is used for passing data from AllocateKey to Insert.
   void StashHeight(const int height) {
-    assert(sizeof(int) <= sizeof(next_[0]));
+    static_assert(sizeof(int) <= sizeof(next_[0]));
     memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
   }
 
@@ -332,30 +329,30 @@ struct InlineSkipList<Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return ((&next_[0] - n)->load(std::memory_order_acquire));
+    return ((&next_[0] - n)->Load());
   }
 
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    (&next_[0] - n)->store(x, std::memory_order_release);
+    (&next_[0] - n)->Store(x);
   }
 
   bool CASNext(int n, Node* expected, Node* x) {
     assert(n >= 0);
-    return (&next_[0] - n)->compare_exchange_strong(expected, x);
+    return (&next_[0] - n)->CasStrong(expected, x);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return (&next_[0] - n)->load(std::memory_order_relaxed);
+    return (&next_[0] - n)->LoadRelaxed();
   }
 
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    (&next_[0] - n)->store(x, std::memory_order_relaxed);
+    (&next_[0] - n)->StoreRelaxed(x);
   }
 
   // Insert node after prev on specific level.
@@ -369,7 +366,7 @@ struct InlineSkipList<Comparator>::Node {
  private:
   // next_[0] is the lowest level link (level 0).  Higher levels are
   // stored _earlier_, so level 1 is at next_[-1].
-  std::atomic<Node*> next_[1];
+  AcqRelAtomic<Node*> next_[1];
 };
 
 template <class Comparator>
@@ -789,7 +786,7 @@ char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
-  auto prefix = sizeof(std::atomic<Node*>) * (height - 1);
+  auto prefix = sizeof(AcqRelAtomic<Node*>) * (height - 1);
 
   // prefix is space for the height - 1 pointers that we store before
   // the Node instance (next_[-(height - 1) .. -1]).  Node starts at
@@ -923,9 +920,9 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
   int height = x->UnstashHeight();
   assert(height >= 1 && height <= kMaxHeight_);
 
-  int max_height = max_height_.load(std::memory_order_relaxed);
+  int max_height = max_height_.LoadRelaxed();
   while (height > max_height) {
-    if (max_height_.compare_exchange_weak(max_height, height)) {
+    if (max_height_.CasWeakRelaxed(max_height, height)) {
       // successfully updated it
       max_height = height;
       break;

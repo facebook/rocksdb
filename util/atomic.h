@@ -20,6 +20,12 @@ namespace ROCKSDB_NAMESPACE {
 // https://en.cppreference.com/w/cpp/atomic/memory_order
 // * It's easy to use nonsensical (UB) combinations like store with
 // std::memory_order_acquire.
+// * It is unlikely that anything in RocksDB will need std::memory_order_seq_cst
+// because sequential consistency for the user, potentially writing from
+// multiple threads, is provided by explicit versioning with sequence numbers.
+// If threads A & B update separate atomics, it's typically OK if threads C & D
+// see those updates in different orders.
+//
 // For such reasons, we provide wrappers below to make safe usage easier.
 
 // Wrapper around std::atomic to avoid certain bugs (see Background above).

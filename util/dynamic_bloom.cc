@@ -62,9 +62,9 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
     // Align on block_bytes boundary
     raw += block_bytes - block_offset;
   }
-  static_assert(sizeof(std::atomic<uint64_t>) == sizeof(uint64_t),
+  static_assert(sizeof(RelaxedAtomic<uint64_t>) == sizeof(uint64_t),
                 "Expecting zero-space-overhead atomic");
-  data_ = reinterpret_cast<std::atomic<uint64_t>*>(raw);
+  data_ = reinterpret_cast<RelaxedAtomic<uint64_t>*>(raw);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
