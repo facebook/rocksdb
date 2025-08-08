@@ -1894,6 +1894,19 @@ void BlockBasedTableBuilder::WriteIndexBlock(
                   rep_->table_options.format_version)) {
     meta_index_builder->Add(kIndexBlockName, *index_block_handle);
   }
+  // There might still be metablocks that we would have generated for
+  // user defined index which we must write out. Do that now.
+  for (const auto& item : index_blocks.meta_blocks) {
+    if (item.second.first == BlockType::kUserDefinedIndex) {
+      BlockHandle block_handle;
+      WriteMaybeCompressedBlock(item.second.second, kNoCompression,
+                                &block_handle, item.second.first);
+      if (!ok()) {
+        break;
+      }
+      meta_index_builder->Add(item.first, block_handle);
+    }
+  }
 }
 
 void BlockBasedTableBuilder::WritePropertiesBlock(
