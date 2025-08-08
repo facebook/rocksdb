@@ -279,6 +279,22 @@ class CompactionJob {
   // Release all reserved threads and update the compaction limits.
   void ReleaseSubcompactionResources();
 
+  void InitializeCompactionRun();
+  void RunSubcompactions();
+  void UpdateTimingStats(uint64_t start_micros);
+  void RemoveEmptyOutputs();
+  bool HasNewBlobFiles() const;
+  Status CollectSubcompactionErrors();
+  Status SyncOutputDirectories();
+  Status VerifyOutputFiles();
+  void SetOutputTableProperties();
+  void AggregateSubcompactionStats();
+  Status VerifyCompactionRecordCounts(bool stats_built_from_input_table_prop,
+                                      uint64_t num_input_range_del);
+  void FinalizeCompactionRun(const Status& status,
+                             bool stats_built_from_input_table_prop,
+                             uint64_t num_input_range_del);
+
   CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
 
