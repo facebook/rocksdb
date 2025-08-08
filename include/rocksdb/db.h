@@ -1119,7 +1119,7 @@ class DB {
   //  }
   virtual std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
-      const std::vector<ScanOptions>& /*scan_opts*/) {
+      const MultiScanArgs& /*scan_opts*/) {
     std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
     std::unique_ptr<MultiScan> ms_iter =
         std::make_unique<MultiScan>(std::move(iter));

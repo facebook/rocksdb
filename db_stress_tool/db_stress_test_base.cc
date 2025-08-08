@@ -1677,7 +1677,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
   std::vector<std::string> start_key_strs;
   std::vector<std::string> end_key_strs;
-  std::vector<ScanOptions> scan_opts;
+  MultiScanArgs scan_opts;
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
@@ -1688,7 +1688,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     assert(rand_keys[i] <= rand_keys[i + 1]);
     start_key_strs.emplace_back(Key(rand_keys[i]));
     end_key_strs.emplace_back(Key(rand_keys[i + 1]));
-    scan_opts.emplace_back(start_key_strs.back(), end_key_strs.back());
+    scan_opts.insert(Slice(start_key_strs.back()), Slice(end_key_strs.back()));
   }
 
   std::string op_logs;
@@ -1715,7 +1715,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     return true;
   };
 
-  for (const ScanOptions& scan_opt : scan_opts) {
+  for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
       op_logs = "(cleared...)\n";

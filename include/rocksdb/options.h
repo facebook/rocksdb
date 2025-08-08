@@ -1776,6 +1776,79 @@ struct ScanOptions {
       : range(_start, _upper_bound) {}
 };
 
+// Container for multiple scan ranges that can be used with MultiScan.
+// This replaces std::vector<ScanOptions> with a more efficient implementation
+// that can merge overlapping ranges.
+class MultiScanArgs {
+ public:
+  // Constructor that takes a comparator
+  explicit MultiScanArgs(const Comparator* comparator = BytewiseComparator())
+      : comp_(comparator) {}
+
+  // Copy Constructor
+  MultiScanArgs(const MultiScanArgs& other) {
+    comp_ = other.comp_;
+    original_ranges_ = other.original_ranges_;
+  }
+  MultiScanArgs(MultiScanArgs&& other) noexcept
+      : comp_(other.comp_),
+        original_ranges_(std::move(other.original_ranges_)) {}
+
+  MultiScanArgs& operator=(const MultiScanArgs& other) {
+    comp_ = other.comp_;
+    original_ranges_ = other.original_ranges_;
+    return *this;
+  }
+
+  MultiScanArgs& operator=(MultiScanArgs&& other) noexcept {
+    if (this != &other) {
+      comp_ = other.comp_;
+      original_ranges_ = std::move(other.original_ranges_);
+    }
+    return *this;
+  }
+
+  void insert(const Slice& s, const Slice& b) {
+    original_ranges_.emplace_back(s, b);
+  }
+
+  void insert(const Slice& s, const Slice& b,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s, b);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
+  void insert(const Slice& s) { original_ranges_.emplace_back(s); }
+
+  void insert(const Slice& s,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
+  size_t size() const { return original_ranges_.size(); }
+  bool empty() const { return original_ranges_.empty(); }
+
+  void reserve(size_t size) { original_ranges_.reserve(size); }
+
+  operator std::vector<ScanOptions>*() { return &original_ranges_; }
+
+  operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
+  // Destructor
+  ~MultiScanArgs() {}
+
+  const std::vector<ScanOptions>& GetScanRanges() const {
+    return original_ranges_;
+  }
+
+ private:
+  // The comparator used for ordering ranges
+  const Comparator* comp_;
+  std::vector<ScanOptions> original_ranges_;
+};
+
 // Options that control read operations
 struct ReadOptions {
   // *** BEGIN options relevant to point lookups as well as scans ***

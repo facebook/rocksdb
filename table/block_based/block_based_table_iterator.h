@@ -227,7 +227,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override;
+  void Prepare(const MultiScanArgs* scan_opts) override;
 
   FilePrefetchBuffer* prefetch_buffer() {
     return block_prefetcher_.prefetch_buffer();
@@ -375,7 +375,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // *** BEGIN MultiScan related states ***
   struct MultiScanState {
     // bool prepared_ = false;
-    const std::vector<ScanOptions>* scan_opts;
+    const MultiScanArgs* scan_opts;
     std::vector<CachableEntry<Block>> pinned_data_blocks;
 
     // Indicies into multiscan_pinned_data_blocks_ for data blocks that are
@@ -386,7 +386,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     size_t cur_data_block_idx;
 
     MultiScanState(
-        const std::vector<ScanOptions>* _scan_opts,
+        const MultiScanArgs* _scan_opts,
         std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
         std::vector<std::tuple<size_t, size_t>>&& _block_ranges_per_scan)
         : scan_opts(_scan_opts),

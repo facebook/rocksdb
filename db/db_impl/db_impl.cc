@@ -3835,7 +3835,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
     const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
-    const std::vector<ScanOptions>& scan_opts) {
+    const MultiScanArgs& scan_opts) {
   std::unique_ptr<MultiScan> ms_iter = std::make_unique<MultiScan>(
       _read_options, scan_opts, this, column_family);
   return ms_iter;
