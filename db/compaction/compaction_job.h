@@ -225,7 +225,7 @@ class CompactionJob {
  private:
   friend class CompactionJobTestBase;
 
-  // Collect the following stats from Input Table Properties
+  // Collect the following stats from input files and table properties
   // - num_input_files_in_non_output_levels
   // - num_input_files_in_output_level
   // - bytes_read_non_output_levels
@@ -242,8 +242,7 @@ class CompactionJob {
   // num_input_range_del are calculated successfully.
   //
   // This should be called only once for compactions (not per subcompaction)
-  bool BuildStatsFromInputTableProperties(
-      uint64_t* num_input_range_del = nullptr);
+  bool BuildStatsFromInputFiles(uint64_t* num_input_range_del = nullptr);
 
   void UpdateCompactionJobInputStats(
       const InternalStats::CompactionStatsFull& internal_stats,
