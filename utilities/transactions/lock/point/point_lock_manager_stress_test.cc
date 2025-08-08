@@ -59,50 +59,39 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   test_runner.run();
 }
 
+#define X_S_LOCK LockTypeToTest::EXCLUSIVE_AND_SHARED
+#define X_LOCK LockTypeToTest::EXCLUSIVE_ONLY
+#define S_LOCK LockTypeToTest::SHARED_ONLY
+
 INSTANTIATE_TEST_CASE_P(
     PointLockCorrectnessCheckTestSuite, PointLockCorrectnessCheckTest,
     ::testing::ValuesIn(std::vector<PointLockCorrectnessCheckTestParam>{
         // 2 second timeout and no expiration simulates myrocks default
         // configuration
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
-         true, 0},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
-         true, 0},
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, true,
-         0},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, true,
-         0},
-        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true, 0},
-        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true, 0},
+        {true, 64, 16, 8, 10, X_S_LOCK, 2000, -1, true, 0},
+        {false, 64, 16, 8, 10, X_S_LOCK, 2000, -1, true, 0},
+        {true, 64, 16, 8, 10, X_LOCK, 2000, -1, true, 0},
+        {false, 64, 16, 8, 10, X_LOCK, 2000, -1, true, 0},
+        {true, 64, 16, 8, 10, S_LOCK, 2000, -1, true, 0},
+        {false, 64, 16, 8, 10, S_LOCK, 2000, -1, true, 0},
         // short timeout and expiration to test lock stealing
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,
-         true, 10},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,
-         true, 10},
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 10, 10, true, 10},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 10, 10, true,
-         10},
-        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, 10},
-        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, 10},
+        {true, 64, 16, 8, 10, X_S_LOCK, 10, 10, true, 10},
+        {false, 64, 16, 8, 10, X_S_LOCK, 10, 10, true, 10},
+        {true, 64, 16, 8, 10, X_LOCK, 10, 10, true, 10},
+        {false, 64, 16, 8, 10, X_LOCK, 10, 10, true, 10},
+        {true, 64, 16, 8, 10, S_LOCK, 10, 10, true, 10},
+        {false, 64, 16, 8, 10, S_LOCK, 10, 10, true, 10},
         // long timeout and expiration to test deadlock detection without
         // timeout
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, 0},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
-        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, 0},
-        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, 0},
+        {true, 64, 16, 8, 10, X_S_LOCK, 100000, 100000, false, 0},
+        {false, 64, 16, 8, 10, X_S_LOCK, 100000, 100000, false, 0},
+        {true, 64, 16, 8, 10, X_LOCK, 100000, 100000, false, 0},
+        {false, 64, 16, 8, 10, X_LOCK, 100000, 100000, false, 0},
+        {true, 64, 16, 8, 10, S_LOCK, 100000, 100000, false, 0},
+        {false, 64, 16, 8, 10, S_LOCK, 100000, 100000, false, 0},
         // Low lock contention
-        {true, 16, 1024 * 1024, 2, 10, LockTypeToTest::SHARED_ONLY,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
-        {false, 16, 1024 * 1024, 2, 10, LockTypeToTest::SHARED_ONLY,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
+        {true, 16, 1024 * 1024, 2, 10, S_LOCK, 100000, 100000, false, 0},
+        {false, 16, 1024 * 1024, 2, 10, S_LOCK, 100000, 100000, false, 0},
     }));
 
 }  // namespace ROCKSDB_NAMESPACE

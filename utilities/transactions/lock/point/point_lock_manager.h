@@ -211,12 +211,6 @@ class PointLockManager : public LockManager {
                                     const std::string& key, Env* env,
                                     int64_t timeout, const LockInfo& lock_info);
 
-  virtual Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
-                               const std::string& key, Env* env,
-                               const LockInfo& lock_info, uint64_t* wait_time,
-                               autovector<TransactionID>* txn_ids,
-                               bool* isUpgrade = nullptr, bool fifo = false);
-
   virtual void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                          LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
@@ -230,6 +224,12 @@ class PointLockManager : public LockManager {
                         const autovector<TransactionID>& wait_ids);
   void DecrementWaitersImpl(const PessimisticTransaction* txn,
                             const autovector<TransactionID>& wait_ids);
+
+ private:
+  Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
+                       const std::string& key, Env* env,
+                       const LockInfo& lock_info, uint64_t* wait_time,
+                       autovector<TransactionID>* txn_ids);
 };
 
 class PerKeyPointLockManager : public PointLockManager {
@@ -252,20 +252,21 @@ class PerKeyPointLockManager : public PointLockManager {
   void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
               const Endpoint& start, const Endpoint& end, Env* env) override;
 
+  void UnLockKey(PessimisticTransaction* txn, const std::string& key,
+                 LockMapStripe* stripe, LockMap* lock_map, Env* env) override;
+
  protected:
   Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info) override;
 
+ private:
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
                        const LockInfo& lock_info, uint64_t* wait_time,
                        autovector<TransactionID>* txn_ids, bool* isUpgrade,
-                       bool fifo) override;
-
-  void UnLockKey(PessimisticTransaction* txn, const std::string& key,
-                 LockMapStripe* stripe, LockMap* lock_map, Env* env) override;
+                       bool fifo);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

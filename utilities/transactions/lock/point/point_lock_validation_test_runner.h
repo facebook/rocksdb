@@ -22,6 +22,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+constexpr bool kDebugLog = true;
+
 // Since this code is executed both with and without gtest, it supports assert
 // with different ways.
 #ifdef ASSERT_TRUE
@@ -40,14 +42,11 @@ namespace ROCKSDB_NAMESPACE {
   ASSERT_TRUE_WITH_MSG(s.ok(), "Failed with " + s.ToString());
 #endif
 
-#define ASSERT_TRUE_WITH_INFO(X)                                         \
-  ASSERT_TRUE_WITH_MSG((X), "Thd " + std::to_string(thd_idx) + " Txn " + \
-                                std::to_string(txn_id) + " key " +       \
-                                std::to_string(key))
+#define ASSERT_TRUE_WITH_INFO(X) \
+  ASSERT_TRUE_WITH_MSG(          \
+      (X), " Txn " + std::to_string(txn_id) + " key " + std::to_string(key))
 
 #define ASSERT_EQ_WITH_INFO(X, Y) ASSERT_TRUE_WITH_INFO((X) == (Y))
-
-constexpr bool kDebugLog = false;
 
 #define DEBUG_LOG(...)            \
   if (kDebugLog) {                \
@@ -55,9 +54,8 @@ constexpr bool kDebugLog = false;
     fflush(stderr);               \
   }
 
-#define DEBUG_LOG_WITH_PREFIX(format, ...)                               \
-  DEBUG_LOG("Thd %" PRIu32 "  Txn %" PRIu64 " " format, thd_idx, txn_id, \
-            ##__VA_ARGS__);
+#define DEBUG_LOG_WITH_PREFIX(format, ...) \
+  DEBUG_LOG("Txn %" PRIu64 " " format, txn_id, ##__VA_ARGS__);
 
 enum class LockTypeToTest : int8_t {
   EXCLUSIVE_ONLY = 0,
@@ -107,6 +105,11 @@ class PointLockValidationTestRunner {
     for (size_t i = 0; i < key_count_; i++) {
       counters_.emplace_back(std::make_unique<std::atomic_int>(0));
       shared_lock_count_.emplace_back(std::make_unique<std::atomic_int>(0));
+    }
+
+    for (size_t i = 0; i < thread_count_; i++) {
+      num_of_locks_acquired_per_thread_.emplace_back(
+          std::make_unique<std::atomic_int64_t>(0));
     }
   }
 
@@ -183,9 +186,8 @@ class PointLockValidationTestRunner {
         auto txn = static_cast<PessimisticTransaction*>(
             db_->BeginTransaction(WriteOptions(), txn_opt_));
         auto txn_id = txn->GetID();
+        DEBUG_LOG_WITH_PREFIX("Thd %" PRIu32 " new txn\n", thd_idx);
         while (!shutdown_) {
-          DEBUG_LOG("Thd %" PRIu32 " Txn %" PRIu64 "new txn\n", thd_idx,
-                    txn_id);
           std::unordered_map<uint32_t, KeyStatus> locked_key_status;
           auto num_key_to_lock = max_num_keys_to_lock_per_txn_;
           Status s;
@@ -253,6 +255,7 @@ class PointLockValidationTestRunner {
                 num_of_shared_locks_acquired_++;
               }
               num_of_locks_acquired_++;
+              (*num_of_locks_acquired_per_thread_[thd_idx])++;
 
               if (enable_lock_status_validation_) {
                 if (exclusive_lock_type) {
@@ -345,6 +348,8 @@ class PointLockValidationTestRunner {
     // run test for a few seconds
     // print progress
     auto prev_num_of_locks_acquired = num_of_locks_acquired_.load();
+    std::vector<int64_t> prev_num_of_locks_acquired_per_thread(thread_count_,
+                                                               0);
     int64_t measured_locks_acquired = 0;
     for (uint32_t i = 0; i < execution_time_sec_; i++) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -358,6 +363,19 @@ class PointLockValidationTestRunner {
                 num_of_deadlock_detected_.load());
       ASSERT_TRUE_WITH_MSG(num_of_locks_acquired > prev_num_of_locks_acquired,
                            "No locks were acquired in the last 1 second");
+      for (uint32_t thd_idx = 0; thd_idx < thread_count_; thd_idx++) {
+        auto num_of_locks_acquired_per_thread =
+            num_of_locks_acquired_per_thread_[thd_idx]->load();
+        DEBUG_LOG("thread: %" PRIu32 " acquired %" PRId64 " locks\n", thd_idx,
+                  num_of_locks_acquired_per_thread);
+        ASSERT_TRUE_WITH_MSG(
+            num_of_locks_acquired_per_thread >
+                prev_num_of_locks_acquired_per_thread[thd_idx],
+            "No locks were acquired in the last 1 second on thread " +
+                std::to_string(thd_idx));
+        prev_num_of_locks_acquired_per_thread[thd_idx] =
+            num_of_locks_acquired_per_thread;
+      }
       prev_num_of_locks_acquired = num_of_locks_acquired;
       if (i == 0) {
         measured_locks_acquired = num_of_locks_acquired;
@@ -432,6 +450,8 @@ class PointLockValidationTestRunner {
   std::atomic_int64_t num_of_shared_locks_acquired_ = 0;
   std::atomic_int64_t num_of_exclusive_locks_acquired_ = 0;
   std::atomic_int64_t num_of_deadlock_detected_ = 0;
+  std::vector<std::unique_ptr<std::atomic_int64_t>>
+      num_of_locks_acquired_per_thread_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

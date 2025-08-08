@@ -20,6 +20,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+constexpr auto kDebugLog = true;
+
 // KeyLockWaiter represents a waiter for a key lock. It contains a conditional
 // variable to allow waiter to wait for the key lock. It also contains other
 // metadata about the waiter such as transaction id, lock type etc.
@@ -43,6 +45,10 @@ struct KeyLockWaiter {
     exclusive = e;
     ready = false;
   }
+
+  // Check whether the waiter has been notified that it is its turn to take the
+  // lock
+  bool IsReady() const { return ready; }
 
   // Wait until its turn to take the lock forever
   Status Wait(std::shared_ptr<TransactionDBMutex>& mutex) {
@@ -115,6 +121,92 @@ struct LockInfo {
   std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;
 };
 
+// Key lock waiter context, used for free the lock automatically
+struct KeyLockWaiterContext {
+  std::list<KeyLockWaiter*>* waiter_queue = nullptr;
+  LockInfo* lock_info = nullptr;
+  std::list<KeyLockWaiter*>::iterator lock_waiter;
+
+  // When a lock waiter is aborted due to dead lock or time out, it should wake
+  // up the waiters after it, if they could proceed.
+  // The reason we need this function is because we added a deadlock timeout.
+  // The deadlock detection is expensive to perform, therefore, when transaction
+  // wait for its lock, it first wait for a short period of time before perform
+  // dead lock detection. Therefore, it is possible that deadlock detection is
+  // delayed. When this happens, it needs to wake up the rest of the locks
+  // waiting in the queue. E.g.
+  // Initially, Txn 1 hold the Shared lock on key A. Txn 2 hold the Shared lock
+  // on key B. Txn 2 try to take Exclusive lock on key A. Txn 2 depends on Txn
+  // 1.
+  // Schedule:
+  // Step 1: Txn 1 try to take Exclusive lock. It didn't perform dead lock
+  //    detection when it initially try to wait the lock.
+  // Step 2: Txn 3 try to take Shared lock on key B. It found Txn 1 is waiting
+  //    in the queue, so it waits in the queue after Txn 1.
+  // Step 3: Txn 1 wait timeout, then check dead lock detection. It found there
+  //    is a dead lock with Txn 2. It aborts the transaction, and removed its
+  //    lock waiter on key B. Now, the lock wait queue only contains shared lock
+  //    request from Txn 3. Txn 3 will only try to take the lock until its wait
+  //    timed out. To wake up Txn 3 early, when Txn 2 remove its lock waiter, it
+  //    call this function to wake up Txn 3.
+  //
+  // Note that, the same situation could happen due to lock timeout on Txn 2 as
+  // well.
+  void TryWakeUpNextWaiters(const std::string& key) {
+    if (waiter_queue != nullptr && lock_waiter != waiter_queue->end()) {
+      bool wake_up_next = false;
+
+      if (lock_waiter == waiter_queue->begin()) {
+        // if lock waiter is at the head of the queue, check the current lock
+        // status. If it is exclusive lock, no waiter should be woken up. other
+        // wise, wake up shared lock waiters on the right side of itself.
+        wake_up_next = !lock_info->exclusive;
+      } else {
+        // if lock waiter is not at the head of the queue, check the previous
+        // lock status. If it is active and shared, it should wake up the shared
+        // lock waiter on the right side of itself.
+        auto lock_waiter_prev = lock_waiter;
+        lock_waiter_prev--;
+        wake_up_next =
+            (*lock_waiter_prev)->IsReady() && !(*lock_waiter_prev)->exclusive;
+      }
+
+      if (wake_up_next) {
+        // If it should wake up next waiters, it should only be shared lock
+        // waiters. Go through all the waiters on the right side of the lock
+        // waiter and wake up the shared lock waiter until the end of the queue
+        // or encountered an exclusive lock waiter
+        auto lock_waiter_next = lock_waiter;
+        lock_waiter_next++;
+        while (lock_waiter_next != waiter_queue->end() &&
+               !(*lock_waiter_next)->exclusive) {
+          if (kDebugLog) {
+            fprintf(stderr,
+                    "Txn %" PRIu64
+                    ": wake up next waiter on lock abort Txn %" PRIu64
+                    " on key %s\n",
+                    (*lock_waiter)->id, (*lock_waiter_next)->id, key.c_str());
+            fflush(stderr);
+          }
+
+          (*lock_waiter_next)->Notify();
+          lock_waiter_next++;
+        }
+      }
+    }
+  }
+
+  void Reset() {
+    if (waiter_queue != nullptr && lock_waiter != waiter_queue->end()) {
+      waiter_queue->erase(lock_waiter);
+    }
+    lock_info = nullptr;
+    waiter_queue = nullptr;
+  }
+
+  ~KeyLockWaiterContext() { Reset(); }
+};
+
 struct LockMapStripe {
   explicit LockMapStripe(std::shared_ptr<TransactionDBMutexFactory> factory,
                          ThreadLocalPtr& key_lock_waiter)
@@ -129,10 +221,11 @@ struct LockMapStripe {
   // Wait until its turn to take the lock of this key within timeout_us.
   // By default timeout_us == 0, which means wait forever
   Status WaitOnKey(const std::string& key, TransactionID id, bool exclusive,
-                   bool isUpgrade,
-                   std::list<KeyLockWaiter*>::iterator& lock_waiter,
-                   std::list<KeyLockWaiter*>** waiter_queue,
+                   bool isUpgrade, KeyLockWaiterContext& waiter_context,
                    int64_t timeout_us = 0) {
+    // reset waiter context
+    waiter_context.Reset();
+
     // find lock info for key
     auto lock_info_iter = keys.find(key);
 
@@ -140,15 +233,17 @@ struct LockMapStripe {
     // lock on it.
     assert(lock_info_iter != keys.end());
 
-    if (lock_info_iter->second.waiter_queue == nullptr) {
+    auto& lock_info = lock_info_iter->second;
+    waiter_context.lock_info = &lock_info;
+    if (lock_info.waiter_queue == nullptr) {
       // no waiter queue yet, create a new one
-      lock_info_iter->second.waiter_queue =
-          std::make_unique<std::list<KeyLockWaiter*>>();
+      lock_info.waiter_queue = std::make_unique<std::list<KeyLockWaiter*>>();
     }
 
     // the unique_ptr might get moved, when the container moves elements around,
     // but the pointer unique_ptr held is stable.
-    *waiter_queue = lock_info_iter->second.waiter_queue.get();
+    auto waiter_queue = lock_info.waiter_queue.get();
+    waiter_context.waiter_queue = waiter_queue;
 
     if (isUpgrade) {
       // If transaction is upgrading a shared lock to exclusive lock, prioritize
@@ -157,28 +252,54 @@ struct LockMapStripe {
       // not exist. It will be able to acquire the lock after the shared
       // locks waiters at the front of queue acquired locks. This reduces the
       // chance of deadlock, which makes transaction run more efficiently
-      auto it = (*waiter_queue)->begin();
+      auto it = waiter_queue->begin();
       while (true) {
-        if (it == (*waiter_queue)->end() || (*it)->exclusive) {
+        if (it == waiter_queue->end() || !(*it)->IsReady()) {
           // insert waiter either at the end of the queue or before the first
           // exlusive lock waiter.
-          lock_waiter =
-              (*waiter_queue)->insert(it, GetKeyLockWaiter(id, exclusive));
+          waiter_context.lock_waiter =
+              waiter_queue->insert(it, GetKeyLockWaiter(id, exclusive));
           break;
         }
+        assert(!(*it)->exclusive);
         it++;
       }
     } else {
       // Otherwise, follow FIFO.
-      (*waiter_queue)->emplace_back(GetKeyLockWaiter(id, exclusive));
-      lock_waiter = --(*waiter_queue)->end();
+      waiter_queue->emplace_back(GetKeyLockWaiter(id, exclusive));
+      waiter_context.lock_waiter = --waiter_queue->end();
+    }
+
+    if (kDebugLog) {
+      char msg[512];
+      size_t offset = 0;
+
+      // print lock holders
+      offset +=
+          snprintf(msg + offset, sizeof(msg),
+                   "Txn %lu: LockStatus key %s: holder [", id, key.c_str());
+      for (const auto& txn_id : lock_info.txn_ids) {
+        offset += snprintf(msg + offset, sizeof(msg), "%s%lu,",
+                           lock_info.exclusive ? "X" : "S", txn_id);
+      }
+
+      // print waiter queue
+      offset += snprintf(msg + offset, sizeof(msg), "], waiter_queue [");
+      for (auto it = waiter_queue->begin(); it != waiter_queue->end(); it++) {
+        offset += snprintf(msg + offset, sizeof(msg), "%s%lu,",
+                           (*it)->exclusive ? "X" : "S", (*it)->id);
+      }
+
+      offset += snprintf(msg + offset, sizeof(msg), "]\n");
+      fprintf(stderr, "%s", msg);
+      fflush(stderr);
     }
 
     Status ret;
     if (timeout_us == 0) {
-      ret = (*lock_waiter)->Wait(stripe_mutex);
+      ret = (*waiter_context.lock_waiter)->Wait(stripe_mutex);
     } else {
-      ret = (*lock_waiter)->WaitFor(stripe_mutex, timeout_us);
+      ret = (*waiter_context.lock_waiter)->WaitFor(stripe_mutex, timeout_us);
     }
 
 #ifndef NDEBUG
@@ -190,11 +311,11 @@ struct LockMapStripe {
     assert(lock_status.ok());
 #endif
 
-    // waiter_queue->erase(lock_waiter);
-
     return ret;
   }
 
+  // Wait on an existing KeyLockWaiter until its turn to take the lock or
+  // timeout
   Status WaitOnLock(std::list<KeyLockWaiter*>::iterator& lock_waiter,
                     int64_t timeout_us = 0) {
     Status ret;
@@ -204,11 +325,6 @@ struct LockMapStripe {
       ret = (*lock_waiter)->WaitFor(stripe_mutex, timeout_us);
     }
     return ret;
-  }
-
-  void DestroyLock(std::list<KeyLockWaiter*>::iterator& lock_waiter,
-                   std::list<KeyLockWaiter*>* waiter_queue) {
-    waiter_queue->erase(lock_waiter);
   }
 
   // Mutex must be held before modifying keys map
@@ -226,17 +342,17 @@ struct LockMapStripe {
   ThreadLocalPtr& key_lock_waiter_;
 
   KeyLockWaiter* GetKeyLockWaiter(TransactionID id, bool exclusive) {
-    KeyLockWaiter* ret = nullptr;
+    KeyLockWaiter* waiter = nullptr;
     if (key_lock_waiter_.Get() == nullptr) {
       // create key lock waiter
       key_lock_waiter_.Reset(
           new KeyLockWaiter(mutex_factory_->AllocateCondVar(), id, exclusive));
-      ret = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
+      waiter = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
     } else {
-      ret = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
-      ret->Reset(id, exclusive);
+      waiter = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
+      waiter->Reset(id, exclusive);
     }
-    return ret;
+    return waiter;
   }
 };
 
@@ -566,8 +682,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                                        const std::string& key, Env* env,
                                        const LockInfo& txn_lock_info,
                                        uint64_t* expire_time,
-                                       autovector<TransactionID>* txn_ids,
-                                       bool* /*isUpgrade*/, bool /*fifo*/) {
+                                       autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
   assert(txn_ids && txn_ids->empty());
 
@@ -962,22 +1077,24 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
     return result;
   }
 
-  std::list<KeyLockWaiter*>::iterator lock_waiter;
-  std::list<KeyLockWaiter*>* waiter_queue = nullptr;
-
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
   autovector<TransactionID> wait_ids;
   bool isUpgrade = false;
   result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                          &expire_time_hint, nullptr, &isUpgrade, true);
-  if (!result.ok() && timeout != 0) {
+  if (!result.ok() && timeout != 0 &&
+      /* No need to retry after reach lock limit*/
+      !result.IsLockLimit()) {
     PERF_TIMER_GUARD(key_lock_wait_time);
     PERF_COUNTER_ADD(key_lock_wait_count, 1);
     // If we weren't able to acquire the lock, we will keep retrying as long
     // as the timeout allows.
     bool timed_out = false;
     bool cv_wait_fail = false;
+
+    KeyLockWaiterContext key_lock_waiter_ctx;
+
     do {
       // Decide how long to wait
       int64_t cv_end_time = -1;
@@ -990,27 +1107,36 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       }
 
       {
-        if (waiter_queue != nullptr) {
-          stripe->DestroyLock(lock_waiter, waiter_queue);
-        }
-        // We will try to wait a little bit before checking deadlock, as
-        // deadlock check is expensive.
-        result = stripe->WaitOnKey(
-            key, lock_info.txn_ids[0], lock_info.exclusive, false, lock_waiter,
-            &waiter_queue,
-            // TODO parameterize the wait time as deadlock_timeout
-            10000);
-        if (!result.ok() && !result.IsTimedOut()) {
-          // unexpected error
+        int64_t now = env->NowMicros();
+        if (cv_end_time < 0 || cv_end_time > now) {
+          // We will try to wait a little bit before checking deadlock, as
+          // deadlock check is expensive.
+          if (kDebugLog) {
+            fprintf(stderr,
+                    "Txn %ld wait before deadlock detection %s, exclusive lock "
+                    "%d\n",
+                    lock_info.txn_ids[0], key.c_str(), lock_info.exclusive);
+            fflush(stderr);
+          }
+          result = stripe->WaitOnKey(
+              key, lock_info.txn_ids[0], lock_info.exclusive, false,
+              key_lock_waiter_ctx,
+              // TODO parameterize the wait time as deadlock_timeout
+              std::min(cv_end_time - now, (int64_t)100));
+          if (!result.ok() && !result.IsTimedOut()) {
+            // unexpected error
+            break;
+          }
+        } else {
+          // now >= cv_end_time, we already timed out
+          result = Status::TimedOut(Status::SubCode::kLockTimeout);
           break;
         }
+
         // try to take a lock again
-        wait_ids.clear();
-        // The problem is that the lock is added to the queue, so the function
-        // would treat it as another waiter waiting for it. We need a flag to
-        // pass down the function to skip it
         result = AcquireLocked(lock_map, stripe, key, env, lock_info,
-                               &expire_time_hint, &wait_ids, &isUpgrade, true);
+                               &expire_time_hint, &wait_ids, &isUpgrade,
+                               !result.ok());
         if (result.ok()) {
           break;
         }
@@ -1032,18 +1158,60 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       }
 
       TEST_SYNC_POINT("PointLockManager::AcquireWithTimeout:WaitingTxn");
+
       if (cv_end_time < 0) {
         // Wait indefinitely
-        result = stripe->WaitOnLock(lock_waiter);
+        if (isUpgrade) {
+          // When lock is updated, move the lock waiter after the to the head of
+          // the queue, or first after all the ready lock waiters. If it is
+          // already at the head of the queue or the first after all the ready
+          // lock waiters, no need to move it, just wait on it.
+          result =
+              stripe->WaitOnKey(key, lock_info.txn_ids[0], lock_info.exclusive,
+                                isUpgrade, key_lock_waiter_ctx);
+        } else {
+          result = stripe->WaitOnLock(key_lock_waiter_ctx.lock_waiter);
+        }
         cv_wait_fail = !result.ok();
       } else {
         // FIXME: in this case, cv_end_time could be `expire_time_hint` from the
         // current lock holder, a time out does not mean we reached the current
         // transaction's timeout, and we should continue to retry locking
         // instead of exiting this while loop below.
-        uint64_t now = env->NowMicros();
-        if (static_cast<uint64_t>(cv_end_time) > now) {
-          result = stripe->WaitOnLock(lock_waiter, cv_end_time - now);
+        int64_t now = env->NowMicros();
+        if (cv_end_time > now) {
+          if (kDebugLog) {
+            // print transaction lock status and wait ids
+            char msg[512];
+            size_t offset = 0;
+            offset += snprintf(
+                msg + offset, sizeof(msg),
+                "Txn %ld wait after deadlock detection %s, exclusive lock "
+                "%d, upgrade %d, wait_ids [",
+                lock_info.txn_ids[0], key.c_str(), lock_info.exclusive,
+                isUpgrade);
+
+            for (auto it = wait_ids.begin(); it != wait_ids.end(); it++) {
+              offset += snprintf(msg + offset, sizeof(msg), "%lu,", *it);
+            }
+
+            offset += snprintf(msg + offset, sizeof(msg), "]\n");
+
+            fprintf(stderr, "%s", msg);
+            fflush(stderr);
+          }
+          if (isUpgrade) {
+            // When lock is updated, move the lock waiter to the head of the
+            // queue.
+            result = stripe->WaitOnKey(
+                key, lock_info.txn_ids[0], lock_info.exclusive, isUpgrade,
+                key_lock_waiter_ctx,
+                // TODO parameterize the wait time as deadlock_timeout
+                cv_end_time - now);
+          } else {
+            result = stripe->WaitOnLock(key_lock_waiter_ctx.lock_waiter,
+                                        cv_end_time - now);
+          }
           cv_wait_fail = !result.ok() && !result.IsTimedOut();
         } else {
           // now >= cv_end_time, we already timed out
@@ -1068,7 +1236,6 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         // were never signaled).
       }
       assert(result.ok() || result.IsTimedOut());
-      wait_ids.clear();
       // Wait timeout could be due to its own lock wait timeout or previous lock
       // holder timeout.  Combined with lock upgrade prioritization, the
       // situation could be quite complicated. In this case, FIFO order is not
@@ -1097,10 +1264,12 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                              &expire_time_hint, &wait_ids, &isUpgrade, false);
     } while (!result.ok() && !timed_out);
-  }
 
-  if (waiter_queue != nullptr) {
-    stripe->DestroyLock(lock_waiter, waiter_queue);
+    // For any reason that the transaction failed to acquire the lock, it should
+    // try to wake up next waiters, if they are ready to proceed.
+    if (!result.ok()) {
+      key_lock_waiter_ctx.TryWakeUpNextWaiters(key);
+    }
   }
 
   stripe->stripe_mutex->UnLock();
@@ -1122,13 +1291,20 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
 //
 // fifo flag indicates whether it should follow fifo order to check whether
 // there is already a waiter waiting for the lock or not.
+//
+// If wait_ids is not nullptr, it will fill the wait_ids with the lock holder
 Status PerKeyPointLockManager::AcquireLocked(
     LockMap* lock_map, LockMapStripe* stripe, const std::string& key, Env* env,
     const LockInfo& txn_lock_info, uint64_t* expire_time,
     autovector<TransactionID>* wait_ids, bool* isUpgrade, bool fifo) {
   assert(txn_lock_info.txn_ids.size() == 1);
 
+  if (wait_ids != nullptr) {
+    wait_ids->clear();
+  }
+
   *isUpgrade = false;
+  auto my_txn_id = txn_lock_info.txn_ids[0];
 
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter == stripe->keys.end()) {
@@ -1140,9 +1316,9 @@ Status PerKeyPointLockManager::AcquireLocked(
     } else {
       // acquire lock
       // create a new entry, if not exist
-      stripe->keys.emplace(
-          key, LockInfo(txn_lock_info.txn_ids[0], txn_lock_info.expiration_time,
-                        txn_lock_info.exclusive));
+      stripe->keys.emplace(key,
+                           LockInfo(my_txn_id, txn_lock_info.expiration_time,
+                                    txn_lock_info.exclusive));
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -1155,8 +1331,8 @@ Status PerKeyPointLockManager::AcquireLocked(
 
   auto& lock_info = stripe_iter->second;
   auto locked = !lock_info.txn_ids.empty();
-  auto solo_lock_owner = (lock_info.txn_ids.size() == 1) &&
-                         (lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]);
+  auto solo_lock_owner =
+      (lock_info.txn_ids.size() == 1) && (lock_info.txn_ids[0] == my_txn_id);
 
   // Handle lock downgrade and reentrant first, it should always succeed
   if (locked && solo_lock_owner) {
@@ -1182,9 +1358,8 @@ Status PerKeyPointLockManager::AcquireLocked(
     }
     // handle read reentrant lock
     if (!txn_lock_info.exclusive && !lock_info.exclusive) {
-      auto lock_it =
-          std::find(lock_info.txn_ids.begin(), lock_info.txn_ids.end(),
-                    txn_lock_info.txn_ids[0]);
+      auto lock_it = std::find(lock_info.txn_ids.begin(),
+                               lock_info.txn_ids.end(), my_txn_id);
       if (lock_it != lock_info.txn_ids.end()) {
         lock_info.expiration_time =
             std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
@@ -1193,31 +1368,34 @@ Status PerKeyPointLockManager::AcquireLocked(
     }
   }
 
-  auto prepare_txn_wait_ids_with_locked_txn_ids = [&lock_info, &txn_lock_info,
-                                                   &wait_ids, &isUpgrade]() {
-    if (wait_ids != nullptr) {
-      for (auto id : lock_info.txn_ids) {
-        // A transaction is not blocked by itself
-        if (id != txn_lock_info.txn_ids[0]) {
-          wait_ids->push_back(id);
-        } else {
-          // Itself is already holding a lock, so it is either an upgrade or
-          // downgrade. Downgrade has already been handled above. Assert it is
-          // an upgrade here.
-          assert(!lock_info.exclusive && txn_lock_info.exclusive);
-          *isUpgrade = true;
+  auto prepare_txn_wait_ids_with_locked_txn_ids =
+      [&lock_info, &txn_lock_info, &wait_ids, &isUpgrade, &my_txn_id]() {
+        if (wait_ids != nullptr) {
+          for (auto id : lock_info.txn_ids) {
+            // A transaction is not blocked by itself
+            if (id != my_txn_id) {
+              wait_ids->push_back(id);
+            } else {
+              // Itself is already holding a lock, so it is either an upgrade or
+              // downgrade. Downgrade has already been handled above. Assert it
+              // is an upgrade here.
+              assert(!lock_info.exclusive && txn_lock_info.exclusive);
+              *isUpgrade = true;
+            }
+          }
         }
-      }
-    }
-  };
+      };
 
   auto has_waiter =
       (lock_info.waiter_queue != nullptr) && !lock_info.waiter_queue->empty();
-  auto is_first_waiter = has_waiter && lock_info.waiter_queue->front()->id ==
-                                           txn_lock_info.txn_ids[0];
+
+  // Check whether myself is the first waiter in the queue, if so, it is my turn
+  // to take the lock
+  auto is_first_waiter =
+      has_waiter && lock_info.waiter_queue->front()->id == my_txn_id;
 
   if (fifo && has_waiter && !is_first_waiter) {
-    // handle fifo and has waiter in the queue
+    // handle fifo and has other waiter ahead of myself
     {
       // handle shared lock request on a shared lock with only shared lock
       // waiters
@@ -1233,7 +1411,7 @@ Status PerKeyPointLockManager::AcquireLocked(
         }
         if (!has_exclusive_waiter) {
           // no X waiter, so we can acquire the lock without waiting
-          lock_info.txn_ids.push_back(txn_lock_info.txn_ids[0]);
+          lock_info.txn_ids.push_back(my_txn_id);
           lock_info.exclusive = false;
           // Using std::max means that expiration time never goes down even
           // when a transaction is removed from the list. The correct
@@ -1256,8 +1434,8 @@ Status PerKeyPointLockManager::AcquireLocked(
 
     if (wait_ids == nullptr) {
       // If wait_ids is nullptr, it is a fast path check to see whether it is
-      // able to take the lock or not, so we don't need to fill the waiting txn
-      // ids for deadlock detection.
+      // able to take the lock or not, skip filling the waiting txn ids for
+      // deadlock detection.
       return Status::TimedOut(Status::SubCode::kLockTimeout);
     }
 
@@ -1272,7 +1450,7 @@ Status PerKeyPointLockManager::AcquireLocked(
         // For exclusive lock, it traverse the queue from front to back to
         // handle upgrade
         for (auto& waiter : *lock_info.waiter_queue) {
-          if (*isUpgrade && waiter->exclusive) {
+          if (*isUpgrade && !waiter->IsReady()) {
             // For upgrade locks, it will be placed at the beginning of
             // the queue. However, for shared lock waiters that are at
             // the beginning of the queue that got waked up but haven't
@@ -1280,7 +1458,7 @@ Status PerKeyPointLockManager::AcquireLocked(
             // blocking txn id list.
             break;
           }
-          if (waiter->id != txn_lock_info.txn_ids[0]) {
+          if (waiter->id != my_txn_id) {
             wait_ids->push_back(waiter->id);
           }
         }
@@ -1297,7 +1475,7 @@ Status PerKeyPointLockManager::AcquireLocked(
               continue;
             }
           }
-          if ((*it)->id != txn_lock_info.txn_ids[0]) {
+          if ((*it)->id != my_txn_id) {
             wait_ids->push_back((*it)->id);
           }
         }
@@ -1322,7 +1500,7 @@ Status PerKeyPointLockManager::AcquireLocked(
       return Status::OK();
     }
 
-    if (IsLockExpired(txn_lock_info.txn_ids[0], lock_info, env, expire_time)) {
+    if (IsLockExpired(my_txn_id, lock_info, env, expire_time)) {
       // current lock is expired, steal it, no need to check lock limit
       lock_info.txn_ids = txn_lock_info.txn_ids;
       lock_info.exclusive = txn_lock_info.exclusive;
@@ -1354,7 +1532,7 @@ Status PerKeyPointLockManager::AcquireLocked(
         return Status::TimedOut(Status::SubCode::kLockTimeout);
       } else {
         // lock is on shared lock state, acquire it
-        lock_info.txn_ids.push_back(txn_lock_info.txn_ids[0]);
+        lock_info.txn_ids.push_back(my_txn_id);
         // update the expiration time
         lock_info.expiration_time =
             std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
@@ -1391,7 +1569,8 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
       };
 
       auto handle_last_transaction_holding_the_lock =
-          [this, &stripe_iter, &stripe, &erase_current_txn, &lock_map]() {
+          [this, &stripe_iter, &stripe, &erase_current_txn, &lock_map, &txn_id,
+           &key]() {
             // check whether there is other waiting transactions
             if (stripe_iter->second.waiter_queue == nullptr ||
                 stripe_iter->second.waiter_queue->empty()) {
@@ -1413,6 +1592,15 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
               bool first_waiter = true;
               for (auto& waiter : *stripe_iter->second.waiter_queue) {
                 if (waiter->exclusive) {
+                  // print waiter woken up
+                  if (kDebugLog) {
+                    fprintf(stderr,
+                            "Txn %" PRIu64
+                            ": wake up next waiter on lock release Txn %" PRIu64
+                            " on key %s\n",
+                            txn_id, waiter->id, key.c_str());
+                    fflush(stderr);
+                  }
                   if (first_waiter) {
                     // the first waiter is an exclusive lock waiter, wake it
                     // up Note that they are only notified, but not removed
