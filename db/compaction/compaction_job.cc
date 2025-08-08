@@ -917,10 +917,9 @@ void CompactionJob::FinalizeCompactionRun(
   if (stats_built_from_input_table_prop) {
     UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
   }
-
   UpdateCompactionJobOutputStats(internal_stats_);
-
   RecordCompactionIOStats();
+
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
   compact_->status = input_status;
@@ -949,13 +948,15 @@ Status CompactionJob::Run() {
     status = VerifyOutputFiles();
   }
 
-  SetOutputTableProperties();
+  if (status.ok()) {
+    SetOutputTableProperties();
+  }
 
   AggregateSubcompactionStats();
 
   uint64_t num_input_range_del = 0;
   bool stats_built_from_input_table_prop =
-      BuildStatsFromInputTableProperties(&num_input_range_del);
+      BuildStatsFromInputFiles(&num_input_range_del);
 
   if (status.ok()) {
     status = VerifyCompactionRecordCounts(stats_built_from_input_table_prop,
@@ -2150,8 +2151,7 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-bool CompactionJob::BuildStatsFromInputTableProperties(
-    uint64_t* num_input_range_del) {
+bool CompactionJob::BuildStatsFromInputFiles(uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
