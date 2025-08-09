@@ -324,6 +324,10 @@ struct TransactionOptions {
   // If negative, TransactionDBOptions::transaction_lock_timeout will be used.
   int64_t lock_timeout = -1;
 
+  // Timeout in microseconds before perform dead lock detection.
+  // If 0, deadlock detection will be performed immediately.
+  int64_t deadlock_timeout = 100;
+
   // Expiration duration in milliseconds.  If non-negative, transactions that
   // last longer than this many milliseconds will fail to commit.  If not set,
   // a forgotten transaction that is never committed, rolled back, or deleted

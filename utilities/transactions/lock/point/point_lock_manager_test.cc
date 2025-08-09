@@ -1015,6 +1015,8 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
   // directly, without wait in the queue. If it did, It would not be woken up
   // until the last shared lock is released.
 
+  // Disable deadlock detection timeout
+  txn_opt_.deadlock_timeout = 0;
   auto txn1 = NewTxn(txn_opt_);
   auto txn2 = NewTxn(txn_opt_);
   auto txn3 = NewTxn(txn_opt_);

@@ -114,6 +114,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
   void SetLockTimeout(int64_t timeout) override {
     lock_timeout_ = timeout * 1000;
   }
+  int64_t GetDeadlockTimeout() const { return deadlock_timeout_us_; }
+  void SetDeadlockTimeout(int64_t timeout_ms) override {
+    deadlock_timeout_us_ = timeout_ms * 1000;
+  }
 
   // Returns true if locks were stolen successfully, false otherwise.
   bool TryStealingLocks();
@@ -212,6 +216,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
+
+  // Timeout in microseconds before perform dead lock detection.
+  // If 0, deadlock detection will be performed immediately.
+  int64_t deadlock_timeout_us_;
 
   // Whether to perform deadlock detection or not.
   bool deadlock_detect_;

@@ -205,11 +205,10 @@ class PointLockManager : public LockManager {
 
   std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
 
-  virtual Status AcquireWithTimeout(PessimisticTransaction* txn,
-                                    LockMap* lock_map, LockMapStripe* stripe,
-                                    uint32_t column_family_id,
-                                    const std::string& key, Env* env,
-                                    int64_t timeout, const LockInfo& lock_info);
+  virtual Status AcquireWithTimeout(
+      PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
+      uint32_t column_family_id, const std::string& key, Env* env,
+      int64_t timeout, int64_t deadlock_timeout_us, const LockInfo& lock_info);
 
   virtual void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                          LockMapStripe* stripe, LockMap* lock_map, Env* env);
@@ -259,6 +258,7 @@ class PerKeyPointLockManager : public PointLockManager {
   Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
+                            int64_t deadlock_timeout_us,
                             const LockInfo& lock_info) override;
 
  private:
@@ -267,6 +267,7 @@ class PerKeyPointLockManager : public PointLockManager {
                        LockInfo** lock_info_ptr, const LockInfo& txn_lock_info,
                        uint64_t* wait_time, autovector<TransactionID>* txn_ids,
                        bool* isUpgrade, bool fifo);
+
   int64_t CalculateWaitEndTime(int64_t expire_time_hint, int64_t end_time);
 };
 
