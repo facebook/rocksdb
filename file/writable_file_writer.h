@@ -366,5 +366,7 @@ class WritableFileWriter {
   // `opts` should've been called with `FinalizeIOOptions()` before passing in
   IOStatus SyncInternal(const IOOptions& opts, bool use_fsync);
   IOOptions FinalizeIOOptions(const IOOptions& opts) const;
+  // Used to check if sync is needed
+  IOStatus SyncIfNeeded(const IOOptions& io_options);
 };
 }  // namespace ROCKSDB_NAMESPACE
