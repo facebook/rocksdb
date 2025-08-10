@@ -143,6 +143,9 @@ TEST_P(AnyLockManagerTest, Deadlock) {
   MockColumnFamilyHandle cf(1);
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
+  // disable dead lock timeout, so that the dead lock detection behavior is
+  // consistent. This prevents the test to be flaky
+  txn_opt.deadlock_timeout_us = 0;
   txn_opt.deadlock_detect = true;
   txn_opt.lock_timeout = 1000000;
   auto txn1 = NewTxn(txn_opt);
@@ -151,7 +154,7 @@ TEST_P(AnyLockManagerTest, Deadlock) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
   ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
 
-  // txn1 tries to lock k2, will block forever.
+  // txn1 tries to lock k2, will be blocked.
   port::Thread t;
   BlockUntilWaitingTxn(wait_sync_point_name_, t, [&]() {
     // block because txn2 is holding a lock on k2.

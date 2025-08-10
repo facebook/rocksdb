@@ -20,7 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr auto kDebugLog = true;
+constexpr auto kDebugLog = false;
 
 // KeyLockWaiter represents a waiter for a key lock. It contains a conditional
 // variable to allow waiter to wait for the key lock. It also contains other
@@ -1099,8 +1099,13 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   autovector<TransactionID> wait_ids;
   bool isUpgrade = false;
   auto lock_info = stripe->GetLockInfo(key);
-  result = AcquireLocked(lock_map, stripe, key, env, &lock_info, txn_lock_info,
-                         &expire_time_hint, nullptr, &isUpgrade, true);
+  auto wait_before_deadlock_detection =
+      txn->IsDeadlockDetect() && (deadlock_timeout_us > 0);
+  result = AcquireLocked(
+      lock_map, stripe, key, env, &lock_info, txn_lock_info, &expire_time_hint,
+      // If wait before deadlock detection, we go through a fast path, no wait
+      // ids are collected.
+      wait_before_deadlock_detection ? nullptr : &wait_ids, &isUpgrade, true);
   if (!result.ok() && timeout != 0 &&
       /* No need to retry after reach lock limit*/
       !result.IsLockLimit()) {
@@ -1124,7 +1129,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
 
     // We will try to wait a little bit before checking deadlock, as
     // deadlock check is expensive.
-    if (txn->IsDeadlockDetect() && deadlock_timeout_us > 0) {
+    if (wait_before_deadlock_detection) {
       int64_t now = env->NowMicros();
       if (cv_end_time < 0 || cv_end_time > now) {
         if (kDebugLog) {
@@ -1139,13 +1144,15 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
                               false, key_lock_waiter_ctx);
         DebugLockStatus(my_txn_id, *lock_info, key, key_lock_waiter_ctx);
 
+        TEST_SYNC_POINT(
+            "PointLockManager::AcquireWithTimeout:"
+            "WaitingTxnBeforeDeadLockDetection");
         result = stripe->WaitOnLock(
             key_lock_waiter_ctx.lock_waiter,
             std::min(cv_end_time - now, (int64_t)deadlock_timeout_us));
         assert(result.ok() || result.IsTimedOut());
       }
-
-      // try to take a lock again
+      // try to take a lock again to get wait ids after deadlock timeout
       result =
           AcquireLocked(lock_map, stripe, key, env, &lock_info, txn_lock_info,
                         &expire_time_hint, &wait_ids, &isUpgrade, !result.ok());
@@ -1224,8 +1231,10 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
 #ifndef NDEBUG
       stripe->stripe_mutex->UnLock();
       TEST_SYNC_POINT_CALLBACK(
-          "LockMapStrpe::JoinWaitQueueInternal:AfterWokenUp", &my_txn_id);
-      TEST_SYNC_POINT("LockMapStrpe::JoinWaitQueueInternal:BeforeTakeLock");
+          "PerKeyPointLockManager::AcquireWithTimeout:AfterWokenUp",
+          &my_txn_id);
+      TEST_SYNC_POINT(
+          "PerKeyPointLockManager::AcquireWithTimeout:BeforeTakeLock");
       auto lock_status = stripe->stripe_mutex->Lock();
       assert(lock_status.ok());
 #endif
@@ -1283,7 +1292,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         break;
       }
 
-      if (cv_end_time >= 0) {
+      if (!result.ok() && cv_end_time >= 0) {
         if (static_cast<int64_t>(end_time) <= now) {
           // lock timeout timed out
           result = Status::TimedOut(Status::SubCode::kLockTimeout);
@@ -1397,31 +1406,46 @@ Status PerKeyPointLockManager::AcquireLocked(
     }
   }
 
-  auto prepare_txn_wait_ids_with_locked_txn_ids =
-      [&lock_info, &txn_lock_info, &wait_ids, &isUpgrade, &my_txn_id]() {
-        if (wait_ids != nullptr) {
-          for (auto id : lock_info.txn_ids) {
-            // A transaction is not blocked by itself
-            if (id != my_txn_id) {
-              wait_ids->push_back(id);
-            } else {
-              // Itself is already holding a lock, so it is either an upgrade or
-              // downgrade. Downgrade has already been handled above. Assert it
-              // is an upgrade here.
-              assert(!lock_info.exclusive && txn_lock_info.exclusive);
-              *isUpgrade = true;
-            }
+  auto prepare_txn_wait_ids_with_locked_txn_ids = [&lock_info, &txn_lock_info,
+                                                   &wait_ids, &isUpgrade,
+                                                   &my_txn_id, &key]() {
+    if (wait_ids != nullptr) {
+      for (auto id : lock_info.txn_ids) {
+        // A transaction is not blocked by itself
+        if (id != my_txn_id) {
+          wait_ids->push_back(id);
+        } else {
+          // Itself is already holding a lock, so it is either an upgrade or
+          // downgrade. Downgrade has already been handled above. Assert it
+          // is an upgrade here.
+          if (!(!lock_info.exclusive && txn_lock_info.exclusive)) {
+            fprintf(stderr,
+                    "txn id %" PRIu64 " assert failed on lock upgrade key %s\n",
+                    my_txn_id, key.c_str());
+            fflush(stderr);
+            assert(false);
           }
+          *isUpgrade = true;
         }
-      };
+      }
+    }
+  };
 
   auto has_waiter =
       (lock_info.waiter_queue != nullptr) && !lock_info.waiter_queue->empty();
 
+  // Check whether there is a shared lock waiter that is ready to take the lock,
+  // but have not taken it yet, then current transaction is not the solo lock
+  // owner.
+  auto has_ready_shared_lock_waiter =
+      has_waiter && lock_info.waiter_queue->front()->IsReady() &&
+      (!lock_info.waiter_queue->front()->exclusive);
+  solo_lock_owner = solo_lock_owner && (!has_ready_shared_lock_waiter);
+
   // Check whether myself is the first waiter in the queue, if so, it is my turn
   // to take the lock
   auto is_first_waiter =
-      has_waiter && lock_info.waiter_queue->front()->id == my_txn_id;
+      has_waiter && (lock_info.waiter_queue->front()->id == my_txn_id);
 
   if (fifo && has_waiter && !is_first_waiter) {
     // handle fifo and has other waiter ahead of myself

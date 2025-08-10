@@ -1015,20 +1015,20 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
   // directly, without wait in the queue. If it did, It would not be woken up
   // until the last shared lock is released.
 
-  // Disable deadlock detection timeout
-  txn_opt_.deadlock_timeout = 0;
+  // Disable deadlock detection timeout to prevent test flakyness.
+  txn_opt_.deadlock_timeout_us = 0;
   auto txn1 = NewTxn(txn_opt_);
   auto txn2 = NewTxn(txn_opt_);
   auto txn3 = NewTxn(txn_opt_);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
-      {{"LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+      {{"PerKeyPointLockManager::AcquireWithTimeout:AfterWokenUp",
         "PerKeyPointLockManagerTest::SharedLockRaceCondition:"
         "BeforeNewSharedLockRequest"},
        {"PerKeyPointLockManagerTest::SharedLockRaceCondition:"
         "AfterNewSharedLockRequest",
-        "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
+        "PerKeyPointLockManager::AcquireWithTimeout:BeforeTakeLock"}});
 
   std::atomic<bool> reached(false);
   SyncPoint::GetInstance()->SetCallBack(
@@ -1080,10 +1080,11 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
 }
 
 TEST_F(PerKeyPointLockManagerTest, UpgradeLockRaceCondition) {
-  // Verify an upgrade lock race condition is handled properly.  When a key is
-  // locked in exlusive mode, shared lock waiters will be enqueued as waiters.
+  // Verify an upgrade lock race condition is handled properly.
+  // When a key is locked in exlusive mode, shared lock waiters will be enqueued
+  // as waiters.
   // When the exclusive lock holder release the lock. The shared lock waiters
-  // are waked up to take the lock. At this point, when a new shared lock
+  // are woken up to take the lock. At this point, when a new shared lock
   // requester comes in, it will take the lock directly without waiting or
   // queueing. This requester then immediately upgrade the lock to exclusive
   // lock. This request will be prioritized to the head of the queue.
@@ -1097,12 +1098,12 @@ TEST_F(PerKeyPointLockManagerTest, UpgradeLockRaceCondition) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
-      {{"LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+      {{"PerKeyPointLockManager::AcquireWithTimeout:AfterWokenUp",
         "PerKeyPointLockManagerTest::UpgradeLockRaceCondition:"
         "BeforeNewSharedLockRequest"},
        {"PerKeyPointLockManagerTest::UpgradeLockRaceCondition:"
         "AfterNewSharedLockRequest",
-        "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
+        "PerKeyPointLockManager::AcquireWithTimeout:BeforeTakeLock"}});
 
   std::atomic<bool> reached(false);
   SyncPoint::GetInstance()->SetCallBack(
@@ -1188,8 +1189,17 @@ TEST_P(SpotLockManagerTest, Catch22) {
   std::atomic_int wait_count(0);
 
   SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_, [&wait_count](void* /*arg*/) { wait_count++; });
+  if (GetParam()) {
+    // PerKeyPointLockManager
+    SyncPoint::GetInstance()->SetCallBack(
+        "PointLockManager::AcquireWithTimeout:"
+        "WaitingTxnBeforeDeadLockDetection",
+        [&wait_count](void* /*arg*/) { wait_count++; });
+  } else {
+    // PointLockManager
+    SyncPoint::GetInstance()->SetCallBack(
+        wait_sync_point_name_, [&wait_count](void* /*arg*/) { wait_count++; });
+  }
   SyncPoint::GetInstance()->EnableProcessing();
 
   // txn1 X lock
@@ -1262,7 +1272,7 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_, [&wait_count](void* /*arg*/) { wait_count++; });
   SyncPoint::GetInstance()->SetCallBack(
-      "LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+      "PerKeyPointLockManager::AcquireWithTimeout:AfterWokenUp",
       [&txn4, &txn4_mutex, &txn4_waked_up](void* arg) {
         auto transaction_id = *(static_cast<TransactionID*>(arg));
         if (transaction_id == txn4->GetID()) {

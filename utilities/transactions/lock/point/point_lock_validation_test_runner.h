@@ -22,7 +22,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr bool kDebugLog = true;
+constexpr bool kDebugLog = false;
+// Debug options. In some of the test run, due to debug build and short lock
+// timeout, a thread may not be able to acquire any lock within a second. So
+// skip this assertion by default. However, this could be useful for quickly
+// detect dead thread, when running locally with longer timeout.
+constexpr bool kEnablePerThreadLockCountAssertion = true;
 
 // Since this code is executed both with and without gtest, it supports assert
 // with different ways.
@@ -183,11 +188,11 @@ class PointLockValidationTestRunner {
 
     for (uint32_t thd_idx = 0; thd_idx < thread_count_; thd_idx++) {
       threads_.emplace_back([this, thd_idx]() {
-        auto txn = static_cast<PessimisticTransaction*>(
-            db_->BeginTransaction(WriteOptions(), txn_opt_));
-        auto txn_id = txn->GetID();
-        DEBUG_LOG_WITH_PREFIX("Thd %" PRIu32 " new txn\n", thd_idx);
         while (!shutdown_) {
+          auto txn = static_cast<PessimisticTransaction*>(
+              db_->BeginTransaction(WriteOptions(), txn_opt_));
+          auto txn_id = txn->GetID();
+          DEBUG_LOG_WITH_PREFIX("Thd %" PRIu32 " new txn\n", thd_idx);
           std::unordered_map<uint32_t, KeyStatus> locked_key_status;
           auto num_key_to_lock = max_num_keys_to_lock_per_txn_;
           Status s;
@@ -340,8 +345,8 @@ class PointLockValidationTestRunner {
             DEBUG_LOG_WITH_PREFIX("release lock %" PRIu32 "\n", key);
             locker_->UnLock(txn, 1, std::to_string(key), env_);
           }
+          delete txn;
         }
-        delete txn;
       });
     }
 
@@ -368,11 +373,13 @@ class PointLockValidationTestRunner {
             num_of_locks_acquired_per_thread_[thd_idx]->load();
         DEBUG_LOG("thread: %" PRIu32 " acquired %" PRId64 " locks\n", thd_idx,
                   num_of_locks_acquired_per_thread);
-        ASSERT_TRUE_WITH_MSG(
-            num_of_locks_acquired_per_thread >
-                prev_num_of_locks_acquired_per_thread[thd_idx],
-            "No locks were acquired in the last 1 second on thread " +
-                std::to_string(thd_idx));
+        if (kEnablePerThreadLockCountAssertion) {
+          ASSERT_TRUE_WITH_MSG(
+              num_of_locks_acquired_per_thread >
+                  prev_num_of_locks_acquired_per_thread[thd_idx],
+              "No locks were acquired in the last 1 second on thread " +
+                  std::to_string(thd_idx));
+        }
         prev_num_of_locks_acquired_per_thread[thd_idx] =
             num_of_locks_acquired_per_thread;
       }

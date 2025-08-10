@@ -78,6 +78,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   skip_concurrency_control_ = txn_options.skip_concurrency_control;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
+  deadlock_timeout_us_ = txn_options.deadlock_timeout_us;
   if (lock_timeout_ < 0) {
     // Lock timeout not set, use default
     lock_timeout_ =
