@@ -93,6 +93,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(
 Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 RandomAccessFileReader* reader,
                                 uint64_t read_len, uint64_t aligned_useful_len,
+                                uint64_t optional_read_len,
                                 uint64_t start_offset, bool use_fs_buffer) {
   Slice result;
   Status s;
@@ -102,8 +103,13 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                            read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-    s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,
-                     to_buf, /*aligned_buf=*/nullptr);
+    if (0 < optional_read_len) {
+      s = FlexibleRead(reader, opts, start_offset + aligned_useful_len,
+                       read_len, optional_read_len, to_buf, result);
+    } else {
+      s = reader->Read(opts, start_offset + aligned_useful_len, read_len,
+                       &result, to_buf, /*aligned_buf=*/nullptr);
+    }
   }
 
 #ifndef NDEBUG
@@ -200,8 +206,13 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
   Status s;
   if (read_len > 0) {
-    s = Read(buf, opts, reader, read_len, aligned_useful_len, rounddown_offset,
-             use_fs_buffer);
+    // Currently FilePrefetchBuffer::Prefetch is used in
+    // BlockBasedTable::PrefetchTail. Our optimization for FlexibleRead is meant
+    // for when we want to start from the beginning of the file in compaction
+    // and read the whole file sequentially. It is probably not worth setting
+    // optimal_read_len > 0 in this case.
+    s = Read(buf, opts, reader, read_len, aligned_useful_len,
+             /*optional_read_len=*/0, rounddown_offset, use_fs_buffer);
   }
 
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
@@ -596,6 +607,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
                                             RandomAccessFileReader* reader,
                                             uint64_t offset, size_t length,
                                             size_t readahead_size,
+                                            bool for_compaction,
                                             bool& copy_to_overlap_buffer) {
   if (!enable_) {
     return Status::OK();
@@ -607,7 +619,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   Status s;
   uint64_t tmp_offset = offset;
   size_t tmp_length = length;
-  size_t original_length = length;
+  const size_t original_length = length;
 
   // Abort outdated IO.
   if (!explicit_prefetch_submitted_) {
@@ -738,8 +750,16 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1,
-             use_fs_buffer);
+    // This optimization applies for low priority reads that read the entire
+    // file in general, but for now we can focus on compaction reads. Direct IO
+    // requires the start / end offsets to be aligned so we don't want our read
+    // request to be trimmed at the end.
+    size_t optional_read_length = for_compaction && !reader->use_direct_io() &&
+                                          original_length < read_len1
+                                      ? read_len1 - original_length
+                                      : 0;
+    s = Read(buf, opts, reader, read_len1, aligned_useful_len1,
+             optional_read_length, start_offset1, use_fs_buffer);
     if (!s.ok()) {
       AbortAllIOs();
       FreeAllBuffers();
@@ -843,7 +863,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       s = PrefetchInternal(
           opts, reader, offset, n,
           (num_buffers_ > 1 ? readahead_size_ / 2 : readahead_size_),
-          copy_to_overlap_buffer);
+          for_compaction, copy_to_overlap_buffer);
       explicit_prefetch_submitted_ = false;
       if (!s.ok()) {
         if (status) {
