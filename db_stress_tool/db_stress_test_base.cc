@@ -660,6 +660,10 @@ void StressTest::PrintStatistics() {
     fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
             dbstats_secondaries->ToString().c_str());
   }
+  if (dbstats_followers) {
+    fprintf(stdout, "Follower instances STATISTICS:\n%s\n",
+            dbstats_followers->ToString().c_str());
+  }
 }
 
 // Currently PreloadDb has to be single-threaded.
@@ -3942,9 +3946,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
 
-    // Secondary instance does not support write-prepared/write-unprepared
-    // transactions, thus just disable secondary instance if we use
-    // transaction.
+    // Secondary and follower instances do not support
+    // write-prepared/write-unprepared transactions, thus just disable secondary
+    // instance if we use transaction.
     if (s.ok() && FLAGS_test_secondary && !FLAGS_use_txn) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
@@ -3955,6 +3959,24 @@ void StressTest::Open(SharedState* shared, bool reopen) {
                               cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
       assert(secondary_cfhs_.size() ==
+             static_cast<size_t>(FLAGS_column_families));
+    }
+
+    if (s.ok() && FLAGS_test_follower && !FLAGS_use_txn) {
+      Options tmp_opts;
+      tmp_opts.max_open_files = -1;
+      tmp_opts.env = db_stress_env;
+      // Equivalent to "name" argument in OpenAsSecondary
+      const std::string& leader_path = FLAGS_db;
+      // Equivalent to "secondary_path" in OpenAsSecondary
+      const std::string& name = FLAGS_followers_base;
+      s = DB::OpenAsFollower(tmp_opts, name, leader_path, cf_descriptors,
+                             &follower_cfhs_, &follower_db_);
+      if (!s.ok()) {
+        fprintf(stderr, "Error opening follower: %s\n", s.ToString().c_str());
+      }
+      assert(s.ok());
+      assert(follower_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
     }
   } else {

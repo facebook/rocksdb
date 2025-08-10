@@ -1781,11 +1781,11 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
   if (!FLAGS_use_txn) {
     fprintf(stderr, "-use_txn must be true if -test_multi_ops_txns\n");
     exit(1);
-  } else if (FLAGS_test_secondary > 0) {
-    fprintf(
-        stderr,
-        "secondary instance does not support replaying logs (MANIFEST + WAL) "
-        "of TransactionDB with write-prepared/write-unprepared policy\n");
+  } else if (FLAGS_test_secondary > 0 || FLAGS_test_follower > 0) {
+    fprintf(stderr,
+            "secondary and follower instances do not support replaying logs "
+            "(MANIFEST + WAL) "
+            "of TransactionDB with write-prepared/write-unprepared policy\n");
     exit(1);
   }
   if (FLAGS_clear_column_family_one_in > 0) {
