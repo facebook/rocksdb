@@ -23,11 +23,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 constexpr bool kDebugLog = false;
-// Debug options. In some of the test run, due to debug build and short lock
-// timeout, a thread may not be able to acquire any lock within a second. So
-// skip this assertion by default. However, this could be useful for quickly
+// Debug options. In some of the test run, due to debug or ASAN build and short
+// lock timeout, a thread may not be able to acquire any lock within a second.
+// So skip this assertion by default. However, this could be useful for quickly
 // detect dead thread, when running locally with longer timeout.
-constexpr bool kEnablePerThreadLockCountAssertion = true;
+constexpr bool kEnablePerThreadLockCountAssertion = false;
 
 // Since this code is executed both with and without gtest, it supports assert
 // with different ways.

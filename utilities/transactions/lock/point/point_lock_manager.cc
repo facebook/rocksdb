@@ -1034,10 +1034,10 @@ void DebugLockStatus(TransactionID my_txn_id, const LockInfo& lock_info,
 
     // print lock holders
     offset += snprintf(msg + offset, sizeof(msg),
-                       "Txn %lu: LockStatus key %s: holder [", my_txn_id,
-                       key.c_str());
+                       "Txn %" PRIu64 ": LockStatus key %s: holder [",
+                       my_txn_id, key.c_str());
     for (const auto& txn_id : lock_info.txn_ids) {
-      offset += snprintf(msg + offset, sizeof(msg), "%s%lu,",
+      offset += snprintf(msg + offset, sizeof(msg), "%s%" PRIu64 ",",
                          lock_info.exclusive ? "X" : "S", txn_id);
     }
 
@@ -1045,7 +1045,7 @@ void DebugLockStatus(TransactionID my_txn_id, const LockInfo& lock_info,
     offset += snprintf(msg + offset, sizeof(msg), "], waiter_queue [");
     for (auto it = key_lock_waiter_ctx.waiter_queue->begin();
          it != key_lock_waiter_ctx.waiter_queue->end(); it++) {
-      offset += snprintf(msg + offset, sizeof(msg), "%s%lu,",
+      offset += snprintf(msg + offset, sizeof(msg), "%s%" PRIu64 ",",
                          (*it)->exclusive ? "X" : "S", (*it)->id);
     }
 
@@ -1188,7 +1188,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
             my_txn_id, key.c_str(), txn_lock_info.exclusive, isUpgrade);
 
         for (auto it = wait_ids.begin(); it != wait_ids.end(); it++) {
-          offset += snprintf(msg + offset, sizeof(msg), "%lu,", *it);
+          offset += snprintf(msg + offset, sizeof(msg), "%" PRIu64 ",", *it);
         }
 
         offset += snprintf(msg + offset, sizeof(msg), "]\n");
