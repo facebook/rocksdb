@@ -39,6 +39,8 @@ DEFINE_uint32(lock_type, 0,
               "2: both shared and exclusive locks");
 DEFINE_int64(lock_timeout_ms, 1000,
              "Lock acquisition request timeout in milliseconds.");
+DEFINE_int64(deadlock_timeout_us, 1000,
+             "DeadLock detection timeout in microseconds.");
 DEFINE_int64(lock_expiration_ms, 100,
              "Acquired Lock expiration time in milliseconds.");
 DEFINE_bool(allow_non_deadlock_error, true,
@@ -78,6 +80,7 @@ class PointLockManagerBenchmark {
 
     txn_opt_.deadlock_detect = true;
     txn_opt_.lock_timeout = FLAGS_lock_timeout_ms;
+    txn_opt_.deadlock_timeout_us = FLAGS_deadlock_timeout_us;
     txn_opt_.expiration = FLAGS_lock_expiration_ms;
   }
 
@@ -100,7 +103,7 @@ class PointLockManagerBenchmark {
         FLAGS_key_count, FLAGS_max_num_keys_to_lock_per_txn,
         FLAGS_execution_time_sec, static_cast<LockTypeToTest>(FLAGS_lock_type),
         FLAGS_allow_non_deadlock_error,
-        FLAGS_max_sleep_after_lock_acquisition_ms);
+        FLAGS_max_sleep_after_lock_acquisition_ms, true);
     test_runner.run();
   }
 

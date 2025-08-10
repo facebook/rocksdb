@@ -23,11 +23,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 constexpr bool kDebugLog = false;
-// Debug options. In some of the test run, due to debug or ASAN build and short
-// lock timeout, a thread may not be able to acquire any lock within a second.
-// So skip this assertion by default. However, this could be useful for quickly
-// detect dead thread, when running locally with longer timeout.
-constexpr bool kEnablePerThreadLockCountAssertion = false;
 
 // Since this code is executed both with and without gtest, it supports assert
 // with different ways.
@@ -77,15 +72,14 @@ struct KeyStatus {
 
 class PointLockValidationTestRunner {
  public:
-  PointLockValidationTestRunner(Env* env, TransactionDBOptions txndb_opt,
-                                std::shared_ptr<LockManager> locker,
-                                TransactionDB* db, TransactionOptions txn_opt,
-                                uint32_t thd_cnt, uint32_t key_cnt,
-                                uint32_t max_num_keys_to_lock_per_txn,
-                                uint32_t execution_time_sec,
-                                LockTypeToTest lock_type,
-                                bool allow_non_deadlock_error,
-                                uint32_t max_sleep_after_lock_acquisition_ms)
+  PointLockValidationTestRunner(
+      Env* env, TransactionDBOptions txndb_opt,
+      std::shared_ptr<LockManager> locker, TransactionDB* db,
+      TransactionOptions txn_opt, uint32_t thd_cnt, uint32_t key_cnt,
+      uint32_t max_num_keys_to_lock_per_txn, uint32_t execution_time_sec,
+      LockTypeToTest lock_type, bool allow_non_deadlock_error,
+      uint32_t max_sleep_after_lock_acquisition_ms,
+      bool enable_per_thread_lock_count_assertion = false)
       : env_(env),
         txndb_opt_(std::move(txndb_opt)),
         locker_(locker),
@@ -99,6 +93,8 @@ class PointLockValidationTestRunner {
         allow_non_deadlock_error_(allow_non_deadlock_error),
         max_sleep_after_lock_acquisition_ms_(
             max_sleep_after_lock_acquisition_ms),
+        enable_per_thread_lock_count_assertion_(
+            enable_per_thread_lock_count_assertion),
         shutdown_(false) {
     // Only enable lock status validation when lock expiration/stealing isk
     // disabled.
@@ -373,7 +369,7 @@ class PointLockValidationTestRunner {
             num_of_locks_acquired_per_thread_[thd_idx]->load();
         DEBUG_LOG("thread: %" PRIu32 " acquired %" PRId64 " locks\n", thd_idx,
                   num_of_locks_acquired_per_thread);
-        if (kEnablePerThreadLockCountAssertion) {
+        if (enable_per_thread_lock_count_assertion_) {
           ASSERT_TRUE_WITH_MSG(
               num_of_locks_acquired_per_thread >
                   prev_num_of_locks_acquired_per_thread[thd_idx],
@@ -433,6 +429,12 @@ class PointLockValidationTestRunner {
   LockTypeToTest lock_type_;
   bool allow_non_deadlock_error_;
   uint32_t max_sleep_after_lock_acquisition_ms_;
+
+  // In some of the test run, due to debug or ASAN build and short lock timeout,
+  // a thread may not be able to acquire any lock within a second. So skip this
+  // assertion by default. However, this could be useful for quickly detecting
+  // stuck thread, when running locally with longer timeout.
+  bool enable_per_thread_lock_count_assertion_;
 
   // Internal test variables
 

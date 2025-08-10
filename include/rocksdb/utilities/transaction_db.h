@@ -326,7 +326,7 @@ struct TransactionOptions {
 
   // Timeout in microseconds before perform dead lock detection.
   // If 0, deadlock detection will be performed immediately.
-  int64_t deadlock_timeout_us = 100;
+  int64_t deadlock_timeout_us = 1000;
 
   // Expiration duration in milliseconds.  If non-negative, transactions that
   // last longer than this many milliseconds will fail to commit.  If not set,

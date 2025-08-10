@@ -1135,7 +1135,8 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         if (kDebugLog) {
           // print lock status before deadlock detection
           fprintf(stderr,
-                  "Txn %ld wait before deadlock detection %s, exclusive lock "
+                  "Txn %" PRIu64
+                  " wait before deadlock detection %s, exclusive lock "
                   "%d\n",
                   my_txn_id, key.c_str(), txn_lock_info.exclusive);
           fflush(stderr);
@@ -1181,11 +1182,12 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         // print transaction lock status and wait ids
         char msg[512];
         size_t offset = 0;
-        offset += snprintf(
-            msg + offset, sizeof(msg),
-            "Txn %ld wait after deadlock detection %s, exclusive lock "
-            "%d, upgrade %d, wait_ids [",
-            my_txn_id, key.c_str(), txn_lock_info.exclusive, isUpgrade);
+        offset += snprintf(msg + offset, sizeof(msg),
+                           "Txn %" PRIu64
+                           " wait after deadlock detection %s, exclusive lock "
+                           "%d, upgrade %d, wait_ids [",
+                           my_txn_id, key.c_str(), txn_lock_info.exclusive,
+                           isUpgrade);
 
         for (auto it = wait_ids.begin(); it != wait_ids.end(); it++) {
           offset += snprintf(msg + offset, sizeof(msg), "%" PRIu64 ",", *it);
