@@ -115,7 +115,12 @@ struct LockInfo {
     txn_ids.push_back(id);
   }
 
-  DECLARE_DEFAULT_MOVES(LockInfo);
+  // disable copy constructor and assignment operator, move and move
+  // assignment
+  LockInfo(const LockInfo&) = delete;
+  LockInfo& operator=(const LockInfo&) = delete;
+  LockInfo(LockInfo&&) = delete;
+  LockInfo& operator=(LockInfo&&) = delete;
 
   // waiter queue for this key
   std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;
@@ -141,7 +146,7 @@ struct LockMapStripe {
     // key should have been created by another transaction which is holding a
     // lock on it.
     if (lock_info_iter != keys.end()) {
-      return lock_info_iter->second.get();
+      return &lock_info_iter->second;
     } else {
       return nullptr;
     }
@@ -173,7 +178,7 @@ struct LockMapStripe {
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
-  UnorderedMap<std::string, std::unique_ptr<LockInfo>> keys;
+  UnorderedMap<std::string, LockInfo> keys;
 
  private:
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
@@ -662,7 +667,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter != stripe->keys.end()) {
     // Lock already held
-    auto& lock_info = *(stripe_iter->second);
+    auto& lock_info = stripe_iter->second;
     assert(lock_info.txn_ids.size() == 1 || !lock_info.exclusive);
 
     if (lock_info.exclusive || txn_lock_info.exclusive) {
@@ -710,10 +715,10 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
       result = Status::LockLimit();
     } else {
       // acquire lock
-      stripe->keys.emplace(
-          key, std::make_unique<LockInfo>(txn_lock_info.txn_ids[0],
-                                          txn_lock_info.expiration_time,
-                                          txn_lock_info.exclusive));
+      stripe->keys.emplace(std::piecewise_construct, std::forward_as_tuple(key),
+                           std::forward_as_tuple(txn_lock_info.txn_ids[0],
+                                                 txn_lock_info.expiration_time,
+                                                 txn_lock_info.exclusive));
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -735,7 +740,7 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
 
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter != stripe->keys.end()) {
-    auto& txns = stripe_iter->second->txn_ids;
+    auto& txns = stripe_iter->second.txn_ids;
     auto txn_it = std::find(txns.begin(), txns.end(), txn_id);
     // Found the key we locked.  unlock it.
     if (txn_it != txns.end()) {
@@ -971,9 +976,9 @@ PointLockManager::PointLockStatus PointLockManager::GetPointLockStatus() {
       j->stripe_mutex->Lock().PermitUncheckedError();
       for (const auto& it : j->keys) {
         struct KeyLockInfo info;
-        info.exclusive = it.second->exclusive;
+        info.exclusive = it.second.exclusive;
         info.key = it.first;
-        for (const auto& id : it.second->txn_ids) {
+        for (const auto& id : it.second.txn_ids) {
           info.ids.push_back(id);
         }
         data.insert({i, info});
@@ -1098,6 +1103,11 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   uint64_t expire_time_hint = 0;
   autovector<TransactionID> wait_ids;
   bool isUpgrade = false;
+
+  // lock_info pointer is stable and will remain to be valid until
+  // AcquireWithTimeout function return. The reason is that when stripe_mutex is
+  // released, current transaction will wait in the waiter queue, which will
+  // prevent the lock_info to be freed.
   auto lock_info = stripe->GetLockInfo(key);
   auto wait_before_deadlock_detection =
       txn->IsDeadlockDetect() && (deadlock_timeout_us > 0);
@@ -1109,10 +1119,6 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   if (!result.ok() && timeout != 0 &&
       /* No need to retry after reach lock limit*/
       !result.IsLockLimit()) {
-    // lock_info pointer is stable and will remain to be valid until
-    // AcquireWithTimeout call return. The reason is that when stripe_mutex is
-    // released, current transaction will wait in the waiter queue, which will
-    // prevent the lock_info to be freed
     assert(lock_info);
 
     PERF_TIMER_GUARD(key_lock_wait_time);
@@ -1354,10 +1360,12 @@ Status PerKeyPointLockManager::AcquireLocked(
     } else {
       // acquire lock
       // create a new entry, if not exist
-      auto new_lock_info = std::make_unique<LockInfo>(
-          my_txn_id, txn_lock_info.expiration_time, txn_lock_info.exclusive);
-      *lock_info_ptr = new_lock_info.get();
-      stripe->keys.emplace(key, std::move(new_lock_info));
+      auto ret = stripe->keys.emplace(
+          std::piecewise_construct, std::forward_as_tuple(key),
+          std::forward_as_tuple(my_txn_id, txn_lock_info.expiration_time,
+                                txn_lock_info.exclusive));
+      assert(ret.second);
+      *lock_info_ptr = &(ret.first->second);
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -1608,7 +1616,8 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
 
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter != stripe->keys.end()) {
-    auto& txns = stripe_iter->second->txn_ids;
+    auto& lock_info = stripe_iter->second;
+    auto& txns = lock_info.txn_ids;
     auto txn_it = std::find(txns.begin(), txns.end(), txn_id);
 
     // Found the key we locked.  unlock it.
@@ -1623,7 +1632,6 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
         txns.pop_back();
       };
 
-      auto& lock_info = *(stripe_iter->second);
       auto handle_last_transaction_holding_the_lock = [this, &lock_info,
                                                        &stripe_iter, &stripe,
                                                        &erase_current_txn,
