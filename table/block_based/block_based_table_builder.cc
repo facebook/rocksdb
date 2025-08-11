@@ -911,6 +911,12 @@ struct BlockBasedTableBuilder::Rep {
         SetStatus(
             Status::InvalidArgument("user_defined_index_factory not supported "
                                     "with parallel compression"));
+      } else if (ioptions.user_comparator != BytewiseComparator()) {
+        // TODO: Pass the user_comparator to the UDI and let it validate. Do
+        // it in a major release.
+        SetStatus(
+            Status::InvalidArgument("user_defined_index_factory only supported "
+                                    "with bytewise comparator"));
       } else {
         std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder(
             table_options.user_defined_index_factory->NewBuilder());
