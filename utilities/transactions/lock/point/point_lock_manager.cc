@@ -707,7 +707,8 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
       lock_info.expiration_time =
           std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
     }
-  } else {  // Lock not held.
+  } else {
+    // Lock not held.
     // Check lock limit
     if (max_num_locks_ > 0 &&
         lock_map->locked_key_cnt.load(std::memory_order_acquire) >=
@@ -715,10 +716,9 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
       result = Status::LockLimit();
     } else {
       // acquire lock
-      stripe->keys.emplace(std::piecewise_construct, std::forward_as_tuple(key),
-                           std::forward_as_tuple(txn_lock_info.txn_ids[0],
-                                                 txn_lock_info.expiration_time,
-                                                 txn_lock_info.exclusive));
+      stripe->keys.try_emplace(key, txn_lock_info.txn_ids[0],
+                               txn_lock_info.expiration_time,
+                               txn_lock_info.exclusive);
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -1360,10 +1360,9 @@ Status PerKeyPointLockManager::AcquireLocked(
     } else {
       // acquire lock
       // create a new entry, if not exist
-      auto ret = stripe->keys.emplace(
-          std::piecewise_construct, std::forward_as_tuple(key),
-          std::forward_as_tuple(my_txn_id, txn_lock_info.expiration_time,
-                                txn_lock_info.exclusive));
+      auto ret = stripe->keys.try_emplace(key, my_txn_id,
+                                          txn_lock_info.expiration_time,
+                                          txn_lock_info.exclusive);
       assert(ret.second);
       *lock_info_ptr = &(ret.first->second);
 
