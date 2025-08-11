@@ -280,7 +280,8 @@ struct LockMapStripe {
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
-  UnorderedMap<std::string, LockInfo> keys;
+  // Use std::unordered_map for value pointer stability
+  std::unordered_map<std::string, LockInfo> keys;
 
  private:
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
