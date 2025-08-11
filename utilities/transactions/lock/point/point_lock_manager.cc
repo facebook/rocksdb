@@ -1048,6 +1048,21 @@ int64_t PerKeyPointLockManager::CalculateWaitEndTime(int64_t expire_time_hint,
   return cv_end_time;
 }
 
+// Acquire lock within timeout.
+// This function is similar to PointLockManger::AcquireWithTimeout with
+// following differences.
+//
+// If deadlock_timeout_us is not 0, it first performs a wait without doing dead
+// lock detection. This wait duration is specified by deadlock_timeout_us.
+// If this wait times out and it is still not able to acquire the lock, perform
+// the deadlock detection before wait again.
+//
+// It uses a per key lock waiter queue to handle lock waiting and wake up
+// efficiently. When a transaction is waiting for acquiring a lock on a key, it
+// joins a wait queue that is dedicated for this key. It will either timeout, or
+// get woken up when it is its turn to take the lock. This is more efficient
+// than the PointLockManger implementation where all lock waiters wait on the
+// same lock stripe cond var.
 Status PerKeyPointLockManager::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     ColumnFamilyId column_family_id, const std::string& key, Env* env,
@@ -1093,8 +1108,8 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       txn->IsDeadlockDetect() && (deadlock_timeout_us > 0);
   result = AcquireLocked(
       lock_map, stripe, key, env, &lock_info, txn_lock_info, &expire_time_hint,
-      // If wait before deadlock detection, we go through a fast path, no wait
-      // ids are collected.
+      // If wait before deadlock detection, it executes a fast path to save CPU
+      // cycles, wait ids are not collected.
       wait_before_deadlock_detection ? nullptr : &wait_ids, &isUpgrade, true);
   if (!result.ok() && timeout != 0 &&
       /* No need to retry after reach lock limit*/
@@ -1146,7 +1161,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
     }
 
     while (!result.ok()) {
-      // Decide how long to wait
+      // Refresh wait end time
       cv_end_time = CalculateWaitEndTime(expire_time_hint, end_time);
 
       // We are dependent on a transaction to finish, so perform deadlock
@@ -1186,12 +1201,8 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       }
 
       // If it has not joined wait queue, join it now.
-      // If it a lock upgrade, rejoin it.
+      // If it is a lock upgrade, rejoin it.
       if (isUpgrade || (key_lock_waiter_ctx.waiter_queue == nullptr)) {
-        // When lock is updated, move the lock waiter after the to the head
-        // of the queue, or first after all the ready lock waiters. If it is
-        // already at the head of the queue or the first after all the ready
-        // lock waiters, no need to move it, just wait on it.
         stripe->JoinWaitQueue(*lock_info, my_txn_id, txn_lock_info.exclusive,
                               isUpgrade, key_lock_waiter_ctx);
 
@@ -1245,38 +1256,28 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         // were never signaled).
       }
       assert(result.ok() || result.IsTimedOut());
-      // Wait timeout could be due to its own lock wait timeout or previous
-      // lock holder timeout. Combined with lock upgrade prioritization, the
-      // situation could be quite complicated. In this case, FIFO order is not
-      // always guaranteed.
-      //
-      // E.g.
-      // 1. txn0 and txn1 owns a S lock with expiration T1
-      // 2. txn2 try to take X lock, and wait until expiration T1
-      // 3. txn1 try to upgrade to X lock. It is prioritized over other X lock
-      // request, so it is moved to the head of the wait queue.
-      // 4. txn0 unlock, and notify txn1 to take the lock.
-      // 5. txn2 is waked up and try to take the lock. At this
-      // point, txn1 S lock is expired, so txn2 is free to steal the lock.
-      // 6. txn1 wake up and try to take the lock, but found its shared lock
-      // has been stolen.
-      //
-      // The above example showed that even if a transaction is in ready
-      // state, it is not guaranteed to successfully take the lock. It also
-      // showed lock upgrade could fail due to its current S lock expiration.
-      //
-      // Due to lock stealing, It is impossible to achieve perfect FIFO. To
-      // simplify and increase the successful chance of acquiring a lock, give
-      // the current transaction another chance to grab the lock without
-      // following fifo order.
-
       // Try to get the lock again.
-      result =
-          AcquireLocked(lock_map, stripe, key, env, &lock_info, txn_lock_info,
-                        &expire_time_hint, &wait_ids, &isUpgrade, timed_out);
+      result = AcquireLocked(
+          lock_map, stripe, key, env, &lock_info, txn_lock_info,
+          &expire_time_hint, &wait_ids, &isUpgrade,
+          /* If wait is timed out, it means it is not its turn to take the lock.
+           * Therefore, it should still follow FIFO order. */
+          timed_out);
       if (!timed_out && !result.ok()) {
         // As mentioned above, even if it is turn to take the lock, it is not
-        // always able to. In this case, just give up the attempt.
+        // always able to.
+        // E.g.
+        // 1. txn0 and txn1 owns a S lock with expiration T1
+        // 2. txn2 try to take X lock, and wait until expiration T1
+        // 3. txn1 try to upgrade to X lock. It is prioritized over other X lock
+        // request, so it is moved to the head of the wait queue.
+        // 4. txn0 unlock, and notify txn1 to take the lock.
+        // 5. txn2 is waked up and try to take the lock. At this
+        // point, txn1 S lock is expired, so txn2 is free to steal the lock.
+        // 6. txn1 wake up and try to take the lock, but found its shared lock
+        // has been stolen.
+        //
+        // In this case, just give up the attempt.
         break;
       }
 
@@ -1306,17 +1307,22 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   return result;
 }
 
-// The contract is similar to PointLockManager::AcquireLocked.
+// This function is similar to PointLockManager::AcquireLocked with following
+// differences.
 //
 // When wait_ids is nullptr, it perform a fast path check to see whether it
 // could take the lock, it does not fill waiter_ids.
-// It sets isUpgrade to true, if it tries to uprade a lock to exclusive, but it
-// needs to wait for other lock holders to release the shared locks.
+// If wait_ids is not nullptr, it will fill the wait_ids with the lock holder
+//
+// It sets isUpgrade to true, if the transaction tries to uprade a lock to
+// exclusive, but it needs to wait for other lock holders to release the shared
+// locks.
 //
 // fifo flag indicates whether it should follow fifo order to check whether
 // there is already a waiter waiting for the lock or not.
 //
-// If wait_ids is not nullptr, it will fill the wait_ids with the lock holder
+// TODO xingbo go through comments for the rest of the files, fix broken test.
+// Add more unit test for deadlock timeout
 Status PerKeyPointLockManager::AcquireLocked(
     LockMap* lock_map, LockMapStripe* stripe, const std::string& key, Env* env,
     LockInfo** lock_info_ptr, const LockInfo& txn_lock_info,
