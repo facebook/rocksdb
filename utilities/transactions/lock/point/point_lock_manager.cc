@@ -126,70 +126,6 @@ struct LockInfo {
   std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;
 };
 
-struct KeyLockWaiterContext;
-
-struct LockMapStripe {
-  explicit LockMapStripe(std::shared_ptr<TransactionDBMutexFactory> factory,
-                         ThreadLocalPtr& key_lock_waiter)
-      : mutex_factory_(std::move(factory)), key_lock_waiter_(key_lock_waiter) {
-    stripe_mutex = mutex_factory_->AllocateMutex();
-    stripe_cv = mutex_factory_->AllocateCondVar();
-
-    assert(stripe_mutex);
-    assert(stripe_cv);
-  }
-
-  // Wait until its turn to take the lock of this key within timeout_us.
-  // By default timeout_us == 0, which means wait forever
-  void JoinWaitQueue(LockInfo& lock_info, TransactionID id, bool exclusive,
-                     bool isUpgrade, KeyLockWaiterContext& waiter_context);
-
-  // Wait on an existing KeyLockWaiter until its turn to take the lock or
-  // timeout
-  Status WaitOnLock(std::list<KeyLockWaiter*>::iterator& lock_waiter,
-                    int64_t timeout_us = 0) {
-    Status ret;
-    if (timeout_us == 0) {
-      ret = (*lock_waiter)->Wait(stripe_mutex);
-    } else {
-      ret = (*lock_waiter)->WaitFor(stripe_mutex, timeout_us);
-    }
-    return ret;
-  }
-
-  // Mutex must be held before modifying keys map
-  std::shared_ptr<TransactionDBMutex> stripe_mutex;
-
-  // Condition Variable per stripe for waiting on a lock
-  std::shared_ptr<TransactionDBCondVar> stripe_cv;
-
-  // Locked keys mapped to the info about the transactions that locked them.
-  // TODO(agiardullo): Explore performance of other data structures.
-  UnorderedMap<std::string, LockInfo> keys;
-
- private:
-  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
-
-  // key lock waiter, wrapped in thread local for reusing it across
-  // transactions.
-  ThreadLocalPtr& key_lock_waiter_;
-
-  // Return key lock waiter stored in thread local var, create on first use
-  KeyLockWaiter* GetKeyLockWaiter(TransactionID id, bool exclusive) {
-    KeyLockWaiter* waiter = nullptr;
-    if (key_lock_waiter_.Get() == nullptr) {
-      // create key lock waiter
-      key_lock_waiter_.Reset(
-          new KeyLockWaiter(mutex_factory_->AllocateCondVar(), id, exclusive));
-      waiter = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
-    } else {
-      waiter = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
-      waiter->Reset(id, exclusive);
-    }
-    return waiter;
-  }
-};
-
 // Print debug info for lock waiter wake up action.
 void DebugWakeUpWaiter(TransactionID txn_id, TransactionID waiter_id,
                        const std::string& key, const std::string& msg) {
@@ -255,63 +191,119 @@ struct KeyLockWaiterContext {
   }
 };
 
-// Add a lock waiter to the wait queue. This lock waiter will be waited by the
-// current thread later for waiting for its turn to acquire the lock
-void LockMapStripe::JoinWaitQueue(LockInfo& lock_info, TransactionID id,
-                                  bool exclusive, bool isUpgrade,
-                                  KeyLockWaiterContext& waiter_context) {
-  if (lock_info.waiter_queue == nullptr) {
-    // no waiter queue yet, create a new one
-    lock_info.waiter_queue = std::make_unique<std::list<KeyLockWaiter*>>();
+struct LockMapStripe {
+  explicit LockMapStripe(std::shared_ptr<TransactionDBMutexFactory> factory,
+                         ThreadLocalPtr& key_lock_waiter)
+      : mutex_factory_(std::move(factory)), key_lock_waiter_(key_lock_waiter) {
+    stripe_mutex = mutex_factory_->AllocateMutex();
+    stripe_cv = mutex_factory_->AllocateCondVar();
+
+    assert(stripe_mutex);
+    assert(stripe_cv);
   }
 
-  auto waiter_queue = lock_info.waiter_queue.get();
-  waiter_context.waiter_queue = waiter_queue;
-
-  if (isUpgrade) {
-    // If transaction is upgrading a shared lock to exclusive lock, prioritize
-    // it by moving its lock waiter before the first exclusive lock in the queue
-    // if there is one, or end of the queue if not exist. It will be able to
-    // acquire the lock after the other shared locks waiters at the front of
-    // queue acquired and released locks. This reduces the chance of deadlock,
-    // which makes transaction run more efficiently.
-
-    if (waiter_context.waiter_queue != nullptr) {
-      // If waiter_context is already initialized, it means current transaction
-      // already joined the lock queue.
-      // Don't move the lock position if it is already at the head of the queue
-      // or the lock waiters before it are ready to take the lock.
-      if (waiter_context.lock_waiter == waiter_queue->begin()) {
-        return;
-      }
-
-      auto prev_lock_waiter = waiter_context.lock_waiter;
-      prev_lock_waiter--;
-      if ((*prev_lock_waiter)->IsReady()) {
-        return;
-      }
-
-      // Remove existing lock waiter
-      waiter_queue->erase(waiter_context.lock_waiter);
+  // Wait until its turn to take the lock of this key within timeout_us.
+  // By default timeout_us == 0, which means wait forever
+  void JoinWaitQueue(LockInfo& lock_info, TransactionID id, bool exclusive,
+                     bool isUpgrade, KeyLockWaiterContext& waiter_context) {
+    if (lock_info.waiter_queue == nullptr) {
+      // no waiter queue yet, create a new one
+      lock_info.waiter_queue = std::make_unique<std::list<KeyLockWaiter*>>();
     }
 
-    auto it = waiter_queue->begin();
-    while (true) {
-      if (it == waiter_queue->end() || (*it)->exclusive) {
-        // insert waiter either at the end of the queue or before the first
-        // exlusive lock waiter.
-        waiter_context.lock_waiter =
-            waiter_queue->insert(it, GetKeyLockWaiter(id, exclusive));
-        break;
+    auto waiter_queue = lock_info.waiter_queue.get();
+    waiter_context.waiter_queue = waiter_queue;
+
+    if (isUpgrade) {
+      // If transaction is upgrading a shared lock to exclusive lock, prioritize
+      // it by moving its lock waiter before the first exclusive lock in the
+      // queue if there is one, or end of the queue if not exist. It will be
+      // able to acquire the lock after the other shared locks waiters at the
+      // front of queue acquired and released locks. This reduces the chance of
+      // deadlock, which makes transaction run more efficiently.
+
+      if (waiter_context.waiter_queue != nullptr) {
+        // If waiter_context is already initialized, it means current
+        // transaction already joined the lock queue. Don't move the lock
+        // position if it is already at the head of the queue or the lock
+        // waiters before it are ready to take the lock.
+        if (waiter_context.lock_waiter == waiter_queue->begin()) {
+          return;
+        }
+
+        auto prev_lock_waiter = waiter_context.lock_waiter;
+        prev_lock_waiter--;
+        if ((*prev_lock_waiter)->IsReady()) {
+          return;
+        }
+
+        // Remove existing lock waiter
+        waiter_queue->erase(waiter_context.lock_waiter);
       }
-      it++;
+
+      auto it = waiter_queue->begin();
+      while (true) {
+        if (it == waiter_queue->end() || (*it)->exclusive) {
+          // insert waiter either at the end of the queue or before the first
+          // exlusive lock waiter.
+          waiter_context.lock_waiter =
+              waiter_queue->insert(it, GetKeyLockWaiter(id, exclusive));
+          break;
+        }
+        it++;
+      }
+    } else {
+      // Otherwise, follow FIFO.
+      waiter_queue->emplace_back(GetKeyLockWaiter(id, exclusive));
+      waiter_context.lock_waiter = --waiter_queue->end();
     }
-  } else {
-    // Otherwise, follow FIFO.
-    waiter_queue->emplace_back(GetKeyLockWaiter(id, exclusive));
-    waiter_context.lock_waiter = --waiter_queue->end();
   }
-}
+
+  // Wait on an existing KeyLockWaiter until its turn to take the lock or
+  // timeout
+  Status WaitOnLock(std::list<KeyLockWaiter*>::iterator& lock_waiter,
+                    int64_t timeout_us = 0) {
+    Status ret;
+    if (timeout_us == 0) {
+      ret = (*lock_waiter)->Wait(stripe_mutex);
+    } else {
+      ret = (*lock_waiter)->WaitFor(stripe_mutex, timeout_us);
+    }
+    return ret;
+  }
+
+  // Mutex must be held before modifying keys map
+  std::shared_ptr<TransactionDBMutex> stripe_mutex;
+
+  // Condition Variable per stripe for waiting on a lock
+  std::shared_ptr<TransactionDBCondVar> stripe_cv;
+
+  // Locked keys mapped to the info about the transactions that locked them.
+  // TODO(agiardullo): Explore performance of other data structures.
+  UnorderedMap<std::string, LockInfo> keys;
+
+ private:
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
+
+  // key lock waiter, wrapped in thread local for reusing it across
+  // transactions.
+  ThreadLocalPtr& key_lock_waiter_;
+
+  // Return key lock waiter stored in thread local var, create on first use
+  KeyLockWaiter* GetKeyLockWaiter(TransactionID id, bool exclusive) {
+    KeyLockWaiter* waiter = nullptr;
+    if (key_lock_waiter_.Get() == nullptr) {
+      // create key lock waiter
+      key_lock_waiter_.Reset(
+          new KeyLockWaiter(mutex_factory_->AllocateCondVar(), id, exclusive));
+      waiter = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
+    } else {
+      waiter = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
+      waiter->Reset(id, exclusive);
+    }
+    return waiter;
+  }
+};
 
 // Map of #num_stripes LockMapStripes
 struct LockMap {
