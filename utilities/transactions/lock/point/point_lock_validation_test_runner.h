@@ -184,11 +184,11 @@ class PointLockValidationTestRunner {
 
     for (uint32_t thd_idx = 0; thd_idx < thread_count_; thd_idx++) {
       threads_.emplace_back([this, thd_idx]() {
+        auto txn = static_cast<PessimisticTransaction*>(
+            db_->BeginTransaction(WriteOptions(), txn_opt_));
+        auto txn_id = txn->GetID();
+        DEBUG_LOG_WITH_PREFIX("Thd %" PRIu32 " new txn\n", thd_idx);
         while (!shutdown_) {
-          auto txn = static_cast<PessimisticTransaction*>(
-              db_->BeginTransaction(WriteOptions(), txn_opt_));
-          auto txn_id = txn->GetID();
-          DEBUG_LOG_WITH_PREFIX("Thd %" PRIu32 " new txn\n", thd_idx);
           std::unordered_map<uint32_t, KeyStatus> locked_key_status;
           auto num_key_to_lock = max_num_keys_to_lock_per_txn_;
           Status s;
@@ -341,8 +341,8 @@ class PointLockValidationTestRunner {
             DEBUG_LOG_WITH_PREFIX("release lock %" PRIu32 "\n", key);
             locker_->UnLock(txn, 1, std::to_string(key), env_);
           }
-          delete txn;
         }
+        delete txn;
       });
     }
 

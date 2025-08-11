@@ -20,7 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr auto kDebugLog = false;
+constexpr bool kDebugLog = false;
 
 // KeyLockWaiter represents a waiter for a key lock. It contains a conditional
 // variable to allow waiter to wait for the key lock. It also contains other
@@ -246,15 +246,13 @@ struct KeyLockWaiterContext {
     }
   }
 
-  void Reset() {
+  ~KeyLockWaiterContext() {
     if (waiter_queue != nullptr && lock_waiter != waiter_queue->end()) {
       waiter_queue->erase(lock_waiter);
       lock_waiter = waiter_queue->end();
     }
     waiter_queue = nullptr;
   }
-
-  ~KeyLockWaiterContext() { Reset(); }
 };
 
 // Add a lock waiter to the wait queue. This lock waiter will be waited by the
@@ -262,9 +260,6 @@ struct KeyLockWaiterContext {
 void LockMapStripe::JoinWaitQueue(LockInfo& lock_info, TransactionID id,
                                   bool exclusive, bool isUpgrade,
                                   KeyLockWaiterContext& waiter_context) {
-  // Remove existing lock waiter if there is one.
-  waiter_context.Reset();
-
   if (lock_info.waiter_queue == nullptr) {
     // no waiter queue yet, create a new one
     lock_info.waiter_queue = std::make_unique<std::list<KeyLockWaiter*>>();
@@ -275,21 +270,40 @@ void LockMapStripe::JoinWaitQueue(LockInfo& lock_info, TransactionID id,
 
   if (isUpgrade) {
     // If transaction is upgrading a shared lock to exclusive lock, prioritize
-    // it by moving its exclusive lock request to the left of the first
-    // exclusive lock in the queue if there is one, or end of the queue if not
-    // exist. It will be able to acquire the lock after the other shared locks
-    // waiters at the front of queue acquired and released locks. This reduces
-    // the chance of deadlock, which makes transaction run more efficiently.
+    // it by moving its lock waiter before the first exclusive lock in the queue
+    // if there is one, or end of the queue if not exist. It will be able to
+    // acquire the lock after the other shared locks waiters at the front of
+    // queue acquired and released locks. This reduces the chance of deadlock,
+    // which makes transaction run more efficiently.
+
+    if (waiter_context.waiter_queue != nullptr) {
+      // If waiter_context is already initialized, it means current transaction
+      // already joined the lock queue.
+      // Don't move the lock position if it is already at the head of the queue
+      // or the lock waiters before it are ready to take the lock.
+      if (waiter_context.lock_waiter == waiter_queue->begin()) {
+        return;
+      }
+
+      auto prev_lock_waiter = waiter_context.lock_waiter;
+      prev_lock_waiter--;
+      if ((*prev_lock_waiter)->IsReady()) {
+        return;
+      }
+
+      // Remove existing lock waiter
+      waiter_queue->erase(waiter_context.lock_waiter);
+    }
+
     auto it = waiter_queue->begin();
     while (true) {
-      if (it == waiter_queue->end() || !(*it)->IsReady()) {
+      if (it == waiter_queue->end() || (*it)->exclusive) {
         // insert waiter either at the end of the queue or before the first
         // exlusive lock waiter.
         waiter_context.lock_waiter =
             waiter_queue->insert(it, GetKeyLockWaiter(id, exclusive));
         break;
       }
-      assert(!(*it)->exclusive);
       it++;
     }
   } else {
@@ -1417,9 +1431,8 @@ Status PerKeyPointLockManager::AcquireLocked(
   auto has_waiter =
       (lock_info.waiter_queue != nullptr) && !lock_info.waiter_queue->empty();
 
-  // Check whether there is a shared lock waiter that is ready to take the lock,
-  // but have not taken it yet, then current transaction is not the solo lock
-  // owner.
+  // If there is a shared lock waiter that is ready to take the lock, the
+  // current transaction would not be the solo lock owner.
   auto has_ready_shared_lock_waiter =
       has_waiter && lock_info.waiter_queue->front()->IsReady() &&
       (!lock_info.waiter_queue->front()->exclusive);
@@ -1486,7 +1499,7 @@ Status PerKeyPointLockManager::AcquireLocked(
         // For exclusive lock, it traverse the queue from front to back to
         // handle upgrade
         for (auto& waiter : *lock_info.waiter_queue) {
-          if (*isUpgrade && !waiter->IsReady()) {
+          if (*isUpgrade && waiter->exclusive) {
             // For upgrade locks, it will be placed at the beginning of
             // the queue. However, for shared lock waiters that are at
             // the beginning of the queue that got waked up but haven't
