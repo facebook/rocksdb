@@ -326,6 +326,16 @@ struct TransactionOptions {
 
   // Timeout in microseconds before perform dead lock detection.
   // If 0, deadlock detection will be performed immediately.
+  //
+  // To optimize performance, this parameter could be tuned.
+  //
+  // When deadlock happens very frequently, deadlock timeout should be set to 0,
+  // so deadlock will be detected immediately.
+  //
+  // When deadlock happen very rarely, this timeout could be turned to be
+  // slightly longer than the typical transaction execution time, so that
+  // transaction will be waked up to take the lock before this timeout, which
+  // will allow the transaction to save the CPU time on deadlock detection.
   int64_t deadlock_timeout_us = 1000;
 
   // Expiration duration in milliseconds.  If non-negative, transactions that

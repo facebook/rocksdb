@@ -139,19 +139,6 @@ struct LockMapStripe {
     assert(stripe_cv);
   }
 
-  LockInfo* GetLockInfo(const std::string& key) {
-    // find lock info for key
-    auto lock_info_iter = keys.find(key);
-
-    // key should have been created by another transaction which is holding a
-    // lock on it.
-    if (lock_info_iter != keys.end()) {
-      return &lock_info_iter->second;
-    } else {
-      return nullptr;
-    }
-  }
-
   // Wait until its turn to take the lock of this key within timeout_us.
   // By default timeout_us == 0, which means wait forever
   void JoinWaitQueue(LockInfo& lock_info, TransactionID id, bool exclusive,
@@ -182,8 +169,12 @@ struct LockMapStripe {
 
  private:
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
+
+  // key lock waiter, wrapped in thread local for reusing it across
+  // transactions.
   ThreadLocalPtr& key_lock_waiter_;
 
+  // Return key lock waiter stored in thread local var, create on first use
   KeyLockWaiter* GetKeyLockWaiter(TransactionID id, bool exclusive) {
     KeyLockWaiter* waiter = nullptr;
     if (key_lock_waiter_.Get() == nullptr) {
@@ -199,6 +190,7 @@ struct LockMapStripe {
   }
 };
 
+// Print debug info for lock waiter wake up action.
 void DebugWakeUpWaiter(TransactionID txn_id, TransactionID waiter_id,
                        const std::string& key, const std::string& msg) {
   if (kDebugLog) {
@@ -216,55 +208,31 @@ struct KeyLockWaiterContext {
   std::list<KeyLockWaiter*>* waiter_queue = nullptr;
   std::list<KeyLockWaiter*>::iterator lock_waiter;
 
-  // When a lock waiter is aborted due to dead lock or time out, it should wake
-  // up the waiters after it, if they could proceed.
-  // The reason we need this function is because we added a deadlock timeout.
-  // The deadlock detection is expensive to perform, therefore, when transaction
-  // wait for its lock, it first wait for a short period of time before perform
-  // dead lock detection. Therefore, it is possible that deadlock detection is
-  // delayed. When this happens, it needs to wake up the rest of the locks
-  // waiting in the queue. E.g.
-  // Initially, Txn 1 hold the Shared lock on key A. Txn 2 hold the Shared lock
-  // on key B. Txn 2 try to take Exclusive lock on key A. Txn 2 depends on Txn
-  // 1.
-  // Schedule:
-  // Step 1: Txn 1 try to take Exclusive lock. It didn't perform dead lock
-  //    detection when it initially try to wait the lock.
-  // Step 2: Txn 3 try to take Shared lock on key B. It found Txn 1 is waiting
-  //    in the queue, so it waits in the queue after Txn 1.
-  // Step 3: Txn 1 wait timeout, then check dead lock detection. It found there
-  //    is a dead lock with Txn 2. It aborts the transaction, and removed its
-  //    lock waiter on key B. Now, the lock wait queue only contains shared lock
-  //    request from Txn 3. Txn 3 will only try to take the lock until its wait
-  //    timed out. To wake up Txn 3 early, when Txn 2 remove its lock waiter, it
-  //    call this function to wake up Txn 3.
-  //
-  // Note that, the same situation could happen due to lock timeout on Txn 2 as
-  // well.
+  // When a lock waiter is aborted due to dead lock or time out, this function
+  // is used to wake up the waiters after it, if they could proceed.
   void TryWakeUpNextWaiters(const LockInfo& lock_info, const std::string& key) {
     if (waiter_queue != nullptr && lock_waiter != waiter_queue->end()) {
-      bool wake_up_next = false;
+      bool wake_up_next_shared_waiters = false;
 
       if (lock_waiter == waiter_queue->begin()) {
         // if lock waiter is at the head of the queue, check the current lock
         // status. If it is exclusive lock, no waiter should be woken up. other
-        // wise, wake up shared lock waiters on the right side of itself.
-        wake_up_next = !lock_info.exclusive;
+        // wise, try to wake up shared lock waiters on the right side of itself.
+        wake_up_next_shared_waiters = !lock_info.exclusive;
       } else {
         // if lock waiter is not at the head of the queue, check the previous
-        // lock status. If it is active and shared, it should wake up the shared
-        // lock waiter on the right side of itself.
+        // lock status. If it is active and shared, it should try to wake up the
+        // shared lock waiter on the right side of itself.
         auto lock_waiter_prev = lock_waiter;
         lock_waiter_prev--;
-        wake_up_next =
+        wake_up_next_shared_waiters =
             (*lock_waiter_prev)->IsReady() && !(*lock_waiter_prev)->exclusive;
       }
 
-      if (wake_up_next) {
-        // If it should wake up next waiters, it should only be shared lock
-        // waiters. Go through all the waiters on the right side of the lock
-        // waiter and wake up the shared lock waiter until the end of the queue
-        // or encountered an exclusive lock waiter
+      if (wake_up_next_shared_waiters) {
+        // Go through all the waiters on the right side of the lock waiter and
+        // wake up the shared lock waiter until the end of the queue or
+        // encountered an exclusive lock waiter.
         auto lock_waiter_next = lock_waiter;
         lock_waiter_next++;
         while (lock_waiter_next != waiter_queue->end() &&
@@ -281,6 +249,7 @@ struct KeyLockWaiterContext {
   void Reset() {
     if (waiter_queue != nullptr && lock_waiter != waiter_queue->end()) {
       waiter_queue->erase(lock_waiter);
+      lock_waiter = waiter_queue->end();
     }
     waiter_queue = nullptr;
   }
@@ -288,10 +257,12 @@ struct KeyLockWaiterContext {
   ~KeyLockWaiterContext() { Reset(); }
 };
 
+// Add a lock waiter to the wait queue. This lock waiter will be waited by the
+// current thread later for waiting for its turn to acquire the lock
 void LockMapStripe::JoinWaitQueue(LockInfo& lock_info, TransactionID id,
                                   bool exclusive, bool isUpgrade,
                                   KeyLockWaiterContext& waiter_context) {
-  // reset waiter context
+  // Remove existing lock waiter if there is one.
   waiter_context.Reset();
 
   if (lock_info.waiter_queue == nullptr) {
@@ -299,18 +270,16 @@ void LockMapStripe::JoinWaitQueue(LockInfo& lock_info, TransactionID id,
     lock_info.waiter_queue = std::make_unique<std::list<KeyLockWaiter*>>();
   }
 
-  // the unique_ptr might get moved, when the container moves elements around,
-  // but the pointer unique_ptr held is stable.
   auto waiter_queue = lock_info.waiter_queue.get();
   waiter_context.waiter_queue = waiter_queue;
 
   if (isUpgrade) {
     // If transaction is upgrading a shared lock to exclusive lock, prioritize
     // it by moving its exclusive lock request to the left of the first
-    // exclusive lock in the queue if there is one, or end of the queue if
-    // not exist. It will be able to acquire the lock after the shared
-    // locks waiters at the front of queue acquired locks. This reduces the
-    // chance of deadlock, which makes transaction run more efficiently
+    // exclusive lock in the queue if there is one, or end of the queue if not
+    // exist. It will be able to acquire the lock after the other shared locks
+    // waiters at the front of queue acquired and released locks. This reduces
+    // the chance of deadlock, which makes transaction run more efficiently.
     auto it = waiter_queue->begin();
     while (true) {
       if (it == waiter_queue->end() || !(*it)->IsReady()) {
@@ -1108,7 +1077,12 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   // AcquireWithTimeout function return. The reason is that when stripe_mutex is
   // released, current transaction will wait in the waiter queue, which will
   // prevent the lock_info to be freed.
-  auto lock_info = stripe->GetLockInfo(key);
+  LockInfo* lock_info = nullptr;
+  auto lock_info_iter = stripe->keys.find(key);
+  if (lock_info_iter != stripe->keys.end()) {
+    lock_info = &lock_info_iter->second;
+  }
+
   auto wait_before_deadlock_detection =
       txn->IsDeadlockDetect() && (deadlock_timeout_us > 0);
   result = AcquireLocked(
