@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.5.2 (08/12/2025)
+### Bug Fixes
+* Make the User Defined Index interface consistently use the user key format, fixing the previous mixed usage of internal and user key.
+
 ## 10.5.1 (08/04/2025)
 ### Bug Fixes
 * Fixed a bug in remote compaction that may mistakenly delete live SST file(s) during the cleanup phase when no keys survive the compaction (all expired)
