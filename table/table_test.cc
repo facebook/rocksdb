@@ -7479,8 +7479,11 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
                           const Slice* first_key_in_next_block,
                           const BlockHandle& block_handle,
                           std::string* separator_scratch) override {
+        EXPECT_EQ(last_key_in_current_block.size(), 5);
+        if (first_key_in_next_block) {
+          EXPECT_EQ(first_key_in_next_block->size(), 5);
+        }
         // Unused parameters
-        (void)first_key_in_next_block;
         (void)separator_scratch;
         entries_added_++;
         // Store the block handle for each key
@@ -7494,8 +7497,9 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
         return last_key_in_current_block;
       }
 
-      void OnKeyAdded(const Slice& /*key*/, ValueType /*value*/,
+      void OnKeyAdded(const Slice& key, ValueType /*value*/,
                       const Slice& /*value*/) override {
+        EXPECT_EQ(key.size(), 5);
         // Track keys added to the index
         keys_added_++;
       }

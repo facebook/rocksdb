@@ -46,9 +46,24 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     handle.offset = block_handle.offset();
     handle.size = block_handle.size();
     // Forward the call to both index builders
-    user_defined_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                               first_key_in_next_block, handle,
-                                               separator_scratch);
+    ParsedInternalKey pkey_last;
+    ParsedInternalKey pkey_first;
+    // There's no way to return an error here, so we remember the statsu and
+    // return it in Finish()
+    if (status_.ok()) {
+      status_ = ParseInternalKey(last_key_in_current_block, &pkey_last,
+                                 /*lof_err_key*/ false);
+    }
+    if (status_.ok() && first_key_in_next_block) {
+      status_ = ParseInternalKey(*first_key_in_next_block, &pkey_first,
+                                 /*lof_err_key*/ false);
+    }
+    if (status_.ok()) {
+      user_defined_index_builder_->AddIndexEntry(
+          pkey_last.user_key,
+          first_key_in_next_block ? &pkey_first.user_key : nullptr, handle,
+          separator_scratch);
+    }
     return internal_index_builder_->AddIndexEntry(
         last_key_in_current_block, first_key_in_next_block, block_handle,
         separator_scratch);
@@ -76,6 +91,12 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
     // Forward the call to both index builders
     internal_index_builder_->OnKeyAdded(key, value);
+
+    // Pass the user key to the UDI. We don't expect multiple entries with
+    // different sequence numbers for the same key in the file. RocksDB may
+    // enforce it in the future by allowing UDIs only for read only
+    // bulkloaded use cases, and only allow ingestion of files with
+    // sequence number 0.
     user_defined_index_builder_->OnKeyAdded(
         pkey.user_key, UserDefinedIndexBuilder::ValueType::kValue,
         value.value());
@@ -149,23 +170,41 @@ class UserDefinedIndexIteratorWrapper
     status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
     if (status_.ok()) {
       status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_);
-      valid_ = status_.ok() &&
-               result_.bound_check_result == IterBoundCheck::kInbound;
+      if (status_.ok()) {
+        valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+        if (valid_) {
+          ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        }
+      }
+    } else {
+      valid_ = false;
     }
   }
 
   void Next() override {
     status_ = udi_iter_->NextAndGetResult(&result_);
-    valid_ =
-        status_.ok() && result_.bound_check_result == IterBoundCheck::kInbound;
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+      }
+    } else {
+      valid_ = false;
+    }
   }
 
   bool NextAndGetResult(IterateResult* result) override {
     status_ = udi_iter_->NextAndGetResult(&result_);
-    valid_ =
-        status_.ok() && result_.bound_check_result == IterBoundCheck::kInbound;
     if (status_.ok()) {
-      *result = result_;
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+      }
+      if (status_.ok()) {
+        *result = result_;
+      }
+    } else {
+      valid_ = false;
     }
     return valid_;
   }
@@ -176,7 +215,7 @@ class UserDefinedIndexIteratorWrapper
 
   void Prev() override { status_ = Status::NotSupported("Prev not supported"); }
 
-  Slice key() const override { return result_.key; }
+  Slice key() const override { return Slice(*ikey_.const_rep()); }
 
   IndexValue value() const override {
     auto handle = udi_iter_->value();
@@ -196,6 +235,7 @@ class UserDefinedIndexIteratorWrapper
  private:
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;
+  InternalKey ikey_;
   Status status_;
   bool valid_;
 };
