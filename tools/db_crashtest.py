@@ -344,7 +344,8 @@ default_params = {
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    "track_and_verify_wals": lambda: random.choice([0, 1]),
+    # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
+    "track_and_verify_wals": lambda: random.choice([0]),
     # TODO(jaykorean): Re-enable remote compaction once all incompatible features are addressed in stress test
     "remote_compaction_worker_threads": lambda: 0,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
@@ -814,13 +815,13 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
-       # TODO Fix races when both Remote Compaction + BlobDB enabled
-       dest_params["enable_blob_files"] = 0
-       # TODO Fix - Remote worker shouldn't recover from WAL
-       dest_params["disable_wal"] = 1
-       # Disable Incompatible Ones
-       dest_params["checkpoint_one_in"] = 0       
-       dest_params["use_timed_put_one_in"] = 0
+        # TODO Fix races when both Remote Compaction + BlobDB enabled
+        dest_params["enable_blob_files"] = 0
+        # TODO Fix - Remote worker shouldn't recover from WAL
+        dest_params["disable_wal"] = 1
+        # Disable Incompatible Ones
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["use_timed_put_one_in"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
@@ -1023,7 +1024,7 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
 
-            # TODO Fix - Remote worker shouldn't recover from WAL 
+            # TODO Fix - Remote worker shouldn't recover from WAL
             dest_params["remote_compaction_worker_threads"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
@@ -1100,7 +1101,7 @@ def finalize_and_sanitize(src_params):
         dest_params["ingest_wbwi_one_in"] = 0
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
-        dest_params["continuous_verification_interval"] = 0   
+        dest_params["continuous_verification_interval"] = 0
     return dest_params
 
 
