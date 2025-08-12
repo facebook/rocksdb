@@ -57,7 +57,8 @@ class UserDefinedIndexBuilder {
   // all the keys in the data block associated with the new index entry.
   //
   // The last_key_in_current_block and first_key_in_next_block will be user
-  // keys, i.e just the string portion without a sequence number suffix.
+  // keys, i.e the user key string, and optionally the user timestamp if one
+  // is configured, without a sequence number suffix.
   //
   // Called before the OnKeyAdded() call for first_key_in_next_block.
   // @last_key_in_current_block: The last key in the current data block
