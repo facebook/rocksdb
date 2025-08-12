@@ -1062,7 +1062,7 @@ struct BlockBasedTableBuilder::Rep {
       char* ptr = compression_name.data() + pos;
       // Populate the field contents
       for (CompressionType t : compression_types_used) {
-        PutBaseChars<16>(&ptr, /*digits=*/2, static_cast<unsigned char>(t),
+        PutBaseChars<16>(&ptr, /*n=*/2, static_cast<unsigned char>(t),
                          /*uppercase=*/true);
       }
       assert(ptr == compression_name.data() + pos + ctype_count * 2);
@@ -1827,14 +1827,15 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   IndexBuilder::IndexBlocks index_blocks;
   auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
-  if (index_builder_status.IsIncomplete()) {
-    // We we have more than one index partition then meta_blocks are not
-    // supported for the index. Currently meta_blocks are used only by
-    // HashIndexBuilder which is not multi-partition.
-    assert(index_blocks.meta_blocks.empty());
-  } else if (ok() && !index_builder_status.ok()) {
+  if (ok() && !index_builder_status.ok() &&
+      !index_builder_status.IsIncomplete()) {
+    // If the index builder failed for non-Incomplete errors, we should
+    // mark the entire builder as having failed wit that status. However,
+    // If the index builder failed with an incomplete error, we should
+    // continue writing out any meta blocks that may have been generated.
     rep_->SetStatus(index_builder_status);
   }
+
   if (ok()) {
     for (const auto& item : index_blocks.meta_blocks) {
       BlockHandle block_handle;

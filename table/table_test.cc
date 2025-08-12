@@ -2059,7 +2059,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
 
   // Simple
   PrefetchRange(&c, &opt, &table_options,
-                /*key_range=*/"k01", "k05",
+                /*key_begin=*/"k01", /*key_end=*/"k05",
                 /*keys_in_cache=*/{"k01", "k02", "k03", "k04", "k05"},
                 /*keys_not_in_cache=*/{"k06", "k07"});
   PrefetchRange(&c, &opt, &table_options, "k01", "k01", {"k01", "k02", "k03"},
@@ -7679,9 +7679,12 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
           index_data_;
     };
   };
+
+ protected:
+  void BasicTest(bool use_partitioned_index);
 };
 
-TEST_F(UserDefinedIndexTest, BasicTest) {
+void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
   Options options;
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
@@ -7691,7 +7694,11 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-
+  if (use_partitioned_index) {
+    table_options.partition_filters = true;
+    table_options.decouple_partitioned_filters = true;
+    table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  }
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
@@ -7831,6 +7838,14 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   // The index may undercount by 2 blocks
   ASSERT_LE(key_count, 30);
   ASSERT_OK(iter->status());
+}
+
+TEST_F(UserDefinedIndexTest, BasicTestWithPartitionedIndex) {
+  BasicTest(/*use_partitioned_index=*/true);
+}
+
+TEST_F(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
+  BasicTest(/*use_partitioned_index=*/false);
 }
 
 TEST_F(UserDefinedIndexTest, InvalidArgumentTest1) {

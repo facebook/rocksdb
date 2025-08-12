@@ -56,13 +56,13 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   void OnKeyAdded(const Slice& key,
                   const std::optional<Slice>& value) override {
+    ParsedInternalKey pkey;
     if (status_.ok()) {
       if (!value.has_value()) {
         status_ = Status::InvalidArgument(
             "user_defined_index_factory not supported with parallel "
             "compression");
       } else {
-        ParsedInternalKey pkey;
         status_ = ParseInternalKey(key, &pkey, /*lof_err_key*/ false);
         if (status_.ok() && pkey.type != ValueType::kTypeValue) {
           status_ = Status::InvalidArgument(
@@ -77,13 +77,29 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     // Forward the call to both index builders
     internal_index_builder_->OnKeyAdded(key, value);
     user_defined_index_builder_->OnKeyAdded(
-        key, UserDefinedIndexBuilder::ValueType::kValue, value.value());
+        pkey.user_key, UserDefinedIndexBuilder::ValueType::kValue,
+        value.value());
   }
 
   Status Finish(IndexBlocks* index_blocks,
                 const BlockHandle& last_partition_block_handle) override {
-    if (!status_.ok()) {
+    if (!status_.ok() && !status_.IsIncomplete()) {
       return status_;
+    }
+
+    if (!udi_finished_) {
+      // Finish the user defined index builder
+      Slice user_index_contents;
+      status_ = user_defined_index_builder_->Finish(&user_index_contents);
+      if (!status_.ok()) {
+        return status_;
+      }
+
+      // Add the user defined index to the meta blocks
+      std::string block_name = kUserDefinedIndexPrefix + name_;
+      index_blocks->meta_blocks.insert(
+          {block_name, {BlockType::kUserDefinedIndex, user_index_contents}});
+      udi_finished_ = true;
     }
 
     // Finish the internal index builder
@@ -92,18 +108,6 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     if (!status_.ok()) {
       return status_;
     }
-
-    // Finish the user defined index builder
-    Slice user_index_contents;
-    status_ = user_defined_index_builder_->Finish(&user_index_contents);
-    if (!status_.ok()) {
-      return status_;
-    }
-
-    // Add the user defined index to the meta blocks
-    std::string block_name = kUserDefinedIndexPrefix + name_;
-    index_blocks->meta_blocks.insert(
-        {block_name, {BlockType::kUserDefinedIndex, user_index_contents}});
 
     index_size_ = internal_index_builder_->IndexSize();
     return status_;
@@ -120,6 +124,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   std::unique_ptr<IndexBuilder> internal_index_builder_;
   std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder_;
   Status status_;
+  bool udi_finished_ = false;
 };
 
 class UserDefinedIndexIteratorWrapper
