@@ -1504,6 +1504,7 @@ if(WITH_TESTS)
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
         utilities/transactions/lock/point/point_lock_manager_test.cc
+        utilities/transactions/lock/point/point_lock_manager_stress_test.cc
         utilities/transactions/write_committed_transaction_ts_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
@@ -1613,6 +1614,12 @@ if(WITH_BENCHMARK_TOOLS)
   add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
+
+  add_executable(point_lock_bench${ARTIFACT_SUFFIX}
+    utilities/transactions/lock/point/point_lock_bench.cc
+    utilities/transactions/lock/point/point_lock_bench_tool.cc)
+  target_link_libraries(point_lock_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 endif()
 

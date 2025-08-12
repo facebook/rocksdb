@@ -14,26 +14,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 INSTANTIATE_TEST_CASE_P(
-    DBAsBaseDB, WriteCommittedTxnWithTsTest,
-    ::testing::Values(std::make_tuple(false, /*two_write_queue=*/false,
-                                      /*enable_indexing=*/false),
-                      std::make_tuple(false, /*two_write_queue=*/true,
-                                      /*enable_indexing=*/false),
-                      std::make_tuple(false, /*two_write_queue=*/false,
-                                      /*enable_indexing=*/true),
-                      std::make_tuple(false, /*two_write_queue=*/true,
-                                      /*enable_indexing=*/true)));
-
-INSTANTIATE_TEST_CASE_P(
-    DBAsStackableDB, WriteCommittedTxnWithTsTest,
-    ::testing::Values(std::make_tuple(true, /*two_write_queue=*/false,
-                                      /*enable_indexing=*/false),
-                      std::make_tuple(true, /*two_write_queue=*/true,
-                                      /*enable_indexing=*/false),
-                      std::make_tuple(true, /*two_write_queue=*/false,
-                                      /*enable_indexing=*/true),
-                      std::make_tuple(true, /*two_write_queue=*/true,
-                                      /*enable_indexing=*/true)));
+    DBAsBaseDBAndStackableDB, WriteCommittedTxnWithTsTest,
+    ::testing::Combine(/*use_stackable_db=*/::testing::Bool(),
+                       /*two_write_queue=*/::testing::Bool(),
+                       /*use_per_key_point_lock_mgr=*/::testing::Bool(),
+                       /*enable_indexing=*/::testing::Bool()));
 
 TEST_P(WriteCommittedTxnWithTsTest, SanityChecks) {
   ASSERT_OK(ReOpenNoDelete());
@@ -308,7 +293,7 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   }
 
   // Check (key, value, ts) with overwrites in txn before `SetCommitTimestamp`.
-  if (std::get<2>(GetParam())) {  // enable_indexing = true
+  if (std::get<3>(GetParam())) {  // enable_indexing = true
     std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
     CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
   }
@@ -318,7 +303,7 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   ASSERT_OK(txn1->SetCommitTimestamp(write_ts_int));
 
   // Check (key, value, ts) with overwrites in txn after `SetCommitTimestamp`.
-  if (std::get<2>(GetParam())) {  // enable_indexing = true
+  if (std::get<3>(GetParam())) {  // enable_indexing = true
     std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
     CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
   }
