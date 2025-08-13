@@ -297,6 +297,115 @@ class CompactionJob {
   CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
 
+  struct CompactionIOStatsSnapshot {
+    PerfLevel prev_perf_level = PerfLevel::kEnableTime;
+    uint64_t prev_write_nanos = 0;
+    uint64_t prev_fsync_nanos = 0;
+    uint64_t prev_range_sync_nanos = 0;
+    uint64_t prev_prepare_write_nanos = 0;
+    uint64_t prev_cpu_write_nanos = 0;
+    uint64_t prev_cpu_read_nanos = 0;
+  };
+
+  struct SubcompactionKeyBoundaries {
+    const std::optional<const Slice> start;
+    const std::optional<const Slice> end;
+
+    // Boundaries without timestamps for read options
+    std::optional<Slice> start_without_ts;
+    std::optional<Slice> end_without_ts;
+
+    // Timestamp management
+    static constexpr char kMaxTs[] =
+        "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+    std::string max_ts;
+    Slice ts_slice;
+
+    // Internal key boundaries
+    IterKey start_ikey;
+    IterKey end_ikey;
+    Slice start_internal_key;
+    Slice end_internal_key;
+
+    // User key boundaries
+    Slice start_user_key;
+    Slice end_user_key;
+
+    SubcompactionKeyBoundaries(std::optional<const Slice> start_boundary,
+                               std::optional<const Slice> end_boundary)
+        : start(start_boundary), end(end_boundary) {}
+  };
+
+  struct SubcompactionInternalIterators {
+    std::unique_ptr<InternalIterator> raw_input;
+    std::unique_ptr<InternalIterator> clip;
+    std::unique_ptr<InternalIterator> blob_counter;
+    std::unique_ptr<InternalIterator> trim_history_iter;
+  };
+
+  struct BlobFileResources {
+    std::vector<std::string> blob_file_paths;
+    std::unique_ptr<BlobFileBuilder> blob_file_builder;
+  };
+
+  bool ShouldUseLocalCompaction(SubcompactionState* sub_compact);
+  CompactionIOStatsSnapshot InitializeIOStats();
+  Status SetupAndValidateCompactionFilter(
+      SubcompactionState* sub_compact,
+      const CompactionFilter* configured_compaction_filter,
+      const CompactionFilter*& compaction_filter,
+      std::unique_ptr<CompactionFilter>& compaction_filter_from_factory);
+  void SetupRangeDelAggregator(SubcompactionState* sub_compact,
+                               ColumnFamilyData* cfd);
+  void InitializeReadOptions(ColumnFamilyData* cfd, ReadOptions& read_options,
+                             SubcompactionKeyBoundaries& boundaries);
+  InternalIterator* CreateInputIterator(
+      SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+      SubcompactionInternalIterators& iterators,
+      SubcompactionKeyBoundaries& boundaries, ReadOptions& read_options);
+  void CreateBlobFileBuilder(SubcompactionState* sub_compact,
+                             ColumnFamilyData* cfd,
+                             BlobFileResources& blob_resources,
+                             const WriteOptions& write_options);
+  std::unique_ptr<CompactionIterator> CreateCompactionIterator(
+      SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+      InternalIterator* input_iter, const CompactionFilter* compaction_filter,
+      MergeHelper& merge, BlobFileResources& blob_resources,
+      const WriteOptions& write_options);
+  std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc> CreateFileHandlers(
+      SubcompactionState* sub_compact, SubcompactionKeyBoundaries& boundaries);
+  Status ProcessKeyValue(SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+                         CompactionIterator* c_iter,
+                         const CompactionFileOpenFunc& open_file_func,
+                         const CompactionFileCloseFunc& close_file_func,
+                         uint64_t& prev_cpu_micros);
+  void UpdateCompactionStatsIncrementally(
+      CompactionIterator* c_iter, CompactionJobStats* compaction_job_stats,
+      uint64_t cur_cpu_micros, uint64_t& prev_cpu_micros);
+  void UpdateCompactionStats(SubcompactionState* sub_compact,
+                             CompactionIterator* c_iter,
+                             uint64_t start_cpu_micros,
+                             uint64_t prev_cpu_micros,
+                             const CompactionIOStatsSnapshot& io_stats);
+  Status FinalizeProcessKeyValueStatus(ColumnFamilyData* cfd,
+                                       InternalIterator* input_iter,
+                                       CompactionIterator* c_iter,
+                                       Status status);
+  Status CleanupCompactionFiles(SubcompactionState* sub_compact, Status status,
+                                const CompactionFileOpenFunc& open_file_func,
+                                const CompactionFileCloseFunc& close_file_func);
+  Status FinalizeBlobFiles(SubcompactionState* sub_compact,
+                           BlobFileBuilder* blob_file_builder, Status status);
+  void FinalizeSubcompaction(SubcompactionState* sub_compact, Status status,
+                             const CompactionFileOpenFunc& open_file_func,
+                             const CompactionFileCloseFunc& close_file_func,
+                             BlobFileBuilder* blob_file_builder,
+                             CompactionIterator* c_iter,
+                             InternalIterator* input_iter,
+                             uint64_t start_cpu_micros,
+                             uint64_t prev_cpu_micros,
+                             const CompactionIOStatsSnapshot& io_stats);
+
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
 
