@@ -115,12 +115,7 @@ struct LockInfo {
     txn_ids.push_back(id);
   }
 
-  // disable copy constructor and assignment operator, move and move
-  // assignment
-  LockInfo(const LockInfo&) = delete;
-  LockInfo& operator=(const LockInfo&) = delete;
-  LockInfo(LockInfo&&) = delete;
-  LockInfo& operator=(LockInfo&&) = delete;
+  DECLARE_DEFAULT_MOVES(LockInfo);
 
   // waiter queue for this key
   std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;
@@ -202,6 +197,15 @@ struct LockMapStripe {
     assert(stripe_cv);
   }
 
+  LockInfo* GetLockInfo(const std::string& key) {
+    auto lock_info_iter = keys.find(key);
+    if (lock_info_iter != keys.end()) {
+      return &lock_info_iter->second;
+    } else {
+      return nullptr;
+    }
+  }
+
   // Wait until its turn to take the lock of this key within timeout_us.
   // By default timeout_us == 0, which means wait forever
   void JoinWaitQueue(LockInfo& lock_info, TransactionID id, bool exclusive,
@@ -254,8 +258,8 @@ struct LockMapStripe {
       }
     } else {
       // Otherwise, follow FIFO.
-      waiter_queue->emplace_back(GetKeyLockWaiter(id, exclusive));
-      waiter_context.lock_waiter = --waiter_queue->end();
+      waiter_context.lock_waiter = waiter_queue->insert(
+          waiter_queue->end(), GetKeyLockWaiter(id, exclusive));
     }
   }
 
@@ -280,8 +284,7 @@ struct LockMapStripe {
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
-  // Use std::unordered_map for value pointer stability
-  std::unordered_map<std::string, LockInfo> keys;
+  UnorderedMap<std::string, LockInfo> keys;
 
  private:
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
@@ -1095,15 +1098,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   autovector<TransactionID> wait_ids;
   bool isUpgrade = false;
 
-  // lock_info pointer is stable and will remain to be valid until
-  // AcquireWithTimeout function return. The reason is that when stripe_mutex is
-  // released, current transaction will wait in the waiter queue, which will
-  // prevent the lock_info to be freed.
-  LockInfo* lock_info = nullptr;
-  auto lock_info_iter = stripe->keys.find(key);
-  if (lock_info_iter != stripe->keys.end()) {
-    lock_info = &lock_info_iter->second;
-  }
+  auto lock_info = stripe->GetLockInfo(key);
 
   auto wait_before_deadlock_detection =
       txn->IsDeadlockDetect() && (deadlock_timeout_us > 0);
@@ -1154,14 +1149,21 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
             key_lock_waiter_ctx.lock_waiter,
             std::min(cv_end_time - now, (int64_t)deadlock_timeout_us));
         assert(result.ok() || result.IsTimedOut());
+        // Refresh lock info pointer, as this pointer is not guaranteed to be
+        // stable in folly
+        lock_info = stripe->GetLockInfo(key);
+        // try to take a lock again to get wait ids after deadlock timeout
+        result = AcquireLocked(lock_map, stripe, key, env, &lock_info,
+                               txn_lock_info, &expire_time_hint, &wait_ids,
+                               &isUpgrade, !result.ok());
+      } else {
+        // Already timed out
+        timed_out = true;
+        result = Status::TimedOut(Status::SubCode::kLockTimeout);
       }
-      // try to take a lock again to get wait ids after deadlock timeout
-      result =
-          AcquireLocked(lock_map, stripe, key, env, &lock_info, txn_lock_info,
-                        &expire_time_hint, &wait_ids, &isUpgrade, !result.ok());
     }
 
-    while (!result.ok()) {
+    while (!result.ok() && !timed_out) {
       // Refresh wait end time
       cv_end_time = CalculateWaitEndTime(expire_time_hint, end_time);
 
@@ -1257,6 +1259,11 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         // were never signaled).
       }
       assert(result.ok() || result.IsTimedOut());
+
+      // Refresh lock info pointer, as this pointer is not guaranteed to be
+      // stable in folly
+      lock_info = stripe->GetLockInfo(key);
+
       // Try to get the lock again.
       result = AcquireLocked(
           lock_map, stripe, key, env, &lock_info, txn_lock_info,
@@ -1265,20 +1272,10 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
            * Therefore, it should still follow FIFO order. */
           timed_out);
       if (!timed_out && !result.ok()) {
-        // As mentioned above, even if it is turn to take the lock, it is not
-        // always able to.
-        // E.g.
-        // 1. txn0 and txn1 owns a S lock with expiration T1
-        // 2. txn2 try to take X lock, and wait until expiration T1
-        // 3. txn1 try to upgrade to X lock. It is prioritized over other X lock
-        // request, so it is moved to the head of the wait queue.
-        // 4. txn0 unlock, and notify txn1 to take the lock.
-        // 5. txn2 is waked up and try to take the lock. At this
-        // point, txn1 S lock is expired, so txn2 is free to steal the lock.
-        // 6. txn1 wake up and try to take the lock, but found its shared lock
-        // has been stolen.
-        //
-        // In this case, just give up the attempt.
+        // If it is its turn, but it failed to take lock, something is broken.
+        // Assert this should not happen in debug build during testing.
+        // In prod, it simply gives up the attempt.
+        assert(false);
         break;
       }
 
@@ -1286,7 +1283,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         if (static_cast<int64_t>(end_time) <= now) {
           // lock timeout timed out
           result = Status::TimedOut(Status::SubCode::kLockTimeout);
-          break;
+          timed_out = true;
         }
       }
     }
@@ -1320,7 +1317,13 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
 // locks.
 //
 // fifo flag indicates whether it should follow fifo order to check whether
-// there is already a waiter waiting for the lock or not.
+// there is already a waiter waiting for the lock or not. If fifo is true and
+// there is already a lock waiter waiting in the queue and it is not itself,
+// return TimedOut. If fifo is false, it means it is its turn to take the lock,
+// skip the wait queue and try to take the lock by checking the current lock
+// status. Note that in most of the cases, when fifo is set to false, it is able
+// to take the lock. However, it is not guaranteed. Due to lock expiration, it
+// could fail to take the lock. Please see the example above.
 //
 // TODO xingbo go through comments for the rest of the files, fix broken test.
 // Add more unit test for deadlock timeout
