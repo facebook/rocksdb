@@ -1154,16 +1154,18 @@ size_t DBTestBase::CountLiveFiles() {
 }
 
 int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
-  std::string property;
-  if (cf == 0) {
-    // default cfd
-    EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + std::to_string(level), &property));
-  } else {
-    EXPECT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.num-files-at-level" + std::to_string(level),
-        &property));
+  return NumTableFilesAtLevel(level,
+                              cf ? handles_[cf] : db_->DefaultColumnFamily());
+}
+
+int DBTestBase::NumTableFilesAtLevel(int level, ColumnFamilyHandle* cfh,
+                                     DB* db) {
+  if (!db) {
+    db = db_;
   }
+  std::string property;
+  EXPECT_TRUE(db->GetProperty(
+      cfh, "rocksdb.num-files-at-level" + std::to_string(level), &property));
   return atoi(property.c_str());
 }
 
@@ -1196,12 +1198,22 @@ int DBTestBase::TotalTableFiles(int cf, int levels) {
 
 // Return spread of files per level
 std::string DBTestBase::FilesPerLevel(int cf) {
-  int num_levels =
-      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[cf]);
+  if (cf == 0) {
+    return FilesPerLevel(db_->DefaultColumnFamily());
+  } else {
+    return FilesPerLevel(handles_[cf]);
+  }
+}
+
+std::string DBTestBase::FilesPerLevel(ColumnFamilyHandle* cfh, DB* db) {
+  if (!db) {
+    db = db_;
+  }
+  int num_levels = db->NumberLevels(cfh);
   std::string result;
   size_t last_non_zero_offset = 0;
   for (int level = 0; level < num_levels; level++) {
-    int f = NumTableFilesAtLevel(level, cf);
+    int f = NumTableFilesAtLevel(level, cfh, db);
     char buf[100];
     snprintf(buf, sizeof(buf), "%s%d", (level ? "," : ""), f);
     result += buf;
@@ -1334,12 +1346,14 @@ void DBTestBase::FillLevels(const std::string& smallest,
 }
 
 void DBTestBase::MoveFilesToLevel(int level, int cf) {
+  MoveFilesToLevel(level, cf ? handles_[cf] : db_->DefaultColumnFamily());
+}
+
+void DBTestBase::MoveFilesToLevel(int level, ColumnFamilyHandle* column_family,
+                                  DB* db) {
+  DBImpl* db_impl = db ? static_cast<DBImpl*>(db) : dbfull();
   for (int l = 0; l < level; ++l) {
-    if (cf > 0) {
-      EXPECT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]));
-    } else {
-      EXPECT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr));
-    }
+    EXPECT_OK(db_impl->TEST_CompactRange(l, nullptr, nullptr, column_family));
   }
 }
 
