@@ -150,6 +150,12 @@ class UserDefinedIndexFactory : public Customizable {
  public:
   virtual ~UserDefinedIndexFactory() = default;
 
+  static const char* Type() { return "UserDefinedIndexFactory"; }
+
+  static Status CreateFromString(
+      const ConfigOptions& config_options, const std::string& value,
+      std::shared_ptr<UserDefinedIndexFactory>* factory);
+
   // Create a new builder for user-defined index.
   virtual UserDefinedIndexBuilder* NewBuilder() const = 0;
 
