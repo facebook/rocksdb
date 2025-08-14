@@ -1410,8 +1410,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &(job_context_->snapshot_seqs), earliest_snapshot_,
       job_context_->earliest_write_conflict_snapshot, job_snapshot_seq,
       job_context_->snapshot_checker, env_,
-      ShouldReportDetailedTime(env_, stats_),
-      /*expect_valid_internal_key=*/true, sub_compact->RangeDelAgg(),
+      ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction

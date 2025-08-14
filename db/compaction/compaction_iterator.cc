@@ -28,7 +28,7 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_snapshot,
     SequenceNumber earliest_write_conflict_snapshot,
     SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
-    Env* env, bool report_detailed_time, bool expect_valid_internal_key,
+    Env* env, bool report_detailed_time,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
@@ -42,8 +42,8 @@ CompactionIterator::CompactionIterator(
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots, earliest_snapshot,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
-          report_detailed_time, expect_valid_internal_key, range_del_agg,
-          blob_file_builder, allow_data_in_errors, enforce_single_del_contracts,
+          report_detailed_time, range_del_agg, blob_file_builder,
+          allow_data_in_errors, enforce_single_del_contracts,
           manual_compaction_canceled,
           compaction ? std::make_unique<RealCompaction>(compaction) : nullptr,
           must_count_input_entries, compaction_filter, shutting_down, info_log,
@@ -55,7 +55,7 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_snapshot,
     SequenceNumber earliest_write_conflict_snapshot,
     SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
-    Env* env, bool report_detailed_time, bool expect_valid_internal_key,
+    Env* env, bool report_detailed_time,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
@@ -76,7 +76,6 @@ CompactionIterator::CompactionIterator(
       env_(env),
       clock_(env_->GetSystemClock().get()),
       report_detailed_time_(report_detailed_time),
-      expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
       blob_file_builder_(blob_file_builder),
       compaction_(std::move(compaction)),
@@ -464,18 +463,9 @@ void CompactionIterator::NextFromInput() {
     if (!pik_status.ok()) {
       iter_stats_.num_input_corrupt_records++;
 
-      // If `expect_valid_internal_key_` is false, return the corrupted key
-      // and let the caller decide what to do with it.
-      if (expect_valid_internal_key_) {
-        status_ = pik_status;
-        return;
-      }
-      key_ = current_key_.SetInternalKey(key_);
-      has_current_user_key_ = false;
-      current_user_key_sequence_ = kMaxSequenceNumber;
-      current_user_key_snapshot_ = 0;
-      validity_info_.SetValid(ValidContext::kParseKeyError);
-      break;
+      // Always fail compaction when encountering corrupted internal keys
+      status_ = pik_status;
+      return;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
     if (is_range_del_) {
