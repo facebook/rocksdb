@@ -294,7 +294,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         snapshots_.empty() ? kMaxSequenceNumber : snapshots_.at(0),
         earliest_write_conflict_snapshot, kMaxSequenceNumber,
         snapshot_checker_.get(), Env::Default(),
-        false /* report_detailed_time */, false, range_del_agg_.get(),
+        false /* report_detailed_time */, range_del_agg_.get(),
         nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse_,
@@ -374,8 +374,7 @@ TEST_P(CompactionIteratorTest, EmptyResult) {
   ASSERT_FALSE(c_iter_->Valid());
 }
 
-// If there is a corruption after a single deletion, the corrupted key should
-// be preserved.
+// If there is a corruption after a single deletion, the compaction should fail.
 TEST_P(CompactionIteratorTest, CorruptionAfterSingleDeletion) {
   InitIterators({test::KeyStr("a", 5, kTypeSingleDeletion),
                  test::KeyStr("a", 3, kTypeValue, true),
@@ -386,14 +385,10 @@ TEST_P(CompactionIteratorTest, CorruptionAfterSingleDeletion) {
   ASSERT_EQ(test::KeyStr("a", 5, kTypeSingleDeletion),
             c_iter_->key().ToString());
   c_iter_->Next();
-  ASSERT_TRUE(c_iter_->Valid());
-  ASSERT_EQ(test::KeyStr("a", 3, kTypeValue, true), c_iter_->key().ToString());
-  c_iter_->Next();
-  ASSERT_TRUE(c_iter_->Valid());
-  ASSERT_EQ(test::KeyStr("b", 10, kTypeValue), c_iter_->key().ToString());
-  c_iter_->Next();
-  ASSERT_OK(c_iter_->status());
+  // The iterator should now fail when encountering the corrupted key
   ASSERT_FALSE(c_iter_->Valid());
+  ASSERT_FALSE(c_iter_->status().ok());
+  ASSERT_TRUE(c_iter_->status().IsCorruption());
 }
 
 // Tests compatibility of TimedPut and SingleDelete. TimedPut should act as if
