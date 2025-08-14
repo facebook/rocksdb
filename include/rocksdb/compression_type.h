@@ -226,11 +226,15 @@ struct CompressionOptions {
   // The training data will be used to generate a dictionary of max_dict_bytes.
   uint32_t zstd_max_train_bytes = 0;
 
-  // Number of threads for parallel compression.
-  // Parallel compression is enabled only if threads > 1.
-  // THE FEATURE IS STILL EXPERIMENTAL
+  // Number of threads for parallel compression for each running flush or
+  // compaction job. Parallel compression is enabled only if threads > 1. Not
+  // recommended for lightweight compression algorithms such as Snappy, LZ4, and
+  // obviously kNoCompression because there is unlikely to be a throughput gain.
   //
-  // This option is valid only when BlockBasedTable is used.
+  // This option is valid only when BlockBasedTable is used and is disabled
+  // (sanitized to 1) with any of these:
+  // * User-defined index (UserDefinedIndexFactory)
+  // * partition_filters == true && decouple_partitioned_filters == false
   //
   // When parallel compression is enabled, SST size file sizes might be
   // more inflated compared to the target size, because more data of unknown
