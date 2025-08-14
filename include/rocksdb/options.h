@@ -2536,7 +2536,7 @@ struct IngestExternalFileOptions {
   //   WARNING: Violating the sequence number ordering requirement will cause
   //   LSM invariant violations and may lead to incorrect reads or data
   //   corruption.
-  // - If you would like to enfore that the ingested files do not overlap
+  // - If you would like to enforce that the ingested files do not overlap
   //   with each other, you can set `fail_if_not_bottommost_level` to true.
   //   If ingested files overlap with each other, some file will be placed
   //   above Lmax, failing the ingestion if the option is set.
