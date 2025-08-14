@@ -131,6 +131,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteMaybeCompressedBlock(
       const Slice& block_contents, CompressionType, BlockHandle* handle,
       BlockType block_type, const Slice* uncompressed_block_data = nullptr);
+  IOStatus WriteMaybeCompressedBlockImpl(
+      const Slice& block_contents, CompressionType, BlockHandle* handle,
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -173,27 +176,23 @@ class BlockBasedTableBuilder : public TableBuilder {
   // compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 
-  // Get blocks from mem-table walking thread, compress them and
-  // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(WorkingAreaPair& working_area);
+  // TODO
+  void BGWorker(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
   // compression type
-  void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
-                              bool is_data_block, WorkingAreaPair& working_area,
-                              GrowableBuffer* compressed_output,
-                              CompressionType* result_compression_type,
-                              Status* out_status);
-
-  // Get compressed blocks from BGWorkCompression and write them into SST
-  void BGWorkWriteMaybeCompressedBlock();
+  Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
+                                bool is_data_block,
+                                WorkingAreaPair& working_area,
+                                GrowableBuffer* compressed_output,
+                                CompressionType* result_compression_type);
 
   // Initialize parallel compression context and
   // start BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StartParallelCompression();
 
   // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
-  void StopParallelCompression();
+  void StopParallelCompression(bool abort);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
