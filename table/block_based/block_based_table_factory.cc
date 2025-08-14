@@ -25,6 +25,8 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/table.h"
+#include "rocksdb/user_defined_index.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -311,6 +313,11 @@ static struct BlockBasedTableTypeInfo {
         {"filter_policy",
          OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
              offsetof(struct BlockBasedTableOptions, filter_policy),
+             OptionVerificationType::kByNameAllowFromNull)},
+        {"user_defined_index_factory",
+         OptionTypeInfo::AsCustomSharedPtr<UserDefinedIndexFactory>(
+             offsetof(struct BlockBasedTableOptions,
+                      user_defined_index_factory),
              OptionVerificationType::kByNameAllowFromNull)},
         {"whole_key_filtering",
          {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
@@ -1009,6 +1016,13 @@ Status GetBlockBasedTableOptionsFromMap(
 TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options) {
   return new BlockBasedTableFactory(_table_options);
+}
+
+Status UserDefinedIndexFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<UserDefinedIndexFactory>* factory) {
+  return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
+                                                   factory);
 }
 
 const std::string BlockBasedTablePropertyNames::kIndexType =
