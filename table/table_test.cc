@@ -8109,15 +8109,14 @@ TEST_F(UserDefinedIndexTest, ConfigTest) {
   ro.table_index_factory = user_defined_index_factory.get();
   std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
-  MultiScanArgs scan_opts;
-  std::unordered_map<std::string, std::string> property_bag;
-  property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key20"), std::optional(property_bag));
+
+  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
+  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   int key_count = 0;
-  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
-       iter->Valid(); iter->Next()) {
+  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
+       iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);
