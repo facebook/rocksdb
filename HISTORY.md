@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.5.3 (08/14/2025)
+### Bug Fixes
+* Allow a user defined index to be configured from a string.
+
 ## 10.5.2 (08/12/2025)
 ### Bug Fixes
 * Make the User Defined Index interface consistently use the user key format, fixing the previous mixed usage of internal and user key.
