@@ -4182,11 +4182,14 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
         ASSERT_OK(from_db->Put(wo, temp_cfh, Key(k), expected_values[k]));
       }
       ASSERT_OK(from_db->Flush({}, temp_cfh));
-      MoveFilesToLevel(5, temp_cfh, from_db);
 
-      ASSERT_GT(NumTableFilesAtLevel(5, temp_cfh, from_db), 0);
+      if (rnd->OneIn(2)) {
+        MoveFilesToLevel(5, temp_cfh, from_db);
+        ASSERT_GT(NumTableFilesAtLevel(5, temp_cfh, from_db), 0);
+      }
       ASSERT_GT(NumTableFilesAtLevel(6, temp_cfh, from_db), 0);
     }
+    SCOPED_TRACE("LSM of from_db " + FilesPerLevel(temp_cfh, from_db));
 
     ColumnFamilyMetaData cf_meta;
     from_db->GetColumnFamilyMetaData(temp_cfh, &cf_meta);
@@ -4195,12 +4198,14 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     // from old to new
     for (auto level_meta = cf_meta.levels.rbegin();
          level_meta != cf_meta.levels.rend(); ++level_meta) {
-      for (const auto& file_meta : level_meta->files) {
+      // L0 files need to be added in reverse order.
+      for (auto file_meta = level_meta->files.rbegin();
+           file_meta != level_meta->files.rend(); ++file_meta) {
         // Validate that files contain non-zero sequence numbers
-        ASSERT_GT(file_meta.smallest_seqno, 0);
-        ASSERT_GE(file_meta.largest_seqno, file_meta.smallest_seqno);
-        sst_file_paths.emplace_back(file_meta.directory + "/" +
-                                    file_meta.relative_filename);
+        ASSERT_GT(file_meta->smallest_seqno, 0);
+        ASSERT_GE(file_meta->largest_seqno, file_meta->smallest_seqno);
+        sst_file_paths.emplace_back(file_meta->directory + "/" +
+                                    file_meta->relative_filename);
       }
     }
     from_db->ReleaseSnapshot(snapshot);
@@ -4271,6 +4276,9 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     }
 
     // Cleanup
+    // FIXME: Without this, the test triggers some data race between dropping
+    // CF and background compaction.
+    ASSERT_OK(db_->WaitForCompact({}));
     if (use_temp_db) {
       ASSERT_OK(from_db->Close());
       delete from_db;
@@ -4329,6 +4337,7 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
 
     // Expected value and key
     std::map<std::string, std::string> expected;
+    std::unordered_set<std::string> deleted;
     std::stringstream debug_info;
 
     // Setup base data in target CF, will ingest keys with different prefixes
@@ -4369,12 +4378,17 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
     ro.total_order_seek = true;
     std::unique_ptr<Iterator> iter{db_->NewIterator(ro, target_cfh)};
     // transform data read from snapshot and write to temp DB
+    // Varying the number of files in temp DB.
+    const int kValSize = rnd->Uniform(200);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       std::string key = iter->key().ToString();
       std::string value = iter->value().ToString();
       std::string sk = GenSecondaryKey(key, value);
-      ASSERT_OK(temp_db->Put(wo, sk, ""));
-      expected[sk] = "";
+      // Usually value is empty, here we use a larger value to generate
+      // multiple SST files in temp_db.
+      std::string sk_val = rnd->RandomString(kValSize);
+      ASSERT_OK(temp_db->Put(wo, sk, sk_val));
+      expected[sk] = sk_val;
       debug_info << "Snapshot data: " << sk << " -> \n";
     }
     ASSERT_OK(iter->status());
@@ -4391,11 +4405,14 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
         std::string old_index_key = GenSecondaryKey(key, old_val);
         std::string new_index_key = GenSecondaryKey(key, new_val);
         ASSERT_OK(wb.SingleDelete(live_write_cfh, old_index_key));
-        ASSERT_OK(wb.Put(live_write_cfh, new_index_key, ""));
+        std::string sk_val = rnd->RandomString(kValSize);
+        ASSERT_OK(wb.Put(live_write_cfh, new_index_key, sk_val));
         ASSERT_OK(wb.Put(target_cfh, key, new_val));
         expected[key] = new_val;
         expected.erase(old_index_key);
-        expected[new_index_key] = "";
+        expected[new_index_key] = sk_val;
+        deleted.insert(old_index_key);
+        deleted.erase(new_index_key);
 
         debug_info << "Live write: SD " << old_index_key << "\n";
         debug_info << "Live write: " << key << " -> " << new_val << "\n";
@@ -4412,9 +4429,10 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
 
     // Compact temp_db to ensure zero sequence numbers
     CompactRangeOptions cro;
-    cro.bottommost_level_compaction =
-        BottommostLevelCompaction::kForceOptimized;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
     ASSERT_OK(temp_db->CompactRange(cro, nullptr, nullptr));
+    SCOPED_TRACE("Temp DB LSM: " +
+                 FilesPerLevel(temp_db->DefaultColumnFamily(), temp_db));
 
     // Base data from snapshot
     std::vector<std::string> sst_file_paths_zero_seqno;
@@ -4442,6 +4460,7 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
 
     // Flush remaining catch up writes in memtable
     ASSERT_OK(db_->Flush({}, live_write_cfh));
+    SCOPED_TRACE("LSM of live write cfh " + FilesPerLevel(live_write_cfh));
     // Collect SST file paths with non-zero sequence numbers
     ColumnFamilyMetaData live_write_cf_meta;
     ASSERT_OK(db_->DisableFileDeletions());
@@ -4451,10 +4470,13 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
     std::vector<std::string> sst_file_paths_nonzero_seqno;
     for (auto level_meta = live_write_cf_meta.levels.rbegin();
          level_meta != live_write_cf_meta.levels.rend(); ++level_meta) {
-      for (const auto& file_meta : level_meta->files) {
-        sst_file_paths_nonzero_seqno.emplace_back(file_meta.directory + "/" +
-                                                  file_meta.relative_filename);
-        ASSERT_GT(file_meta.smallest_seqno, 0) << debug_info.str();
+      // Reverse order is important for L0, where recent updates are ordered
+      // first
+      for (auto file_meta = level_meta->files.rbegin();
+           file_meta != level_meta->files.rend(); ++file_meta) {
+        sst_file_paths_nonzero_seqno.emplace_back(file_meta->directory + "/" +
+                                                  file_meta->relative_filename);
+        ASSERT_GT(file_meta->smallest_seqno, 0) << debug_info.str();
       }
       if (level_meta->level == 49) {
         // Ingest behind does not compact to the last level
@@ -4489,26 +4511,17 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
                  << "\nNon-zero seqno files: "
                  << sst_file_paths_nonzero_seqno.size() << "\n";
 
-      // Verify the ingested data
-      ReadOptions read_opts;
-      read_opts.total_order_seek = true;
-      iter.reset(db_->NewIterator(read_opts, target_cfh));
-      iter->SeekToFirst();
-      for (const auto& kv : expected) {
-        ASSERT_TRUE(iter->Valid()) << debug_info.str();
-        ASSERT_EQ(iter->key().ToString(), kv.first) << debug_info.str();
-        ASSERT_EQ(iter->value().ToString(), kv.second)
-            << "at key " << kv.first << "\n"
-            << debug_info.str();
-        iter->Next();
-      }
-      ASSERT_FALSE(iter->Valid()) << debug_info.str();
-      ASSERT_OK(iter->status()) << debug_info.str();
+      SCOPED_TRACE("Debug info:\n" + debug_info.str());
+      VerifyDBFromMap(expected, nullptr, false, nullptr, target_cfh, &deleted);
     }
 
     // clean up
     ASSERT_OK(db_->EnableFileDeletions());
     ASSERT_OK(temp_db->EnableFileDeletions());
+
+    // FIXME: Without this, the test triggers some data race between dropping
+    // CF and background compaction.
+    ASSERT_OK(db_->WaitForCompact({}));
 
     ASSERT_OK(db_->DropColumnFamily(live_write_cfh));
     ASSERT_OK(db_->DestroyColumnFamilyHandle(live_write_cfh));
