@@ -589,8 +589,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     if (ingestion_options_.allow_db_generated_files && assigned_seqno != 0) {
       return Status::InvalidArgument(
           "An ingested file is assigned to a non-zero sequence number, which "
-          "is "
-          "incompatible with ingestion option allow_db_generated_files.");
+          "is incompatible with ingestion option allow_db_generated_files.");
     }
 
     if (smallest_parsed.sequence == 0 && assigned_seqno != 0) {
@@ -1321,8 +1320,8 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     IngestedFileInfo* file_to_ingest, SequenceNumber seqno) {
   if (file_to_ingest->original_seqno == seqno) {
-    // This file already have the correct global seqno.
-    // For DB generated file, original_seqno was set to 0 and 1seqno` here
+    // This file already has the correct global seqno.
+    // For DB generated file, original_seqno was set to 0 and `seqno` here
     // is expected to be 0.
     return Status::OK();
   } else if (!ingestion_options_.allow_global_seqno) {
@@ -1480,19 +1479,22 @@ Status ExternalSstFileIngestionJob::GetSeqnoForFile(
   if (table_reader->GetTableProperties()->num_range_deletions > 0) {
     std::unique_ptr<InternalIterator> range_del_iter(
         table_reader->NewRangeTombstoneIterator(ro));
-    for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
-         range_del_iter->Next()) {
-      Status pik_status =
-          ParseInternalKey(range_del_iter->key(), &key, allow_data_in_errors);
-      if (!pik_status.ok()) {
-        return Status::Corruption("Corrupted key in external file. ",
-                                  pik_status.getState());
+    if (range_del_iter != nullptr) {
+      for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
+           range_del_iter->Next()) {
+        Status pik_status =
+            ParseInternalKey(range_del_iter->key(), &key, allow_data_in_errors);
+        if (!pik_status.ok()) {
+          return Status::Corruption("Corrupted key in external file. ",
+                                    pik_status.getState());
+        }
+        smallest_seqno = std::min(smallest_seqno, key.sequence);
+        largest_seqno_from_iter =
+            std::max(largest_seqno_from_iter, key.sequence);
       }
-      smallest_seqno = std::min(smallest_seqno, key.sequence);
-      largest_seqno_from_iter = std::max(largest_seqno_from_iter, key.sequence);
-    }
-    if (!range_del_iter->status().ok()) {
-      return range_del_iter->status();
+      if (!range_del_iter->status().ok()) {
+        return range_del_iter->status();
+      }
     }
   }
 
