@@ -16,6 +16,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
+#include "util/semaphore.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -424,22 +425,45 @@ TEST(ToBaseCharsStringTest, Tests) {
   ASSERT_EQ(ToBaseCharsString<32>(2, 255, false), "7v");
 }
 
-TEST(SemaphoreTest, BasicStdCountingSemaphore) {
-  // Verify the C++20 API is available and apparently working
-  std::counting_semaphore sem{0};
+TEST(SemaphoreTest, CountingSemaphore) {
+  CountingSemaphore sem{0};
   int kCount = 5;
   std::vector<std::thread> threads;
   for (int i = 0; i < kCount; ++i) {
-    threads.emplace_back([&sem] { sem.release(); });
+    threads.emplace_back([&sem] { sem.Release(); });
   }
   for (int i = 0; i < kCount; ++i) {
-    threads.emplace_back([&sem] { sem.acquire(); });
+    threads.emplace_back([&sem] { sem.Acquire(); });
   }
   for (auto& t : threads) {
     t.join();
   }
   // Nothing left on the semaphore
-  ASSERT_FALSE(sem.try_acquire());
+  ASSERT_FALSE(sem.TryAcquire());
+  // Keep testing
+  sem.Release(2);
+  ASSERT_TRUE(sem.TryAcquire());
+  sem.Acquire();
+  ASSERT_FALSE(sem.TryAcquire());
+}
+
+TEST(SemaphoreTest, BinarySemaphore) {
+  BinarySemaphore sem{0};
+  int kCount = 5;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] {
+      sem.Acquire();
+      sem.Release();
+    });
+  }
+  threads.emplace_back([&sem] { sem.Release(); });
+  for (auto& t : threads) {
+    t.join();
+  }
+  // Only able to acquire one excess release
+  ASSERT_TRUE(sem.TryAcquire());
+  ASSERT_FALSE(sem.TryAcquire());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
