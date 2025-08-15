@@ -51,8 +51,17 @@ class PointLockManagerTest : public testing::Test {
 
   PessimisticTransaction* NewTxn(
       TransactionOptions txn_opt = TransactionOptions()) {
+    // override deadlock_timeout_us;
+    txn_opt.deadlock_timeout_us = deadlock_timeout_us;
     Transaction* txn = db_->BeginTransaction(WriteOptions(), txn_opt);
     return static_cast<PessimisticTransaction*>(txn);
+  }
+
+  int64_t deadlock_timeout_us = 0;
+
+  void UsePerKeyPointLockManager() {
+    locker_.reset(new PerKeyPointLockManager(
+        static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
   }
 
  protected:
@@ -61,8 +70,6 @@ class PointLockManagerTest : public testing::Test {
   std::shared_ptr<LockManager> locker_;
   const char* wait_sync_point_name_;
   friend void PointLockManagerTestExternalSetup(PointLockManagerTest*);
-  friend void PerLockPointLockManagerAnyLockManagerTestSetup(
-      PointLockManagerTest*);
 
   std::string db_dir_;
   TransactionDB* db_;

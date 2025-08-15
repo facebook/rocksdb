@@ -1428,9 +1428,6 @@ void PerKeyPointLockManager::FillWaitIds(LockInfo& lock_info,
 //    true and there is already a lock waiter waiting in the queue and it is not
 //    itself, return TimedOut. If fifo is false, it means it is its turn to take
 //    the lock.
-//
-// TODO xingbo go through comments for the rest of the files, fix broken test.
-// Add more unit test for deadlock timeout
 Status PerKeyPointLockManager::AcquireLocked(
     LockMap* lock_map, LockMapStripe* stripe, const std::string& key, Env* env,
     const LockInfo& txn_lock_info, uint64_t* expire_time,
@@ -1805,5 +1802,7 @@ void PerKeyPointLockManager::UnLock(PessimisticTransaction* /* txn */,
                                     const Endpoint& /* end */, Env* /* env */) {
   // no-op
 }
+
+// TODO xingbo add deadlock timeout for existing transaction test.
 
 }  // namespace ROCKSDB_NAMESPACE

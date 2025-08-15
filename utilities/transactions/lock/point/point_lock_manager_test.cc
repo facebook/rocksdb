@@ -9,22 +9,29 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct SpotLockManagerTestParam {
+  bool use_per_key_point_lock_manager;
+  int deadlock_timeout_us;
+};
+
 // including test for both PointLockManager and PerKeyPointLockManager
-class SpotLockManagerTest : public PointLockManagerTest,
-                            public testing::WithParamInterface<bool> {
+class SpotLockManagerTest
+    : public PointLockManagerTest,
+      public testing::WithParamInterface<SpotLockManagerTestParam> {
  public:
   void SetUp() override {
     init();
     // If a custom setup function was provided, use it. Otherwise, use what we
     // have inherited.
-    auto per_key_lock_manager = GetParam();
-    if (per_key_lock_manager) {
+    auto param = GetParam();
+    if (param.use_per_key_point_lock_manager) {
       locker_.reset(new PerKeyPointLockManager(
           static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
     } else {
       locker_.reset(new PointLockManager(
           static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
     }
+    deadlock_timeout_us = param.deadlock_timeout_us;
   }
 };
 
@@ -1016,7 +1023,7 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
   // until the last shared lock is released.
 
   // Disable deadlock detection timeout to prevent test flakyness.
-  txn_opt_.deadlock_timeout_us = 0;
+  deadlock_timeout_us = 0;
   auto txn1 = NewTxn(txn_opt_);
   auto txn2 = NewTxn(txn_opt_);
   auto txn3 = NewTxn(txn_opt_);
@@ -1189,7 +1196,7 @@ TEST_P(SpotLockManagerTest, Catch22) {
   std::atomic_int wait_count(0);
 
   SyncPoint::GetInstance()->DisableProcessing();
-  if (GetParam()) {
+  if (GetParam().use_per_key_point_lock_manager) {
     // PerKeyPointLockManager
     SyncPoint::GetInstance()->SetCallBack(
         "PointLockManager::AcquireWithTimeout:"
@@ -1388,20 +1395,24 @@ INSTANTIATE_TEST_CASE_P(PointLockManager, AnyLockManagerTest,
                         ::testing::Values(nullptr));
 
 // Run AnyLockManagerTest with PerKeyPointLockManager
-void PerLockPointLockManagerAnyLockManagerTestSetup(
-    PointLockManagerTest* self) {
+template <int64_t N>
+void PerKeyPointLockManagerTestSetup(PointLockManagerTest* self) {
   self->init();
-  self->locker_.reset(new PerKeyPointLockManager(
-      static_cast<PessimisticTransactionDB*>(self->db_), self->txndb_opt_));
+  self->deadlock_timeout_us = N;
+  self->UsePerKeyPointLockManager();
 }
 
 INSTANTIATE_TEST_CASE_P(
     PerLockPointLockManager, AnyLockManagerTest,
-    ::testing::Values(PerLockPointLockManagerAnyLockManagerTestSetup));
+    ::testing::Values(PerKeyPointLockManagerTestSetup<0>,
+                      PerKeyPointLockManagerTestSetup<100>,
+                      PerKeyPointLockManagerTestSetup<1000>));
 
 // Run PointLockManagerTest with PerLockPointLockManager and PointLockManager
-INSTANTIATE_TEST_CASE_P(PointLockCorrectnessCheckTestSuite, SpotLockManagerTest,
-                        ::testing::ValuesIn(std::vector<bool>{true, false}));
+INSTANTIATE_TEST_CASE_P(
+    PointLockCorrectnessCheckTestSuite, SpotLockManagerTest,
+    ::testing::ValuesIn(std::vector<SpotLockManagerTestParam>{
+        {true, 0}, {true, 100}, {true, 1000}, {false, 0}}));
 
 }  // namespace ROCKSDB_NAMESPACE
 
