@@ -1789,14 +1789,17 @@ class MultiScanArgs {
   MultiScanArgs(const MultiScanArgs& other) {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
+    io_coalesce_threshold = other.io_coalesce_threshold;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
-      : comp_(other.comp_),
+      : io_coalesce_threshold(other.io_coalesce_threshold),
+        comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
 
   MultiScanArgs& operator=(const MultiScanArgs& other) {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
+    io_coalesce_threshold = other.io_coalesce_threshold;
     return *this;
   }
 
@@ -1804,6 +1807,7 @@ class MultiScanArgs {
     if (this != &other) {
       comp_ = other.comp_;
       original_ranges_ = std::move(other.original_ranges_);
+      io_coalesce_threshold = other.io_coalesce_threshold;
     }
     return *this;
   }
@@ -1842,6 +1846,8 @@ class MultiScanArgs {
   const std::vector<ScanOptions>& GetScanRanges() const {
     return original_ranges_;
   }
+
+  uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
 
  private:
   // The comparator used for ordering ranges
