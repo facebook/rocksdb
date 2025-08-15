@@ -840,6 +840,12 @@ class MemTable final : public ReadOnlyMemTable {
   ConcurrentArena arena_;
   std::unique_ptr<MemTableRep> table_;
   std::unique_ptr<MemTableRep> range_del_table_;
+  // This is OK to be relaxed access because consistency between table_ and
+  // range_del_table_ is provided by explicit multi-versioning with sequence
+  // numbers. It's ok for stale memory to say the range_del_table_ is empty when
+  // it's actually not because if it was relevant to our read (based on sequence
+  // number), the relaxed memory read would get a sufficiently updated value
+  // because of the ordering provided by LastPublishedSequence().
   RelaxedAtomic<bool> is_range_del_table_empty_;
 
   // Total data size of all data inserted
