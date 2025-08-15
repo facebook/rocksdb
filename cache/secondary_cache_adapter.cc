@@ -122,7 +122,7 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     assert(placeholder_usage_ == 0);
     assert(reserved_usage_ == 0);
     if (pri_cache_res_->GetTotalMemoryUsed() != sec_capacity) {
-      fprintf(stderr,
+      fprintf(stdout,
               "~CacheWithSecondaryAdapter: Primary cache reservation: "
               "%zu, Secondary cache capacity: %zu, "
               "Secondary cache reserved: %zu\n",
