@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 
+#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -50,6 +51,11 @@ DEFINE_uint32(
     "Max number of milliseconds to sleep after acquiring all the locks in the "
     "transaction. The actuall sleep time will be randomized from 0 to max. It "
     "is used to simulate some useful work performed.");
+DEFINE_bool(check_thread_stuck, false,
+            "Check thread periodically to see whether they are stuck or not. "
+            "This is useful for detecting stuck transaction quickly. But it "
+            "could have false-positive when running with ASAN or running with "
+            "high thread count on a small number of CPUs");
 
 namespace {  // anonymous namespace
 
@@ -103,7 +109,7 @@ class PointLockManagerBenchmark {
         FLAGS_key_count, FLAGS_max_num_keys_to_lock_per_txn,
         FLAGS_execution_time_sec, static_cast<LockTypeToTest>(FLAGS_lock_type),
         FLAGS_allow_non_deadlock_error,
-        FLAGS_max_sleep_after_lock_acquisition_ms, true);
+        FLAGS_max_sleep_after_lock_acquisition_ms, FLAGS_check_thread_stuck);
     test_runner.run();
   }
 
@@ -118,6 +124,7 @@ class PointLockManagerBenchmark {
 }  // anonymous namespace
 
 int point_lock_bench_tool(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ParseCommandLineFlags(&argc, &argv, true);
 
   // Print test configuration

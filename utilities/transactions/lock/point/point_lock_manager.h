@@ -264,11 +264,15 @@ class PerKeyPointLockManager : public PointLockManager {
  private:
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
-                       LockInfo** lock_info_ptr, const LockInfo& txn_lock_info,
-                       uint64_t* wait_time, autovector<TransactionID>* txn_ids,
-                       bool* isUpgrade, bool fifo);
+                       const LockInfo& txn_lock_info, uint64_t* wait_time,
+                       autovector<TransactionID>* txn_ids,
+                       LockInfo** lock_info_ptr, bool* isUpgrade, bool fifo);
 
   int64_t CalculateWaitEndTime(int64_t expire_time_hint, int64_t end_time);
+
+  void FillWaitIds(LockInfo& lock_info, const LockInfo& txn_lock_info,
+                   autovector<TransactionID>* wait_ids, bool& isUpgrade,
+                   TransactionID& my_txn_id, const std::string& key);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
