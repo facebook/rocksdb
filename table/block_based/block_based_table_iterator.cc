@@ -1067,9 +1067,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     // Each member in the vector is an index into blocks_to_prepare.
     std::vector<std::vector<size_t>> collapsed_blocks_to_read(1);
 
-    // TODO: make this threshold configurable
-    constexpr size_t kCoalesceThreshold = 16 << 10;  // 16KB
-
     for (const auto& block_idx : blocks_to_read) {
       if (!collapsed_blocks_to_read.back().empty()) {
         // Check if we can coalesce.
@@ -1080,7 +1077,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
             BlockBasedTable::BlockSizeWithTrailer(last_block);
         uint64_t current_start = blocks_to_prepare[block_idx].offset();
 
-        if (current_start > last_block_end + kCoalesceThreshold) {
+        if (current_start >
+            last_block_end + multiscan_opts->io_coalesce_threshold) {
           // new IO
           collapsed_blocks_to_read.emplace_back();
         }
