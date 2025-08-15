@@ -581,10 +581,15 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       while (meta_index_iter->status().ok() && meta_index_iter->Valid()) {
         Slice v = meta_index_iter->value();
         BlockHandle handle;
-        handle.DecodeFrom(&v);
-        fprintf(stdout, "  %s: %" PRIu64 " %" PRIu64 "\n",
-                meta_index_iter->key().ToString().c_str(), handle.offset(),
-                handle.size());
+        st = handle.DecodeFrom(&v);
+        if (!st.ok()) {
+          fprintf(stderr, "%s: Could not decode block handle - %s\n",
+                  filename.c_str(), st.ToString().c_str());
+        } else {
+          fprintf(stdout, "  %s: %" PRIu64 " %" PRIu64 "\n",
+                  meta_index_iter->key().ToString().c_str(), handle.offset(),
+                  handle.size());
+        }
         meta_index_iter->Next();
       }
     } else if (list_meta_blocks) {
