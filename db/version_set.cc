@@ -1145,8 +1145,8 @@ class LevelIterator final : public InternalIterator {
       }
     }
     // Propage io colaescing threshold
-    for (auto& [_, arg] : *file_to_scan_opts_) {
-      arg.io_coalesce_threshold = so->io_coalesce_threshold;
+    for (auto& file_to_arg : *file_to_scan_opts_) {
+      file_to_arg.second.io_coalesce_threshold = so->io_coalesce_threshold;
     }
   }
 
