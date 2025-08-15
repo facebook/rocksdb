@@ -209,7 +209,7 @@ Status DBImpl::IngestWriteBatchWithIndex(
     WriteBatch dummy_empty_batch;
     s = WriteImpl(
         write_options, /*updates=*/&dummy_empty_batch, /*callback=*/nullptr,
-        /*user_write_cb=*/nullptr, /*log_used=*/nullptr, /*log_ref=*/0,
+        /*user_write_cb=*/nullptr, /*wal_used=*/nullptr, /*log_ref=*/0,
         /*disable_memtable=*/false, /*seq_used=*/nullptr,
         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
         /*post_memtable_callback=*/nullptr, /*wbwi=*/wbwi);
@@ -1984,8 +1984,9 @@ void DBImpl::SelectColumnFamiliesForAtomicFlush(
 }
 
 // Assign sequence number for atomic flush.
-void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
-  assert(immutable_db_options_.atomic_flush);
+void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds,
+                                  [[maybe_unused]] FlushReason flush_reason) {
+  assert(ShouldUseAtomicFlushBehavior(flush_reason));
   auto seq = versions_->LastSequence();
   for (auto cfd : cfds) {
     // cfd can be nullptr, see ScheduleFlushes()

@@ -388,14 +388,15 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
-  if (immutable_db_options_.atomic_flush) {
+  assert(bg_flush_args.size() > 0);
+  const auto& bg_flush_arg = bg_flush_args[0];
+  if (ShouldUseAtomicFlushBehavior(bg_flush_arg.flush_reason_)) {
     return AtomicFlushMemTablesToOutputFiles(
         bg_flush_args, made_progress, job_context, log_buffer, thread_pri);
   }
   assert(bg_flush_args.size() == 1);
   InitSnapshotContext(job_context);
 
-  const auto& bg_flush_arg = bg_flush_args[0];
   ColumnFamilyData* cfd = bg_flush_arg.cfd_;
   // intentional infrequent copy for each flush
   const MutableCFOptions mutable_cf_options_copy =
@@ -1919,7 +1920,7 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
                                       FlushReason flush_reason) {
   mutex_.AssertHeld();
   Status status;
-  if (immutable_db_options_.atomic_flush) {
+  if (ShouldUseAtomicFlushBehavior(flush_reason)) {
     mutex_.Unlock();
     status = AtomicFlushMemTables(flush_options, flush_reason);
     if (status.IsColumnFamilyDropped()) {
@@ -2240,7 +2241,7 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
       continue;
     }
     uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID(
-        immutable_db_options_.atomic_flush /* for_atomic_flush */);
+        ShouldUseAtomicFlushBehavior(flush_reason) /* for_atomic_flush */);
     req->cfd_to_max_mem_id_to_persist.emplace(cfd, max_memtable_id);
   }
 }
@@ -2417,7 +2418,7 @@ Status DBImpl::AtomicFlushMemTables(
     const FlushOptions& flush_options, FlushReason flush_reason,
     const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     bool entered_write_thread) {
-  assert(immutable_db_options_.atomic_flush);
+  assert(ShouldUseAtomicFlushBehavior(flush_reason));
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
@@ -2510,7 +2511,7 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
     if (s.ok()) {
-      AssignAtomicFlushSeq(cfds);
+      AssignAtomicFlushSeq(cfds, flush_reason);
       for (auto cfd : cfds) {
         cfd->imm()->FlushRequested();
       }
@@ -2577,7 +2578,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   // memtables eligible for flush are waited on before this function
   // returns.
   autovector<uint64_t> flush_memtable_ids;
-  if (immutable_db_options_.atomic_flush) {
+  if (ShouldUseAtomicFlushBehavior(flush_reason)) {
     FlushRequest flush_req;
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
     EnqueuePendingFlush(flush_req);
@@ -2975,11 +2976,11 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   FlushRequest flush_req = std::move(flush_queue_.front());
   flush_queue_.pop_front();
-  if (!immutable_db_options_.atomic_flush) {
+  if (!ShouldUseAtomicFlushBehavior(flush_req.flush_reason)) {
     assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
   }
   for (const auto& elem : flush_req.cfd_to_max_mem_id_to_persist) {
-    if (!immutable_db_options_.atomic_flush) {
+    if (!ShouldUseAtomicFlushBehavior(flush_req.flush_reason)) {
       ColumnFamilyData* cfd = elem.first;
       assert(cfd);
       assert(cfd->queued_for_flush());
@@ -3024,7 +3025,7 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
     return enqueued;
   }
-  if (!immutable_db_options_.atomic_flush) {
+  if (!ShouldUseAtomicFlushBehavior(flush_req.flush_reason)) {
     // For the non-atomic flush case, we never schedule multiple column
     // families in the same flush request.
     assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
@@ -3203,7 +3204,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       }
       return status;
     }
-    if (!immutable_db_options_.atomic_flush &&
+    if (!ShouldUseAtomicFlushBehavior(flush_req.flush_reason) &&
         ShouldRescheduleFlushRequestToRetainUDT(flush_req)) {
       assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
       ColumnFamilyData* cfd =

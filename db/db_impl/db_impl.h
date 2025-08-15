@@ -1984,6 +1984,14 @@ class DBImpl : public DB {
     return flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
            flush_reason == FlushReason::kErrorRecovery;
   }
+
+  bool ShouldUseAtomicFlushBehavior(FlushReason flush_reason) const {
+    // Besides explicitly configured atomic_flush, error recovery from potential
+    // WAL corruption requires atomic flush behavior to ensure all CFs flush
+    // together, allowing safe removal of the corrupted WAL.
+    return immutable_db_options_.atomic_flush ||
+           flush_reason == FlushReason::kErrorRecovery;
+  }
   // Initialize the built-in column family for persistent stats. Depending on
   // whether on-disk persistent stats have been enabled before, it may either
   // create a new column family and column family handle or just a column family
@@ -2334,7 +2342,8 @@ class DBImpl : public DB {
   }
 
   // REQUIRES: mutex locked and in write thread.
-  void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
+  void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds,
+                            FlushReason flush_reason = FlushReason::kOthers);
 
   // REQUIRES: mutex locked and in write thread.
   Status SwitchWAL(WriteContext* write_context);

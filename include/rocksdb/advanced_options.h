@@ -1051,10 +1051,14 @@ struct AdvancedColumnFamilyOptions {
   // When setting this flag to `false`, users should also call
   // `DB::IncreaseFullHistoryTsLow` to set a cutoff timestamp for flush. RocksDB
   // refrains from flushing a memtable with data still above
-  // the cutoff timestamp with best effort. One limitation of this best effort
-  // is that when `max_write_buffer_number` is equal to or smaller than 2,
-  // RocksDB will not attempt to retain user-defined timestamps, all flush jobs
-  // continue normally.
+  // the cutoff timestamp with best effort. Limitations of this best effort
+  // include:
+  // 1) When `max_write_buffer_number` is equal to or smaller than 2,
+  //    RocksDB will not attempt to retain user-defined timestamps, all flush
+  //    jobs continue normally.
+  // 2) Some error recovery flushes (i.e, kErrorRecovery) will
+  //    bypass the cutoff timestamp limitation and proceed immediately to
+  //    maintain database stability and consistency.
   //
   // Users can do user-defined
   // multi-versioned read above the cutoff timestamp. When users try to read
