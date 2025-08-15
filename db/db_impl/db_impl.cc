@@ -3835,7 +3835,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
     const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
-    const std::vector<ScanOptions>& scan_opts) {
+    const MultiScanArgs& scan_opts) {
   std::unique_ptr<MultiScan> ms_iter = std::make_unique<MultiScan>(
       _read_options, scan_opts, this, column_family);
   return ms_iter;
@@ -4345,7 +4345,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     CfdList cf_scheduled;
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (!cfd->ioptions().allow_ingest_behind) {
+        if (!cfd->AllowIngestBehind()) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(
               oldest_snapshot, /*allow_ingest_behind=*/false);
           if (!cfd->current()
@@ -4365,8 +4365,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       // inaccurate.
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (CfdListContains(cf_scheduled, cfd) ||
-            cfd->ioptions().allow_ingest_behind) {
+        if (CfdListContains(cf_scheduled, cfd) || cfd->AllowIngestBehind()) {
           continue;
         }
         new_bottommost_files_mark_threshold = std::min(
@@ -5761,16 +5760,20 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     const IngestExternalFileOptions& ingest_opts = arg.options;
     if (ingest_opts.ingest_behind) {
-      if (!immutable_db_options_.allow_ingest_behind) {
-        return Status::InvalidArgument(
-            "can't ingest_behind file in DB with allow_ingest_behind=false");
-      }
       auto ucmp = arg.column_family->GetComparator();
       assert(ucmp);
       if (ucmp->timestamp_size() > 0) {
         return Status::NotSupported(
             "Column family with user-defined "
             "timestamps enabled doesn't support ingest behind.");
+      }
+
+      if (!static_cast<ColumnFamilyHandleImpl*>(arg.column_family)
+               ->cfd()
+               ->AllowIngestBehind()) {
+        return Status::InvalidArgument(
+            "Can't ingest_behind file in ColumnFamily %s with "
+            "cf_allow_ingest_behind=false");
       }
     }
     if (arg.atomic_replace_range.has_value()) {

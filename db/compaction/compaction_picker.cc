@@ -333,7 +333,7 @@ bool CompactionPicker::AreFilesInCompaction(
   return false;
 }
 
-Compaction* CompactionPicker::CompactFiles(
+Compaction* CompactionPicker::PickCompactionForCompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
@@ -603,7 +603,7 @@ void CompactionPicker::GetGrandparents(
   }
 }
 
-Compaction* CompactionPicker::CompactRange(
+Compaction* CompactionPicker::PickCompactionForCompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     int input_level, int output_level,
@@ -619,8 +619,8 @@ Compaction* CompactionPicker::CompactRange(
     // Universal compaction with more than one level always compacts all the
     // files together to the last level.
     assert(vstorage->num_levels() > 1);
-    int max_output_level =
-        vstorage->MaxOutputLevel(ioptions_.allow_ingest_behind);
+    int max_output_level = vstorage->MaxOutputLevel(
+        ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind);
     // DBImpl::CompactRange() set output level to be the last level
     assert(output_level == max_output_level);
     // DBImpl::RunManualCompaction will make full range for universal compaction

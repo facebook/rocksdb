@@ -82,6 +82,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<Cache> blob_cache;
 
   bool persist_user_defined_timestamps;
+
+  bool cf_allow_ingest_behind;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {

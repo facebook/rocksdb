@@ -131,9 +131,11 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
   Status status() const override { return status_; }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
-    if (iterator_) {
-      iterator_->Prepare(scan_opts->data(), scan_opts->size());
+  void Prepare(const MultiScanArgs* scan_opts) override {
+    if (iterator_ && scan_opts) {
+      iterator_->Prepare(scan_opts->GetScanRanges().data(), scan_opts->size());
+    } else if (iterator_) {
+      iterator_->Prepare(nullptr, 0);
     }
   }
 

@@ -1111,8 +1111,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
     final_output_level = cfd->NumberLevels() - 1;
-    // if bottom most level is reserved
-    if (immutable_db_options_.allow_ingest_behind) {
+    if (cfd->AllowIngestBehind()) {
       final_output_level--;
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
@@ -1460,7 +1459,7 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
-  if (cfd->ioptions().allow_ingest_behind &&
+  if (cfd->AllowIngestBehind() &&
       output_level >= cfd->ioptions().num_levels - 1) {
     return Status::InvalidArgument(
         "Exceed the maximum output level defined by "
@@ -1500,7 +1499,7 @@ Status DBImpl::CompactFilesImpl(
 
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->CompactFiles(
+  c.reset(cfd->compaction_picker()->PickCompactionForCompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
       cfd->GetLatestMutableCFOptions(), mutable_db_options_, output_path_id));
   // we already sanitized the set of input files and checked for conflicts
@@ -4155,6 +4154,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      ->current()
                      ->storage_info()
                      ->MaxOutputLevel(
+                         c->immutable_options().cf_allow_ingest_behind ||
                          immutable_db_options_.allow_ingest_behind)) &&
              env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
     assert(thread_pri == Env::Priority::LOW);
@@ -4660,7 +4660,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
   standalone_range_deletion_files_mark_threshold_ = kMaxSequenceNumber;
   for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
-    if (!my_cfd->ioptions().allow_ingest_behind) {
+    if (!my_cfd->AllowIngestBehind()) {
       bottommost_files_mark_threshold_ = std::min(
           bottommost_files_mark_threshold_,
           my_cfd->current()->storage_info()->bottommost_files_mark_threshold());

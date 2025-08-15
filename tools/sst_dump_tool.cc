@@ -9,6 +9,7 @@
 #include <cinttypes>
 #include <iostream>
 
+#include "db_stress_tool/db_stress_compression_manager.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
@@ -193,6 +194,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   int64_t tmp_val;
 
   TEST_AllowUnsupportedFormatVersion() = true;
+  DbStressCustomCompressionManager::Register();
 
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {

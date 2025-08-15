@@ -95,7 +95,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-using ScanOptionsMap = std::unordered_map<size_t, std::vector<ScanOptions>>;
+using ScanOptionsMap = std::unordered_map<size_t, MultiScanArgs>;
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
@@ -1101,17 +1101,17 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+  void Prepare(const MultiScanArgs* so) override {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
-    scan_opts_ = scan_opts;
-    if (scan_opts_ == nullptr) {
+    if (so == nullptr) {
       return;
     }
+    scan_opts_ = so;
 
     file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
     for (size_t k = 0; k < scan_opts_->size(); k++) {
-      const ScanOptions& opt = scan_opts_->at(k);
+      const ScanOptions& opt = scan_opts_->GetScanRanges().at(k);
       auto start = opt.range.start;
       auto end = opt.range.limit;
 
@@ -1139,8 +1139,8 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
-          (*file_to_scan_opts_)[i].back().property_bag = opt.property_bag;
+          (*file_to_scan_opts_)[i].insert(start.value(), end.value(),
+                                          opt.property_bag);
         }
       }
     }
@@ -1271,7 +1271,7 @@ class LevelIterator final : public InternalIterator {
   bool prefix_exhausted_ = false;
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
-  const std::vector<ScanOptions>* scan_opts_;
+  const MultiScanArgs* scan_opts_ = nullptr;
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
@@ -1540,7 +1540,8 @@ bool LevelIterator::SkipEmptyFileForward() {
       // If we are doing prepared scan opts then we should seek to the values
       // specified by the scan opts
       if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
-        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
+        const ScanOptions& opts =
+            file_to_scan_opts_->at(file_index_).GetScanRanges().front();
         if (opts.range.start.has_value()) {
           InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
                              kValueTypeForSeek);
@@ -1599,9 +1600,8 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (iter && scan_opts_) {
     if (file_to_scan_opts_.get() &&
         file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      const std::vector<ScanOptions>& opts =
-          file_to_scan_opts_->at(file_index_);
-      file_iter_.Prepare(&opts);
+      const MultiScanArgs& new_opts = file_to_scan_opts_->at(file_index_);
+      file_iter_.Prepare(&new_opts);
     } else {
       file_iter_.Prepare(scan_opts_);
     }
@@ -3528,7 +3528,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
-  int max_output_level = MaxOutputLevel(immutable_options.allow_ingest_behind);
+  int max_output_level =
+      MaxOutputLevel(immutable_options.cf_allow_ingest_behind ||
+                     immutable_options.allow_ingest_behind);
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -3713,6 +3715,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction(max_output_level);
   ComputeBottommostFilesMarkedForCompaction(
+      immutable_options.cf_allow_ingest_behind ||
       immutable_options.allow_ingest_behind);
   ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   ComputeFilesMarkedForPeriodicCompaction(
@@ -4710,8 +4713,7 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
   if (restart_epoch) {
     cfd->ResetNextEpochNumber();
 
-    bool reserve_epoch_num_for_file_ingested_behind =
-        cfd->ioptions().allow_ingest_behind;
+    bool reserve_epoch_num_for_file_ingested_behind = cfd->AllowIngestBehind();
     if (reserve_epoch_num_for_file_ingested_behind) {
       uint64_t reserved_epoch_number = cfd->NewEpochNumber();
       assert(reserved_epoch_number ==
@@ -4719,7 +4721,8 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
       ROCKS_LOG_INFO(cfd->ioptions().info_log.get(),
                      "[%s]CF has reserved epoch number %" PRIu64
                      " for files ingested "
-                     "behind since `Options::allow_ingest_behind` is true",
+                     "behind since `Options::allow_ingest_behind` or "
+                     "`Options::cf_allow_ingest_behind` is true",
                      cfd->GetName().c_str(), reserved_epoch_number);
     }
   }

@@ -197,7 +197,7 @@ class IteratorWrapperBase {
 
   // scan_opts lifetime is guaranteed until the iterator is destructed, or
   // Prepare() is called with a new scan_opts
-  void Prepare(const std::vector<ScanOptions>* scan_opts) {
+  void Prepare(const MultiScanArgs* scan_opts) {
     if (iter_) {
       iter_->Prepare(scan_opts);
     }

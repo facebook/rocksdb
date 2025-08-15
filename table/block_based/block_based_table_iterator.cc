@@ -932,19 +932,19 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
 // end key. So these Seeks can cause iterator to fall back to normal
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
-// TODO: support fill_cache = false and when block cache is disabled.
-void BlockBasedTableIterator::Prepare(
-    const std::vector<ScanOptions>* scan_opts) {
-  index_iter_->Prepare(scan_opts);
+void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
+  index_iter_->Prepare(multiscan_opts);
 
   assert(!multi_scan_);
   if (multi_scan_) {
     multi_scan_.reset();
     return;
   }
-  if (scan_opts == nullptr || scan_opts->empty()) {
+  if (multiscan_opts == nullptr || multiscan_opts->empty()) {
     return;
   }
+
+  const std::vector<ScanOptions>* scan_opts = &multiscan_opts->GetScanRanges();
   const bool has_limit = scan_opts->front().range.limit.has_value();
   if (!has_limit && scan_opts->size() > 1) {
     // Abort: overlapping ranges
@@ -1183,7 +1183,7 @@ void BlockBasedTableIterator::Prepare(
 
   // Successful Prepare, init related states so the iterator reads from prepared
   // blocks
-  multi_scan_.reset(new MultiScanState(scan_opts,
+  multi_scan_.reset(new MultiScanState(multiscan_opts,
                                        std::move(pinned_data_blocks_guard),
                                        std::move(block_ranges_per_scan)));
   is_index_at_curr_block_ = false;
@@ -1202,7 +1202,8 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     multi_scan_.reset();
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
-                 (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
+                 multi_scan_->scan_opts
+                     ->GetScanRanges()[multi_scan_->next_scan_idx]
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key

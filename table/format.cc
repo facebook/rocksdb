@@ -488,20 +488,14 @@ static Status ReadFooterFromFileInternal(
     Footer* footer, uint64_t enforce_table_magic_number) {
   uint64_t file_size_from_file_system = 0;
   Status s;
+  // Prefer the more efficient FSRandomAccessFile::GetFileSize when available
   s = file->file()->GetFileSize(&file_size_from_file_system);
   if (!s.ok()) {
-    auto corrupted_status =
-        Status::Corruption("Failed to get file size: " + s.ToString() +
-                           " for file " + file->file_name());
-    if (s.IsNotSupported()) {
-      // If file handle does not support GetFileSize, try File System API
-      s = fs.GetFileSize(file->file_name(), IOOptions(),
-                         &file_size_from_file_system, nullptr);
-      if (!s.ok()) {
-        return corrupted_status;
-      }
-    } else {
-      return corrupted_status;
+    // Fall back on FileSystem::GetFileSize on failure
+    s = fs.GetFileSize(file->file_name(), IOOptions(),
+                       &file_size_from_file_system, nullptr);
+    if (!s.ok()) {
+      return s;
     }
   }
 

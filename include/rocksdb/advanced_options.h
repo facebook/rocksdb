@@ -526,7 +526,7 @@ struct AdvancedColumnFamilyOptions {
   // By doing it, we give max_bytes_for_level_multiplier a priority against
   // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
   // useful to limit worse case space amplification.
-  // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
+  // If `cf_allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
   // then the last level is reserved, and we will start filling LSM from the
   // second last level.
   //
@@ -1145,6 +1145,33 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (disabled)
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
+
+  // If either DBOptions::allow_ingest_behind or this option is set to true,
+  // this column family will prepare for ingesting files to the last level
+  // (IngestExternalFiles() with ingest_behind=true). Users should set only
+  // this option since DBOptions::allow_ingest_behind is deprecated.
+  //
+  // Specifically, preparing a column family for ingesting files to the last
+  // level has the following effects:
+  // 1) Disables some internal optimizations around SST file compression.
+  // 2) Reserves the last level for ingested files only.
+  // 3) Compaction will not include any file from the last level.
+  // 4) Compaction will preserve necessary tombstones that can apply on
+  // top of ingested files.
+  //
+  // Note that only Universal Compaction supports cf_allow_ingest_behind.
+  // `num_levels` should be >= 3 if this option is turned on.
+  //
+  // Note that this option needs to be set to true before any write to the CF.
+  // It's recommended to set the option to true since CF creation. Otherwise,
+  // ingestion with ingest_behind = true might fail. Once file ingestions are
+  // done, the option should be flipped to false. Flipping this option to false
+  // allows the CF to disable the behavior changes detailed above and resume
+  // more efficient operation.
+  //
+  // Default: false
+  // Immutable.
+  bool cf_allow_ingest_behind = false;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

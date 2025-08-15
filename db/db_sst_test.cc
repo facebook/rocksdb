@@ -1937,6 +1937,70 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBSSTTest, SstGetFileSizeFails) {
+  // Build an SST file
+  ASSERT_OK(Put("x", "zaphod"));
+  ASSERT_OK(Flush());
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(1U, metadata.size());
+  std::string filename = dbname_ + metadata[0].name;
+
+  // Prepare for fault injection
+  std::shared_ptr<FaultInjectionTestFS> fault_fs =
+      std::make_shared<FaultInjectionTestFS>(
+          CurrentOptions().env->GetFileSystem());
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.env = fault_fs_env.get();
+  options.paranoid_checks = false;  // don't check file sizes on open
+
+  for (int i = 0; i < 4; i++) {
+    SCOPED_TRACE("Iteration = " + std::to_string(i));
+    fault_fs->SetFailRandomAccessGetFileSizeSst(false);
+    fault_fs->SetFailFilesystemGetFileSizeSst(false);
+    Close();
+
+    if (i == 1) {
+      // Just FSRandomAccessFile::GetFileSize fails, which should be worked
+      // around
+      fault_fs->SetFailRandomAccessGetFileSizeSst(true);
+    } else if (i == 2) {
+      // FileSystem::GetFileSize fails, which should be worked around if
+      // FSRandomAccessFile::GetFileSize is supported
+      fault_fs->SetFailFilesystemGetFileSizeSst(true);
+    } else if (i == 3) {
+      // Both GetFileSize APIs fail with an IOError
+      fault_fs->SetFailRandomAccessGetFileSizeSst(true);
+      fault_fs->SetFailFilesystemGetFileSizeSst(true);
+    }
+
+    ASSERT_OK(TryReopen(options));
+    std::string value;
+    Status get_status = db_->Get({}, "x", &value);
+    if (i < 2) {
+      ASSERT_OK(get_status);
+    } else if (i == 2) {
+      if (encrypted_env_) {
+        // Can't recover because RandomAccessFile::GetFileSize is not supported
+        // on EncryptedEnv
+        // Fail with propagated IOError. (Not Corruption nor NotSupported!)
+        ASSERT_EQ(get_status.code(), Status::Code::kIOError);
+        ASSERT_STREQ(get_status.getState(), "FileSystem::GetFileSize failed");
+      } else {
+        // Never sees the FileSystem::GetFileSize failure
+        ASSERT_OK(get_status);
+      }
+    } else {
+      ASSERT_EQ(i, 3);
+      // Fail with propagated IOError. (Not Corruption nor NotSupported!)
+      ASSERT_EQ(get_status.code(), Status::Code::kIOError);
+      ASSERT_STREQ(get_status.getState(), "FileSystem::GetFileSize failed");
+    }
+  }
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

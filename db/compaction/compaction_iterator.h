@@ -145,7 +145,8 @@ class CompactionIterator {
     }
 
     bool allow_ingest_behind() const override {
-      return compaction_->immutable_options().allow_ingest_behind;
+      return compaction_->immutable_options().cf_allow_ingest_behind ||
+             compaction_->immutable_options().allow_ingest_behind;
     }
 
     bool allow_mmap_reads() const override {
@@ -192,7 +193,7 @@ class CompactionIterator {
       SequenceNumber earliest_snapshot,
       SequenceNumber earliest_write_conflict_snapshot,
       SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
-      Env* env, bool report_detailed_time, bool expect_valid_internal_key,
+      Env* env, bool report_detailed_time,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
@@ -212,7 +213,7 @@ class CompactionIterator {
                      SequenceNumber earliest_write_conflict_snapshot,
                      SequenceNumber job_snapshot,
                      const SnapshotChecker* snapshot_checker, Env* env,
-                     bool report_detailed_time, bool expect_valid_internal_key,
+                     bool report_detailed_time,
                      CompactionRangeDelAggregator* range_del_agg,
                      BlobFileBuilder* blob_file_builder,
                      bool allow_data_in_errors,
@@ -347,7 +348,6 @@ class CompactionIterator {
   Env* env_;
   SystemClock* clock_;
   const bool report_detailed_time_;
-  const bool expect_valid_internal_key_;
   CompactionRangeDelAggregator* range_del_agg_;
   BlobFileBuilder* blob_file_builder_;
   std::unique_ptr<CompactionProxy> compaction_;

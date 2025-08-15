@@ -458,9 +458,9 @@ IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
 }
 
 TestFSRandomAccessFile::TestFSRandomAccessFile(
-    const std::string& /*fname*/, std::unique_ptr<FSRandomAccessFile>&& f,
+    const std::string& fname, std::unique_ptr<FSRandomAccessFile>&& f,
     FaultInjectionTestFS* fs)
-    : target_(std::move(f)), fs_(fs) {
+    : target_(std::move(f)), fs_(fs), is_sst_(EndsWith(fname, ".sst")) {
   assert(target_ != nullptr);
 }
 
@@ -564,8 +564,8 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 IOStatus TestFSRandomAccessFile::GetFileSize(uint64_t* file_size) {
-  if (fs_->ShouldFailGetFileSize()) {
-    return IOStatus::IOError("GetFileSize failed");
+  if (is_sst_ && fs_->ShouldFailRandomAccessGetFileSizeSst()) {
+    return IOStatus::IOError("FSRandomAccessFile::GetFileSize failed");
   } else {
     return target_->GetFileSize(file_size);
   }
@@ -1065,6 +1065,9 @@ IOStatus FaultInjectionTestFS::GetFileSize(const std::string& f,
                                            const IOOptions& options,
                                            uint64_t* file_size,
                                            IODebugContext* dbg) {
+  if (EndsWith(f, ".sst") && ShouldFailFilesystemGetFileSizeSst()) {
+    return IOStatus::IOError("FileSystem::GetFileSize failed");
+  }
   if (!IsFilesystemActive()) {
     return GetError();
   }

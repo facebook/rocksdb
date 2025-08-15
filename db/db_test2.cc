@@ -7466,10 +7466,26 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   FlushOptions fopts;
   fopts.wait = true;
   Random rnd(test::RandomSeed());
+
+  // Write 4 files into the default column family.
   for (int i = 0; i < 4; i++) {
     ASSERT_OK(db->Put(wopts, Key(i), rnd.RandomString(100)));
     ASSERT_OK(db->Flush(fopts));
   }
+
+  // Create a new column family, write 1 file into it and drop it.
+  ColumnFamilyHandle* cf;
+  ASSERT_OK(
+      db->CreateColumnFamily(ColumnFamilyOptions(), "soon_to_be_deleted", &cf));
+  ASSERT_OK(db->Put(wopts, cf, "some_key", "some_value"));
+  ASSERT_OK(db->Flush(fopts, cf));
+
+  // Drop column family should generate corresponding version edit
+  // in manifest, which we expect to be correctly interpreted by
+  // GetFileChecksumsFromCurrentManifest API after db close.
+  ASSERT_OK(db->DropColumnFamily(cf));
+  delete cf;
+  cf = nullptr;
 
   // Obtain rich files metadata for source of truth.
   std::vector<LiveFileMetaData> live_files;
