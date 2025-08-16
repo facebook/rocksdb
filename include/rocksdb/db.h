@@ -1966,7 +1966,9 @@ class DB {
   // In the first mode we will try to find the lowest possible level that
   // the file can fit in, and ingest the file into this level (2). A file that
   // have a key range that overlap with the memtable key range will require us
-  // to Flush the memtable first before ingesting the file.
+  // to Flush the memtable first before ingesting the file. If ingested files
+  // have any overlap with each other, level and sequence number assignment
+  // ensure later files overwrite earlier files.
   // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
   // For a column family that enables user-defined timestamps, ingesting
