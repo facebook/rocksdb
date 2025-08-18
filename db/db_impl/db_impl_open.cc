@@ -112,9 +112,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     //   upon encountering any such corrupt record, as it cannot differentiate
     //   between this and a real corruption, which would cause committed updates
     //   to be truncated -- a violation of the recovery guarantee.
-    // - kPointInTimeRecovery and kAbsoluteConsistency are incompatible with
-    //   recycle log file feature temporarily due to a bug found introducing a
-    //   hole in the recovered data
+    // - kAbsoluteConsistency is incompatible with recycle log file feature 
+    //   temporarily due to a bug found introducing a hole in the recovered data
     //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
     //   Besides this bug, we believe the features are fundamentally compatible.
     result.recycle_log_file_num = 0;
