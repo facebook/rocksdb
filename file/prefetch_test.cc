@@ -669,14 +669,11 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
     MoveFilesToLevel(level);
   }
   Close();
-  std::vector<int> buff_prefectch_level_count = {0, 0, 0};
-  ASSERT_OK(TryReopen(options));
-  {
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
-    fs->ClearPrefetchCount();
-    buff_prefetch_count = 0;
 
+  std::vector<int> buff_prefectch_level_count = {0, 0, 0};
+  {
     for (int level = 2; level >= 0; level--) {
+      ASSERT_OK(TryReopen(options));
       key_count = level * num_keys_per_level;
       switch (level) {
         case 0:
@@ -699,6 +696,11 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         default:
           assert(false);
       }
+      std::unique_ptr<Iterator> iter;
+      iter.reset(db_->NewIterator(ReadOptions()));
+      fs->ClearPrefetchCount();
+      buff_prefetch_count = 0;
+
       ASSERT_OK(iter->status());
       ASSERT_OK(iter->Refresh());  // Update to latest mutable options
 
@@ -720,7 +722,10 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         if (level == 0) {
           ASSERT_EQ(buff_prefetch_count, 0);
         } else {
-          ASSERT_GT(buff_prefetch_count, 0);
+          if (buff_prefetch_count == 0) {
+            fprintf(stderr, "Level = %d\n", level);
+            ASSERT_GT(buff_prefetch_count, 0);
+          }
         }
         buff_prefetch_count = 0;
       }
@@ -797,14 +802,11 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
   }
   Close();
 
-  ASSERT_OK(TryReopen(options));
   {
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
-    fs->ClearPrefetchCount();
-    buff_prefetch_count = 0;
     std::vector<int> buff_prefetch_level_count = {0, 0, 0};
 
     for (int level = 2; level >= 0; level--) {
+      ASSERT_OK(TryReopen(options));
       key_count = level * num_keys_per_level;
       switch (level) {
         case 0:
@@ -828,6 +830,9 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
         default:
           assert(false);
       }
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+      fs->ClearPrefetchCount();
+      buff_prefetch_count = 0;
       ASSERT_OK(iter->status());
       ASSERT_OK(iter->Refresh());  // Update to latest mutable options
 
