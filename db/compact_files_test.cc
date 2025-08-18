@@ -441,6 +441,10 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
 }
 
 TEST_F(CompactFilesTest, CompressionWithBlockAlign) {
+  if (!Snappy_Supported()) {
+    ROCKSDB_GTEST_SKIP("Test requires Snappy support");
+    return;
+  }
   Options options;
   options.compression = CompressionType::kNoCompression;
   options.create_if_missing = true;

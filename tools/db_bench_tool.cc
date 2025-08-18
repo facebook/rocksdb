@@ -1847,6 +1847,10 @@ DEFINE_bool(universal_reduce_file_locking,
                 .compaction_options_universal.reduce_file_locking,
             "See Options().compaction_options_universal.reduce_file_locking");
 
+DEFINE_uint64(multiscan_coalesce_threshold,
+              ROCKSDB_NAMESPACE::MultiScanArgs().io_coalesce_threshold,
+              "Configures io coalescing threshold for multiscans");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -6412,7 +6416,8 @@ class Benchmark {
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      std::vector<ScanOptions> opts;
+      MultiScanArgs opts;
+      opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
       // We create 1 random start, and then multiscan will start from that
@@ -6433,7 +6438,7 @@ class Benchmark {
         uint64_t end_key = start_key + scan_size;
         GenerateKeyFromInt(end_key, FLAGS_num, &ekey);
 
-        opts.emplace_back(skey, ekey);
+        opts.insert(skey, ekey);
         start_key += scan_size + FLAGS_multiscan_stride;
       }
 

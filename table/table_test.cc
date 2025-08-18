@@ -53,6 +53,7 @@
 #include "rocksdb/trace_record.h"
 #include "rocksdb/unique_id.h"
 #include "rocksdb/user_defined_index.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -2059,7 +2060,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
 
   // Simple
   PrefetchRange(&c, &opt, &table_options,
-                /*key_range=*/"k01", "k05",
+                /*key_begin=*/"k01", /*key_end=*/"k05",
                 /*keys_in_cache=*/{"k01", "k02", "k03", "k04", "k05"},
                 /*keys_not_in_cache=*/{"k06", "k07"});
   PrefetchRange(&c, &opt, &table_options, "k01", "k01", {"k01", "k02", "k03"},
@@ -6230,6 +6231,12 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
 class ChargeCompressionDictionaryBuildingBufferTest
     : public BlockBasedTableTestBase {};
 TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
+  if (GetSupportedDictCompressions().empty()) {
+    ROCKSDB_GTEST_SKIP("No supported dict compression");
+    return;
+  }
+  const auto kCompression = GetSupportedDictCompressions()[0];
+
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
@@ -6253,7 +6260,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
         {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
          {/*.charged = */ charge_compression_dictionary_building_buffer}});
     Options options;
-    options.compression = kSnappyCompression;
+    options.compression = kCompression;
     options.compression_opts.max_dict_bytes = kMaxDictBytes;
     options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -6274,7 +6281,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
         options.table_factory->NewTableBuilder(
             TableBuilderOptions(ioptions, moptions, read_options, write_options,
                                 ikc, &internal_tbl_prop_coll_factories,
-                                kSnappyCompression, options.compression_opts,
+                                kCompression, options.compression_opts,
                                 kUnknownColumnFamily, "test_cf", -1 /* level */,
                                 kUnknownNewestKeyTime),
             file_writer.get()));
@@ -6313,6 +6320,12 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
 
 TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
        BasicWithBufferLimitExceed) {
+  if (GetSupportedDictCompressions().empty()) {
+    ROCKSDB_GTEST_SKIP("No supported dict compression");
+    return;
+  }
+  const auto kCompression = GetSupportedDictCompressions()[0];
+
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
@@ -6332,7 +6345,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
 
   Options options;
-  options.compression = kSnappyCompression;
+  options.compression = kCompression;
   options.compression_opts.max_dict_bytes = kMaxDictBytes;
   options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -6351,7 +6364,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
   const WriteOptions write_options;
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
-                          &internal_tbl_prop_coll_factories, kSnappyCompression,
+                          &internal_tbl_prop_coll_factories, kCompression,
                           options.compression_opts, kUnknownColumnFamily,
                           "test_cf", -1 /* level */, kUnknownNewestKeyTime),
       file_writer.get()));
@@ -6394,6 +6407,12 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
 }
 
 TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
+  if (GetSupportedDictCompressions().empty()) {
+    ROCKSDB_GTEST_SKIP("No supported dict compression");
+    return;
+  }
+  const auto kCompression = GetSupportedDictCompressions()[0];
+
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   // A small kCacheCapacity is chosen so that increase cache charging for
@@ -6419,7 +6438,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
 
   Options options;
-  options.compression = kSnappyCompression;
+  options.compression = kCompression;
   options.compression_opts.max_dict_bytes = kMaxDictBytes;
   options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -6438,7 +6457,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
   const WriteOptions write_options;
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
-                          &internal_tbl_prop_coll_factories, kSnappyCompression,
+                          &internal_tbl_prop_coll_factories, kCompression,
                           options.compression_opts, kUnknownColumnFamily,
                           "test_cf", -1 /* level */, kUnknownNewestKeyTime),
       file_writer.get()));
@@ -7180,9 +7199,9 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1]),
-       ScanOptions(key_ranges[2], key_ranges[3])});
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
   std::unique_ptr<MultiScan> iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7209,7 +7228,10 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+
   iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7235,8 +7257,9 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options[0] = ScanOptions(key_ranges[0]);
-  scan_options[1] = ScanOptions(key_ranges[2]);
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2]);
   iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7457,8 +7480,11 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
                           const Slice* first_key_in_next_block,
                           const BlockHandle& block_handle,
                           std::string* separator_scratch) override {
+        EXPECT_EQ(last_key_in_current_block.size(), 5);
+        if (first_key_in_next_block) {
+          EXPECT_EQ(first_key_in_next_block->size(), 5);
+        }
         // Unused parameters
-        (void)first_key_in_next_block;
         (void)separator_scratch;
         entries_added_++;
         // Store the block handle for each key
@@ -7472,8 +7498,9 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
         return last_key_in_current_block;
       }
 
-      void OnKeyAdded(const Slice& /*key*/, ValueType /*value*/,
+      void OnKeyAdded(const Slice& key, ValueType /*value*/,
                       const Slice& /*value*/) override {
+        EXPECT_EQ(key.size(), 5);
         // Track keys added to the index
         keys_added_++;
       }
@@ -7657,9 +7684,12 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
           index_data_;
     };
   };
+
+ protected:
+  void BasicTest(bool use_partitioned_index);
 };
 
-TEST_F(UserDefinedIndexTest, BasicTest) {
+void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
   Options options;
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
@@ -7669,7 +7699,11 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-
+  if (use_partitioned_index) {
+    table_options.partition_filters = true;
+    table_options.decouple_partitioned_filters = true;
+    table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  }
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
@@ -7793,20 +7827,30 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
-  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  ;
-  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  MultiScanArgs scan_opts(BytewiseComparator());
+
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(25);
+  scan_opts.insert("key20", property_bag);
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
-       iter->Next()) {
+  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
+       iter->Valid(); iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);
   // The index may undercount by 2 blocks
   ASSERT_LE(key_count, 30);
   ASSERT_OK(iter->status());
+}
+
+TEST_F(UserDefinedIndexTest, BasicTestWithPartitionedIndex) {
+  BasicTest(/*use_partitioned_index=*/true);
+}
+
+TEST_F(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
+  BasicTest(/*use_partitioned_index=*/false);
 }
 
 TEST_F(UserDefinedIndexTest, InvalidArgumentTest1) {
@@ -7952,14 +7996,15 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
-  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  ;
-  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  MultiScanArgs scan_opts;
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(25);
+  scan_opts.insert(Slice("key20"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
-       iter->Next()) {
+  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
+       iter->Valid(); iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);
@@ -8019,6 +8064,92 @@ TEST_F(UserDefinedIndexTest, IngestFailTest) {
   IngestExternalFileOptions ifo;
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_NOK(s);
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST_F(UserDefinedIndexTest, ConfigTest) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  // Add 100 keys instead of just 5
+  for (int i = 0; i < 100; i++) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = "value" + ss.str();
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  table_options.user_defined_index_factory.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  // Set up the user-defined index factory
+  ObjectLibrary::Default().get()->AddFactory<UserDefinedIndexFactory>(
+      "test_index", [](const std::string& /* uri */,
+                       std::unique_ptr<UserDefinedIndexFactory>* guard,
+                       std::string* /* errmsg */) {
+        auto factory = new TestUserDefinedIndexFactory();
+        guard->reset(factory);
+        return guard->get();
+      });
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      ConfigOptions(), options,
+      "block_based_table_factory={user_defined_index_factory=test_index;}",
+      &options));
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  ReadOptions ro;
+  ro.table_index_factory = user_defined_index_factory.get();
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  MultiScanArgs scan_opts;
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(25);
+  scan_opts.insert(Slice("key20"), std::optional(property_bag));
+  iter->Prepare(scan_opts);
+  // Test that we can read all the keys
+  int key_count = 0;
+  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
+       iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_GE(key_count, 25);
+  // The index may undercount by 2 blocks
+  ASSERT_LE(key_count, 30);
+  ASSERT_OK(iter->status());
+  iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());

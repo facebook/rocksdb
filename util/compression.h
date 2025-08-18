@@ -34,6 +34,7 @@
 #include "util/string_util.h"
 
 #ifdef SNAPPY
+#include <snappy-sinksource.h>
 #include <snappy.h>
 #endif
 
@@ -48,10 +49,14 @@
 #if defined(LZ4)
 #include <lz4.h>
 #include <lz4hc.h>
+#if LZ4_VERSION_NUMBER < 10700  // < r129
+#error "LZ4 support requires version >= 1.7.0 (lz4-devel)"
+#endif
 #endif
 
 #ifdef ZSTD
 #include <zstd.h>
+#include <zstd_errors.h>
 // ZSTD_Compress2(), ZSTD_compressStream2() and frame parameters all belong to
 // advanced APIs and require v1.4.0+, which is from April 2019.
 // https://github.com/facebook/zstd/blob/eb9f881eb810f2242f1ef36b3f3e7014eecb8fa6/lib/zstd.h#L297C40-L297C45

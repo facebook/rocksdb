@@ -367,6 +367,7 @@ RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
 
 TOOL_LIB_SOURCES =                                              \
+  db_stress_tool/db_stress_compression_manager.cc               \
   tools/io_tracer_parser_tool.cc                                \
   tools/ldb_cmd.cc                                              \
   tools/ldb_tool.cc                                             \
@@ -395,6 +396,7 @@ STRESS_LIB_SOURCES =                                           \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
+  db_stress_tool/db_stress_compression_manager.cc              \
   db_stress_tool/db_stress_driver.cc                           \
   db_stress_tool/db_stress_filters.cc                          \
   db_stress_tool/db_stress_gflags.cc                           \
@@ -616,6 +618,7 @@ TEST_MAIN_SOURCES =                                                     \
   util/file_reader_writer_test.cc                                       \
   util/hash_test.cc                                                     \
   util/heap_test.cc                                                     \
+  util/interval_test.cc                                                 \
   util/random_test.cc                                                   \
   util/rate_limiter_test.cc                                             \
   util/repeatable_thread_test.cc                                        \

@@ -48,7 +48,9 @@ class UniversalCompactionBuilder {
         vstorage_(vstorage),
         picker_(picker),
         log_buffer_(log_buffer),
-        require_max_output_level_(require_max_output_level) {
+        require_max_output_level_(require_max_output_level),
+        allow_ingest_behind_(ioptions.cf_allow_ingest_behind ||
+                             ioptions.allow_ingest_behind) {
     assert(icmp_);
     const auto* ucmp = icmp_->user_comparator();
     assert(ucmp);
@@ -422,8 +424,7 @@ class UniversalCompactionBuilder {
   bool MeetsOutputLevelRequirements(int output_level) const {
     return !require_max_output_level_ ||
            Compaction::OutputToNonZeroMaxOutputLevel(
-               output_level,
-               vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind));
+               output_level, vstorage_->MaxOutputLevel(allow_ingest_behind_));
   }
 
   const ImmutableOptions& ioptions_;
@@ -437,7 +438,6 @@ class UniversalCompactionBuilder {
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
-  bool require_max_output_level_;
   // Optional earliest snapshot at time of compaction picking. This is only
   // provided if the column family doesn't enable user-defined timestamps.
   // And this information is only passed to `Compaction` picked by deletion
@@ -448,6 +448,8 @@ class UniversalCompactionBuilder {
   // marked for compaction. This is only populated when snapshot info is
   // populated.
   std::map<uint64_t, size_t> file_marked_for_compaction_to_sorted_run_index_;
+  bool require_max_output_level_;
+  bool allow_ingest_behind_;
 
   std::vector<UniversalCompactionBuilder::SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, int last_level,
@@ -733,8 +735,7 @@ bool UniversalCompactionBuilder::ShouldSkipMarkedFile(
 Compaction* UniversalCompactionBuilder::PickCompaction() {
   const int kLevel0 = 0;
   score_ = vstorage_->CompactionScore(kLevel0);
-  const int max_output_level =
-      vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+  const int max_output_level = vstorage_->MaxOutputLevel(allow_ingest_behind_);
   const int file_num_compaction_trigger =
       mutable_cf_options_.level0_file_num_compaction_trigger;
   const unsigned int ratio =
@@ -781,8 +782,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
         "UniversalCompactionBuilder::PickCompaction:Return", nullptr);
     return nullptr;
   }
-  assert(c->output_level() <=
-         vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind));
+  assert(c->output_level() <= vstorage_->MaxOutputLevel(allow_ingest_behind_));
   assert(MeetsOutputLevelRequirements(c->output_level()));
 
   if (mutable_cf_options_.compaction_options_universal.allow_trivial_move ==
@@ -1024,8 +1024,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   int start_level = sorted_runs_[start_index].level;
   int output_level;
   // last level is reserved for the files ingested behind
-  int max_output_level =
-      vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+  int max_output_level = vstorage_->MaxOutputLevel(allow_ingest_behind_);
   if (first_index_after == sorted_runs_.size()) {
     output_level = max_output_level;
   } else if (sorted_runs_[first_index_after].level == 0) {
@@ -1517,8 +1516,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       return nullptr;
     }
 
-    int max_output_level =
-        vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+    int max_output_level = vstorage_->MaxOutputLevel(allow_ingest_behind_);
     // Pick the first non-empty level after the start_level
     for (output_level = start_level + 1; output_level <= max_output_level;
          output_level++) {
@@ -1621,8 +1619,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
-  int max_output_level =
-      vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+  int max_output_level = vstorage_->MaxOutputLevel(allow_ingest_behind_);
   std::vector<CompactionInputFiles> inputs(max_output_level + 1);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);

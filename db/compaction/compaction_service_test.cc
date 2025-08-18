@@ -461,6 +461,97 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_EQ(handles_[1]->GetName(), info.cf_name);
 }
 
+TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  ReopenWithCompactionService(&options);
+
+  size_t num_files_after_filtered = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        num_files_after_filtered = *static_cast<size_t*>(arg);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files;
+  {
+    // Writes first version of data in range partitioned files.
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = dbname_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("b", "b1"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+
+    std::string file2 = dbname_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("x", "x1"));
+    ASSERT_OK(sst_file_writer.Put("y", "y1"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("b"), "b1");
+  ASSERT_EQ(Get("x"), "x1");
+  ASSERT_EQ(Get("y"), "y1");
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  auto my_cs = GetCompactionService();
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  {
+    // Atomically delete old version of data with one range delete file.
+    // And a new batch of range partitioned files with new version of data.
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = dbname_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+
+    std::string file3 = dbname_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("a", "a2"));
+    ASSERT_OK(sst_file_writer.Put("b", "b2"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+
+    std::string file4 = dbname_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("x", "x2"));
+    ASSERT_OK(sst_file_writer.Put("y", "y2"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_OK(db_->WaitForCompact(WaitForCompactOptions()));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+
+  ASSERT_EQ(num_files_after_filtered, 1);
+
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(CompactionServiceTest, CompactionOutputFileIOError) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -789,6 +880,79 @@ TEST_F(CompactionServiceTest, VerifyInputRecordCount) {
 
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
 
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(CompactionServiceTest, EmptyResult) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  uint64_t comp_num = my_cs->GetCompactionNum();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  // Delete range to cover entire range
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "key", "keyz"));
+  ASSERT_OK(Flush());
+
+  // In this unit test, both remote compaction and primary db instance are
+  // running in the same process, so NewFileNumber will never have a collision.
+  // In the real-world remote compactions, when the compaction is indeed running
+  // in another process, this is not going to be the case.
+  // To simulate the SST file with the same name created in the tmp directory,
+  // override the file number in remote compaction to re-use old SST file
+  // number.
+  bool need_to_override_file_number = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::BeforeLoadingOptions:0",
+      [&](void*) { need_to_override_file_number = true; });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::OpenCompactionOutputFile::NewFileNumber",
+      [&](void* file_number) {
+        if (need_to_override_file_number) {
+          auto n = static_cast<uint64_t*>(file_number);
+          ColumnFamilyMetaData cf_meta;
+          db_->GetColumnFamilyMetaData(&cf_meta);
+          for (const auto& level : cf_meta.levels) {
+            for (const auto& file : level.files) {
+              // Use one of the existing file name
+              *n = test::GetFileNumber(file.name);
+              need_to_override_file_number = false;
+              return;
+            }
+          }
+        }
+      });
+
+  // Inject failure, so that the remote compaction fails after
+  // ProcessKeyValueCompaction()
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CompactWithoutInstallation::End", [&](void* status) {
+        // override job status
+        auto s = static_cast<Status*>(status);
+        *s = Status::Aborted("MyTestCompactionService failed to compact!");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Compaction should fail and SST files in the primary db should exist
+  {
+    ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    ColumnFamilyMetaData meta;
+    db_->GetColumnFamilyMetaData(&meta);
+    for (const auto& level : meta.levels) {
+      for (const auto& file : level.files) {
+        std::string fname = file.db_path + "/" + file.name;
+        ASSERT_OK(db_->GetEnv()->FileExists(fname));
+      }
+    }
+  }
+  Close();
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }

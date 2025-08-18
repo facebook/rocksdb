@@ -19,6 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
+class Decompressor;
 
 // A Compressor represents a very specific but potentially adapting strategy for
 // compressing blocks, including the relevant algorithm(s), options, dictionary,
@@ -156,9 +157,11 @@ class Compressor {
     return {};
   }
 
-  // Compress `uncompressed_data` to `compressed_output`, which should be
-  // passed in empty. Note that the compressed output will be decompressed
-  // by the sequence Decompressor::ExtractUncompressedSize() followed by
+  // Compress `uncompressed_data` to buffer `compressed_output` of size
+  // `*compressed_output_size`, storing the final compressed size in
+  // `*compressed_output_size` and compression type in `*out_compression_type`.
+  // Note that the compressed output will be decompressed by the sequence
+  // Decompressor::ExtractUncompressedSize() followed by
   // Decompressor::DecompressBlock(), which must also be provided the same
   // CompressionType saved in `out_compression_type`. (In many configurations,
   // `compressed_output` will have a prefix storing the uncompressed_data size
@@ -170,27 +173,33 @@ class Compressor {
   // If return status is not OK, then some fatal condition has arisen. On OK
   // status, setting `*out_compression_type = kNoCompression` means compression
   // is declined and the caller should use the original uncompressed_data and
-  // ignore any result in `compressed_output`. Otherwise, compression has
-  // happened with results in `compressed_output` and `out_compression_type`,
-  // which are allowed to vary from call to call.
+  // ignore any result in `compressed_output`. In this case, setting
+  // *compressed_output_size to 0 suggests that compression was quickly
+  // "bypassed" and *compressed_output_size > 0 suggests that compression was
+  // attempted but rejected (e.g. insufficient compression ratio).
+  //
+  // On OK status and `*out_compression_type != kNoCompression`, compression has
+  // happened with results in `compressed_output`, `compressed_output_size`, and
+  // `out_compression_type`. The output compression type is allowed to vary from
+  // call to call but does not for compressors from BuiltinV2CompressionManager.
   //
   // The working area is optional and used to optimize repeated compression by
   // a single thread. ManagedWorkingArea is provided rather than just
   // WorkingArea so that it can be used only if the `owner` matches expectation.
   // This could be useful for a Compressor wrapping more than one alternative
   // underlying Compressor.
-  //
-  // TODO: instead of string, consider a buffer only large enough for max
-  // tolerable compressed size. Does that work for all existing algorithms?
-  // * Looks like Snappy doesn't support that. :(
-  //   * Except perhaps using the Sink interface
-  // * But looks like everything else should. :)
-  // Could save CPU by eliminating extra zero-ing and giving up quicker when
-  // ratio is insufficient.
-  virtual Status CompressBlock(Slice uncompressed_data,
-                               std::string* compressed_output,
+  virtual Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                               size_t* compressed_output_size,
                                CompressionType* out_compression_type,
                                ManagedWorkingArea* working_area) = 0;
+
+  // OPTIONAL: Return a decompressor that is optimized for output from this
+  // compressor.
+  virtual std::shared_ptr<Decompressor> GetOptimizedDecompressor() const {
+    // Default implementation: no optimization. Get a Decompressor from the
+    // CompressionManager.
+    return nullptr;
+  }
 
   // TODO: something to populate table properties based on settings, after all
   // or as WorkingAreas released. Maybe also update stats, or that could be in
@@ -441,14 +450,6 @@ class CompressionManager
     // Safe default implementation
     return GetDecompressor();
   }
-
-  // Get a decompressor that is allowed to have support only for the
-  // CompressionTypes used by the given Compressor.
-  virtual std::shared_ptr<Decompressor> GetDecompressorForCompressor(
-      const Compressor& compressor) {
-    // Reasonable default implementation
-    return GetDecompressorOptimizeFor(compressor.GetPreferredCompressionType());
-  }
 };
 
 // ************************* Utility wrappers etc. *********************** //
@@ -485,11 +486,17 @@ class CompressorWrapper : public Compressor {
   // ManagedWorkingArea takes care of calling it on the Compressor that created
   // the WorkingArea.
 
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* working_area) override {
     return wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, working_area);
+                                   compressed_output_size, out_compression_type,
+                                   working_area);
+  }
+
+  std::shared_ptr<Decompressor> GetOptimizedDecompressor() const override {
+    return wrapped_->GetOptimizedDecompressor();
   }
 
  protected:
@@ -590,11 +597,6 @@ class CompressionManagerWrapper : public CompressionManager {
       const CompressionType* types_begin,
       const CompressionType* types_end) override {
     return wrapped_->GetDecompressorForTypes(types_begin, types_end);
-  }
-
-  std::shared_ptr<Decompressor> GetDecompressorForCompressor(
-      const Compressor& compressor) override {
-    return wrapped_->GetDecompressorForCompressor(compressor);
   }
 
  protected:

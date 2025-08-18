@@ -893,6 +893,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareLoose}},
+        {"cf_allow_ingest_behind",
+         {offsetof(struct ImmutableCFOptions, cf_allow_ingest_behind),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -1032,7 +1036,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       blob_cache(cf_options.blob_cache),
       persist_user_defined_timestamps(
-          cf_options.persist_user_defined_timestamps) {}
+          cf_options.persist_user_defined_timestamps),
+      cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 

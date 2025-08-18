@@ -1677,15 +1677,18 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
   std::vector<std::string> start_key_strs;
   std::vector<std::string> end_key_strs;
-  std::vector<ScanOptions> scan_opts;
+  MultiScanArgs scan_opts;
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
+  // Will be initialized before Seek() below.
+  Slice ub;
+  ro.iterate_upper_bound = &ub;
   for (size_t i = 0; i < num_scans * 2; i += 2) {
     assert(rand_keys[i] <= rand_keys[i + 1]);
     start_key_strs.emplace_back(Key(rand_keys[i]));
     end_key_strs.emplace_back(Key(rand_keys[i + 1]));
-    scan_opts.emplace_back(start_key_strs.back(), end_key_strs.back());
+    scan_opts.insert(Slice(start_key_strs.back()), Slice(end_key_strs.back()));
   }
 
   std::string op_logs;
@@ -1712,7 +1715,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     return true;
   };
 
-  for (const ScanOptions& scan_opt : scan_opts) {
+  for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
       op_logs = "(cleared...)\n";
@@ -1745,8 +1748,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     assert(scan_opt.range.start);
     assert(scan_opt.range.limit);
     Slice key = scan_opt.range.start.value();
-    Slice ub = scan_opt.range.limit.value();
-    ro.iterate_upper_bound = &ub;
+    ub = scan_opt.range.limit.value();
 
     LastIterateOp last_op;
     iter->Seek(key);
@@ -3588,24 +3590,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  {
-    // We must register any compression managers with a custom
-    // CompatibilityName() so that if it was used in a past invocation but not
-    // the current invocation, we can still read the SST files requiring it.
-    static std::once_flag loaded;
-    std::call_once(loaded, [&]() {
-      TEST_AllowUnsupportedFormatVersion() = true;
-      auto& library = *ObjectLibrary::Default();
-      library.AddFactory<CompressionManager>(
-          DbStressCustomCompressionManager().CompatibilityName(),
-          [](const std::string& /*uri*/,
-             std::unique_ptr<CompressionManager>* guard,
-             std::string* /*errmsg*/) {
-            *guard = std::make_unique<DbStressCustomCompressionManager>();
-            return guard->get();
-          });
-    });
-  }
+  DbStressCustomCompressionManager::Register();
 
   if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
     options_.compression_manager =
@@ -3640,6 +3625,21 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
+    // TODO(jaykorean) Remove this after fix - remote worker shouldn't recover
+    // from WAL
+    if (!FLAGS_disable_wal) {
+      fprintf(stderr,
+              "WAL is not compatible with Remote Compaction in Stress Test\n");
+      exit(1);
+    }
+    if ((options_.enable_blob_files ||
+         options_.enable_blob_garbage_collection ||
+         FLAGS_allow_setting_blob_options_dynamically)) {
+      fprintf(stderr,
+              "Integrated BlobDB is currently incompatible with Remote "
+              "Compaction\n");
+      exit(1);
+    }
     options_.compaction_service =
         std::make_shared<DbStressCompactionService>(shared);
   }

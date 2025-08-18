@@ -9,10 +9,12 @@
 #include <cinttypes>
 #include <iostream>
 
+#include "db_stress_tool/db_stress_compression_manager.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/ldb_cmd.h"
+#include "table/block_based/block.h"
 #include "table/sst_file_dumper.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -120,6 +122,9 @@ void print_help(bool to_stderr) {
 
     --compression_use_zstd_finalize_dict
       Use zstd's finalizeDictionary() API instead of zstd's dictionary trainer to generate dictionary.
+
+    --list_meta_blocks
+      Print the list of all meta blocks in the file
 )",
       supported_compressions.c_str());
 }
@@ -161,6 +166,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   bool use_from_as_prefix = false;
   bool show_properties = false;
   bool show_summary = false;
+  bool list_meta_blocks = false;
   bool set_block_size = false;
   bool has_compression_level_from = false;
   bool has_compression_level_to = false;
@@ -193,6 +199,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   int64_t tmp_val;
 
   TEST_AllowUnsupportedFormatVersion() = true;
+  DbStressCustomCompressionManager::Register();
 
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
@@ -333,6 +340,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       compression_max_dict_buffer_bytes = static_cast<uint64_t>(tmp_val);
     } else if (strcmp(argv[i], "--compression_use_zstd_finalize_dict") == 0) {
       compression_use_zstd_finalize_dict = true;
+    } else if (strcmp(argv[i], "--list_meta_blocks") == 0) {
+      list_meta_blocks = true;
     } else if (strcmp(argv[i], "--help") == 0) {
       print_help(/*to_stderr*/ false);
       return 0;
@@ -559,7 +568,35 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         fprintf(stderr, "Reader unexpectedly returned null properties\n");
       }
     }
+
+    BlockContents& meta_index_contents = dumper.GetMetaIndexContents();
+    if (list_meta_blocks && meta_index_contents.data.size() > 0) {
+      Block meta_index_block(std::move(meta_index_contents));
+      std::unique_ptr<MetaBlockIter> meta_index_iter;
+      meta_index_iter.reset(meta_index_block.NewMetaIterator());
+      meta_index_iter->SeekToFirst();
+      fprintf(stdout,
+              "Meta Blocks:\n"
+              "------------------------------\n");
+      while (meta_index_iter->status().ok() && meta_index_iter->Valid()) {
+        Slice v = meta_index_iter->value();
+        BlockHandle handle;
+        st = handle.DecodeFrom(&v);
+        if (!st.ok()) {
+          fprintf(stderr, "%s: Could not decode block handle - %s\n",
+                  filename.c_str(), st.ToString().c_str());
+        } else {
+          fprintf(stdout, "  %s: %" PRIu64 " %" PRIu64 "\n",
+                  meta_index_iter->key().ToString().c_str(), handle.offset(),
+                  handle.size());
+        }
+        meta_index_iter->Next();
+      }
+    } else if (list_meta_blocks) {
+      fprintf(stderr, "Could not read the meta index block\n");
+    }
   }
+
   if (show_summary) {
     fprintf(stdout, "total number of files: %" PRIu64 "\n", total_num_files);
     fprintf(stdout, "total number of data blocks: %" PRIu64 "\n",

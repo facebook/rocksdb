@@ -121,16 +121,13 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     assert(s.ok());
     assert(placeholder_usage_ == 0);
     assert(reserved_usage_ == 0);
-    bool pri_cache_res_mismatch =
-        pri_cache_res_->GetTotalMemoryUsed() != sec_capacity;
-    if (pri_cache_res_mismatch) {
-      fprintf(stderr,
+    if (pri_cache_res_->GetTotalMemoryUsed() != sec_capacity) {
+      fprintf(stdout,
               "~CacheWithSecondaryAdapter: Primary cache reservation: "
               "%zu, Secondary cache capacity: %zu, "
               "Secondary cache reserved: %zu\n",
               pri_cache_res_->GetTotalMemoryUsed(), sec_capacity,
               sec_reserved_);
-      assert(!pri_cache_res_mismatch);
     }
   }
 #endif  // NDEBUG

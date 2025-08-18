@@ -43,7 +43,7 @@ MemMapping& MemMapping::operator=(MemMapping&& other) noexcept {
     return *this;
   }
   this->~MemMapping();
-  std::memcpy(this, &other, sizeof(*this));
+  std::memcpy(static_cast<void*>(this), &other, sizeof(*this));
   new (&other) MemMapping();
   return *this;
 }

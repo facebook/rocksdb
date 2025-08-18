@@ -75,7 +75,7 @@ class CompactionPicker {
   // *compaction_end should point to valid InternalKey!
   // REQUIRES: If not compacting all levels (input_level == kCompactAllLevels),
   // then levels between input_level and output_level should be empty.
-  virtual Compaction* CompactRange(
+  virtual Compaction* PickCompactionForCompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       int input_level, int output_level,
@@ -117,12 +117,17 @@ class CompactionPicker {
   // Caller must provide a set of input files that has been passed through
   // `SanitizeAndConvertCompactionInputFiles` earlier. The lock should not be
   // released between that call and this one.
-  Compaction* CompactFiles(const CompactionOptions& compact_options,
-                           const std::vector<CompactionInputFiles>& input_files,
-                           int output_level, VersionStorageInfo* vstorage,
-                           const MutableCFOptions& mutable_cf_options,
-                           const MutableDBOptions& mutable_db_options,
-                           uint32_t output_path_id);
+  //
+  //  TODO - Remove default values for earliest_snapshot and snapshot_checker
+  //  and require all callers to pass them in so that DB::CompactFiles() can
+  //  also benefit from Standalone Range Tombstone Optimization
+  Compaction* PickCompactionForCompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<CompactionInputFiles>& input_files, int output_level,
+      VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, uint32_t output_path_id,
+      std::optional<SequenceNumber> earliest_snapshot = std::nullopt,
+      const SnapshotChecker* snapshot_checker = nullptr);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
@@ -278,18 +283,17 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always return "nullptr"
-  Compaction* CompactRange(const std::string& /*cf_name*/,
-                           const MutableCFOptions& /*mutable_cf_options*/,
-                           const MutableDBOptions& /*mutable_db_options*/,
-                           VersionStorageInfo* /*vstorage*/,
-                           int /*input_level*/, int /*output_level*/,
-                           const CompactRangeOptions& /*compact_range_options*/,
-                           const InternalKey* /*begin*/,
-                           const InternalKey* /*end*/,
-                           InternalKey** /*compaction_end*/,
-                           bool* /*manual_conflict*/,
-                           uint64_t /*max_file_num_to_ignore*/,
-                           const std::string& /*trim_ts*/) override {
+  Compaction* PickCompactionForCompactRange(
+      const std::string& /*cf_name*/,
+      const MutableCFOptions& /*mutable_cf_options*/,
+      const MutableDBOptions& /*mutable_db_options*/,
+      VersionStorageInfo* /*vstorage*/, int /*input_level*/,
+      int /*output_level*/,
+      const CompactRangeOptions& /*compact_range_options*/,
+      const InternalKey* /*begin*/, const InternalKey* /*end*/,
+      InternalKey** /*compaction_end*/, bool* /*manual_conflict*/,
+      uint64_t /*max_file_num_to_ignore*/,
+      const std::string& /*trim_ts*/) override {
     return nullptr;
   }
 

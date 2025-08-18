@@ -848,7 +848,6 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   VersionStorageInfo* vstorage = version->storage_info();
 
-  // Use comp_options to reuse some CompactFiles functions
   CompactionOptions comp_options;
   comp_options.compression = kDisableCompressionOption;
   comp_options.output_file_size_limit = MaxFileSizeForLevel(
@@ -867,13 +866,27 @@ Status DBImplSecondary::CompactWithoutInstallation(
     return s;
   }
 
+  const int job_id = next_job_id_.fetch_add(1);
+  JobContext job_context(job_id, true /*create_superversion*/);
+  std::vector<SequenceNumber> snapshots = input.snapshots;
+
+  // TODO - snapshot_checker support in Remote Compaction
+  job_context.InitSnapshotContext(/*checker=*/nullptr,
+                                  /*managed_snapshot=*/nullptr,
+                                  kMaxSequenceNumber, std::move(snapshots));
+
+  // TODO - consider serializing the entire Compaction object and using it as
+  // input instead of recreating it in the remote worker
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->CompactFiles(
+  c.reset(cfd->compaction_picker()->PickCompactionForCompactFiles(
       comp_options, input_files, input.output_level, vstorage,
-      cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0));
+      cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0,
+      /*earliest_snapshot=*/job_context.snapshot_seqs.empty()
+          ? kMaxSequenceNumber
+          : job_context.snapshot_seqs.front(),
+      job_context.snapshot_checker));
   assert(c != nullptr);
-
   c->FinalizeInputInfo(version);
 
   // Create output directory if it's not existed yet
@@ -886,11 +899,6 @@ Status DBImplSecondary::CompactWithoutInstallation(
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
-  const int job_id = next_job_id_.fetch_add(1);
-  JobContext job_context(0, true /*create_superversion*/);
-  std::vector<SequenceNumber> snapshots = input.snapshots;
-  job_context.InitSnapshotContext(nullptr, nullptr, kMaxSequenceNumber,
-                                  std::move(snapshots));
   // use primary host's db_id for running the compaction, but db_session_id is
   // using the local one, which is to make sure the unique id is unique from
   // the remote compactors. Because the id is generated from db_id,

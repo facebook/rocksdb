@@ -1361,16 +1361,11 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
-  // Set this option to true during creation of database if you want
-  // to be able to ingest behind (call IngestExternalFile() skipping keys
-  // that already exist, rather than overwriting matching keys).
-  // Setting this option to true has the following effects:
-  // 1) Disable some internal optimizations around SST file compression.
-  // 2) Reserve the last level for ingested files only.
-  // 3) Compaction will not include any file from the last level.
-  // Note that only Universal Compaction supports allow_ingest_behind.
-  // `num_levels` should be >= 3 if this option is turned on.
+  // DEPRECATED: use ColumnFamilyOptions::cf_allow_ingest_behind instead.
+  // This option might be removed in a future release.
   //
+  // See comment for `ColumnFamilyOptions::cf_allow_ingest_behind` for
+  // detail about the option's functionality and use cases.
   //
   // DEFAULT: false
   // Immutable.
@@ -1779,6 +1774,85 @@ struct ScanOptions {
   // A bounded scan with a start key and upper bound
   ScanOptions(const Slice& _start, const Slice& _upper_bound)
       : range(_start, _upper_bound) {}
+};
+
+// Container for multiple scan ranges that can be used with MultiScan.
+// This replaces std::vector<ScanOptions> with a more efficient implementation
+// that can merge overlapping ranges.
+class MultiScanArgs {
+ public:
+  // Constructor that takes a comparator
+  explicit MultiScanArgs(const Comparator* comparator = BytewiseComparator())
+      : comp_(comparator) {}
+
+  // Copy Constructor
+  MultiScanArgs(const MultiScanArgs& other) {
+    comp_ = other.comp_;
+    original_ranges_ = other.original_ranges_;
+    io_coalesce_threshold = other.io_coalesce_threshold;
+  }
+  MultiScanArgs(MultiScanArgs&& other) noexcept
+      : io_coalesce_threshold(other.io_coalesce_threshold),
+        comp_(other.comp_),
+        original_ranges_(std::move(other.original_ranges_)) {}
+
+  MultiScanArgs& operator=(const MultiScanArgs& other) {
+    comp_ = other.comp_;
+    original_ranges_ = other.original_ranges_;
+    io_coalesce_threshold = other.io_coalesce_threshold;
+    return *this;
+  }
+
+  MultiScanArgs& operator=(MultiScanArgs&& other) noexcept {
+    if (this != &other) {
+      comp_ = other.comp_;
+      original_ranges_ = std::move(other.original_ranges_);
+      io_coalesce_threshold = other.io_coalesce_threshold;
+    }
+    return *this;
+  }
+
+  void insert(const Slice& s, const Slice& b) {
+    original_ranges_.emplace_back(s, b);
+  }
+
+  void insert(const Slice& s, const Slice& b,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s, b);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
+  void insert(const Slice& s) { original_ranges_.emplace_back(s); }
+
+  void insert(const Slice& s,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
+  size_t size() const { return original_ranges_.size(); }
+  bool empty() const { return original_ranges_.empty(); }
+
+  void reserve(size_t size) { original_ranges_.reserve(size); }
+
+  operator std::vector<ScanOptions>*() { return &original_ranges_; }
+
+  operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
+  // Destructor
+  ~MultiScanArgs() {}
+
+  const std::vector<ScanOptions>& GetScanRanges() const {
+    return original_ranges_;
+  }
+
+  uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
+
+ private:
+  // The comparator used for ordering ranges
+  const Comparator* comp_;
+  std::vector<ScanOptions> original_ranges_;
 };
 
 // Options that control read operations
@@ -2377,8 +2451,8 @@ struct IngestExternalFileOptions {
   // to be skipped rather than overwriting existing data under that key.
   // Use case: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
-  // This option could only be used if the DB has been running
-  // with allow_ingest_behind=true since the dawn of time.
+  // This option could only be used if the CF has been running
+  // with cf_allow_ingest_behind=true since CF creation (or before any write).
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
   // DEPRECATED - Set to true if you would like to write global_seqno to

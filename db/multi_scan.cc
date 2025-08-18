@@ -10,24 +10,25 @@ namespace ROCKSDB_NAMESPACE {
 using MultiScanIterator = MultiScan::MultiScanIterator;
 
 MultiScan::MultiScan(const ReadOptions& read_options,
-                     const std::vector<ScanOptions>& scan_opts, DB* db,
+                     const MultiScanArgs& scan_opts, DB* db,
                      ColumnFamilyHandle* cfh)
     : read_options_(read_options), scan_opts_(scan_opts), db_(db), cfh_(cfh) {
   bool slow_path = false;
   // Setup read_options with iterate_uuper_bound based on the first scan.
   // Subsequent scans will update and allocate a new DB iterator as necessary
-  if (scan_opts[0].range.limit) {
-    upper_bound_ = *scan_opts[0].range.limit;
+  if (scan_opts.GetScanRanges()[0].range.limit) {
+    upper_bound_ = *scan_opts.GetScanRanges()[0].range.limit;
     read_options_.iterate_upper_bound = &upper_bound_;
   } else {
     read_options_.iterate_upper_bound = nullptr;
   }
-  for (auto opts : scan_opts) {
+  for (const auto& opts : scan_opts.GetScanRanges()) {
     // Check that all the ScanOptions either specify an upper bound or not. If
     // its mixed we take the slow path which avoids calling Prepare: we have to
     // reallocate the Iterator with updated read_options everytime we switch
     // between upper bound or no upper bound, which complicates Prepare.
-    if (opts.range.limit.has_value() != scan_opts[0].range.limit.has_value()) {
+    if (opts.range.limit.has_value() !=
+        scan_opts.GetScanRanges()[0].range.limit.has_value()) {
       slow_path = true;
       break;
     }

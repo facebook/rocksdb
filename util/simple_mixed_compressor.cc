@@ -60,13 +60,15 @@ const char* RandomMixedCompressor::Name() const {
 }
 
 Status RandomMixedCompressor::CompressBlock(
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+    Slice uncompressed_data, char* compressed_output,
+    size_t* compressed_output_size, CompressionType* out_compression_type,
+    ManagedWorkingArea* wa) {
   auto selected =
       Random::GetTLSInstance()->Uniform(static_cast<int>(compressors_.size()));
   auto& compressor = compressors_[selected];
   return compressor->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, wa);
+                                   compressed_output_size, out_compression_type,
+                                   wa);
 }
 
 const char* RandomMixedCompressionManager::Name() const {
@@ -85,13 +87,15 @@ const char* RoundRobinCompressor::Name() const {
 }
 
 Status RoundRobinCompressor::CompressBlock(
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+    Slice uncompressed_data, char* compressed_output,
+    size_t* compressed_output_size, CompressionType* out_compression_type,
+    ManagedWorkingArea* wa) {
   auto counter = block_counter.FetchAddRelaxed(1);
   auto sel_idx = counter % (compressors_.size());
   auto& compressor = compressors_[sel_idx];
   return compressor->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, wa);
+                                   compressed_output_size, out_compression_type,
+                                   wa);
 }
 
 RelaxedAtomic<uint64_t> RoundRobinCompressor::block_counter{0};

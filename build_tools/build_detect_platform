@@ -55,8 +55,11 @@ fi
 # we currently depend on POSIX platform
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX"
 
-# Default to fbcode gcc on internal fb machines
-if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
+# Default to fbcode gcc on Meta internal machines
+IS_META_HOST="$(hostname | grep -E '(facebook|meta).com|fbinfra.net')"
+if [ -z "$ROCKSDB_NO_FBCODE" -a "$IS_META_HOST" ]; then
+  if [ -d /mnt/gvfs/third-party ]; then
+    echo "NOTE: Using fbcode build" >&2
     FBCODE_BUILD="true"
     # If we're compiling with TSAN or shared lib, we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
@@ -64,6 +67,11 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
       PIC_BUILD=1
     fi
     source "$PWD/build_tools/fbcode_config_platform010.sh"
+  else
+    echo "************************************************************************" >&2
+    echo "WARNING: -d /mnt/gvfs/third-party failed; no fbcode build" >&2
+    echo "************************************************************************" >&2
+  fi
 fi
 
 # Delete existing output, if it exists
@@ -71,7 +79,9 @@ rm -f "$OUTPUT"
 touch "$OUTPUT"
 
 if test -z "$CC"; then
-    if [ -x "$(command -v cc)" ]; then
+    if [ "$USE_CLANG" -a -x "$(command -v clang)" ]; then
+        CC=clang
+    elif [ -x "$(command -v cc)" ]; then
         CC=cc
     elif [ -x "$(command -v clang)" ]; then
         CC=clang
@@ -81,7 +91,9 @@ if test -z "$CC"; then
 fi
 
 if test -z "$CXX"; then
-    if [ -x "$(command -v g++)" ]; then
+    if [ "$USE_CLANG" -a -x "$(command -v clang++)" ]; then
+        CXX=clang++
+    elif [ -x "$(command -v g++)" ]; then
         CXX=g++
     elif [ -x "$(command -v clang++)" ]; then
         CXX=clang++
@@ -91,7 +103,9 @@ if test -z "$CXX"; then
 fi
 
 if test -z "$AR"; then
-    if [ -x "$(command -v gcc-ar)" ]; then
+    if [ "$USE_CLANG" -a -x "$(command -v llvm-ar)" ]; then
+        AR=llvm-ar
+    elif [ -x "$(command -v gcc-ar)" ]; then
         AR=gcc-ar
     elif [ -x "$(command -v llvm-ar)" ]; then
         AR=llvm-ar

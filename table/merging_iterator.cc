@@ -482,7 +482,7 @@ class MergingIterator : public InternalIterator {
            current_->IsValuePinned();
   }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+  void Prepare(const MultiScanArgs* scan_opts) override {
     for (auto& child : children_) {
       child.iter.Prepare(scan_opts);
     }

@@ -932,18 +932,19 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
 // end key. So these Seeks can cause iterator to fall back to normal
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
-void BlockBasedTableIterator::Prepare(
-    const std::vector<ScanOptions>* scan_opts) {
-  index_iter_->Prepare(scan_opts);
+void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
+  index_iter_->Prepare(multiscan_opts);
 
   assert(!multi_scan_);
   if (multi_scan_) {
     multi_scan_.reset();
     return;
   }
-  if (scan_opts == nullptr || scan_opts->empty()) {
+  if (multiscan_opts == nullptr || multiscan_opts->empty()) {
     return;
   }
+
+  const std::vector<ScanOptions>* scan_opts = &multiscan_opts->GetScanRanges();
   const bool has_limit = scan_opts->front().range.limit.has_value();
   if (!has_limit && scan_opts->size() > 1) {
     // Abort: overlapping ranges
@@ -1009,6 +1010,12 @@ void BlockBasedTableIterator::Prepare(
       index_iter_->Next();
       check_overlap = false;
     }
+
+    if (!index_iter_->status().ok()) {
+      // Abort: index iterator error
+      return;
+    }
+
     // Stop until index->key > limit
     // Include the current block since it can still contain keys <= limit
     if (index_iter_->Valid()) {
@@ -1019,13 +1026,14 @@ void BlockBasedTableIterator::Prepare(
         blocks_to_prepare.push_back(index_iter_->value().handle);
       }
       ++num_blocks;
-    }
-
-    if (!index_iter_->status().ok()) {
-      // Abort: index iterator error
+    } else if (num_blocks == 0) {
+      // We should not have scan ranges that are completely after the file's
+      // range. This is important for FindBlockForwardInMultiScan() which only
+      // lets the upper layer (LevelIterator) advance to the next SST file when
+      // the last scan range is exhausted.
       return;
     }
-
+    assert(num_blocks);
     block_ranges_per_scan.emplace_back(blocks_to_prepare.size() - num_blocks,
                                        blocks_to_prepare.size());
   }
@@ -1059,9 +1067,6 @@ void BlockBasedTableIterator::Prepare(
     // Each member in the vector is an index into blocks_to_prepare.
     std::vector<std::vector<size_t>> collapsed_blocks_to_read(1);
 
-    // TODO: make this threshold configurable
-    constexpr size_t kCoalesceThreshold = 16 << 10;  // 16KB
-
     for (const auto& block_idx : blocks_to_read) {
       if (!collapsed_blocks_to_read.back().empty()) {
         // Check if we can coalesce.
@@ -1072,7 +1077,8 @@ void BlockBasedTableIterator::Prepare(
             BlockBasedTable::BlockSizeWithTrailer(last_block);
         uint64_t current_start = blocks_to_prepare[block_idx].offset();
 
-        if (current_start > last_block_end + kCoalesceThreshold) {
+        if (current_start >
+            last_block_end + multiscan_opts->io_coalesce_threshold) {
           // new IO
           collapsed_blocks_to_read.emplace_back();
         }
@@ -1168,13 +1174,14 @@ void BlockBasedTableIterator::Prepare(
           // Abort: failed to create and pin block in cache
           return;
         }
+        assert(pinned_data_blocks_guard[block_idx].GetValue());
       }
     }
   }
 
   // Successful Prepare, init related states so the iterator reads from prepared
   // blocks
-  multi_scan_.reset(new MultiScanState(scan_opts,
+  multi_scan_.reset(new MultiScanState(multiscan_opts,
                                        std::move(pinned_data_blocks_guard),
                                        std::move(block_ranges_per_scan)));
   is_index_at_curr_block_ = false;
@@ -1193,7 +1200,8 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     multi_scan_.reset();
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
-                 (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
+                 multi_scan_->scan_opts
+                     ->GetScanRanges()[multi_scan_->next_scan_idx]
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key
@@ -1234,6 +1242,10 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     return true;
   }
 
+  // We are aborting MultiScan.
+  ResetDataIter();
+  assert(!is_index_at_curr_block_);
+  assert(!block_iter_points_to_real_block_);
   return false;
 }
 
@@ -1247,7 +1259,21 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
       return;
     }
 
+    // If is_out_of_bound_ is true, upper layer (LevelIterator) considers this
+    // level has reached iterate_upper_bound_ and will not continue to iterate
+    // into the next file. When we are doing the last scan within a MultiScan
+    // for this file, it may need to continue to scan into the next file, so
+    // we do not set is_out_of_bound_ in this case.
     if (multi_scan_->cur_data_block_idx + 1 >= cur_scan_end_idx) {
+      if (multi_scan_->next_scan_idx >=
+          multi_scan_->block_ranges_per_scan.size()) {
+        // We are done with this file, should let LevelIter advance to the next
+        // file instead of ending the scan
+        ResetDataIter();
+        assert(!is_out_of_bound_);
+        assert(!Valid());
+        return;
+      }
       // We don't ResetDataIter() here since next scan might be reading from
       // the same block. ResetDataIter() will free the underlying block cache
       // handle and we don't want the block to be unpinned.

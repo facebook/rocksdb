@@ -88,11 +88,12 @@ Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
 
   // Read all records from the manifest file...
   uint64_t manifest_file_size = std::numeric_limits<uint64_t>::max();
-  FileChecksumRetriever retriever(read_options, manifest_file_size,
-                                  *checksum_list);
+  FileChecksumRetriever retriever(read_options, manifest_file_size);
   retriever.Iterate(reader, &s);
-
-  return retriever.status();
+  if (!retriever.status().ok()) {
+    return retriever.status();
+  }
+  return retriever.FetchFileChecksumList(*checksum_list);
 }
 
 Status UpdateManifestForFilesState(

@@ -251,7 +251,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   struct ALIGN_AS(CACHE_LINE_SIZE) BlockRep {
     // Uncompressed block contents
     std::string uncompressed;
-    std::string compressed;
+    GrowableBuffer compressed;
     CompressionType compression_type = kNoCompression;
     // For efficiency, the std::string is repeatedly overwritten without
     // checking for "has no value". Only at the end of its life will it be
@@ -464,7 +464,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Reap a block from compression thread
   void ReapBlock(BlockRep* block_rep) {
     assert(block_rep != nullptr);
-    block_rep->compressed.clear();
+    block_rep->compressed.ResetForSize(0);
     block_rep_pool.push(block_rep);
 
     if (!first_block_processed.load(std::memory_order_relaxed)) {
@@ -621,7 +621,7 @@ struct BlockBasedTableBuilder::Rep {
 
   BlockHandle pending_handle;  // Handle to add to index block
 
-  std::string single_threaded_compressed_output;
+  GrowableBuffer single_threaded_compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
   std::vector<std::unique_ptr<InternalTblPropColl>> table_properties_collectors;
@@ -835,7 +835,11 @@ struct BlockBasedTableBuilder::Rep {
               data_block_compressor->ObtainWorkingArea();
         }
       }
-      basic_decompressor = mgr->GetDecompressorForCompressor(*basic_compressor);
+      basic_decompressor = basic_compressor->GetOptimizedDecompressor();
+      if (basic_decompressor == nullptr) {
+        // Optimized version not available
+        basic_decompressor = mgr->GetDecompressor();
+      }
       create_context.decompressor = basic_decompressor.get();
 
       if (table_options.verify_compression) {
@@ -907,6 +911,12 @@ struct BlockBasedTableBuilder::Rep {
         SetStatus(
             Status::InvalidArgument("user_defined_index_factory not supported "
                                     "with parallel compression"));
+      } else if (ioptions.user_comparator != BytewiseComparator()) {
+        // TODO: Pass the user_comparator to the UDI and let it validate. Do
+        // it in a major release.
+        SetStatus(
+            Status::InvalidArgument("user_defined_index_factory only supported "
+                                    "with bytewise comparator"));
       } else {
         std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder(
             table_options.user_defined_index_factory->NewBuilder());
@@ -1058,7 +1068,7 @@ struct BlockBasedTableBuilder::Rep {
       char* ptr = compression_name.data() + pos;
       // Populate the field contents
       for (CompressionType t : compression_types_used) {
-        PutBaseChars<16>(&ptr, /*digits=*/2, static_cast<unsigned char>(t),
+        PutBaseChars<16>(&ptr, /*n=*/2, static_cast<unsigned char>(t),
                          /*uppercase=*/true);
       }
       assert(ptr == compression_name.data() + pos + ctype_count * 2);
@@ -1121,7 +1131,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   if (rep_->IsParallelCompressionEnabled()) {
     StartParallelCompression();
   } else if (rep_->basic_compressor) {
-    rep_->single_threaded_compressed_output.reserve(table_options.block_size);
+    rep_->single_threaded_compressed_output.ResetForSize(
+        table_options.block_size);
   }
 }
 
@@ -1397,7 +1408,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
                                 ? uncompressed_block_data
                                 : Slice(r->single_threaded_compressed_output),
                             type, handle, block_type, &uncompressed_block_data);
-  r->single_threaded_compressed_output.clear();
+  r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
     ++r->props.num_data_blocks;
@@ -1420,7 +1431,7 @@ void BlockBasedTableBuilder::BGWorkCompression(WorkingAreaPair& working_area) {
 
 void BlockBasedTableBuilder::CompressAndVerifyBlock(
     const Slice& uncompressed_block_data, bool is_data_block,
-    WorkingAreaPair& working_area, std::string* compressed_output,
+    WorkingAreaPair& working_area, GrowableBuffer* compressed_output,
     CompressionType* result_compression_type, Status* out_status) {
   Rep* r = rep_;
 
@@ -1434,6 +1445,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     verify_decomp = r->verify_decompressor.get();
   }
 
+  compressed_output->Reset();
   CompressionType type = kNoCompression;
   if (LIKELY(uncompressed_block_data.size() < kCompressionSizeLimit)) {
     if (compressor) {
@@ -1441,25 +1453,19 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
           r->ioptions.clock,
           ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
 
-      *out_status =
-          compressor->CompressBlock(uncompressed_block_data, compressed_output,
-                                    &type, &working_area.compress);
+      size_t max_compressed_size = static_cast<size_t>(
+          (static_cast<uint64_t>(r->max_compressed_bytes_per_kb) *
+           uncompressed_block_data.size()) >>
+          10);
+      compressed_output->ResetForSize(max_compressed_size);
+      *out_status = compressor->CompressBlock(
+          uncompressed_block_data, compressed_output->data(),
+          &compressed_output->MutableSize(), &type, &working_area.compress);
 
       // Post-condition of Compressor::CompressBlock
       assert(type == kNoCompression || out_status->ok());
       assert(type == kNoCompression ||
              r->table_options.verify_compression == (verify_decomp != nullptr));
-
-      // Check for acceptable compression ratio. (For efficiency, avoid floating
-      // point and division.)
-      // TODO: integrate into Compressor?
-      if (compressed_output->size() >
-          (static_cast<uint64_t>(r->max_compressed_bytes_per_kb) *
-           uncompressed_block_data.size()) >>
-          10) {
-        // Prefer to keep uncompressed
-        type = kNoCompression;
-      }
 
       // Some of the compression algorithms are known to be unreliable. If
       // the verify_compression flag is set then try to de-compress the
@@ -1827,14 +1833,15 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   IndexBuilder::IndexBlocks index_blocks;
   auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
-  if (index_builder_status.IsIncomplete()) {
-    // We we have more than one index partition then meta_blocks are not
-    // supported for the index. Currently meta_blocks are used only by
-    // HashIndexBuilder which is not multi-partition.
-    assert(index_blocks.meta_blocks.empty());
-  } else if (ok() && !index_builder_status.ok()) {
+  if (ok() && !index_builder_status.ok() &&
+      !index_builder_status.IsIncomplete()) {
+    // If the index builder failed for non-Incomplete errors, we should
+    // mark the entire builder as having failed wit that status. However,
+    // If the index builder failed with an incomplete error, we should
+    // continue writing out any meta blocks that may have been generated.
     rep_->SetStatus(index_builder_status);
   }
+
   if (ok()) {
     for (const auto& item : index_blocks.meta_blocks) {
       BlockHandle block_handle;
@@ -1938,7 +1945,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           rep_->p_index_builder_->TopLevelIndexSize(rep_->offset);
     }
     rep_->props.index_key_is_user_key =
-        !rep_->index_builder->seperator_is_key_plus_seq();
+        !rep_->index_builder->separator_is_key_plus_seq();
     rep_->props.index_value_is_delta_encoded =
         rep_->use_delta_encoding_for_index_values;
     if (rep_->sampled_input_data_bytes > 0) {

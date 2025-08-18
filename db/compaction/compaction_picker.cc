@@ -333,11 +333,13 @@ bool CompactionPicker::AreFilesInCompaction(
   return false;
 }
 
-Compaction* CompactionPicker::CompactFiles(
+Compaction* CompactionPicker::PickCompactionForCompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-    const MutableDBOptions& mutable_db_options, uint32_t output_path_id) {
+    const MutableDBOptions& mutable_db_options, uint32_t output_path_id,
+    std::optional<SequenceNumber> earliest_snapshot,
+    const SnapshotChecker* snapshot_checker) {
 #ifndef NDEBUG
   assert(input_files.size());
   // This compaction output should not overlap with a running compaction as
@@ -380,8 +382,8 @@ Compaction* CompactionPicker::CompactFiles(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_options.max_subcompactions,
-      /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
-      /* snapshot_checker */ nullptr, CompactionReason::kManualCompaction);
+      /* grandparents */ {}, earliest_snapshot, snapshot_checker,
+      CompactionReason::kManualCompaction);
   RegisterCompaction(c);
   return c;
 }
@@ -601,7 +603,7 @@ void CompactionPicker::GetGrandparents(
   }
 }
 
-Compaction* CompactionPicker::CompactRange(
+Compaction* CompactionPicker::PickCompactionForCompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     int input_level, int output_level,
@@ -617,8 +619,8 @@ Compaction* CompactionPicker::CompactRange(
     // Universal compaction with more than one level always compacts all the
     // files together to the last level.
     assert(vstorage->num_levels() > 1);
-    int max_output_level =
-        vstorage->MaxOutputLevel(ioptions_.allow_ingest_behind);
+    int max_output_level = vstorage->MaxOutputLevel(
+        ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind);
     // DBImpl::CompactRange() set output level to be the last level
     assert(output_level == max_output_level);
     // DBImpl::RunManualCompaction will make full range for universal compaction

@@ -386,7 +386,7 @@ class DBImpl : public DB {
   using DB::NewMultiScan;
   std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
-      const std::vector<ScanOptions>& scan_opts) override;
+      const MultiScanArgs& scan_opts) override;
 
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -1387,6 +1387,9 @@ class DBImpl : public DB {
   // WriteToWAL need different synchronization: wal_empty_, alive_wal_files_,
   // logs_, cur_wal_number_. Refer to the definition of each variable below for
   // more description.
+  //
+  // Protects access to most ColumnFamilyData methods, see more in comment for
+  // each method.
   //
   // `mutex_` can be a hot lock in some workloads, so it deserves dedicated
   // cachelines.

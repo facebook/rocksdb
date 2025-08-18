@@ -114,6 +114,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/write_controller.cc",
         "db/write_stall_stats.cc",
         "db/write_thread.cc",
+        "db_stress_tool/db_stress_compression_manager.cc",
         "env/composite_env.cc",
         "env/env.cc",
         "env/env_chroot.cc",
@@ -424,6 +425,7 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/batched_ops_stress.cc",
         "db_stress_tool/cf_consistency_stress.cc",
         "db_stress_tool/db_stress_common.cc",
+        "db_stress_tool/db_stress_compression_manager.cc",
         "db_stress_tool/db_stress_driver.cc",
         "db_stress_tool/db_stress_filters.cc",
         "db_stress_tool/db_stress_gflags.cc",
@@ -5194,6 +5196,12 @@ cpp_unittest_wrapper(name="import_column_family_test",
 
 cpp_unittest_wrapper(name="inlineskiplist_test",
             srcs=["memtable/inlineskiplist_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="interval_test",
+            srcs=["util/interval_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

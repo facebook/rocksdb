@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <atomic>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -568,7 +567,7 @@ class MemTable final : public ReadOnlyMemTable {
   // As a cheap version of `ApproximateMemoryUsage()`, this function doesn't
   // require external synchronization. The value may be less accurate though
   size_t ApproximateMemoryUsageFast() const {
-    return approximate_memory_usage_.load(std::memory_order_relaxed);
+    return approximate_memory_usage_.LoadRelaxed();
   }
 
   size_t MemoryAllocatedBytes() const override {
@@ -689,16 +688,13 @@ class MemTable final : public ReadOnlyMemTable {
   // Used in concurrent memtable inserts.
   void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
     table_->BatchPostProcess();
-    num_entries_.fetch_add(update_counters.num_entries,
-                           std::memory_order_relaxed);
-    data_size_.fetch_add(update_counters.data_size, std::memory_order_relaxed);
+    num_entries_.FetchAddRelaxed(update_counters.num_entries);
+    data_size_.FetchAddRelaxed(update_counters.data_size);
     if (update_counters.num_deletes != 0) {
-      num_deletes_.fetch_add(update_counters.num_deletes,
-                             std::memory_order_relaxed);
+      num_deletes_.FetchAddRelaxed(update_counters.num_deletes);
     }
     if (update_counters.num_range_deletes > 0) {
-      num_range_deletes_.fetch_add(update_counters.num_range_deletes,
-                                   std::memory_order_relaxed);
+      num_range_deletes_.FetchAddRelaxed(update_counters.num_range_deletes);
       // noop for skip-list memtable
       // Besides correctness test in stress test, memtable flush record count
       // check will catch this if it were not noop.
@@ -707,35 +703,26 @@ class MemTable final : public ReadOnlyMemTable {
     UpdateFlushState();
   }
 
-  uint64_t NumEntries() const override {
-    return num_entries_.load(std::memory_order_relaxed);
-  }
+  uint64_t NumEntries() const override { return num_entries_.LoadRelaxed(); }
 
-  uint64_t NumDeletion() const override {
-    return num_deletes_.load(std::memory_order_relaxed);
-  }
+  uint64_t NumDeletion() const override { return num_deletes_.LoadRelaxed(); }
 
   uint64_t NumRangeDeletion() const override {
-    return num_range_deletes_.load(std::memory_order_relaxed);
+    return num_range_deletes_.LoadRelaxed();
   }
 
-  uint64_t GetDataSize() const override {
-    return data_size_.load(std::memory_order_relaxed);
-  }
+  uint64_t GetDataSize() const override { return data_size_.LoadRelaxed(); }
 
-  size_t write_buffer_size() const {
-    return write_buffer_size_.load(std::memory_order_relaxed);
-  }
+  size_t write_buffer_size() const { return write_buffer_size_.LoadRelaxed(); }
 
   // Dynamically change the memtable's capacity. If set below the current usage,
   // the next key added will trigger a flush. Can only increase size when
   // memtable prefix bloom is disabled, since we can't easily allocate more
-  // space.
+  // space. Non-atomic update ok because this is only called with DB mutex held.
   void UpdateWriteBufferSize(size_t new_write_buffer_size) {
     if (bloom_filter_ == nullptr ||
-        new_write_buffer_size < write_buffer_size_) {
-      write_buffer_size_.store(new_write_buffer_size,
-                               std::memory_order_relaxed);
+        new_write_buffer_size < write_buffer_size_.LoadRelaxed()) {
+      write_buffer_size_.StoreRelaxed(new_write_buffer_size);
     }
   }
 
@@ -827,7 +814,7 @@ class MemTable final : public ReadOnlyMemTable {
 
   bool IsFragmentedRangeTombstonesConstructed() const override {
     return fragmented_range_tombstone_list_.get() != nullptr ||
-           is_range_del_table_empty_;
+           is_range_del_table_empty_.LoadRelaxed();
   }
 
   //  Gets the newest user defined timestamps in the memtable. This should only
@@ -853,16 +840,22 @@ class MemTable final : public ReadOnlyMemTable {
   ConcurrentArena arena_;
   std::unique_ptr<MemTableRep> table_;
   std::unique_ptr<MemTableRep> range_del_table_;
-  std::atomic_bool is_range_del_table_empty_;
+  // This is OK to be relaxed access because consistency between table_ and
+  // range_del_table_ is provided by explicit multi-versioning with sequence
+  // numbers. It's ok for stale memory to say the range_del_table_ is empty when
+  // it's actually not because if it was relevant to our read (based on sequence
+  // number), the relaxed memory read would get a sufficiently updated value
+  // because of the ordering provided by LastPublishedSequence().
+  RelaxedAtomic<bool> is_range_del_table_empty_;
 
   // Total data size of all data inserted
-  std::atomic<uint64_t> data_size_;
-  std::atomic<uint64_t> num_entries_;
-  std::atomic<uint64_t> num_deletes_;
-  std::atomic<uint64_t> num_range_deletes_;
+  RelaxedAtomic<uint64_t> data_size_;
+  RelaxedAtomic<uint64_t> num_entries_;
+  RelaxedAtomic<uint64_t> num_deletes_;
+  RelaxedAtomic<uint64_t> num_range_deletes_;
 
   // Dynamically changeable memtable option
-  std::atomic<size_t> write_buffer_size_;
+  RelaxedAtomic<size_t> write_buffer_size_;
 
   // The sequence number of the kv that was inserted first
   std::atomic<SequenceNumber> first_seqno_;
@@ -898,7 +891,7 @@ class MemTable final : public ReadOnlyMemTable {
 
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
-  std::atomic<uint64_t> approximate_memory_usage_;
+  RelaxedAtomic<uint64_t> approximate_memory_usage_;
 
   // max range deletions in a memtable,  before automatic flushing, 0 for
   // unlimited.

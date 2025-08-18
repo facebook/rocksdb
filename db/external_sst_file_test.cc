@@ -2417,102 +2417,130 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
 }
 
 TEST_P(ExternalSSTFileTest, IngestBehind) {
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleUniversal;
-  options.num_levels = 3;
-  options.disable_auto_compactions = false;
-  DestroyAndReopen(options);
-  std::vector<std::pair<std::string, std::string>> file_data;
-  std::map<std::string, std::string> true_data;
+  for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
+    Options options = CurrentOptions();
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = 3;
+    options.disable_auto_compactions = false;
+    DestroyAndReopen(options);
+    std::vector<std::pair<std::string, std::string>> file_data;
+    std::map<std::string, std::string> true_data;
 
-  // Insert 100 -> 200 into the memtable
-  for (int i = 100; i <= 200; i++) {
-    ASSERT_OK(Put(Key(i), "memtable"));
-  }
-
-  // Insert 100 -> 200 using IngestExternalFile
-  file_data.clear();
-  for (int i = 0; i <= 20; i++) {
-    file_data.emplace_back(Key(i), "ingest_behind");
-    true_data[Key(i)] = "ingest_behind";
-  }
-
-  bool allow_global_seqno = true;
-  bool ingest_behind = true;
-  bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
-
-  // Can't ingest behind since allow_ingest_behind isn't set to true
-  ASSERT_NOK(GenerateAndAddExternalFile(
-      options, file_data, -1, allow_global_seqno, write_global_seqno,
-      verify_checksums_before_ingest, ingest_behind, false /*sort_data*/,
-      &true_data));
-
-  options.allow_ingest_behind = true;
-  // check that we still can open the DB, as num_levels should be
-  // sanitized to 3
-  options.num_levels = 2;
-  DestroyAndReopen(options);
-
-  options.num_levels = 3;
-  DestroyAndReopen(options);
-  true_data.clear();
-  // Insert 100 -> 200 into the memtable
-  for (int i = 100; i <= 200; i++) {
-    ASSERT_OK(Put(Key(i), "memtable"));
-    true_data[Key(i)] = "memtable";
-  }
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // Universal picker should go at second from the bottom level
-  ASSERT_EQ("0,1", FilesPerLevel());
-  ASSERT_OK(GenerateAndAddExternalFile(
-      options, file_data, -1, allow_global_seqno, write_global_seqno,
-      verify_checksums_before_ingest, true /*ingest_behind*/,
-      false /*sort_data*/, &true_data));
-  ASSERT_EQ("0,1,1", FilesPerLevel());
-  // this time ingest should fail as the file doesn't fit to the bottom level
-  ASSERT_NOK(GenerateAndAddExternalFile(
-      options, file_data, -1, allow_global_seqno, write_global_seqno,
-      verify_checksums_before_ingest, true /*ingest_behind*/,
-      false /*sort_data*/, &true_data));
-  ASSERT_EQ("0,1,1", FilesPerLevel());
-  std::vector<std::vector<FileMetaData>> level_to_files;
-  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
-  uint64_t ingested_file_number = level_to_files[2][0].fd.GetNumber();
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // Last level should not be compacted
-  ASSERT_EQ("0,1,1", FilesPerLevel());
-  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
-  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
-  size_t kcnt = 0;
-  VerifyDBFromMap(true_data, &kcnt, false);
-
-  // Auto-compaction should not include the last level.
-  // Trigger compaction if size amplification exceeds 110%.
-  options.compaction_options_universal.max_size_amplification_percent = 110;
-  options.level0_file_num_compaction_trigger = 4;
-  ASSERT_OK(TryReopen(options));
-  Random rnd(301);
-  for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < 10; j++) {
-      true_data[Key(j)] = rnd.RandomString(1000);
-      ASSERT_OK(Put(Key(j), true_data[Key(j)]));
+    // Insert 100 -> 200 into the memtable
+    for (int i = 100; i <= 200; i++) {
+      ASSERT_OK(Put(Key(i), "memtable"));
     }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
-  ASSERT_EQ(1, level_to_files[2].size());
-  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
 
-  // Turning off the option allows DB to compact ingested files.
-  options.allow_ingest_behind = false;
-  ASSERT_OK(TryReopen(options));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
-  ASSERT_EQ(1, level_to_files[2].size());
-  ASSERT_NE(ingested_file_number, level_to_files[2][0].fd.GetNumber());
-  VerifyDBFromMap(true_data, &kcnt, false);
+    // Insert 100 -> 200 using IngestExternalFile
+    file_data.clear();
+    for (int i = 0; i <= 20; i++) {
+      file_data.emplace_back(Key(i), "ingest_behind");
+      true_data[Key(i)] = "ingest_behind";
+    }
+
+    bool allow_global_seqno = true;
+    bool ingest_behind = true;
+    bool write_global_seqno = std::get<0>(GetParam());
+    bool verify_checksums_before_ingest = std::get<1>(GetParam());
+
+    // Can't ingest behind since allow_ingest_behind isn't set to true
+    ASSERT_NOK(GenerateAndAddExternalFile(
+        options, file_data, -1, allow_global_seqno, write_global_seqno,
+        verify_checksums_before_ingest, ingest_behind, false /*sort_data*/,
+        &true_data));
+
+    if (cf_option) {
+      options.cf_allow_ingest_behind = true;
+    } else {
+      options.allow_ingest_behind = true;
+    }
+    // check that we still can open the DB, as num_levels should be
+    // sanitized to 3
+    options.num_levels = 2;
+    DestroyAndReopen(options);
+
+    options.num_levels = 3;
+    DestroyAndReopen(options);
+    true_data.clear();
+    // Insert 100 -> 200 into the memtable
+    for (int i = 100; i <= 200; i++) {
+      ASSERT_OK(Put(Key(i), "memtable"));
+      true_data[Key(i)] = "memtable";
+    }
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    // Universal picker should go at second from the bottom level
+    ASSERT_EQ("0,1", FilesPerLevel());
+    ASSERT_OK(GenerateAndAddExternalFile(
+        options, file_data, -1, allow_global_seqno, write_global_seqno,
+        verify_checksums_before_ingest, true /*ingest_behind*/,
+        false /*sort_data*/, &true_data));
+    ASSERT_EQ("0,1,1", FilesPerLevel());
+    // this time ingest should fail as the file doesn't fit to the bottom level
+    ASSERT_NOK(GenerateAndAddExternalFile(
+        options, file_data, -1, allow_global_seqno, write_global_seqno,
+        verify_checksums_before_ingest, true /*ingest_behind*/,
+        false /*sort_data*/, &true_data));
+    ASSERT_EQ("0,1,1", FilesPerLevel());
+    std::vector<std::vector<FileMetaData>> level_to_files;
+    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(),
+                                    &level_to_files);
+    uint64_t ingested_file_number = level_to_files[2][0].fd.GetNumber();
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    // Last level should not be compacted
+    ASSERT_EQ("0,1,1", FilesPerLevel());
+    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(),
+                                    &level_to_files);
+    ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+    size_t kcnt = 0;
+    VerifyDBFromMap(true_data, &kcnt, false);
+
+    // Auto-compaction should not include the last level.
+    // Trigger compaction if size amplification exceeds 110%.
+    options.compaction_options_universal.max_size_amplification_percent = 110;
+    options.level0_file_num_compaction_trigger = 4;
+    ASSERT_OK(TryReopen(options));
+    Random rnd(301);
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 0; j < 10; j++) {
+        true_data[Key(j)] = rnd.RandomString(1000);
+        ASSERT_OK(Put(Key(j), true_data[Key(j)]));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(),
+                                    &level_to_files);
+    ASSERT_EQ(1, level_to_files[2].size());
+    ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+
+    // Turning off the option allows DB to compact ingested files.
+    if (cf_option) {
+      // Test that another CF does not allow ingest behind
+      ColumnFamilyHandle* new_cfh;
+      Options new_cf_option;
+      ASSERT_OK(db_->CreateColumnFamily(new_cf_option, "new_cf", &new_cfh));
+      ASSERT_TRUE(GenerateAndAddExternalFile(
+                      new_cf_option, file_data, -1, allow_global_seqno,
+                      write_global_seqno, verify_checksums_before_ingest,
+                      true /*ingest_behind*/, false /*sort_data*/, nullptr,
+                      /*cfh=*/new_cfh)
+                      .IsInvalidArgument());
+      ASSERT_OK(db_->DropColumnFamily(new_cfh));
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(new_cfh));
+
+      options.cf_allow_ingest_behind = false;
+    } else {
+      options.allow_ingest_behind = false;
+    }
+    ASSERT_OK(TryReopen(options));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(),
+                                    &level_to_files);
+    ASSERT_EQ(1, level_to_files[2].size());
+    ASSERT_NE(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+    VerifyDBFromMap(true_data, &kcnt, false);
+  }
 }
 
 TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
@@ -3514,19 +3542,26 @@ TEST_F(ExternalSSTFileWithTimestampTest, SanityCheck) {
   // overlapping key ranges.
   ASSERT_TRUE(IngestExternalUDTFile({file1, file2}).IsNotSupported());
 
-  options.allow_ingest_behind = true;
-  DestroyAndReopen(options);
-  IngestExternalFileOptions opts;
+  for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
+    if (cf_option) {
+      options.cf_allow_ingest_behind = true;
+    } else {
+      options.allow_ingest_behind = true;
+    }
+    DestroyAndReopen(options);
+    IngestExternalFileOptions opts;
 
-  // TODO(yuzhangyu): support ingestion behind for user-defined timestamps?
-  // Ingesting external files with user-defined timestamps requires searching
-  // through the whole lsm tree to make sure there is no key range overlap with
-  // the db. Ingestion behind currently is doing a simply placing it at the
-  // bottom level step without a search, so we don't allow it either.
-  opts.ingest_behind = true;
-  ASSERT_TRUE(db_->IngestExternalFile({file1}, opts).IsNotSupported());
+    // TODO(yuzhangyu): support ingestion behind for user-defined timestamps?
+    // Ingesting external files with user-defined timestamps requires searching
+    // through the whole lsm tree to make sure there is no key range overlap
+    // with the db. Ingestion behind currently is doing a simply placing it at
+    // the bottom level step without a search, so we don't allow it either.
+    opts.ingest_behind = true;
+    ASSERT_TRUE(db_->IngestExternalFile({file1}, opts).IsNotSupported());
 
-  DestroyAndRecreateExternalSSTFilesDir();
+    DestroyAndRecreateExternalSSTFilesDir();
+  }
 }
 
 TEST_F(ExternalSSTFileWithTimestampTest, UDTSettingsCompatibilityCheck) {
