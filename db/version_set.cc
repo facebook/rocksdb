@@ -1144,6 +1144,10 @@ class LevelIterator final : public InternalIterator {
         }
       }
     }
+    // Propagate io colaescing threshold
+    for (auto& file_to_arg : *file_to_scan_opts_) {
+      file_to_arg.second.io_coalesce_threshold = so->io_coalesce_threshold;
+    }
   }
 
  private:
@@ -6491,7 +6495,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
                       /*db_id*/ "",
                       /*db_session_id*/ "", options->daily_offpeak_time_utc,
-                      /*error_handler_*/ nullptr, /*read_only=*/false);
+                      /*error_handler_*/ nullptr, /*unchanging=*/false);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
