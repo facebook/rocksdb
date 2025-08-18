@@ -1596,12 +1596,23 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   uint64_t cur_cpu_micros = db_options_.clock->CPUMicros();
+  assert(cur_cpu_micros >= prev_cpu_micros);
   sub_compact->compaction_job_stats.cpu_micros =
       cur_cpu_micros - prev_cpu_micros;
   RecordTick(stats_, COMPACTION_CPU_TOTAL_TIME,
              cur_cpu_micros - last_cpu_micros);
 
   if (measure_io_stats_) {
+    uint64_t cpu_io_micros =
+        ((IOSTATS(cpu_write_nanos) - prev_cpu_write_nanos) +
+         (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos)) /
+        1000;
+    if (sub_compact->compaction_job_stats.cpu_micros >= cpu_io_micros) {
+      sub_compact->compaction_job_stats.cpu_micros -= cpu_io_micros;
+    } else {
+      assert(false);
+    }
+
     sub_compact->compaction_job_stats.file_write_nanos +=
         IOSTATS(write_nanos) - prev_write_nanos;
     sub_compact->compaction_job_stats.file_fsync_nanos +=
@@ -1610,10 +1621,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         IOSTATS(range_sync_nanos) - prev_range_sync_nanos;
     sub_compact->compaction_job_stats.file_prepare_write_nanos +=
         IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos;
-    sub_compact->compaction_job_stats.cpu_micros -=
-        (IOSTATS(cpu_write_nanos) - prev_cpu_write_nanos +
-         IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos) /
-        1000;
     if (prev_perf_level != PerfLevel::kEnableTimeAndCPUTimeExceptForMutex) {
       SetPerfLevel(prev_perf_level);
     }
