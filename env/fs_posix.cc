@@ -1105,11 +1105,16 @@ class PosixFileSystem : public FileSystem {
       while (true) {
         // io_uring_wait_cqe.
         struct io_uring_cqe* cqe = nullptr;
-        ssize_t ret = io_uring_wait_cqe(iu, &cqe);
-        if (ret) {
-          // abort as it shouldn't be in indeterminate state and there is no
-          // good way currently to handle this error.
-          abort();
+        ssize_t ret;
+        while (true) {
+          ret = io_uring_wait_cqe(iu, &cqe);
+          if (ret == -EAGAIN || ret == -EINTR) {
+            continue;
+          }
+          if (ret < 0) {
+            return IOStatus::IOError("io_uring_wait_cqe failed: " + errno);
+          }
+          break;
         }
 
         // Step 3: Populate the request.
