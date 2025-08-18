@@ -257,8 +257,8 @@ struct LockMapStripe {
     }
 
     // Insert the new lock waiter
-    waiter_context.lock_waiter = waiter_queue->insert(
-        waiter_queue->end(), GetKeyLockWaiter(id, exclusive));
+    waiter_context.lock_waiter =
+        waiter_queue->insert(insert_point, GetKeyLockWaiter(id, exclusive));
 
     waiter_context.waiter_queue = waiter_queue;
   }
@@ -280,8 +280,8 @@ struct LockMapStripe {
       LockInfo& lock_info,
       UnorderedMap<std::string, LockInfo>::iterator stripe_iter,
       LockMap* lock_map, TransactionID txn_id, const std::string& key,
-      const int64_t max_num_locks, autovector<TransactionID> txns,
-      autovector<TransactionID>::iterator txn_it);
+      const int64_t max_num_locks, autovector<TransactionID>& txns,
+      autovector<TransactionID>::iterator& txn_it);
 
   // Mutex must be held before modifying keys map
   std::shared_ptr<TransactionDBMutex> stripe_mutex;
@@ -364,8 +364,8 @@ void LockMapStripe::ReleaseLastLockHolder(
     LockInfo& lock_info,
     UnorderedMap<std::string, LockInfo>::iterator stripe_iter,
     LockMap* lock_map, TransactionID txn_id, const std::string& key,
-    const int64_t max_num_locks, autovector<TransactionID> txns,
-    autovector<TransactionID>::iterator txn_it) {
+    const int64_t max_num_locks, autovector<TransactionID>& txns,
+    autovector<TransactionID>::iterator& txn_it) {
   // check whether there is other waiting transactions
   if (lock_info.waiter_queue == nullptr || lock_info.waiter_queue->empty()) {
     keys.erase(stripe_iter);
@@ -1207,7 +1207,7 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         DebugLockStatus(my_txn_id, *lock_info, key, key_lock_waiter_ctx);
 
         TEST_SYNC_POINT(
-            "PointLockManager::AcquireWithTimeout:"
+            "PerKeyPointLockManager::AcquireWithTimeout:"
             "WaitingTxnBeforeDeadLockDetection");
         result = stripe->WaitOnLock(
             key_lock_waiter_ctx.lock_waiter,
@@ -1802,7 +1802,5 @@ void PerKeyPointLockManager::UnLock(PessimisticTransaction* /* txn */,
                                     const Endpoint& /* end */, Env* /* env */) {
   // no-op
 }
-
-// TODO xingbo add deadlock timeout for existing transaction test.
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -207,7 +207,7 @@ TEST_P(SpotLockManagerTest, PrioritizedLockUpgradeWithExclusiveLock) {
 
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
 
-  // txn2 tries to lock k1 exclusively, will block forever.
+  // txn2 tries to lock k1 exclusively, will be blocked.
   port::Thread t;
   BlockUntilWaitingTxn(wait_sync_point_name_, t, [this, &txn2]() {
     // block because txn1 is holding a shared lock on k1.
@@ -252,7 +252,7 @@ TEST_P(SpotLockManagerTest,
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
   ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
 
-  // txn3 tries to lock k1 exclusively, will block forever.
+  // txn3 tries to lock k1 exclusively, will be blocked.
   port::Thread txn3_thread;
   BlockUntilWaitingTxn(wait_sync_point_name_, txn3_thread, [this, &txn3]() {
     // block because txn1 and txn2 are holding a shared lock on k1.
@@ -261,7 +261,7 @@ TEST_P(SpotLockManagerTest,
   // Verify txn3 is blocked
   ASSERT_TRUE(txn3_thread.joinable());
 
-  // txn1 tries to lock k1 exclusively, will block forever.
+  // txn1 tries to lock k1 exclusively, will be blocked.
   port::Thread txn1_thread;
   BlockUntilWaitingTxn(wait_sync_point_name_, txn1_thread, [this, &txn1]() {
     // block because txn1 and txn2 are holding a shared lock on k1.
@@ -305,7 +305,7 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgrade) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
   ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
 
-  // txn1 tries to lock k1 exclusively, will block forever.
+  // txn1 tries to lock k1 exclusively, will be blocked.
   port::Thread t;
   BlockUntilWaitingTxn(wait_sync_point_name_, t, [this, &txn1]() {
     // block because txn2 is holding a shared lock on k1.
@@ -365,7 +365,7 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
   ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
 
-  // txn3 tries to lock k1 exclusively, will block forever.
+  // txn3 tries to lock k1 exclusively, will be blocked.
   port::Thread txn3_thread;
   BlockUntilWaitingTxn(wait_sync_point_name_, txn3_thread, [this, &txn3]() {
     // block because txn1 and txn2 are holding a shared lock on k1.
@@ -374,7 +374,7 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
   // Verify txn3 is blocked
   ASSERT_TRUE(txn3_thread.joinable());
 
-  // txn1 tries to lock k1 exclusively, will block forever.
+  // txn1 tries to lock k1 exclusively, will be blocked.
   port::Thread txn1_thread;
   BlockUntilWaitingTxn(wait_sync_point_name_, txn1_thread, [this, &txn1]() {
     // block because txn1 and txn2 are holding a shared lock on k1.
@@ -464,7 +464,7 @@ TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
       ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, true));
     } else {
       blockingThreads.emplace_back([this, txn]() {
-        // block because txn1 and txn2 are holding a shared lock on k1.
+        // block because first txn is holding an exclusive lock on k1.
         ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, true));
       });
     }
@@ -1196,10 +1196,12 @@ TEST_P(SpotLockManagerTest, Catch22) {
   std::atomic_int wait_count(0);
 
   SyncPoint::GetInstance()->DisableProcessing();
-  if (GetParam().use_per_key_point_lock_manager) {
-    // PerKeyPointLockManager
+  if (GetParam().use_per_key_point_lock_manager &&
+      GetParam().deadlock_timeout_us != 0) {
+    // Use special sync point when deadlock timeout is enabled, so the test run
+    // faster
     SyncPoint::GetInstance()->SetCallBack(
-        "PointLockManager::AcquireWithTimeout:"
+        "PerKeyPointLockManager::AcquireWithTimeout:"
         "WaitingTxnBeforeDeadLockDetection",
         [&wait_count](void* /*arg*/) { wait_count++; });
   } else {

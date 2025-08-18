@@ -17,8 +17,9 @@ INSTANTIATE_TEST_CASE_P(
     DBAsBaseDBAndStackableDB, WriteCommittedTxnWithTsTest,
     ::testing::Combine(/*use_stackable_db=*/::testing::Bool(),
                        /*two_write_queue=*/::testing::Bool(),
+                       /*enable_indexing=*/::testing::Bool(),
                        /*use_per_key_point_lock_mgr=*/::testing::Bool(),
-                       /*enable_indexing=*/::testing::Bool()));
+                       /*deadlock_timeout_us=*/::testing::Values(0, 1000)));
 
 TEST_P(WriteCommittedTxnWithTsTest, SanityChecks) {
   ASSERT_OK(ReOpenNoDelete());
@@ -293,7 +294,7 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   }
 
   // Check (key, value, ts) with overwrites in txn before `SetCommitTimestamp`.
-  if (std::get<3>(GetParam())) {  // enable_indexing = true
+  if (std::get<2>(GetParam())) {  // enable_indexing = true
     std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
     CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
   }
@@ -303,7 +304,7 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   ASSERT_OK(txn1->SetCommitTimestamp(write_ts_int));
 
   // Check (key, value, ts) with overwrites in txn after `SetCommitTimestamp`.
-  if (std::get<3>(GetParam())) {  // enable_indexing = true
+  if (std::get<2>(GetParam())) {  // enable_indexing = true
     std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
     CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
   }

@@ -35,103 +35,71 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+constexpr std::array DBAsBaseDB_TransactionTest_Params = {
+    std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
+    std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)};
+
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
-    ::testing::Values(
-        std::make_tuple(false, false, false, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, false, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_PREPARED, kUnorderedWrite),
-        std::make_tuple(false, false, false, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(false, false, true, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, false, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_PREPARED, kUnorderedWrite),
-        std::make_tuple(false, false, true, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_UNPREPARED, kOrderedWrite)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering),
+        DBAsBaseDB_TransactionTest_Params)));
+
+constexpr std::array DBAsBaseDB_TransactionStressTest_Params = {
+    std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
+    std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)};
+
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionStressTest,
-    ::testing::Values(
-        std::make_tuple(false, false, false, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, false, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_PREPARED, kUnorderedWrite),
-        std::make_tuple(false, false, false, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(false, true, false, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(false, false, true, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(false, false, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_PREPARED, kUnorderedWrite),
-        std::make_tuple(false, false, true, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(false, true, true, WRITE_UNPREPARED, kOrderedWrite)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering),
+        DBAsBaseDB_TransactionStressTest_Params)));
+
+constexpr std::array StackableDBAsBaseDB_TransactionTest_Params = {
+    std::make_tuple(true, true, WRITE_COMMITTED, kOrderedWrite),
+    std::make_tuple(true, true, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(true, true, WRITE_UNPREPARED, kOrderedWrite)};
+
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
-    ::testing::Values(
-        std::make_tuple(true, true, false, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(true, true, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(true, true, false, WRITE_UNPREPARED, kOrderedWrite),
-        std::make_tuple(true, true, true, WRITE_COMMITTED, kOrderedWrite),
-        std::make_tuple(true, true, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(true, true, true, WRITE_UNPREPARED, kOrderedWrite)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering),
+        StackableDBAsBaseDB_TransactionTest_Params)));
 
 // MySQLStyleTransactionTest takes far too long for valgrind to run. Only do it
 // in full mode (`ROCKSDB_FULL_VALGRIND_RUN` compiler flag is set).
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+
+constexpr std::array MySQLStyleTransactionTest_Params = {
+    std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite, false),
+    std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite, false),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, false),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, true),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, false),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, true),
+    std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite, false),
+    std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite, true),
+    std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite, false),
+    std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite, true),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, false),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)};
+
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, false, WRITE_COMMITTED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, true, false, WRITE_COMMITTED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, false, false, WRITE_PREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, false, false, WRITE_PREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, true, false, WRITE_PREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, true, false, WRITE_PREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, false, false, WRITE_UNPREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, false, false, WRITE_UNPREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, true, false, WRITE_UNPREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, true, false, WRITE_UNPREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, true, false, WRITE_PREPARED,
-                                      kUnorderedWrite, false),
-                      std::make_tuple(false, true, false, WRITE_PREPARED,
-                                      kUnorderedWrite, true),
-                      std::make_tuple(false, false, true, WRITE_COMMITTED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, true, true, WRITE_COMMITTED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, false, true, WRITE_PREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, false, true, WRITE_PREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, true, true, WRITE_PREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, true, true, WRITE_PREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, false, true, WRITE_UNPREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, false, true, WRITE_UNPREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, true, true, WRITE_UNPREPARED,
-                                      kOrderedWrite, false),
-                      std::make_tuple(false, true, true, WRITE_UNPREPARED,
-                                      kOrderedWrite, true),
-                      std::make_tuple(false, true, true, WRITE_PREPARED,
-                                      kUnorderedWrite, false),
-                      std::make_tuple(false, true, true, WRITE_PREPARED,
-                                      kUnorderedWrite, true)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering, bool),
+        MySQLStyleTransactionTest_Params)));
+
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(TransactionTest, TestUpperBoundUponDeletion) {
@@ -343,7 +311,7 @@ TEST_P(TransactionTest, SuccessTestPinnable) {
 }
 
 TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
 
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test applies to write-committed only");
@@ -5829,8 +5797,8 @@ Status TransactionStressTestInserter(
   TransactionOptions txn_options;
   txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
 
-  // Inside the inserter we might also retake the snapshot. We do both since two
-  // separte functions are engaged for each.
+  // Inside the inserter we might also retake the snapshot. We do both since
+  // two separte functions are engaged for each.
   txn_options.set_snapshot = rand->OneIn(2);
 
   RandomTransactionInserter inserter(
@@ -6925,7 +6893,7 @@ TEST_P(TransactionTest, WriteWithBulkCreatedColumnFamilies) {
 }
 
 TEST_P(TransactionTest, LockWal) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (TxnDBWritePolicy::WRITE_COMMITTED != write_policy) {
     ROCKSDB_GTEST_BYPASS("Test only write-committed for now");
     return;
@@ -7138,7 +7106,7 @@ TEST_P(TransactionTest, UnlockWALStallCleared) {
 }
 
 TEST_P(TransactionTest, PutEntitySuccess) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -7205,7 +7173,7 @@ TEST_P(TransactionTest, PutEntitySuccess) {
 }
 
 TEST_P(TransactionTest, PutEntityWriteConflict) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -7374,7 +7342,7 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
 }
 
 TEST_P(TransactionTest, PutEntityReadConflict) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -7564,7 +7532,7 @@ TEST_P(TransactionTest, EntityReadSanityChecks) {
 }
 
 TEST_P(TransactionTest, PutEntityRecovery) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -7609,7 +7577,7 @@ TEST_P(TransactionTest, PutEntityRecovery) {
 }
 
 TEST_P(TransactionTest, CoalescingIterator) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -7794,7 +7762,7 @@ TEST_P(TransactionTest, CoalescingIteratorSanityChecks) {
 
   std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
 
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     {
       std::unique_ptr<Iterator> iter(
@@ -7843,7 +7811,7 @@ TEST_P(TransactionTest, CoalescingIteratorSanityChecks) {
 }
 
 TEST_P(TransactionTest, AttributeGroupIterator) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -8061,7 +8029,7 @@ TEST_P(TransactionTest, AttributeGroupIteratorSanityChecks) {
 
   std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
 
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     {
       std::unique_ptr<AttributeGroupIterator> iter(
@@ -8110,7 +8078,7 @@ TEST_P(TransactionTest, AttributeGroupIteratorSanityChecks) {
 }
 
 TEST_P(TransactionTest, SecondaryIndexPutDelete) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -8373,7 +8341,7 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
 }
 
 TEST_P(TransactionTest, SecondaryIndexPutEntity) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -8722,7 +8690,7 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
 }
 
 TEST_P(TransactionTest, SecondaryIndexOnKey) {
-  const TxnDBWritePolicy write_policy = std::get<3>(GetParam());
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
     return;
@@ -9875,8 +9843,10 @@ TEST_P(TransactionDBTest, SelfDeadlockBug) {
   delete txn2;
 }
 
-INSTANTIATE_TEST_CASE_P(TransactionDBBasicTest, TransactionDBTest,
-                        testing::Bool());
+INSTANTIATE_TEST_CASE_P(
+    TransactionDBBasicTest, TransactionDBTest,
+    ::testing::Combine(/*user_per_key_point_lock_manager=*/::testing::Bool(),
+                       /*deadlock_timeout_us=*/::testing::Values(0, 1000)));
 
 TEST_P(CommitBypassMemtableTest,
        OptimizeLargeTxnCommitWriteBatchSizeThreshold) {
