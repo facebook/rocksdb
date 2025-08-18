@@ -4146,6 +4146,73 @@ TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
     }
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
+
+
+TEST_F(ExternalSSTFileTest, AssertInRegisterCompaction) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  DestroyAndRecreateExternalSSTFilesDir();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::string file1 = sst_files_dir_ + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  ASSERT_OK(sst_file_writer.Put(Key(1), Key(1) + "_val"));
+  ExternalSstFileInfo file1_info;
+  ASSERT_OK(sst_file_writer.Finish(&file1_info));
+
+  std::string file2 = sst_files_dir_ + "file2.sst";
+  ASSERT_OK(sst_file_writer.Open(file2));
+  ASSERT_OK(sst_file_writer.Put(Key(1), Key(1) + "_val"));
+  ExternalSstFileInfo file2_info;
+  ASSERT_OK(sst_file_writer.Finish(&file2_info));
+
+  std::string file3 = sst_files_dir_ + "file3.sst";
+  ASSERT_OK(sst_file_writer.Open(file3));
+  ASSERT_OK(sst_file_writer.Put(Key(0), Key(0) + "_val"));
+  ExternalSstFileInfo file3_info;
+  ASSERT_OK(sst_file_writer.Finish(&file3_info));
+
+  std::string file4 = sst_files_dir_ + "file4.sst";
+  ASSERT_OK(sst_file_writer.Open(file4));
+  ASSERT_OK(sst_file_writer.Put(Key(2), Key(2) + "_val"));
+  ExternalSstFileInfo file4_info;
+  ASSERT_OK(sst_file_writer.Finish(&file4_info));
+
+
+  std::vector<std::string> file_list0({file1});
+  std::vector<std::string> file_list1({file2});
+  std::vector<std::string> file_list2({file3, file4});
+  IngestExternalFileOptions opts;
+  // file1{1} is ingested into L6
+  ASSERT_OK(db_->IngestExternalFile(file_list0, opts));
+  // file2{1} has overlap with L6, ingest file2 into L5
+  ASSERT_OK(db_->IngestExternalFile(file_list1, opts));
+  SyncPoint::GetInstance()->LoadDependency(
+  {{"CompactionPicker::CompactRange:AfterRegister",
+  "AssertInRegisterCompaction:Before Ingest"},
+  {"AssertInRegisterCompaction:After Ingest",
+  "CompactionJob::Run():End"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::function<void()> bg_compact = [&]() {
+    // Compacting file2 in L5 and file1 in L6, Register Compaction{smallestKey=1,largestKey=1,output_level=6}
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  };
+  std::function<void()> bg_ingest = [&]() {
+    TEST_SYNC_POINT("AssertInRegisterCompaction:Before Ingest");
+    // file_list2 contains two ssts: file3{0}, file4{2}, both to be ingested into L6
+    // During ingestion, it generates Compaction{smallestKey=0,largestKey=2,output_level=6}, which overlaps with the above compaction,
+    // eventually triggering an assert in RegisterCompaction due to FilesRangeOverlapWithCompaction check
+    ASSERT_OK(db_->IngestExternalFile(file_list2, opts));
+    TEST_SYNC_POINT("AssertInRegisterCompaction:After Ingest");
+  };
+  port::Thread t(bg_compact);
+  port::Thread t1(bg_ingest);
+  t.join();
+  t1.join();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  DestroyAndRecreateExternalSSTFilesDir();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
