@@ -1107,8 +1107,10 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          // abort as it shouldn't be in indeterminate state and there is no
-          // good way currently to handle this error.
+          fprintf(stderr, "Poll: io_uring_wait_cqe failed: %ld", (long)ret);
+          if (ret == -EINTR || ret == -EAGAIN) {
+            continue;  // Retry
+          }
           abort();
         }
 
@@ -1210,8 +1212,10 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          // abort as it shouldn't be in indeterminate state and there is no
-          // good way currently to handle this error.
+          fprintf(stderr, "AbortIO: io_uring_wait_cqe failed: %ld", (long)ret);
+          if (ret == -EINTR || ret == -EAGAIN) {
+            continue;  // Retry
+          }
           abort();
         }
         assert(cqe != nullptr);
