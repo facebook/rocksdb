@@ -1753,7 +1753,7 @@ Status BlockBasedTable::CreateAndPinBlockInCache(
     *contents = BlockContents(
         CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), src),
         handle.size());
-#ifndef NDBEUG
+#ifndef NDEBUG
     contents->has_trailer = true;
 #endif
   }
