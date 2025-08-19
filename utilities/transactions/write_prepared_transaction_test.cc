@@ -359,7 +359,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
                                    int64_t deadlock_timeout_us)
       : TransactionTestBase(use_stackable_db, two_write_queue, write_policy,
                             write_ordering, user_per_key_point_lock_mgr,
-                            deadlock_timeout_us){};
+                            deadlock_timeout_us) {}
 
  protected:
   void UpdateTransactionDBOptions(size_t snapshot_cache_bits,

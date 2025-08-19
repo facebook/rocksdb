@@ -561,10 +561,10 @@ Status PointLockManager::TryLock(PessimisticTransaction* txn,
 
   LockInfo lock_info(txn->GetID(), txn->GetExpirationTime(), exclusive);
   int64_t timeout = txn->GetLockTimeout();
-  int64_t deadlock_timeout = txn->GetDeadlockTimeout();
+  int64_t deadlock_timeout_us = txn->GetDeadlockTimeout();
 
   return AcquireWithTimeout(txn, lock_map, stripe, column_family_id, key, env,
-                            timeout, deadlock_timeout, lock_info);
+                            timeout, deadlock_timeout_us, lock_info);
 }
 
 // Helper function for TryLock().
