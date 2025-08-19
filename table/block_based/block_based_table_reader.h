@@ -310,7 +310,7 @@ class BlockBasedTable : public TableReader {
   // `out_parsed_block` points to the inserted block if successful.
   template <typename TBlocklike>
   Status CreateAndPinBlockInCache(
-      const ReadOptions& ro, const BlockHandle& handle,
+      const ReadOptions& ro, const BlockHandle& handle, Decompressor& decomp,
       BlockContents* block_contents,
       CachableEntry<TBlocklike>* out_parsed_block) const;
 
