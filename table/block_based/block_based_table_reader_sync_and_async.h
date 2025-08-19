@@ -264,7 +264,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     }
 
     if (s.ok()) {
-      s = CreateAndPinBlockInCache(options, handle, *decomp, &serialized_block,
+      s = CreateAndPinBlockInCache(options, handle, decomp, &serialized_block,
                                    &results[idx_in_batch]);
     }
     statuses[idx_in_batch] = s;

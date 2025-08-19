@@ -108,9 +108,9 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       const ReadOptions& ro, const BlockHandle& handle,                        \
       CachableEntry<T>* out_parsed_block) const;                               \
   template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
-      const ReadOptions& ro, const BlockHandle& handle, Decompressor& decomp,  \
-      BlockContents* block_contents, CachableEntry<T>* out_parsed_block)       \
-      const;
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      UnownedPtr<Decompressor> decomp, BlockContents* block_contents,          \
+      CachableEntry<T>* out_parsed_block) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(DecompressorDict);
@@ -1741,8 +1741,8 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
 
 template <typename TBlocklike>
 Status BlockBasedTable::CreateAndPinBlockInCache(
-    const ReadOptions& ro, const BlockHandle& handle, Decompressor& decomp,
-    BlockContents* contents,
+    const ReadOptions& ro, const BlockHandle& handle,
+    UnownedPtr<Decompressor> decomp, BlockContents* contents,
     CachableEntry<TBlocklike>* out_parsed_block) const {
   CompressionType compression_type = GetBlockCompressionType(*contents);
   // If we don't own the contents and we don't need to decompress, copy
@@ -1760,7 +1760,7 @@ Status BlockBasedTable::CreateAndPinBlockInCache(
 
   Status s;
   if (ro.fill_cache) {
-    s = MaybeReadBlockAndLoadToCache(nullptr, ro, handle, &decomp,
+    s = MaybeReadBlockAndLoadToCache(nullptr, ro, handle, decomp,
                                      /*for_compaction=*/false, out_parsed_block,
                                      nullptr, nullptr, contents,
                                      /*async_read=*/false,
@@ -1777,7 +1777,7 @@ Status BlockBasedTable::CreateAndPinBlockInCache(
     BlockContents tmp_contents;
     if (compression_type != kNoCompression) {
       s = DecompressSerializedBlock(contents->data.data(), handle.size(),
-                                    compression_type, decomp, &tmp_contents,
+                                    compression_type, *decomp, &tmp_contents,
                                     rep_->ioptions,
                                     GetMemoryAllocator(rep_->table_options));
     } else {
