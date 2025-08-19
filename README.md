@@ -1,4 +1,4 @@
-## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
+# RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
 
 [![CircleCI Status](https://circleci.com/gh/facebook/rocksdb.svg?style=svg)](https://circleci.com/gh/facebook/rocksdb)
 
@@ -14,7 +14,7 @@ and Space-Amplification-Factor (SAF). It has multi-threaded compactions,
 making it especially suitable for storing multiple terabytes of data in a
 single database.
 
-Start with example usage here: https://github.com/facebook/rocksdb/tree/main/examples
+Start with example usage here: https://github.com/facebook/rocksdb/tree/main/examples:
 
 See the [github wiki](https://github.com/facebook/rocksdb/wiki) for more explanation.
 
