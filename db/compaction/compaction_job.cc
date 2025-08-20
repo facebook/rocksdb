@@ -1399,7 +1399,7 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       job_context_->snapshot_checker, env_,
       ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
       blob_resources.blob_file_builder.get(), db_options_.allow_data_in_errors,
-      db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
+      db_options_.enforce_single_del_contracts, &manual_compaction_canceled_,
       sub_compact->compaction->DoesInputReferenceBlobFiles(),
       sub_compact->compaction, compaction_filter, shutting_down_,
       db_options_.info_log, full_history_ts_low, preserve_seqno_after_);
