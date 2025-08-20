@@ -1106,6 +1106,37 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       const auto start_offset = first_block.offset();
       const auto end_offset = last_block.offset() +
                               BlockBasedTable::BlockSizeWithTrailer(last_block);
+#ifndef NDEBUG
+      // Debug print for failing the assertion below.
+      if (start_offset >= end_offset) {
+        fprintf(stderr, "blocks_to_prepare: ");
+        for (const auto& block : blocks_to_prepare) {
+          fprintf(stderr, "offset: %" PRIu64 ", size: %" PRIu64 "; ",
+                  block.offset(), block.size());
+        }
+        fprintf(stderr,
+                "\nfirst block - offset: %" PRIu64 ", size: %" PRIu64 "\n",
+                first_block.offset(), first_block.size());
+        fprintf(stderr, "last block - offset: %" PRIu64 ", size: %" PRIu64 "\n",
+                last_block.offset(), last_block.size());
+
+        fprintf(stderr, "collapsed_blocks_to_read: ");
+        for (const auto& b : collapsed_blocks_to_read) {
+          fprintf(stderr, "[");
+          for (const auto& block_idx : b) {
+            fprintf(stderr, "%zu ", block_idx);
+          }
+          fprintf(stderr, "] ");
+        }
+        fprintf(stderr, "\ncurrent blocks: ");
+        for (const auto& block_idx : blocks) {
+          fprintf(stderr, "offset: %" PRIu64 ", size: %" PRIu64 "; ",
+                  blocks_to_prepare[block_idx].offset(),
+                  blocks_to_prepare[block_idx].size());
+        }
+        fprintf(stderr, "\n");
+      }
+#endif  // NDEBUG
       assert(end_offset > start_offset);
       FSReadRequest read_req;
       read_req.offset = start_offset;
