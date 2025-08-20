@@ -877,7 +877,7 @@ void CompactionJob::SetOutputTableProperties() {
   }
 }
 
-void CompactionJob::AggregateSubcompactionStats() {
+void CompactionJob::AggregateSubcompactionOutputAndJobStats() {
   // Before the compaction starts, is_remote_compaction was set to true if
   // compaction_service is set. We now know whether each sub_compaction was
   // done remotely or not. Reset is_remote_compaction back to false and allow
@@ -915,9 +915,10 @@ void CompactionJob::FinalizeCompactionRun(
     const Status& input_status, bool stats_built_from_input_table_prop,
     uint64_t num_input_range_del) {
   if (stats_built_from_input_table_prop) {
-    UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
+    UpdateCompactionJobInputStatsFromInternalStats(internal_stats_,
+                                                   num_input_range_del);
   }
-  UpdateCompactionJobOutputStats(internal_stats_);
+  UpdateCompactionJobOutputStatsFromInternalStats(internal_stats_);
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
@@ -952,11 +953,11 @@ Status CompactionJob::Run() {
     SetOutputTableProperties();
   }
 
-  AggregateSubcompactionStats();
+  AggregateSubcompactionOutputAndJobStats();
 
   uint64_t num_input_range_del = 0;
   bool stats_built_from_input_table_prop =
-      BuildStatsFromInputFiles(&num_input_range_del);
+      UpdateInternalStatsFromInputFiles(&num_input_range_del);
 
   if (status.ok()) {
     status = VerifyCompactionRecordCounts(stats_built_from_input_table_prop,
@@ -1205,7 +1206,6 @@ bool CompactionJob::ShouldUseLocalCompaction(SubcompactionState* sub_compact) {
 
 CompactionJob::CompactionIOStatsSnapshot CompactionJob::InitializeIOStats() {
   CompactionIOStatsSnapshot io_stats;
-  io_stats.prev_perf_level = PerfLevel::kEnableTime;
 
   if (measure_io_stats_) {
     io_stats.prev_perf_level = GetPerfLevel();
@@ -1241,16 +1241,6 @@ Status CompactionJob::SetupAndValidateCompactionFilter(
   }
 
   return Status::OK();
-}
-
-void CompactionJob::SetupRangeDelAggregator(SubcompactionState* sub_compact,
-                                            ColumnFamilyData* cfd) {
-  // This is assigned after creation of SubcompactionState to simplify that
-  // creation across both CompactionJob and CompactionServiceCompactionJob
-  sub_compact->AssignRangeDelAggregator(
-      std::make_unique<CompactionRangeDelAggregator>(
-          &cfd->internal_comparator(), job_context_->snapshot_seqs,
-          &full_history_ts_low_, &trim_ts_));
 }
 
 void CompactionJob::InitializeReadOptions(
@@ -1292,7 +1282,13 @@ InternalIterator* CompactionJob::CreateInputIterator(
     SubcompactionState* sub_compact, ColumnFamilyData* cfd,
     SubcompactionInternalIterators& iterators,
     SubcompactionKeyBoundaries& boundaries, ReadOptions& read_options) {
-  SetupRangeDelAggregator(sub_compact, cfd);
+  // This is assigned after creation of SubcompactionState to simplify that
+  // creation across both CompactionJob and CompactionServiceCompactionJob
+  sub_compact->AssignRangeDelAggregator(
+      std::make_unique<CompactionRangeDelAggregator>(
+          &cfd->internal_comparator(), job_context_->snapshot_seqs,
+          &full_history_ts_low_, &trim_ts_));
+
   InitializeReadOptions(cfd, read_options, boundaries);
 
   // Although the v2 aggregator is what the level iterator(s) know about,
@@ -1453,7 +1449,7 @@ Status CompactionJob::ProcessKeyValue(
 
     if (c_iter->iter_stats().num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {
-      UpdateCompactionStatsIncrementally(
+      UpdateSubcompactionJobStatsIncrementally(
           c_iter, &sub_compact->compaction_job_stats,
           db_options_.clock->CPUMicros(), prev_cpu_micros);
     }
@@ -1515,7 +1511,7 @@ Status CompactionJob::ProcessKeyValue(
   return status;
 }
 
-void CompactionJob::UpdateCompactionStatsIncrementally(
+void CompactionJob::UpdateSubcompactionJobStatsIncrementally(
     CompactionIterator* c_iter, CompactionJobStats* compaction_job_stats,
     uint64_t cur_cpu_micros, uint64_t& prev_cpu_micros) {
   RecordDroppedKeys(c_iter->iter_stats(), compaction_job_stats);
@@ -1528,7 +1524,7 @@ void CompactionJob::UpdateCompactionStatsIncrementally(
   prev_cpu_micros = cur_cpu_micros;
 }
 
-void CompactionJob::UpdateCompactionStats(
+void CompactionJob::FinalizeSubcompactionJobStats(
     SubcompactionState* sub_compact, CompactionIterator* c_iter,
     uint64_t start_cpu_micros, uint64_t prev_cpu_micros,
     const CompactionIOStatsSnapshot& io_stats) {
@@ -1575,8 +1571,9 @@ void CompactionJob::UpdateCompactionStats(
 
   // Record final compaction statistics including dropped keys, I/O stats,
   // and CPU time delta from the last periodic measurement
-  UpdateCompactionStatsIncrementally(c_iter, &sub_compact->compaction_job_stats,
-                                     cur_cpu_micros, prev_cpu_micros);
+  UpdateSubcompactionJobStatsIncrementally(c_iter,
+                                           &sub_compact->compaction_job_stats,
+                                           cur_cpu_micros, prev_cpu_micros);
 
   // Finalize timing and I/O statistics
 
@@ -1679,6 +1676,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sub_compact->status = filter_status;
     return;
   }
+
+  NotifyOnSubcompactionBegin(sub_compact);
+
   SubcompactionKeyBoundaries boundaries(sub_compact->start, sub_compact->end);
   SubcompactionInternalIterators iterators;
   ReadOptions read_options;
@@ -1691,8 +1691,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       job_context_->GetLatestSnapshotSequence(), job_context_->snapshot_checker,
       compact_->compaction->level(), db_options_.stats);
   BlobFileResources blob_resources;
-
-  NotifyOnSubcompactionBegin(sub_compact);
 
   InternalIterator* input_iter = CreateInputIterator(
       sub_compact, cfd, iterators, boundaries, read_options);
@@ -1738,8 +1736,8 @@ void CompactionJob::FinalizeSubcompaction(
                                   close_file_func);
   status = FinalizeBlobFiles(sub_compact, blob_file_builder, status);
 
-  UpdateCompactionStats(sub_compact, c_iter, start_cpu_micros, prev_cpu_micros,
-                        io_stats);
+  FinalizeSubcompactionJobStats(sub_compact, c_iter, start_cpu_micros,
+                                prev_cpu_micros, io_stats);
 
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   if (!status.ok()) {
@@ -2269,7 +2267,8 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-bool CompactionJob::BuildStatsFromInputFiles(uint64_t* num_input_range_del) {
+bool CompactionJob::UpdateInternalStatsFromInputFiles(
+    uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
@@ -2351,7 +2350,7 @@ bool CompactionJob::BuildStatsFromInputFiles(uint64_t* num_input_range_del) {
   return !has_error;
 }
 
-void CompactionJob::UpdateCompactionJobInputStats(
+void CompactionJob::UpdateCompactionJobInputStatsFromInternalStats(
     const InternalStats::CompactionStatsFull& internal_stats,
     uint64_t num_input_range_del) const {
   assert(job_stats_);
@@ -2404,7 +2403,7 @@ void CompactionJob::UpdateCompactionJobInputStats(
   }
 }
 
-void CompactionJob::UpdateCompactionJobOutputStats(
+void CompactionJob::UpdateCompactionJobOutputStatsFromInternalStats(
     const InternalStats::CompactionStatsFull& internal_stats) const {
   assert(job_stats_);
   job_stats_->elapsed_micros = internal_stats.output_level_stats.micros;

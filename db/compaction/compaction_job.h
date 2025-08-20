@@ -196,7 +196,7 @@ class CompactionJob {
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  void UpdateCompactionJobOutputStats(
+  void UpdateCompactionJobOutputStatsFromInternalStats(
       const InternalStats::CompactionStatsFull& internal_stats) const;
 
   void LogCompaction();
@@ -242,9 +242,10 @@ class CompactionJob {
   // num_input_range_del are calculated successfully.
   //
   // This should be called only once for compactions (not per subcompaction)
-  bool BuildStatsFromInputFiles(uint64_t* num_input_range_del = nullptr);
+  bool UpdateInternalStatsFromInputFiles(
+      uint64_t* num_input_range_del = nullptr);
 
-  void UpdateCompactionJobInputStats(
+  void UpdateCompactionJobInputStatsFromInternalStats(
       const InternalStats::CompactionStatsFull& internal_stats,
       uint64_t num_input_range_del) const;
 
@@ -287,7 +288,10 @@ class CompactionJob {
   Status SyncOutputDirectories();
   Status VerifyOutputFiles();
   void SetOutputTableProperties();
-  void AggregateSubcompactionStats();
+  // Aggregates subcompaction output stats to internal stat, and aggregates
+  // subcompaction's compaction job stats to the whole entire surrounding
+  // compaction job stats.
+  void AggregateSubcompactionOutputAndJobStats();
   Status VerifyCompactionRecordCounts(bool stats_built_from_input_table_prop,
                                       uint64_t num_input_range_del);
   void FinalizeCompactionRun(const Status& status,
@@ -355,8 +359,6 @@ class CompactionJob {
       const CompactionFilter* configured_compaction_filter,
       const CompactionFilter*& compaction_filter,
       std::unique_ptr<CompactionFilter>& compaction_filter_from_factory);
-  void SetupRangeDelAggregator(SubcompactionState* sub_compact,
-                               ColumnFamilyData* cfd);
   void InitializeReadOptions(ColumnFamilyData* cfd, ReadOptions& read_options,
                              SubcompactionKeyBoundaries& boundaries);
   InternalIterator* CreateInputIterator(
@@ -379,14 +381,14 @@ class CompactionJob {
                          const CompactionFileOpenFunc& open_file_func,
                          const CompactionFileCloseFunc& close_file_func,
                          uint64_t& prev_cpu_micros);
-  void UpdateCompactionStatsIncrementally(
+  void UpdateSubcompactionJobStatsIncrementally(
       CompactionIterator* c_iter, CompactionJobStats* compaction_job_stats,
       uint64_t cur_cpu_micros, uint64_t& prev_cpu_micros);
-  void UpdateCompactionStats(SubcompactionState* sub_compact,
-                             CompactionIterator* c_iter,
-                             uint64_t start_cpu_micros,
-                             uint64_t prev_cpu_micros,
-                             const CompactionIOStatsSnapshot& io_stats);
+  void FinalizeSubcompactionJobStats(SubcompactionState* sub_compact,
+                                     CompactionIterator* c_iter,
+                                     uint64_t start_cpu_micros,
+                                     uint64_t prev_cpu_micros,
+                                     const CompactionIOStatsSnapshot& io_stats);
   Status FinalizeProcessKeyValueStatus(ColumnFamilyData* cfd,
                                        InternalIterator* input_iter,
                                        CompactionIterator* c_iter,
