@@ -1701,7 +1701,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   iter.reset(db_->NewIterator(ro, column_families_[rand_column_families[0]]));
   iter->Prepare(scan_opts);
 
-  constexpr size_t kOpLogsLimit = 10000;
+  constexpr size_t kOpLogsLimit = 50000;
 
   auto verify_func = [](Iterator* iterator) {
     if (!VerifyWideColumns(iterator->value(), iterator->columns())) {
@@ -1801,11 +1801,24 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
       VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
                      key, op_logs, verify_func, &diverged);
+
+      if (diverged) {
+        const std::vector<ScanOptions>& scanoptions = scan_opts.GetScanRanges();
+        for (const auto& t : scanoptions) {
+          fprintf(stdout, "Multiscan options: %s to %s \n",
+                  t.range.start.value().ToString(true).c_str(),
+                  t.range.limit.value().ToString(true).c_str());
+        }
+        break;
+      }
     }
 
     thread->stats.AddIterations(1);
 
     op_logs += "; ";
+    if (diverged) {
+      break;
+    }
   }
 
   return Status::OK();
