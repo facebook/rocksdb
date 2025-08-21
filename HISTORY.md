@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.5.4 (08/21/2025)
+### Bug Fixes
+* Fix a crash in iterator Prepare() when fill_cache=false
+
 ## 10.5.3 (08/14/2025)
 ### Bug Fixes
 * Allow a user defined index to be configured from a string.
