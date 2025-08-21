@@ -38,6 +38,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
@@ -201,11 +202,12 @@ class MemTableRep {
                    bool (*callback_func)(void* arg, const char* entry));
 
   // Same as Get() but performs data integrity validation.
-  virtual Status GetAndValidate(const LookupKey& /* k */,
-                                void* /* callback_args */,
-                                bool (* /* callback_func */)(void* arg,
-                                                             const char* entry),
-                                bool /*allow_data_in_error*/) {
+  virtual Status GetAndValidate(
+      const LookupKey& /* k */, void* /* callback_args */,
+      bool (* /* callback_func */)(void* arg, const char* entry),
+      bool /*allow_data_in_error*/, bool /*detect_key_out_of_order*/,
+      std::function<Status(const char*, bool)>*
+      /*key_validation_callback*/) {
     return Status::NotSupported("GetAndValidate() not implemented.");
   }
 
@@ -278,7 +280,10 @@ class MemTableRep {
     // corruption is found.
     virtual Status SeekAndValidate(const Slice& /* internal_key */,
                                    const char* /* memtable_key */,
-                                   bool /* allow_data_in_errors */) {
+                                   bool /* allow_data_in_errors */,
+                                   bool /* detect_key_out_of_order */,
+                                   std::function<Status(const char*, bool)>*
+                                   /* key_validation_callback */) {
       return Status::NotSupported("SeekAndValidate() not implemented.");
     }
 

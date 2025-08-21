@@ -70,7 +70,9 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       protection_bytes_per_key(
           mutable_cf_options.memtable_protection_bytes_per_key),
       allow_data_in_errors(ioptions.allow_data_in_errors),
-      paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks) {}
+      paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks),
+      paranoid_memory_check_key_checksum_on_seek(
+          mutable_cf_options.paranoid_memory_check_key_checksum_on_seek) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
@@ -158,6 +160,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   const Comparator* ucmp = cmp.user_comparator();
   assert(ucmp);
   ts_sz_ = ucmp->timestamp_size();
+
+  key_validation_callback_ =
+      std::bind(&MemTable::ValidateKey, this, std::placeholders::_1,
+                std::placeholders::_2);
 }
 
 MemTable::~MemTable() {
@@ -394,7 +400,9 @@ class MemTableIterator : public InternalIterator {
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
         arena_mode_(arena != nullptr),
         paranoid_memory_checks_(mem.moptions_.paranoid_memory_checks),
-        allow_data_in_error(mem.moptions_.allow_data_in_errors) {
+        paranoid_memory_check_key_checksum_on_seek_(
+            mem.moptions_.paranoid_memory_check_key_checksum_on_seek),
+        allow_data_in_error_(mem.moptions_.allow_data_in_errors) {
     if (kind == kRangeDelEntries) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr &&
@@ -413,6 +421,9 @@ class MemTableIterator : public InternalIterator {
       iter_ = mem.table_->GetIterator(arena);
     }
     status_.PermitUncheckedError();
+    key_validation_callback_ =
+        std::bind(&MemTableIterator::ValidateKey, this, std::placeholders::_1,
+                  std::placeholders::_2);
   }
   // No copying allowed
   MemTableIterator(const MemTableIterator&) = delete;
@@ -445,6 +456,11 @@ class MemTableIterator : public InternalIterator {
     return valid_ && status_.ok();
   }
 
+  Status ValidateKey(const char* key, bool allow_data_in_errors) {
+    return MemTable::VerifyEntryChecksum(key, protection_bytes_per_key_,
+                                         allow_data_in_errors);
+  }
+
   void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
@@ -463,8 +479,13 @@ class MemTableIterator : public InternalIterator {
         }
       }
     }
-    if (paranoid_memory_checks_) {
-      status_ = iter_->SeekAndValidate(k, nullptr, allow_data_in_error);
+    if (paranoid_memory_checks_ ||
+        paranoid_memory_check_key_checksum_on_seek_) {
+      status_ = iter_->SeekAndValidate(
+          k, nullptr, allow_data_in_error_, paranoid_memory_checks_,
+          paranoid_memory_check_key_checksum_on_seek_
+              ? &key_validation_callback_
+              : nullptr);
     } else {
       iter_->Seek(k, nullptr);
     }
@@ -488,8 +509,13 @@ class MemTableIterator : public InternalIterator {
         }
       }
     }
-    if (paranoid_memory_checks_) {
-      status_ = iter_->SeekAndValidate(k, nullptr, allow_data_in_error);
+    if (paranoid_memory_checks_ ||
+        paranoid_memory_check_key_checksum_on_seek_) {
+      status_ = iter_->SeekAndValidate(
+          k, nullptr, allow_data_in_error_, paranoid_memory_checks_,
+          paranoid_memory_check_key_checksum_on_seek_
+              ? &key_validation_callback_
+              : nullptr);
     } else {
       iter_->Seek(k, nullptr);
     }
@@ -518,7 +544,7 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
     if (paranoid_memory_checks_) {
-      status_ = iter_->NextAndValidate(allow_data_in_error);
+      status_ = iter_->NextAndValidate(allow_data_in_error_);
     } else {
       iter_->Next();
       TEST_SYNC_POINT_CALLBACK("MemTableIterator::Next:0", iter_);
@@ -540,7 +566,7 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
     if (paranoid_memory_checks_) {
-      status_ = iter_->PrevAndValidate(allow_data_in_error);
+      status_ = iter_->PrevAndValidate(allow_data_in_error_);
     } else {
       iter_->Prev();
     }
@@ -599,7 +625,9 @@ class MemTableIterator : public InternalIterator {
   bool value_pinned_;
   bool arena_mode_;
   const bool paranoid_memory_checks_;
-  const bool allow_data_in_error;
+  const bool paranoid_memory_check_key_checksum_on_seek_;
+  const bool allow_data_in_error_;
+  std::function<Status(const char*, bool)> key_validation_callback_;
 
   void VerifyEntryChecksum() {
     if (protection_bytes_per_key_ > 0 && Valid()) {
@@ -1493,11 +1521,16 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
 
-  if (!moptions_.paranoid_memory_checks) {
+  if (!moptions_.paranoid_memory_checks &&
+      !moptions_.paranoid_memory_check_key_checksum_on_seek) {
     table_->Get(key, &saver, SaveValue);
   } else {
-    Status check_s = table_->GetAndValidate(key, &saver, SaveValue,
-                                            moptions_.allow_data_in_errors);
+    Status check_s = table_->GetAndValidate(
+        key, &saver, SaveValue, moptions_.allow_data_in_errors,
+        moptions_.paranoid_memory_checks,
+        moptions_.paranoid_memory_check_key_checksum_on_seek
+            ? &key_validation_callback_
+            : nullptr);
     if (check_s.IsCorruption()) {
       *(saver.status) = check_s;
       // Should stop searching the LSM.
@@ -1506,6 +1539,11 @@ void MemTable::GetFromTable(const LookupKey& key,
   }
   assert(s->ok() || s->IsMergeInProgress() || *found_final_value);
   *seq = saver.seq;
+}
+
+Status MemTable::ValidateKey(const char* key, bool allow_data_in_errors) {
+  return MemTable::VerifyEntryChecksum(key, moptions_.protection_bytes_per_key,
+                                       allow_data_in_errors);
 }
 
 void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
