@@ -37,8 +37,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableOptions& ioptions = rep_->ioptions;
-  size_t read_amp_bytes_per_bit = rep_->table_options.read_amp_bytes_per_bit;
-  MemoryAllocator* memory_allocator = GetMemoryAllocator(rep_->table_options);
 
   if (ioptions.allow_mmap_reads) {
     size_t idx_in_batch = 0;
@@ -266,79 +264,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     }
 
     if (s.ok()) {
-      // When the blocks share the same underlying buffer (scratch or direct io
-      // buffer), we may need to manually copy the block into heap if the
-      // serialized block has to be inserted into a cache. That falls into the
-      // following cases -
-      // 1. serialized block is not compressed, it needs to be inserted into
-      //    the uncompressed block cache if there is one
-      // 2. If the serialized block is compressed, it needs to be inserted
-      //    into the compressed block cache if there is one
-      //
-      // In all other cases, the serialized block is either uncompressed into a
-      // heap buffer or there is no cache at all.
-      CompressionType compression_type =
-          GetBlockCompressionType(serialized_block);
-      if ((use_fs_scratch || use_shared_buffer) &&
-          compression_type == kNoCompression) {
-        Slice serialized =
-            Slice(req.result.data() + req_offset, BlockSizeWithTrailer(handle));
-        serialized_block = BlockContents(
-            CopyBufferToHeap(GetMemoryAllocator(rep_->table_options),
-                             serialized),
-            handle.size());
-#ifndef NDEBUG
-        serialized_block.has_trailer = true;
-#endif
-      }
-    }
-
-    if (s.ok()) {
-      if (options.fill_cache) {
-        CachableEntry<Block_kData>* block_entry = &results[idx_in_batch];
-        // MaybeReadBlockAndLoadToCache will insert into the block caches if
-        // necessary. Since we're passing the serialized block contents, it
-        // will avoid looking up the block cache
-        s = MaybeReadBlockAndLoadToCache(
-            nullptr, options, handle, decomp,
-            /*for_compaction=*/false, block_entry, mget_iter->get_context,
-            /*lookup_context=*/nullptr, &serialized_block,
-            /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
-
-        if (!s.ok()) {
-          statuses[idx_in_batch] = s;
-          continue;
-        }
-        // block_entry value could be null if no block cache is present, i.e
-        // BlockBasedTableOptions::no_block_cache is true and no compressed
-        // block cache is configured. In that case, fall
-        // through and set up the block explicitly
-        if (block_entry->GetValue() != nullptr) {
-          continue;
-        }
-      }
-
-      CompressionType compression_type =
-          GetBlockCompressionType(serialized_block);
-      BlockContents contents;
-      if (compression_type != kNoCompression) {
-        s = DecompressSerializedBlock(
-            req.result.data() + req_offset, handle.size(), compression_type,
-            *decomp, &contents, rep_->ioptions, memory_allocator);
-      } else {
-        // There are two cases here:
-        // 1) caller uses the shared buffer (scratch or direct io buffer);
-        // 2) we use the requst buffer.
-        // If scratch buffer or direct io buffer is used, we ensure that
-        // all serialized blocks are copyed to the heap as single blocks. If
-        // scratch buffer is not used, we also have no combined read, so the
-        // serialized block can be used directly.
-        contents = std::move(serialized_block);
-      }
-      if (s.ok()) {
-        results[idx_in_batch].SetOwnedValue(std::make_unique<Block_kData>(
-            std::move(contents), read_amp_bytes_per_bit, ioptions.stats));
-      }
+      s = CreateAndPinBlockInCache(options, handle, decomp, &serialized_block,
+                                   &results[idx_in_batch]);
     }
     statuses[idx_in_batch] = s;
   }

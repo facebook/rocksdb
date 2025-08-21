@@ -4142,13 +4142,17 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTriggerByOverwrites) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
-class DBMultiScanIteratorTest : public DBTestBase {
+class DBMultiScanIteratorTest : public DBTestBase,
+                                public ::testing::WithParamInterface<bool> {
  public:
   DBMultiScanIteratorTest()
       : DBTestBase("db_multi_scan_iterator_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(DBMultiScanIteratorTest, BasicTest) {
+INSTANTIATE_TEST_CASE_P(DBMultiScanIteratorTest, DBMultiScanIteratorTest,
+                        ::testing::Bool());
+
+TEST_P(DBMultiScanIteratorTest, BasicTest) {
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4159,6 +4163,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
+  ro.fill_cache = GetParam();
   std::vector<ScanOptions> scan_options(
       {ScanOptions(key_ranges[0], key_ranges[1]),
        ScanOptions(key_ranges[2], key_ranges[3])});
@@ -4245,7 +4250,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   iter.reset();
 }
 
-TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
+TEST_P(DBMultiScanIteratorTest, MixedBoundsTest) {
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4257,6 +4262,7 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   std::vector<std::string> key_ranges(
       {"k03", "k10", "k25", "k50", "k75", "k90"});
   ReadOptions ro;
+  ro.fill_cache = GetParam();
   std::vector<ScanOptions> scan_options(
       {ScanOptions(key_ranges[0], key_ranges[1]), ScanOptions(key_ranges[2]),
        ScanOptions(key_ranges[4], key_ranges[5])});
