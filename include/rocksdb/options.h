@@ -2419,7 +2419,44 @@ struct CompactRangeOptions {
   double blob_garbage_collection_age_cutoff = -1;
 };
 
-// IngestExternalFileOptions is used by IngestExternalFile()
+// IngestExternalFileOptions setting guide:
+//
+// The options in IngestExternalFileOptions interact in complex ways depending
+// on the source and overlap of SST files. Below is a summary of recommended
+// non-default settings for common use cases:
+//
+// 1. Ingesting only SST writer generated non-overlapping SSTs that are not
+// expected to overlap with existing data:
+//    - Optionally set fail_if_not_bottommost_level = true to enforce placement
+//    in the last level. This is better paird with SST partitioner to guarantee
+//    that there are no existing file with keys across the ingesting key range.
+//    - Set allow_blocking_flush to false: Not expecting to overlap with
+//    memtable and cause a flush.
+//    - If snapshot consistency is not expected, set snapshot_consistency to
+//    false and allow_global_seqno to false. allow_global_seqno = false will
+//    fail ingestion if any input file overlap with each other.
+//
+// 2. Ingesting SST writer generated overlapping SSTs:
+//    - order files with older updates first, newer overwrites later.
+//    - Set allow_global_seqno = true since newer files need to be assigned
+//    larger sequence numbers.
+//
+// 3. Ingesting DB generated SSTs: overlapping with target CF data is not
+// allowed. Input files are allowed to contain both DB generated files and SST
+// file writer generated files. They will all be treated as DB generated.
+//    - Set allow_db_generated_files = true.
+//    - Set allow_blocking_flush to false: Not expecting to overlap with
+//    memtable and cause a flush.
+//    - If the source live DB is running, set link_files = true instead of
+//    move_files.
+// 3a) SST files are non-overlapping and all keys have seqno 0: e.g., a
+// temporary RocksDB instance used to sort some data, and compacts all
+// data into the last level before ingestion.
+//    - Optionally set fail_if_not_bottommost_level = true to enforce placement
+//    in the last level.
+// 3b) SST files are overlapping, e.g. ingesting files from one CF to another.
+//    - Ensure older updates are ordered first and newer updates are ordered
+//    later. See more in option comment for allow_db_generated_files.
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
   // The input files will be unlinked after successful ingestion.
@@ -2527,12 +2564,32 @@ struct IngestExternalFileOptions {
   // REQUIREMENTS:
   // - Ingested files must NOT overlap with any existing data in the DB. Since
   //   no sequence number reassignment is performed on db generated files.
-  //   Ingestion will fail if any overlap is detected.
+  //   Ingestion will fail if any overlap is detected. However, input files
+  //   are allowed to overlap with each other when this option is enabled. This
+  //   is useful when ingesting multiple levels of files from a CF, where
+  //   levels naturally overlap with each other.
   // - CAUTION: If input files overlap with each other, then for any given user
   //   key appearing in multiple files, earlier files MUST have smaller sequence
   //   numbers than later files. Later files will be placed at a higher level
   //   (smaller level number). This is to ensure the LSM invariant where for
-  //   the same key, recent updates are in higher levels.
+  //   the same key, recent updates are in higher levels. This means that
+  //   if you are ingesting files from multiple levels of a CF, you should
+  //   put files from lower levels first, and files from higher levels later.
+  //   Example for getting files from a CF for ingestion:
+  //
+  // ColumnFamilyMetaData cf_meta;
+  // from_db->GetColumnFamilyMetaData(from_cf, &cf_meta);
+  // // iterate in reverse to start from lowest level
+  // for (auto level_meta = cf_meta.levels.rbegin();
+  //      level_meta != cf_meta.levels.rend(); ++level_meta) {
+  //   // L0 files need to be added in reverse order so we iterate in reverse
+  //   // within a level too
+  //   for (auto file_meta = level_meta->files.rbegin();
+  //        file_meta != level_meta->files.rend(); ++file_meta) {
+  //     // Add file for ingestion
+  //   }
+  // }
+  //
   //   WARNING: Violating the sequence number ordering requirement will cause
   //   LSM invariant violations and may lead to incorrect reads or data
   //   corruption.

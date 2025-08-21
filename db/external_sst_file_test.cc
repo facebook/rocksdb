@@ -3870,7 +3870,7 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
     to_ingest_files.emplace_back(live_meta[0].directory + "/" +
                                  live_meta[0].relative_filename);
 
-    // Ingesting a DB genrate file with allow_db_generated_files = false;
+    // Ingesting a DB generated file with allow_db_generated_files = false
     ingest_opts.allow_db_generated_files = false;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ASSERT_TRUE(s.ToString().find("External file version not found") !=
@@ -3878,8 +3878,8 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
     ASSERT_NOK(s);
 
     const std::string err =
-        "An ingested file is assigned to a non-zero sequence number, which is "
-        "incompatible with ingestion option allow_db_generated_files";
+        "An ingested file overlaps with existing data in the DB and has been "
+        "assigned a non-zero sequence number";
     ingest_opts.allow_db_generated_files = true;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ASSERT_TRUE(s.ToString().find(err) != std::string::npos);
@@ -4229,7 +4229,8 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
       s = db_->IngestExternalFile(non_overlap_cf, sst_file_paths, ingest_opts);
       ASSERT_NOK(s);
       ASSERT_TRUE(s.ToString().find(
-          "An ingested file is assigned to a non-zero sequence number"));
+          "An ingested file overlaps with existing data in the DB and has been "
+          "assigned a non-zero sequence number"));
       db_->ReleaseSnapshot(snapshot);
     }
     ASSERT_OK(
@@ -4244,34 +4245,15 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
       ASSERT_EQ(val, expected_values[k]) << "key: " << Key(k);
     }
 
-    // Some ingestion failure cases
-    IngestExternalFileOptions restrictive_opts = ingest_opts;
-    restrictive_opts.allow_db_generated_files = false;
-    s = db_->IngestExternalFile(non_overlap_cf, {sst_file_paths[0]},
-                                restrictive_opts);
-    ASSERT_NOK(s);
-    ASSERT_TRUE(s.ToString().find("External file version not found") !=
-                std::string::npos);
-
-    // Ingesting the same file should fail due to overlap with CF
-    s = db_->IngestExternalFile(non_overlap_cf, {sst_file_paths[0]},
-                                ingest_opts);
-    ASSERT_NOK(s);
-    ASSERT_TRUE(
-        s.ToString().find(
-            "An ingested file is assigned to a non-zero sequence number") !=
-        std::string::npos)
-        << s.ToString();
-
     // Overlap with data in the CF
     if (ingest_opts.allow_blocking_flush) {
       s = db_->IngestExternalFile(overlap_cf, sst_file_paths, ingest_opts);
 
       ASSERT_NOK(s);
-      ASSERT_TRUE(
-          s.ToString().find(
-              "An ingested file is assigned to a non-zero sequence number") !=
-          std::string::npos)
+      ASSERT_TRUE(s.ToString().find("An ingested file overlaps with existing "
+                                    "data in the DB and has been "
+                                    "assigned a non-zero sequence number") !=
+                  std::string::npos)
           << s.ToString();
     }
 

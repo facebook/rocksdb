@@ -290,9 +290,13 @@ class ExternalSstFileIngestionJob {
     return files_to_ingest_;
   }
 
-  // How many sequence numbers did we consume as part of the ingestion job?
-  // int ConsumedSequenceNumbersCount() const { return consumed_seqno_count_; }
-
+  // Return the maximum assigned sequence number for all files in this job.
+  // When allow_db_generated_files = false, we may assign global sequence
+  // numbers to ingested files. The global sequence numbers are sequence numbers
+  // following versions_->LastSequence().
+  // When allow_db_generated_files = true, we ingest files that already have
+  // sequence numbers assigned. max_assigned_seqno_ will be the max sequence
+  // number among ingested files.
   SequenceNumber MaxAssignedSequenceNumber() const {
     return max_assigned_seqno_;
   }
@@ -379,9 +383,9 @@ class ExternalSstFileIngestionJob {
   // Helper function to obtain the smallest and largest sequence number from a
   // file. When OK is returned, file_to_ingest->smallest_seqno and
   // file_to_ingest->largest_seqno will be updated.
-  Status GetSeqnoForFile(TableReader* table_reader, SuperVersion* sv,
-                         IngestedFileInfo* file_to_ingest,
-                         bool allow_data_in_errors);
+  Status GetSeqnoBoundaryForFile(TableReader* table_reader, SuperVersion* sv,
+                                 IngestedFileInfo* file_to_ingest,
+                                 bool allow_data_in_errors);
 
   // Create equivalent `Compaction` objects to this file ingestion job
   // , which will be used to check range conflict with other ongoing

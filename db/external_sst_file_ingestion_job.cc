@@ -588,8 +588,9 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     // If any ingested file overlaps with the DB, it will fail here.
     if (ingestion_options_.allow_db_generated_files && assigned_seqno != 0) {
       return Status::InvalidArgument(
-          "An ingested file is assigned to a non-zero sequence number, which "
-          "is incompatible with ingestion option allow_db_generated_files.");
+          "An ingested file overlaps with existing data in the DB and has been "
+          "assigned a non-zero sequence number, which is not allowed when "
+          "'allow_db_generated_files' is enabled.");
     }
 
     if (smallest_parsed.sequence == 0 && assigned_seqno != 0) {
@@ -1017,8 +1018,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // We are ingesting a DB generated SST file for which we don't reassign
     // sequence numbers. We need its smallest sequence number and largest
     // sequence number for FileMetaData.
-    Status seqno_status = GetSeqnoForFile(table_reader.get(), sv,
-                                          file_to_ingest, allow_data_in_errors);
+    Status seqno_status = GetSeqnoBoundaryForFile(
+        table_reader.get(), sv, file_to_ingest, allow_data_in_errors);
 
     if (!seqno_status.ok()) {
       return seqno_status;
@@ -1202,7 +1203,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   ro.total_order_seek = true;
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
-  // assert(!must_assign_to_l0 || ingestion_options_.allow_db_generated_files);
+  assert(!must_assign_to_l0 || ingestion_options_.allow_db_generated_files);
   int assigned_level_exclusive_end = cfd_->NumberLevels();
   if (must_assign_to_l0) {
     assigned_level_exclusive_end = 0;
@@ -1436,12 +1437,14 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
   }
 }
 
-Status ExternalSstFileIngestionJob::GetSeqnoForFile(
+Status ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile(
     TableReader* table_reader, SuperVersion* sv,
     IngestedFileInfo* file_to_ingest, bool allow_data_in_errors) {
+  const bool has_largest_seqno =
+      table_reader->GetTableProperties()->HasKeyLargestSeqno();
   SequenceNumber largest_seqno =
       table_reader->GetTableProperties()->key_largest_seqno;
-  if (largest_seqno == 0) {
+  if (has_largest_seqno && largest_seqno == 0) {
     file_to_ingest->largest_seqno = 0;
     file_to_ingest->smallest_seqno = 0;
     return Status::OK();
@@ -1452,7 +1455,6 @@ Status ExternalSstFileIngestionJob::GetSeqnoForFile(
   // file scan here.
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
 
-  const bool has_largest_seqno = largest_seqno != UINT64_MAX;
   SequenceNumber largest_seqno_from_iter = 0;
   ReadOptions ro;
   ro.fill_cache = ingestion_options_.fill_cache;
