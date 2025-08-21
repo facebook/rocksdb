@@ -1199,7 +1199,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 #endif
         assert(pinned_data_blocks_guard[block_idx].IsEmpty());
         s = table_->CreateAndPinBlockInCache<Block_kData>(
-            read_options_, block, &tmp_contents,
+            read_options_, block, table_->get_rep()->decompressor.get(),
+            &tmp_contents,
             &(pinned_data_blocks_guard[block_idx].As<Block_kData>()));
         if (!s.ok()) {
           // Abort: failed to create and pin block in cache
