@@ -1175,6 +1175,34 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       }
     }
 
+    // Get compression dictionary if available - needed for dictionary-aware
+    // decompression
+    UnownedPtr<Decompressor> decompressor =
+        table_->get_rep()->decompressor.get();
+    CachableEntry<DecompressorDict> cached_dict;
+    if (table_->get_rep()->uncompression_dict_reader) {
+      s = table_->get_rep()
+              ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                  /* prefetch_buffer= */ nullptr, read_options_,
+                  /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+                  &cached_dict);
+      if (!s.ok()) {
+#ifndef NDEBUG
+        fprintf(stdout, "Prepare dictionary loading failed with %s\n",
+                s.ToString().c_str());
+#endif
+        // Abort: dictionary lookup failed.
+        return;
+      }
+      if (!cached_dict.GetValue()) {
+#ifndef NDEBUG
+        fprintf(stdout, "Success but no dictionary read\n");
+#endif
+        return;
+      }
+      decompressor = cached_dict.GetValue()->decompressor_.get();
+    }
+
     // Init blocks and pin them in block cache.
     MemoryAllocator* memory_allocator =
         table_->get_rep()->table_options.block_cache->memory_allocator();
@@ -1199,10 +1227,12 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 #endif
         assert(pinned_data_blocks_guard[block_idx].IsEmpty());
         s = table_->CreateAndPinBlockInCache<Block_kData>(
-            read_options_, block, table_->get_rep()->decompressor.get(),
-            &tmp_contents,
+            read_options_, block, decompressor, &tmp_contents,
             &(pinned_data_blocks_guard[block_idx].As<Block_kData>()));
         if (!s.ok()) {
+#ifndef NDEBUG
+          fprintf(stdout, "Prepare failed with %s\n", s.ToString().c_str());
+#endif
           // Abort: failed to create and pin block in cache
           return;
         }
