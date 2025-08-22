@@ -2445,6 +2445,9 @@ struct CompactRangeOptions {
 // allowed. Input files are allowed to contain both DB generated files and SST
 // file writer generated files. They will all be treated as DB generated.
 //    - Set allow_db_generated_files = true.
+//    - Set snapshot_consistency = false: snapshot consistency requires
+// assigning higher sequence number to ingested files. DB generated files
+// don't support global seqno assignment yet.
 //    - Set allow_blocking_flush to false: Not expecting to overlap with
 //    memtable and cause a flush.
 //    - If the source live DB is running, set link_files = true instead of

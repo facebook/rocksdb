@@ -122,25 +122,28 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
   }
 
-  if (ingestion_options_.ingest_behind && files_overlap_) {
-    return Status::NotSupported(
-        "Files with overlapping ranges cannot be ingested with ingestion "
-        "behind mode.");
-  }
+  if (files_overlap_) {
+    if (ingestion_options_.ingest_behind) {
+      return Status::NotSupported(
+          "Files with overlapping ranges cannot be ingested with ingestion "
+          "behind mode.");
+    }
 
-  // Overlapping files need at least two different sequence numbers. If settings
-  // disables global seqno, ingestion will fail anyway, so fail fast in prepare.
-  if (!ingestion_options_.allow_global_seqno &&
-      !ingestion_options_.allow_db_generated_files && files_overlap_) {
-    return Status::InvalidArgument(
-        "Global seqno is required, but disabled (because external files key "
-        "range overlaps).");
-  }
+    // Overlapping files need at least two different sequence numbers. If
+    // settings disables global seqno, ingestion will fail anyway, so fail
+    // fast in prepare.
+    if (!ingestion_options_.allow_global_seqno &&
+        !ingestion_options_.allow_db_generated_files) {
+      return Status::InvalidArgument(
+          "Global seqno is required, but disabled (because external files key "
+          "range overlaps).");
+    }
 
-  if (ucmp_->timestamp_size() > 0 && files_overlap_) {
-    return Status::NotSupported(
-        "Files with overlapping ranges cannot be ingested to column "
-        "family with user-defined timestamp enabled.");
+    if (ucmp_->timestamp_size() > 0) {
+      return Status::NotSupported(
+          "Files with overlapping ranges cannot be ingested to column "
+          "family with user-defined timestamp enabled.");
+    }
   }
 
   // Copy/Move external files into DB
