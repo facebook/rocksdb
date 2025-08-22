@@ -1323,10 +1323,12 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     IngestedFileInfo* file_to_ingest, SequenceNumber seqno) {
+  if (ingestion_options_.allow_db_generated_files) {
+    assert(seqno == 0);
+    assert(file_to_ingest->original_seqno == 0);
+  }
   if (file_to_ingest->original_seqno == seqno) {
     // This file already has the correct global seqno.
-    // For DB generated file, original_seqno was set to 0 and `seqno` here
-    // is expected to be 0.
     return Status::OK();
   } else if (!ingestion_options_.allow_global_seqno) {
     return Status::InvalidArgument("Global seqno is required, but disabled");
