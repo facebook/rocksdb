@@ -307,6 +307,8 @@ struct TableProperties {
   // table is empty).
   uint64_t key_largest_seqno = UINT64_MAX;
 
+  bool HasKeyLargestSeqno() const { return key_largest_seqno != UINT64_MAX; }
+
   // DB identity
   // db_id is an identifier generated the first time the DB is created
   // If DB identity is unset or unassigned, `db_id` will be an empty string.
