@@ -1480,6 +1480,28 @@ DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
 
+// Compaction on deletion trigger flags
+DEFINE_bool(enable_compaction_on_deletion_trigger, false,
+            "Enable CompactOnDeletionCollectorFactory for stress testing "
+            "deletion-triggered compaction scenarios.");
+
+DEFINE_uint64(compaction_on_deletion_min_file_size, 32 * 1024,
+              "Minimum file size (in bytes) for deletion-triggered compaction. "
+              "Files smaller than this will not trigger compaction even if "
+              "deletion ratio is exceeded. Default: 32KB");
+
+DEFINE_int32(compaction_on_deletion_trigger_count, 50,
+             "Number of deletions that triggers compaction when deletion "
+             "ratio is exceeded. Default: 50");
+
+DEFINE_int32(compaction_on_deletion_window_size, 100,
+             "Size of the sliding window for tracking deletions. "
+             "Default: 100");
+
+DEFINE_double(compaction_on_deletion_ratio, 0.5,
+              "Deletion ratio threshold for triggering compaction. "
+              "Default: 0.5 (50%)");
+
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,
     ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
