@@ -35,19 +35,19 @@ DEFINE_uint32(max_num_keys_to_lock_per_txn, 8,
               "Max Number of keys to lock in a transaction");
 DEFINE_uint32(execution_time_sec, 10,
               "Number of seconds to execute the benchmark");
-DEFINE_uint32(lock_type, 0,
+DEFINE_uint32(lock_type, 2,
               "Lock type to test, 0: exclusive lock only; 1: shared lock only; "
               "2: both shared and exclusive locks");
 DEFINE_int64(lock_timeout_ms, 1000,
              "Lock acquisition request timeout in milliseconds.");
-DEFINE_int64(deadlock_timeout_us, 1000,
+DEFINE_int64(deadlock_timeout_us, 500,
              "DeadLock detection timeout in microseconds.");
 DEFINE_int64(lock_expiration_ms, 100,
              "Acquired Lock expiration time in milliseconds.");
 DEFINE_bool(allow_non_deadlock_error, true,
             "Allow returned error code other than deadlock, such as timeout.");
 DEFINE_uint32(
-    max_sleep_after_lock_acquisition_ms, 0,
+    max_sleep_after_lock_acquisition_ms, 5,
     "Max number of milliseconds to sleep after acquiring all the locks in the "
     "transaction. The actuall sleep time will be randomized from 0 to max. It "
     "is used to simulate some useful work performed.");

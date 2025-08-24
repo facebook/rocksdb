@@ -338,7 +338,7 @@ struct TransactionOptions {
   // will allow the transaction to save the CPU time on deadlock detection.
   //
   // Deadlock timeout is always smaller than lock_timeout.
-  int64_t deadlock_timeout_us = 1000;
+  int64_t deadlock_timeout_us = 500;
 
   // Expiration duration in milliseconds.  If non-negative, transactions that
   // last longer than this many milliseconds will fail to commit.  If not set,
