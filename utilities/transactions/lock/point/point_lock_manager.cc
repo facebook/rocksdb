@@ -95,6 +95,7 @@ struct KeyLockWaiter {
     }
   }
 
+  // Track whether the waiter has been woken up explicitly.
   bool ready;
   // TODO(Xingbo), Switch to std::binary_semaphore, once we have c++20
   // semaphore is likely more performant than mutex + cv.
@@ -182,7 +183,11 @@ struct KeyLockWaiterContext {
     waiter_queue = nullptr;
   }
 
+  // The waiter queue the lock waiter joined. Used for remove the waiter from
+  // the waiter queue.
   std::list<KeyLockWaiter*>* waiter_queue = nullptr;
+  // The stable iterator that tracks the position of the waiter in the waiter
+  // queue. Used for remove the waiter from the waiter queue.
   std::list<KeyLockWaiter*>::iterator lock_waiter;
 };
 
@@ -349,8 +354,8 @@ struct LockMap {
   size_t GetStripe(const std::string& key) const;
 };
 
-void RemoveTransaction(autovector<TransactionID>& txns,
-                       autovector<TransactionID>::iterator& txn_it) {
+inline void RemoveTransaction(autovector<TransactionID>& txns,
+                              autovector<TransactionID>::iterator& txn_it) {
   if (txns.size() > 1) {
     auto last_it = txns.end() - 1;
     if (txn_it != last_it) {

@@ -78,12 +78,15 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   skip_concurrency_control_ = txn_options.skip_concurrency_control;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
-  deadlock_timeout_us_ = txn_options.deadlock_timeout_us;
   if (lock_timeout_ < 0) {
     // Lock timeout not set, use default
     lock_timeout_ =
         txn_db_impl_->GetTxnDBOptions().transaction_lock_timeout * 1000;
   }
+
+  // deadlock timeout should be lower than lock timeout
+  deadlock_timeout_us_ =
+      std::min(txn_options.deadlock_timeout_us, lock_timeout_);
 
   if (txn_options.expiration >= 0) {
     expiration_time_ = start_time_ + txn_options.expiration * 1000;

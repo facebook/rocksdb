@@ -336,6 +336,8 @@ struct TransactionOptions {
   // slightly longer than the typical transaction execution time, so that
   // transaction will be waked up to take the lock before this timeout, which
   // will allow the transaction to save the CPU time on deadlock detection.
+  //
+  // Deadlock timeout is always smaller than lock_timeout.
   int64_t deadlock_timeout_us = 1000;
 
   // Expiration duration in milliseconds.  If non-negative, transactions that
