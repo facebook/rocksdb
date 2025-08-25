@@ -2498,7 +2498,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 17d44166fe92ab6fefc9ed1762321da7d6bccb16
+	cd third-party/folly && git reset --hard 689f69149c8fd265a81e82b3d7c108847c0a3728
 	@# Apparently missing include
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# Warning-as-error on memcpy
