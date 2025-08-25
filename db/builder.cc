@@ -204,7 +204,7 @@ Status BuildTable(
         ShouldReportDetailedTime(env, ioptions.stats), range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         ioptions.enforce_single_del_contracts,
-        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
+        /*manual_compaction_canceled=*/&kManualCompactionCanceledFalse,
         true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);

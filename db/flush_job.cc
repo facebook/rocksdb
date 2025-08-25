@@ -505,7 +505,7 @@ Status FlushJob::MemPurge() {
         env, ShouldReportDetailedTime(env, ioptions.stats), range_del_agg.get(),
         nullptr, ioptions.allow_data_in_errors,
         ioptions.enforce_single_del_contracts,
-        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
+        /*manual_compaction_canceled=*/&kManualCompactionCanceledFalse,
         false /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, ioptions.info_log, full_history_ts_low);

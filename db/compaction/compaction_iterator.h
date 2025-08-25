@@ -197,7 +197,7 @@ class CompactionIterator {
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
-      const std::atomic<bool>& manual_compaction_canceled,
+      const std::atomic<bool>* manual_compaction_canceled,
       bool must_count_input_entries, const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
@@ -218,7 +218,7 @@ class CompactionIterator {
                      BlobFileBuilder* blob_file_builder,
                      bool allow_data_in_errors,
                      bool enforce_single_del_contracts,
-                     const std::atomic<bool>& manual_compaction_canceled,
+                     const std::atomic<bool>* manual_compaction_canceled,
                      std::unique_ptr<CompactionProxy> compaction,
                      bool must_count_input_entries,
                      const CompactionFilter* compaction_filter = nullptr,
@@ -353,7 +353,7 @@ class CompactionIterator {
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
-  const std::atomic<bool>& manual_compaction_canceled_;
+  const std::atomic<bool>* manual_compaction_canceled_;
   const bool bottommost_level_;
   const bool visible_at_tip_;
   const SequenceNumber earliest_snapshot_;
@@ -491,7 +491,8 @@ class CompactionIterator {
 
   bool IsPausingManualCompaction() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
-    return manual_compaction_canceled_.load(std::memory_order_relaxed);
+    return manual_compaction_canceled_ &&
+           manual_compaction_canceled_->load(std::memory_order_relaxed);
   }
 
   // Stores whether the current compaction iterator output
