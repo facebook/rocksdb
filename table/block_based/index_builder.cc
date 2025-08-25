@@ -153,15 +153,19 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       // sub_index_builders could not safely exclude seq from the keys, then it
       // wil be enforced on all sub_index_builders on ::Finish.
       must_use_separator_with_seq_(false),
-      use_value_delta_encoding_(use_value_delta_encoding) {}
+      use_value_delta_encoding_(use_value_delta_encoding) {
+  MakeNewSubIndexBuilder();
+}
 
 void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
-  assert(sub_index_builder_ == nullptr);
-  sub_index_builder_ = std::make_unique<ShortenedIndexBuilder>(
+  auto new_builder = std::make_unique<ShortenedIndexBuilder>(
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
       table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
       persist_user_defined_timestamps_);
+  sub_index_builder_ = new_builder.get();
+  // Start next partition entry, where we will modify the key
+  entries_.push_back({{}, std::move(new_builder)});
 
   BlockBuilder* builder_to_monitor;
   // Set sub_index_builder_->must_use_separator_with_seq_ to true if
@@ -192,38 +196,70 @@ void PartitionedIndexBuilder::RequestPartitionCut() {
   partition_cut_requested_ = true;
 }
 
+std::unique_ptr<IndexBuilder::PreparedIndexEntry>
+PartitionedIndexBuilder::CreatePreparedIndexEntry() {
+  // Fortunately, for ShortenedIndexBuilder, we can prepare an entry from one
+  // similarly configured builder and finish it at another.
+  return entries_.front().value->CreatePreparedIndexEntry();
+}
+void PartitionedIndexBuilder::PrepareIndexEntry(
+    const Slice& last_key_in_current_block,
+    const Slice* first_key_in_next_block, PreparedIndexEntry* out) {
+  // Fortunately, for ShortenedIndexBuilder, we can prepare an entry from one
+  // similarly configured builder and finish it at another. We just have to
+  // keep in mind that this first sub builder keeps track of the original
+  // must_use_separator_with_seq_ in the pipeline that is then propagated.
+  return entries_.front().value->PrepareIndexEntry(
+      last_key_in_current_block, first_key_in_next_block, out);
+}
+
+void PartitionedIndexBuilder::MaybeFlush(const Slice& index_key,
+                                         const BlockHandle& index_value) {
+  bool do_flush = !sub_index_builder_->index_block_builder_.empty() &&
+                  (partition_cut_requested_ ||
+                   flush_policy_->Update(
+                       index_key, EncodedBlockHandle(index_value).AsSlice()));
+  if (do_flush) {
+    assert(entries_.back().value.get() == sub_index_builder_);
+    cut_filter_block = true;
+    MakeNewSubIndexBuilder();
+  }
+}
+
+void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
+                                               PreparedIndexEntry* base_entry) {
+  using SPIE = ShortenedIndexBuilder::ShortenedPreparedIndexEntry;
+  SPIE* entry = static_cast<SPIE*>(base_entry);
+
+  MaybeFlush(entry->separator_with_seq, block_handle);
+
+  sub_index_builder_->FinishIndexEntry(block_handle, base_entry);
+  std::swap(entries_.back().key, entry->separator_with_seq);
+
+  if (!must_use_separator_with_seq_ && entry->must_use_separator_with_seq) {
+    // We need to apply !must_use_separator_with_seq to all sub-index builders
+    must_use_separator_with_seq_ = true;
+    flush_policy_->Retarget(sub_index_builder_->index_block_builder_);
+  }
+  // NOTE: not compatible with coupled partitioned filters so don't need to
+  // cut_filter_block
+}
+
 Slice PartitionedIndexBuilder::AddIndexEntry(
     const Slice& last_key_in_current_block,
     const Slice* first_key_in_next_block, const BlockHandle& block_handle,
     std::string* separator_scratch) {
-  // Note: to avoid two consecuitive flush in the same method call, we do not
-  // check flush policy when adding the last key
-  if (LIKELY(first_key_in_next_block != nullptr)) {
-    // apply flush policy only to non-empty sub_index_builder_
-    if (sub_index_builder_ != nullptr) {
-      std::string handle_encoding;
-      block_handle.EncodeTo(&handle_encoding);
-      bool do_flush =
-          partition_cut_requested_ ||
-          flush_policy_->Update(last_key_in_current_block, handle_encoding);
-      if (do_flush) {
-        assert(entries_.back().value == nullptr);
-        std::swap(entries_.back().value, sub_index_builder_);
-        cut_filter_block = true;
-      }
-    }
+  // At least when running without parallel compression, maintain behavior of
+  // avoiding a last index partition with just one entry
+  if (first_key_in_next_block) {
+    MaybeFlush(last_key_in_current_block, block_handle);
   }
 
-  if (sub_index_builder_ == nullptr) {
-    MakeNewSubIndexBuilder();
-    // Reserve next partition entry, where we will modify the key and
-    // eventually set the value
-    entries_.push_back({{}, {}});
-  }
   auto sep = sub_index_builder_->AddIndexEntry(last_key_in_current_block,
                                                first_key_in_next_block,
                                                block_handle, separator_scratch);
   entries_.back().key.assign(sep.data(), sep.size());
+
   if (!must_use_separator_with_seq_ &&
       sub_index_builder_->must_use_separator_with_seq_) {
     // We need to apply !must_use_separator_with_seq to all sub-index builders
@@ -232,8 +268,6 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
   }
   if (UNLIKELY(first_key_in_next_block == nullptr)) {
     // no more keys
-    assert(entries_.back().value == nullptr);
-    std::swap(entries_.back().value, sub_index_builder_);
     cut_filter_block = true;
   }
   return sep;
@@ -242,25 +276,30 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
 Status PartitionedIndexBuilder::Finish(
     IndexBlocks* index_blocks, const BlockHandle& last_partition_block_handle) {
   if (partition_cnt_ == 0) {
-    partition_cnt_ = entries_.size();
+    sub_index_builder_ = nullptr;
+    if (!entries_.empty()) {
+      // Remove the last entry if it is empty
+      if (entries_.back().value->index_block_builder_.empty()) {
+        assert(entries_.back().key.empty());
+        entries_.pop_back();
+      }
+      partition_cnt_ = entries_.size();
+    }
   }
-  // It must be set to null after last key is added
-  assert(sub_index_builder_ == nullptr);
-  if (finishing_indexes == true) {
+  if (finishing_indexes_ == true) {
     Entry& last_entry = entries_.front();
-    std::string handle_encoding;
-    last_partition_block_handle.EncodeTo(&handle_encoding);
+    EncodedBlockHandle handle_encoding(last_partition_block_handle);
     std::string handle_delta_encoding;
     PutVarsignedint64(
         &handle_delta_encoding,
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_block_builder_.Add(last_entry.key, handle_encoding,
+    index_block_builder_.Add(last_entry.key, handle_encoding.AsSlice(),
                              &handle_delta_encoding_slice);
     if (!must_use_separator_with_seq_) {
       index_block_builder_without_seq_.Add(ExtractUserKey(last_entry.key),
-                                           handle_encoding,
+                                           handle_encoding.AsSlice(),
                                            &handle_delta_encoding_slice);
     }
     entries_.pop_front();
@@ -284,7 +323,7 @@ Status PartitionedIndexBuilder::Finish(
     entry.value->must_use_separator_with_seq_ = must_use_separator_with_seq_;
     auto s = entry.value->Finish(index_blocks);
     index_size_ += index_blocks->index_block_contents.size();
-    finishing_indexes = true;
+    finishing_indexes_ = true;
     return s.ok() ? Status::Incomplete() : s;
   }
 }

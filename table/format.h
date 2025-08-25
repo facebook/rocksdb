@@ -90,6 +90,16 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
+struct EncodedBlockHandle {
+  explicit EncodedBlockHandle(const BlockHandle& h) {
+    auto end = h.EncodeTo(buffer.data());
+    size = end - buffer.data();
+  }
+  Slice AsSlice() const { return Slice(buffer.data(), size); }
+  std::array<char, BlockHandle::kMaxEncodedLength> buffer;
+  size_t size;
+};
+
 // Value in block-based table file index.
 //
 // The index entry for block n is: y -> h, [x],

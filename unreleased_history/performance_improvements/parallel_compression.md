@@ -1,0 +1,1 @@
+* Improved CPU efficiency and scalability of parallel compression (`CompressionOptions::parallel_threads` > 1), though this efficiency improvement makes parallel compression currently incompatible with UserDefinedIndex and with old setting of `decouple_partitioned_filters=false`. Parallel compression is now considered a production-ready feature.
