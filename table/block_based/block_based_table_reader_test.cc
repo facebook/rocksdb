@@ -994,6 +994,18 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 }
 
 TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
+  std::ostringstream param_trace;
+  param_trace << "[MultiScanPrepare] Test params: " << "CompressionType="
+              << CompressionTypeToString(compression_type_)
+              << ", UseDirectReads=" << (use_direct_reads_ ? "true" : "false")
+              << ", UDTEnabled=" << (udt_enabled_ ? "true" : "false")
+              << ", PersistUDT=" << (persist_udt_ ? "true" : "false")
+              << ", CompressionParallelThreads="
+              << compression_parallel_threads_
+              << ", CompressionDictBytes=" << compression_dict_bytes_
+              << ", SameKeyDiffTs=" << (same_key_diff_ts_ ? "true" : "false");
+  std::cout << param_trace.str() << std::endl;
+
   Options options;
   options.statistics = CreateDBStatistics();
   ReadOptions read_opts;
@@ -1024,11 +1036,11 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Should coalesce into a single I/O
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(ExtractUserKey(kv[0].first),
-                   ExtractUserKey(kv[kEntriesPerBlock].first)),
-       ScanOptions(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
-                   ExtractUserKey(kv[3 * kEntriesPerBlock].first))});
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(ExtractUserKey(kv[0].first),
+                      ExtractUserKey(kv[kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[3 * kEntriesPerBlock].first));
 
   auto read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
@@ -1052,15 +1064,20 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
     iter->Next();
   }
   ASSERT_OK(iter->status());
+  // No I/O expected during scanning since all blocks were loaded and pinned.
+  ASSERT_EQ(read_count_after,
+            options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
 
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // No IO coalesce, should do MultiRead with 2 read requests.
-  scan_options = {ScanOptions(ExtractUserKey(kv[70 * kEntriesPerBlock].first),
-                              ExtractUserKey(kv[75 * kEntriesPerBlock].first)),
-                  ScanOptions(ExtractUserKey(kv[90 * kEntriesPerBlock].first),
-                              ExtractUserKey(kv[95 * kEntriesPerBlock].first))};
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(ExtractUserKey(kv[70 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[75 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[90 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[95 * kEntriesPerBlock].first));
+
   read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
   iter->Prepare(&scan_options);
@@ -1087,8 +1104,9 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
-  // reads from blocks 50-79 and 82-.. are co
-  scan_options = {ScanOptions(ExtractUserKey(kv[50 * kEntriesPerBlock].first))};
+  // reads from blocks 50-79 and 82-.. are coalesced.
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(ExtractUserKey(kv[50 * kEntriesPerBlock].first));
   read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
   iter->Prepare(&scan_options);
@@ -1103,15 +1121,18 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   }
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
+  ASSERT_EQ(read_count_after,
+            options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
 
   // Check cases when Seek key does not match start key in ScanOptions
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = {ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
-                              ExtractUserKey(kv[20 * kEntriesPerBlock].first)),
-                  ScanOptions(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
-                              ExtractUserKey(kv[40 * kEntriesPerBlock].first))};
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[20 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[40 * kEntriesPerBlock].first));
   iter->Prepare(&scan_options);
   // Match start key
   iter->Seek(kv[10 * kEntriesPerBlock].first);
@@ -1134,8 +1155,9 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = {ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first)),
-                  ScanOptions(ExtractUserKey(kv[11 * kEntriesPerBlock].first))};
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[11 * kEntriesPerBlock].first));
   iter->Prepare(&scan_options);
   // Does not match the first ScanOptions.
   iter->SeekToFirst();

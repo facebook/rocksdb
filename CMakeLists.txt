@@ -747,6 +747,7 @@ set(SOURCES
         db/write_controller.cc
         db/write_stall_stats.cc
         db/write_thread.cc
+        db_stress_tool/db_stress_compression_manager.cc
         env/composite_env.cc
         env/env.cc
         env/env_chroot.cc

@@ -181,7 +181,6 @@ default_params = {
     "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
-    "use_multiscan": 0,
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
@@ -343,7 +342,9 @@ default_params = {
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
-    "allow_unprepared_value": lambda: random.choice([0, 1]),    
+    "allow_unprepared_value": lambda: random.choice([0, 1]),
+    # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
+    "track_and_verify_wals": lambda: random.choice([0]),
     # TODO(jaykorean): Re-enable remote compaction once all incompatible features are addressed in stress test
     "remote_compaction_worker_threads": lambda: 0,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
@@ -358,6 +359,9 @@ default_params = {
         + ["randommixed"] * 2
         + ["custom"] * 3
     ),
+    # fixed within a run for easier debugging
+    # actual frequency is lower after option sanitization
+    "use_multiscan": random.choice([1] + [0] * 3),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -755,7 +759,7 @@ def finalize_and_sanitize(src_params):
     if (
         dest_params.get("test_batches_snapshots") == 1
         or dest_params.get("use_txn") == 1
-        or dest_params.get("user_timestamp_size") > 0
+        or dest_params.get("user_timestamp_size", 0) > 0
     ):
         dest_params["ingest_external_file_one_in"] = 0
     if (
@@ -783,7 +787,7 @@ def finalize_and_sanitize(src_params):
     if (
         dest_params.get("sync_fault_injection") == 1
         or dest_params.get("disable_wal") == 1
-        or dest_params.get("manual_wal_flush_one_in") > 0
+        or dest_params.get("manual_wal_flush_one_in", 0) > 0
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
         # data can be lost. Ingesting a file syncs data immediately that is
@@ -813,13 +817,13 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
-       # TODO Fix races when both Remote Compaction + BlobDB enabled
-       dest_params["enable_blob_files"] = 0
-       # TODO Fix - Remote worker shouldn't recover from WAL
-       dest_params["disable_wal"] = 1
-       # Disable Incompatible Ones
-       dest_params["checkpoint_one_in"] = 0       
-       dest_params["use_timed_put_one_in"] = 0
+        # TODO Fix races when both Remote Compaction + BlobDB enabled
+        dest_params["enable_blob_files"] = 0
+        # TODO Fix - Remote worker shouldn't recover from WAL
+        dest_params["disable_wal"] = 1
+        # Disable Incompatible Ones
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["use_timed_put_one_in"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
@@ -990,7 +994,7 @@ def finalize_and_sanitize(src_params):
         dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("disable_wal") == 0:
         if (
-            dest_params.get("reopen") > 0
+            dest_params.get("reopen", 0) > 0
             or (
                 dest_params.get("manual_wal_flush_one_in")
                 and dest_params.get("column_families") != 1
@@ -1022,7 +1026,7 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
 
-            # TODO Fix - Remote worker shouldn't recover from WAL 
+            # TODO Fix - Remote worker shouldn't recover from WAL
             dest_params["remote_compaction_worker_threads"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
@@ -1059,7 +1063,7 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("use_put_entity_one_in") == 1:
         dest_params["use_timed_put_one_in"] = 0
     elif (
-        dest_params.get("use_put_entity_one_in") > 1
+        dest_params.get("use_put_entity_one_in", 0) > 1
         and dest_params.get("use_timed_put_one_in") == 1
     ):
         dest_params["use_timed_put_one_in"] = 3
@@ -1099,7 +1103,15 @@ def finalize_and_sanitize(src_params):
         dest_params["ingest_wbwi_one_in"] = 0
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
-        dest_params["continuous_verification_interval"] = 0   
+        dest_params["continuous_verification_interval"] = 0
+    if (
+        dest_params.get("prefix_size", 0) > 0
+        or dest_params.get("read_fault_one_in", 0) > 0
+    ):
+        dest_params["use_multiscan"] = 0
+    if dest_params.get("use_multiscan") == 1:
+        dest_params["fill_cache"] = 1
+        dest_params["async_io"] = 0
     return dest_params
 
 

@@ -239,6 +239,9 @@ struct ColumnFamilyMetaData {
   // The name of the column family.
   std::string name;
   // The metadata of all levels in this column family.
+  // levels[i] contains files in level i.
+  // For level 0, files with recent updates are ordered first.
+  // For level 1+, files are ordered by increasing key range.
   std::vector<LevelMetaData> levels;
 
   // The total size of all blob files

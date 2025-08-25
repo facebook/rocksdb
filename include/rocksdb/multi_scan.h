@@ -152,9 +152,8 @@ class Scan {
 // A Status exception is thrown if there is an error.
 class MultiScan {
  public:
-  MultiScan(const ReadOptions& read_options,
-            const std::vector<ScanOptions>& scan_opts, DB* db,
-            ColumnFamilyHandle* cfh);
+  MultiScan(const ReadOptions& read_options, const MultiScanArgs& scan_opts,
+            DB* db, ColumnFamilyHandle* cfh);
 
   explicit MultiScan(std::unique_ptr<Iterator>&& db_iter)
       : db_iter_(std::move(db_iter)) {}
@@ -220,15 +219,15 @@ class MultiScan {
   };
 
   MultiScanIterator begin() {
-    return MultiScanIterator(scan_opts_, db_, cfh_, read_options_,
-                             &upper_bound_, db_iter_);
+    return MultiScanIterator(scan_opts_.GetScanRanges(), db_, cfh_,
+                             read_options_, &upper_bound_, db_iter_);
   }
 
   std::nullptr_t end() { return nullptr; }
 
  private:
   ReadOptions read_options_;
-  const std::vector<ScanOptions> scan_opts_;
+  const MultiScanArgs scan_opts_;
   DB* db_;
   ColumnFamilyHandle* cfh_;
   Slice upper_bound_;

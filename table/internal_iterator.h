@@ -200,7 +200,7 @@ class InternalIteratorBase : public Cleanable {
   // used by MergingIterator and LevelIterator for now.
   virtual bool IsDeleteRangeSentinelKey() const { return false; }
 
-  virtual void Prepare(const std::vector<ScanOptions>* /*scan_opts*/) {}
+  virtual void Prepare(const MultiScanArgs* /*scan_opts*/) {}
 
  protected:
   void SeekForPrevImpl(const Slice& target, const CompareInterface* cmp) {

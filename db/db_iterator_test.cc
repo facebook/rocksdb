@@ -4142,13 +4142,17 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTriggerByOverwrites) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
-class DBMultiScanIteratorTest : public DBTestBase {
+class DBMultiScanIteratorTest : public DBTestBase,
+                                public ::testing::WithParamInterface<bool> {
  public:
   DBMultiScanIteratorTest()
       : DBTestBase("db_multi_scan_iterator_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(DBMultiScanIteratorTest, BasicTest) {
+INSTANTIATE_TEST_CASE_P(DBMultiScanIteratorTest, DBMultiScanIteratorTest,
+                        ::testing::Bool());
+
+TEST_P(DBMultiScanIteratorTest, BasicTest) {
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4159,9 +4163,10 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1]),
-       ScanOptions(key_ranges[2], key_ranges[3])});
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4190,7 +4195,10 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4216,8 +4224,9 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options[0] = ScanOptions(key_ranges[0]);
-  scan_options[1] = ScanOptions(key_ranges[2]);
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4245,7 +4254,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   iter.reset();
 }
 
-TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
+TEST_P(DBMultiScanIteratorTest, MixedBoundsTest) {
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4257,9 +4266,11 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   std::vector<std::string> key_ranges(
       {"k03", "k10", "k25", "k50", "k75", "k90"});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1]), ScanOptions(key_ranges[2]),
-       ScanOptions(key_ranges[4], key_ranges[5])});
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4268,13 +4279,15 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     int count = 0;
     for (auto range : *iter) {
       for (auto it : range) {
-        ASSERT_GE(it.first.ToString().compare(
-                      scan_options[idx].range.start->ToString()),
-                  0);
-        if (scan_options[idx].range.limit) {
-          ASSERT_LT(it.first.ToString().compare(
-                        scan_options[idx].range.limit->ToString()),
-                    0);
+        ASSERT_GE(
+            it.first.ToString().compare(
+                scan_options.GetScanRanges()[idx].range.start->ToString()),
+            0);
+        if (scan_options.GetScanRanges()[idx].range.limit) {
+          ASSERT_LT(
+              it.first.ToString().compare(
+                  scan_options.GetScanRanges()[idx].range.limit->ToString()),
+              0);
         }
         count++;
       }
@@ -4291,23 +4304,25 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     abort();
   }
   iter.reset();
-
-  scan_options[0] = ScanOptions(key_ranges[0]);
-  scan_options[1] = ScanOptions(key_ranges[2], key_ranges[3]);
-  scan_options[2] = ScanOptions(key_ranges[4]);
+  scan_options = MultiScanArgs(BytewiseComparator());
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
     int count = 0;
     for (auto range : *iter) {
       for (auto it : range) {
-        ASSERT_GE(it.first.ToString().compare(
-                      scan_options[idx].range.start->ToString()),
-                  0);
-        if (scan_options[idx].range.limit) {
-          ASSERT_LT(it.first.ToString().compare(
-                        scan_options[idx].range.limit->ToString()),
-                    0);
+        ASSERT_GE(
+            it.first.ToString().compare(
+                scan_options.GetScanRanges()[idx].range.start->ToString()),
+            0);
+        if (scan_options.GetScanRanges()[idx].range.limit) {
+          ASSERT_LT(
+              it.first.ToString().compare(
+                  scan_options.GetScanRanges()[idx].range.limit->ToString()),
+              0);
         }
         count++;
       }
@@ -4326,7 +4341,7 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   iter.reset();
 }
 
-TEST_F(DBMultiScanIteratorTest, RangeAcrossFiles) {
+TEST_P(DBMultiScanIteratorTest, RangeAcrossFiles) {
   auto options = CurrentOptions();
   options.target_file_size_base = 100 << 10;  // 20KB
   options.compaction_style = kCompactionStyleUniversal;
@@ -4345,8 +4360,9 @@ TEST_F(DBMultiScanIteratorTest, RangeAcrossFiles) {
   ASSERT_EQ(2, NumTableFilesAtLevel(49));
   std::vector<std::string> key_ranges({Key(10), Key(90)});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1])});
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);

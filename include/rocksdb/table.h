@@ -440,8 +440,6 @@ struct BlockBasedTableOptions {
   // versions of RocksDB able to read partitioned filters are able to read
   // decoupled partitioned filters.)
   //
-  // decouple_partitioned_filters = false is the original behavior, because of
-  // limitations in the initial implementation, and the new behavior
   // decouple_partitioned_filters = true is the new default. This option is now
   // DEPRECATED and might be ignored and/or removed in a future release.
   //

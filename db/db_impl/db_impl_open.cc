@@ -1755,8 +1755,12 @@ Status DBImpl::MaybeHandleStopReplayForCorruptionForInconsistency(
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                         "Column family inconsistency: SST file contains data"
                         " beyond the point of corruption.");
-        status = Status::Corruption("SST file is ahead of WALs in CF " +
-                                    cfd->GetName());
+        status = Status::Corruption(
+            "Column family inconsistency: SST file contains data"
+            " beyond the point of corruption in CF " +
+            cfd->GetName() +
+            ". WAL recovery stopped at corruption point, but SST files"
+            " contain newer data.");
         return status;
       }
     }

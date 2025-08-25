@@ -1677,7 +1677,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
   std::vector<std::string> start_key_strs;
   std::vector<std::string> end_key_strs;
-  std::vector<ScanOptions> scan_opts;
+  MultiScanArgs scan_opts;
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
@@ -1688,7 +1688,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     assert(rand_keys[i] <= rand_keys[i + 1]);
     start_key_strs.emplace_back(Key(rand_keys[i]));
     end_key_strs.emplace_back(Key(rand_keys[i + 1]));
-    scan_opts.emplace_back(start_key_strs.back(), end_key_strs.back());
+    scan_opts.insert(Slice(start_key_strs.back()), Slice(end_key_strs.back()));
   }
 
   std::string op_logs;
@@ -1701,7 +1701,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   iter.reset(db_->NewIterator(ro, column_families_[rand_column_families[0]]));
   iter->Prepare(scan_opts);
 
-  constexpr size_t kOpLogsLimit = 10000;
+  constexpr size_t kOpLogsLimit = 50000;
 
   auto verify_func = [](Iterator* iterator) {
     if (!VerifyWideColumns(iterator->value(), iterator->columns())) {
@@ -1715,7 +1715,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     return true;
   };
 
-  for (const ScanOptions& scan_opt : scan_opts) {
+  for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
       op_logs = "(cleared...)\n";
@@ -1801,11 +1801,24 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
       VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
                      key, op_logs, verify_func, &diverged);
+
+      if (diverged) {
+        const std::vector<ScanOptions>& scanoptions = scan_opts.GetScanRanges();
+        for (const auto& t : scanoptions) {
+          fprintf(stdout, "Multiscan options: %s to %s \n",
+                  t.range.start.value().ToString(true).c_str(),
+                  t.range.limit.value().ToString(true).c_str());
+        }
+        break;
+      }
     }
 
     thread->stats.AddIterations(1);
 
     op_logs += "; ";
+    if (diverged) {
+      break;
+    }
   }
 
   return Status::OK();
@@ -3590,24 +3603,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  {
-    // We must register any compression managers with a custom
-    // CompatibilityName() so that if it was used in a past invocation but not
-    // the current invocation, we can still read the SST files requiring it.
-    static std::once_flag loaded;
-    std::call_once(loaded, [&]() {
-      TEST_AllowUnsupportedFormatVersion() = true;
-      auto& library = *ObjectLibrary::Default();
-      library.AddFactory<CompressionManager>(
-          DbStressCustomCompressionManager().CompatibilityName(),
-          [](const std::string& /*uri*/,
-             std::unique_ptr<CompressionManager>* guard,
-             std::string* /*errmsg*/) {
-            *guard = std::make_unique<DbStressCustomCompressionManager>();
-            return guard->get();
-          });
-    });
-  }
+  DbStressCustomCompressionManager::Register();
 
   if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
     options_.compression_manager =

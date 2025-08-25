@@ -380,8 +380,11 @@ void Reader::MaybeVerifyPredecessorWALInfo(
   } else {
     if (observed_predecessor_wal_info_.GetLogNumber() !=
         recorded_predecessor_log_number) {
-      std::string reason = "Missing WAL of log number " +
-                           std::to_string(recorded_predecessor_log_number);
+      std::string reason =
+          "Mismatched predecessor log number of WAL file " +
+          file_->file_name() + " Recorded " +
+          std::to_string(recorded_predecessor_log_number) + ". Observed " +
+          std::to_string(observed_predecessor_wal_info_.GetLogNumber());
       ReportCorruption(fragment.size(), reason.c_str(),
                        recorded_predecessor_log_number);
     } else if (observed_predecessor_wal_info_.GetLastSeqnoRecorded() !=

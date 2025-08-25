@@ -932,19 +932,19 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
 // end key. So these Seeks can cause iterator to fall back to normal
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
-// TODO: support fill_cache = false and when block cache is disabled.
-void BlockBasedTableIterator::Prepare(
-    const std::vector<ScanOptions>* scan_opts) {
-  index_iter_->Prepare(scan_opts);
+void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
+  index_iter_->Prepare(multiscan_opts);
 
   assert(!multi_scan_);
   if (multi_scan_) {
     multi_scan_.reset();
     return;
   }
-  if (scan_opts == nullptr || scan_opts->empty()) {
+  if (multiscan_opts == nullptr || multiscan_opts->empty()) {
     return;
   }
+
+  const std::vector<ScanOptions>* scan_opts = &multiscan_opts->GetScanRanges();
   const bool has_limit = scan_opts->front().range.limit.has_value();
   if (!has_limit && scan_opts->size() > 1) {
     // Abort: overlapping ranges
@@ -1067,9 +1067,6 @@ void BlockBasedTableIterator::Prepare(
     // Each member in the vector is an index into blocks_to_prepare.
     std::vector<std::vector<size_t>> collapsed_blocks_to_read(1);
 
-    // TODO: make this threshold configurable
-    constexpr size_t kCoalesceThreshold = 16 << 10;  // 16KB
-
     for (const auto& block_idx : blocks_to_read) {
       if (!collapsed_blocks_to_read.back().empty()) {
         // Check if we can coalesce.
@@ -1080,7 +1077,8 @@ void BlockBasedTableIterator::Prepare(
             BlockBasedTable::BlockSizeWithTrailer(last_block);
         uint64_t current_start = blocks_to_prepare[block_idx].offset();
 
-        if (current_start > last_block_end + kCoalesceThreshold) {
+        if (current_start >
+            last_block_end + multiscan_opts->io_coalesce_threshold) {
           // new IO
           collapsed_blocks_to_read.emplace_back();
         }
@@ -1108,6 +1106,37 @@ void BlockBasedTableIterator::Prepare(
       const auto start_offset = first_block.offset();
       const auto end_offset = last_block.offset() +
                               BlockBasedTable::BlockSizeWithTrailer(last_block);
+#ifndef NDEBUG
+      // Debug print for failing the assertion below.
+      if (start_offset >= end_offset) {
+        fprintf(stderr, "blocks_to_prepare: ");
+        for (const auto& block : blocks_to_prepare) {
+          fprintf(stderr, "offset: %" PRIu64 ", size: %" PRIu64 "; ",
+                  block.offset(), block.size());
+        }
+        fprintf(stderr,
+                "\nfirst block - offset: %" PRIu64 ", size: %" PRIu64 "\n",
+                first_block.offset(), first_block.size());
+        fprintf(stderr, "last block - offset: %" PRIu64 ", size: %" PRIu64 "\n",
+                last_block.offset(), last_block.size());
+
+        fprintf(stderr, "collapsed_blocks_to_read: ");
+        for (const auto& b : collapsed_blocks_to_read) {
+          fprintf(stderr, "[");
+          for (const auto& block_idx : b) {
+            fprintf(stderr, "%zu ", block_idx);
+          }
+          fprintf(stderr, "] ");
+        }
+        fprintf(stderr, "\ncurrent blocks: ");
+        for (const auto& block_idx : blocks) {
+          fprintf(stderr, "offset: %" PRIu64 ", size: %" PRIu64 "; ",
+                  blocks_to_prepare[block_idx].offset(),
+                  blocks_to_prepare[block_idx].size());
+        }
+        fprintf(stderr, "\n");
+      }
+#endif  // NDEBUG
       assert(end_offset > start_offset);
       FSReadRequest read_req;
       read_req.offset = start_offset;
@@ -1146,6 +1175,34 @@ void BlockBasedTableIterator::Prepare(
       }
     }
 
+    // Get compression dictionary if available - needed for dictionary-aware
+    // decompression
+    UnownedPtr<Decompressor> decompressor =
+        table_->get_rep()->decompressor.get();
+    CachableEntry<DecompressorDict> cached_dict;
+    if (table_->get_rep()->uncompression_dict_reader) {
+      s = table_->get_rep()
+              ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                  /* prefetch_buffer= */ nullptr, read_options_,
+                  /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+                  &cached_dict);
+      if (!s.ok()) {
+#ifndef NDEBUG
+        fprintf(stdout, "Prepare dictionary loading failed with %s\n",
+                s.ToString().c_str());
+#endif
+        // Abort: dictionary lookup failed.
+        return;
+      }
+      if (!cached_dict.GetValue()) {
+#ifndef NDEBUG
+        fprintf(stdout, "Success but no dictionary read\n");
+#endif
+        return;
+      }
+      decompressor = cached_dict.GetValue()->decompressor_.get();
+    }
+
     // Init blocks and pin them in block cache.
     MemoryAllocator* memory_allocator =
         table_->get_rep()->table_options.block_cache->memory_allocator();
@@ -1170,9 +1227,12 @@ void BlockBasedTableIterator::Prepare(
 #endif
         assert(pinned_data_blocks_guard[block_idx].IsEmpty());
         s = table_->CreateAndPinBlockInCache<Block_kData>(
-            read_options_, block, &tmp_contents,
+            read_options_, block, decompressor, &tmp_contents,
             &(pinned_data_blocks_guard[block_idx].As<Block_kData>()));
         if (!s.ok()) {
+#ifndef NDEBUG
+          fprintf(stdout, "Prepare failed with %s\n", s.ToString().c_str());
+#endif
           // Abort: failed to create and pin block in cache
           return;
         }
@@ -1183,7 +1243,7 @@ void BlockBasedTableIterator::Prepare(
 
   // Successful Prepare, init related states so the iterator reads from prepared
   // blocks
-  multi_scan_.reset(new MultiScanState(scan_opts,
+  multi_scan_.reset(new MultiScanState(multiscan_opts,
                                        std::move(pinned_data_blocks_guard),
                                        std::move(block_ranges_per_scan)));
   is_index_at_curr_block_ = false;
@@ -1202,7 +1262,8 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     multi_scan_.reset();
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
-                 (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
+                 multi_scan_->scan_opts
+                     ->GetScanRanges()[multi_scan_->next_scan_idx]
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key
