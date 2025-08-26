@@ -403,9 +403,9 @@ inline void InlineSkipList<Comparator>::Iterator::Next() {
   assert(Valid());
 
   // Capture the key before move on to next node
-  auto key = node_->Key();
-  TEST_SYNC_POINT_CALLBACK("InlineSkipList::Iterator::Next::key",
-                           static_cast<void*>(const_cast<char*>((key))));
+  TEST_SYNC_POINT_CALLBACK(
+      "InlineSkipList::Iterator::Next::key",
+      static_cast<void*>(const_cast<char*>((node_->Key()))));
 
   node_ = node_->Next(0);
 }
@@ -416,9 +416,9 @@ inline Status InlineSkipList<Comparator>::Iterator::NextAndValidate(
   assert(Valid());
 
   // Capture the key before move on to next node
-  auto key = node_->Key();
-  TEST_SYNC_POINT_CALLBACK("InlineSkipList::Iterator::Next::key",
-                           static_cast<void*>(const_cast<char*>((key))));
+  TEST_SYNC_POINT_CALLBACK(
+      "InlineSkipList::Iterator::Next::key",
+      static_cast<void*>(const_cast<char*>((node_->Key()))));
 
   Node* prev_node = node_;
   node_ = node_->Next(0);
@@ -554,7 +554,6 @@ Status InlineSkipList<Comparator>::FindGreaterOrEqual(
   // we get a chance to call Next(0).
   Node* x = head_;
   *node = nullptr;
-  Status status;
   int level = GetMaxHeight() - 1;
   Node* last_bigger = nullptr;
   const DecodedKey key_decoded = compare_.decode_key(key);
@@ -567,7 +566,8 @@ Status InlineSkipList<Comparator>::FindGreaterOrEqual(
         return Corruption(x, next, allow_data_in_errors);
       }
       if (key_validation_callback != nullptr) {
-        status = (*key_validation_callback)(next->Key(), allow_data_in_errors);
+        auto status =
+            (*key_validation_callback)(next->Key(), allow_data_in_errors);
         if (!status.ok()) {
           return status;
         }
@@ -582,7 +582,7 @@ Status InlineSkipList<Comparator>::FindGreaterOrEqual(
                   : compare_(next->Key(), key_decoded);
     if (cmp == 0 || (cmp > 0 && level == 0)) {
       *node = next;
-      return status;
+      return Status::OK();
     } else if (cmp < 0) {
       // Keep searching in this list
       x = next;
