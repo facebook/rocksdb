@@ -205,9 +205,9 @@ class MemTableRep {
   virtual Status GetAndValidate(
       const LookupKey& /* k */, void* /* callback_args */,
       bool (* /* callback_func */)(void* arg, const char* entry),
-      bool /*allow_data_in_error*/, bool /*detect_key_out_of_order*/,
-      std::function<Status(const char*, bool)>*
-      /*key_validation_callback*/) {
+      bool /* allow_data_in_error */, bool /* detect_key_out_of_order */,
+      std::function<Status(const char*, bool)>
+      /* key_validation_callback */) {
     return Status::NotSupported("GetAndValidate() not implemented.");
   }
 
@@ -282,7 +282,7 @@ class MemTableRep {
                                    const char* /* memtable_key */,
                                    bool /* allow_data_in_errors */,
                                    bool /* detect_key_out_of_order */,
-                                   std::function<Status(const char*, bool)>*
+                                   std::function<Status(const char*, bool)>
                                    /* key_validation_callback */) {
       return Status::NotSupported("SeekAndValidate() not implemented.");
     }

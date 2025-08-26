@@ -87,7 +87,7 @@ class VectorRep : public MemTableRep {
     Status SeekAndValidate(const Slice& internal_key, const char* memtable_key,
                            bool allow_data_in_errors,
                            bool detect_key_out_of_order,
-                           std::function<Status(const char*, bool)>*
+                           std::function<Status(const char*, bool)>
                                key_validation_callback) override;
 
     // Advance to the first entry with a key <= target
@@ -272,7 +272,7 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
 Status VectorRep::Iterator::SeekAndValidate(
     const Slice& /* internal_key */, const char* /* memtable_key */,
     bool /* allow_data_in_errors */, bool /* detect_key_out_of_order */,
-    std::function<Status(const char*, bool)>*
+    std::function<Status(const char*, bool)>
     /* key_validation_callback */) {
   if (vrep_) {
     WriteLock l(&vrep_->rwlock_);
