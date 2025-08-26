@@ -996,7 +996,7 @@ def finalize_and_sanitize(src_params):
         if (
             dest_params.get("reopen", 0) > 0
             or (
-                dest_params.get("manual_wal_flush_one_in")
+                dest_params.get("atomic_flush") != 1
                 and dest_params.get("column_families") != 1
             )
             or (
@@ -1010,10 +1010,10 @@ def finalize_and_sanitize(src_params):
             # To simplify, we disable any WAL write error injection.
             # TODO(hx235): support WAL write error injection with reopen
             #
-            # 2. WAL write failure can drop buffered WAL data. This can cause
-            # inconsistency when one CF has a successful flush during auto
-            # recovery. Disable the fault injection in this path for now until
-            # we have a fix that allows auto recovery.
+            # 2.  When `atomic_flush = false` with multiple column families, when encountering WAL related IO error,
+            # individual CF flushing during auto recovery can create data inconsistencies where some column families advance
+            # past the corruption point while others remain behind, preventing successful database restart.
+            # Therefore we disable auto recovery and testing for this case in crash test
             #
             # 3. Pessimistic transactions use 2PC, which can't auto-recover from WAL write errors.
             # This is because RocksDB cannot easily discard the corrupted WAL without risking the
