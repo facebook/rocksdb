@@ -1674,7 +1674,11 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   assert(!rand_column_families.empty());
   assert(!rand_keys.empty());
 
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   ManagedSnapshot snapshot_guard(db_);
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
 
   ReadOptions ro = read_opts;
   ro.snapshot = snapshot_guard.snapshot();
