@@ -386,6 +386,9 @@ TEST_P(DBMemTableTestForSeek, IntegrityChecks) {
       ASSERT_OK(iter->status());
       iter->Next();
     }
+    // check status after valid returned false.
+    auto status = iter->status();
+    ASSERT_TRUE(status.ok());
   }
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -444,13 +447,15 @@ TEST_P(DBMemTableTestForSeek, IntegrityChecks) {
       std::unique_ptr<Iterator> iter{db_->NewIterator(rops)};
       ASSERT_OK(iter->status());
       iter->Seek(key_to_corrupt);
+      auto status = iter->status();
       if (enable_key_validation_on_seek) {
-        ASSERT_TRUE(iter->status().IsCorruption());
-        ASSERT_EQ(iter->status().ToString().find(corrupted_key_hex) !=
-                      std::string::npos,
-                  allow_data_in_error);
+        ASSERT_TRUE(status.IsCorruption());
+        ASSERT_EQ(
+            status.ToString().find(corrupted_key_hex) != std::string::npos,
+            allow_data_in_error);
       } else {
         ASSERT_FALSE(iter->Valid());
+        ASSERT_FALSE(status.ok());
       }
     }
 
