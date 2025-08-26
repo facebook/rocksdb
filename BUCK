@@ -429,7 +429,6 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/db_stress_gflags.cc",
         "db_stress_tool/db_stress_listener.cc",
         "db_stress_tool/db_stress_shared_state.cc",
-        "db_stress_tool/db_stress_stat.cc",
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
         "db_stress_tool/db_stress_wide_merge_operator.cc",
