@@ -1113,6 +1113,8 @@ struct AdvancedColumnFamilyOptions {
   // memtable keys during reads. Enabling this feature incurs a performance
   // overhead due to additional key checksum validation during memtable seek
   // operation.
+  // This option depends on memtable_protection_bytes_per_key to be non zero.
+  // If memtable_protection_bytes_per_key is zero, no validation is performed.
   bool paranoid_memory_check_key_checksum_on_seek = false;
 
   // When an iterator scans this number of invisible entries (tombstones or

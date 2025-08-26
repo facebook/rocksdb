@@ -961,7 +961,7 @@ class MemTable final : public ReadOnlyMemTable {
 
   void MaybeUpdateNewestUDT(const Slice& user_key);
 
-  std::function<Status(const char*, bool)> key_validation_callback_;
+  const std::function<Status(const char*, bool)> key_validation_callback_;
 };
 
 const char* EncodeKey(std::string* scratch, const Slice& target);
