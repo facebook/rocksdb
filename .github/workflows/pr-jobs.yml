@@ -66,7 +66,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -78,7 +78,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -97,11 +97,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -114,11 +111,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -131,11 +125,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -147,11 +138,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -164,7 +152,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -176,7 +164,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -190,7 +178,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -216,7 +204,7 @@ jobs:
     runs-on:
       labels: 8-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -227,7 +215,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -236,17 +224,17 @@ jobs:
     - run: make clean
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
     - uses: "./.github/actions/post-steps"
-  build-linux-gcc-10-no_test_run:
+  build-linux-gcc-13-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=gcc-10 CXX=g++-10 V=1 make -j32 all
+    - run: CC=gcc-13 CXX=g++-13 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
 
   # ======================== Linux Other Checks ======================= #
@@ -255,7 +243,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -288,7 +276,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -301,7 +289,7 @@ jobs:
     runs-on:
       labels: 32-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -313,7 +301,7 @@ jobs:
     runs-on:
       labels: 32-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -325,7 +313,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
