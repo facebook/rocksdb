@@ -144,9 +144,7 @@ class CompactionOptionsUniversal {
         incremental(false),
         reduce_file_locking(false) {}
 
-#if __cplusplus >= 202002L
   bool operator==(const CompactionOptionsUniversal& rhs) const = default;
-#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE

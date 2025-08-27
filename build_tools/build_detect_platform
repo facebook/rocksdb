@@ -45,11 +45,11 @@ if test -z "$OUTPUT"; then
   exit 1
 fi
 
-# we depend on C++17, but should be compatible with newer standards
+# we depend on C++20, but should be compatible with newer standards
 if [ "$ROCKSDB_CXX_STANDARD" ]; then
   PLATFORM_CXXFLAGS="-std=$ROCKSDB_CXX_STANDARD"
 else
-  PLATFORM_CXXFLAGS="-std=c++17"
+  PLATFORM_CXXFLAGS="-std=c++20"
 fi
 
 # we currently depend on POSIX platform

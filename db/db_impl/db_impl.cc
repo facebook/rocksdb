@@ -1245,13 +1245,11 @@ Status DBImpl::SetOptions(
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
 
-#if __cplusplus >= 202002L
       assert(new_options_copy == cfd->GetLatestMutableCFOptions());
       assert(cfd->GetLatestMutableCFOptions() ==
              cfd->GetCurrentMutableCFOptions());
       assert(cfd->GetCurrentMutableCFOptions() ==
              cfd->current()->GetMutableCFOptions());
-#endif
     }
   }
   sv_context.Clean();

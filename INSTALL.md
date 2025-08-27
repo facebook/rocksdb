@@ -6,7 +6,7 @@ than release mode.
 
 RocksDB's library should be able to compile without any dependency installed,
 although we recommend installing some compression libraries (see below).
-We do depend on newer gcc/clang with C++17 support (GCC >= 7, Clang >= 5).
+We do depend on newer gcc/clang with C++20 support (GCC >= 11, Clang >= 10).
 
 There are few options when compiling RocksDB:
 
@@ -60,7 +60,7 @@ most processors made since roughly 2013.
 ## Supported platforms
 
 * **Linux - Ubuntu**
-    * Upgrade your gcc to version at least 7 to get C++17 support.
+    * Upgrade your gcc to version at least 11 to get C++20 support.
     * Install gflags. First, try: `sudo apt-get install libgflags-dev`
       If this doesn't work and you're using Ubuntu, here's a nice tutorial:
       (http://askubuntu.com/questions/312173/installing-gflags-12-04)
@@ -72,7 +72,7 @@ most processors made since roughly 2013.
     * Install zstandard: `sudo apt-get install libzstd-dev`.
 
 * **Linux - CentOS / RHEL**
-    * Upgrade your gcc to version at least 7 to get C++17 support
+    * Upgrade your gcc to version at least 11 to get C++20 support
     * Install gflags:
 
               git clone https://github.com/gflags/gflags.git
@@ -122,7 +122,7 @@ most processors made since roughly 2013.
               make && sudo make install
 
 * **OS X**:
-    * Install latest C++ compiler that supports C++ 17:
+    * Install latest C++ compiler that supports C++20:
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
@@ -213,7 +213,7 @@ most processors made since roughly 2013.
              export PATH=/opt/freeware/bin:$PATH
 
 * **Solaris Sparc**
-    * Install GCC 7 and higher.
+    * Install GCC 11 and higher.
     * Use these environment variables:
 
              export CC=gcc
