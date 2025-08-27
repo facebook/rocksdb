@@ -109,8 +109,8 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       CachableEntry<T>* out_parsed_block) const;                               \
   template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
       const ReadOptions& ro, const BlockHandle& handle,                        \
-      BlockContents* block_contents, CachableEntry<T>* out_parsed_block)       \
-      const;
+      UnownedPtr<Decompressor> decomp, BlockContents* block_contents,          \
+      CachableEntry<T>* out_parsed_block) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(DecompressorDict);
@@ -1741,13 +1741,55 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
 
 template <typename TBlocklike>
 Status BlockBasedTable::CreateAndPinBlockInCache(
-    const ReadOptions& ro, const BlockHandle& handle, BlockContents* contents,
+    const ReadOptions& ro, const BlockHandle& handle,
+    UnownedPtr<Decompressor> decomp, BlockContents* contents,
     CachableEntry<TBlocklike>* out_parsed_block) const {
-  return MaybeReadBlockAndLoadToCache(
-      nullptr, ro, handle, rep_->decompressor.get(),
-      /*for_compaction=*/false, out_parsed_block, nullptr, nullptr, contents,
-      /*async_read=*/false,
-      /*use_block_cache_for_lookup=*/true);
+  CompressionType compression_type = GetBlockCompressionType(*contents);
+  // If we don't own the contents and we don't need to decompress, copy
+  // the block to heap in order to have ownership. If decompression is
+  // needed, then the decompressor will allocate a buffer.
+  if (!contents->own_bytes() && compression_type == kNoCompression) {
+    Slice src = Slice(contents->data.data(), BlockSizeWithTrailer(handle));
+    *contents = BlockContents(
+        CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), src),
+        handle.size());
+#ifndef NDEBUG
+    contents->has_trailer = true;
+#endif
+  }
+
+  Status s;
+  if (ro.fill_cache) {
+    s = MaybeReadBlockAndLoadToCache(nullptr, ro, handle, decomp,
+                                     /*for_compaction=*/false, out_parsed_block,
+                                     nullptr, nullptr, contents,
+                                     /*async_read=*/false,
+                                     /*use_block_cache_for_lookup=*/true);
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  // fill_cache could be false, or no block cache is configured. In that
+  // case, decompress if necessary and take ownership of the block
+  if (out_parsed_block->GetValue() == nullptr && contents != nullptr) {
+    BlockContents tmp_contents;
+    if (compression_type != kNoCompression) {
+      s = DecompressSerializedBlock(contents->data.data(), handle.size(),
+                                    compression_type, *decomp, &tmp_contents,
+                                    rep_->ioptions,
+                                    GetMemoryAllocator(rep_->table_options));
+    } else {
+      tmp_contents = std::move(*contents);
+    }
+    if (s.ok()) {
+      std::unique_ptr<TBlocklike> block_holder;
+      rep_->create_context.Create(&block_holder, std::move(tmp_contents));
+      out_parsed_block->SetOwnedValue(std::move(block_holder));
+    }
+  }
+  return s;
 }
 
 // If contents is nullptr, this function looks up the block caches for the

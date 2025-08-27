@@ -1,6 +1,34 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.6.0 (08/22/2025)
+### New Features
+* Introduce column family option `cf_allow_ingest_behind`. This option aims to replace `DBOptions::allow_ingest_behind` to enable ingest behind at the per-CF level. `DBOptions::allow_ingest_behind` is deprecated.
+* Introduce `MultiScanArgs::io_coalesce_threshold` to allow a configurable IO coalescing threshold.
+
+### Public API Changes
+* `IngestExternalFileOptions::allow_db_generated_files` now allows files ingestion of any DB generated SST file, instead of only the ones with all keys having sequence number 0.
+* `decouple_partitioned_filters = true` is now the default in BlockBasedTableOptions.
+* GetTtl() API is now available in TTL DB
+* Minimum supported version of LZ4 library is now 1.7.0 (r129 from 2015)
+* Some changes to experimental Compressor and CompressionManager APIs
+* A new Filesystem::SyncFile function is added for syncing a file that was already written, such as on file ingestion. The default implementation matches previous RocksDB behavior: re-open the file for read-write, sync it, and close it. We recommend overriding for FileSystems that do not require syncing for crash recovery or do not handle (well) re-opening for writes.
+
+### Behavior Changes
+* When `allow_ingest_behind` is enabled, compaction will no longer drop tombstones based on the absence of underlying data. Tombstones will be preserved to apply to ingested files.
+
+### Bug Fixes
+* Files in dropped column family won't be returned to the caller upon successful, offline MANIFEST iteration in `GetFileChecksumsFromCurrentManifest`.
+* Fix a bug in MultiScan that causes it to fall back to a normal scan when dictionary compression is enabled.
+* Fix a crash in iterator Prepare() when fill_cache=false
+* Fix a bug in MultiScan where incorrect results can be returned when a Scan's range is across multiple files.
+* Fixed a bug in remote compaction that may mistakenly delete live SST file(s) during the cleanup phase when no keys survive the compaction (all expired)
+* Allow a user defined index to be configured from a string.
+* Make the User Defined Index interface consistently use the user key format, fixing the previous mixed usage of internal and user key.
+
+### Performance Improvements
+* Small improvement to CPU efficiency of compression using built-in algorithms, and a dramatic efficiency improvement for LZ4HC, based on reusing data structures between invocations.
+
 ## 10.5.0 (07/18/2025)
 ### Public API Changes
 * DB option skip_checking_sst_file_sizes_on_db_open is deprecated, in favor of validating file size in parallel in a thread pool, when db is opened. When DB is opened, with paranoid check enabled, a file with the wrong size would fail the DB open. With paranoid check disabled, the DB open would succeed, the column family with the corrupted file would not be read or write, while the other healthy column families could be read and write normally. When max_open_files option is not set to -1, only a subset of the files will be opened and checked. The rest of the files will be opened and checked when they are accessed.

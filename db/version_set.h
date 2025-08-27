@@ -669,6 +669,8 @@ class VersionStorageInfo {
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys
+  // In L0, files are ordered in decreasing epoch number, meaning
+  // more recent updates are ordered first.
   std::vector<FileMetaData*>* files_;
 
   // Map of all table files in version. Maps file number to (level, position on

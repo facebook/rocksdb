@@ -1106,6 +1106,37 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       const auto start_offset = first_block.offset();
       const auto end_offset = last_block.offset() +
                               BlockBasedTable::BlockSizeWithTrailer(last_block);
+#ifndef NDEBUG
+      // Debug print for failing the assertion below.
+      if (start_offset >= end_offset) {
+        fprintf(stderr, "blocks_to_prepare: ");
+        for (const auto& block : blocks_to_prepare) {
+          fprintf(stderr, "offset: %" PRIu64 ", size: %" PRIu64 "; ",
+                  block.offset(), block.size());
+        }
+        fprintf(stderr,
+                "\nfirst block - offset: %" PRIu64 ", size: %" PRIu64 "\n",
+                first_block.offset(), first_block.size());
+        fprintf(stderr, "last block - offset: %" PRIu64 ", size: %" PRIu64 "\n",
+                last_block.offset(), last_block.size());
+
+        fprintf(stderr, "collapsed_blocks_to_read: ");
+        for (const auto& b : collapsed_blocks_to_read) {
+          fprintf(stderr, "[");
+          for (const auto& block_idx : b) {
+            fprintf(stderr, "%zu ", block_idx);
+          }
+          fprintf(stderr, "] ");
+        }
+        fprintf(stderr, "\ncurrent blocks: ");
+        for (const auto& block_idx : blocks) {
+          fprintf(stderr, "offset: %" PRIu64 ", size: %" PRIu64 "; ",
+                  blocks_to_prepare[block_idx].offset(),
+                  blocks_to_prepare[block_idx].size());
+        }
+        fprintf(stderr, "\n");
+      }
+#endif  // NDEBUG
       assert(end_offset > start_offset);
       FSReadRequest read_req;
       read_req.offset = start_offset;
@@ -1144,6 +1175,34 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       }
     }
 
+    // Get compression dictionary if available - needed for dictionary-aware
+    // decompression
+    UnownedPtr<Decompressor> decompressor =
+        table_->get_rep()->decompressor.get();
+    CachableEntry<DecompressorDict> cached_dict;
+    if (table_->get_rep()->uncompression_dict_reader) {
+      s = table_->get_rep()
+              ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                  /* prefetch_buffer= */ nullptr, read_options_,
+                  /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+                  &cached_dict);
+      if (!s.ok()) {
+#ifndef NDEBUG
+        fprintf(stdout, "Prepare dictionary loading failed with %s\n",
+                s.ToString().c_str());
+#endif
+        // Abort: dictionary lookup failed.
+        return;
+      }
+      if (!cached_dict.GetValue()) {
+#ifndef NDEBUG
+        fprintf(stdout, "Success but no dictionary read\n");
+#endif
+        return;
+      }
+      decompressor = cached_dict.GetValue()->decompressor_.get();
+    }
+
     // Init blocks and pin them in block cache.
     MemoryAllocator* memory_allocator =
         table_->get_rep()->table_options.block_cache->memory_allocator();
@@ -1168,9 +1227,12 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 #endif
         assert(pinned_data_blocks_guard[block_idx].IsEmpty());
         s = table_->CreateAndPinBlockInCache<Block_kData>(
-            read_options_, block, &tmp_contents,
+            read_options_, block, decompressor, &tmp_contents,
             &(pinned_data_blocks_guard[block_idx].As<Block_kData>()));
         if (!s.ok()) {
+#ifndef NDEBUG
+          fprintf(stdout, "Prepare failed with %s\n", s.ToString().c_str());
+#endif
           // Abort: failed to create and pin block in cache
           return;
         }

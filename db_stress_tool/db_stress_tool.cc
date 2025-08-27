@@ -53,12 +53,6 @@ int db_stress_tool(int argc, char** argv) {
     SetupSyncPointsToMockDirectIO();
   }
 #endif
-  if (FLAGS_statistics) {
-    dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    if (FLAGS_test_secondary) {
-      dbstats_secondaries = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    }
-  }
   compression_type_e = StringToCompressionType(FLAGS_compression_type.c_str());
   bottommost_compression_type_e =
       StringToCompressionType(FLAGS_bottommost_compression_type.c_str());

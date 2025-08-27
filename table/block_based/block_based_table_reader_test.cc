@@ -994,6 +994,18 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 }
 
 TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
+  std::ostringstream param_trace;
+  param_trace << "[MultiScanPrepare] Test params: " << "CompressionType="
+              << CompressionTypeToString(compression_type_)
+              << ", UseDirectReads=" << (use_direct_reads_ ? "true" : "false")
+              << ", UDTEnabled=" << (udt_enabled_ ? "true" : "false")
+              << ", PersistUDT=" << (persist_udt_ ? "true" : "false")
+              << ", CompressionParallelThreads="
+              << compression_parallel_threads_
+              << ", CompressionDictBytes=" << compression_dict_bytes_
+              << ", SameKeyDiffTs=" << (same_key_diff_ts_ ? "true" : "false");
+  std::cout << param_trace.str() << std::endl;
+
   Options options;
   options.statistics = CreateDBStatistics();
   ReadOptions read_opts;
@@ -1052,6 +1064,9 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
     iter->Next();
   }
   ASSERT_OK(iter->status());
+  // No I/O expected during scanning since all blocks were loaded and pinned.
+  ASSERT_EQ(read_count_after,
+            options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
 
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
@@ -1089,7 +1104,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
-  // reads from blocks 50-79 and 82-.. are co
+  // reads from blocks 50-79 and 82-.. are coalesced.
   scan_options = MultiScanArgs(BytewiseComparator());
   scan_options.insert(ExtractUserKey(kv[50 * kEntriesPerBlock].first));
   read_count_before =
@@ -1106,6 +1121,8 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   }
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
+  ASSERT_EQ(read_count_after,
+            options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
 
   // Check cases when Seek key does not match start key in ScanOptions
   iter.reset(table->NewIterator(

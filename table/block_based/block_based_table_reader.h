@@ -311,7 +311,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   Status CreateAndPinBlockInCache(
       const ReadOptions& ro, const BlockHandle& handle,
-      BlockContents* block_contents,
+      UnownedPtr<Decompressor> decomp, BlockContents* block_contents,
       CachableEntry<TBlocklike>* out_parsed_block) const;
 
   struct Rep;

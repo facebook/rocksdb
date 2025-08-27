@@ -1175,6 +1175,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_reset_status(
     rocksdb_status_ptr_t* status_ptr);
 extern ROCKSDB_LIBRARY_API uint32_t
 rocksdb_flushjobinfo_flush_reason(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API void rocksdb_status_ptr_get_error(
+    rocksdb_status_ptr_t* status, char** errptr);
 
 /* Compaction job info */
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionjobinfo_status(
@@ -1925,6 +1927,10 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_options_add_compact_on_deletion_collector_factory_del_ratio(
     rocksdb_options_t*, size_t window_size, size_t num_dels_trigger,
     double deletion_ratio);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_add_compact_on_deletion_collector_factory_min_file_size(
+    rocksdb_options_t*, size_t window_size, size_t num_dels_trigger,
+    double deletion_ratio, uint64_t min_file_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
     rocksdb_options_t* opt, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_manual_wal_flush(
