@@ -776,7 +776,11 @@ def finalize_and_sanitize(src_params):
 
     if dest_params.get("memtablerep") == "vector":
         dest_params["inplace_update_support"] = 0
+
+    # only skip list memtable representation supports paranoid memory checks
+    if dest_params.get("memtablerep") != "skip_list":
         dest_params["paranoid_memory_checks"] = 0
+        dest_params["paranoid_memory_check_key_checksum_on_seek"] = 0
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
