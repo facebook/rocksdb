@@ -653,12 +653,20 @@ std::string StressTest::DebugString(const Slice& value,
 }
 
 void StressTest::PrintStatistics() {
-  if (dbstats) {
-    fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+  // Print statistics from the DB instance instead of global dbstats
+  if (db_) {
+    auto stats = db_->GetOptions().statistics;
+    if (stats) {
+      fprintf(stdout, "STATISTICS:\n%s\n", stats->ToString().c_str());
+    }
   }
-  if (dbstats_secondaries) {
-    fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
-            dbstats_secondaries->ToString().c_str());
+  // Print statistics from secondary DB instance if it exists
+  if (secondary_db_) {
+    auto stats = secondary_db_->GetOptions().statistics;
+    if (stats) {
+      fprintf(stdout, "Secondary instance STATISTICS:\n%s\n",
+              stats->ToString().c_str());
+    }
   }
 }
 
@@ -1666,7 +1674,11 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   assert(!rand_column_families.empty());
   assert(!rand_keys.empty());
 
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   ManagedSnapshot snapshot_guard(db_);
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
 
   ReadOptions ro = read_opts;
   ro.snapshot = snapshot_guard.snapshot();
@@ -3954,6 +3966,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     assert(s.ok());
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
+    // Clear statistics reference from options_ to intentionally shorten the
+    // statistics object lifetime to be same as the db object (which is the
+    // common case in practice) and detect if RocksDB access the statistics
+    // beyond its lifetime.
+    if (FLAGS_statistics) {
+      options_.statistics.reset();
+    }
 
     // Secondary instance does not support write-prepared/write-unprepared
     // transactions, thus just disable secondary instance if we use
@@ -4328,7 +4347,9 @@ void InitializeOptionsFromFlags(
     }
   }
   options.max_open_files = FLAGS_open_files;
-  options.statistics = dbstats;
+  if (FLAGS_statistics) {
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  }
   options.env = db_stress_env;
   options.use_fsync = FLAGS_use_fsync;
   options.compaction_readahead_size = FLAGS_compaction_readahead_size;
@@ -4578,8 +4599,8 @@ void InitializeOptionsGeneral(
   options.create_missing_column_families = true;
   options.create_if_missing = true;
 
-  if (!options.statistics) {
-    options.statistics = dbstats;
+  if (FLAGS_statistics) {
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   }
 
   if (options.env == Options().env) {
