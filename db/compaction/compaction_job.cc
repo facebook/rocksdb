@@ -170,7 +170,11 @@ CompactionJob::CompactionJob(
       blob_output_directory_(blob_output_directory),
       db_mutex_(db_mutex),
       db_error_handler_(db_error_handler),
-      earliest_snapshot_(job_context->GetEarliestSnapshotSequence()),
+      // job_context cannot be nullptr, but we will assert later in the body of
+      // the constructor.
+      earliest_snapshot_(job_context
+                             ? job_context->GetEarliestSnapshotSequence()
+                             : kMaxSequenceNumber),
       job_context_(job_context),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
@@ -185,6 +189,7 @@ CompactionJob::CompactionJob(
       bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled) {
   assert(job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
+  assert(job_context);
   assert(job_context->snapshot_context_initialized);
 
   const auto* cfd = compact_->compaction->column_family_data();
@@ -1388,16 +1393,14 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
 
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
-  const SequenceNumber job_snapshot_seq =
-      job_context_ ? job_context_->GetJobSnapshotSequence()
-                   : kMaxSequenceNumber;
+  assert(job_context_);
 
   return std::make_unique<CompactionIterator>(
       input, cfd->user_comparator(), &merge, versions_->LastSequence(),
       &(job_context_->snapshot_seqs), earliest_snapshot_,
-      job_context_->earliest_write_conflict_snapshot, job_snapshot_seq,
-      job_context_->snapshot_checker, env_,
-      ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
+      job_context_->earliest_write_conflict_snapshot,
+      job_context_->GetJobSnapshotSequence(), job_context_->snapshot_checker,
+      env_, ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
       blob_resources.blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction->DoesInputReferenceBlobFiles(),
