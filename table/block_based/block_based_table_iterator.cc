@@ -20,7 +20,7 @@ size_t DefaultPrefetchRateLimiter::acquire(const BlockBasedTable* /*unused*/,
   }
   while (!done) {
     // Check again here.
-    size_t current = cur_bytes_.load(std::memory_order_acquire);
+    size_t current = cur_bytes_.load();
     if (current == 0) {
       amount = 0;
       return amount;
@@ -50,7 +50,7 @@ bool DefaultPrefetchRateLimiter::release(size_t bytes) {
   bool done = false;
   while (!done) {
     // Check again here.
-    size_t current = cur_bytes_.load(std::memory_order_acq_rel);
+    size_t current = cur_bytes_.load();
     if (current + bytes >= max_bytes_) {
       done = cur_bytes_.compare_exchange_weak(current, max_bytes_);
     } else {
