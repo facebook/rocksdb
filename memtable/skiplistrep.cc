@@ -95,7 +95,7 @@ class SkipListRep : public MemTableRep {
   Status GetAndValidate(const LookupKey& k, void* callback_args,
                         bool (*callback_func)(void* arg, const char* entry),
                         bool allow_data_in_errors, bool detect_key_out_of_order,
-                        std::function<Status(const char*, bool)>
+                        const std::function<Status(const char*, bool)>&
                             key_validation_callback) override {
     SkipListRep::Iterator iter(&skip_list_);
     Slice dummy_slice;
@@ -249,7 +249,7 @@ class SkipListRep : public MemTableRep {
     Status SeekAndValidate(const Slice& user_key, const char* memtable_key,
                            bool allow_data_in_errors,
                            bool detect_key_out_of_order,
-                           std::function<Status(const char*, bool)>
+                           const std::function<Status(const char*, bool)>&
                                key_validation_callback) override {
       if (memtable_key != nullptr) {
         return iter_.SeekAndValidate(memtable_key, allow_data_in_errors,

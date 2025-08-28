@@ -183,7 +183,8 @@ class InlineSkipList {
     [[nodiscard]] Status SeekAndValidate(
         const char* target, bool allow_data_in_errors,
         bool detect_key_out_of_order,
-        std::function<Status(const char*, bool)> key_validation_callback);
+        const std::function<Status(const char*, bool)>&
+            key_validation_callback);
 
     // Retreat to the last entry with a key <= target
     void SeekForPrev(const char* target);
@@ -248,10 +249,11 @@ class InlineSkipList {
   // Returns OK, if no corruption is found.
   // node is set to the found node, or to nullptr if no node is found.
   // Returns Corruption if a corruption is found.
-  Status FindGreaterOrEqual(
-      const char* key, Node** node, bool detect_key_out_of_order,
-      bool allow_data_in_errors,
-      std::function<Status(const char*, bool)> key_validation_callback) const;
+  Status FindGreaterOrEqual(const char* key, Node** node,
+                            bool detect_key_out_of_order,
+                            bool allow_data_in_errors,
+                            const std::function<Status(const char*, bool)>&
+                                key_validation_callback) const;
 
   // Returns the latest node with a key < key.
   // Returns head_ if there is no such node.
@@ -472,7 +474,7 @@ template <class Comparator>
 inline Status InlineSkipList<Comparator>::Iterator::SeekAndValidate(
     const char* target, const bool allow_data_in_errors,
     bool check_key_out_of_order,
-    std::function<Status(const char*, bool)> key_validation_callback) {
+    const std::function<Status(const char*, bool)>& key_validation_callback) {
   return list_->FindGreaterOrEqual(target, &node_, allow_data_in_errors,
                                    check_key_out_of_order,
                                    key_validation_callback);
@@ -545,7 +547,8 @@ template <class Comparator>
 Status InlineSkipList<Comparator>::FindGreaterOrEqual(
     const char* key, Node** node, bool allow_data_in_errors,
     bool detect_key_out_of_order,
-    std::function<Status(const char*, bool)> key_validation_callback) const {
+    const std::function<Status(const char*, bool)>& key_validation_callback)
+    const {
   // Note: It looks like we could reduce duplication by implementing
   // this function as FindLessThan(key)->Next(0), but we wouldn't be able
   // to exit early on equality and the result wouldn't even be correct.
