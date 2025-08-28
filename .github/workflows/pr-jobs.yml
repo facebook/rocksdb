@@ -234,7 +234,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=gcc-13 CXX=g++-13 V=1 make -j32 all
+    - run: CC=gcc-13 CXX=g++-13 V=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
 
   # ======================== Linux Other Checks ======================= #
