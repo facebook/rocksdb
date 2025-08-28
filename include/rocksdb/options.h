@@ -1807,7 +1807,7 @@ class MultiScanArgs {
  public:
   // Constructor that takes a comparator
   explicit MultiScanArgs(const Comparator* comparator = BytewiseComparator())
-      : prefetch_rate_limiter(), comp_(comparator) {}
+      : prefetch_rate_limiter(nullptr), comp_(comparator) {}
 
   // Copy Constructor
   MultiScanArgs(const MultiScanArgs& other) 
@@ -1823,10 +1823,12 @@ class MultiScanArgs {
         original_ranges_(std::move(other.original_ranges_)) {}
 
   MultiScanArgs& operator=(const MultiScanArgs& other) {
-    comp_ = other.comp_;
-    original_ranges_ = other.original_ranges_;
-    io_coalesce_threshold = other.io_coalesce_threshold;
-    prefetch_rate_limiter = other.prefetch_rate_limiter;
+    if (this != &other) {
+      comp_ = other.comp_;
+      original_ranges_ = other.original_ranges_;
+      io_coalesce_threshold = other.io_coalesce_threshold;
+      prefetch_rate_limiter = other.prefetch_rate_limiter;
+    }
     return *this;
   }
 
@@ -1835,7 +1837,7 @@ class MultiScanArgs {
       comp_ = other.comp_;
       original_ranges_ = std::move(other.original_ranges_);
       io_coalesce_threshold = other.io_coalesce_threshold;
-      prefetch_rate_limiter = other.prefetch_rate_limiter;
+      prefetch_rate_limiter = std::move(other.prefetch_rate_limiter);
     }
     return *this;
   }
@@ -1877,12 +1879,10 @@ class MultiScanArgs {
 
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
 
-  using RateLimiter = std::optional<std::shared_ptr<PrefetchRateLimiter>>; 
-
-  RateLimiter prefetch_rate_limiter;
+  std::shared_ptr<PrefetchRateLimiter> prefetch_rate_limiter;
 
   PrefetchRateLimiter& GetMutablePrefetchRateLimiter() const {
-    return *prefetch_rate_limiter.value().get();
+    return *prefetch_rate_limiter.get();
   }
 
  private:
