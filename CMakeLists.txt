@@ -27,7 +27,7 @@
 #
 # Linux:
 #
-# 1. Install a recent toolchain if you're on a older distro. C++17 required (GCC >= 7, Clang >= 5)
+# 1. Install a recent toolchain if you're on a older distro. C++20 required (GCC >= 11, Clang >= 10)
 # 2. mkdir build; cd build
 # 3. cmake ..
 # 4. make -j
@@ -100,7 +100,7 @@ endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
-  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD 20)
 endif()
 
 include(CMakeDependentOption)
@@ -314,7 +314,6 @@ endif()
 
 # Check if -latomic is required or not
 if (NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "--std=c++17")
   CHECK_CXX_SOURCE_COMPILES("
 #include <atomic>
 std::atomic<uint64_t> x(0);

@@ -313,9 +313,7 @@ struct CompressionOptions {
     max_compressed_bytes_per_kb = static_cast<int>(1024.0 / min_ratio + 0.5);
   }
 
-#if __cplusplus >= 202002L
   bool operator==(const CompressionOptions& rhs) const = default;
-#endif
 };
 
 // See advanced_compression.h

@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <semaphore>
+
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/data_structure.h"
@@ -420,6 +422,24 @@ TEST(ToBaseCharsStringTest, Tests) {
   ASSERT_EQ(ToBaseCharsString<16>(2, 255, false), "ff");
   // Base 32
   ASSERT_EQ(ToBaseCharsString<32>(2, 255, false), "7v");
+}
+
+TEST(SemaphoreTest, BasicStdCountingSemaphore) {
+  // Verify the C++20 API is available and apparently working
+  std::counting_semaphore sem{0};
+  int kCount = 5;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] { sem.release(); });
+  }
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] { sem.acquire(); });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+  // Nothing left on the semaphore
+  ASSERT_FALSE(sem.try_acquire());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

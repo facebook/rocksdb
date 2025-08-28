@@ -64,9 +64,7 @@ enum CompactionPri : char {
 struct FileTemperatureAge {
   Temperature temperature = Temperature::kUnknown;
   uint64_t age = 0;
-#if __cplusplus >= 202002L
   bool operator==(const FileTemperatureAge& rhs) const = default;
-#endif
 };
 
 struct CompactionOptionsFIFO {
@@ -135,9 +133,7 @@ struct CompactionOptionsFIFO {
       : max_table_files_size(_max_table_files_size),
         allow_compaction(_allow_compaction) {}
 
-#if __cplusplus >= 202002L
   bool operator==(const CompactionOptionsFIFO& rhs) const = default;
-#endif
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
