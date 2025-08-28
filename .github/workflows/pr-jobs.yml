@@ -404,7 +404,7 @@ jobs:
         which javac && javac -version
     - name: Test RocksDBJava
     # NOTE: replaced scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
-      run: make V=1 J=8 -j8 jtest'
+      run: make V=1 J=8 -j8 jtest
     # post-steps skipped because of compatibility issues with docker image
   build-linux-java-static:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -435,7 +435,7 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava Static Library
     # NOTE: replaced scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
-      run: make V=1 J=8 -j8 rocksdbjavastatic'
+      run: make V=1 J=8 -j8 rocksdbjavastatic
     # post-steps skipped because of compatibility issues with docker image
   build-macos-java:
     if: ${{ github.repository_owner == 'facebook' }}
