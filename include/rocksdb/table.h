@@ -442,6 +442,10 @@ struct BlockBasedTableOptions {
   //
   // decouple_partitioned_filters = true is the new default. This option is now
   // DEPRECATED and might be ignored and/or removed in a future release.
+  //
+  // NOTE: decouple_partitioned_filters = false with partition_filters = true
+  // disables parallel compression (CompressionOptions::parallel_threads
+  // sanitized to 1).
   bool decouple_partitioned_filters = true;
 
   // Option to generate Bloom/Ribbon filters that minimize memory
@@ -500,6 +504,9 @@ struct BlockBasedTableOptions {
   // If non-nullptr, use the specified factory to build user-defined index.
   // This allows users to define their own index format and build the index
   // during table building.
+  //
+  // NOTE: UserDefinedIndexFactory currently disables parallel compression
+  // (CompressionOptions::parallel_threads sanitized to 1).
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
 
   // If true, place whole keys in the filter (not just prefixes).
