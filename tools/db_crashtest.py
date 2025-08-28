@@ -80,6 +80,7 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
+    "enable_compaction_on_deletion_trigger": lambda: random.choice([0, 0, 0, 1]),
     # `inplace_update_support` is incompatible with DB that has delete
     # range data in memtables.
     # Such data can result from any of the previous db stress runs
