@@ -1,3 +1,27 @@
+# INSTRUCTIONS:
+# I was not about to build docker images on an isolated devserver because of
+# issues with proxy internet access. Use a public cloud or other Linux system.
+# (I used a Debian system after installing docker features, adding my user to
+# the docker and docker-registry groups, and logging out and back in to pick
+# those up.)
+#
+# Follow https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic
+# to login with your GitHub credentials, as in
+#
+# $ docker login ghcr.io -u pdillinger
+#
+# and paste the limited-purpose GitHub token into the terminal.
+#
+# Then in the build_tools/ubuntu22_image directory, (bump minor version for
+# random docker file updates, major version tracks Ubuntu release)
+#
+# $ docker build -t ghcr.io/facebook/rocksdb_ubuntu:22.0
+# $ docker push ghcr.io/facebook/rocksdb_ubuntu:22.0
+#
+# Might need to change visibility to public through
+# https://github.com/orgs/facebook/packages/container/rocksdb_ubuntu/settings
+# or similar.
+
 # from official ubuntu 22.04
 FROM ubuntu:22.04
 # update system

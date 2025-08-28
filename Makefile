@@ -148,10 +148,8 @@ ifeq ($(USE_COROUTINES), 1)
 	USE_FOLLY = 1
 	# glog/logging.h requires HAVE_CXX11_ATOMIC
 	OPT += -DUSE_COROUTINES -DHAVE_CXX11_ATOMIC
-	ROCKSDB_CXX_STANDARD = c++2a
 	USE_RTTI = 1
 ifneq ($(USE_CLANG), 1)
-	ROCKSDB_CXX_STANDARD = c++20
 	PLATFORM_CXXFLAGS += -fcoroutines
 endif
 endif
@@ -683,7 +681,7 @@ am__v_CCH_1 =
 # user build settings
 %.h.pub: %.h # .h.pub not actually created, so re-checked on each invocation
 	$(AM_V_CCH) cd include/ && echo '#include "$(patsubst include/%,%,$<)"' | \
-	  $(CXX) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	  $(CXX) -std=$(or $(ROCKSDB_CXX_STANDARD),c++20) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
 
 check-headers: $(HEADER_OK_FILES)
 
