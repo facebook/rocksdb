@@ -90,7 +90,7 @@ class CacheDumper {
  public:
   virtual ~CacheDumper() = default;
   // Only dump the blocks in the block cache that belong to the DBs in this list
-  virtual Status SetDumpFilter(std::vector<DB*> db_list) {
+  virtual Status SetDumpFilter(const std::vector<DB*>& db_list) {
     (void)db_list;
     return Status::NotSupported("SetDumpFilter is not supported");
   }

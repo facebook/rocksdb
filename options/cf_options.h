@@ -257,9 +257,7 @@ struct MutableCFOptions {
 
   void Dump(Logger* log) const;
 
-#if __cplusplus >= 202002L
   bool operator==(const MutableCFOptions& rhs) const = default;
-#endif
 
   // Memtable related options
   size_t write_buffer_size;

@@ -66,7 +66,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -78,7 +78,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -97,11 +97,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -114,11 +111,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -131,11 +125,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -147,11 +138,8 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -164,7 +152,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -176,7 +164,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -190,7 +178,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -236,29 +224,17 @@ jobs:
     - run: make clean
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
     - uses: "./.github/actions/post-steps"
-  build-linux-gcc-8-no_test_run:
+  build-linux-gcc-13-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
-    - uses: "./.github/actions/post-steps"
-  build-linux-gcc-10-cxx20-no_test_run:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
+    - run: CC=gcc-13 CXX=g++-13 V=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
 
   # ======================== Linux Other Checks ======================= #
@@ -300,7 +276,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -337,7 +313,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -404,11 +380,13 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: evolvedbinary/rocksjava:centos7_x64-be
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     # The docker image is intentionally based on an OS that has an older GLIBC version.
     # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
+    # NOTE: replaced evolvedbinary/rocksjava:centos7_x64-be with ghcr.io/facebook/rocksdb_ubuntu:22.0
+    # until a more appropriate docker image with C++20 support is made.
     - name: Checkout
       env:
         GH_TOKEN: ${{ github.token }}
@@ -425,18 +403,21 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Test RocksDBJava
-      run: scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
-    # NOTE: post-steps skipped because of compatibility issues with docker image
+    # NOTE: replaced scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
+      run: make V=1 J=8 -j8 jtest
+    # post-steps skipped because of compatibility issues with docker image
   build-linux-java-static:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: evolvedbinary/rocksjava:centos7_x64-be
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
       options: --shm-size=16gb
     steps:
     # The docker image is intentionally based on an OS that has an older GLIBC version.
     # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
+    # NOTE: replaced evolvedbinary/rocksjava:centos7_x64-be with ghcr.io/facebook/rocksdb_ubuntu:22.0
+    # until a more appropriate docker image with C++20 support is made.
     - name: Checkout
       env:
         GH_TOKEN: ${{ github.token }}
@@ -453,8 +434,9 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Build RocksDBJava Static Library
-      run: scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
-    # NOTE: post-steps skipped because of compatibility issues with docker image
+    # NOTE: replaced scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
+      run: make V=1 J=8 -j8 rocksdbjavastatic
+    # post-steps skipped because of compatibility issues with docker image
   build-macos-java:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on: macos-13
