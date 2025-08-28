@@ -22,10 +22,6 @@ DECLARE_bool(progress_reports);
 
 namespace ROCKSDB_NAMESPACE {
 
-// Database statistics
-extern std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
-extern std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
-
 class Stats {
  private:
   uint64_t start_;

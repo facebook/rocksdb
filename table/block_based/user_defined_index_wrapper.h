@@ -69,6 +69,25 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
         separator_scratch);
   }
 
+  // Not supported with parallel compression
+  std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override {
+    return nullptr;
+  }
+  void PrepareIndexEntry(const Slice& last_key_in_current_block,
+                         const Slice* first_key_in_next_block,
+                         PreparedIndexEntry* out) override {
+    (void)last_key_in_current_block;
+    (void)first_key_in_next_block;
+    (void)out;
+    assert(false);
+  }
+  void FinishIndexEntry(const BlockHandle& block_handle,
+                        PreparedIndexEntry* entry) override {
+    (void)block_handle;
+    (void)entry;
+    assert(false);
+  }
+
   void OnKeyAdded(const Slice& key,
                   const std::optional<Slice>& value) override {
     ParsedInternalKey pkey;

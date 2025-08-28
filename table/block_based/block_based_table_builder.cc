@@ -224,7 +224,6 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     std::vector<std::string> keys_;
     size_t size_;
   };
-  Keys curr_block_keys;
 
   struct BlockRep;
 
@@ -253,11 +252,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     std::string uncompressed;
     GrowableBuffer compressed;
     CompressionType compression_type = kNoCompression;
-    // For efficiency, the std::string is repeatedly overwritten without
-    // checking for "has no value". Only at the end of its life will it be
-    // assigned "no value". Thus, it needs to start with a value.
-    std::optional<std::string> first_key_in_next_block = std::string{};
-    Keys keys;
+    std::unique_ptr<IndexBuilder::PreparedIndexEntry> prepared_index_entry;
     BlockRepSlot slot;
     Status status;
   };
@@ -419,26 +414,12 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 #endif
   }
 
-  // Make a block prepared to be emitted to compression thread
-  // Used in non-buffered mode
-  BlockRep* PrepareBlock(const Slice* first_key_in_next_block,
-                         BlockBuilder* data_block) {
-    BlockRep* block_rep = PrepareBlockInternal(first_key_in_next_block);
+  BlockRep* PopRecycledBlockRep() {
+    BlockRep* block_rep = nullptr;
+    block_rep_pool.pop(block_rep);
     assert(block_rep != nullptr);
-    data_block->SwapAndReset(block_rep->uncompressed);
-    std::swap(block_rep->keys, curr_block_keys);
-    curr_block_keys.Clear();
-    return block_rep;
-  }
 
-  // Used in EnterUnbuffered
-  BlockRep* PrepareBlock(const Slice* first_key_in_next_block,
-                         std::string* data_block,
-                         std::vector<std::string>* keys) {
-    BlockRep* block_rep = PrepareBlockInternal(first_key_in_next_block);
-    assert(block_rep != nullptr);
-    std::swap(block_rep->uncompressed, *data_block);
-    block_rep->keys.SwapAssign(*keys);
+    block_rep->compression_type = kNoCompression;
     return block_rep;
   }
 
@@ -472,24 +453,6 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
       first_block_processed.store(true, std::memory_order_relaxed);
       first_block_cond.notify_one();
     }
-  }
-
- private:
-  BlockRep* PrepareBlockInternal(const Slice* first_key_in_next_block) {
-    BlockRep* block_rep = nullptr;
-    block_rep_pool.pop(block_rep);
-    assert(block_rep != nullptr);
-
-    block_rep->compression_type = kNoCompression;
-
-    if (first_key_in_next_block == nullptr) {
-      block_rep->first_key_in_next_block = {};
-    } else {
-      block_rep->first_key_in_next_block->assign(
-          first_key_in_next_block->data(), first_key_in_next_block->size());
-    }
-
-    return block_rep;
   }
 };
 
@@ -531,7 +494,6 @@ struct BlockBasedTableBuilder::Rep {
   PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_ikey;  // Internal key or empty (unset)
-  const Slice* first_key_in_next_block = nullptr;
   bool warm_cache = false;
   bool uses_explicit_compression_manager = false;
 
@@ -749,7 +711,12 @@ struct BlockBasedTableBuilder::Rep {
         sampled_input_data_bytes(0),
         sampled_output_slow_data_bytes(0),
         sampled_output_fast_data_bytes(0),
-        compression_parallel_threads(tbo.compression_opts.parallel_threads),
+        compression_parallel_threads(
+            ((table_opt.partition_filters &&
+              !table_opt.decouple_partitioned_filters) ||
+             table_options.user_defined_index_factory)
+                ? uint32_t{1}
+                : tbo.compression_opts.parallel_threads),
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
         data_block_working_areas(compression_parallel_threads),
@@ -1167,61 +1134,20 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     auto should_flush = r->flush_block_policy->Update(ikey, value);
     if (should_flush) {
       assert(!r->data_block.empty());
-      r->first_key_in_next_block = &ikey;
-      Flush();
-      if (r->state == Rep::State::kBuffered) {
-        bool exceeds_buffer_limit =
-            (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
-        bool exceeds_global_block_cache_limit = false;
-
-        // Increase cache charging for the last buffered data block
-        // only if the block is not going to be unbuffered immediately
-        // and there exists a cache reservation manager
-        if (!exceeds_buffer_limit &&
-            r->compression_dict_buffer_cache_res_mgr != nullptr) {
-          Status s =
-              r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
-                  r->data_begin_offset);
-          exceeds_global_block_cache_limit = s.IsMemoryLimit();
-        }
-
-        if (exceeds_buffer_limit || exceeds_global_block_cache_limit) {
-          EnterUnbuffered();
-        }
-      }
-
-      // Add item to index block.
-      // We do not emit the index entry for a block until we have seen the
-      // first key for the next data block.  This allows us to use shorter
-      // keys in the index block.  For example, consider a block boundary
-      // between the keys "the quick brown fox" and "the who".  We can use
-      // "the r" as the key for the index block entry since it is >= all
-      // entries in the first block and < all entries in subsequent
-      // blocks.
-      if (ok() && r->state == Rep::State::kUnbuffered) {
-        if (r->IsParallelCompressionEnabled()) {
-          r->pc_rep->curr_block_keys.Clear();
-        } else {
-          r->index_builder->AddIndexEntry(r->last_ikey, &ikey,
-                                          r->pending_handle,
-                                          &r->index_separator_scratch);
-        }
-      }
+      Flush(/*first_key_in_next_block=*/&ikey);
     }
 
-    // Note: PartitionedFilterBlockBuilder requires key being added to filter
-    // builder after being added to index builder.
+    // Note: PartitionedFilterBlockBuilder with
+    // decouple_partitioned_filters=false requires key being added to filter
+    // builder after being added to and "finished" in the index builder, so
+    // forces no parallel compression (logic in Rep constructor).
     if (r->state == Rep::State::kUnbuffered) {
-      if (r->IsParallelCompressionEnabled()) {
-        r->pc_rep->curr_block_keys.PushBack(ikey);
-      } else {
-        if (r->filter_builder != nullptr) {
-          r->filter_builder->AddWithPrevKey(
-              ExtractUserKeyAndStripTimestamp(ikey, r->ts_sz),
-              r->last_ikey.empty()
-                  ? Slice{}
-                  : ExtractUserKeyAndStripTimestamp(r->last_ikey, r->ts_sz));
-        }
+      if (r->filter_builder != nullptr) {
+        r->filter_builder->AddWithPrevKey(
+            ExtractUserKeyAndStripTimestamp(ikey, r->ts_sz),
+            r->last_ikey.empty()
+                ? Slice{}
+                : ExtractUserKeyAndStripTimestamp(r->last_ikey, r->ts_sz));
       }
     }
 
@@ -1232,9 +1158,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
       // Buffered keys will be replayed from data_block_buffers during
       // `Finish()` once compression dictionary has been finalized.
     } else {
-      if (!r->IsParallelCompressionEnabled()) {
-        r->index_builder->OnKeyAdded(ikey, value);
-      }
+      r->index_builder->OnKeyAdded(ikey, value);
     }
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),
@@ -1281,7 +1205,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   }
 }
 
-void BlockBasedTableBuilder::Flush() {
+void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
   Rep* r = rep_;
   assert(rep_->state != Rep::State::kClosed);
   if (!ok()) {
@@ -1290,7 +1214,6 @@ void BlockBasedTableBuilder::Flush() {
   if (r->data_block.empty()) {
     return;
   }
-
   Slice uncompressed_block_data = r->data_block.Finish();
 
   // NOTE: compression sampling is done here in the same thread as building
@@ -1369,18 +1292,46 @@ void BlockBasedTableBuilder::Flush() {
     assert(uncompressed_block_data.size() == uncompressed_block_holder.size());
     rep_->data_block_buffers.emplace_back(std::move(uncompressed_block_holder));
     rep_->data_begin_offset += uncompressed_block_data.size();
-  } else if (r->IsParallelCompressionEnabled()) {
-    assert(rep_->state == Rep::State::kUnbuffered);
+    MaybeEnterUnbuffered(first_key_in_next_block);
+  } else {
+    EmitBlock(r->data_block.MutableBuffer(), r->last_ikey,
+              first_key_in_next_block);
+    r->data_block.Reset();
+  }
+}
+
+void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
+                                       const Slice& last_key_in_current_block,
+                                       const Slice* first_key_in_next_block) {
+  Rep* r = rep_;
+  assert(r->state == Rep::State::kUnbuffered);
+  assert(uncompressed.size() > 0);
+  if (r->IsParallelCompressionEnabled()) {
     ParallelCompressionRep::BlockRep* block_rep =
-        r->pc_rep->PrepareBlock(r->first_key_in_next_block, &(r->data_block));
+        r->pc_rep->PopRecycledBlockRep();
+    std::swap(uncompressed, block_rep->uncompressed);
+    r->index_builder->PrepareIndexEntry(last_key_in_current_block,
+                                        first_key_in_next_block,
+                                        block_rep->prepared_index_entry.get());
+
     assert(block_rep != nullptr);
     r->pc_rep->file_size_estimator.EmitBlock(block_rep->uncompressed.size(),
                                              r->get_offset());
     r->pc_rep->EmitBlock(block_rep);
   } else {
-    assert(rep_->state == Rep::State::kUnbuffered);
-    WriteBlock(uncompressed_block_data, &r->pending_handle, BlockType::kData);
-    r->data_block.Reset();
+    WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
+    if (ok()) {
+      // We do not emit the index entry for a block until we have seen the
+      // first key for the next data block.  This allows us to use shorter
+      // keys in the index block.  For example, consider a block boundary
+      // between the keys "the quick brown fox" and "the who".  We can use
+      // "the r" as the key for the index block entry since it is >= all
+      // entries in the first block and < all entries in subsequent
+      // blocks.
+      r->index_builder->AddIndexEntry(
+          last_key_in_current_block, first_key_in_next_block, r->pending_handle,
+          &r->index_separator_scratch);
+    }
   }
 }
 
@@ -1646,7 +1597,6 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
   ParallelCompressionRep::BlockRepSlot* slot = nullptr;
   ParallelCompressionRep::BlockRep* block_rep = nullptr;
   // Starts empty; see FilterBlockBuilder::AddWithPrevKey
-  std::string prev_block_last_key_no_ts;
   while (r->pc_rep->write_queue.pop(slot)) {
     // FIXME: this is weird popping off write queue just to wait again on
     // compress queue
@@ -1660,21 +1610,6 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
       block_rep->status = Status::OK();
       r->pc_rep->ReapBlock(block_rep);
       continue;
-    }
-
-    Slice prev_key_no_ts = prev_block_last_key_no_ts;
-    for (size_t i = 0; i < block_rep->keys.Size(); i++) {
-      auto& key = block_rep->keys[i];
-      if (r->filter_builder != nullptr) {
-        Slice key_no_ts = ExtractUserKeyAndStripTimestamp(key, r->ts_sz);
-        r->filter_builder->AddWithPrevKey(key_no_ts, prev_key_no_ts);
-        prev_key_no_ts = key_no_ts;
-      }
-      r->index_builder->OnKeyAdded(key, {});
-    }
-    if (r->filter_builder != nullptr) {
-      prev_block_last_key_no_ts.assign(prev_key_no_ts.data(),
-                                       prev_key_no_ts.size());
     }
 
     r->pc_rep->file_size_estimator.SetCurrBlockUncompSize(
@@ -1693,17 +1628,8 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
     r->props.data_size = r->get_offset();
     ++r->props.num_data_blocks;
 
-    if (!block_rep->first_key_in_next_block.has_value()) {
-      r->index_builder->AddIndexEntry(block_rep->keys.Back(), nullptr,
-                                      r->pending_handle,
-                                      &r->index_separator_scratch);
-    } else {
-      Slice first_key_in_next_block =
-          Slice(*block_rep->first_key_in_next_block);
-      r->index_builder->AddIndexEntry(
-          block_rep->keys.Back(), &first_key_in_next_block, r->pending_handle,
-          &r->index_separator_scratch);
-    }
+    r->index_builder->FinishIndexEntry(r->pending_handle,
+                                       block_rep->prepared_index_entry.get());
 
     r->pc_rep->ReapBlock(block_rep);
   }
@@ -1715,6 +1641,8 @@ void BlockBasedTableBuilder::StartParallelCompression() {
   rep_->pc_rep->compress_thread_pool.reserve(
       rep_->compression_parallel_threads);
   for (uint32_t i = 0; i < rep_->compression_parallel_threads; i++) {
+    rep_->pc_rep->block_rep_buf[i].prepared_index_entry =
+        rep_->index_builder->CreatePreparedIndexEntry();
     rep_->pc_rep->compress_thread_pool.emplace_back(
         [this, i] { BGWorkCompression(rep_->data_block_working_areas[i]); });
   }
@@ -2076,9 +2004,32 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   }
 }
 
-void BlockBasedTableBuilder::EnterUnbuffered() {
+void BlockBasedTableBuilder::MaybeEnterUnbuffered(
+    const Slice* first_key_in_next_block) {
   Rep* r = rep_;
   assert(r->state == Rep::State::kBuffered);
+  // Don't yet enter unbuffered (early return) if none of the conditions are met
+  if (first_key_in_next_block != nullptr) {
+    bool exceeds_buffer_limit =
+        (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
+    if (!exceeds_buffer_limit) {
+      bool exceeds_global_block_cache_limit = false;
+      // Increase cache charging for the last buffered data block
+      // only if the block is not going to be unbuffered immediately
+      // and there exists a cache reservation manager
+      if (r->compression_dict_buffer_cache_res_mgr != nullptr) {
+        Status s =
+            r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
+                r->data_begin_offset);
+        exceeds_global_block_cache_limit = s.IsMemoryLimit();
+      }
+      if (!exceeds_global_block_cache_limit) {
+        return;
+      }
+    }
+  }
+
+  // Enter Unbuffered state
   r->state = Rep::State::kUnbuffered;
   const size_t kNumBlocksBuffered = r->data_block_buffers.size();
   if (kNumBlocksBuffered == 0) {
@@ -2189,60 +2140,32 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       assert(iter != nullptr);
     };
 
+    for (; iter->Valid(); iter->Next()) {
+      Slice key = iter->key();
+      if (r->filter_builder != nullptr) {
+        // NOTE: AddWithPrevKey here would only save key copying if prev is
+        // pinned (iter->IsKeyPinned()), which is probably rare with delta
+        // encoding. OK to go from Add() here to AddWithPrevKey() in
+        // unbuffered operation.
+        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
+      }
+      r->index_builder->OnKeyAdded(key, iter->value());
+    }
+
+    Slice first_key_in_loop_next_block;
+    const Slice* first_key_in_loop_next_block_ptr;
     if (i + 1 < r->data_block_buffers.size()) {
       next_block_iter = get_iterator_for_block(i + 1);
+      first_key_in_loop_next_block = next_block_iter->key();
+      first_key_in_loop_next_block_ptr = &first_key_in_loop_next_block;
+    } else {
+      first_key_in_loop_next_block_ptr = first_key_in_next_block;
     }
 
     auto& data_block = r->data_block_buffers[i];
-    if (r->IsParallelCompressionEnabled()) {
-      Slice first_key_in_next_block;
-      const Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
-      if (i + 1 < r->data_block_buffers.size()) {
-        assert(next_block_iter != nullptr);
-        first_key_in_next_block = next_block_iter->key();
-      } else {
-        first_key_in_next_block_ptr = r->first_key_in_next_block;
-      }
-
-      std::vector<std::string> keys;
-      for (; iter->Valid(); iter->Next()) {
-        keys.emplace_back(iter->key().ToString());
-      }
-
-      ParallelCompressionRep::BlockRep* block_rep = r->pc_rep->PrepareBlock(
-          first_key_in_next_block_ptr, &data_block, &keys);
-
-      assert(block_rep != nullptr);
-      r->pc_rep->file_size_estimator.EmitBlock(block_rep->uncompressed.size(),
-                                               r->get_offset());
-      r->pc_rep->EmitBlock(block_rep);
-    } else {
-      for (; iter->Valid(); iter->Next()) {
-        Slice key = iter->key();
-        if (r->filter_builder != nullptr) {
-          // NOTE: AddWithPrevKey here would only save key copying if prev is
-          // pinned (iter->IsKeyPinned()), which is probably rare with delta
-          // encoding. OK to go from Add() here to AddWithPrevKey() in
-          // unbuffered operation.
-          r->filter_builder->Add(
-              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
-        }
-        r->index_builder->OnKeyAdded(key, iter->value());
-      }
-      WriteBlock(Slice(data_block), &r->pending_handle, BlockType::kData);
-      if (ok() && i + 1 < r->data_block_buffers.size()) {
-        assert(next_block_iter != nullptr);
-        Slice first_key_in_next_block = next_block_iter->key();
-
-        Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
-
-        iter->SeekToLast();
-        assert(iter->Valid());
-        r->index_builder->AddIndexEntry(
-            iter->key(), first_key_in_next_block_ptr, r->pending_handle,
-            &r->index_separator_scratch);
-      }
-    }
+    iter->SeekToLast();
+    assert(iter->Valid());
+    EmitBlock(data_block, iter->key(), first_key_in_loop_next_block_ptr);
     std::swap(iter, next_block_iter);
   }
   r->data_block_buffers.clear();
@@ -2258,12 +2181,13 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
   assert(r->state != Rep::State::kClosed);
-  bool empty_data_block = r->data_block.empty();
-  r->first_key_in_next_block = nullptr;
-  Flush();
-  if (r->state == Rep::State::kBuffered) {
-    EnterUnbuffered();
+  // To make sure properties block is able to keep the accurate size of index
+  // block, we will finish writing all index entries first, in Flush().
+  Flush(/*first_key_in_next_block=*/nullptr);
+  if (rep_->state == Rep::State::kBuffered) {
+    MaybeEnterUnbuffered(nullptr);
   }
+  assert(r->state == Rep::State::kUnbuffered);
   if (r->IsParallelCompressionEnabled()) {
     StopParallelCompression();
 #ifndef NDEBUG
@@ -2271,14 +2195,6 @@ Status BlockBasedTableBuilder::Finish() {
       assert(br.status.ok());
     }
 #endif  // !NDEBUG
-  } else {
-    // To make sure properties block is able to keep the accurate size of index
-    // block, we will finish writing all index entries first.
-    if (ok() && !empty_data_block) {
-      r->index_builder->AddIndexEntry(
-          r->last_ikey, nullptr /* no next data block */, r->pending_handle,
-          &r->index_separator_scratch);
-    }
   }
 
   r->props.tail_start_offset = r->offset;
