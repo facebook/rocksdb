@@ -1231,6 +1231,686 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(1, 2), ::testing::Values(0),
         ::testing::Values(false)));
 
+// Tests for DefaultPrefetchRateLimiter
+class DefaultPrefetchRateLimiterTest : public testing::Test {
+ public:
+  DefaultPrefetchRateLimiterTest() {}
+  ~DefaultPrefetchRateLimiterTest() override {}
+};
+
+TEST_F(DefaultPrefetchRateLimiterTest, BasicAcquireRelease) {
+  DefaultPrefetchRateLimiter limiter(10);
+
+  // Test basic acquire
+  size_t acquired = limiter.acquire(nullptr, 5, false);
+  ASSERT_EQ(acquired, 5);
+
+  // Test release
+  bool released = limiter.release(3);
+  ASSERT_TRUE(released);
+
+  // Test acquire after partial release
+  acquired = limiter.acquire(nullptr, 4, false);
+  ASSERT_EQ(acquired, 4);
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, AllOrNothingTrue) {
+  DefaultPrefetchRateLimiter limiter(10);
+
+  // First acquire some blocks
+  size_t acquired = limiter.acquire(nullptr, 6, false);
+  ASSERT_EQ(acquired, 6);
+
+  // Try to acquire more than available with all_or_nothing=true
+  acquired = limiter.acquire(nullptr, 5, true);
+  ASSERT_EQ(acquired, 0);  // Should fail and return 0
+
+  // Try to acquire exactly what's available with all_or_nothing=true
+  acquired = limiter.acquire(nullptr, 4, true);
+  ASSERT_EQ(acquired, 4);  // Should succeed
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, AllOrNothingFalse) {
+  DefaultPrefetchRateLimiter limiter(10);
+
+  // First acquire some blocks
+  size_t acquired = limiter.acquire(nullptr, 7, false);
+  ASSERT_EQ(acquired, 7);
+
+  // Try to acquire more than available with all_or_nothing=false
+  acquired = limiter.acquire(nullptr, 5, false);
+  ASSERT_EQ(acquired, 3);  // Should return what's available
+
+  // Now no blocks should be available
+  acquired = limiter.acquire(nullptr, 1, false);
+  ASSERT_EQ(acquired, 0);
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, ReleaseExceedsMax) {
+  DefaultPrefetchRateLimiter limiter(10);
+
+  // Acquire all blocks
+  size_t acquired = limiter.acquire(nullptr, 10, false);
+  ASSERT_EQ(acquired, 10);
+
+  // Release more than what was acquired
+  bool released = limiter.release(15);
+  ASSERT_TRUE(released);
+
+  // Should be capped at max_blocks_
+  acquired = limiter.acquire(nullptr, 12, false);
+  ASSERT_EQ(acquired, 10);  // Should only get max_blocks_
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, ZeroBlocksAvailable) {
+  DefaultPrefetchRateLimiter limiter(5);
+
+  // Acquire all blocks
+  size_t acquired = limiter.acquire(nullptr, 5, false);
+  ASSERT_EQ(acquired, 5);
+
+  // Try to acquire when none available
+  acquired = limiter.acquire(nullptr, 1, false);
+  ASSERT_EQ(acquired, 0);
+
+  acquired = limiter.acquire(nullptr, 1, true);
+  ASSERT_EQ(acquired, 0);
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, AcquireZeroBlocks) {
+  DefaultPrefetchRateLimiter limiter(10);
+
+  // Acquire zero blocks
+  size_t acquired = limiter.acquire(nullptr, 0, false);
+  ASSERT_EQ(acquired, 0);
+
+  acquired = limiter.acquire(nullptr, 0, true);
+  ASSERT_EQ(acquired, 0);
+
+  // All blocks should still be available
+  acquired = limiter.acquire(nullptr, 10, false);
+  ASSERT_EQ(acquired, 10);
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, ReleaseZeroBlocks) {
+  DefaultPrefetchRateLimiter limiter(10);
+
+  // Acquire some blocks
+  size_t acquired = limiter.acquire(nullptr, 5, false);
+  ASSERT_EQ(acquired, 5);
+
+  // Release zero blocks
+  bool released = limiter.release(0);
+  ASSERT_TRUE(released);
+
+  // Should still have 5 blocks available
+  acquired = limiter.acquire(nullptr, 6, false);
+  ASSERT_EQ(acquired, 5);
+}
+
+TEST_F(DefaultPrefetchRateLimiterTest, LargeNumbers) {
+  DefaultPrefetchRateLimiter limiter(1000000);
+
+  // Acquire large number of blocks
+  size_t acquired = limiter.acquire(nullptr, 500000, false);
+  ASSERT_EQ(acquired, 500000);
+
+  // Acquire more
+  acquired = limiter.acquire(nullptr, 600000, false);
+  ASSERT_EQ(acquired, 500000);  // Should get remaining blocks
+
+  // Release large number
+  bool released = limiter.release(800000);
+  ASSERT_TRUE(released);
+
+  // Should be capped at max
+  acquired = limiter.acquire(nullptr, 1200000, false);
+  ASSERT_EQ(acquired, 800000);
+}
+
+// Thread safety test
+TEST_F(DefaultPrefetchRateLimiterTest, ThreadSafety) {
+  DefaultPrefetchRateLimiter limiter(1000);
+  std::atomic<size_t> total_acquired{0};
+  std::atomic<size_t> total_released{0};
+
+  const int num_threads = 10;
+  const int operations_per_thread = 10000;
+
+  std::vector<std::thread> threads;
+
+  // Create threads that acquire and release blocks
+  for (int i = 0; i < num_threads; ++i) {
+    threads.emplace_back(
+        [&limiter, &total_acquired, &total_released, operations_per_thread]() {
+          for (int j = 0; j < operations_per_thread; ++j) {
+            // Acquire some blocks
+            size_t acquired = limiter.acquire(nullptr, 5, false);
+            total_acquired.fetch_add(acquired);
+
+            // Release some blocks
+            if (acquired > 0) {
+              bool released = limiter.release(acquired);
+              if (released) {
+                total_released.fetch_add(acquired);
+              }
+            }
+          }
+        });
+  }
+
+  // Wait for all threads to complete
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // Verify that total released equals total acquired
+  ASSERT_EQ(total_acquired.load(), total_released.load());
+
+  // Verify that we can still acquire the maximum number of blocks
+  size_t final_acquired = limiter.acquire(nullptr, 1000, true);
+  ASSERT_EQ(final_acquired, 1000);
+}
+
+// Test concurrent acquire operations
+TEST_F(DefaultPrefetchRateLimiterTest, ConcurrentAcquire) {
+  DefaultPrefetchRateLimiter limiter(100);
+  std::atomic<size_t> total_acquired{0};
+
+  const int num_threads = 20;
+  std::vector<std::thread> threads;
+
+  // Create threads that try to acquire blocks concurrently
+  for (int i = 0; i < num_threads; ++i) {
+    threads.emplace_back([&limiter, &total_acquired]() {
+      size_t acquired = limiter.acquire(nullptr, 10, false);
+      total_acquired.fetch_add(acquired);
+    });
+  }
+
+  // Wait for all threads to complete
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // Total acquired should not exceed the limit
+  ASSERT_LE(total_acquired.load(), 100);
+
+  // The sum should be exactly 100 since we have enough demand
+  ASSERT_EQ(total_acquired.load(), 100);
+}
+
+// Test concurrent release operations
+TEST_F(DefaultPrefetchRateLimiterTest, ConcurrentRelease) {
+  DefaultPrefetchRateLimiter limiter(50);
+
+  // First acquire all blocks
+  size_t acquired = limiter.acquire(nullptr, 50, false);
+  ASSERT_EQ(acquired, 50);
+
+  const int num_threads = 10;
+  std::vector<std::thread> threads;
+
+  // Create threads that try to release blocks concurrently
+  for (int i = 0; i < num_threads; ++i) {
+    threads.emplace_back([&limiter]() { limiter.release(10); });
+  }
+
+  // Wait for all threads to complete
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  // Should be able to acquire the maximum again (releases should be capped)
+  acquired = limiter.acquire(nullptr, 60, false);
+  ASSERT_EQ(acquired, 50);  // Should be capped at max_blocks_
+}
+
+// Integration tests for PrefetchRateLimiter with MultiScan and Prepare
+class PrefetchRateLimiterIntegrationTest
+    : public BlockBasedTableReaderBaseTest {
+ protected:
+  void SetUp() override { BlockBasedTableReaderBaseTest::SetUp(); }
+
+  void ConfigureTableFactory() override {
+    BlockBasedTableOptions opts;
+    opts.index_type = BlockBasedTableOptions::IndexType::kBinarySearch;
+    opts.no_block_cache = false;
+    opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    options_.table_factory.reset(
+        static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
+    options_.prefix_extractor =
+        std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(3));
+  }
+};
+
+// Mock PrefetchRateLimiter to track acquire/release calls
+class MockPrefetchRateLimiter : public PrefetchRateLimiter {
+ public:
+  MockPrefetchRateLimiter(size_t max_bytes)
+      : max_bytes_(max_bytes), cur_bytes_(max_bytes) {}
+
+  size_t acquire(const BlockBasedTable* table, size_t bytes,
+                 bool all_or_nothing) override {
+    (void)table;  // Suppress unused parameter warning
+    acquire_calls_++;
+    total_bytes_requested_ += bytes;
+
+    if (deny_all_requests_) {
+      return 0;
+    }
+
+    size_t current = cur_bytes_.load();
+    if (current == 0) {
+      return 0;
+    }
+
+    size_t to_acquire;
+    if (all_or_nothing) {
+      if (current >= bytes) {
+        to_acquire = bytes;
+      } else {
+        return 0;
+      }
+    } else {
+      to_acquire = std::min(current, bytes);
+    }
+
+    cur_bytes_.fetch_sub(to_acquire);
+    total_bytes_acquired_ += to_acquire;
+    return to_acquire;
+  }
+
+  bool release(size_t bytes) override {
+    release_calls_++;
+    total_bytes_released_ += bytes;
+
+    size_t current = cur_bytes_.load();
+    size_t new_value = std::min(max_bytes_, current + bytes);
+    cur_bytes_.store(new_value);
+    return true;
+  }
+
+  // Test accessors
+  size_t GetAcquireCalls() const { return acquire_calls_; }
+  size_t GetReleaseCalls() const { return release_calls_; }
+  size_t GetTotalBytesRequested() const { return total_bytes_requested_; }
+  size_t GetTotalBytesAcquired() const { return total_bytes_acquired_; }
+  size_t GetTotalBytesReleased() const { return total_bytes_released_; }
+  size_t GetCurrentBytes() const { return cur_bytes_.load(); }
+
+  void SetDenyAllRequests(bool deny) { deny_all_requests_ = deny; }
+  void Reset() {
+    acquire_calls_ = 0;
+    release_calls_ = 0;
+    total_bytes_requested_ = 0;
+    total_bytes_acquired_ = 0;
+    total_bytes_released_ = 0;
+    deny_all_requests_ = false;
+    cur_bytes_ = max_bytes_;
+  }
+
+ private:
+  const size_t max_bytes_;
+  std::atomic<size_t> cur_bytes_;
+  std::atomic<size_t> acquire_calls_{0};
+  std::atomic<size_t> release_calls_{0};
+  std::atomic<size_t> total_bytes_requested_{0};
+  std::atomic<size_t> total_bytes_acquired_{0};
+  std::atomic<size_t> total_bytes_released_{0};
+  std::atomic<bool> deny_all_requests_{false};
+};
+
+TEST_F(PrefetchRateLimiterIntegrationTest, BasicRateLimitingInPrepare) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name =
+      "PrefetchRateLimiterIntegrationTest_BasicRateLimiting";
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, CompressionType::kNoCompression, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */);
+
+  // Create a rate limiter with limited capacity
+  auto mock_limiter =
+      std::make_shared<MockPrefetchRateLimiter>(50000);  // 50KB limit
+
+  // Create MultiScanArgs with rate limiter
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.prefetch_rate_limiter = mock_limiter;
+  scan_options.insert(ExtractUserKey(kv[0].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[15 * kEntriesPerBlock].first));
+
+  ReadOptions read_opts;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Call Prepare - this should trigger rate limiter calls
+  iter->Prepare(&scan_options);
+
+  // Verify that the rate limiter was called
+  ASSERT_GT(mock_limiter->GetAcquireCalls(), 0);
+  ASSERT_GT(mock_limiter->GetTotalBytesRequested(), 0);
+  ASSERT_GT(mock_limiter->GetTotalBytesAcquired(), 0);
+
+  // Verify that we didn't exceed the rate limit
+  ASSERT_LE(mock_limiter->GetTotalBytesAcquired(), 50000);
+
+  // Test that iteration works
+  iter->Seek(kv[0].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), kv[0].first);
+}
+
+TEST_F(PrefetchRateLimiterIntegrationTest, RateLimiterDeniesAllRequests) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          10 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name =
+      "PrefetchRateLimiterIntegrationTest_DeniesAllRequests";
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, CompressionType::kNoCompression, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */);
+
+  // Create a rate limiter that denies all requests
+  auto mock_limiter = std::make_shared<MockPrefetchRateLimiter>(50000);
+  mock_limiter->SetDenyAllRequests(true);
+
+  // Create MultiScanArgs with rate limiter
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.prefetch_rate_limiter = mock_limiter;
+  scan_options.insert(ExtractUserKey(kv[0].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock].first));
+
+  ReadOptions read_opts;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Call Prepare - this should trigger rate limiter calls but get denied
+  iter->Prepare(&scan_options);
+
+  // Verify that the rate limiter was called but no bytes were acquired
+  ASSERT_GT(mock_limiter->GetAcquireCalls(), 0);
+  ASSERT_GT(mock_limiter->GetTotalBytesRequested(), 0);
+  ASSERT_EQ(mock_limiter->GetTotalBytesAcquired(), 0);
+
+  // Iterator should still work (will read blocks on demand)
+  iter->Seek(kv[0].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), kv[0].first);
+}
+
+TEST_F(PrefetchRateLimiterIntegrationTest, RateLimiterPartialAllocation) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name =
+      "PrefetchRateLimiterIntegrationTest_PartialAllocation";
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, CompressionType::kNoCompression, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */);
+
+  // Create a rate limiter with very limited capacity (only enough for a few
+  // blocks)
+  auto mock_limiter =
+      std::make_shared<MockPrefetchRateLimiter>(8192);  // 8KB limit
+
+  // Create MultiScanArgs with rate limiter requesting many blocks
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.prefetch_rate_limiter = mock_limiter;
+  scan_options.insert(ExtractUserKey(kv[0].first),
+                      ExtractUserKey(kv[10 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[12 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[19 * kEntriesPerBlock].first));
+
+  ReadOptions read_opts;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Call Prepare - this should trigger rate limiter calls
+  iter->Prepare(&scan_options);
+
+  // Verify that the rate limiter was called
+  ASSERT_GT(mock_limiter->GetAcquireCalls(), 0);
+  ASSERT_GT(mock_limiter->GetTotalBytesRequested(), 0);
+
+  // Should have acquired some bytes but not all requested
+  ASSERT_GT(mock_limiter->GetTotalBytesAcquired(), 0);
+  ASSERT_LT(mock_limiter->GetTotalBytesAcquired(),
+            mock_limiter->GetTotalBytesRequested());
+
+  // Should not exceed the rate limit
+  ASSERT_LE(mock_limiter->GetTotalBytesAcquired(), 8192);
+
+  // Iterator should still work
+  iter->Seek(kv[0].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), kv[0].first);
+}
+
+TEST_F(PrefetchRateLimiterIntegrationTest, RateLimiterReleaseOnDestroy) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          10 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name =
+      "PrefetchRateLimiterIntegrationTest_ReleaseOnDestroy";
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, CompressionType::kNoCompression, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */);
+
+  // Create a rate limiter
+  auto mock_limiter = std::make_shared<MockPrefetchRateLimiter>(50000);
+  size_t initial_bytes = mock_limiter->GetCurrentBytes();
+
+  {
+    // Create MultiScanArgs with rate limiter in a scope
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.prefetch_rate_limiter = mock_limiter;
+    scan_options.insert(ExtractUserKey(kv[0].first),
+                        ExtractUserKey(kv[5 * kEntriesPerBlock].first));
+
+    ReadOptions read_opts;
+    std::unique_ptr<InternalIterator> iter;
+    iter.reset(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    // Call Prepare
+    iter->Prepare(&scan_options);
+
+    // Verify some bytes were acquired
+    ASSERT_GT(mock_limiter->GetTotalBytesAcquired(), 0);
+    ASSERT_LT(mock_limiter->GetCurrentBytes(), initial_bytes);
+
+    // Use the iterator
+    iter->Seek(kv[0].first);
+    ASSERT_TRUE(iter->Valid());
+
+    // Iterator goes out of scope here, should trigger releases
+  }
+
+  // After iterator destruction, verify that release was called
+  ASSERT_GT(mock_limiter->GetReleaseCalls(), 0);
+  ASSERT_GT(mock_limiter->GetTotalBytesReleased(), 0);
+}
+
+TEST_F(PrefetchRateLimiterIntegrationTest, MultipleIteratorsShareRateLimiter) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name =
+      "PrefetchRateLimiterIntegrationTest_MultipleIterators";
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, CompressionType::kNoCompression, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */);
+
+  // Create a shared rate limiter with limited capacity
+  auto mock_limiter = std::make_shared<MockPrefetchRateLimiter>(100000);
+
+  ReadOptions read_opts;
+
+  // Create first iterator
+  std::unique_ptr<InternalIterator> iter1;
+  iter1.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  MultiScanArgs scan_options1(BytewiseComparator());
+  scan_options1.prefetch_rate_limiter = mock_limiter;
+  scan_options1.insert(ExtractUserKey(kv[0].first),
+                       ExtractUserKey(kv[5 * kEntriesPerBlock].first));
+
+  // Create second iterator
+  std::unique_ptr<InternalIterator> iter2;
+  iter2.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  MultiScanArgs scan_options2(BytewiseComparator());
+  scan_options2.prefetch_rate_limiter = mock_limiter;
+  scan_options2.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
+                       ExtractUserKey(kv[15 * kEntriesPerBlock].first));
+
+  // Prepare both iterators - they should compete for the same rate limiter
+  iter1->Prepare(&scan_options1);
+  size_t bytes_after_first = mock_limiter->GetTotalBytesAcquired();
+
+  iter2->Prepare(&scan_options2);
+  size_t bytes_after_second = mock_limiter->GetTotalBytesAcquired();
+
+  // Verify both iterators used the rate limiter
+  ASSERT_GT(bytes_after_first, 0);
+  ASSERT_GT(bytes_after_second, bytes_after_first);
+
+  // Total should not exceed the limit
+  ASSERT_LE(bytes_after_second, 100000);
+
+  // Both iterators should work
+  iter1->Seek(kv[0].first);
+  ASSERT_TRUE(iter1->Valid());
+  ASSERT_EQ(iter1->key().ToString(), kv[0].first);
+
+  iter2->Seek(kv[10 * kEntriesPerBlock].first);
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ(iter2->key().ToString(), kv[10 * kEntriesPerBlock].first);
+}
+
+TEST_F(PrefetchRateLimiterIntegrationTest, RateLimiterWithAllOrNothingMode) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          10 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name = "PrefetchRateLimiterIntegrationTest_AllOrNothing";
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, CompressionType::kNoCompression, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */);
+
+  // Create a rate limiter with capacity for exactly one block
+  auto mock_limiter =
+      std::make_shared<MockPrefetchRateLimiter>(4096);  // 4KB limit
+
+  // Create MultiScanArgs requesting multiple blocks
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.prefetch_rate_limiter = mock_limiter;
+  scan_options.insert(ExtractUserKey(kv[0].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock].first));
+
+  ReadOptions read_opts;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Call Prepare - should use all-or-nothing mode for some blocks
+  iter->Prepare(&scan_options);
+
+  // Verify that the rate limiter was called
+  ASSERT_GT(mock_limiter->GetAcquireCalls(), 0);
+  ASSERT_GT(mock_limiter->GetTotalBytesRequested(), 0);
+
+  // Should have acquired some bytes but likely not all due to all-or-nothing
+  // failures
+  ASSERT_LE(mock_limiter->GetTotalBytesAcquired(), 4096);
+
+  // Iterator should still work
+  iter->Seek(kv[0].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), kv[0].first);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

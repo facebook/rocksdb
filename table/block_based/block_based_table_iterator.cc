@@ -10,6 +10,56 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+size_t DefaultPrefetchRateLimiter::acquire(const BlockBasedTable* /*unused*/,
+                                           size_t bytes, bool all_or_nothing) {
+  bool done = false;
+  size_t amount = 0;
+  // Quick check if we have nothing.
+  if (cur_bytes_ == 0) {
+    return amount;
+  }
+  while (!done) {
+    // Check again here.
+    size_t current = cur_bytes_.load(std::memory_order_acquire);
+    if (current == 0) {
+      amount = 0;
+      return amount;
+    }
+    if (all_or_nothing) {
+      if (current >= bytes) {
+        done = cur_bytes_.compare_exchange_weak(current, current - bytes);
+        amount = bytes;
+      } else {
+        amount = 0;
+        return amount;
+      }
+    } else {
+      if (current > bytes) {
+        done = cur_bytes_.compare_exchange_weak(current, current - bytes);
+        amount = bytes;
+      } else {
+        done = cur_bytes_.compare_exchange_weak(current, 0);
+        amount = current;
+      }
+    }
+  }
+  return amount;
+}
+
+bool DefaultPrefetchRateLimiter::release(size_t bytes) {
+  bool done = false;
+  while (!done) {
+    // Check again here.
+    size_t current = cur_bytes_.load(std::memory_order_acq_rel);
+    if (current + bytes >= max_bytes_) {
+      done = cur_bytes_.compare_exchange_weak(current, max_bytes_);
+    } else {
+      done = cur_bytes_.compare_exchange_weak(current, current + bytes);
+    }
+  }
+  return true;
+}
+
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
 
 void BlockBasedTableIterator::Seek(const Slice& target) {
@@ -984,6 +1034,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   std::vector<BlockHandle> blocks_to_prepare;
   Status s;
   std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
+  total_acquired_ = 0;
   for (const auto& scan_opt : *scan_opts) {
     size_t num_blocks = 0;
     // Current scan overlap the last block of the previous scan.
@@ -1000,6 +1051,16 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
                 index_iter_->user_key(),
                 /*a_has_ts*/ true, *scan_opt.range.limit,
                 /*b_has_ts=*/false) <= 0)) {
+      // Lets make sure we are rate limited on how many blocks to prepare
+      if (multiscan_opts->prefetch_rate_limiter) {
+        auto blocks = multiscan_opts->GetMutablePrefetchRateLimiter().acquire(
+            table_, index_iter_->value().handle.size(), true);
+        total_acquired_ += blocks;
+        if (blocks == 0) {
+          break;
+        }
+      }
+
       if (check_overlap &&
           blocks_to_prepare.back() == index_iter_->value().handle) {
         // Skip the current block since it's already in the list
@@ -1160,6 +1221,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
         read_req.scratch = buf.get() + offset;
         offset += read_req.len;
       }
+    }
+
+    if (read_reqs.size() == 0) {
+      return;
     }
 
     AlignedBuf aligned_buf;
@@ -1345,6 +1410,15 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     }
     // Move to the next pinned data block
     ResetDataIter();
+    if (multi_scan_->scan_opts->prefetch_rate_limiter) {
+      size_t releasing =
+          multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx]
+              .GetValue()
+              ->size();
+      multi_scan_->scan_opts->GetMutablePrefetchRateLimiter().release(
+          releasing);
+      total_acquired_ -= releasing;
+    }
     ++multi_scan_->cur_data_block_idx;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_,

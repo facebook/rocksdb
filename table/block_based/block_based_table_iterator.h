@@ -16,6 +16,7 @@
 #include "table/block_based/reader_common.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 // Iterates over the contents of BlockBasedTable.
 class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // compaction_readahead_size: its value will only be used if for_compaction =
@@ -47,7 +48,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         is_last_level_(table->IsLastLevel()),
         block_iter_points_to_real_block_(false) {}
 
-  ~BlockBasedTableIterator() override { ClearBlockHandles(); }
+  ~BlockBasedTableIterator() override {
+    if (multi_scan_ && multi_scan_->scan_opts->prefetch_rate_limiter) {
+      multi_scan_->scan_opts->GetMutablePrefetchRateLimiter().release(
+          total_acquired_);
+    }
+
+    ClearBlockHandles();
+  }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -373,6 +381,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // *** END States used by both regular scan and multiscan
 
   // *** BEGIN MultiScan related states ***
+  size_t total_acquired_ = 0;
+
   struct MultiScanState {
     // bool prepared_ = false;
     const MultiScanArgs* scan_opts;
