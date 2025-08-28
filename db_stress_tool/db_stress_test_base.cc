@@ -30,6 +30,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -4672,6 +4673,16 @@ void InitializeOptionsGeneral(
 
   if (sqfc_factory && !sqfc_factory->GetConfigs().IsEmptyNotFound()) {
     options.table_properties_collector_factories.emplace_back(sqfc_factory);
+  }
+
+  // Add CompactOnDeletionCollectorFactory if enabled
+  if (FLAGS_enable_compaction_on_deletion_trigger) {
+    options.table_properties_collector_factories.emplace_back(
+        ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory(
+            FLAGS_compaction_on_deletion_window_size,
+            FLAGS_compaction_on_deletion_trigger_count,
+            FLAGS_compaction_on_deletion_ratio,
+            FLAGS_compaction_on_deletion_min_file_size));
   }
 }
 
