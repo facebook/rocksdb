@@ -1120,17 +1120,15 @@ void CompactionIterator::NextFromInput() {
     }
   }
 
-  if (!Valid() && IsShuttingDown()) {
-    status_ = Status::ShutdownInProgress();
-  }
-
-  if (IsPausingManualCompaction()) {
-    status_ = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-  }
-
-  // Propagate corruption status from memtable itereator
-  if (!input_.Valid() && input_.status().IsCorruption()) {
-    status_ = input_.status();
+  if (status_.ok()) {
+    if (!Valid() && IsShuttingDown()) {
+      status_ = Status::ShutdownInProgress();
+    } else if (IsPausingManualCompaction()) {
+      status_ = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    } else if (!input_.Valid() && input_.status().IsCorruption()) {
+      // Propagate corruption status from memtable iterator
+      status_ = input_.status();
+    }
   }
 }
 
