@@ -11,6 +11,27 @@ import sys
 import tempfile
 import time
 
+
+def setup_random_seed_before_main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--random_seed",
+        default=0,
+        type=int,
+        help="Random seed used for reproduce the same test parameter set",
+    )
+    args, _ = parser.parse_known_args()
+    random_seed = (
+        random.randint(1, 2**64) if args.random_seed == 0 else args.random_seed
+    )
+    print(f"Start with random seed {random_seed}")
+    random.seed(random_seed)
+
+
+# Random seed has to be setup before the rest of the script, so that the random
+# value selected in the global variable uses the random seed specified
+setup_random_seed_before_main()
+
 # params overwrite priority:
 #   for default:
 #       default_params < {blackbox,whitebox}_default_params < args
@@ -1181,6 +1202,7 @@ def gen_cmd(params, unknown_params):
             not in {
                 "test_type",
                 "simple",
+                "random_seed",
                 "duration",
                 "interval",
                 "random_kill_odd",
