@@ -1776,6 +1776,32 @@ struct ScanOptions {
       : range(_start, _upper_bound) {}
 };
 
+class BlockBasedTable;
+class PrefetchRateLimiter {
+ public:
+  PrefetchRateLimiter() = default;
+  virtual ~PrefetchRateLimiter() = default;
+
+  virtual size_t acquire(const BlockBasedTable* table, size_t bytes,
+                         bool all_or_nothing) = 0;
+  virtual bool release(size_t bytes) = 0;
+};
+
+class DefaultPrefetchRateLimiter : public PrefetchRateLimiter {
+ public:
+  explicit DefaultPrefetchRateLimiter(size_t max_bytes)
+      : max_bytes_(max_bytes), cur_bytes_(max_bytes) {}
+  virtual ~DefaultPrefetchRateLimiter() = default;
+
+  virtual size_t acquire(const BlockBasedTable* table, size_t bytes,
+                         bool all_or_nothing) override;
+  virtual bool release(size_t bytes) override;
+
+ private:
+  const size_t max_bytes_;
+  std::atomic<size_t> cur_bytes_;
+};
+
 // Container for multiple scan ranges that can be used with MultiScan.
 // This replaces std::vector<ScanOptions> with a more efficient implementation
 // that can merge overlapping ranges.
@@ -1783,23 +1809,28 @@ class MultiScanArgs {
  public:
   // Constructor that takes a comparator
   explicit MultiScanArgs(const Comparator* comparator = BytewiseComparator())
-      : comp_(comparator) {}
+      : prefetch_rate_limiter(nullptr), comp_(comparator) {}
 
   // Copy Constructor
-  MultiScanArgs(const MultiScanArgs& other) {
-    comp_ = other.comp_;
-    original_ranges_ = other.original_ranges_;
-    io_coalesce_threshold = other.io_coalesce_threshold;
-  }
+  MultiScanArgs(const MultiScanArgs& other)
+      : io_coalesce_threshold(other.io_coalesce_threshold),
+        prefetch_rate_limiter(other.prefetch_rate_limiter),
+        comp_(other.comp_),
+        original_ranges_(other.original_ranges_) {}
+
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
+        prefetch_rate_limiter(std::move(other.prefetch_rate_limiter)),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
 
   MultiScanArgs& operator=(const MultiScanArgs& other) {
-    comp_ = other.comp_;
-    original_ranges_ = other.original_ranges_;
-    io_coalesce_threshold = other.io_coalesce_threshold;
+    if (this != &other) {
+      comp_ = other.comp_;
+      original_ranges_ = other.original_ranges_;
+      io_coalesce_threshold = other.io_coalesce_threshold;
+      prefetch_rate_limiter = other.prefetch_rate_limiter;
+    }
     return *this;
   }
 
@@ -1808,6 +1839,7 @@ class MultiScanArgs {
       comp_ = other.comp_;
       original_ranges_ = std::move(other.original_ranges_);
       io_coalesce_threshold = other.io_coalesce_threshold;
+      prefetch_rate_limiter = std::move(other.prefetch_rate_limiter);
     }
     return *this;
   }
@@ -1848,6 +1880,12 @@ class MultiScanArgs {
   }
 
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
+
+  std::shared_ptr<PrefetchRateLimiter> prefetch_rate_limiter;
+
+  PrefetchRateLimiter& GetMutablePrefetchRateLimiter() const {
+    return *prefetch_rate_limiter.get();
+  }
 
  private:
   // The comparator used for ordering ranges
