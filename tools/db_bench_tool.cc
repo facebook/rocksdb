@@ -1281,6 +1281,9 @@ DEFINE_bool(
 DEFINE_bool(paranoid_memory_checks, false,
             "Sets CF option paranoid_memory_checks");
 
+DEFINE_bool(paranoid_memory_check_key_checksum_on_seek, false,
+            "Sets CF option paranoid_memory_check_key_checksum_on_seek");
+
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot, false,
     "When set to true, RocksDB iterator will automatically refresh itself "
