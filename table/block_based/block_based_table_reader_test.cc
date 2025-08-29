@@ -1381,22 +1381,21 @@ TEST_F(DefaultPrefetchRateLimiterTest, ThreadSafety) {
 
   // Create threads that acquire and release blocks
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back(
-        [&limiter, &total_acquired, &total_released]() {
-          for (int j = 0; j < operations_per_thread; ++j) {
-            // Acquire some blocks
-            size_t acquired = limiter.acquire(nullptr, 5, false);
-            total_acquired.fetch_add(acquired);
+    threads.emplace_back([&limiter, &total_acquired, &total_released]() {
+      for (int j = 0; j < operations_per_thread; ++j) {
+        // Acquire some blocks
+        size_t acquired = limiter.acquire(nullptr, 5, false);
+        total_acquired.fetch_add(acquired);
 
-            // Release some blocks
-            if (acquired > 0) {
-              bool released = limiter.release(acquired);
-              if (released) {
-                total_released.fetch_add(acquired);
-              }
-            }
+        // Release some blocks
+        if (acquired > 0) {
+          bool released = limiter.release(acquired);
+          if (released) {
+            total_released.fetch_add(acquired);
           }
-        });
+        }
+      }
+    });
   }
 
   // Wait for all threads to complete
