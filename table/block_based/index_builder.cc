@@ -248,16 +248,16 @@ void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
 Slice PartitionedIndexBuilder::AddIndexEntry(
     const Slice& last_key_in_current_block,
     const Slice* first_key_in_next_block, const BlockHandle& block_handle,
-    std::string* separator_scratch) {
+    std::string* separator_scratch, bool add_restart_point) {
   // At least when running without parallel compression, maintain behavior of
   // avoiding a last index partition with just one entry
   if (first_key_in_next_block) {
     MaybeFlush(last_key_in_current_block, block_handle);
   }
 
-  auto sep = sub_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                               first_key_in_next_block,
-                                               block_handle, separator_scratch);
+  auto sep = sub_index_builder_->AddIndexEntry(
+      last_key_in_current_block, first_key_in_next_block, block_handle,
+      separator_scratch, add_restart_point);
   entries_.back().key.assign(sep.data(), sep.size());
 
   if (!must_use_separator_with_seq_ &&

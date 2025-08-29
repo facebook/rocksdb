@@ -3561,6 +3561,69 @@ TEST_F(DBFlushTest, VerifyOutputRecordCount) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+std::string formatKey(int i) {
+  int desired_length = 10;
+  char buffer[64];
+  sprintf(buffer, "%0*d", desired_length, i);
+  return buffer;
+}
+
+std::string formatValue(int i) { return std::string(1234, 'a' + (i % 26)); }
+
+TEST_F(DBFlushTest, SuperBlock) {
+  constexpr int key_count = 12345;
+  Options options;
+  BlockBasedTableOptions block_options;
+  block_options.block_align = false;
+  block_options.super_block_align = true;
+  block_options.super_block_alignment_size = 64 * 1024;
+  block_options.super_block_alignment_max_padding_size = 4 * 1024;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_options));
+
+  Reopen(options);
+
+  int super_block_pad_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WriteMaybeCompressedBlock:"
+      "SuperBlockAlignment",
+      [&super_block_pad_count](void* /*arg*/) { super_block_pad_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Add lots of keys
+  for (int i = 0; i < key_count; ++i) {
+    Put(formatKey(i), formatValue(i));
+  }
+
+  // flush the data in memory to disk to verify with super block alignment, the
+  // data could be read back properly
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GT(super_block_pad_count, 0);
+
+  // verify the values are correct
+  // Test GET
+  for (int i = 0; i < key_count; ++i) {
+    PinnableSlice value;
+    ASSERT_OK(Get(formatKey(i), &value));
+    ASSERT_EQ(value.ToString(), formatValue(i));
+  }
+  // Test iterator
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    int i = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      ASSERT_OK(it->status());
+      ASSERT_EQ((it->key()).ToString(), formatKey(i));
+      ASSERT_EQ((it->value()).ToString(), formatValue(i));
+      i++;
+    }
+    ASSERT_EQ(i, key_count);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
