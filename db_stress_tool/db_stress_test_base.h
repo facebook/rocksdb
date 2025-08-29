@@ -354,7 +354,8 @@ class StressTest {
     assert(!error_s.ok());
     return error_s.getState() &&
            FaultInjectionTestFS::IsInjectedError(error_s) &&
-           !status_to_io_status(Status(error_s)).GetDataLoss();
+           !status_to_io_status(Status(error_s)).GetDataLoss() &&
+           error_s.severity() <= Status::Severity::kHardError;
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,

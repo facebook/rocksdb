@@ -423,14 +423,17 @@ void ErrorHandler::SetBGError(const Status& bg_status,
            reason == BackgroundErrorReason::kMemTable ||
            reason == BackgroundErrorReason::kFlush);
   }
-  if (db_options_.manual_wal_flush && wal_related && bg_io_err.IsIOError()) {
-    // With manual_wal_flush, a WAL write failure can drop buffered WAL writes.
-    // Memtables and WAL then become inconsistent. A successful memtable flush
-    // on one CF can cause CFs to be inconsistent upon restart. Before we fix
-    // the bug in auto recovery from WAL write failures that can flush one CF
-    // at a time, we set the error severity to fatal to disallow auto recovery.
-    // TODO: remove parameter `wal_related` once we can automatically recover
-    //  from WAL write failures.
+
+  // When `atomic_flush = false` with multiple column families, when
+  // encountering WAL related IO error, individual CF flushing during auto
+  // recovery can create data inconsistencies where some column families advance
+  // past the corruption point while others remain behind, preventing successful
+  // database restart. Therefore we disable auto recovery by setting a higher
+  // severity `Status::Severity::kFatalError`.
+  bool has_multiple_cfs =
+      db_->versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1;
+  if (!db_options_.atomic_flush && has_multiple_cfs && wal_related &&
+      bg_io_err.IsIOError()) {
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kFatalError);
     CheckAndSetRecoveryAndBGError(bg_err);
