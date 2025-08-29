@@ -464,17 +464,6 @@ Status FaultInjectionTestEnv::LinkFile(const std::string& s,
   return ret;
 }
 
-Status FaultInjectionTestEnv::SyncFile(const std::string& fname,
-                                       const EnvOptions& env_options,
-                                       bool use_fsync) {
-  // Call the default implement of SyncFile API in Env, so that it would call
-  // other FileSystem API at FaultInjectionTestEnv layer for failure injection.
-  // Otherwise, the default behavior is WrapperEnv::SyncFile, which forward the
-  // call to the underlying FileSystem, instead of the ones in
-  // FaultInjectionTestEnv.
-  return Env::SyncFile(fname, env_options, use_fsync);
-}
-
 void FaultInjectionTestEnv::WritableFileClosed(const FileState& state) {
   MutexLock l(&mutex_);
   if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {

@@ -1200,17 +1200,6 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
   }
   return io_s;
 }
-IOStatus FaultInjectionTestFS::SyncFile(const std::string& fname,
-                                        const FileOptions& file_options,
-                                        const IOOptions& io_options,
-                                        bool use_fsync, IODebugContext* dbg) {
-  // Call the default implement of SyncFile API in FileSystem, so that it would
-  // call other FileSystem API at FaultInjectionTestFS layer for failure
-  // injection. Otherwise, the default behavior is calling target()->SyncFile,
-  // which forward the call to the underlying FileSystem, instead of the ones in
-  // FaultInjectionTestFS.
-  return FileSystem::SyncFile(fname, file_options, io_options, use_fsync, dbg);
-}
 
 IOStatus FaultInjectionTestFS::NumFileLinks(const std::string& fname,
                                             const IOOptions& options,
