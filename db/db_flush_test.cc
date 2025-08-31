@@ -3569,17 +3569,53 @@ std::string formatKey(int i) {
   return buffer;
 }
 
-std::string formatValue(int i) { return std::string(1234, 'a' + (i % 26)); }
+std::string formatValue(int i) { return std::string(7919, 'a' + (i % 26)); }
 
-TEST_F(DBFlushTest, SuperBlock) {
+class DBFlushSuperBlockTest : public DBFlushTest,
+                              public ::testing::WithParamInterface<
+                                  std::tuple<bool, bool, size_t, size_t>> {
+ public:
+  DBFlushSuperBlockTest() : DBFlushTest() {}
+
+  void VerifyRead(int key_count) {
+    // Test GET
+    for (int i = 0; i < key_count; ++i) {
+      PinnableSlice value;
+      ASSERT_OK(Get(formatKey(i), &value));
+      ASSERT_EQ(value.ToString(), formatValue(i));
+    }
+    // Test iterator
+    {
+      std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+      int i = 0;
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        ASSERT_OK(it->status());
+        ASSERT_EQ((it->key()).ToString(), formatKey(i));
+        ASSERT_EQ((it->value()).ToString(), formatValue(i));
+        i++;
+      }
+      ASSERT_EQ(i, key_count);
+    }
+  }
+};
+
+TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   constexpr int key_count = 12345;
   Options options;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   BlockBasedTableOptions block_options;
-  block_options.block_align = false;
-  block_options.super_block_align = true;
-  block_options.super_block_alignment_size = 64 * 1024;
-  block_options.super_block_alignment_max_padding_size = 4 * 1024;
+  block_options.block_align = get<0>(GetParam());
+  block_options.super_block_align = get<1>(GetParam());
+  block_options.super_block_alignment_size = get<2>(GetParam());
+  block_options.super_block_alignment_max_padding_size = get<3>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
+  if (block_options.block_align) {
+    // When block align is enabled, disable compression
+    options.compression = kNoCompression;
+  }
+
+  ASSERT_OK(options.table_factory->ValidateOptions(
+      DBOptions(options), ColumnFamilyOptions(options)));
 
   Reopen(options);
 
@@ -3602,28 +3638,42 @@ TEST_F(DBFlushTest, SuperBlock) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  ASSERT_GT(super_block_pad_count, 0);
+  // When block_align is enabled, super block is always aligned, so there should
+  // be 0 padding for super block alignment
+  if (block_options.super_block_align && !block_options.block_align) {
+    ASSERT_GT(super_block_pad_count, 0);
+  } else {
+    ASSERT_EQ(super_block_pad_count, 0);
+  }
 
   // verify the values are correct
-  // Test GET
-  for (int i = 0; i < key_count; ++i) {
-    PinnableSlice value;
-    ASSERT_OK(Get(formatKey(i), &value));
-    ASSERT_EQ(value.ToString(), formatValue(i));
-  }
-  // Test iterator
-  {
-    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
-    int i = 0;
-    for (it->SeekToFirst(); it->Valid(); it->Next()) {
-      ASSERT_OK(it->status());
-      ASSERT_EQ((it->key()).ToString(), formatKey(i));
-      ASSERT_EQ((it->value()).ToString(), formatValue(i));
-      i++;
-    }
-    ASSERT_EQ(i, key_count);
-  }
+  VerifyRead(key_count);
+
+  // verify checksum
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+
+  // Reopen options and flip the option of super block configuration, read still
+  // works.
+  block_options.super_block_align = !block_options.super_block_align;
+  block_options.super_block_alignment_size *= 2;
+  block_options.super_block_alignment_max_padding_size *= 2;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_options));
+
+  Reopen(options);
+
+  // verify the values are correct
+  VerifyRead(key_count);
+
+  // verify checksum
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
 }
+
+INSTANTIATE_TEST_CASE_P(SuperBlockTests, DBFlushSuperBlockTest,
+                        testing::Combine(testing::Bool(), testing::Bool(),
+                                         testing::Values(128 * 1024, 512 * 1024,
+                                                         2 * 1024 * 1024),
+                                         testing::Values(4 * 1024, 32 * 1024)));
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -597,8 +597,13 @@ struct BlockBasedTableOptions {
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
 
+  // TODO : enable super block on more existing tests
+  // TODO : validate max padding size effectiveness
+  // TODO : add more unit test: enable super block, shutdown, disable super
+  // block, validate keys could be read back.
+
   // Align data blocks on super block alignment. Avoid a data block split across
-  // super block boundaries.
+  // super block boundaries. Works with/without compression.
   bool super_block_align = false;
 
   // Super block alignment size. Default to 512 KB. It has to be a power of 2

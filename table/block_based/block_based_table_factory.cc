@@ -364,6 +364,16 @@ static struct BlockBasedTableTypeInfo {
         {"block_align",
          {offsetof(struct BlockBasedTableOptions, block_align),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"super_block_align",
+         {offsetof(struct BlockBasedTableOptions, super_block_align),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"super_block_alignment_size",
+         {offsetof(struct BlockBasedTableOptions, super_block_alignment_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal}},
+        {"super_block_alignment_max_padding_size",
+         {offsetof(struct BlockBasedTableOptions,
+                   super_block_alignment_max_padding_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal}},
         {"pin_top_level_index_and_filter",
          {offsetof(struct BlockBasedTableOptions,
                    pin_top_level_index_and_filter),
@@ -909,6 +919,17 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  super_block_align: %d\n",
+           table_options_.super_block_align);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  super_block_alignment_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.super_block_alignment_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  super_block_alignment_max_padding_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.super_block_alignment_max_padding_size);
   ret.append(buffer);
   snprintf(buffer, kBufferSize,
            "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
