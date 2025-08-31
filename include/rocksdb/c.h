@@ -3440,6 +3440,48 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_wait_for_compact_options_get_timeout(
     rocksdb_wait_for_compact_options_t* opt);
 
+/* High-performance zero-copy Get variants
+   These functions avoid unnecessary memory allocations and copies.
+   The returned buffer is valid until the handle is destroyed.
+   Bindings should migrate to these for better performance. */
+
+/* Zero-copy get that returns a handle to pinned data.
+   The data remains valid until rocksdb_pinnable_handle_destroy is called.
+   Returns NULL on error or not found. Check errptr to distinguish. */
+typedef struct rocksdb_pinnable_handle_t rocksdb_pinnable_handle_t;
+
+extern ROCKSDB_LIBRARY_API rocksdb_pinnable_handle_t* rocksdb_get_pinned_v2(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_pinnable_handle_t* rocksdb_get_pinned_cf_v2(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr);
+
+/* Get the data pointer and size from a pinnable handle.
+   The data pointer is valid until the handle is destroyed. */
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnable_handle_get_value(
+    const rocksdb_pinnable_handle_t* handle, size_t* vallen);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_pinnable_handle_destroy(
+    rocksdb_pinnable_handle_t* handle);
+
+/* Direct get into caller-provided buffer.
+   Returns 1 if value fits in buffer, 0 if buffer too small.
+   Sets *vallen to actual value size.
+   If buffer is too small, no data is copied but *vallen is set. */
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char* buffer, size_t buffer_size, size_t* vallen,
+    unsigned char* found, char** errptr);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char* buffer, size_t buffer_size, size_t* vallen,
+    unsigned char* found, char** errptr);
+
 #ifdef __cplusplus
 } /* end extern "C" */
 #endif

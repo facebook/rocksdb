@@ -1505,6 +1505,53 @@ int main(int argc, char** argv) {
     CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
   }
 
+  StartPhase("zero_copy_get_pinned_v2");
+  {
+    // Test new zero-copy get functions
+
+    // Test rocksdb_get_pinned_v2
+    rocksdb_pinnable_handle_t* handle =
+        rocksdb_get_pinned_v2(db, roptions, "foo", 3, &err);
+    CheckNoError(err);
+    CheckCondition(handle != NULL);
+    size_t val_len;
+    const char* val = rocksdb_pinnable_handle_get_value(handle, &val_len);
+    CheckEqual("hello", val, val_len);
+    rocksdb_pinnable_handle_destroy(handle);
+
+    // Test with non-existent key
+    handle = rocksdb_get_pinned_v2(db, roptions, "notfound", 8, &err);
+    CheckNoError(err);
+    CheckCondition(handle == NULL);
+
+    // Test rocksdb_get_into_buffer
+    char buffer[100];
+    unsigned char found;
+    unsigned char success = rocksdb_get_into_buffer(
+        db, roptions, "foo", 3, buffer, sizeof(buffer), &val_len, &found, &err);
+    CheckNoError(err);
+    CheckCondition(success == 1);
+    CheckCondition(found == 1);
+    CheckCondition(val_len == 5);
+    CheckCondition(memcmp(buffer, "hello", 5) == 0);
+
+    // Test with buffer too small
+    success = rocksdb_get_into_buffer(db, roptions, "foo", 3, buffer,
+                                      2,  // Buffer too small
+                                      &val_len, &found, &err);
+    CheckNoError(err);
+    CheckCondition(success == 0);  // Should fail due to small buffer
+    CheckCondition(found == 1);
+    CheckCondition(val_len == 5);  // Should still report actual size
+
+    // Test with non-existent key
+    success = rocksdb_get_into_buffer(db, roptions, "notfound", 8, buffer,
+                                      sizeof(buffer), &val_len, &found, &err);
+    CheckNoError(err);
+    CheckCondition(success == 0);
+    CheckCondition(found == 0);
+  }
+
   StartPhase("pin_get");
   {
     CheckPinGet(db, roptions, "box", "c");
@@ -1921,6 +1968,55 @@ int main(int argc, char** argv) {
 
     rocksdb_flush_wal(db, 1, &err);
     CheckNoError(err);
+
+    // Test column family handle get name
+    {
+      size_t name_len;
+      char* cf_name =
+          rocksdb_column_family_handle_get_name(handles[1], &name_len);
+      CheckCondition(name_len == 3);
+      CheckCondition(memcmp(cf_name, "cf1", 3) == 0);
+      rocksdb_free(cf_name);
+    }
+
+    // Test zero-copy get with column families
+    {
+      rocksdb_pinnable_handle_t* handle =
+          rocksdb_get_pinned_cf_v2(db, roptions, handles[1], "box", 3, &err);
+      CheckNoError(err);
+      CheckCondition(handle != NULL);
+      size_t val_len;
+      const char* val = rocksdb_pinnable_handle_get_value(handle, &val_len);
+      CheckEqual("c", val, val_len);
+      rocksdb_pinnable_handle_destroy(handle);
+
+      // Test with non-existent key
+      handle = rocksdb_get_pinned_cf_v2(db, roptions, handles[1], "notfound", 8,
+                                        &err);
+      CheckNoError(err);
+      CheckCondition(handle == NULL);
+
+      // Test rocksdb_get_into_buffer_cf
+      char buffer[100];
+      unsigned char found;
+      unsigned char success = rocksdb_get_into_buffer_cf(
+          db, roptions, handles[1], "buff", 4, buffer, sizeof(buffer), &val_len,
+          &found, &err);
+      CheckNoError(err);
+      CheckCondition(success == 1);
+      CheckCondition(found == 1);
+      CheckCondition(val_len == 7);
+      CheckCondition(memcmp(buffer, "rocksdb", 7) == 0);
+
+      // Test with buffer too small
+      success = rocksdb_get_into_buffer_cf(db, roptions, handles[1], "buff", 4,
+                                           buffer, 3,  // Buffer too small
+                                           &val_len, &found, &err);
+      CheckNoError(err);
+      CheckCondition(success == 0);  // Should fail due to small buffer
+      CheckCondition(found == 1);
+      CheckCondition(val_len == 7);  // Should still report actual size
+    }
 
     // Test WriteBatchWithIndex iteration with Column Family
     rocksdb_writebatch_wi_t* wbwi = rocksdb_writebatch_wi_create(0, true);
@@ -3468,6 +3564,17 @@ int main(int argc, char** argv) {
 
     rocksdb_transaction_put(txn, "foo", 3, "hello", 5, &err);
     CheckNoError(err);
+
+    // test transaction get/set name (before commit)
+    {
+      rocksdb_transaction_set_name(txn, "test_txn", 8, &err);
+      CheckNoError(err);
+      size_t name_len;
+      char* txn_name = rocksdb_transaction_get_name(txn, &name_len);
+      CheckCondition(name_len == 8);
+      CheckCondition(memcmp(txn_name, "test_txn", 8) == 0);
+      rocksdb_free(txn_name);
+    }
 
     // read from outside transaction, before commit
     CheckTxnDBGet(txn_db, roptions, "foo", NULL);
