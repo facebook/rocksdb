@@ -599,8 +599,6 @@ struct BlockBasedTableOptions {
 
   // TODO : enable super block on more existing tests
   // TODO : validate max padding size effectiveness
-  // TODO : add more unit test: enable super block, shutdown, disable super
-  // block, validate keys could be read back.
 
   // Align data blocks on super block alignment. Avoid a data block split across
   // super block boundaries. Works with/without compression.

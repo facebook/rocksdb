@@ -3565,7 +3565,7 @@ TEST_F(DBFlushTest, VerifyOutputRecordCount) {
 std::string formatKey(int i) {
   int desired_length = 10;
   char buffer[64];
-  sprintf(buffer, "%0*d", desired_length, i);
+  snprintf(buffer, 64, "%0*d", desired_length, i);
   return buffer;
 }
 
@@ -3602,13 +3602,17 @@ class DBFlushSuperBlockTest : public DBFlushTest,
 TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   constexpr int key_count = 12345;
   Options options;
+  options.env = env_;
+  Reopen(options);
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  Reopen(options);
   BlockBasedTableOptions block_options;
   block_options.block_align = get<0>(GetParam());
   block_options.super_block_align = get<1>(GetParam());
   block_options.super_block_alignment_size = get<2>(GetParam());
   block_options.super_block_alignment_max_padding_size = get<3>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
+  Reopen(options);
   if (block_options.block_align) {
     // When block align is enabled, disable compression
     options.compression = kNoCompression;
@@ -3628,7 +3632,7 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
   // Add lots of keys
   for (int i = 0; i < key_count; ++i) {
-    Put(formatKey(i), formatValue(i));
+    ASSERT_OK(Put(formatKey(i), formatValue(i)));
   }
 
   // flush the data in memory to disk to verify with super block alignment, the
@@ -3653,7 +3657,7 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
 
   // Reopen options and flip the option of super block configuration, read still
-  // works.
+  // works. This verifies the forward/backward compatibility
   block_options.super_block_align = !block_options.super_block_align;
   block_options.super_block_alignment_size *= 2;
   block_options.super_block_alignment_max_padding_size *= 2;
@@ -3672,7 +3676,7 @@ INSTANTIATE_TEST_CASE_P(SuperBlockTests, DBFlushSuperBlockTest,
                         testing::Combine(testing::Bool(), testing::Bool(),
                                          testing::Values(128 * 1024, 512 * 1024,
                                                          2 * 1024 * 1024),
-                                         testing::Values(4 * 1024, 32 * 1024)));
+                                         testing::Values(2 * 1024, 4 * 1024)));
 
 }  // namespace ROCKSDB_NAMESPACE
 
