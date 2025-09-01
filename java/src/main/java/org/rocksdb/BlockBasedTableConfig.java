@@ -64,9 +64,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean useDeltaEncoding, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
       final boolean enableIndexCompression, final boolean blockAlign, final boolean superBlockAlign,
-      final long superBlockAlignmentSize,
-      final long superBlockAlignmentMaxPaddingSize, final byte indexShortening,
-      final byte filterPolicyType, final long filterPolicyHandle,
+      final long superBlockAlignmentSize, final long superBlockAlignmentMaxPaddingSize,
+      final byte indexShortening, final byte filterPolicyType, final long filterPolicyHandle,
       final double filterPolicyConfigValue) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
     this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
@@ -865,7 +864,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setSuperBlockAlignmentMaxPaddingSize(final long superBlockAlignmentMaxPaddingSize) {
+  public BlockBasedTableConfig setSuperBlockAlignmentMaxPaddingSize(
+      final long superBlockAlignmentMaxPaddingSize) {
     this.superBlockAlignmentMaxPaddingSize = superBlockAlignmentMaxPaddingSize;
     return this;
   }
@@ -1016,9 +1016,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         persistentCacheHandle, blockSize, blockSizeDeviation, blockRestartInterval,
         indexBlockRestartInterval, metadataBlockSize, partitionFilters, optimizeFiltersForMemory,
         useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
-        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        superBlockAlign, superBlockAlignmentSize,
-        superBlockAlignmentMaxPaddingSize, indexShortening.getValue(),
+        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign, superBlockAlign,
+        superBlockAlignmentSize, superBlockAlignmentMaxPaddingSize, indexShortening.getValue(),
         blockCacheSize, blockCacheNumShardBits);
   }
 
@@ -1034,8 +1033,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean useDeltaEncoding, final long filterPolicyHandle,
       final boolean wholeKeyFiltering, final boolean verifyCompression,
       final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
-      final boolean blockAlign, final boolean superBlockAlign,
-      final long superBlockAlignmentSize,
+      final boolean blockAlign, final boolean superBlockAlign, final long superBlockAlignmentSize,
       final long superBlockAlignmentMaxPaddingSize, final byte indexShortening,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
