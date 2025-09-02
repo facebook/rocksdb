@@ -49,7 +49,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         block_iter_points_to_real_block_(false) {}
 
   ~BlockBasedTableIterator() override {
-    if (multi_scan_ && multi_scan_->scan_opts->prefetch_rate_limiter) {
+    if (multi_scan_ && multi_scan_->scan_opts &&
+        multi_scan_->scan_opts->prefetch_rate_limiter) {
       multi_scan_->scan_opts->GetMutablePrefetchRateLimiter().release(
           total_acquired_);
     }
