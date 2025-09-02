@@ -167,11 +167,14 @@ Status PartitionIndexReader::CacheDependencies(
     IOOptions opts;
     {
       Status s = rep->file->PrepareIOOptions(ro, opts);
-      if (s.ok()) {
-        s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                      static_cast<size_t>(prefetch_len));
-      }
-      if (!s.ok()) {
+      if (s.ok() &&
+          CheckFSFeatureSupport(rep->ioptions.fs.get(),
+                                FSSupportedOps::kFSPrefetch) &&
+          (s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                         static_cast<size_t>(prefetch_len)))
+              .ok()) {
+        // Prefetch successful
+      } else if (!s.ok()) {
         return s;
       }
     }
