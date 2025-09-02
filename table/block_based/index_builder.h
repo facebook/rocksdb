@@ -118,8 +118,9 @@ class IndexBuilder {
   //
   // External synchronization ensures Finish is only called after all the
   // FinishIndexEntry calls have completed.
-  virtual void FinishIndexEntry(const BlockHandle& block_handle,
-                                PreparedIndexEntry* entry) = 0;
+  virtual void FinishIndexEntry(
+      const BlockHandle& block_handle, PreparedIndexEntry* entry,
+      bool should_add_restart_point_on_index_block) = 0;
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
@@ -392,11 +393,13 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* base_entry) override {
+                        PreparedIndexEntry* base_entry,
+                        bool should_add_restart_point_on_index_block) override {
     ShortenedPreparedIndexEntry* entry =
         static_cast<ShortenedPreparedIndexEntry*>(base_entry);
     AddIndexEntryImpl(entry->separator_with_seq, entry->first_internal_key,
-                      block_handle, entry->must_use_separator_with_seq, false);
+                      block_handle, entry->must_use_separator_with_seq,
+                      should_add_restart_point_on_index_block);
   }
 
   using IndexBuilder::Finish;
@@ -512,8 +515,10 @@ class HashIndexBuilder : public IndexBuilder {
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override {
-    primary_index_builder_.FinishIndexEntry(block_handle, entry);
+                        PreparedIndexEntry* entry,
+                        bool should_add_restart_point_on_index_block) override {
+    primary_index_builder_.FinishIndexEntry(
+        block_handle, entry, should_add_restart_point_on_index_block);
   }
 
   void OnKeyAdded(const Slice& key,
@@ -628,7 +633,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
                          const Slice* first_key_in_next_block,
                          PreparedIndexEntry* out) override;
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override;
+                        PreparedIndexEntry* entry,
+                        bool should_add_restart_point_on_index_block) override;
   void MaybeFlush(const Slice& index_key, const BlockHandle& index_value);
 
   Status Finish(IndexBlocks* index_blocks,

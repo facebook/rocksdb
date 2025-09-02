@@ -83,9 +83,11 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     assert(false);
   }
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override {
+                        PreparedIndexEntry* entry,
+                        bool should_add_restart_point_on_index_block) override {
     (void)block_handle;
     (void)entry;
+    (void)should_add_restart_point_on_index_block;
     assert(false);
   }
 

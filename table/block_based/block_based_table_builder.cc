@@ -1653,11 +1653,12 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
         block_rep->uncompressed.size());
     Slice compressed = block_rep->compressed;
     Slice uncompressed = block_rep->uncompressed;
-    WriteMaybeCompressedBlock(block_rep->compression_type == kNoCompression
-                                  ? uncompressed
-                                  : compressed,
-                              block_rep->compression_type, &r->pending_handle,
-                              BlockType::kData, &uncompressed);
+    bool should_add_restart_point_on_index_block;
+    WriteMaybeCompressedBlock(
+        block_rep->compression_type == kNoCompression ? uncompressed
+                                                      : compressed,
+        block_rep->compression_type, &r->pending_handle, BlockType::kData,
+        &uncompressed, &should_add_restart_point_on_index_block);
     if (!ok()) {
       break;
     }
@@ -1666,7 +1667,8 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
     ++r->props.num_data_blocks;
 
     r->index_builder->FinishIndexEntry(r->pending_handle,
-                                       block_rep->prepared_index_entry.get());
+                                       block_rep->prepared_index_entry.get(),
+                                       should_add_restart_point_on_index_block);
 
     r->pc_rep->ReapBlock(block_rep);
   }

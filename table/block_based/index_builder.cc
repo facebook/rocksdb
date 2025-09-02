@@ -226,14 +226,16 @@ void PartitionedIndexBuilder::MaybeFlush(const Slice& index_key,
   }
 }
 
-void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
-                                               PreparedIndexEntry* base_entry) {
+void PartitionedIndexBuilder::FinishIndexEntry(
+    const BlockHandle& block_handle, PreparedIndexEntry* base_entry,
+    bool should_add_restart_point_on_index_block) {
   using SPIE = ShortenedIndexBuilder::ShortenedPreparedIndexEntry;
   SPIE* entry = static_cast<SPIE*>(base_entry);
 
   MaybeFlush(entry->separator_with_seq, block_handle);
 
-  sub_index_builder_->FinishIndexEntry(block_handle, base_entry);
+  sub_index_builder_->FinishIndexEntry(block_handle, base_entry,
+                                       should_add_restart_point_on_index_block);
   std::swap(entries_.back().key, entry->separator_with_seq);
 
   if (!must_use_separator_with_seq_ && entry->must_use_separator_with_seq) {

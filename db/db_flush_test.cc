@@ -3594,6 +3594,7 @@ class DBFlushSuperBlockTest : public DBFlushTest,
         ASSERT_EQ((it->value()).ToString(), formatValue(i));
         i++;
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(i, key_count);
     }
   }
