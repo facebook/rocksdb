@@ -50,10 +50,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   ~BlockBasedTableIterator() override {
     ClearBlockHandles();
-    
+
     // Release any acquired bytes from the rate limiter if we have a multi_scan_
-    // Use the stored rate limiter copy to avoid accessing potentially invalid scan_opts
-    if (multi_scan_ && multi_scan_->prefetch_rate_limiter && total_acquired_ > 0) {
+    // Use the stored rate limiter copy to avoid accessing potentially invalid
+    // scan_opts
+    if (multi_scan_ && multi_scan_->prefetch_rate_limiter &&
+        total_acquired_ > 0) {
       multi_scan_->prefetch_rate_limiter->release(total_acquired_);
     }
   }
@@ -395,8 +397,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
     size_t next_scan_idx;
     size_t cur_data_block_idx;
-      
-    // Store the rate limiter separately to avoid accessing potentially invalid scan_opts
+
+    // Store the rate limiter separately to avoid accessing potentially invalid
+    // scan_opts
     std::shared_ptr<PrefetchRateLimiter> prefetch_rate_limiter;
 
     MultiScanState(
@@ -408,7 +411,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
           block_ranges_per_scan(std::move(_block_ranges_per_scan)),
           next_scan_idx(0),
           cur_data_block_idx(0),
-          prefetch_rate_limiter(_scan_opts ? _scan_opts->prefetch_rate_limiter : nullptr) {}
+          prefetch_rate_limiter(_scan_opts ? _scan_opts->prefetch_rate_limiter
+                                           : nullptr) {}
   };
 
   std::unique_ptr<MultiScanState> multi_scan_;
