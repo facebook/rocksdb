@@ -593,7 +593,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(
     IOOptions opts;
     IODebugContext dbg;
     s = rep->file->PrepareIOOptions(ro, opts, &dbg);
-    if (s.ok()) {
+    if (s.ok() && CheckFSFeatureSupport(rep->ioptions.fs.get(),
+                                        FSSupportedOps::kFSPrefetch)) {
       s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                     static_cast<size_t>(prefetch_len));
     }
