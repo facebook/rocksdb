@@ -1410,13 +1410,12 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     }
     // Move to the next pinned data block
     ResetDataIter();
-    if (multi_scan_->scan_opts->prefetch_rate_limiter) {
+    if (multi_scan_->prefetch_rate_limiter) {
       size_t releasing =
           multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx]
               .GetValue()
               ->size();
-      multi_scan_->scan_opts->GetMutablePrefetchRateLimiter().release(
-          releasing);
+      multi_scan_->prefetch_rate_limiter->release(releasing);
       total_acquired_ -= releasing;
     }
     ++multi_scan_->cur_data_block_idx;
