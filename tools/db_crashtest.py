@@ -504,6 +504,8 @@ whitebox_default_params = {
     #
     # Second, we need to make sure disabling WAL works with `-reopen > 0`.
     "disable_wal": 0,
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
@@ -565,6 +567,8 @@ txn_params = {
     # TODO: there is such a thing as transactions with WAL disabled. We should
     # cover that case.
     "disable_wal": 0,
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
@@ -784,6 +788,8 @@ def finalize_and_sanitize(src_params):
         dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["use_timed_put_one_in"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
