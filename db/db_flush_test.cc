@@ -3603,16 +3603,13 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   constexpr int key_count = 12345;
   Options options;
   options.env = env_;
-  Reopen(options);
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-  Reopen(options);
   BlockBasedTableOptions block_options;
   block_options.block_align = get<0>(GetParam());
   block_options.super_block_align = get<1>(GetParam());
   block_options.super_block_alignment_size = get<2>(GetParam());
   block_options.super_block_alignment_max_padding_size = get<3>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
-  Reopen(options);
   if (block_options.block_align) {
     // When block align is enabled, disable compression
     options.compression = kNoCompression;
