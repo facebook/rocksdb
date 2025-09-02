@@ -381,24 +381,21 @@ public class BlockBasedTableConfigTest {
   public void superBlockAlign() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setSuperBlockAlign(true);
-    assertThat(blockBasedTableConfig.superBlockAlign()).
-        isTrue();
+    assertThat(blockBasedTableConfig.superBlockAlign()).isTrue();
   }
 
   @Test
   public void superBlockAlignmentSize() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setSuperBlockAlignmentSize(1024 * 1024);
-    assertThat(blockBasedTableConfig.superBlockAlignmentSize()).
-        isEqualTo(1024 * 1024);
+    assertThat(blockBasedTableConfig.superBlockAlignmentSize()).isEqualTo(1024 * 1024);
   }
 
   @Test
   public void superBlockAlignmentMaxPaddingSize() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setSuperBlockAlignmentMaxPaddingSize(4096);
-    assertThat(blockBasedTableConfig.superBlockAlignmentMaxPaddingSize()).
-        isEqualTo(4096);
+    assertThat(blockBasedTableConfig.superBlockAlignmentMaxPaddingSize()).isEqualTo(4096);
   }
 
   @Test

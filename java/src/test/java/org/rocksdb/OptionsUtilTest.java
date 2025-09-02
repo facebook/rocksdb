@@ -370,7 +370,8 @@ public class OptionsUtilTest {
     assertThat(actual.blockAlign()).isEqualTo(expected.blockAlign());
     assertThat(actual.superBlockAlign()).isEqualTo(expected.superBlockAlign());
     assertThat(actual.superBlockAlignmentSize()).isEqualTo(expected.superBlockAlignmentSize());
-    assertThat(actual.superBlockAlignmentMaxPaddingSize()).isEqualTo(expected.superBlockAlignmentMaxPaddingSize());
+    assertThat(actual.superBlockAlignmentMaxPaddingSize())
+        .isEqualTo(expected.superBlockAlignmentMaxPaddingSize());
     assertThat(actual.indexShortening()).isEqualTo(expected.indexShortening());
     if (expected.filterPolicy() == null) {
       assertThat(actual.filterPolicy()).isNull();
