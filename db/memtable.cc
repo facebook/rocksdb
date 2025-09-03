@@ -119,7 +119,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       memtable_max_range_deletions_(
           mutable_cf_options.memtable_max_range_deletions),
       key_validation_callback_(
-          moptions_.paranoid_memory_check_key_checksum_on_seek
+          (moptions_.protection_bytes_per_key != 0 &&
+           moptions_.paranoid_memory_check_key_checksum_on_seek)
               ? std::bind(&MemTable::ValidateKey, this, std::placeholders::_1,
                           std::placeholders::_2)
               : std::function<Status(const char*, bool)>(nullptr)) {
