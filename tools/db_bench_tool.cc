@@ -4849,6 +4849,8 @@ class Benchmark {
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
+    options.paranoid_memory_check_key_checksum_on_seek =
+        FLAGS_paranoid_memory_check_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
     options.compaction_options_universal.reduce_file_locking =
