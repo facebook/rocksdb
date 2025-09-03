@@ -645,6 +645,9 @@ ts_params = {
     "use_put_entity_one_in": 0,
     # TimedPut is not compatible with user-defined timestamps yet.
     "use_timed_put_one_in": 0,
+    # when test_best_efforts_recovery == true, disable_wal becomes 0.
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
 }
 
 tiered_params = {
