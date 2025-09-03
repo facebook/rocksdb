@@ -1791,7 +1791,7 @@ class DefaultPrefetchRateLimiter : public PrefetchRateLimiter {
  public:
   explicit DefaultPrefetchRateLimiter(size_t max_bytes)
       : max_bytes_(max_bytes), cur_bytes_(max_bytes) {}
-  virtual ~DefaultPrefetchRateLimiter() = default;
+  virtual ~DefaultPrefetchRateLimiter() override = default;
 
   virtual size_t acquire(const BlockBasedTable* table, size_t bytes,
                          bool all_or_nothing) override;

@@ -30,6 +30,34 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Simple barrier implementation for thread synchronization in tests
+class Barrier {
+ public:
+  explicit Barrier(int count) : count_(count), waiting_(0), generation_(0) {}
+
+  void arrive_and_wait() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    int gen = generation_;
+
+    if (++waiting_ == count_) {
+      // Last thread to arrive - wake everyone up
+      waiting_ = 0;
+      ++generation_;
+      cv_.notify_all();
+    } else {
+      // Wait for all threads to arrive
+      cv_.wait(lock, [this, gen] { return gen != generation_; });
+    }
+  }
+
+ private:
+  const int count_;
+  int waiting_;
+  int generation_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+};
+
 class BlockBasedTableReaderBaseTest : public testing::Test {
  public:
   static constexpr int kBytesPerEntry = 256;
@@ -1386,13 +1414,17 @@ TEST_F(DefaultPrefetchRateLimiterTest, ThreadSafety) {
 
   const int num_threads = 10;
   const int operations_per_thread = 10000;
+  Barrier barrier(num_threads);
 
   std::vector<std::thread> threads;
 
   // Create threads that acquire and release blocks
   threads.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&limiter, &total_acquired, &total_released]() {
+    threads.emplace_back([&barrier, &limiter, &total_acquired, &total_released,
+                          operations_per_thread]() {
+      barrier.arrive_and_wait();
+
       for (int j = 0; j < operations_per_thread; ++j) {
         // Acquire some blocks
         size_t acquired = limiter.acquire(nullptr, 5, false);
@@ -1453,18 +1485,26 @@ TEST_F(DefaultPrefetchRateLimiterTest, ConcurrentAcquire) {
 
 // Test concurrent release operations
 TEST_F(DefaultPrefetchRateLimiterTest, ConcurrentRelease) {
-  DefaultPrefetchRateLimiter limiter(50);
+  DefaultPrefetchRateLimiter limiter(100000);
 
   // First acquire all blocks
-  size_t acquired = limiter.acquire(nullptr, 50, false);
-  ASSERT_EQ(acquired, 50);
+  size_t acquired = limiter.acquire(nullptr, 100000, false);
+  ASSERT_EQ(acquired, 100000);
 
   const int num_threads = 10;
   std::vector<std::thread> threads;
+  Barrier barrier(num_threads);
 
   // Create threads that try to release blocks concurrently
+  threads.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&limiter]() { limiter.release(10); });
+    threads.emplace_back([&barrier, &limiter]() {
+      barrier.arrive_and_wait();
+
+      for (int t = 0; t < 10000; ++t) {
+        limiter.release(1);
+      }
+    });
   }
 
   // Wait for all threads to complete
@@ -1473,8 +1513,8 @@ TEST_F(DefaultPrefetchRateLimiterTest, ConcurrentRelease) {
   }
 
   // Should be able to acquire the maximum again (releases should be capped)
-  acquired = limiter.acquire(nullptr, 60, false);
-  ASSERT_EQ(acquired, 50);  // Should be capped at max_blocks_
+  acquired = limiter.acquire(nullptr, 100000, false);
+  ASSERT_EQ(acquired, 100000);  // Should be capped at max_blocks_
 }
 
 // Integration tests for PrefetchRateLimiter with MultiScan and Prepare
