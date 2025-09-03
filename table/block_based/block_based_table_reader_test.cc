@@ -1236,6 +1236,15 @@ class DefaultPrefetchRateLimiterTest : public testing::Test {
  public:
   DefaultPrefetchRateLimiterTest() {}
   ~DefaultPrefetchRateLimiterTest() override {}
+
+  // Explicitly delete copy and move operations to satisfy Rule of Five
+  DefaultPrefetchRateLimiterTest(const DefaultPrefetchRateLimiterTest&) =
+      delete;
+  DefaultPrefetchRateLimiterTest& operator=(
+      const DefaultPrefetchRateLimiterTest&) = delete;
+  DefaultPrefetchRateLimiterTest(DefaultPrefetchRateLimiterTest&&) = delete;
+  DefaultPrefetchRateLimiterTest& operator=(DefaultPrefetchRateLimiterTest&&) =
+      delete;
 };
 
 TEST_F(DefaultPrefetchRateLimiterTest, BasicAcquireRelease) {
@@ -1251,6 +1260,7 @@ TEST_F(DefaultPrefetchRateLimiterTest, BasicAcquireRelease) {
 
   // Test acquire after partial release
   acquired = limiter.acquire(nullptr, 4, false);
+
   ASSERT_EQ(acquired, 4);
 }
 
@@ -1380,6 +1390,7 @@ TEST_F(DefaultPrefetchRateLimiterTest, ThreadSafety) {
   std::vector<std::thread> threads;
 
   // Create threads that acquire and release blocks
+  threads.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
     threads.emplace_back([&limiter, &total_acquired, &total_released]() {
       for (int j = 0; j < operations_per_thread; ++j) {
@@ -1420,6 +1431,7 @@ TEST_F(DefaultPrefetchRateLimiterTest, ConcurrentAcquire) {
   std::vector<std::thread> threads;
 
   // Create threads that try to acquire blocks concurrently
+  threads.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
     threads.emplace_back([&limiter, &total_acquired]() {
       size_t acquired = limiter.acquire(nullptr, 10, false);
@@ -1486,7 +1498,7 @@ class PrefetchRateLimiterIntegrationTest
 // Mock PrefetchRateLimiter to track acquire/release calls
 class MockPrefetchRateLimiter : public PrefetchRateLimiter {
  public:
-  MockPrefetchRateLimiter(size_t max_bytes)
+  explicit MockPrefetchRateLimiter(size_t max_bytes)
       : max_bytes_(max_bytes), cur_bytes_(max_bytes) {}
 
   size_t acquire(const BlockBasedTable* table, size_t bytes,
