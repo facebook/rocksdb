@@ -983,6 +983,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   // Gather all relevant data block handles
   std::vector<BlockHandle> blocks_to_prepare;
   Status s;
+  s.PermitUncheckedError();
   std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
   for (const auto& scan_opt : *scan_opts) {
     size_t num_blocks = 0;
