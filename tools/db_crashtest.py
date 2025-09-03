@@ -626,6 +626,9 @@ blob_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
+
+     # TODO Fix races when both Remote Compaction + BlobDB enabled
+     "remote_compaction_worker_threads": 0,
 }
 
 ts_params = {
@@ -677,6 +680,8 @@ multiops_txn_params = {
     "two_write_queues": lambda: random.choice([0, 1]),
     # TODO: enable write-prepared
     "disable_wal": 0,
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
     "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
@@ -784,6 +789,7 @@ def finalize_and_sanitize(src_params):
         # TODO Fix races when both Remote Compaction + BlobDB enabled
         dest_params["enable_blob_files"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
         # TODO Fix - Remote worker shouldn't recover from WAL
         dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
