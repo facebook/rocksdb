@@ -720,9 +720,11 @@ class BackupEngineTest : public testing::Test {
 #endif  // ROCKSDB_MODIFY_NPHASH
 
     // set up backup db options
-    engine_options_.reset(new BackupEngineOptions(
-        backupdir_, test_backup_env_.get(), /*share_table_files*/ true,
-        logger_.get(), kUseSync));
+    engine_options_ = std::make_unique<BackupEngineOptions>();
+    engine_options_->backup_dir = backupdir_;
+    engine_options_->backup_env = test_backup_env_.get();
+    engine_options_->info_log = logger_.get();
+    engine_options_->sync = kUseSync;
 
     // most tests will use multi-threaded backups
     engine_options_->max_background_operations = 7;
@@ -730,8 +732,8 @@ class BackupEngineTest : public testing::Test {
     // delete old files in db
     DestroyDBWithoutCheck(dbname_, options_);
 
-    // delete old LATEST_BACKUP file, which some tests create for compatibility
-    // testing.
+    // delete old LATEST_BACKUP file, which some tests create for
+    // compatibility testing.
     backup_chroot_env_->DeleteFile(latest_backup_).PermitUncheckedError();
   }
 
