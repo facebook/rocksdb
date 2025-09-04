@@ -238,6 +238,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   std::thread watchdog_thread;
   std::mutex watchdog_mutex;
   std::condition_variable watchdog_cv;
+  bool shutdown_watchdog = false;
   RelaxedAtomic<uint32_t> live_workers{0};
   RelaxedAtomic<uint32_t> idling_workers{0};
   RelaxedAtomic<bool> live_emit{0};
@@ -548,12 +549,10 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
             next_thread_state = ThreadState::kCompressing;
           }
           next_slot = next_to_compress & ring_buffer_mask;
-          if (next_to_compress < UINT8_MAX) {
-            next_atomic_state += uint64_t{1} << kNextToCompressShift;
-          } else {
-            next_atomic_state -= uint64_t{UINT8_MAX} << kNextToCompressShift;
-          }
           next_to_compress++;
+          next_atomic_state &= ~(uint64_t{UINT8_MAX} << kNextToCompressShift);
+          next_atomic_state |= uint64_t{next_to_compress}
+                               << kNextToCompressShift;
         } else if constexpr (thread_kind == ThreadKind::kEmitter) {
           // Emitter thread goes idle
           next_thread_state = ThreadState::kIdle;
@@ -721,7 +720,9 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
       // Sleep for 1s at a time unless we are woken up because other threads
       // ended.
       std::unique_lock<std::mutex> lock(watchdog_mutex);
-      watchdog_cv.wait_for(lock, std::chrono::seconds{1});
+      if (!shutdown_watchdog) {
+        watchdog_cv.wait_for(lock, std::chrono::seconds{1});
+      }
     }
   }
 #endif  // !NDEBUG
@@ -921,19 +922,37 @@ struct BlockBasedTableBuilder::Rep {
     }
   }
 
-  void SetStatus(Status s) { SetIOStatus(status_to_io_status(std::move(s))); }
-
+  // Avoid copying Status and IOStatus objects as much as possible.
   // Never erase an existing I/O status that is not OK.
-  void SetIOStatus(IOStatus ios) {
+  void SetStatus(Status&& s) {
+    if (UNLIKELY(!s.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(status_to_io_status(std::move(s)));
+    }
+  }
+  void SetStatus(const Status& s) {
+    if (UNLIKELY(!s.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(status_to_io_status(Status(s)));
+    }
+  }
+  void SetIOStatus(IOStatus&& ios) {
     if (UNLIKELY(!ios.ok()) && io_status_ok.LoadRelaxed()) {
-      // Because !s.ok() is rare, locking is acceptable even in non-parallel
-      // case.
-      std::lock_guard<std::mutex> lock(io_status_mutex);
-      // Double-check
-      if (io_status.ok()) {
-        io_status = ios;
-        io_status_ok.StoreRelaxed(false);
-      }
+      SetFailedIOStatus(std::move(ios));
+    }
+  }
+  void SetIOStatus(const IOStatus& ios) {
+    if (UNLIKELY(!ios.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(IOStatus(ios));
+    }
+  }
+
+  void SetFailedIOStatus(IOStatus&& ios) {
+    assert(!ios.ok());
+    // Because !s.ok() is rare, locking is acceptable even in non-parallel case.
+    std::lock_guard<std::mutex> lock(io_status_mutex);
+    // Double-check
+    if (io_status.ok()) {
+      io_status = std::move(ios);
+      io_status_ok.StoreRelaxed(false);
     }
   }
 
@@ -1242,9 +1261,9 @@ struct BlockBasedTableBuilder::Rep {
       props.compression_name.push_back(';');
       // Rest of property to be filled out at the end of building the file
     } else {
-      // Use legacy compression_name property, populated at the end of building
-      // the file. Not compatible with compression managers using custom
-      // algorithms / compression types.
+      // Use legacy compression_name property, populated at the end of
+      // building the file. Not compatible with compression managers using
+      // custom algorithms / compression types.
       assert(Slice(mgr->CompatibilityName())
                  .compare(GetBuiltinCompressionManager(
                               GetCompressFormatForVersion(
@@ -1275,8 +1294,8 @@ struct BlockBasedTableBuilder::Rep {
 
     std::string& compression_name = props.compression_name;
     if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
-      // Fill in extended field of "compression name" property, which is the set
-      // of compression types used, sorted by unsigned byte and then hex
+      // Fill in extended field of "compression name" property, which is the
+      // set of compression types used, sorted by unsigned byte and then hex
       // encoded with two digits each (so that table properties are human
       // readable).
       assert(*compression_name.rbegin() == ';');
@@ -1298,8 +1317,8 @@ struct BlockBasedTableBuilder::Rep {
       // based on the legacy configured compression type.
       assert(compression_name.empty());
       if (ctype_count == 0) {
-        // We could get a slight performance boost in the reader by marking the
-        // file as "no compression" if compression is configured but
+        // We could get a slight performance boost in the reader by marking
+        // the file as "no compression" if compression is configured but
         // consistently rejected, but that would give misleading info for
         // debugging purposes. So instead we record the configured compression
         // type, matching the historical behavior.
@@ -1468,7 +1487,8 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
   // property collectors:
   // * BlockAdd function expects block_compressed_bytes_{fast,slow} for
   //   historical reasons. Probably a hassle to remove.
-  // * Collector is not thread safe so calls need to be serialized/synchronized.
+  // * Collector is not thread safe so calls need to be
+  // serialized/synchronized.
   // * Ideally, AddUserKey and BlockAdd calls need to line up such that a
   //   reported block corresponds to all the keys reported since the previous
   //   block.
@@ -1708,9 +1728,11 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
         write_fn();
         break;
       case ParallelCompressionRep::ThreadState::kEmitting:
+        // Shouldn't happen
         assert(thread_state != ParallelCompressionRep::ThreadState::kEmitting);
         break;
       case ParallelCompressionRep::ThreadState::kIdle:
+        // Shouldn't happen
         assert(thread_state != ParallelCompressionRep::ThreadState::kIdle);
         break;
       default:
@@ -1850,6 +1872,7 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
   IOOptions io_options;
+  // Always return io_s for NRVO
   IOStatus io_s =
       WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
   if (UNLIKELY(!io_s.ok())) {
@@ -1886,9 +1909,10 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
   checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   if (block_type == BlockType::kFilter) {
-    Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
-    if (UNLIKELY(!s.ok())) {
-      return status_to_io_status(std::move(s));
+    io_s = status_to_io_status(
+        r->filter_builder->MaybePostVerifyFilter(block_contents));
+    if (UNLIKELY(!io_s.ok())) {
+      return io_s;
     }
   }
 
@@ -1986,8 +2010,12 @@ void BlockBasedTableBuilder::StopParallelCompression(bool abort) {
     thread.join();
   }
 #ifndef NDEBUG
-  // Wake watchdog thread
-  pc_rep.watchdog_cv.notify_all();
+  // Wake & shutdown watchdog thread
+  {
+    std::unique_lock<std::mutex> lock(pc_rep.watchdog_mutex);
+    pc_rep.shutdown_watchdog = true;
+    pc_rep.watchdog_cv.notify_all();
+  }
   pc_rep.watchdog_thread.join();
 #endif  // !NDEBUG
   rep_->pc_rep.reset();
@@ -2226,8 +2254,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
               rep_->compressible_input_data_bytes.LoadRelaxed() +
           rep_->uncompressible_input_data_bytes.LoadRelaxed() + 0.5);
     } else if (rep_->sample_for_compression > 0) {
-      // We tried to sample but none were found. Assume worst-case (compression
-      // ratio 1.0) so data is complete and aggregatable.
+      // We tried to sample but none were found. Assume worst-case
+      // (compression ratio 1.0) so data is complete and aggregatable.
       rep_->props.slow_compression_estimated_data_size =
           rep_->compressible_input_data_bytes.LoadRelaxed() +
           rep_->uncompressible_input_data_bytes.LoadRelaxed();
@@ -2346,7 +2374,8 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     const Slice* first_key_in_next_block) {
   Rep* r = rep_;
   assert(r->state == Rep::State::kBuffered);
-  // Don't yet enter unbuffered (early return) if none of the conditions are met
+  // Don't yet enter unbuffered (early return) if none of the conditions are
+  // met
   if (first_key_in_next_block != nullptr) {
     bool exceeds_buffer_limit =
         (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
@@ -2381,7 +2410,8 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
   // Abstract algebra teaches us that a finite cyclic group (such as the
   // additive group of integers modulo N) can be generated by a number that is
   // coprime with N. Since N is variable (number of buffered data blocks), we
-  // must then pick a prime number in order to guarantee coprimeness with any N.
+  // must then pick a prime number in order to guarantee coprimeness with any
+  // N.
   //
   // One downside of this approach is the spread will be poor when
   // `kPrimeGeneratorRemainder` is close to zero or close to
@@ -2432,8 +2462,8 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
       // Get an updated dictionary-aware decompressor for verification.
       Status s = r->verify_decompressor->MaybeCloneForDict(
           serialized_dict, &r->verify_decompressor_with_dict);
-      // Dictionary support must be present on the decompressor side if it's on
-      // the compressor side.
+      // Dictionary support must be present on the decompressor side if it's
+      // on the compressor side.
       assert(r->verify_decompressor_with_dict);
       if (r->verify_decompressor_with_dict) {
         r->data_block_verify_decompressor =
