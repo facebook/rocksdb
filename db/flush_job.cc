@@ -732,6 +732,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
                        "Memtable Decider: ParseInternalKey did not parse "
                        "key_slice %s successfully.",
                        key_slice.data());
+        continue;
       }
 
       // Size of the entry is "key size (+ value size if KV entry)"
@@ -773,6 +774,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
             "Memtable Get returned false when Get(sampled entry). "
             "Yet each sample entry should exist somewhere in the memtable, "
             "unrelated to whether it has been deleted or not.");
+        continue;
       }
 
       // TODO(bjlemaire): evaluate typeMerge.
