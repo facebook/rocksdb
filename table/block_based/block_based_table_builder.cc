@@ -1561,82 +1561,93 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
     rep_->data_begin_offset += uncompressed_block_data.size();
     MaybeEnterUnbuffered(first_key_in_next_block);
   } else {
-    EmitBlock(r->data_block.MutableBuffer(), r->last_ikey,
-              first_key_in_next_block);
+    if (r->IsParallelCompressionActive()) {
+      EmitBlockForParallel(r->data_block.MutableBuffer(), r->last_ikey,
+                           first_key_in_next_block);
+    } else {
+      EmitBlock(r->data_block.MutableBuffer(), r->last_ikey,
+                first_key_in_next_block);
+    }
     r->data_block.Reset();
   }
 }
 
+void BlockBasedTableBuilder::EmitBlockForParallel(
+    std::string& uncompressed, const Slice& last_key_in_current_block,
+    const Slice* first_key_in_next_block) {
+  Rep* r = rep_;
+  assert(r->state == Rep::State::kUnbuffered);
+  assert(uncompressed.size() > 0);
+  auto& pc_rep = *r->pc_rep;
+  // Can emit the uncompressed block into the ring buffer
+  assert(pc_rep.emit_thread_state ==
+         ParallelCompressionRep::ThreadState::kEmitting);
+  auto* block_rep = &pc_rep.ring_buffer[pc_rep.emit_slot];
+  pc_rep.estimated_inflight_size.FetchAddRelaxed(uncompressed.size() +
+                                                 kBlockTrailerSize);
+  std::swap(uncompressed, block_rep->uncompressed);
+  r->index_builder->PrepareIndexEntry(last_key_in_current_block,
+                                      first_key_in_next_block,
+                                      block_rep->prepared_index_entry.get());
+  block_rep->compressed.Reset();
+  block_rep->compression_type = kNoCompression;
+
+  // Might need to take up some compression work before we are able to
+  // resume emitting the next uncompressed block.
+  for (;;) {
+    pc_rep.EmitterStateTransition(pc_rep.emit_thread_state, pc_rep.emit_slot);
+
+    if (pc_rep.emit_thread_state ==
+        ParallelCompressionRep::ThreadState::kCompressing) {
+      // Took up some compression work to help unblock ourself
+      block_rep = &pc_rep.ring_buffer[pc_rep.emit_slot];
+      Status s = CompressAndVerifyBlock(
+          block_rep->uncompressed, /*is_data_block=*/true,
+          r->data_block_working_area, &block_rep->compressed,
+          &block_rep->compression_type);
+      if (UNLIKELY(!s.ok())) {
+        r->SetStatus(s);
+        pc_rep.SetAbort(pc_rep.emit_thread_state);
+        break;
+      }
+    } else {
+      assert(pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kCompressingAndWriting);
+      assert(pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kWriting);
+      assert(pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kIdle);
+      // Either emitting or end state.
+      // Detect nothing more to emit and set if so.
+      if (first_key_in_next_block == nullptr &&
+          pc_rep.emit_thread_state ==
+              ParallelCompressionRep::ThreadState::kEmitting) {
+        pc_rep.SetNoMoreToEmit(pc_rep.emit_thread_state, pc_rep.emit_slot);
+      }
+      break;
+    }
+  }
+}
 void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
                                        const Slice& last_key_in_current_block,
                                        const Slice* first_key_in_next_block) {
   Rep* r = rep_;
   assert(r->state == Rep::State::kUnbuffered);
+  // Single-threaded context only
+  assert(!r->IsParallelCompressionActive());
   assert(uncompressed.size() > 0);
-  if (r->IsParallelCompressionActive()) {
-    auto& pc_rep = *r->pc_rep;
-    // Can emit the uncompressed block into the ring buffer
-    assert(pc_rep.emit_thread_state ==
-           ParallelCompressionRep::ThreadState::kEmitting);
-    auto* block_rep = &pc_rep.ring_buffer[pc_rep.emit_slot];
-    pc_rep.estimated_inflight_size.FetchAddRelaxed(uncompressed.size() +
-                                                   kBlockTrailerSize);
-    std::swap(uncompressed, block_rep->uncompressed);
-    r->index_builder->PrepareIndexEntry(last_key_in_current_block,
-                                        first_key_in_next_block,
-                                        block_rep->prepared_index_entry.get());
-    block_rep->compressed.Reset();
-    block_rep->compression_type = kNoCompression;
-
-    // Might need to take up some compression work before we are able to
-    // resume emitting the next uncompressed block.
-    for (;;) {
-      pc_rep.EmitterStateTransition(pc_rep.emit_thread_state, pc_rep.emit_slot);
-
-      if (pc_rep.emit_thread_state ==
-          ParallelCompressionRep::ThreadState::kCompressing) {
-        // Took up some compression work to help unblock ourself
-        block_rep = &pc_rep.ring_buffer[pc_rep.emit_slot];
-        Status s = CompressAndVerifyBlock(
-            block_rep->uncompressed, /*is_data_block=*/true,
-            r->data_block_working_area, &block_rep->compressed,
-            &block_rep->compression_type);
-        if (UNLIKELY(!s.ok())) {
-          r->SetStatus(s);
-          pc_rep.SetAbort(pc_rep.emit_thread_state);
-          break;
-        }
-      } else {
-        assert(pc_rep.emit_thread_state !=
-               ParallelCompressionRep::ThreadState::kCompressingAndWriting);
-        assert(pc_rep.emit_thread_state !=
-               ParallelCompressionRep::ThreadState::kWriting);
-        assert(pc_rep.emit_thread_state !=
-               ParallelCompressionRep::ThreadState::kIdle);
-        // Either emitting or end state.
-        // Detect nothing more to emit and set if so.
-        if (first_key_in_next_block == nullptr &&
-            pc_rep.emit_thread_state ==
-                ParallelCompressionRep::ThreadState::kEmitting) {
-          pc_rep.SetNoMoreToEmit(pc_rep.emit_thread_state, pc_rep.emit_slot);
-        }
-        break;
-      }
-    }
-  } else {
-    WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
-    if (LIKELY(ok())) {
-      // We do not emit the index entry for a block until we have seen the
-      // first key for the next data block.  This allows us to use shorter
-      // keys in the index block.  For example, consider a block boundary
-      // between the keys "the quick brown fox" and "the who".  We can use
-      // "the r" as the key for the index block entry since it is >= all
-      // entries in the first block and < all entries in subsequent
-      // blocks.
-      r->index_builder->AddIndexEntry(
-          last_key_in_current_block, first_key_in_next_block, r->pending_handle,
-          &r->index_separator_scratch);
-    }
+  WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
+  if (LIKELY(ok())) {
+    // We do not emit the index entry for a block until we have seen the
+    // first key for the next data block.  This allows us to use shorter
+    // keys in the index block.  For example, consider a block boundary
+    // between the keys "the quick brown fox" and "the who".  We can use
+    // "the r" as the key for the index block entry since it is >= all
+    // entries in the first block and < all entries in subsequent
+    // blocks.
+    r->index_builder->AddIndexEntry(last_key_in_current_block,
+                                    first_key_in_next_block, r->pending_handle,
+                                    &r->index_separator_scratch);
   }
 }
 
@@ -2524,7 +2535,13 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     auto& data_block = r->data_block_buffers[i];
     iter->SeekToLast();
     assert(iter->Valid());
-    EmitBlock(data_block, iter->key(), first_key_in_loop_next_block_ptr);
+    if (r->IsParallelCompressionActive()) {
+      EmitBlockForParallel(data_block, iter->key(),
+                           first_key_in_loop_next_block_ptr);
+
+    } else {
+      EmitBlock(data_block, iter->key(), first_key_in_loop_next_block_ptr);
+    }
     std::swap(iter, next_block_iter);
   }
   r->data_block_buffers.clear();

@@ -120,11 +120,17 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: `rep_->state == kBuffered`
   void MaybeEnterUnbuffered(const Slice* first_key_in_next_block);
 
+  // Try to keep some parallel-specific code separate to improve hot code
+  // locality for non-parallel case
   void EmitBlock(std::string& uncompressed,
                  const Slice& last_key_in_current_block,
                  const Slice* first_key_in_next_block);
+  void EmitBlockForParallel(std::string& uncompressed,
+                            const Slice& last_key_in_current_block,
+                            const Slice* first_key_in_next_block);
 
-  // Compress and write block content to the file.
+  // Compress and write block content to the file, from a single-threaded
+  // context
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type);
   // Directly write data to the file.
