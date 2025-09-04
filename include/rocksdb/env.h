@@ -1100,6 +1100,10 @@ class WritableFile {
     return Status::OK();
   }
 
+  enum AccessPattern { kNormal, kSequential, kRandom, kWillNeed, kDontNeed };
+
+  virtual void Hint(AccessPattern /*pattern*/) {}
+
   // If you're adding methods here, remember to add them to
   // WritableFileWrapper too.
 
@@ -1850,6 +1854,10 @@ class WritableFileWrapper : public WritableFile {
 
   Status Allocate(uint64_t offset, uint64_t len) override {
     return target_->Allocate(offset, len);
+  }
+
+  void Hint(WritableFile::AccessPattern pattern) override {
+    target_->Hint(pattern);
   }
 
  private:
