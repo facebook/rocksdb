@@ -1049,8 +1049,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     const auto& data_block_handle = blocks_to_prepare[i];
 
     // Check if we would exceed the prefetch size limit with this block
-    uint64_t block_size = data_block_handle.size();
-    total_prefetch_size += block_size;
+    total_prefetch_size +=
+        BlockBasedTable::BlockSizeWithTrailer(data_block_handle);
     if (multiscan_opts->max_prefetch_size > 0 &&
         total_prefetch_size > multiscan_opts->max_prefetch_size) {
       // All remaining blocks are by default empty.

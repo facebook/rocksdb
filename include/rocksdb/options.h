@@ -1853,12 +1853,16 @@ class MultiScanArgs {
 
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
 
-  // Maximum memory size (in bytes) to use for pinning prefetched data blocks.
-  // during MultiScan Prepare(). When set to 0 (default), there is no limit on
-  // prefetch size. When the limit is exceeded, iterator will return
-  // Status::PrefetchLimitReached().
+  // Maximum size (in bytes) for the data blocks loaded by a MultiScan.
+  // This limits the amount of I/O and memory usage by pinned data blocks.
   //
-  // Note that this limit is per file and is on compressed block size.
+  // When set to 0 (the default), there is no limit. When the limit is reached,
+  // the iterator will start returning Status::PrefetchLimitReached().
+  //
+  // Note that prefetching happens only once in Prepare(), which is different
+  // from ReadOptions::readahead_size, which applies any time the iterator does
+  // I/O.
+  // Note that this limit is per file and applies to compressed block size.
   uint64_t max_prefetch_size = 0;
 
  private:
