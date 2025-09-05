@@ -982,8 +982,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 
   // Gather all relevant data block handles
   std::vector<BlockHandle> blocks_to_prepare;
-  Status s;
-  s.PermitUncheckedError();
   std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
   for (const auto& scan_opt : *scan_opts) {
     size_t num_blocks = 0;
@@ -1043,8 +1041,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   // Look up entries in cache and pin if exist.
   // Store indices of blocks to read.
   std::vector<size_t> blocks_to_read;
-  std::vector<CachableEntry<Block>> pinned_data_blocks_guard;
-  pinned_data_blocks_guard.resize(blocks_to_prepare.size());
+  std::vector<CachableEntry<Block>> pinned_data_blocks_guard(
+      blocks_to_prepare.size());
   uint64_t total_prefetch_size = 0;
 
   for (size_t i = 0; i < blocks_to_prepare.size(); ++i) {
@@ -1055,15 +1053,14 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     total_prefetch_size += block_size;
     if (multiscan_opts->max_prefetch_size > 0 &&
         total_prefetch_size > multiscan_opts->max_prefetch_size) {
-      // Add empty entries for all remaining blocks to indicate prefetch limit
-      // reached.
+      // All remaining blocks are by default empty.
       for (size_t j = i; j < blocks_to_prepare.size(); ++j) {
-        pinned_data_blocks_guard[j] = CachableEntry<Block>();
+        assert(pinned_data_blocks_guard[j].IsEmpty());
       }
       break;
     }
 
-    s = table_->LookupAndPinBlocksInCache<Block_kData>(
+    Status s = table_->LookupAndPinBlocksInCache<Block_kData>(
         read_options_, data_block_handle,
         &pinned_data_blocks_guard[i].As<Block_kData>());
 
@@ -1105,10 +1102,13 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 
     // do IO
     IOOptions io_opts;
-    s = table_->get_rep()->file->PrepareIOOptions(read_options_, io_opts);
-    if (!s.ok()) {
-      // Abort: PrepareIOOptions failed
-      return;
+    {
+      Status s =
+          table_->get_rep()->file->PrepareIOOptions(read_options_, io_opts);
+      if (!s.ok()) {
+        // Abort: PrepareIOOptions failed
+        return;
+      }
     }
 
     // Init read requests for Multi-Read
@@ -1180,11 +1180,13 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     }
 
     AlignedBuf aligned_buf;
-    s = table_->get_rep()->file.get()->MultiRead(
-        io_opts, read_reqs.data(), read_reqs.size(),
-        direct_io ? &aligned_buf : nullptr);
-    if (!s.ok()) {
-      return;
+    {
+      Status s = table_->get_rep()->file.get()->MultiRead(
+          io_opts, read_reqs.data(), read_reqs.size(),
+          direct_io ? &aligned_buf : nullptr);
+      if (!s.ok()) {
+        return;
+      }
     }
     for (auto& req : read_reqs) {
       if (!req.status.ok()) {
@@ -1198,7 +1200,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
         table_->get_rep()->decompressor.get();
     CachableEntry<DecompressorDict> cached_dict;
     if (table_->get_rep()->uncompression_dict_reader) {
-      s = table_->get_rep()
+      Status s =
+          table_->get_rep()
               ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
                   /* prefetch_buffer= */ nullptr, read_options_,
                   /* get_context= */ nullptr, /* lookup_context= */ nullptr,
@@ -1243,7 +1246,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
             table_->get_rep()->footer.GetBlockTrailerSize() > 0;
 #endif
         assert(pinned_data_blocks_guard[block_idx].IsEmpty());
-        s = table_->CreateAndPinBlockInCache<Block_kData>(
+        Status s = table_->CreateAndPinBlockInCache<Block_kData>(
             read_options_, block, decompressor, &tmp_contents,
             &(pinned_data_blocks_guard[block_idx].As<Block_kData>()));
         if (!s.ok()) {
@@ -1310,7 +1313,6 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
 
       // Check if we've hit an empty entry indicating prefetch limit reached
       if (multi_scan_->pinned_data_blocks[cur_scan_start_idx].IsEmpty()) {
-        // We've reached the prefetch limit
         multi_scan_->cur_data_block_idx = cur_scan_start_idx;
         multi_scan_->prefetch_limit_reached = true;
         assert(!Valid());
@@ -1378,7 +1380,6 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     // Check if we've hit an empty entry indicating prefetch limit reached
     if (multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx]
             .IsEmpty()) {
-      // We've reached the prefetch limit
       multi_scan_->prefetch_limit_reached = true;
       assert(!Valid());
       assert(status().IsPrefetchLimitReached());
