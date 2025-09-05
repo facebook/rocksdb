@@ -8020,6 +8020,7 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
 
 // Verify that external file ingestion fails if we try to ingest an SST file
 // without the UDI and a UDI factory is configured in BlockBasedTableOptions
+// and fail_if_no_udi_on_open is true in BlockBasedTableOptions.
 TEST_F(UserDefinedIndexTest, IngestFailTest) {
   Options options;
   BlockBasedTableOptions table_options;
@@ -8051,6 +8052,7 @@ TEST_F(UserDefinedIndexTest, IngestFailTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.fail_if_no_udi_on_open = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -8064,6 +8066,11 @@ TEST_F(UserDefinedIndexTest, IngestFailTest) {
   IngestExternalFileOptions ifo;
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_NOK(s);
+
+  ASSERT_OK(db->SetOptions(
+      cfh, {{"block_based_table_factory", "{fail_if_no_udi_on_open=false;}"}}));
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());
