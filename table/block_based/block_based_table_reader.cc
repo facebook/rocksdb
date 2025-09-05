@@ -1332,44 +1332,53 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     // Should we use FindOptionalMetaBlock here?
     s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
                       &udi_block_handle);
-    // Read the block, and allocate on heap or pin in cache. The UDI block is
-    // not compressed. RetrieveBlock will verify the checksum.
-    if (s.ok()) {
-      s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
-                        rep_->decompressor.get(), &rep_->udi_block,
-                        /*get_context=*/nullptr, lookup_context,
-                        /*for_compaction=*/false, use_cache,
-                        /*async_read=*/false,
-                        /*use_block_cache_for_lookup=*/false);
-    }
-    if (s.ok()) {
-      assert(!rep_->udi_block.IsEmpty());
-
-      std::unique_ptr<UserDefinedIndexReader> udi_reader =
-          table_options.user_defined_index_factory->NewReader(
-              rep_->udi_block.GetValue()->data);
-      if (udi_reader) {
-        index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
-            udi_name, std::move(index_reader), std::move(udi_reader));
-      } else {
-        s = Status::Corruption("Failed to create UDI reader");
-      }
-    }
     if (!s.ok()) {
       RecordTick(rep_->ioptions.statistics.get(),
                  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
       if (table_options.fail_if_no_udi_on_open) {
-        s = Status::Corruption("Failed to load UDI: " + udi_name, s.ToString());
         ROCKS_LOG_ERROR(rep_->ioptions.logger,
-                        "Failed to load the the UDI block %s in file %s",
-                        udi_name.c_str(), rep_->file->file_name().c_str());
+                        "Failed to find the the UDI block %s in file %s; %s",
+                        udi_name.c_str(), rep_->file->file_name().c_str(),
+                        s.ToString().c_str());
+        // MAke the status more informative
+        s = Status::Corruption(s.ToString(), rep_->file->file_name());
         return s;
-      } else if (!s.ok()) {
+      } else {
         // Emit a warning, but ignore the error status
         ROCKS_LOG_WARN(rep_->ioptions.logger,
-                       "Failed to load the the UDI block %s in file %s",
-                       udi_name.c_str(), rep_->file->file_name().c_str());
+                       "Failed to find the the UDI block %s in file %s; %s",
+                       udi_name.c_str(), rep_->file->file_name().c_str(),
+                       s.ToString().c_str());
         s = Status::OK();
+      }
+    }
+
+    // If the UDI block size is 0, that means there's effectively no user
+    // defined index. In that case, skip setting up the reader.
+    if (udi_block_handle.size() > 0) {
+      // Read the block, and allocate on heap or pin in cache. The UDI block is
+      // not compressed. RetrieveBlock will verify the checksum.
+      if (s.ok()) {
+        s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
+                          rep_->decompressor.get(), &rep_->udi_block,
+                          /*get_context=*/nullptr, lookup_context,
+                          /*for_compaction=*/false, use_cache,
+                          /*async_read=*/false,
+                          /*use_block_cache_for_lookup=*/false);
+      }
+      if (s.ok()) {
+        assert(!rep_->udi_block.IsEmpty());
+
+        std::unique_ptr<UserDefinedIndexReader> udi_reader =
+            table_options.user_defined_index_factory->NewReader(
+                rep_->udi_block.GetValue()->data);
+        if (udi_reader) {
+          index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
+              udi_name, std::move(index_reader), std::move(udi_reader));
+        } else {
+          s = Status::Corruption("Failed to create UDI reader for " + udi_name +
+                                 " in file " + rep_->file->file_name());
+        }
       }
     }
   }
