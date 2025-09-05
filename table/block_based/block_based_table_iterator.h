@@ -145,10 +145,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       assert(!multi_scan_);
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
+      // This is the common case.
       return block_iter_.status();
     } else if (async_read_in_progress_) {
       assert(!multi_scan_);
       return Status::TryAgain("Async read in progress");
+    } else if (multi_scan_ && multi_scan_->prefetch_limit_reached) {
+      assert(!Valid());
+      return Status::PrefetchLimitReached();
     } else {
       return Status::OK();
     }
@@ -385,6 +389,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     size_t next_scan_idx;
     size_t cur_data_block_idx;
 
+    // When true, the iterator will return
+    // Status::Incomplete(Status::kPrefetchLimitReached).
+    bool prefetch_limit_reached;
+
     MultiScanState(
         const MultiScanArgs* _scan_opts,
         std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
@@ -393,7 +401,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
           pinned_data_blocks(std::move(_pinned_data_blocks)),
           block_ranges_per_scan(std::move(_block_ranges_per_scan)),
           next_scan_idx(0),
-          cur_data_block_idx(0) {}
+          cur_data_block_idx(0),
+          prefetch_limit_reached(false) {}
   };
 
   std::unique_ptr<MultiScanState> multi_scan_;

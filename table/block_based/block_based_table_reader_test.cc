@@ -1176,6 +1176,205 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   ASSERT_OK(iter->status());
 }
 
+TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
+  if (compression_type_ != kNoCompression) {
+    // This test relies on block sizes to be close to what's set in option.
+    ROCKSDB_GTEST_BYPASS("This test assumes no compression.");
+    return;
+  }
+  Options options;
+  ReadOptions read_opts;
+  size_t ts_sz = options.comparator->timestamp_size();
+
+  // Generate data that spans multiple blocks
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  std::string table_name = "BlockBasedTableReaderTest_PrefetchSizeLimit" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  // Default block size is 4KB
+  //
+  // Tests when no block is loaded
+  {
+    std::unique_ptr<InternalIterator> iter;
+    iter.reset(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.max_prefetch_size = 1024;  // less than block size
+    scan_options.insert(ExtractUserKey(kv[0].first),
+                        ExtractUserKey(kv[5].first));
+
+    iter->Prepare(&scan_options);
+
+    // Should be able to scan the first block, but not more
+    iter->Seek(kv[0].first);
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsPrefetchLimitReached());
+  }
+
+  // Some blocks are loaded
+  {
+    std::unique_ptr<InternalIterator> iter;
+    iter.reset(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.max_prefetch_size = 9 * 1024;  // 9KB - 2 blocks with buffer
+    scan_options.insert(ExtractUserKey(kv[1 * kEntriesPerBlock].first),
+                        ExtractUserKey(kv[8 * kEntriesPerBlock].first));
+
+    iter->Prepare(&scan_options);
+    iter->Seek(kv[1 * kEntriesPerBlock].first);
+    size_t scanned_keys = 0;
+
+    // Should be able to scan up to 2 blocks worth of data
+    while (iter->Valid()) {
+      ASSERT_EQ(iter->key().ToString(),
+                kv[scanned_keys + 1 * kEntriesPerBlock].first);
+      iter->Next();
+      scanned_keys++;
+    }
+
+    ASSERT_TRUE(iter->status().IsPrefetchLimitReached());
+    ASSERT_EQ(scanned_keys, 2 * kEntriesPerBlock);
+  }
+
+  // Tests with some block loaded in cache already:
+  // Blocks 1 and 2 are already in cache by the above test.
+  // Here we try blocks 0 - 5, with prefetch limit to 3 blocks, and expect to
+  // read 3 blocks.
+  {
+    std::unique_ptr<InternalIterator> iter;
+    iter.reset(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.max_prefetch_size = 3 * 4 * 1024 + 1024;  // 3 blocks + 1KB
+    scan_options.insert(ExtractUserKey(kv[0].first),
+                        ExtractUserKey(kv[5 * kEntriesPerBlock].first));
+
+    iter->Prepare(&scan_options);
+    iter->Seek(kv[0].first);
+    size_t scanned_keys = 0;
+    // Should only read 3 blocks (blocks 0, 1, 2)
+    // already cached.
+    while (iter->Valid()) {
+      ASSERT_EQ(iter->key().ToString(), kv[scanned_keys].first);
+      iter->Next();
+      scanned_keys++;
+    }
+    ASSERT_TRUE(iter->status().IsPrefetchLimitReached());
+    ASSERT_EQ(scanned_keys, 3 * kEntriesPerBlock);
+  }
+
+  // Multiple scan ranges with prefetch limit
+  {
+    std::unique_ptr<InternalIterator> iter;
+    iter.reset(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.max_prefetch_size = 5 * 4 * 1024 + 1024;  // 5 blocks + 1KB
+    // Will read 5 entries from first scan range, and 4 blocks from the second
+    // scan range
+    scan_options.insert(ExtractUserKey(kv[0].first),
+                        ExtractUserKey(kv[5].first));
+    scan_options.insert(ExtractUserKey(kv[12 * kEntriesPerBlock].first),
+                        ExtractUserKey(kv[17 * kEntriesPerBlock].first));
+    scan_options.insert(ExtractUserKey(kv[18 * kEntriesPerBlock].first),
+                        ExtractUserKey(kv[19 * kEntriesPerBlock].first));
+
+    iter->Prepare(&scan_options);
+
+    iter->Seek(kv[0].first);
+    size_t scanned_keys = 0;
+    size_t key_idx = 0;
+    while (iter->Valid()) {
+      ASSERT_EQ(iter->key().ToString(), kv[key_idx].first);
+      iter->Next();
+      scanned_keys++;
+      key_idx++;
+      if (key_idx == 5) {
+        iter->Seek(kv[12 * kEntriesPerBlock].first);
+        key_idx = 12 * kEntriesPerBlock;
+      }
+    }
+    ASSERT_EQ(scanned_keys, 5 + 4 * kEntriesPerBlock);
+    ASSERT_TRUE(iter->status().IsPrefetchLimitReached());
+  }
+
+  // Prefetch limit is big enough for all scan ranges.
+  {
+    std::unique_ptr<InternalIterator> iter;
+    iter.reset(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.max_prefetch_size = 10 * 1024 * 1024;  // 10MB
+    scan_options.insert(ExtractUserKey(kv[0].first),
+                        ExtractUserKey(kv[5].first));
+    scan_options.insert(ExtractUserKey(kv[8 * kEntriesPerBlock].first),
+                        ExtractUserKey(kv[12 * kEntriesPerBlock].first));
+    scan_options.insert(ExtractUserKey(kv[18 * kEntriesPerBlock].first),
+                        ExtractUserKey(kv[19 * kEntriesPerBlock].first));
+
+    iter->Prepare(&scan_options);
+
+    iter->Seek(kv[0].first);
+    size_t scanned_keys = 0;
+    size_t key_idx = 0;
+    // Scan first range
+    while (iter->Valid() && key_idx < 5) {
+      ASSERT_EQ(iter->key().ToString(), kv[key_idx].first);
+      iter->Next();
+      scanned_keys++;
+      key_idx++;
+    }
+    // Move to second range
+    iter->Seek(kv[8 * kEntriesPerBlock].first);
+    key_idx = 8 * kEntriesPerBlock;
+    while (iter->Valid() && key_idx < 12 * kEntriesPerBlock) {
+      ASSERT_EQ(iter->key().ToString(), kv[key_idx].first);
+      iter->Next();
+      scanned_keys++;
+      key_idx++;
+    }
+    // Move to third range
+    iter->Seek(kv[18 * kEntriesPerBlock].first);
+    key_idx = 18 * kEntriesPerBlock;
+    while (iter->Valid() && key_idx < 19 * kEntriesPerBlock) {
+      ASSERT_EQ(iter->key().ToString(), kv[key_idx].first);
+      iter->Next();
+      scanned_keys++;
+      key_idx++;
+    }
+    // Should not hit prefetch limit
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(scanned_keys, 5 + 4 * kEntriesPerBlock + 1 * kEntriesPerBlock);
+  }
+}
+
 // Param 1: compression type
 // Param 2: whether to use direct reads
 // Param 3: Block Based Table Index type, partitioned filters are also enabled
