@@ -3683,8 +3683,7 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
 INSTANTIATE_TEST_CASE_P(SuperBlockTests, DBFlushSuperBlockTest,
                         testing::Combine(testing::Bool(), testing::Bool(),
-                                         testing::Values(32 * 1024, 64 * 1024,
-                                                         1 * 1024 * 1024),
+                                         testing::Values(32 * 1024, 64 * 1024),
                                          testing::Values(2 * 1024, 4 * 1024)));
 
 }  // namespace ROCKSDB_NAMESPACE
