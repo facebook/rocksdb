@@ -494,8 +494,25 @@ class BlockIter : public InternalIteratorBase<TValue> {
     return count;
   }
 
-  // Returns the number of keys in this block.
-  virtual uint32_t NumberOfKeys(uint32_t block_restart_interval) {
+  // Returns the upperbound side of number of keys in this block.
+  //
+  // Due to super block alignment change, a restart point could be inserted
+  // before the block_restart_interval is reached. This causes the number of
+  // keys between the restart points is lower than block_restart_interval.
+  // Therefore, this method provides an upperbound of number of keys.
+  // The old engine version before the introduction of super block aligment
+  // would have the number of keys calculated accurately.
+  //
+  // This cause forward incompatible on debug build, as there is an assert
+  // validating the number of keys found is exactly same as returned by this
+  // function at the caller function, inside the index block loader protection.
+  // However, for release build, the assert would be skipped. When the older
+  // engine version load a SST file generated from new engine version, the old
+  // number of key would return a higher value, which does not cause correctness
+  // issue. It just wasted some bytes for kv checksum, which is not a
+  // significant concern, given it is only used for index blocks, the waste is
+  // negaligable.
+  virtual uint32_t NumberOfKeysUpperBound(uint32_t block_restart_interval) {
     if (num_restarts_ == 0 || data_ == nullptr) {
       return 0;
     }
@@ -818,7 +835,7 @@ class MetaBlockIter final : public BlockIter<Slice> {
   // Meta index block's restart interval is always 1. See
   // MetaIndexBuilder::MetaIndexBuilder() for hard-coded restart interval.
   uint32_t GetRestartInterval() override { return 1; }
-  uint32_t NumberOfKeys(uint32_t) override { return num_restarts_; }
+  uint32_t NumberOfKeysUpperBound(uint32_t) override { return num_restarts_; }
 };
 
 class IndexBlockIter final : public BlockIter<IndexValue> {

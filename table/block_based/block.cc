@@ -1129,7 +1129,7 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
     }
     uint32_t num_keys = 0;
     if (iter->status().ok()) {
-      num_keys = iter->NumberOfKeys(block_restart_interval_);
+      num_keys = iter->NumberOfKeysUpperBound(block_restart_interval_);
     }
     if (iter->status().ok()) {
       checksum_size_ = num_keys * protection_bytes_per_key;
@@ -1142,7 +1142,7 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
         iter->Next();
         i += protection_bytes_per_key;
       }
-      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
+      assert(!iter->status().ok() || i <= num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
       contents_.data.size_ = 0;  // Error marker
@@ -1178,7 +1178,7 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
     }
     uint32_t num_keys = 0;
     if (iter->status().ok()) {
-      num_keys = iter->NumberOfKeys(block_restart_interval_);
+      num_keys = iter->NumberOfKeysUpperBound(block_restart_interval_);
     }
     if (iter->status().ok()) {
       checksum_size_ = num_keys * protection_bytes_per_key;
@@ -1191,7 +1191,7 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
         iter->Next();
         i += protection_bytes_per_key;
       }
-      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
+      assert(!iter->status().ok() || i <= num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
       contents_.data.size_ = 0;  // Error marker
@@ -1212,7 +1212,7 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
     }
     uint32_t num_keys = 0;
     if (iter->status().ok()) {
-      num_keys = iter->NumberOfKeys(block_restart_interval_);
+      num_keys = iter->NumberOfKeysUpperBound(block_restart_interval_);
     }
     if (iter->status().ok()) {
       checksum_size_ = num_keys * protection_bytes_per_key;
@@ -1225,7 +1225,7 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
         iter->Next();
         i += protection_bytes_per_key;
       }
-      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
+      assert(!iter->status().ok() || i <= num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
       contents_.data.size_ = 0;  // Error marker
