@@ -203,7 +203,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "max_auto_readahead_size=0;"
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
-      "num_file_reads_for_auto_readahead=0",
+      "num_file_reads_for_auto_readahead=0;"
+      "fail_if_no_udi_on_open=true",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
