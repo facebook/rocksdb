@@ -270,9 +270,9 @@ class PerKeyPointLockManager : public PointLockManager {
 
   int64_t CalculateWaitEndTime(int64_t expire_time_hint, int64_t end_time);
 
-  void FillWaitIds(LockInfo& lock_info, const LockInfo& txn_lock_info,
-                   autovector<TransactionID>* wait_ids, bool& isUpgrade,
-                   TransactionID& my_txn_id, const std::string& key);
+  Status FillWaitIds(LockInfo& lock_info, const LockInfo& txn_lock_info,
+                     autovector<TransactionID>* wait_ids, bool& isUpgrade,
+                     TransactionID& my_txn_id, const std::string& key);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

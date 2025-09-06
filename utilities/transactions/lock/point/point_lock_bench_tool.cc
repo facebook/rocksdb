@@ -75,13 +75,11 @@ class PointLockManagerBenchmark {
     ASSERT_OK(s);
 
     if (FLAGS_is_per_key_point_lock_manager) {
-      printf("use PerKeyPointLockManager\n");
-      locker_.reset(new PerKeyPointLockManager(
-          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
+      locker_ = std::make_shared<PerKeyPointLockManager>(
+          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_);
     } else {
-      printf("use PointLockManager\n");
-      locker_.reset(new PointLockManager(
-          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
+      locker_ = std::make_shared<PointLockManager>(
+          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_);
     }
 
     txn_opt_.deadlock_detect = true;

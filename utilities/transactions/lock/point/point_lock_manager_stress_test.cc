@@ -32,11 +32,11 @@ class PointLockCorrectnessCheckTest
     auto const& param = GetParam();
     auto per_key_lock_manager = param.is_per_key_point_lock_manager;
     if (per_key_lock_manager) {
-      locker_.reset(new PerKeyPointLockManager(
-          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
+      locker_ = std::make_shared<PerKeyPointLockManager>(
+          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_);
     } else {
-      locker_.reset(new PointLockManager(
-          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
+      locker_ = std::make_shared<PointLockManager>(
+          static_cast<PessimisticTransactionDB*>(db_), txndb_opt_);
     }
 
     txn_opt_.deadlock_detect = true;
@@ -59,9 +59,9 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   test_runner.run();
 }
 
-#define X_S_LOCK LockTypeToTest::EXCLUSIVE_AND_SHARED
-#define X_LOCK LockTypeToTest::EXCLUSIVE_ONLY
-#define S_LOCK LockTypeToTest::SHARED_ONLY
+constexpr auto X_S_LOCK = LockTypeToTest::EXCLUSIVE_AND_SHARED;
+constexpr auto X_LOCK = LockTypeToTest::EXCLUSIVE_ONLY;
+constexpr auto S_LOCK = LockTypeToTest::SHARED_ONLY;
 
 INSTANTIATE_TEST_CASE_P(
     PointLockCorrectnessCheckTestSuite, PointLockCorrectnessCheckTest,

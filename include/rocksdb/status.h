@@ -115,6 +115,7 @@ class Status {
     kIOFenced = 14,
     kMergeOperatorFailed = 15,
     kMergeOperandThresholdExceeded = 16,
+    kNotExpectedCodePath = 17,
     kMaxSubCode
   };
 
@@ -323,6 +324,9 @@ class Status {
     MarkChecked();
     return code() == kOk;
   }
+
+  // Assert the status is OK in debug mode
+  void AssertOK() const { assert(ok()); }
 
   // Returns true iff the status indicates success *with* something
   // overwritten

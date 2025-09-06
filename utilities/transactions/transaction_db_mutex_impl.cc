@@ -15,30 +15,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Helper function to log lock/unlock events on a mutex for debugging purposes
-void logLockEventOnThread(std::mutex* mutex, bool isLock, bool success = true) {
-  constexpr bool kDebugMutexInTrxDbMutex = false;
-  if (kDebugMutexInTrxDbMutex) {
-    // get thread id
-    std::thread::id this_id = std::this_thread::get_id();
-    std::stringstream ss;
-    ss << this_id;
-    std::string thread_id = ss.str();
-    if (isLock) {
-      if (success) {
-        fprintf(stderr, "Locking mutex %p, thread id %s\n", mutex,
-                thread_id.c_str());
-      } else {
-        fprintf(stderr, "Failed to lock mutex %p, thread id %s\n", mutex,
-                thread_id.c_str());
-      }
-    } else {
-      fprintf(stderr, "Unlocking mutex %p, thread id %s\n", mutex,
-              thread_id.c_str());
-    }
-  }
-}
-
 class TransactionDBMutexImpl : public TransactionDBMutex {
  public:
   TransactionDBMutexImpl() = default;
@@ -48,10 +24,7 @@ class TransactionDBMutexImpl : public TransactionDBMutex {
 
   Status TryLockFor(int64_t timeout_time) override;
 
-  void UnLock() override {
-    logLockEventOnThread(&mutex_, false);
-    mutex_.unlock();
-  }
+  void UnLock() override { mutex_.unlock(); }
 
   friend class TransactionDBCondVarImpl;
 
@@ -89,7 +62,6 @@ TransactionDBMutexFactoryImpl::AllocateCondVar() {
 
 Status TransactionDBMutexImpl::Lock() {
   mutex_.lock();
-  logLockEventOnThread(&mutex_, true);
   return Status::OK();
 }
 
@@ -111,11 +83,8 @@ Status TransactionDBMutexImpl::TryLockFor(int64_t timeout_time) {
 
   if (!locked) {
     // timeout acquiring mutex
-    logLockEventOnThread(&mutex_, true, false);
     return Status::TimedOut(Status::SubCode::kMutexTimeout);
   }
-
-  logLockEventOnThread(&mutex_, true);
 
   return Status::OK();
 }
@@ -125,9 +94,7 @@ Status TransactionDBCondVarImpl::Wait(
   auto mutex_impl = static_cast<TransactionDBMutexImpl*>(mutex.get());
 
   std::unique_lock<std::mutex> lock(mutex_impl->mutex_, std::adopt_lock);
-  logLockEventOnThread(&mutex_impl->mutex_, false);
   cv_.wait(lock);
-  logLockEventOnThread(&mutex_impl->mutex_, true);
 
   // Make sure unique_lock doesn't unlock mutex when it destructs
   lock.release();
@@ -142,8 +109,6 @@ Status TransactionDBCondVarImpl::WaitFor(
   auto mutex_impl = static_cast<TransactionDBMutexImpl*>(mutex.get());
   std::unique_lock<std::mutex> lock(mutex_impl->mutex_, std::adopt_lock);
 
-  logLockEventOnThread(&mutex_impl->mutex_, false);
-
   if (timeout_time < 0) {
     // If timeout is negative, do not use a timeout
     cv_.wait(lock);
@@ -156,8 +121,6 @@ Status TransactionDBCondVarImpl::WaitFor(
       s = Status::TimedOut(Status::SubCode::kMutexTimeout);
     }
   }
-
-  logLockEventOnThread(&mutex_impl->mutex_, true);
 
   // Make sure unique_lock doesn't unlock mutex when it destructs
   lock.release();
