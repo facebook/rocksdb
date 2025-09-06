@@ -6433,6 +6433,11 @@ void rocksdb_transactiondb_options_set_default_lock_timeout(
   opt->rep.default_lock_timeout = default_lock_timeout;
 }
 
+void rocksdb_transactiondb_options_set_use_per_key_point_lock_mgr(
+    rocksdb_transactiondb_options_t* opt, int use_per_key_point_lock_mgr) {
+  opt->rep.use_per_key_point_lock_mgr = use_per_key_point_lock_mgr;
+}
+
 rocksdb_transaction_options_t* rocksdb_transaction_options_create() {
   return new rocksdb_transaction_options_t;
 }
