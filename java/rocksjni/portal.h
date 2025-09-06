@@ -9172,6 +9172,10 @@ class BlockBasedTableOptionsJni
         table_factory_options->format_version,
         table_factory_options->enable_index_compression,
         table_factory_options->block_align,
+        table_factory_options->super_block_align,
+        static_cast<jlong>(table_factory_options->super_block_alignment_size),
+        static_cast<jlong>(
+            table_factory_options->super_block_alignment_max_padding_size),
         IndexShorteningModeJni::toJavaIndexShorteningMode(
             table_factory_options->index_shortening),
         FilterPolicyJni::toJavaIndexType(filter_policy_type),

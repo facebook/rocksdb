@@ -41,7 +41,8 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override {
+                      std::string* separator_scratch,
+                      bool add_restart_point) override {
     UserDefinedIndexBuilder::BlockHandle handle;
     handle.offset = block_handle.offset();
     handle.size = block_handle.size();
@@ -66,7 +67,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     }
     return internal_index_builder_->AddIndexEntry(
         last_key_in_current_block, first_key_in_next_block, block_handle,
-        separator_scratch);
+        separator_scratch, add_restart_point);
   }
 
   // Not supported with parallel compression
@@ -82,9 +83,11 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     assert(false);
   }
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override {
+                        PreparedIndexEntry* entry,
+                        bool should_add_restart_point_on_index_block) override {
     (void)block_handle;
     (void)entry;
+    (void)should_add_restart_point_on_index_block;
     assert(false);
   }
 
