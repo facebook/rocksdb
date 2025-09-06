@@ -3562,42 +3562,45 @@ TEST_F(DBFlushTest, VerifyOutputRecordCount) {
   }
 }
 
-std::string formatKey(int i) {
-  int desired_length = 10;
-  char buffer[64];
-  snprintf(buffer, 64, "%0*d", desired_length, i);
-  return buffer;
-}
-
-std::string formatValue(int i) { return std::string(7919, 'a' + (i % 26)); }
-
 class DBFlushSuperBlockTest : public DBFlushTest,
                               public ::testing::WithParamInterface<
                                   std::tuple<bool, bool, size_t, size_t>> {
  public:
   DBFlushSuperBlockTest() : DBFlushTest() {}
 
-  void VerifyRead(int key_count) {
-    // Test GET
+  std::string formatKey(int i) {
+    int desired_length = 10;
+    char buffer[64];
+    snprintf(buffer, 64, "%0*d", desired_length, i);
+    return buffer;
+  }
+
+  void VerifyReadWithGet(int key_count) {
     for (int i = 0; i < key_count; ++i) {
       PinnableSlice value;
       ASSERT_OK(Get(formatKey(i), &value));
-      ASSERT_EQ(value.ToString(), formatValue(i));
+      ASSERT_EQ(value.ToString(), added_data[formatKey(i)]);
     }
-    // Test iterator
+  }
+
+  void VerifyReadWithIterator(int key_count) {
     {
       std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
       int i = 0;
       for (it->SeekToFirst(); it->Valid(); it->Next()) {
         ASSERT_OK(it->status());
         ASSERT_EQ((it->key()).ToString(), formatKey(i));
-        ASSERT_EQ((it->value()).ToString(), formatValue(i));
+        ASSERT_EQ((it->value()).ToString(), added_data[formatKey(i)]);
         i++;
       }
       ASSERT_OK(it->status());
       ASSERT_EQ(i, key_count);
     }
   }
+
+ protected:
+  Random rnd{123};
+  std::unordered_map<std::string, std::string> added_data;
 };
 
 TEST_P(DBFlushSuperBlockTest, SuperBlock) {
@@ -3605,9 +3608,12 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   Options options;
   options.env = env_;
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.paranoid_file_checks = true;
+  options.write_buffer_size = 1024 * 1024;
   BlockBasedTableOptions block_options;
   block_options.block_align = get<0>(GetParam());
   block_options.super_block_align = get<1>(GetParam());
+  block_options.index_block_restart_interval = 3;
   block_options.super_block_alignment_size = get<2>(GetParam());
   block_options.super_block_alignment_max_padding_size = get<3>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
@@ -3630,7 +3636,8 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
   // Add lots of keys
   for (int i = 0; i < key_count; ++i) {
-    ASSERT_OK(Put(formatKey(i), formatValue(i)));
+    added_data[formatKey(i)] = std::string(rnd.RandomString(rnd.Next() % 1000));
+    ASSERT_OK(Put(formatKey(i), added_data[formatKey(i)]));
   }
 
   // flush the data in memory to disk to verify with super block alignment, the
@@ -3649,7 +3656,9 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   }
 
   // verify the values are correct
-  VerifyRead(key_count);
+  VerifyReadWithGet(key_count);
+  Reopen(options);
+  VerifyReadWithIterator(key_count);
 
   // verify checksum
   ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
@@ -3664,7 +3673,9 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   Reopen(options);
 
   // verify the values are correct
-  VerifyRead(key_count);
+  VerifyReadWithGet(key_count);
+  Reopen(options);
+  VerifyReadWithIterator(key_count);
 
   // verify checksum
   ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
@@ -3672,8 +3683,8 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
 INSTANTIATE_TEST_CASE_P(SuperBlockTests, DBFlushSuperBlockTest,
                         testing::Combine(testing::Bool(), testing::Bool(),
-                                         testing::Values(128 * 1024, 512 * 1024,
-                                                         2 * 1024 * 1024),
+                                         testing::Values(32 * 1024, 64 * 1024,
+                                                         1 * 1024 * 1024),
                                          testing::Values(2 * 1024, 4 * 1024)));
 
 }  // namespace ROCKSDB_NAMESPACE

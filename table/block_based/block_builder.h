@@ -75,13 +75,7 @@ class BlockBuilder {
   }
 
   // Add a restart point, if it is not at a restart point.
-  void Restart() {
-    if (counter_ != 0) {
-      restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
-      estimate_ += sizeof(uint32_t);
-      counter_ = 0;
-    }
-  }
+  void Restart() { counter_ = block_restart_interval_; }
 
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;

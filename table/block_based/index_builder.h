@@ -307,6 +307,9 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
     if (add_restart_point) {
       index_block_builder_.Restart();
+      if (!must_use_separator_with_seq) {
+        index_block_builder_without_seq_.Restart();
+      }
     }
 
     // TODO(yuzhangyu): fix this when "FindShortInternalKeySuccessor"
