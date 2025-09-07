@@ -1333,25 +1333,54 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
                       &udi_block_handle);
     if (!s.ok()) {
-      return s;
+      RecordTick(rep_->ioptions.statistics.get(),
+                 SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
+      if (table_options.fail_if_no_udi_on_open) {
+        ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                        "Failed to find the the UDI block %s in file %s; %s",
+                        udi_name.c_str(), rep_->file->file_name().c_str(),
+                        s.ToString().c_str());
+        // MAke the status more informative
+        s = Status::Corruption(s.ToString(), rep_->file->file_name());
+        return s;
+      } else {
+        // Emit a warning, but ignore the error status
+        ROCKS_LOG_WARN(rep_->ioptions.logger,
+                       "Failed to find the the UDI block %s in file %s; %s",
+                       udi_name.c_str(), rep_->file->file_name().c_str(),
+                       s.ToString().c_str());
+        s = Status::OK();
+      }
     }
-    // Read the block, and allocate on heap or pin in cache. The UDI block is
-    // not compressed. RetrieveBlock will verify the checksum.
-    s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
-                      rep_->decompressor.get(), &rep_->udi_block,
-                      /*get_context=*/nullptr, lookup_context,
-                      /*for_compaction=*/false, use_cache, /*async_read=*/false,
-                      /*use_block_cache_for_lookup=*/false);
-    if (!s.ok()) {
-      return s;
-    }
-    assert(!rep_->udi_block.IsEmpty());
 
-    std::unique_ptr<UserDefinedIndexReader> udi_reader =
-        table_options.user_defined_index_factory->NewReader(
-            rep_->udi_block.GetValue()->data);
-    index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
-        udi_name, std::move(index_reader), std::move(udi_reader));
+    // If the UDI block size is 0, that means there's effectively no user
+    // defined index. In that case, skip setting up the reader.
+    if (udi_block_handle.size() > 0) {
+      // Read the block, and allocate on heap or pin in cache. The UDI block is
+      // not compressed. RetrieveBlock will verify the checksum.
+      if (s.ok()) {
+        s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
+                          rep_->decompressor.get(), &rep_->udi_block,
+                          /*get_context=*/nullptr, lookup_context,
+                          /*for_compaction=*/false, use_cache,
+                          /*async_read=*/false,
+                          /*use_block_cache_for_lookup=*/false);
+      }
+      if (s.ok()) {
+        assert(!rep_->udi_block.IsEmpty());
+
+        std::unique_ptr<UserDefinedIndexReader> udi_reader =
+            table_options.user_defined_index_factory->NewReader(
+                rep_->udi_block.GetValue()->data);
+        if (udi_reader) {
+          index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
+              udi_name, std::move(index_reader), std::move(udi_reader));
+        } else {
+          s = Status::Corruption("Failed to create UDI reader for " + udi_name +
+                                 " in file " + rep_->file->file_name());
+        }
+      }
+    }
   }
 
   rep_->index_reader = std::move(index_reader);
@@ -1359,7 +1388,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all || pin_partition) {
+  if (s.ok() && (prefetch_all || pin_partition)) {
     s = rep_->index_reader->CacheDependencies(ro, pin_partition,
                                               prefetch_buffer);
   }

@@ -367,8 +367,7 @@ default_params = {
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
-    # TODO(jaykorean): Re-enable remote compaction once all incompatible features are addressed in stress test
-    "remote_compaction_worker_threads": lambda: 0,
+    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -505,6 +504,8 @@ whitebox_default_params = {
     #
     # Second, we need to make sure disabling WAL works with `-reopen > 0`.
     "disable_wal": 0,
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
@@ -566,6 +567,8 @@ txn_params = {
     # TODO: there is such a thing as transactions with WAL disabled. We should
     # cover that case.
     "disable_wal": 0,
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
@@ -623,6 +626,9 @@ blob_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
+
+     # TODO Fix races when both Remote Compaction + BlobDB enabled
+     "remote_compaction_worker_threads": 0,
 }
 
 ts_params = {
@@ -639,6 +645,9 @@ ts_params = {
     "use_put_entity_one_in": 0,
     # TimedPut is not compatible with user-defined timestamps yet.
     "use_timed_put_one_in": 0,
+    # when test_best_efforts_recovery == true, disable_wal becomes 0.
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
 }
 
 tiered_params = {
@@ -674,6 +683,8 @@ multiops_txn_params = {
     "two_write_queues": lambda: random.choice([0, 1]),
     # TODO: enable write-prepared
     "disable_wal": 0,
+    # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
+    "remote_compaction_worker_threads": 0,
     "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
@@ -776,6 +787,19 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("best_efforts_recovery") == 1:
         dest_params["inplace_update_support"] = 0
 
+    # Remote Compaction Incompatible Tests and Features
+    if dest_params.get("remote_compaction_worker_threads", 0) > 0:
+        # TODO Fix races when both Remote Compaction + BlobDB enabled
+        dest_params["enable_blob_files"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        # TODO Fix - Remote worker shouldn't recover from WAL
+        dest_params["disable_wal"] = 1
+        # Disable Incompatible Ones
+        dest_params["inplace_update_support"] = 0
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["use_timed_put_one_in"] = 0
+
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (
@@ -838,14 +862,6 @@ def finalize_and_sanitize(src_params):
             dest_params["allow_concurrent_memtable_write"] = 1
         else:
             dest_params["unordered_write"] = 0
-    if dest_params.get("remote_compaction_worker_threads", 0) > 0:
-        # TODO Fix races when both Remote Compaction + BlobDB enabled
-        dest_params["enable_blob_files"] = 0
-        # TODO Fix - Remote worker shouldn't recover from WAL
-        dest_params["disable_wal"] = 1
-        # Disable Incompatible Ones
-        dest_params["checkpoint_one_in"] = 0
-        dest_params["use_timed_put_one_in"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0

@@ -399,6 +399,9 @@ static struct BlockBasedTableTypeInfo {
          {offsetof(struct BlockBasedTableOptions,
                    num_file_reads_for_auto_readahead),
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
+        {"fail_if_no_udi_on_open",
+         {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
     };
   }
 } block_based_table_type_info;
@@ -873,6 +876,14 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
            table_options_.filter_policy == nullptr
                ? "nullptr"
                : table_options_.filter_policy->Name());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  user_defined_index_factory: %s\n",
+           table_options_.user_defined_index_factory == nullptr
+               ? "nullptr"
+               : table_options_.user_defined_index_factory->Name());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
+           table_options_.fail_if_no_udi_on_open);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);

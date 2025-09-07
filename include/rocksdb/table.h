@@ -509,6 +509,12 @@ struct BlockBasedTableOptions {
   // (CompressionOptions::parallel_threads sanitized to 1).
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
 
+  // EXPERIMENTAL
+  //
+  // Return an error Status if a user_defined_index_factory is configured,
+  // but there's no corresponding UDI block in the SST file being opened.
+  bool fail_if_no_udi_on_open = false;
+
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
