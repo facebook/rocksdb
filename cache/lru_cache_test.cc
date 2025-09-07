@@ -1405,9 +1405,9 @@ TEST_P(BasicSecondaryCacheTest, SaveFailTest) {
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelperFail(), str1.length()));
   std::string str2 = rnd.RandomString(1020);
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelperFail(), str2.length()));
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
 

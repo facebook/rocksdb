@@ -129,7 +129,7 @@ class MultiGetContext {
       lookup_key_ptr_ = reinterpret_cast<LookupKey*>(lookup_key_heap_buf.get());
     }
 
-    for (size_t iter = 0; iter != num_keys_; ++iter) {
+    for (size_t iter = 0; iter < num_keys_; ++iter) {
       // autovector may not be contiguous storage, so make a copy
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
