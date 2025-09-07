@@ -82,7 +82,7 @@ class PointLockValidationTestRunner {
       bool enable_per_thread_lock_count_assertion = false)
       : env_(env),
         txndb_opt_(std::move(txndb_opt)),
-        locker_(locker),
+        locker_(std::move(locker)),
         db_(db),
         txn_opt_(std::move(txn_opt)),
         thread_count_(thd_cnt),
