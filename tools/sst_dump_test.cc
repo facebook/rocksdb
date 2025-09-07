@@ -101,7 +101,7 @@ class SSTDumpToolTest : public testing::Test {
   template <std::size_t N>
   struct CleanupUsage {
     char* (&usage)[N];
-    CleanupUsage(char* (&usage)[N]) : usage(usage) {}
+    CleanupUsage(char* (&_usage)[N]) : usage(_usage) {}
     ~CleanupUsage() {
       for (std::size_t i = 0; i < N; ++i) {
         delete[] usage[i];
@@ -389,6 +389,7 @@ TEST_F(SSTDumpToolTest, ReadaheadSize) {
   cleanup(opts, file_path);
 }
 
+#ifndef __clang_analyzer__  // False positive memory leaks reported
 TEST_F(SSTDumpToolTest, NoSstFile) {
   Options opts;
   opts.env = env();
@@ -440,6 +441,7 @@ TEST_F(SSTDumpToolTest, ValidSSTPath) {
   ASSERT_OK(opts.env->DeleteFile(text_file));
   ASSERT_OK(opts.env->DeleteFile(fake_sst));
 }
+#endif  // __clang_analyzer__
 
 TEST_F(SSTDumpToolTest, RawOutput) {
   Options opts;

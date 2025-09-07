@@ -128,5 +128,5 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
-    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 -DCMAKE_CXX_FLAGS=-DGLOG_USE_GLOG_EXPORT .. && make V=1 -j20)"
     - uses: "./.github/actions/post-steps"

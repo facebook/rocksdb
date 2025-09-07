@@ -3519,8 +3519,6 @@ void StressTest::PrintEnv() const {
   const char* memtablerep;
   switch (FLAGS_rep_factory) {
     default:
-      assert(false);
-      FALLTHROUGH_INTENDED;
     case kSkipList:
       memtablerep = "skip_list";
       break;
