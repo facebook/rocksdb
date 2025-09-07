@@ -7480,6 +7480,9 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
                           const Slice* first_key_in_next_block,
                           const BlockHandle& block_handle,
                           std::string* separator_scratch) override {
+        if (keys_added_ == 0) {
+          return last_key_in_current_block;
+        }
         EXPECT_EQ(last_key_in_current_block.size(), 5);
         if (first_key_in_next_block) {
           EXPECT_EQ(first_key_in_next_block->size(), 5);
@@ -7500,12 +7503,19 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
 
       void OnKeyAdded(const Slice& key, ValueType /*value*/,
                       const Slice& /*value*/) override {
+        if (key.starts_with("dummy")) {
+          return;
+        }
         EXPECT_EQ(key.size(), 5);
         // Track keys added to the index
         keys_added_++;
       }
 
       Status Finish(Slice* index_contents) override {
+        if (entries_added_ == 0) {
+          *index_contents = Slice();
+          return Status::OK();
+        }
         // Serialize the index data
         std::string result;
         for (const auto& entry : index_data_) {
@@ -8020,6 +8030,7 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
 
 // Verify that external file ingestion fails if we try to ingest an SST file
 // without the UDI and a UDI factory is configured in BlockBasedTableOptions
+// and fail_if_no_udi_on_open is true in BlockBasedTableOptions.
 TEST_F(UserDefinedIndexTest, IngestFailTest) {
   Options options;
   BlockBasedTableOptions table_options;
@@ -8051,6 +8062,7 @@ TEST_F(UserDefinedIndexTest, IngestFailTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.fail_if_no_udi_on_open = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -8064,6 +8076,72 @@ TEST_F(UserDefinedIndexTest, IngestFailTest) {
   IngestExternalFileOptions ifo;
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_NOK(s);
+
+  ASSERT_OK(db->SetOptions(
+      cfh, {{"block_based_table_factory", "{fail_if_no_udi_on_open=false;}"}}));
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST_F(UserDefinedIndexTest, IngestEmptyUDI) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+  std::string ingest_file2 = dbname + "dummy.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  // Add 100 keys instead of just 5
+  for (int i = 0; i < 100; i++) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = "value" + ss.str();
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file2));
+  ASSERT_OK(writer->Put("dummy", "val"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  table_options.fail_if_no_udi_on_open = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  std::vector<IngestExternalFileArg> ifa;
+  ifa.emplace_back();
+  ifa[0].column_family = cfh;
+  ifa[0].external_files.emplace_back(ingest_file);
+  ifa[0].external_files.emplace_back(ingest_file2);
+  s = db->IngestExternalFiles(ifa);
+  ASSERT_OK(s);
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());

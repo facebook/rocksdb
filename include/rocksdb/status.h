@@ -115,7 +115,8 @@ class Status {
     kIOFenced = 14,
     kMergeOperatorFailed = 15,
     kMergeOperandThresholdExceeded = 16,
-    kNotExpectedCodePath = 17,
+    kPrefetchLimitReached = 17,
+    kNotExpectedCodePath = 18,
     kMaxSubCode
   };
 
@@ -319,6 +320,10 @@ class Status {
 
   static Status LockLimit() { return Status(kAborted, kLockLimit); }
 
+  static Status PrefetchLimitReached() {
+    return Status(kIncomplete, kPrefetchLimitReached);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const {
     MarkChecked();
@@ -488,6 +493,13 @@ class Status {
   bool IsIOFenced() const {
     MarkChecked();
     return (code() == kIOError) && (subcode() == kIOFenced);
+  }
+
+  // Returns true iff the status indicates prefetch limit reached during
+  // MultiScan.
+  bool IsPrefetchLimitReached() const {
+    MarkChecked();
+    return (code() == kIncomplete) && (subcode() == kPrefetchLimitReached);
   }
 
   // Return a string representation of this status suitable for printing.
