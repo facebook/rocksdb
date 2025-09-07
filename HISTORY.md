@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.6.1 (09/05/2025)
+### New Features
+* Add the fail_if_no_udi_on_open flag in BlockBasedTableOption to control whether a missing user defined index block in a SST is a hard error or not.
+* Add new option `MultiScanArgs::max_prefetch_size` that limits the memory usage of per file pinning of prefetched blocks.
+
 ## 10.6.0 (08/22/2025)
 ### New Features
 * Introduce column family option `cf_allow_ingest_behind`. This option aims to replace `DBOptions::allow_ingest_behind` to enable ingest behind at the per-CF level. `DBOptions::allow_ingest_behind` is deprecated.
