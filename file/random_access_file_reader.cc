@@ -53,6 +53,7 @@ inline Histograms GetFileReadHistograms(Statistics* stats,
   }
   return Histograms::HISTOGRAM_ENUM_MAX;
 }
+bool g_fail_on_hot = false;
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
@@ -73,6 +74,9 @@ inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
         IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, 1);
         RecordTick(stats, HOT_FILE_READ_BYTES, size);
         RecordTick(stats, HOT_FILE_READ_COUNT, 1);
+        if (g_fail_on_hot) {
+          std::terminate();
+        }
         break;
       case Temperature::kWarm:
         IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, size);
@@ -85,6 +89,12 @@ inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
         IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);
         RecordTick(stats, COLD_FILE_READ_BYTES, size);
         RecordTick(stats, COLD_FILE_READ_COUNT, 1);
+        break;
+      case Temperature::kIce:
+        IOSTATS_ADD(file_io_stats_by_temperature.ice_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.ice_file_read_count, 1);
+        RecordTick(stats, ICE_FILE_READ_BYTES, size);
+        RecordTick(stats, ICE_FILE_READ_COUNT, 1);
         break;
       default:
         break;

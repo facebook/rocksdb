@@ -119,6 +119,7 @@ enum class Temperature : uint8_t {
   kHot = 0x04,
   kWarm = 0x08,
   kCold = 0x0C,
+  kIce = 0x10,
   kLastTemperature,
 };
 

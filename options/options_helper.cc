@@ -368,7 +368,8 @@ std::map<Temperature, std::string> OptionsHelper::temperature_to_string = {
     {Temperature::kUnknown, "kUnknown"},
     {Temperature::kHot, "kHot"},
     {Temperature::kWarm, "kWarm"},
-    {Temperature::kCold, "kCold"}};
+    {Temperature::kCold, "kCold"},
+    {Temperature::kIce, "kIce"}};
 
 std::unordered_map<std::string, ChecksumType>
     OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
@@ -966,7 +967,8 @@ std::unordered_map<std::string, Temperature>
         {"kUnknown", Temperature::kUnknown},
         {"kHot", Temperature::kHot},
         {"kWarm", Temperature::kWarm},
-        {"kCold", Temperature::kCold}};
+        {"kCold", Temperature::kCold},
+        {"kIce", Temperature::kIce}};
 
 std::unordered_map<std::string, PrepopulateBlobCache>
     OptionsHelper::prepopulate_blob_cache_string_map = {
