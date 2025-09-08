@@ -42,6 +42,9 @@ Status ExternalSstFileIngestionJob::Prepare(
     status =
         GetIngestedFileInfo(file_path, next_file_number++, &file_to_ingest, sv);
     if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to get ingested file info: %s: %s",
+                     file_path.c_str(), status.ToString().c_str());
       return status;
     }
 
@@ -189,6 +192,10 @@ Status ExternalSstFileIngestionJob::Prepare(
         ROCKS_LOG_INFO(db_options_.info_log,
                        "Tried to link file %s but it's not supported : %s",
                        path_outside_db.c_str(), status.ToString().c_str());
+      } else {
+        ROCKS_LOG_WARN(db_options_.info_log, "Failed to link file %s to %s: %s",
+                       path_outside_db.c_str(), path_inside_db.c_str(),
+                       status.ToString().c_str());
       }
     } else {
       f.copy_file = true;
@@ -213,6 +220,12 @@ Status ExternalSstFileIngestionJob::Prepare(
                         io_tracer_);
       // The destination of the copy will be ingested
       f.file_temperature = dst_temp;
+
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log, "Failed to copy file %s to %s: %s",
+                       path_outside_db.c_str(), path_inside_db.c_str(),
+                       status.ToString().c_str());
+      }
     } else {
       // Note: we currently assume that linking files does not cross
       // temperatures, so no need to change f.file_temperature
@@ -438,6 +451,11 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
     }
     status = cfd_->RangesOverlapWithMemtables(
         ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to check ranges overlap with memtables: %s",
+                     status.ToString().c_str());
+    }
   }
   if (status.ok() && *flush_needed) {
     if (!ingestion_options_.allow_blocking_flush) {
@@ -472,6 +490,9 @@ Status ExternalSstFileIngestionJob::Run() {
   bool need_flush = false;
   status = NeedsFlush(&need_flush, super_version);
   if (!status.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to check if flush is needed: %s",
+                   status.ToString().c_str());
     return status;
   }
   if (need_flush) {
@@ -543,6 +564,9 @@ Status ExternalSstFileIngestionJob::Run() {
                                      &last_seqno, &batch_uppermost_level,
                                      prev_batch_uppermost_level);
     if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to assign levels for one batch: %s",
+                     status.ToString().c_str());
       return status;
     }
 
@@ -585,6 +609,8 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
                                 &largest_parsed, false /* log_err_key */);
     }
     if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log, "Failed to parse internal key: %s",
+                     status.ToString().c_str());
       return status;
     }
 
@@ -607,6 +633,10 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
 
     status = AssignGlobalSeqnoForIngestedFile(file, assigned_seqno);
     if (!status.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "Failed to assign global sequence number for ingested file: %s",
+          status.ToString().c_str());
       return status;
     }
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
@@ -619,6 +649,9 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
 
     status = GenerateChecksumForIngestedFile(file);
     if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to generate checksum for ingested file: %s",
+                     status.ToString().c_str());
       return status;
     }
 
@@ -844,6 +877,10 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
   Status status =
       fs_->NewRandomAccessFile(external_file, fo, &sst_file, nullptr);
   if (!status.ok()) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "Failed to create random access file for external file %s: %s",
+        external_file.c_str(), status.ToString().c_str());
     return status;
   }
   Temperature updated_temp = sst_file->GetTemperature();
@@ -966,6 +1003,10 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
     // user_defined_timestamps_persisted flag for the file.
     file_to_ingest->user_defined_timestamps_persisted = false;
   } else if (!s.ok()) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "ValidateUserDefinedTimestampsOptions failed for external file %s: %s",
+        external_file.c_str(), s.ToString().c_str());
     return s;
   }
 
@@ -990,6 +1031,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   Status status = fs_->GetFileSize(external_file, IOOptions(),
                                    &file_to_ingest->file_size, nullptr);
   if (!status.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get file size for external file %s: %s",
+                   external_file.c_str(), status.ToString().c_str());
     return status;
   }
 
@@ -1006,12 +1050,19 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
                             /*user_defined_timestamps_persisted=*/true, sv,
                             file_to_ingest, &table_reader);
   if (!status.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to reset table reader for external file %s: %s",
+                   external_file.c_str(), status.ToString().c_str());
     return status;
   }
 
   status = SanityCheckTableProperties(external_file, new_file_number, sv,
                                       file_to_ingest, &table_reader);
   if (!status.ok()) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "Failed to sanity check table properties for external file %s: %s",
+        external_file.c_str(), status.ToString().c_str());
     return status;
   }
 
@@ -1025,6 +1076,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
         table_reader.get(), sv, file_to_ingest, allow_data_in_errors);
 
     if (!seqno_status.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "Failed to get sequence number boundary for external file %s: %s",
+          external_file.c_str(), seqno_status.ToString().c_str());
       return seqno_status;
     }
     assert(file_to_ingest->smallest_seqno <= file_to_ingest->largest_seqno);
@@ -1052,6 +1107,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     status = table_reader->VerifyChecksum(
         ro, TableReaderCaller::kExternalSSTIngestion);
     if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to verify checksum for table reader: %s",
+                     status.ToString().c_str());
       return status;
     }
   }
@@ -1243,6 +1301,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
           ro, env_options_, file_to_ingest->start_ukey,
           file_to_ingest->limit_ukey, lvl, &overlap_with_level);
       if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to check overlap with level iterator: %s",
+                       status.ToString().c_str());
         return status;
       }
       if (overlap_with_level) {
@@ -1355,6 +1416,14 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
       PutFixed64(&seqno_val, seqno);
       status = fsptr->Write(file_to_ingest->global_seqno_offset, seqno_val,
                             IOOptions(), nullptr);
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to write global seqno to %s: %s",
+                       file_to_ingest->internal_file_path.c_str(),
+                       status.ToString().c_str());
+        return status;
+      }
+
       if (status.ok()) {
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
         status = SyncIngestedFile(fsptr.get());
@@ -1371,6 +1440,11 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         return status;
       }
     } else if (!status.IsNotSupported()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "Failed to open ingested file %s for random read/write: %s",
+          file_to_ingest->internal_file_path.c_str(),
+          status.ToString().c_str());
       return status;
     }
   }
@@ -1403,6 +1477,9 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
       db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
       ro, db_options_.stats, db_options_.clock);
   if (!io_s.ok()) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log, "Failed to generate checksum for %s: %s",
+        file_to_ingest->internal_file_path.c_str(), io_s.ToString().c_str());
     return io_s;
   }
   file_to_ingest->file_checksum = std::move(file_checksum);
