@@ -130,7 +130,7 @@ class MultiGetContext {
     }
 
     for (size_t iter = 0;
-         iter < num_keys_ && /* supress a warning */ iter < MAX_BATCH_SIZE;
+         iter < num_keys_ && /* suppress a warning */ iter < MAX_BATCH_SIZE;
          ++iter) {
       // autovector may not be contiguous storage, so make a copy
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];

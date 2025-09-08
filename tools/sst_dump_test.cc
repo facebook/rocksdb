@@ -98,10 +98,16 @@ class SSTDumpToolTest : public testing::Test {
     return path;
   }
 
+  // RAII class to ensure cleanup of usage array
   template <std::size_t N>
   struct CleanupUsage {
     char* (&usage)[N];
-    CleanupUsage(char* (&_usage)[N]) : usage(_usage) {}
+    explicit CleanupUsage(char* (&_usage)[N]) : usage(_usage) {}
+    // No copies/moves
+    CleanupUsage(const CleanupUsage&) = delete;
+    CleanupUsage& operator=(const CleanupUsage&) = delete;
+    CleanupUsage(CleanupUsage&&) = delete;
+    CleanupUsage& operator=(CleanupUsage&&) = delete;
     ~CleanupUsage() {
       for (std::size_t i = 0; i < N; ++i) {
         delete[] usage[i];

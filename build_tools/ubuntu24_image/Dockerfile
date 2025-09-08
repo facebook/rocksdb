@@ -1,5 +1,5 @@
 # INSTRUCTIONS:
-# I was not about to build docker images on an isolated devserver because of
+# I was not able to build docker images on an isolated devserver because of
 # issues with proxy internet access. Use a public cloud or other Linux system.
 # (I used a Debian system after installing docker features, adding my user to
 # the docker and docker-registry groups, and logging out and back in to pick
