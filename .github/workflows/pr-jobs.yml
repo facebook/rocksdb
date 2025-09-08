@@ -209,9 +209,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ make -j32 all microbench
+    # FIXME: get back to "all microbench" targets
+    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ make -j32 shared_lib
     - run: make clean
-    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 release
+    # FIXME: get back to "release" target
+    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
     - uses: "./.github/actions/post-steps"
   build-linux-clang-18-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -543,21 +545,3 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y build-essential
       - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
       - uses: "./.github/actions/post-steps"
-#
-#
-# ========================= TEMPORARY copy of nightly jobs ======================== #
-#
-#
-  build-linux-cmake-with-folly-lite-no-test:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - uses: "./.github/actions/setup-folly"
-    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 -DCMAKE_CXX_FLAGS=-DGLOG_USE_GLOG_EXPORT .. && make V=1 -j20)"
-    - uses: "./.github/actions/post-steps"
