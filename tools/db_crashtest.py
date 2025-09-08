@@ -384,6 +384,8 @@ default_params = {
     # fixed within a run for easier debugging
     # actual frequency is lower after option sanitization
     "use_multiscan": random.choice([1] + [0] * 3),
+    # By default, `statistics` use kExceptDetailedTimers level
+    "statistics": random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
