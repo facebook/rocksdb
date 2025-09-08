@@ -567,6 +567,7 @@ txn_params = {
     # NOTE: often passed in from command line overriding this
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
+    "use_per_key_point_lock_mgr": lambda: random.choice([0, 1]),
     # TODO: there is such a thing as transactions with WAL disabled. We should
     # cover that case.
     "disable_wal": 0,

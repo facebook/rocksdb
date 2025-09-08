@@ -3944,6 +3944,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
         txn_db_options.wp_commit_cache_bits =
             static_cast<size_t>(FLAGS_wp_commit_cache_bits);
+        txn_db_options.use_per_key_point_lock_mgr =
+            FLAGS_use_per_key_point_lock_mgr;
         PrepareTxnDbOptions(shared, txn_db_options);
         s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                                 cf_descriptors, &column_families_, &txn_db_);

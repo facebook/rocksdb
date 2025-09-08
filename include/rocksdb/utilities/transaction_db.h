@@ -217,6 +217,11 @@ struct TransactionDBOptions {
   // Other value means the user provides a custom lock manager.
   std::shared_ptr<LockManagerHandle> lock_mgr_handle;
 
+  // EXPERIMENTAL
+  //
+  // Flag to enable/disable the per key point lock manager.
+  bool use_per_key_point_lock_mgr = false;
+
   // If true, the TransactionDB implementation might skip concurrency control
   // unless it is overridden by TransactionOptions or
   // TransactionDBWriteOptimizations. This can be used in conjunction with
@@ -318,6 +323,22 @@ struct TransactionOptions {
   // If 0, no waiting is done if a lock cannot instantly be acquired.
   // If negative, TransactionDBOptions::transaction_lock_timeout will be used.
   int64_t lock_timeout = -1;
+
+  // Timeout in microseconds before perform dead lock detection.
+  // If 0, deadlock detection will be performed immediately.
+  //
+  // To optimize performance, this parameter could be tuned.
+  //
+  // When deadlock happens very frequently, deadlock timeout should be set to 0,
+  // so deadlock will be detected immediately.
+  //
+  // When deadlock happen very rarely, this timeout could be turned to be
+  // slightly longer than the typical transaction execution time, so that
+  // transaction will be waked up to take the lock before this timeout, which
+  // will allow the transaction to save the CPU time on deadlock detection.
+  //
+  // Deadlock timeout is always smaller than lock_timeout.
+  int64_t deadlock_timeout_us = 500;
 
   // Expiration duration in milliseconds.  If non-negative, transactions that
   // last longer than this many milliseconds will fail to commit.  If not set,
