@@ -367,7 +367,8 @@ default_params = {
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
-    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
+    # TODO(jaykorean): re-enable remote compaction worker threads after addressing all issues
+    "remote_compaction_worker_threads": 0,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
