@@ -150,9 +150,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     } else if (async_read_in_progress_) {
       assert(!multi_scan_);
       return Status::TryAgain("Async read in progress");
-    } else if (multi_scan_ && multi_scan_->prefetch_limit_reached) {
-      assert(!Valid());
-      return Status::PrefetchLimitReached();
+    } else if (multi_scan_) {
+      return multi_scan_->status;
     } else {
       return Status::OK();
     }
