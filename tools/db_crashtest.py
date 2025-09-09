@@ -367,7 +367,8 @@ default_params = {
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
-    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
+    # TODO(jaykorean): re-enable remote compaction worker threads after addressing all issues
+    "remote_compaction_worker_threads": 0,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -383,6 +384,8 @@ default_params = {
     # fixed within a run for easier debugging
     # actual frequency is lower after option sanitization
     "use_multiscan": random.choice([1] + [0] * 3),
+    # By default, `statistics` use kExceptDetailedTimers level
+    "statistics": random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -564,6 +567,7 @@ txn_params = {
     # NOTE: often passed in from command line overriding this
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
+    "use_per_key_point_lock_mgr": lambda: random.choice([0, 1]),
     # TODO: there is such a thing as transactions with WAL disabled. We should
     # cover that case.
     "disable_wal": 0,

@@ -653,7 +653,12 @@ class Transaction {
   // Change the value of TransactionOptions.lock_timeout (in milliseconds) for
   // this transaction.
   // Has no effect on OptimisticTransactions.
-  virtual void SetLockTimeout(int64_t timeout) = 0;
+  virtual void SetLockTimeout(int64_t timeout_ms) = 0;
+
+  // Change the value of deadlock_timeout (in milliseconds) for this
+  // transaction.
+  // Has no effect on OptimisticTransactions.
+  virtual void SetDeadlockTimeout(int64_t timeout_ms) = 0;
 
   // Return the WriteOptions that will be used during Commit()
   virtual WriteOptions* GetWriteOptions() = 0;

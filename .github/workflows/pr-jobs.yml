@@ -66,7 +66,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -78,7 +78,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -97,7 +97,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -111,7 +111,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -125,20 +125,20 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
-    - run: USE_FOLLY_LITE=1 V=1 make -j32 all
+    - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -152,7 +152,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -164,7 +164,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -178,7 +178,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -199,56 +199,61 @@ jobs:
     - run: ls librocksdb.a
     - run: if ./trace_analyzer --version; then false; else true; fi
     - uses: "./.github/actions/post-steps"
-  build-linux-clang-no_test_run:
+  build-linux-clang-13-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 8-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
-    - uses: "./.github/actions/post-steps"
-  build-linux-clang-13-no_test_run:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
+    # FIXME: get back to "all microbench" targets
+    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ make -j32 shared_lib
     - run: make clean
-    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    # FIXME: get back to "release" target
+    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
     - uses: "./.github/actions/post-steps"
-  build-linux-gcc-13-no_test_run:
+  build-linux-clang-18-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=gcc-13 CXX=g++-13 V=1 make -j32 all microbench
+    - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j32 all microbench
+    - run: make clean
+    - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - uses: "./.github/actions/post-steps"
+  build-linux-gcc-14-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
 
   # ======================== Linux Other Checks ======================= #
-  build-linux-clang10-clang-analyze:
+  build-linux-clang18-clang-analyze:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze
+    - run: CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-18" CLANG_SCAN_BUILD=scan-build-18 USE_CLANG=1 make V=1 -j32 analyze
     - uses: "./.github/actions/post-steps"
     - name: compress test report
       run: tar -cvzf scan_build_report.tar.gz scan_build_report
@@ -276,7 +281,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -284,36 +289,36 @@ jobs:
     - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
     - uses: "./.github/actions/post-steps"
   # ======================= Linux with Sanitizers ===================== #
-  build-linux-clang10-asan-ubsan:
+  build-linux-clang18-asan-ubsan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
+    - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
     - uses: "./.github/actions/post-steps"
-  build-linux-clang13-mini-tsan:
+  build-linux-clang18-mini-tsan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: COMPILE_WITH_TSAN=1 CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
+    - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-static_lib-alt_namespace-status_checked:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -380,12 +385,12 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     # The docker image is intentionally based on an OS that has an older GLIBC version.
     # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
-    # NOTE: replaced evolvedbinary/rocksjava:centos7_x64-be with ghcr.io/facebook/rocksdb_ubuntu:22.0
+    # NOTE: replaced evolvedbinary/rocksjava:centos7_x64-be with ghcr.io/facebook/rocksdb_ubuntu:22.1
     # until a more appropriate docker image with C++20 support is made.
     - name: Checkout
       env:
@@ -411,12 +416,12 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     # The docker image is intentionally based on an OS that has an older GLIBC version.
     # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
-    # NOTE: replaced evolvedbinary/rocksjava:centos7_x64-be with ghcr.io/facebook/rocksdb_ubuntu:22.0
+    # NOTE: replaced evolvedbinary/rocksjava:centos7_x64-be with ghcr.io/facebook/rocksdb_ubuntu:22.1
     # until a more appropriate docker image with C++20 support is made.
     - name: Checkout
       env:

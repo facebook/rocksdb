@@ -542,6 +542,9 @@ enum Tickers : uint32_t {
   // TransactionOptions::large_txn_commit_optimize_threshold.
   NUMBER_WBWI_INGEST,
 
+  // Failure to load the UDI during SST table open
+  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT,
+
   TICKER_ENUM_MAX
 };
 

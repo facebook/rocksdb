@@ -71,9 +71,9 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   if (getenv("MEM_ENV")) {
     mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
-  if (getenv("ENCRYPTED_ENV")) {
+  if (auto ee = getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
-    std::string provider_id = getenv("ENCRYPTED_ENV");
+    std::string provider_id = ee;
     if (provider_id.find('=') == std::string::npos &&
         !EndsWith(provider_id, "://test")) {
       provider_id = provider_id + "://test";

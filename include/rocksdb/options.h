@@ -1790,9 +1790,11 @@ class MultiScanArgs {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
     io_coalesce_threshold = other.io_coalesce_threshold;
+    max_prefetch_size = other.max_prefetch_size;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
+        max_prefetch_size(other.max_prefetch_size),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
 
@@ -1800,6 +1802,7 @@ class MultiScanArgs {
     comp_ = other.comp_;
     original_ranges_ = other.original_ranges_;
     io_coalesce_threshold = other.io_coalesce_threshold;
+    max_prefetch_size = other.max_prefetch_size;
     return *this;
   }
 
@@ -1808,6 +1811,7 @@ class MultiScanArgs {
       comp_ = other.comp_;
       original_ranges_ = std::move(other.original_ranges_);
       io_coalesce_threshold = other.io_coalesce_threshold;
+      max_prefetch_size = other.max_prefetch_size;
     }
     return *this;
   }
@@ -1848,6 +1852,18 @@ class MultiScanArgs {
   }
 
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
+
+  // Maximum size (in bytes) for the data blocks loaded by a MultiScan.
+  // This limits the amount of I/O and memory usage by pinned data blocks.
+  //
+  // When set to 0 (the default), there is no limit. When the limit is reached,
+  // the iterator will start returning Status::PrefetchLimitReached().
+  //
+  // Note that prefetching happens only once in Prepare(), which is different
+  // from ReadOptions::readahead_size, which applies any time the iterator does
+  // I/O.
+  // Note that this limit is per file and applies to compressed block size.
+  uint64_t max_prefetch_size = 0;
 
  private:
   // The comparator used for ordering ranges

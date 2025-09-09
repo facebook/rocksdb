@@ -98,6 +98,23 @@ class SSTDumpToolTest : public testing::Test {
     return path;
   }
 
+  // RAII class to ensure cleanup of usage array
+  template <std::size_t N>
+  struct CleanupUsage {
+    char* (&usage)[N];
+    explicit CleanupUsage(char* (&_usage)[N]) : usage(_usage) {}
+    // No copies/moves
+    CleanupUsage(const CleanupUsage&) = delete;
+    CleanupUsage& operator=(const CleanupUsage&) = delete;
+    CleanupUsage(CleanupUsage&&) = delete;
+    CleanupUsage& operator=(CleanupUsage&&) = delete;
+    ~CleanupUsage() {
+      for (std::size_t i = 0; i < N; ++i) {
+        delete[] usage[i];
+      }
+    }
+  };
+
   template <std::size_t N>
   void PopulateCommandArgs(const std::string& file_path, const char* command,
                            char* (&usage)[N]) const {
@@ -189,18 +206,15 @@ class SSTDumpToolTest : public testing::Test {
     createSST(opts, file_path, wide_column_one_in);
 
     char* usage[3];
+    auto cleanup_usage = CleanupUsage{usage};
     PopulateCommandArgs(file_path, cmd_arg, usage);
 
     ROCKSDB_NAMESPACE::SSTDumpTool tool;
     ASSERT_TRUE(!tool.Run(3, usage, opts));
 
     cleanup(opts, file_path);
-    for (int i = 0; i < 3; i++) {
-      delete[] usage[i];
-    }
   }
 };
-
 
 TEST_F(SSTDumpToolTest, HelpAndVersion) {
   Options opts;
@@ -322,6 +336,7 @@ TEST_F(SSTDumpToolTest, CompressionManager) {
   createSST(opts, file_path, 10);
 
   char* usage[5];
+  auto cleanup_usage = CleanupUsage{usage};
   PopulateCommandArgs(file_path, "--command=recompress", usage);
   snprintf(usage[3], kOptLength, "--compression_manager=%s",
            MyManager::kCompatibilityName);
@@ -331,9 +346,6 @@ TEST_F(SSTDumpToolTest, CompressionManager) {
   ASSERT_TRUE(!tool.Run(5, usage, opts));
 
   cleanup(opts, file_path);
-  for (int i = 0; i < 5; i++) {
-    delete[] usage[i];
-  }
 }
 
 TEST_F(SSTDumpToolTest, MemEnv) {
@@ -344,15 +356,13 @@ TEST_F(SSTDumpToolTest, MemEnv) {
   createSST(opts, file_path);
 
   char* usage[3];
+  auto cleanup_usage = CleanupUsage{usage};
   PopulateCommandArgs(file_path, "--command=verify_checksum", usage);
 
   ROCKSDB_NAMESPACE::SSTDumpTool tool;
   ASSERT_TRUE(!tool.Run(3, usage, opts));
 
   cleanup(opts, file_path);
-  for (int i = 0; i < 3; i++) {
-    delete[] usage[i];
-  }
 }
 
 TEST_F(SSTDumpToolTest, ReadaheadSize) {
@@ -362,6 +372,7 @@ TEST_F(SSTDumpToolTest, ReadaheadSize) {
   createSST(opts, file_path);
 
   char* usage[4];
+  auto cleanup_usage = CleanupUsage{usage};
   PopulateCommandArgs(file_path, "--command=verify", usage);
   snprintf(usage[3], kOptLength, "--readahead_size=4000000");
 
@@ -382,16 +393,15 @@ TEST_F(SSTDumpToolTest, ReadaheadSize) {
   SyncPoint::GetInstance()->DisableProcessing();
 
   cleanup(opts, file_path);
-  for (int i = 0; i < 4; i++) {
-    delete[] usage[i];
-  }
 }
 
+#ifndef __clang_analyzer__  // False positive memory leaks reported
 TEST_F(SSTDumpToolTest, NoSstFile) {
   Options opts;
   opts.env = env();
   std::string file_path = MakeFilePath("no_such_file.sst");
   char* usage[3];
+  auto cleanup_usage = CleanupUsage{usage};
   PopulateCommandArgs(file_path, "", usage);
   ROCKSDB_NAMESPACE::SSTDumpTool tool;
   for (const auto& command :
@@ -401,15 +411,13 @@ TEST_F(SSTDumpToolTest, NoSstFile) {
     snprintf(usage[1], kOptLength, "%s", command);
     ASSERT_TRUE(tool.Run(3, usage, opts));
   }
-  for (int i = 0; i < 3; i++) {
-    delete[] usage[i];
-  }
 }
 
 TEST_F(SSTDumpToolTest, ValidSSTPath) {
   Options opts;
   opts.env = env();
   char* usage[3];
+  auto cleanup_usage = CleanupUsage{usage};
   PopulateCommandArgs("", "", usage);
   SSTDumpTool tool;
   std::string file_not_exists = MakeFilePath("file_not_exists.sst");
@@ -438,11 +446,8 @@ TEST_F(SSTDumpToolTest, ValidSSTPath) {
   ASSERT_OK(opts.env->DeleteFile(sst_file));
   ASSERT_OK(opts.env->DeleteFile(text_file));
   ASSERT_OK(opts.env->DeleteFile(fake_sst));
-
-  for (int i = 0; i < 3; i++) {
-    delete[] usage[i];
-  }
 }
+#endif  // __clang_analyzer__
 
 TEST_F(SSTDumpToolTest, RawOutput) {
   Options opts;
@@ -451,6 +456,7 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   createSST(opts, file_path, 10);
 
   char* usage[3];
+  auto cleanup_usage = CleanupUsage{usage};
   PopulateCommandArgs(file_path, "--command=raw", usage);
 
   ROCKSDB_NAMESPACE::SSTDumpTool tool;
@@ -477,9 +483,6 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   raw_file.close();
 
   cleanup(opts, file_path);
-  for (int i = 0; i < 3; i++) {
-    delete[] usage[i];
-  }
 }
 
 TEST_F(SSTDumpToolTest, SstFileDumperMmapReads) {
