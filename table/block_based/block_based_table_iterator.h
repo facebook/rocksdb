@@ -449,13 +449,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     std::vector<AsyncReadState> async_states;
     UnorderedMap<size_t, size_t> block_to_async_read;
     Status status;
+    size_t prefetch_max_idx;
 
     MultiScanState(
         const std::shared_ptr<FileSystem>& _fs, const MultiScanArgs* _scan_opts,
         std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
         std::vector<std::tuple<size_t, size_t>>&& _block_ranges_per_scan,
         UnorderedMap<size_t, size_t>&& _block_to_async_read,
-        std::vector<AsyncReadState>&& _async_states)
+        std::vector<AsyncReadState>&& _async_states, size_t _prefetch_max_idx)
         : fs(_fs),
           scan_opts(_scan_opts),
           pinned_data_blocks(std::move(_pinned_data_blocks)),
@@ -463,7 +464,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
           next_scan_idx(0),
           cur_data_block_idx(0),
           async_states(std::move(_async_states)),
-          block_to_async_read(std::move(_block_to_async_read)) {
+          block_to_async_read(std::move(_block_to_async_read)),
+          status(Status::OK()),
+          prefetch_max_idx(_prefetch_max_idx) {
       status.PermitUncheckedError();
     }
 
@@ -616,6 +619,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   Status MultiScanLoadDataBlock(size_t idx) {
+    if (idx >= multi_scan_->prefetch_max_idx) {
+      return Status::PrefetchLimitReached();
+    }
+
     if (!multi_scan_->async_states.empty()) {
       Status s = PollForBlock(idx);
       if (!s.ok()) {

@@ -1060,7 +1060,8 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       iter->Prepare(&scan_options);
       iter->Seek(kv[0].first);
       for (size_t i = 0; i < kEntriesPerBlock + 1; ++i) {
-        ASSERT_TRUE(iter->Valid());
+        ASSERT_TRUE(iter->status().ok()) << iter->status().ToString();
+        ASSERT_TRUE(iter->Valid()) << i;
         ASSERT_EQ(iter->key().ToString(), kv[i].first);
         iter->Next();
       }
