@@ -919,6 +919,42 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   ResetPreviousBlockOffset();
 }
 
+BlockBasedTableIterator::MultiScanState::~MultiScanState() {
+  // Abort any pending async IO operations to prevent callback being called
+  // after async read states are destructed.
+  if (!async_states.empty()) {
+    std::vector<void*> io_handles_to_abort;
+    std::vector<AsyncReadState*> states_to_cleanup;
+
+    // Collect all pending IO handles
+    for (size_t i = 0; i < async_states.size(); ++i) {
+      auto& async_read = async_states[i];
+
+      if (async_read.io_handle != nullptr) {
+        assert(!async_read.finished);
+        io_handles_to_abort.push_back(async_read.io_handle);
+        states_to_cleanup.push_back(&async_read);
+      }
+    }
+
+    if (!io_handles_to_abort.empty()) {
+      IOStatus abort_status = fs->AbortIO(io_handles_to_abort);
+      if (!abort_status.ok()) {
+#ifndef NDEBUG
+        fprintf(stderr, "Error aborting async IO operations: %s\n",
+                abort_status.ToString().c_str());
+#endif
+        assert(false);
+      }
+      (void)abort_status;  // Suppress unused variable warning
+    }
+
+    for (auto async_read : states_to_cleanup) {
+      async_read->CleanUpIOHandle();
+    }
+  }
+}
+
 // Note:
 // - Iterator should not be reused for multiple multiscans or mixing
 // multiscan with regular iterator usage.
@@ -1074,8 +1110,11 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     }
   }
 
+  std::vector<AsyncReadState> async_states;
+  // Maps from block index into async read request (index into async_states[])
+  UnorderedMap<size_t, size_t> block_to_async_read;
+
   // Coalesce IOs
-  // TODO: limit prefetching size to bound memory usage.
   if (!blocks_to_read.empty()) {
     // Each vector correspond to blocks to read in a single read request.
     // Each member in the vector is an index into blocks_to_prepare.
@@ -1100,21 +1139,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       collapsed_blocks_to_read.back().emplace_back(block_idx);
     }
 
-    // do IO
-    IOOptions io_opts;
-    {
-      Status s =
-          table_->get_rep()->file->PrepareIOOptions(read_options_, io_opts);
-      if (!s.ok()) {
-        // Abort: PrepareIOOptions failed
-        return;
-      }
-    }
-
-    // Init read requests for Multi-Read
     std::vector<FSReadRequest> read_reqs;
     read_reqs.reserve(collapsed_blocks_to_read.size());
     size_t total_len = 0;
+    // Initialize read requests with offset and len.
     for (const auto& blocks : collapsed_blocks_to_read) {
       assert(blocks.size());
       const auto& first_block = blocks_to_prepare[blocks[0]];
@@ -1160,112 +1188,131 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       read_req.len = end_offset - start_offset;
       total_len += read_req.len;
       read_reqs.emplace_back(std::move(read_req));
+      if (multiscan_opts->use_async_io) {
+        for (const auto& block_idx : blocks) {
+          block_to_async_read[block_idx] = read_reqs.size() - 1;
+        }
+      }
     }
 
-    // Init buffer for read
-    std::unique_ptr<char[]> buf;
+    // do IO
+    IOOptions io_opts;
+    if (!table_->get_rep()
+             ->file->PrepareIOOptions(read_options_, io_opts)
+             .ok()) {
+      // Abort: PrepareIOOptions failed
+      return;
+    }
     const bool direct_io = table_->get_rep()->file->use_direct_io();
-    if (direct_io) {
-      for (auto& read_req : read_reqs) {
-        read_req.scratch = nullptr;
+
+    if (multiscan_opts->use_async_io) {
+      async_states.resize(read_reqs.size());
+      // Do async IO
+      for (size_t i = 0; i < read_reqs.size(); ++i) {
+        auto& read_req = read_reqs[i];
+        auto& async_read = async_states[i];
+
+        async_read.finished = false;
+        async_read.offset = read_req.offset;
+        async_read.block_indices = collapsed_blocks_to_read[i];
+        for (const auto idx : collapsed_blocks_to_read[i]) {
+          async_read.blocks.emplace_back(blocks_to_prepare[idx]);
+        }
+
+        if (direct_io) {
+          // For direct I/O, don't set req.scratch - let RandomAccessFileReader
+          // handle alignment and provide aligned_buf. This saves a copy
+          // operation.
+          read_req.scratch = nullptr;
+        } else {
+          // For regular I/O, allocate our own buffer and set scratch.
+          async_read.buf.reset(new char[read_req.len]);
+          read_req.scratch = async_read.buf.get();
+        }
+
+        auto cb = std::bind(&BlockBasedTableIterator::PrepareReadAsyncCallBack,
+                            this, std::placeholders::_1, std::placeholders::_2);
+        // TODO: for mmap, io_handle will not be set but callback will already
+        // be called.
+        Status s = table_->get_rep()->file.get()->ReadAsync(
+            read_req, io_opts, cb, &async_read, &async_read.io_handle,
+            &(async_states[i].del_fn),
+            direct_io ? &async_read.aligned_buf : nullptr);
+        assert(async_read.io_handle);
+        if (!s.ok()) {
+#ifndef NDEBUG
+          fprintf(stderr, "ReadAsync failed with %s\n", s.ToString().c_str());
+#endif
+          assert(false);
+          // Abort: ReadAsync failed
+          return;
+        }
+        for (auto& req : read_reqs) {
+          if (!req.status.ok()) {
+            assert(false);
+            return;
+          }
+        }
       }
     } else {
-      // TODO: optimize if FSSupportedOps::kFSBuffer is supported.
-      buf.reset(new char[total_len]);
-      size_t offset = 0;
-      for (auto& read_req : read_reqs) {
-        read_req.scratch = buf.get() + offset;
-        offset += read_req.len;
-      }
-    }
+      // Synchronous IO using MultiRead
+      std::unique_ptr<char[]> buf;
 
-    AlignedBuf aligned_buf;
-    {
-      Status s = table_->get_rep()->file.get()->MultiRead(
+      if (direct_io) {
+        for (auto& read_req : read_reqs) {
+          read_req.scratch = nullptr;
+        }
+      } else {
+        // TODO: optimize if FSSupportedOps::kFSBuffer is supported.
+        buf.reset(new char[total_len]);
+        size_t offset = 0;
+        for (auto& read_req : read_reqs) {
+          read_req.scratch = buf.get() + offset;
+          offset += read_req.len;
+        }
+      }
+
+      AlignedBuf aligned_buf;
+      Status s = table_->get_rep()->file->MultiRead(
           io_opts, read_reqs.data(), read_reqs.size(),
           direct_io ? &aligned_buf : nullptr);
       if (!s.ok()) {
         return;
       }
-    }
-    for (auto& req : read_reqs) {
-      if (!req.status.ok()) {
-        return;
-      }
-    }
-
-    // Get compression dictionary if available - needed for dictionary-aware
-    // decompression
-    UnownedPtr<Decompressor> decompressor =
-        table_->get_rep()->decompressor.get();
-    CachableEntry<DecompressorDict> cached_dict;
-    if (table_->get_rep()->uncompression_dict_reader) {
-      Status s =
-          table_->get_rep()
-              ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-                  /* prefetch_buffer= */ nullptr, read_options_,
-                  /* get_context= */ nullptr, /* lookup_context= */ nullptr,
-                  &cached_dict);
-      if (!s.ok()) {
-#ifndef NDEBUG
-        fprintf(stdout, "Prepare dictionary loading failed with %s\n",
-                s.ToString().c_str());
-#endif
-        // Abort: dictionary lookup failed.
-        return;
-      }
-      if (!cached_dict.GetValue()) {
-#ifndef NDEBUG
-        fprintf(stdout, "Success but no dictionary read\n");
-#endif
-        return;
-      }
-      decompressor = cached_dict.GetValue()->decompressor_.get();
-    }
-
-    // Init blocks and pin them in block cache.
-    MemoryAllocator* memory_allocator =
-        table_->get_rep()->table_options.block_cache->memory_allocator();
-    for (size_t i = 0; i < collapsed_blocks_to_read.size(); i++) {
-      const auto& blocks = collapsed_blocks_to_read[i];
-      const auto& read_req = read_reqs[i];
-      for (const auto& block_idx : blocks) {
-        const auto& block = blocks_to_prepare[block_idx];
-        const auto block_size_with_trailer =
-            BlockBasedTable::BlockSizeWithTrailer(block);
-        const auto block_offset_in_buffer = block.offset() - read_req.offset;
-
-        CacheAllocationPtr data =
-            AllocateBlock(block_size_with_trailer, memory_allocator);
-        memcpy(data.get(), read_req.result.data() + block_offset_in_buffer,
-               block_size_with_trailer);
-        BlockContents tmp_contents(std::move(data), block.size());
-
-#ifndef NDEBUG
-        tmp_contents.has_trailer =
-            table_->get_rep()->footer.GetBlockTrailerSize() > 0;
-#endif
-        assert(pinned_data_blocks_guard[block_idx].IsEmpty());
-        Status s = table_->CreateAndPinBlockInCache<Block_kData>(
-            read_options_, block, decompressor, &tmp_contents,
-            &(pinned_data_blocks_guard[block_idx].As<Block_kData>()));
-        if (!s.ok()) {
-#ifndef NDEBUG
-          fprintf(stdout, "Prepare failed with %s\n", s.ToString().c_str());
-#endif
-          // Abort: failed to create and pin block in cache
+      for (auto& req : read_reqs) {
+        if (!req.status.ok()) {
           return;
         }
-        assert(pinned_data_blocks_guard[block_idx].GetValue());
+      }
+
+      // Init blocks and pin them in block cache.
+      for (size_t i = 0; i < collapsed_blocks_to_read.size(); i++) {
+        const auto& blocks = collapsed_blocks_to_read[i];
+        const auto& read_req = read_reqs[i];
+        for (const auto& block_idx : blocks) {
+          const auto& block = blocks_to_prepare[block_idx];
+
+          assert(pinned_data_blocks_guard[block_idx].IsEmpty());
+          s = CreateAndPinBlockFromBuffer(block, read_req.offset,
+                                          read_req.result,
+                                          pinned_data_blocks_guard[block_idx]);
+          if (!s.ok()) {
+            assert(false);
+            // Abort: failed to create and pin block in cache
+            return;
+          }
+          assert(pinned_data_blocks_guard[block_idx].GetValue());
+        }
       }
     }
   }
 
   // Successful Prepare, init related states so the iterator reads from prepared
-  // blocks
-  multi_scan_.reset(new MultiScanState(multiscan_opts,
-                                       std::move(pinned_data_blocks_guard),
-                                       std::move(block_ranges_per_scan)));
+  // blocks.
+  multi_scan_.reset(new MultiScanState(
+      table_->get_rep()->ioptions.env->GetFileSystem(), multiscan_opts,
+      std::move(pinned_data_blocks_guard), std::move(block_ranges_per_scan),
+      std::move(block_to_async_read), std::move(async_states)));
   is_index_at_curr_block_ = false;
   block_iter_points_to_real_block_ = false;
 }
@@ -1314,7 +1361,7 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
       // Check if we've hit an empty entry indicating prefetch limit reached
       if (multi_scan_->pinned_data_blocks[cur_scan_start_idx].IsEmpty()) {
         multi_scan_->cur_data_block_idx = cur_scan_start_idx;
-        multi_scan_->prefetch_limit_reached = true;
+        multi_scan_->status = Status::PrefetchLimitReached();
         assert(!Valid());
         assert(status().IsPrefetchLimitReached());
         return true;
@@ -1326,6 +1373,12 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
       table_->NewDataBlockIterator<DataBlockIter>(
           read_options_, multi_scan_->pinned_data_blocks[cur_scan_start_idx],
           &block_iter_, Status::OK());
+      multi_scan_->status = MultiScanLoadDataBlock(cur_scan_start_idx);
+      if (!multi_scan_->status.ok()) {
+        assert(!Valid());
+        assert(status() == multi_scan_->status);
+        return true;
+      }
     }
     multi_scan_->cur_data_block_idx = cur_scan_start_idx;
     block_iter_points_to_real_block_ = true;
@@ -1380,7 +1433,7 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     // Check if we've hit an empty entry indicating prefetch limit reached
     if (multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx]
             .IsEmpty()) {
-      multi_scan_->prefetch_limit_reached = true;
+      multi_scan_->status = Status::PrefetchLimitReached();
       assert(!Valid());
       assert(status().IsPrefetchLimitReached());
       return;
@@ -1390,8 +1443,116 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
         read_options_,
         multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx],
         &block_iter_, Status::OK());
+    multi_scan_->status =
+        MultiScanLoadDataBlock(multi_scan_->cur_data_block_idx);
+    if (!multi_scan_->status.ok()) {
+      assert(!Valid());
+      assert(status() == multi_scan_->status);
+      return;
+    }
+
     block_iter_points_to_real_block_ = true;
     block_iter_.SeekToFirst();
   } while (!block_iter_.Valid());
 }
+
+Status BlockBasedTableIterator::PollForBlock(size_t idx) {
+  assert(multi_scan_);
+  const auto async_idx = multi_scan_->block_to_async_read.find(idx);
+  if (async_idx == multi_scan_->block_to_async_read.end()) {
+    // Did not require async read, should already be pinned.
+    assert(multi_scan_->pinned_data_blocks[idx].GetValue());
+    return Status::OK();
+  }
+
+  AsyncReadState& async_read = multi_scan_->async_states[async_idx->second];
+  if (async_read.finished) {
+    assert(async_read.io_handle == nullptr);
+    assert(async_read.status.ok());
+    return async_read.status;
+  }
+
+  std::vector<void*> handles;
+  handles.emplace_back(async_read.io_handle);
+  Status poll_s =
+      table_->get_rep()->ioptions.env->GetFileSystem()->Poll(handles, 1);
+  if (!poll_s.ok()) {
+    return poll_s;
+  }
+  assert(async_read.status.ok());
+  if (!async_read.status.ok()) {
+    return async_read.status;
+  }
+  async_read.CleanUpIOHandle();
+
+  // Initialize and pin blocks from async read result.
+  for (size_t i = 0; i < async_read.blocks.size(); ++i) {
+    const auto& block = async_read.blocks[i];
+
+    Status s = CreateAndPinBlockFromBuffer(
+        block, async_read.offset, async_read.result,
+        multi_scan_->pinned_data_blocks[async_read.block_indices[i]]);
+
+    if (!s.ok()) {
+      return s;
+    }
+    assert(multi_scan_->pinned_data_blocks[async_read.block_indices[i]]
+               .GetValue());
+  }
+  assert(multi_scan_->pinned_data_blocks[idx].GetValue());
+  return Status::OK();
+}
+
+Status BlockBasedTableIterator::CreateAndPinBlockFromBuffer(
+    const BlockHandle& block, uint64_t buffer_start_offset,
+    const Slice& buffer_data, CachableEntry<Block>& pinned_block_entry) {
+  // Get decompressor and handle dictionary loading
+  UnownedPtr<Decompressor> decompressor = table_->get_rep()->decompressor.get();
+  CachableEntry<DecompressorDict> cached_dict;
+
+  if (table_->get_rep()->uncompression_dict_reader) {
+    Status s =
+        table_->get_rep()
+            ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                /* prefetch_buffer= */ nullptr, read_options_,
+                /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+                &cached_dict);
+    if (!s.ok()) {
+#ifndef NDEBUG
+      fprintf(stdout, "Prepare dictionary loading failed with %s\n",
+              s.ToString().c_str());
+#endif
+      return s;
+    }
+    if (!cached_dict.GetValue()) {
+#ifndef NDEBUG
+      fprintf(stdout, "Success but no dictionary read\n");
+#endif
+      return Status::InvalidArgument("No dictionary found");
+    }
+    decompressor = cached_dict.GetValue()->decompressor_.get();
+  }
+
+  // Create block from buffer data
+  const auto block_size_with_trailer =
+      BlockBasedTable::BlockSizeWithTrailer(block);
+  const auto block_offset_in_buffer = block.offset() - buffer_start_offset;
+
+  CacheAllocationPtr data =
+      AllocateBlock(block_size_with_trailer,
+                    GetMemoryAllocator(table_->get_rep()->table_options));
+  memcpy(data.get(), buffer_data.data() + block_offset_in_buffer,
+         block_size_with_trailer);
+  BlockContents tmp_contents(std::move(data), block.size());
+
+#ifndef NDEBUG
+  tmp_contents.has_trailer =
+      table_->get_rep()->footer.GetBlockTrailerSize() > 0;
+#endif
+
+  return table_->CreateAndPinBlockInCache<Block_kData>(
+      read_options_, block, decompressor, &tmp_contents,
+      &pinned_block_entry.As<Block_kData>());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
