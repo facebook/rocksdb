@@ -348,13 +348,13 @@ default_params = {
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
     "last_level_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold"]
+        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
     ),
     "default_write_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold"]
+        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
     ),
     "default_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold"]
+        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
     ),
     # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
     # after fixing the surfaced issue with delete range
@@ -630,9 +630,8 @@ blob_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
-
-     # TODO Fix races when both Remote Compaction + BlobDB enabled
-     "remote_compaction_worker_threads": 0,
+    # TODO Fix races when both Remote Compaction + BlobDB enabled
+    "remote_compaction_worker_threads": 0,
 }
 
 ts_params = {
@@ -661,10 +660,11 @@ tiered_params = {
     "preclude_last_level_data_seconds": lambda: random.choice(
         [-1, -1, 10, 60, 1200, 86400]
     ),
-    "last_level_temperature": "kCold",
+    "last_level_temperature": lambda: random.choice(["kCold", "kIce"]),
     # For FIFO compaction (ignored otherwise)
     "file_temperature_age_thresholds": lambda: random.choice(
         [
+            "{{temperature=kWarm;age=10}:{temperature=kCold;age=50}:{temperature=kIce;age=250}}",
             "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
             "{{temperature=kCold;age=100}}",
         ]

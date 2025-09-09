@@ -120,6 +120,8 @@ enum class Temperature : uint8_t {
   kWarm = 0x08,
   kCold = 0x0C,
   kIce = 0x10,
+  // XXX: this is mis-named. It is instead an invalid temperature beyond the
+  // rest
   kLastTemperature,
 };
 
