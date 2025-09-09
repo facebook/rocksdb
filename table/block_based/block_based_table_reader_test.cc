@@ -1014,7 +1014,11 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
 
   for (bool fill_cache : {false, true}) {
     SCOPED_TRACE(std::string("fill_cache=") + std::to_string(fill_cache));
-    for (bool use_async_io : {false, true}) {
+    for (bool use_async_io : {false,
+#ifdef ROCKSDB_IOURING_PRESENT
+                              true
+#endif
+         }) {
       SCOPED_TRACE(std::string("use_async_io=") + std::to_string(use_async_io));
       Options options;
       options.statistics = CreateDBStatistics();

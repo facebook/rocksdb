@@ -1240,7 +1240,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
             read_req, io_opts, cb, &async_read, &async_read.io_handle,
             &(async_states[i].del_fn),
             direct_io ? &async_read.aligned_buf : nullptr);
-        assert(async_read.io_handle);
         if (!s.ok()) {
 #ifndef NDEBUG
           fprintf(stderr, "ReadAsync failed with %s\n", s.ToString().c_str());
@@ -1249,6 +1248,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
           // Abort: ReadAsync failed
           return;
         }
+        assert(async_read.io_handle);
         for (auto& req : read_reqs) {
           if (!req.status.ok()) {
             assert(false);
