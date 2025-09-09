@@ -7,8 +7,9 @@
 
 #include <chrono>
 #include <condition_variable>
-#include <functional>
 #include <mutex>
+#include <sstream>
+#include <thread>
 
 #include "rocksdb/utilities/transaction_db_mutex.h"
 

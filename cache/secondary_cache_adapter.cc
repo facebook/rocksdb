@@ -584,7 +584,7 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
   size_t pri_capacity = target_->GetCapacity();
   size_t sec_capacity =
       static_cast<size_t>(pri_capacity * compressed_secondary_ratio);
-  size_t old_sec_capacity;
+  size_t old_sec_capacity = 0;
   Status s = secondary_cache_->GetCapacity(old_sec_capacity);
   if (!s.ok()) {
     return s;

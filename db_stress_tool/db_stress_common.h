@@ -284,6 +284,7 @@ DECLARE_bool(use_txn);
 // Options for TransactionDB (a.k.a. Pessimistic Transaction DB)
 DECLARE_uint64(txn_write_policy);
 DECLARE_bool(unordered_write);
+DECLARE_bool(use_per_key_point_lock_mgr);
 
 // Options for OptimisticTransactionDB
 DECLARE_bool(use_optimistic_txn);

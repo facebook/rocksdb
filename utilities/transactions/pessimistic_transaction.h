@@ -81,7 +81,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
     return ids;
   }
 
-  void SetWaitingTxn(autovector<TransactionID> ids, uint32_t column_family_id,
+  void SetWaitingTxn(autovector<TransactionID>& ids, uint32_t column_family_id,
                      const std::string* key, bool is_timed_out = false) {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     waiting_txn_ids_ = ids;
@@ -113,6 +113,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
   int64_t GetLockTimeout() const { return lock_timeout_; }
   void SetLockTimeout(int64_t timeout) override {
     lock_timeout_ = timeout * 1000;
+  }
+  int64_t GetDeadlockTimeout() const { return deadlock_timeout_us_; }
+  void SetDeadlockTimeout(int64_t timeout_ms) override {
+    deadlock_timeout_us_ = timeout_ms * 1000;
   }
 
   // Returns true if locks were stolen successfully, false otherwise.
@@ -212,6 +216,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
+
+  // Timeout in microseconds before perform dead lock detection.
+  // If 0, deadlock detection will be performed immediately.
+  int64_t deadlock_timeout_us_;
 
   // Whether to perform deadlock detection or not.
   bool deadlock_detect_;

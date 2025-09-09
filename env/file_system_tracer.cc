@@ -355,9 +355,11 @@ IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
   IOStatus s = target()->ReadAsync(req, opts, read_async_callback,
                                    read_async_cb_info, io_handle, del_fn, dbg);
 
+#ifndef __clang_analyzer__
   if (!s.ok()) {
     delete read_async_cb_info;
   }
+#endif  // __clang_analyzer__
   return s;
 }
 

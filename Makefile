@@ -636,13 +636,14 @@ endif
 TEST_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES)) $(GTEST)
 BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(BENCH_LIB_SOURCES))
 CACHE_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(CACHE_BENCH_LIB_SOURCES))
+POINT_LOCK_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(POINT_LOCK_BENCH_LIB_SOURCES))
 TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
 # Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
-ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
+ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(POINT_LOCK_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES) $(ROCKSDB_PLUGIN_TESTS)
 
@@ -1343,6 +1344,9 @@ block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_tr
 cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
+point_lock_bench: $(OBJ_DIR)/utilities/transactions/lock/point/point_lock_bench.o $(POINT_LOCK_BENCH_OBJECTS) $(LIBRARY)
+	$(AM_LINK)
+
 persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
 	$(AM_LINK)
 
@@ -1423,13 +1427,13 @@ agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) 
 stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-cassandra_functional_test: $(OBJ_DIR)/utilities/cassandra/cassandra_functional_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+cassandra_functional_test: $(OBJ_DIR)/utilities/cassandra/cassandra_functional_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-cassandra_row_merge_test: $(OBJ_DIR)/utilities/cassandra/cassandra_row_merge_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+cassandra_row_merge_test: $(OBJ_DIR)/utilities/cassandra/cassandra_row_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 cassandra_serialize_test: $(OBJ_DIR)/utilities/cassandra/cassandra_serialize_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1877,6 +1881,9 @@ heap_test: $(OBJ_DIR)/util/heap_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+point_lock_manager_stress_test: utilities/transactions/lock/point/point_lock_manager_stress_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)

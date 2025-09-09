@@ -419,6 +419,8 @@ cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
 
 cpp_library_wrapper(name="rocksdb_cache_bench_tools_lib", srcs=["cache/cache_bench_tool.cc"], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
 
+cpp_library_wrapper(name="rocksdb_point_lock_bench_tools_lib", srcs=["utilities/transactions/lock/point/point_lock_bench_tool.cc"], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
+
 rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/batched_ops_stress.cc",
         "db_stress_tool/cf_consistency_stress.cc",
@@ -449,6 +451,8 @@ cpp_binary_wrapper(name="db_stress", srcs=["db_stress_tool/db_stress.cc"], deps=
 cpp_binary_wrapper(name="db_bench", srcs=["tools/db_bench.cc"], deps=[":rocksdb_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
 cpp_binary_wrapper(name="cache_bench", srcs=["cache/cache_bench.cc"], deps=[":rocksdb_cache_bench_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
+
+cpp_binary_wrapper(name="point_lock_bench", srcs=["utilities/transactions/lock/point/point_lock_bench.cc"], deps=[":rocksdb_point_lock_bench_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
 cpp_binary_wrapper(name="ribbon_bench", srcs=["microbench/ribbon_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
@@ -5377,6 +5381,12 @@ cpp_unittest_wrapper(name="persistent_cache_test",
 
 cpp_unittest_wrapper(name="plain_table_db_test",
             srcs=["db/plain_table_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="point_lock_manager_stress_test",
+            srcs=["utilities/transactions/lock/point/point_lock_manager_stress_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

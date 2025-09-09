@@ -10,7 +10,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -32,7 +32,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     env:
       TEST_TMPDIR: "/tmp/rocksdb_test_tmp"
@@ -41,16 +41,16 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - run: make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
-  build-linux-clang-13-asan-ubsan-with-folly:
+  build-linux-clang-18-asan-ubsan-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     env:
-      CC: clang-13
-      CXX: clang++-13
+      CC: clang-18
+      CXX: clang++-18
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -63,7 +63,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -94,7 +94,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -107,13 +107,13 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - name: Build rocksdb lib
-      run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
+      run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j4 static_lib
     - name: Build fuzzers
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
@@ -122,11 +122,11 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
-    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 -DCMAKE_CXX_FLAGS=-DGLOG_USE_GLOG_EXPORT .. && make V=1 -j20)"
     - uses: "./.github/actions/post-steps"
