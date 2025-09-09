@@ -5201,16 +5201,12 @@ class TickerTypeJni {
         return -0x32;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
         return -0x33;
-      case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES:
-        return -0x58;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
         return -0x34;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
         return -0x35;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
         return -0x36;
-      case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT:
-        return -0x59;
       case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
         return -0x37;
       case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
@@ -5279,6 +5275,10 @@ class TickerTypeJni {
         return -0x57;
       case ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS:
         return -0x58;
+      case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES:
+        return -0x59;
+      case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT:
+        return -0x5A;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5666,16 +5666,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
       case -0x33:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
-      case -0x58:
-        return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES;
       case -0x34:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
       case -0x35:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
       case -0x36:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
-      case -0x59:
-        return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT;
       case -0x37:
         return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
       case -0x38:
@@ -5747,6 +5743,10 @@ class TickerTypeJni {
             FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT;
       case -0x58:
         return ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS;
+      case -0x59:
+        return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES;
+      case -0x5A:
+        return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

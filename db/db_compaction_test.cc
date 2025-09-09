@@ -9945,7 +9945,7 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   }
 
   // Test reading from Hot temperature file
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   get_iostats_context()->Reset();
 
   ASSERT_EQ(100U, Get(Key(0)).size());
@@ -9959,7 +9959,7 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Test reading from Warm temperature file (the aged file)
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   get_iostats_context()->Reset();
 
   ASSERT_EQ(100U, Get(Key(0)).size());
@@ -9974,7 +9974,7 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Test reading from Cold temperature file (the aged file)
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   get_iostats_context()->Reset();
 
   ASSERT_EQ(100U, Get(Key(0)).size());
@@ -9988,7 +9988,7 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Test reading from Ice temperature file (the aged file)
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   get_iostats_context()->Reset();
 
   ASSERT_EQ(100U, Get(Key(0)).size());
@@ -10019,7 +10019,7 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
 
   // Final comprehensive test: read from all temperature files
   Reopen(options);
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   get_iostats_context()->Reset();
 
   // Read from all files to verify cumulative statistics
