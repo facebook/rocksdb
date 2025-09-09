@@ -72,6 +72,20 @@ enum Tag : uint32_t {
   kWalAddition2,
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
+  kResumableSubcompactionProgress,
+};
+
+enum ResumableSubcompactionCustomTag : uint32_t {
+  kResumableSubcompactionProgressTerminate = 1,  // End of fields marker
+
+  kNextInternalKeyToCompact = 2,
+  kNumProcessedInputRecords = 3,
+  kCompactionOutputFilesDelta = 4,
+  kProximalLevelCompactionOutputFilesDelta = 5,
+  kNumProcessedOutputRecords = 6,
+  kNumProcessedProximalLevelOutputRecords = 7,
+
+  kResumableCustomTagSafeIgnoreMask = 1 << 6,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -440,12 +454,213 @@ struct LevelFilesBrief {
   }
 };
 
+// Structure to hold subcompaction progress information for resumable
+// compaction
+struct ResumableSubcompactionProgress {
+  // Next internal key to continue compaction from (empty means start from
+  // beginning)
+  std::string next_internal_key_to_compact = "";
+
+  // Number of input records processed so far
+  uint64_t num_processed_input_records = 0;
+
+  ResumableSubcompactionProgress() = default;
+
+  const size_t& LastPersistedOutputFilesCount(bool is_proximal_level) const {
+    return is_proximal_level ? last_persisted_proximal_level_output_files_count_
+                             : last_persisted_output_files_count_;
+  }
+
+  size_t& LastPersistedOutputFilesCount(bool is_proximal_level) {
+    return is_proximal_level ? last_persisted_proximal_level_output_files_count_
+                             : last_persisted_output_files_count_;
+  }
+
+  void Clear() {
+    next_internal_key_to_compact.clear();
+    num_processed_input_records = 0;
+    num_processed_output_records_ = 0;
+    num_processed_proximal_level_output_records_ = 0;
+
+    compaction_output_files_.clear();
+    proximal_level_compaction_output_files_.clear();
+
+    temporary_deserialization_output_file_allocation_.clear();
+    temporary_deserialization_proximal_level_output_file_allocation_.clear();
+
+    last_persisted_output_files_count_ = 0;
+    last_persisted_proximal_level_output_files_count_ = 0;
+  }
+
+  const uint64_t& NumProcessedOutputRecords(bool is_proximal_level) const {
+    return is_proximal_level ? num_processed_proximal_level_output_records_
+                             : num_processed_output_records_;
+  }
+
+  uint64_t& NumProcessedOutputRecords(bool is_proximal_level) {
+    return is_proximal_level ? num_processed_proximal_level_output_records_
+                             : num_processed_output_records_;
+  }
+
+  const std::vector<const FileMetaData*>& CompactionOutputFiles(
+      bool is_proximal_level) const {
+    return is_proximal_level ? proximal_level_compaction_output_files_
+                             : compaction_output_files_;
+  }
+
+  std::vector<const FileMetaData*>& CompactionOutputFiles(
+      bool is_proximal_level) {
+    return is_proximal_level ? proximal_level_compaction_output_files_
+                             : compaction_output_files_;
+  }
+
+  const std::vector<FileMetaData>& TemporaryDeserializationOutputFileAllocation(
+      bool is_proximal_level) const {
+    return is_proximal_level
+               ? temporary_deserialization_proximal_level_output_file_allocation_
+               : temporary_deserialization_output_file_allocation_;
+  }
+
+  std::vector<FileMetaData>& TemporaryDeserializationOutputFileAllocation(
+      bool is_proximal_level) {
+    return is_proximal_level
+               ? temporary_deserialization_proximal_level_output_file_allocation_
+               : temporary_deserialization_output_file_allocation_;
+  }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* input);
+
+  std::string ToString() const {
+    std::ostringstream oss;
+    oss << "ResumableSubcompactionProgress{";
+    oss << " next_internal_key_to_compact="
+        << (next_internal_key_to_compact.empty()
+                ? "NONE"
+                : next_internal_key_to_compact);
+    oss << ", num_processed_input_records=" << num_processed_input_records;
+    oss << ", num_processed_output_records="
+        << NumProcessedOutputRecords(false);
+    oss << ", num_processed_proximal_level_output_records="
+        << NumProcessedOutputRecords(true);
+    oss << ", number of compaction_output_files="
+        << CompactionOutputFiles(false).size();
+    oss << ", number proximal_level_compaction_output_files="
+        << CompactionOutputFiles(true).size();
+    oss << ", last_persisted_output_file_count="
+        << LastPersistedOutputFilesCount(false);
+    oss << ", last_persisted_proximal_level_output_files_count="
+        << LastPersistedOutputFilesCount(true);
+    oss << " }";
+    return oss.str();
+  }
+
+ private:
+  // Number of records written to output files
+  uint64_t num_processed_output_records_ = 0;
+  uint64_t num_processed_proximal_level_output_records_ = 0;
+
+  // ===== COMPACTION OUTPUT FILES =====
+  // These pointers ONLY point to FileMetaData objects owned by compaction
+  // outputs. They are NEVER set to point to
+  // temporary_deserialization_output_file_allocation_
+  // vectors/temporary_deserialization_proximal_level_output_file_allocation_.
+  // This ensures stable pointers that don't get invalidated by copy/move
+  // operations on `ResumableSubcompactionProgress`
+  std::vector<const FileMetaData*> compaction_output_files_ = {};
+  std::vector<const FileMetaData*> proximal_level_compaction_output_files_ = {};
+
+  // ===== TEMPORARY STORAGE FOR SERIALIZATION =====
+  // These are ONLY used during deserialization from VersionEdit.
+  // They provide temporary storage before being moved to compaction outputs.
+  std::vector<FileMetaData> temporary_deserialization_output_file_allocation_ =
+      {};
+  std::vector<FileMetaData>
+      temporary_deserialization_proximal_level_output_file_allocation_ = {};
+
+  // Number of files already persisted to help calculate the new output files to
+  // persist in the future. This is to prevent having to persist all the output
+  // files metadata every time of a "snapshot" of a progress is persisted which
+  // can lead to O(1+2+...+n) = O(n^2) file metadata being persisted. The
+  // current approach of persisting only the delta should always persist
+  // exactly the number of output files in total.
+  size_t last_persisted_output_files_count_ = 0;
+  size_t last_persisted_proximal_level_output_files_count_ = 0;
+
+  void EncodeCompactionOutputFiles(
+      const std::vector<const FileMetaData*>& files, std::string* dst) const;
+  Status DecodeCompactionOutputFiles(
+      Slice* input, std::vector<FileMetaData>& temporary_output_file_storage);
+};
+
+// Forward declaration for VersionEdit
+class VersionEdit;
+
+// Builder class to reconstruct complete resumable subcompaction progress object
+// from multiple VersionEdits containing delta output files information
+// (TemporaryDeserializationOutputFileAllocation) of a single subcompaction.
+//
+// WARNING: This class currently assumes all input VersionEdits contain progress
+// information for the SAME subcompaction. It does not validate
+// progress data from different subcompactions so mixing progress from
+// multiple subcompactions can result in corrupted state silently. The caller is
+// responsible for ensuring all VersionEdits processed by a single instance
+// of this builder correspond to the same subcompaction.
+class ResumableSubcompactionProgressBuilder {
+ public:
+  ResumableSubcompactionProgressBuilder() = default;
+
+  // Process a VersionEdit and accumulate its resumable subcompaction progress
+  // Returns true if the VersionEdit contained resumable progress data
+  bool ProcessVersionEdit(const VersionEdit& edit);
+
+  // Get the accumulated resumable subcompaction progress
+  // Returns default-constructed empty progress if no progress has been
+  // accumulated
+  const ResumableSubcompactionProgress&
+  GetAccumulatedResumableSubcompactionProgress() const {
+    return accumulated_resumable_subcompaction_progress_;
+  }
+
+  // Check if any resumable progress has been accumulated
+  bool HasAccumulatedResumableSubcompactionProgress() const {
+    return has_resumable_subcompaction_progress_;
+  }
+
+  // Clear all accumulated data
+  void Clear();
+
+ private:
+  // Merge delta resumable subcompaction progress
+  void MergeDeltaProgress(const ResumableSubcompactionProgress& delta_progress);
+
+  ResumableSubcompactionProgress accumulated_resumable_subcompaction_progress_;
+  bool has_resumable_subcompaction_progress_ = false;
+};
+
+// Type alias for backward compatibility - vector of subcompaction progress
+using ResumableCompactionProgress = std::vector<ResumableSubcompactionProgress>;
+
 // The state of a DB at any given time is referred to as a Version.
 // Any modification to the Version is considered a Version Edit. A Version is
 // constructed by joining a sequence of Version Edits. Version Edits are written
 // to the MANIFEST file.
 class VersionEdit {
  public:
+  // Retrieve the table files added as well as their associated levels.
+  using NewFiles = std::vector<std::pair<int, FileMetaData>>;
+
+  static void EncodeToNewFile4(const FileMetaData& f, int level, size_t ts_sz,
+                               bool has_min_log_number_to_keep,
+                               uint64_t min_log_number_to_keep,
+                               bool& min_log_num_written, std::string* dst);
+
+  static const char* DecodeNewFile4From(Slice* input, int& max_level,
+                                        uint64_t& min_log_number_to_keep,
+                                        bool& has_min_log_number_to_keep,
+                                        NewFiles& new_files, FileMetaData& f);
+
   void Clear();
 
   void SetDBId(const std::string& db_id) {
@@ -564,8 +779,6 @@ class VersionEdit {
     }
   }
 
-  // Retrieve the table files added as well as their associated levels.
-  using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
   NewFiles& GetMutableNewFiles() { return new_files_; }
@@ -735,6 +948,27 @@ class VersionEdit {
     full_history_ts_low_ = std::move(full_history_ts_low);
   }
 
+  // Resumable subcompaction progress methods
+  void SetResumableSubcompactionProgress(
+      const ResumableSubcompactionProgress& progress) {
+    has_resumable_subcompaction_progress_ = true;
+    resumable_subcompaction_progress_ = progress;
+  }
+
+  bool HasResumableSubcompactionProgress() const {
+    return has_resumable_subcompaction_progress_;
+  }
+
+  const ResumableSubcompactionProgress& GetResumableSubcompactionProgress()
+      const {
+    return resumable_subcompaction_progress_;
+  }
+
+  void ClearResumableSubcompactionProgress() {
+    has_resumable_subcompaction_progress_ = false;
+    resumable_subcompaction_progress_.Clear();
+  }
+
   // return true on success.
   // `ts_sz` is the size in bytes for the user-defined timestamp contained in
   // a user key. This argument is optional because it's only required for
@@ -757,15 +991,12 @@ class VersionEdit {
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
  private:
-  bool GetLevel(Slice* input, int* level, const char** msg);
-
-  const char* DecodeNewFile4From(Slice* input);
-
+  static bool GetLevel(Slice* input, int* level, int& max_level);
   // Encode file boundaries `FileMetaData.smallest` and `FileMetaData.largest`.
   // User-defined timestamps in the user key will be stripped if they shouldn't
   // be persisted.
-  void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
-                            size_t ts_sz) const;
+  static void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
+                                   size_t ts_sz);
 
   int max_level_ = 0;
   std::string db_id_;
@@ -815,6 +1046,9 @@ class VersionEdit {
 
   std::string full_history_ts_low_;
   bool persist_user_defined_timestamps_ = true;
+
+  bool has_resumable_subcompaction_progress_ = false;
+  ResumableSubcompactionProgress resumable_subcompaction_progress_;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them
