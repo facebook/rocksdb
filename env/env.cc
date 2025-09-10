@@ -9,6 +9,7 @@
 
 #include "rocksdb/env.h"
 
+#include <sstream>
 #include <thread>
 
 #include "env/composite_env_wrapper.h"
@@ -769,6 +770,17 @@ std::string Env::IOActivityToString(IOActivity activity) {
       return "GetFileChecksumsFromCurrentManifest";
     case Env::IOActivity::kUnknown:
       return "Unknown";
+    default:
+      int activityIndex = static_cast<int>(activity);
+      if (activityIndex >=
+              static_cast<int>(Env::IOActivity::kFirstCustomIOActivity) &&
+          activityIndex <=
+              static_cast<int>(Env::IOActivity::kLastCustomIOActivity)) {
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << activityIndex;
+        return "CustomIOActivity" + ss.str();
+      }
+      return "Invalid";
   };
   assert(false);
   return "Invalid";
