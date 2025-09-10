@@ -14,6 +14,16 @@ struct SpotLockManagerTestParam {
   int deadlock_timeout_us;
 };
 
+// Define operator<< for SpotLockManagerTestParam to stop valgrind from
+// complaining uinitialized value when printing SpotLockManagerTestParam.
+std::ostream& operator<<(std::ostream& os,
+                         const SpotLockManagerTestParam& param) {
+  os << "use_per_key_point_lock_manager: "
+     << param.use_per_key_point_lock_manager
+     << ", deadlock_timeout_us: " << param.deadlock_timeout_us;
+  return os;
+}
+
 // including test for both PointLockManager and PerKeyPointLockManager
 class SpotLockManagerTest
     : public PointLockManagerTest,
