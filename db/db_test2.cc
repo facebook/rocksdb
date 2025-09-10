@@ -6068,7 +6068,8 @@ TEST_F(DBTest2, VariousFileTemperatures) {
   // non-unknown temperatures.
   auto RandomTemp = [] {
     static std::vector<Temperature> temps = {
-        Temperature::kHot, Temperature::kWarm, Temperature::kCold};
+        Temperature::kHot, Temperature::kWarm, Temperature::kCold,
+        Temperature::kIce};
     return temps[Random::GetTLSInstance()->Uniform(
         static_cast<int>(temps.size()))];
   };
