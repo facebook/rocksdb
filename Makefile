@@ -224,6 +224,11 @@ am__v_CC_ = $(am__v_CC_$(AM_DEFAULT_VERBOSITY))
 am__v_CC_0 = @echo "  CC      " $@;
 am__v_CC_1 =
 
+AM_V_CXX = $(am__v_CXX_$(V))
+am__v_CXX_ = $(am__v_CXX_$(AM_DEFAULT_VERBOSITY))
+am__v_CXX_0 = @echo "  CXX     " $@;
+am__v_CXX_1 =
+
 AM_V_CCLD = $(am__v_CCLD_$(V))
 am__v_CCLD_ = $(am__v_CCLD_$(AM_DEFAULT_VERBOSITY))
 ifneq ($(SKIP_LINK), 1)
@@ -2455,7 +2460,7 @@ rocksdbjavastaticnexusbundlejar: rocksdbjavageneratepom
 # A version of each $(LIBOBJECTS) compiled with -fPIC
 
 jl/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+	$(AM_V_CXX)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjava: $(LIB_OBJECTS)
 ifeq ($(JAVA_HOME),)
@@ -2582,10 +2587,10 @@ $(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 $(OBJ_DIR)/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
+	$(AM_V_CXX)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
 $(OBJ_DIR)/%.o: %.cpp
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
+	$(AM_V_CXX)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
 $(OBJ_DIR)/%.o: %.c
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
