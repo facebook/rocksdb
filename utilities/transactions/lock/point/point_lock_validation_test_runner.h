@@ -387,8 +387,11 @@ class PointLockValidationTestRunner {
         measured_locks_acquired =
             num_of_locks_acquired - measured_locks_acquired;
         // Skip the first second, as threads are warming up
-        printf("measured_num_of_locks_acquired: %" PRId64 "\n",
-               measured_locks_acquired / (execution_time_sec_ - 1));
+        auto measured_execution_time_sec = execution_time_sec_ - 1;
+        if (measured_execution_time_sec > 0) {
+          printf("measured_num_of_locks_acquired: %" PRId64 "\n",
+                 measured_locks_acquired / (measured_execution_time_sec));
+        }
       }
     }
 
