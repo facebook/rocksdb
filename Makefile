@@ -229,22 +229,23 @@ am__v_CXX_ = $(am__v_CXX_$(AM_DEFAULT_VERBOSITY))
 am__v_CXX_0 = @echo "  CXX     " $@;
 am__v_CXX_1 =
 
-AM_V_CCLD = $(am__v_CCLD_$(V))
-am__v_CCLD_ = $(am__v_CCLD_$(AM_DEFAULT_VERBOSITY))
+AM_V_CXXLD = $(am__v_CXXLD_$(V))
+am__v_CXXLD_ = $(am__v_CXXLD_$(AM_DEFAULT_VERBOSITY))
 ifneq ($(SKIP_LINK), 1)
-am__v_CCLD_0 = @echo "  CCLD    " $@;
-am__v_CCLD_1 =
+am__v_CXXLD_0 = @echo "  CXXLD   " $@;
+am__v_CXXLD_1 =
 else
-am__v_CCLD_0 = @echo "  !CCLD   " $@; true skip
-am__v_CCLD_1 = true skip
+am__v_CXXLD_0 = @echo "  !CXXLD  " $@; true skip
+am__v_CXXLD_1 = true skip
 endif
+
 AM_V_AR = $(am__v_AR_$(V))
 am__v_AR_ = $(am__v_AR_$(AM_DEFAULT_VERBOSITY))
 am__v_AR_0 = @echo "  AR      " $@;
 am__v_AR_1 =
 
-AM_LINK = $(AM_V_CCLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
-AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(EXEC_LDFLAGS) $(LDFLAGS) -o $@
+AM_LINK = $(AM_V_CXXLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+AM_SHARE = $(AM_V_CXXLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(EXEC_LDFLAGS) $(LDFLAGS) -o $@
 
 ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), plugin/$(plugin)/*.mk)
 include $(ROCKSDB_PLUGIN_MKS)
@@ -885,7 +886,7 @@ $(SHARED3): $(SHARED4)
 
 endif   # PLATFORM_SHARED_VERSIONED
 $(SHARED4): $(LIB_OBJECTS)
-	$(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(LIB_OBJECTS) $(LDFLAGS) -o $@
+	$(AM_V_CXXLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(LIB_OBJECTS) $(LDFLAGS) -o $@
 endif  # PLATFORM_SHARED_EXT
 
 .PHONY: check clean coverage ldb_tests package dbg gen-pc build_size \
@@ -1925,7 +1926,7 @@ ldb: $(OBJ_DIR)/tools/ldb.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 iostats_context_test: $(OBJ_DIR)/monitoring/iostats_context_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+	$(AM_V_CXXLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 persistent_cache_test: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
