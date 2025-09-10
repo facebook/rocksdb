@@ -948,81 +948,89 @@ Status InstallMemtableAtomicFlushResults(
     assert(0 == num_entries);
   }
 
+  const auto manifest_write_cb = [&cfds, imm_lists, &mems_list, log_buffer,
+                                  to_delete](const Status& status) {
+    for (size_t k = 0; k != cfds.size(); ++k) {
+      auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);
+      imm->InstallNewVersion();
+    }
+
+    if (status.ok() || status.IsColumnFamilyDropped()) {
+      for (size_t i = 0; i != cfds.size(); ++i) {
+        if (cfds[i]->IsDropped()) {
+          continue;
+        }
+        auto* imm = (imm_lists == nullptr) ? cfds[i]->imm() : imm_lists->at(i);
+        for (auto m : *mems_list[i]) {
+          assert(m->GetFileNumber() > 0);
+          uint64_t mem_id = m->GetID();
+
+          const VersionEdit* const edit = m->GetEdits();
+          assert(edit);
+
+          if (edit->GetBlobFileAdditions().empty()) {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             ": memtable #%" PRIu64 " done",
+                             cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                             mem_id);
+          } else {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             " (+%zu blob files)"
+                             ": memtable #%" PRIu64 " done",
+                             cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                             edit->GetBlobFileAdditions().size(), mem_id);
+          }
+
+          imm->current_->Remove(m, to_delete);
+          imm->UpdateCachedValuesFromMemTableListVersion();
+          imm->ResetTrimHistoryNeeded();
+        }
+      }
+    } else {
+      for (size_t i = 0; i != cfds.size(); ++i) {
+        auto* imm = (imm_lists == nullptr) ? cfds[i]->imm() : imm_lists->at(i);
+        for (auto m : *mems_list[i]) {
+          uint64_t mem_id = m->GetID();
+
+          const VersionEdit* const edit = m->GetEdits();
+          assert(edit);
+
+          if (edit->GetBlobFileAdditions().empty()) {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             ": memtable #%" PRIu64 " failed",
+                             cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                             mem_id);
+          } else {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             " (+%zu blob files)"
+                             ": memtable #%" PRIu64 " failed",
+                             cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                             edit->GetBlobFileAdditions().size(), mem_id);
+          }
+
+          m->SetFlushCompleted(false);
+          m->SetFlushInProgress(false);
+          m->GetEdits()->Clear();
+          m->SetFileNumber(0);
+          imm->num_flush_not_started_++;
+        }
+        imm->imm_flush_needed.store(true, std::memory_order_release);
+      }
+    }
+  };
+
+  std::vector<std::function<void(const Status&)>> manifest_write_cb_vec(
+      cfds.size());
+  manifest_write_cb_vec.front() = manifest_write_cb;
   // this can release and reacquire the mutex.
   s = vset->LogAndApply(cfds, read_options, write_options, edit_lists, mu,
-                        db_directory);
-
-  for (size_t k = 0; k != cfds.size(); ++k) {
-    auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);
-    imm->InstallNewVersion();
-  }
-
-  if (s.ok() || s.IsColumnFamilyDropped()) {
-    for (size_t i = 0; i != cfds.size(); ++i) {
-      if (cfds[i]->IsDropped()) {
-        continue;
-      }
-      auto* imm = (imm_lists == nullptr) ? cfds[i]->imm() : imm_lists->at(i);
-      for (auto m : *mems_list[i]) {
-        assert(m->GetFileNumber() > 0);
-        uint64_t mem_id = m->GetID();
-
-        const VersionEdit* const edit = m->GetEdits();
-        assert(edit);
-
-        if (edit->GetBlobFileAdditions().empty()) {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Level-0 commit table #%" PRIu64
-                           ": memtable #%" PRIu64 " done",
-                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
-                           mem_id);
-        } else {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Level-0 commit table #%" PRIu64
-                           " (+%zu blob files)"
-                           ": memtable #%" PRIu64 " done",
-                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
-                           edit->GetBlobFileAdditions().size(), mem_id);
-        }
-
-        imm->current_->Remove(m, to_delete);
-        imm->UpdateCachedValuesFromMemTableListVersion();
-        imm->ResetTrimHistoryNeeded();
-      }
-    }
-  } else {
-    for (size_t i = 0; i != cfds.size(); ++i) {
-      auto* imm = (imm_lists == nullptr) ? cfds[i]->imm() : imm_lists->at(i);
-      for (auto m : *mems_list[i]) {
-        uint64_t mem_id = m->GetID();
-
-        const VersionEdit* const edit = m->GetEdits();
-        assert(edit);
-
-        if (edit->GetBlobFileAdditions().empty()) {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Level-0 commit table #%" PRIu64
-                           ": memtable #%" PRIu64 " failed",
-                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
-                           mem_id);
-        } else {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Level-0 commit table #%" PRIu64
-                           " (+%zu blob files)"
-                           ": memtable #%" PRIu64 " failed",
-                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
-                           edit->GetBlobFileAdditions().size(), mem_id);
-        }
-
-        m->SetFlushCompleted(false);
-        m->SetFlushInProgress(false);
-        m->GetEdits()->Clear();
-        m->SetFileNumber(0);
-        imm->num_flush_not_started_++;
-      }
-      imm->imm_flush_needed.store(true, std::memory_order_release);
-    }
-  }
+                        db_directory, /*new_descriptor_log=*/false,
+                        /*column_family_options=*/nullptr,
+                        manifest_write_cb_vec);
 
   return s;
 }
