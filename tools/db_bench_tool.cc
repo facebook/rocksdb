@@ -1851,6 +1851,10 @@ DEFINE_uint64(multiscan_coalesce_threshold,
               ROCKSDB_NAMESPACE::MultiScanArgs().io_coalesce_threshold,
               "Configures io coalescing threshold for multiscans");
 
+DEFINE_bool(multiscan_use_async_io,
+            ROCKSDB_NAMESPACE::MultiScanArgs().use_async_io,
+            "Sets MultiScanArgs::use_async_io");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -6418,6 +6422,7 @@ class Benchmark {
       DB* db = SelectDB(thread);
       MultiScanArgs opts;
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
+      opts.use_async_io = FLAGS_multiscan_use_async_io;
       std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
       // We create 1 random start, and then multiscan will start from that

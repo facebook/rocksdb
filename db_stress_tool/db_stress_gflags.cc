@@ -1531,7 +1531,7 @@ DEFINE_bool(
 DEFINE_bool(use_multiscan, false,
             "If set, use the batched MultiScan API for scans.");
 
-DEFINE_bool(use_async_io_multiscan, false,
+DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
 
 #endif  // GFLAGS
