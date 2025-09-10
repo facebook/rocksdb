@@ -596,6 +596,7 @@ class TimestampedSnapshotWithTsSanityCheck
   std::vector<ColumnFamilyHandle*> handles_{};
 };
 
+// The following templates causes a bug in GCC 14, ignore the error for now
 #if defined(__GNUC__) && __GNUC__ == 14
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
