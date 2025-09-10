@@ -1288,6 +1288,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       }
 
       // Init blocks and pin them in block cache.
+      assert(read_reqs.size() == collapsed_blocks_to_read.size());
       for (size_t i = 0; i < collapsed_blocks_to_read.size(); i++) {
         const auto& blocks = collapsed_blocks_to_read[i];
         const auto& read_req = read_reqs[i];
@@ -1450,10 +1451,12 @@ Status BlockBasedTableIterator::PollForBlock(size_t idx) {
 
   std::vector<void*> handles;
   handles.emplace_back(async_read.io_handle);
-  Status poll_s =
-      table_->get_rep()->ioptions.env->GetFileSystem()->Poll(handles, 1);
-  if (!poll_s.ok()) {
-    return poll_s;
+  {
+    Status poll_s =
+        table_->get_rep()->ioptions.env->GetFileSystem()->Poll(handles, 1);
+    if (!poll_s.ok()) {
+      return poll_s;
+    }
   }
   assert(async_read.status.ok());
   if (!async_read.status.ok()) {
@@ -1487,18 +1490,20 @@ Status BlockBasedTableIterator::CreateAndPinBlockFromBuffer(
   CachableEntry<DecompressorDict> cached_dict;
 
   if (table_->get_rep()->uncompression_dict_reader) {
-    Status s =
-        table_->get_rep()
-            ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-                /* prefetch_buffer= */ nullptr, read_options_,
-                /* get_context= */ nullptr, /* lookup_context= */ nullptr,
-                &cached_dict);
-    if (!s.ok()) {
+    {
+      Status s =
+          table_->get_rep()
+              ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                  /* prefetch_buffer= */ nullptr, read_options_,
+                  /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+                  &cached_dict);
+      if (!s.ok()) {
 #ifndef NDEBUG
-      fprintf(stdout, "Prepare dictionary loading failed with %s\n",
-              s.ToString().c_str());
+        fprintf(stdout, "Prepare dictionary loading failed with %s\n",
+                s.ToString().c_str());
 #endif
-      return s;
+        return s;
+      }
     }
     if (!cached_dict.GetValue()) {
 #ifndef NDEBUG
