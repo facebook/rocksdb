@@ -3121,22 +3121,24 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
   Destroy(options);
 }
 
-TEST_F(DBWALTest, WALWriteErrorNoRecovery) {
+TEST_F(DBWALTest, WALWriteErrorNoAutoRecovery) {
   Options options = CurrentOptions();
   auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   options.env = fault_fs_env.get();
-  options.manual_wal_flush = true;
+  options.atomic_flush = false;
   DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
   fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kWrite, 7 /* seed*/, 1 /* one_in */,
       true /* retryable */, false /* has_data_loss*/);
   fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
-
-  ASSERT_OK(Put("k", "v"));
-  Status s;
-  s = db_->FlushWAL(false);
+  Status s = Put("k", "v");
   ASSERT_TRUE(s.IsIOError());
+  ASSERT_TRUE(
+      s.ToString().find("injected write error failed to write to WAL") !=
+      std::string::npos);
   s = dbfull()->TEST_GetBGError();
   ASSERT_EQ(s.severity(), Status::Severity::kFatalError);
   ASSERT_FALSE(dbfull()->TEST_IsRecoveryInProgress());

@@ -418,6 +418,7 @@ TEST_F(DBErrorHandlingFSTest, FlushWALWriteRetryableError) {
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 0;
+  options.atomic_flush = true;
   Status s;
 
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
@@ -1463,6 +1464,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 32768;
   options.listeners.emplace_back(listener);
+  options.atomic_flush = true;
   Random rnd(301);
 
   listener->EnableAutoRecovery();
