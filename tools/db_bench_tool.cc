@@ -6418,7 +6418,8 @@ class Benchmark {
     options.readahead_size = readahead;
 
     Duration duration(FLAGS_duration, reads_);
-    while (!duration.Done(1)) {
+    int64_t num_keys = 1;
+    while (!duration.Done(num_keys)) {
       DB* db = SelectDB(thread);
       MultiScanArgs opts;
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
@@ -6449,13 +6450,14 @@ class Benchmark {
 
       auto iter =
           db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
+      int64_t keys = 0;
       for (auto rng : *iter) {
-        [[maybe_unused]] size_t keys = 0;
         for ([[maybe_unused]] auto it : rng) {
           keys++;
         }
         assert(keys > 0);
       }
+      num_keys = std::max<int64_t>(1, keys);
 
       if (thread->shared->read_rate_limiter.get() != nullptr) {
         thread->shared->read_rate_limiter->Request(
