@@ -935,7 +935,8 @@ IOStatus PosixRandomAccessFile::ReadAsync(
 
   // Init failed, platform doesn't support io_uring.
   if (iu == nullptr) {
-    return IOStatus::NotSupported("ReadAsync");
+    fprintf(stderr, "failed to init io_uring\n");
+    return IOStatus::NotSupported("ReadAsync: failed to init io_uring");
   }
 
   // Allocate io_handle.
@@ -978,7 +979,8 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   (void)cb_arg;
   (void)io_handle;
   (void)del_fn;
-  return IOStatus::NotSupported("ReadAsync");
+  return IOStatus::NotSupported(
+      "ReadAsync: ROCKSDB_IOURING_PRESENT is not set");
 #endif
 }
 
