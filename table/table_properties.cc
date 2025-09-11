@@ -116,6 +116,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
                  prop_delim, kv_delim);
   AppendProperty(result, "largest sequence number in file", key_largest_seqno,
                  prop_delim, kv_delim);
+  AppendProperty(result, "smallest sequence number in file", key_smallest_seqno,
+                 prop_delim, kv_delim);
 
   AppendProperty(
       result, "merge operator name",
@@ -320,6 +322,8 @@ const std::string TablePropertiesNames::kUserDefinedTimestampsPersisted =
     "rocksdb.user.defined.timestamps.persisted";
 const std::string TablePropertiesNames::kKeyLargestSeqno =
     "rocksdb.key.largest.seqno";
+const std::string TablePropertiesNames::kKeySmallestSeqno =
+    "rocksdb.key.smallest.seqno";
 
 static std::unordered_map<std::string, OptionTypeInfo>
     table_properties_type_info = {
@@ -432,6 +436,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"key_largest_seqno",
          {offsetof(struct TableProperties, key_largest_seqno),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"key_smallest_seqno",
+         {offsetof(struct TableProperties, key_smallest_seqno),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"db_id",

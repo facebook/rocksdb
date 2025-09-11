@@ -167,6 +167,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.key_largest_seqno != UINT64_MAX) {
     Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
   }
+  if (props.key_smallest_seqno != UINT64_MAX) {
+    Add(TablePropertiesNames::kKeySmallestSeqno, props.key_smallest_seqno);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -311,6 +314,8 @@ Status ParsePropertiesBlock(
        &new_table_properties->user_defined_timestamps_persisted},
       {TablePropertiesNames::kKeyLargestSeqno,
        &new_table_properties->key_largest_seqno},
+      {TablePropertiesNames::kKeySmallestSeqno,
+       &new_table_properties->key_smallest_seqno},
   };
 
   Status s;

@@ -129,6 +129,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "user_defined_timestamps_persisted"
               << table_properties.user_defined_timestamps_persisted
               << "key_largest_seqno" << table_properties.key_largest_seqno
+              << "key_smallest_seqno" << table_properties.key_smallest_seqno
               << "merge_operator" << table_properties.merge_operator_name
               << "prefix_extractor_name"
               << table_properties.prefix_extractor_name << "property_collectors"
