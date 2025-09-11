@@ -896,7 +896,8 @@ void CompactionJob::AggregateSubcompactionOutputAndJobStats() {
 Status CompactionJob::VerifyCompactionRecordCounts(
     bool stats_built_from_input_table_prop, uint64_t num_input_range_del) {
   Status status;
-  if (stats_built_from_input_table_prop && job_stats_->has_num_input_records) {
+  if (stats_built_from_input_table_prop &&
+      job_stats_->has_accurate_num_input_records) {
     status = VerifyInputRecordCount(num_input_range_del);
     if (!status.ok()) {
       return status;
@@ -1533,13 +1534,11 @@ void CompactionJob::FinalizeSubcompactionJobStats(
     const CompactionIOStatsSnapshot& io_stats) {
   const CompactionIterationStats& c_iter_stats = c_iter->iter_stats();
 
-  // This number may not be accurate when CompactionIterator was created
-  // with `must_count_input_entries=false`.
   assert(!sub_compact->compaction->DoesInputReferenceBlobFiles() ||
          c_iter->HasNumInputEntryScanned());
-  sub_compact->compaction_job_stats.has_num_input_records =
+  sub_compact->compaction_job_stats.has_accurate_num_input_records &=
       c_iter->HasNumInputEntryScanned();
-  sub_compact->compaction_job_stats.num_input_records =
+  sub_compact->compaction_job_stats.num_input_records +=
       c_iter->NumInputEntryScanned();
   sub_compact->compaction_job_stats.num_blobs_read =
       c_iter_stats.num_blobs_read;
