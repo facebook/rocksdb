@@ -76,6 +76,7 @@ struct TablePropertiesNames {
   static const std::string kTailStartOffset;
   static const std::string kUserDefinedTimestampsPersisted;
   static const std::string kKeyLargestSeqno;
+  static const std::string kKeySmallestSeqno;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -308,6 +309,14 @@ struct TableProperties {
   uint64_t key_largest_seqno = UINT64_MAX;
 
   bool HasKeyLargestSeqno() const { return key_largest_seqno != UINT64_MAX; }
+
+  // The smallest sequence number of keys in this file.
+  // UINT64_MAX means unknown.
+  // Only written to properties block if known (should be known unless the
+  // table is empty).
+  uint64_t key_smallest_seqno = UINT64_MAX;
+
+  bool HasKeySmallestSeqno() const { return key_smallest_seqno != UINT64_MAX; }
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

@@ -4099,6 +4099,7 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
 
     Options options = CurrentOptions();
+    options.statistics = CreateDBStatistics();
     options.allow_concurrent_memtable_write =
         false;  // Required for VectorRepFactory
     CreateAndReopenWithCF({"non_overlap", "overlap"}, options);
@@ -4135,7 +4136,7 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     // optional L5: files in key range [70, 98]
     // L6: files in key range [1, 79]
     temp_cf_opts.target_file_size_base =
-        4 << 10;  // Small files to create multiple SSTs
+        20 << 10;  // Small files to create multiple SSTs
     temp_cf_opts.num_levels = 7;
     temp_cf_opts.disable_auto_compactions = true;  // Manually set up LSM
     temp_cf_opts.env = options.env;
@@ -4155,7 +4156,7 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     const Snapshot* snapshot = from_db->GetSnapshot();
 
     for (int k = 1; k < 99; ++k) {
-      expected_values[k] = rnd->RandomString(500);
+      expected_values[k] = rnd->RandomString(2000);
       ASSERT_OK(from_db->Put(wo, temp_cfh, Key(k), expected_values[k]));
     }
     ASSERT_OK(from_db->Flush({}, temp_cfh));
@@ -4233,8 +4234,20 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
           "assigned a non-zero sequence number"));
       db_->ReleaseSnapshot(snapshot);
     }
+
+    std::atomic<int> file_scan_count{0};
+    SyncPoint::GetInstance()->SetCallBack(
+        "ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile:FileScan",
+        [&](void* /*arg*/) { file_scan_count++; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
     ASSERT_OK(
         db_->IngestExternalFile(non_overlap_cf, sst_file_paths, ingest_opts));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    EXPECT_EQ(file_scan_count, 0);
 
     // Validate ingested data.
     ReadOptions ro;

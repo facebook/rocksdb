@@ -1522,21 +1522,26 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
 Status ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile(
     TableReader* table_reader, SuperVersion* sv,
     IngestedFileInfo* file_to_ingest, bool allow_data_in_errors) {
-  const bool has_largest_seqno =
-      table_reader->GetTableProperties()->HasKeyLargestSeqno();
-  SequenceNumber largest_seqno =
-      table_reader->GetTableProperties()->key_largest_seqno;
-  if (has_largest_seqno && largest_seqno == 0) {
-    file_to_ingest->largest_seqno = 0;
-    file_to_ingest->smallest_seqno = 0;
-    return Status::OK();
+  const auto tp = table_reader->GetTableProperties();
+  const bool has_largest_seqno = tp->HasKeyLargestSeqno();
+  SequenceNumber largest_seqno = tp->key_largest_seqno;
+  if (has_largest_seqno) {
+    file_to_ingest->largest_seqno = largest_seqno;
+    if (largest_seqno == 0) {
+      file_to_ingest->smallest_seqno = 0;
+      return Status::OK();
+    }
+    if (tp->HasKeySmallestSeqno()) {
+      file_to_ingest->smallest_seqno = tp->key_smallest_seqno;
+      return Status::OK();
+    }
   }
-  // The following file scan is only executed when ingesting files with
-  // non-zero seqno.
-  // TODO: record smallest_seqno in table properties to avoid the
-  // file scan here.
-  SequenceNumber smallest_seqno = kMaxSequenceNumber;
 
+  // For older SST files they may not be recorded in table properties, so
+  // we scan the file to find out.
+  TEST_SYNC_POINT(
+      "ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile:FileScan");
+  SequenceNumber smallest_seqno = kMaxSequenceNumber;
   SequenceNumber largest_seqno_from_iter = 0;
   ReadOptions ro;
   ro.fill_cache = ingestion_options_.fill_cache;
