@@ -387,12 +387,14 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
       assert(compaction_target_temp == Temperature::kLastTemperature);
       compaction_target_temp = cur_target_temp;
       inputs[0].files.push_back(cur_file);
-      ROCKS_LOG_BUFFER(
-          log_buffer,
-          "[%s] FIFO compaction: picking file %" PRIu64
-          " with estimated newest key time %" PRIu64 " for temperature %s.",
-          cf_name.c_str(), cur_file->fd.GetNumber(), est_newest_key_time,
-          temperature_to_string[cur_target_temp].c_str());
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: picking file %" PRIu64
+                       " with estimated newest key time %" PRIu64
+                       " and temperature %s for temperature %s.",
+                       cf_name.c_str(), cur_file->fd.GetNumber(),
+                       est_newest_key_time,
+                       temperature_to_string[cur_file->temperature].c_str(),
+                       temperature_to_string[cur_target_temp].c_str());
       break;
     }
   }

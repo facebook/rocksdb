@@ -348,13 +348,13 @@ default_params = {
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
     "last_level_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold"]
+        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
     ),
     "default_write_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold"]
+        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
     ),
     "default_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold"]
+        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
     ),
     # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
     # after fixing the surfaced issue with delete range
@@ -366,9 +366,10 @@ default_params = {
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
-    "track_and_verify_wals": lambda: random.choice([0]),
-    # TODO(jaykorean): re-enable remote compaction worker threads after addressing all issues
-    "remote_compaction_worker_threads": 0,
+    "track_and_verify_wals": lambda: random.choice([0]),    
+    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
+    # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
+    "remote_compaction_failure_fall_back_to_local": 1,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -630,9 +631,8 @@ blob_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
-
-     # TODO Fix races when both Remote Compaction + BlobDB enabled
-     "remote_compaction_worker_threads": 0,
+    # TODO Fix races when both Remote Compaction + BlobDB enabled
+    "remote_compaction_worker_threads": 0,
 }
 
 ts_params = {
@@ -661,10 +661,11 @@ tiered_params = {
     "preclude_last_level_data_seconds": lambda: random.choice(
         [-1, -1, 10, 60, 1200, 86400]
     ),
-    "last_level_temperature": "kCold",
+    "last_level_temperature": lambda: random.choice(["kCold", "kIce"]),
     # For FIFO compaction (ignored otherwise)
     "file_temperature_age_thresholds": lambda: random.choice(
         [
+            "{{temperature=kWarm;age=10}:{temperature=kCold;age=50}:{temperature=kIce;age=250}}",
             "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
             "{{temperature=kCold;age=100}}",
         ]
@@ -803,6 +804,7 @@ def finalize_and_sanitize(src_params):
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
         dest_params["use_timed_put_one_in"] = 0
+        dest_params["test_secondary"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.

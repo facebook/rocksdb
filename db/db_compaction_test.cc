@@ -19,6 +19,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
@@ -9727,6 +9728,7 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
       int total_cold = 0;
       int total_warm = 0;
       int total_hot = 0;
+      int total_ice = 0;
       int total_unknown = 0;
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile::FileOptions.temperature", [&](void* arg) {
@@ -9737,6 +9739,8 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
               total_warm++;
             } else if (temperature == Temperature::kHot) {
               total_hot++;
+            } else if (temperature == Temperature::kIce) {
+              total_ice++;
             } else {
               assert(temperature == Temperature::kUnknown);
               total_unknown++;
@@ -9808,6 +9812,224 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
       Destroy(options);
     }
   }
+}
+
+using TemperatureSet = SmallEnumSet<Temperature, Temperature::kLastTemperature>;
+static void VerifyTemperatureFileReadStats(const Statistics& st,
+                                           TemperatureSet temps) {
+  SCOPED_TRACE("Temp set size = " + std::to_string(temps.count()));
+  constexpr uint64_t min_bytes = 100;
+  constexpr uint64_t min_count = 1;
+
+  IOStatsContext* iostats = get_iostats_context();
+  if (temps.Contains(Temperature::kHot)) {
+    EXPECT_GE(st.getTickerCount(HOT_FILE_READ_BYTES), min_bytes);
+    EXPECT_GE(st.getTickerCount(HOT_FILE_READ_COUNT), min_count);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.hot_file_bytes_read,
+              min_bytes);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.hot_file_read_count,
+              min_count);
+
+  } else {
+    EXPECT_EQ(st.getTickerCount(HOT_FILE_READ_BYTES), 0);
+    EXPECT_EQ(st.getTickerCount(HOT_FILE_READ_COUNT), 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  }
+
+  if (temps.Contains(Temperature::kWarm)) {
+    EXPECT_GE(st.getTickerCount(WARM_FILE_READ_BYTES), min_bytes);
+    EXPECT_GE(st.getTickerCount(WARM_FILE_READ_COUNT), min_count);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.warm_file_bytes_read,
+              min_bytes);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.warm_file_read_count,
+              min_count);
+  } else {
+    EXPECT_EQ(st.getTickerCount(WARM_FILE_READ_BYTES), 0);
+    EXPECT_EQ(st.getTickerCount(WARM_FILE_READ_COUNT), 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  }
+
+  if (temps.Contains(Temperature::kCold)) {
+    EXPECT_GE(st.getTickerCount(COLD_FILE_READ_BYTES), min_bytes);
+    EXPECT_GE(st.getTickerCount(COLD_FILE_READ_COUNT), min_count);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.cold_file_bytes_read,
+              min_bytes);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.cold_file_read_count,
+              min_count);
+  } else {
+    EXPECT_EQ(st.getTickerCount(COLD_FILE_READ_BYTES), 0);
+    EXPECT_EQ(st.getTickerCount(COLD_FILE_READ_COUNT), 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.cold_file_read_count, 0);
+  }
+
+  if (temps.Contains(Temperature::kIce)) {
+    EXPECT_GE(st.getTickerCount(ICE_FILE_READ_BYTES), min_bytes);
+    EXPECT_GE(st.getTickerCount(ICE_FILE_READ_COUNT), min_count);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.ice_file_bytes_read,
+              min_bytes);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.ice_file_read_count,
+              min_count);
+  } else {
+    EXPECT_EQ(st.getTickerCount(ICE_FILE_READ_BYTES), 0);
+    EXPECT_EQ(st.getTickerCount(ICE_FILE_READ_COUNT), 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.ice_file_bytes_read, 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.ice_file_read_count, 0);
+  }
+}
+
+TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
+  // Test multi-tier aging: Hot -> Warm -> Cold -> Ice
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.num_levels = 1;
+  options.max_open_files = -1;
+  options.level0_file_num_compaction_trigger = 2;
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.no_block_cache = true;  // Simplify statistics
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  CompactionOptionsFIFO fifo_options;
+  // Multi-tier aging: files age through multiple temperatures
+  fifo_options.file_temperature_age_thresholds = {
+      {Temperature::kWarm, 500},   // Hot -> Warm after 500s
+      {Temperature::kCold, 1000},  // Warm -> Cold after 1000s
+      {Temperature::kIce, 1500}    // Cold -> Ice after 1500s
+  };
+  fifo_options.max_table_files_size = 100000000;
+  fifo_options.allow_trivial_copy_when_change_temperature = true;
+  options.compaction_options_fifo = fifo_options;
+  options.default_write_temperature = Temperature::kHot;
+
+  Reopen(options);
+  env_->SetMockSleep();
+
+  // Track all temperature file creations
+  int total_hot = 0, total_warm = 0, total_cold = 0, total_ice = 0,
+      total_unknown = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile::FileOptions.temperature", [&](void* arg) {
+        Temperature temperature = *(static_cast<Temperature*>(arg));
+        switch (temperature) {
+          case Temperature::kHot:
+            total_hot++;
+            break;
+          case Temperature::kWarm:
+            total_warm++;
+            break;
+          case Temperature::kCold:
+            total_cold++;
+            break;
+          case Temperature::kIce:
+            total_ice++;
+            break;
+          case Temperature::kUnknown:
+            total_unknown++;
+            break;
+          default:
+            break;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create initial three files (will start as Hot), enough to ensure key
+  // range filtering will be applied in FilePicker::GetNextFile() with one
+  // more file
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put(Key(0), Random::GetTLSInstance()->RandomBinaryString(100)));
+    ASSERT_OK(Flush());
+  }
+
+  // Test reading from Hot temperature file
+  ASSERT_OK(options.statistics->Reset());
+  get_iostats_context()->Reset();
+
+  ASSERT_EQ(100U, Get(Key(0)).size());
+
+  VerifyTemperatureFileReadStats(*options.statistics, Temperature::kHot);
+
+  // Age initial files to warm
+  env_->MockSleepForSeconds(600);
+  ASSERT_OK(Put(Key(1), Random::GetTLSInstance()->RandomBinaryString(101)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Test reading from Warm temperature file (the aged file)
+  ASSERT_OK(options.statistics->Reset());
+  get_iostats_context()->Reset();
+
+  ASSERT_EQ(100U, Get(Key(0)).size());
+
+  // Verify Warm file statistics
+  VerifyTemperatureFileReadStats(*options.statistics, Temperature::kWarm);
+
+  // Age initial files to cold
+  env_->MockSleepForSeconds(600);
+  ASSERT_OK(Put(Key(2), Random::GetTLSInstance()->RandomBinaryString(102)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Test reading from Cold temperature file (the aged file)
+  ASSERT_OK(options.statistics->Reset());
+  get_iostats_context()->Reset();
+
+  ASSERT_EQ(100U, Get(Key(0)).size());
+
+  VerifyTemperatureFileReadStats(*options.statistics, Temperature::kCold);
+
+  // Age initial files to ice
+  env_->MockSleepForSeconds(600);
+  ASSERT_OK(Put(Key(3), Random::GetTLSInstance()->RandomBinaryString(103)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Test reading from Ice temperature file (the aged file)
+  ASSERT_OK(options.statistics->Reset());
+  get_iostats_context()->Reset();
+
+  ASSERT_EQ(100U, Get(Key(0)).size());
+
+  VerifyTemperatureFileReadStats(*options.statistics, Temperature::kIce);
+
+  // Verify temperature progression in metadata
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+
+  // Should have files at different temperatures
+  std::map<Temperature, int> temp_counts;
+  for (const auto& file : metadata.levels[0].files) {
+    temp_counts[file.temperature]++;
+  }
+
+  // Verify current files temperatures
+  EXPECT_EQ(temp_counts[Temperature::kHot], 1);
+  EXPECT_EQ(temp_counts[Temperature::kWarm], 1);
+  EXPECT_EQ(temp_counts[Temperature::kCold], 1);
+  EXPECT_EQ(temp_counts[Temperature::kIce], 3);
+
+  // Verify historical (and current) file temperatures
+  EXPECT_EQ(total_hot, 6);
+  EXPECT_EQ(total_warm, 5);
+  EXPECT_EQ(total_cold, 4);
+  EXPECT_EQ(total_ice, 3);
+
+  // Final comprehensive test: read from all temperature files
+  Reopen(options);
+  ASSERT_OK(options.statistics->Reset());
+  get_iostats_context()->Reset();
+
+  // Read from all files to verify cumulative statistics
+  for (int i = 0; i < 4; i++) {
+    ASSERT_EQ(static_cast<unsigned>(100 + i), Get(Key(i)).size());
+  }
+
+  VerifyTemperatureFileReadStats(*options.statistics, TemperatureSet::All());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
