@@ -323,7 +323,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
+    - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
   build-macos:
