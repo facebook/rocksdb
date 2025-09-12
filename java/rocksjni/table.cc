@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJI)J
+ * Signature: (ZZZZBBDBZJJJIIJZZZJZZIIZZJJBJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv *, jclass, jboolean jcache_index_and_filter_blocks,
