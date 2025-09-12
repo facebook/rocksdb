@@ -258,6 +258,9 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
     // better serves a major type of FIFO use cases where smaller keys are
     // associated with older data.
     for (const auto& f : last_level_files) {
+      if (f->being_compacted) {
+        continue;
+      }
       total_size -= f->fd.file_size;
       inputs[0].files.push_back(f);
       char tmp_fsize[16];
