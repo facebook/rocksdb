@@ -1818,11 +1818,14 @@ Status StressTest::TestMultiScan(ThreadState* thread,
                      key, op_logs, verify_func, &diverged);
 
       if (diverged) {
-        const std::vector<ScanOptions>& scanoptions = scan_opts.GetScanRanges();
-        for (const auto& t : scanoptions) {
-          fprintf(stdout, "Multiscan options: %s to %s \n",
-                  t.range.start.value().ToString(true).c_str(),
-                  t.range.limit.value().ToString(true).c_str());
+        if (thread->shared->HasVerificationFailedYet()) {
+          const std::vector<ScanOptions>& scanoptions =
+              scan_opts.GetScanRanges();
+          for (const auto& t : scanoptions) {
+            fprintf(stdout, "Multiscan options: %s to %s \n",
+                    t.range.start.value().ToString(true).c_str(),
+                    t.range.limit.value().ToString(true).c_str());
+          }
         }
         break;
       }

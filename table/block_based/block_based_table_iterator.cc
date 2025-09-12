@@ -961,8 +961,9 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 
     // Assume for each scan range start <= limit.
     if (scan_range.limit.has_value()) {
-      assert(user_comparator_.Compare(scan_range.start.value(),
-                                      scan_range.limit.value()) <= 0);
+      assert(user_comparator_.CompareWithoutTimestamp(
+                 scan_range.start.value(), /*a_has_ts=*/false,
+                 scan_range.limit.value(), /*b_has_ts=*/false) <= 0);
     }
 
     if (i > 0) {
@@ -972,8 +973,9 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       }
 
       const auto& last_end_key = (*scan_opts)[i - 1].range.limit.value();
-      if (user_comparator_.Compare(scan_range.start.value(), last_end_key) <
-          0) {
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
+              /*b_has_ts=*/false) < 0) {
         // Abort: overlapping ranges
         return;
       }
@@ -983,16 +985,28 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   // Gather all relevant data block handles
   std::vector<BlockHandle> blocks_to_prepare;
   std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
+
+  const size_t timestamp_size =
+      user_comparator_.user_comparator()->timestamp_size();
   for (const auto& scan_opt : *scan_opts) {
     size_t num_blocks = 0;
     // Current scan overlap the last block of the previous scan.
     bool check_overlap = !blocks_to_prepare.empty();
+    InternalKey start_key;
+    if (timestamp_size == 0) {
+      start_key = InternalKey(scan_opt.range.start.value(), kMaxSequenceNumber,
+                              kValueTypeForSeek);
+    } else {
+      std::string seek_key;
+      AppendKeyWithMaxTimestamp(&seek_key, scan_opt.range.start.value(),
+                                timestamp_size);
+      start_key = InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
+    }
+
+    index_iter_->Seek(start_key.Encode());
 
     // Scan range is specified in user key, here we seek to the minimum internal
     // key with this user key.
-    InternalKey start_key(scan_opt.range.start.value(), kMaxSequenceNumber,
-                          kValueTypeForSeek);
-    index_iter_->Seek(start_key.Encode());
     while (index_iter_->Valid() &&
            (!scan_opt.range.limit.has_value() ||
             user_comparator_.CompareWithoutTimestamp(
