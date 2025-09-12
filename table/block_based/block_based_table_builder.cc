@@ -50,6 +50,7 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "util/bit_fields.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/defer.h"
@@ -192,9 +193,77 @@ struct BlockBasedTableBuilder::WorkingAreaPair {
   Decompressor::ManagedWorkingArea verify;
 };
 
+// ParallelCompressionRep essentially defines a framework for parallelizing
+// block generation ("emit"), block compression, and block writing to storage.
+// The synchronization is lock-free/wait-free, so thread waiting only happens
+// when work-order dependencies are unsatisfied, though sleeping/idle threads
+// might be kept idle when it seems unlikely they would improve throughput by
+// waking them up (essentially auto-tuned parallelism). But because all threads
+// are capable of 2 out of 3 kinds of work, in a quasi-work-stealing system,
+// running threads can usually expect that compatible work is available.
+//
+// This is currently activated with CompressionOptions::parallel_threads > 1
+// but that is a somewhat crude API that would ideally be adapted along with
+// the implementation in the future to allow threads to serve multiple
+// flush/compaction jobs, though the available improvement might be small.
+// Even within the scope of a single file it might be nice to use a general
+// framework for distributing work across threads, but (a) different threads
+// are limited to which work they can do because of technical challenges, (b)
+// being largely CPU bound on small work units means such a framework would
+// likely have big overheads compared to this hand-optimized solution.
 struct BlockBasedTableBuilder::ParallelCompressionRep {
-  // BlockRep instances are fetched from and recycled to
-  // block_rep_pool during parallel compression.
+  // The framework has two kinds of threads: the calling thread from
+  // flush/compaction/SstFileWriter is called the "emit thread" (kEmitter).
+  // Other threads cannot generally take over "emit" work because that is
+  // largely happening up the call stack from BlockBasedTableBuilder.
+  // The emit thread can also take on compression work in a quasi-work-stealing
+  // manner when the buffer for emitting new blocks is full.
+  //
+  // When parallelism is enabled, there are also "worker" threads that
+  // can handle compressing blocks and (one worker thread at a time) write them
+  // to the SST file (and handle other single-threaded wrap-up of each block).
+  //
+  // NOTE: when parallelism is enabled, the emit thread is not permitted to
+  // write to the SST file because that is the potential "output" bottleneck,
+  // and it's generally bad for parallelism to allow the only thread that can
+  // serve the "input" bottleneck (emit work) to also spend exclusive time on
+  // the output bottleneck.
+  enum class ThreadKind {
+    kEmitter,
+    kWorker,
+  };
+
+  // ThreadState allows each thread to track its work assignment. In addition to
+  // the cases already mentioned, kEmitting, kCompressing, and kWriting to the
+  // SST file writer,
+  // * Threads can enter the kIdle state so that they can sleep when no work is
+  // available for them, to be worken up when appropriate.
+  // * The kEnd state means the thread is not doing any more work items, which
+  // for worker threads means they will end soon.
+  // * The kCompressingAndWriting state means a worker can compress and write a
+  // block without additional state updates because the same block to be
+  // compressed is the next to be written.
+  enum class ThreadState {
+    /* BEGIN Emitter only states */
+    kEmitting,
+    /* END Emitter only states */
+    /* BEGIN states for emitter and worker */
+    kIdle,
+    kCompressing,
+    kEnd,
+    /* END states for emitter and worker */
+    /* BEGIN Worker only states */
+    kCompressingAndWriting,
+    kWriting,
+    /* END Worker only states */
+  };
+
+  // BlockRep instances are used and reused in a ring buffer (below), so that
+  // many blocks can be in an intermediate state between serialized into
+  // uncompressed bytes and written to the SST file. Notably, each block is
+  // "emitted" in uncompressed form into a BlockRep, compressed (at least
+  // attempted, when configured) for updated BlockRep, and then written from the
+  // BlockRep to the writer for the SST file bytes.
   struct ALIGN_AS(CACHE_LINE_SIZE) BlockRep {
     // Uncompressed block contents
     std::string uncompressed;
@@ -226,10 +295,54 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
   // Semaphores for threads to sleep when there's no available work for them
   // and to wake back up when someone determines there is available work (most
-  // likely). Split between worker threads and emit thread (from the calling
-  // compaction/flush).
+  // likely). Split between worker threads and emit thread because they can do
+  // different kinds of work.
   CountingSemaphore idle_worker_sem{0};
   BinarySemaphore idle_emit_sem{0};
+
+  // Primary atomic state of parallel compression, which includes a number of
+  // state fields that are best updated atomically to avoid locking and/or to
+  // simplify the interesting interleavings that have to be considered and
+  // accommodated.
+  struct StateID {};
+  struct State : public BitFields<uint64_t, StateID> {};
+  ALIGN_AS(CACHE_LINE_SIZE) AcqRelBitFieldsAtomic<State> atomic_state;
+
+  // The first field is a bit for each ring buffer slot (max 32) for whether
+  // that slot is ready to be claimed for writing by a worker thread. Because
+  // compressions might finish out-of-order, we need to track individually
+  // whether they are finished, though this field doesn't differentiate
+  // "compression completed" from "compression not started" because that can be
+  // inferred from NextToCompress. A block might not enter this state, because
+  // the same thread that compresses it can also immediately write the block if
+  // it notices that the block is next to write.
+  using NeedsWriter = UnsignedBitField<State, 32, NoPrevBitField>;
+  // Track how many worker threads are in an idle state because there was no
+  // available work and haven't been selected to wake back up.
+  using IdleWorkerCount = UnsignedBitField<State, 5, NeedsWriter>;
+  // Track whether the emit thread is an idle state because there was no
+  // available work and hasn't been triggered to wake back up. The nature of
+  // available work and atomic CAS assignment of work ensures at least one
+  // thread is kept out of the idle state.
+  using IdleEmitFlag = BoolBitField<State, IdleWorkerCount>;
+  // Track whether threads should end when they finish available work because no
+  // more blocks will be emitted.
+  using NoMoreToEmitFlag = BoolBitField<State, IdleEmitFlag>;
+  // Track whether threads should abort ASAP because of an error.
+  using AbortFlag = BoolBitField<State, NoMoreToEmitFlag>;
+  // Track three "NextTo" counters for the positions of the next block to write,
+  // to start compression, and to emit into the ring buffer. If these counters
+  // never overflowed / wrapped around, we would have next_to_write <=
+  // next_to_compress <= next_to_emit because a block must be emitted before
+  // compressed, and compressed (at least attempted) before writing. We need to
+  // track more than ring_buffer_nbits of these counters to be able to
+  // distinguish an empty ring buffer (next_to_write == next_to_emit) from a
+  // full ring buffer (next_to_write != next_to_emit but equal under
+  // ring_buffer_mask).
+  using NextToWrite = UnsignedBitField<State, 8, AbortFlag>;
+  using NextToCompress = UnsignedBitField<State, 8, NextToWrite>;
+  using NextToEmit = UnsignedBitField<State, 8, NextToCompress>;
+  static_assert(NextToEmit::kEndBit == 64);
 
 #ifndef NDEBUG
   // These are for an extra "watchdog" thread in DEBUG builds that heuristically
@@ -245,83 +358,18 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   RelaxedAtomic<bool> idling_emit{0};
 #endif  // !NDEBUG
 
-  // Primary atomic state of parallel compression, which includes three counters
-  // ("next_to_") for the positions of the next block to write, to start
-  // compression, and to emit into the ring buffer. If these counters never
-  // overflowed / wrapped around, we would have
-  // next_to_write <= next_to_compress <= next_to_emit because a block must be
-  // emitted before compressed, and compressed (at least attempted) before
-  // writing. We need to track more than ring_buffer_nbits of these counters to
-  // be able to distinguish an empty ring buffer (next_to_write == next_to_emit)
-  // from a full ring buffer (next_to_write != next_to_emit but equal under
-  // ring_buffer_mask).
-  //
-  // Because compressions might finish out-of-order, we need to track
-  // individually whether they are finished, though we don't strictly track
-  // that. "Needs_writer" indicates that a block has been compressed (at least
-  // attempted) and is ready to be picked up by a thread writing to the SST
-  // file. A block might not enter this state, because the same thread that
-  // compresses it can also immediately write the block if it notices that block
-  // is next to write.
-  //
-  // Also tracks how many threads (of what kind) are in an idle state and
-  // would need to be woken up in order to operate again. The nature of
-  // available work and atomic CAS assignment of work ensures at least one
-  // thread is kept out of the idle state.
-  //
-  // Also tracks whether threads should abort ASAP because of an error, and
-  // whether threads should end when they finish available work because no more
-  // blocks will be emitted.
-  //
-  // Bit layout from low to high:
-  // 32x needs_writer        (1 bit x 32)
-  // idle_workers            (5 bits)
-  // idle_emit               (1 bit)
-  // no_more_to_emit         (1 bit)
-  // abort                   (1 bit)
-  // next_to_write           (8 bits)
-  // next_to_compress        (8 bits)
-  // next_to_emit            (8 bits)  // last for clean overflow
-  AcqRelAtomic<uint64_t> atomic_state{0};
-
-  static constexpr int kNeedsWriterShift = 0;
-  static constexpr uint32_t kNeedsWriterMask = UINT32_MAX;
-  static constexpr int kIdleWorkersShift = 32;
-  static constexpr uint32_t kIdleWorkersMask = (uint32_t{1} << 5) - 1;
-  static constexpr uint64_t kIdleEmitFlag = uint64_t{1} << 37;
-  static constexpr uint64_t kNoMoreToEmitFlag = uint64_t{1} << 38;
-  static constexpr uint64_t kAbortFlag = uint64_t{1} << 39;
-  static constexpr int kNextToWriteShift = 40;
-  static constexpr int kNextToCompressShift = 48;
-  static constexpr int kNextToEmitShift = 56;
-
-  enum class ThreadKind {
-    kEmitter,  // Calling thread from flush/compaction
-    kWorker,
-  };
-
-  enum class ThreadState {
-    /* BEGIN Emitter only states */
-    kEmitting,
-    /* END Emitter only states */
-    kIdle,
-    kCompressing,
-    kEnd,
-    /* BEGIN Worker only states */
-    kCompressingAndWriting,
-    kWriting,
-    /* END Worker only states */
-  };
-
-  // State tracking for the emit thread
+  // BEGIN fields for use by the emit thread only. These can't live on the stack
+  // because the emit thread frequently returns out of BlockBasedTableBuilder.
   ThreadState emit_thread_state = ThreadState::kEmitting;
   // Ring buffer index that emit thread is operating on (for emitting and
   // compressing states)
   uint32_t emit_slot = 0;
-  // Including some data to inform when to wake up idle worker threads
+  // Including some data to inform when to wake up idle worker threads (see
+  // implementation for details)
   int32_t emit_counter_toward_wake_up = 0;
   int32_t emit_counter_for_wake_up = 0;
   static constexpr int32_t kMaxWakeupInterval = 8;
+  // END fields for use by the emit thread only
 
   int ComputeRingBufferNbits(uint32_t parallel_threads) {
     // Ring buffer size is a power of two not to exceed 32 but otherwise
@@ -342,9 +390,9 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
       : ring_buffer_nbits(ComputeRingBufferNbits(parallel_threads)),
         ring_buffer_mask((uint32_t{1} << ring_buffer_nbits) - 1),
         num_worker_threads(std::min(parallel_threads, ring_buffer_mask)) {
-    assert(num_worker_threads <= kIdleWorkersMask);
+    assert(num_worker_threads <= IdleWorkerCount::kMask);
 
-    ring_buffer.reset(new BlockRep[ring_buffer_mask + 1]);
+    ring_buffer = std::make_unique<BlockRep[]>(ring_buffer_mask + 1);
 
     // Start by aggressively waking up idle workers
     emit_counter_for_wake_up = -static_cast<int32_t>(num_worker_threads);
@@ -352,29 +400,21 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
   ~ParallelCompressionRep() {
 #ifndef NDEBUG
-    uint64_t last_atomic_state = atomic_state.Load();
-    if ((last_atomic_state & kAbortFlag) == 0) {
+    auto state = atomic_state.Load();
+    if (state.Get<AbortFlag>() == false) {
       // Should be clear / cancelled out with normal shutdown
-      assert(BitwiseAnd(last_atomic_state >> kNeedsWriterShift,
-                        kNeedsWriterMask) == 0);
+      assert(state.Get<NeedsWriter>() == 0);
 
       // Ring buffer reached empty state
-      uint8_t next_to_write =
-          static_cast<uint8_t>(last_atomic_state >> kNextToWriteShift);
-      uint8_t next_to_compress =
-          static_cast<uint8_t>(last_atomic_state >> kNextToCompressShift);
-      uint8_t next_to_emit =
-          static_cast<uint8_t>(last_atomic_state >> kNextToEmitShift);
-      assert(next_to_write == next_to_compress);
-      assert(next_to_compress == next_to_emit);
+      assert(state.Get<NextToWrite>() == state.Get<NextToCompress>());
+      assert(state.Get<NextToCompress>() == state.Get<NextToEmit>());
 
       // Everything cancels out in inflight size
       assert(estimated_inflight_size.LoadRelaxed() == 0);
     }
     // All idling metadata cleaned up, properly tracked
-    assert(BitwiseAnd(last_atomic_state >> kIdleWorkersShift,
-                      kIdleWorkersMask) == 0);
-    assert((last_atomic_state & kIdleEmitFlag) == 0);
+    assert(state.Get<IdleWorkerCount>() == 0);
+    assert(state.Get<IdleEmitFlag>() == false);
 
     // No excess in semaphores
     assert(!idle_emit_sem.TryAcquire());
@@ -409,60 +449,64 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
       /*in/out*/ ThreadState& thread_state,
       /*in/out*/ uint32_t& slot) {
     assert(slot <= ring_buffer_mask);
-    uint64_t last_known_atomic_state = atomic_state.Load();
+    // Last known value for atomic_state
+    State seen_state = atomic_state.Load();
 
     for (;;) {
-      if (last_known_atomic_state & kAbortFlag) {
+      if (seen_state.Get<AbortFlag>()) {
         thread_state = ThreadState::kEnd;
         return;
       }
-      uint8_t next_to_write =
-          static_cast<uint8_t>(last_known_atomic_state >> kNextToWriteShift);
-      uint8_t next_to_compress =
-          static_cast<uint8_t>(last_known_atomic_state >> kNextToCompressShift);
-      uint8_t next_to_emit =
-          static_cast<uint8_t>(last_known_atomic_state >> kNextToEmitShift);
 
-      assert(static_cast<uint8_t>(next_to_emit - next_to_compress) <=
+      assert(static_cast<uint8_t>(seen_state.Get<NextToEmit>() -
+                                  seen_state.Get<NextToCompress>()) <=
              ring_buffer_mask + 1);
-      assert(static_cast<uint8_t>(next_to_compress - next_to_write) <=
+      assert(static_cast<uint8_t>(seen_state.Get<NextToCompress>() -
+                                  seen_state.Get<NextToWrite>()) <=
              ring_buffer_mask + 1);
-      assert(static_cast<uint8_t>(next_to_emit - next_to_write) <=
+      assert(static_cast<uint8_t>(seen_state.Get<NextToEmit>() -
+                                  seen_state.Get<NextToWrite>()) <=
              ring_buffer_mask + 1);
 
-      // Draft in `next_atomic_state` marking completion of the previous state
-      uint64_t next_atomic_state = last_known_atomic_state;
+      // Draft of the next proposed atomic_state. Start by marking completion of
+      // the current thread's last work.
+      State next_state = seen_state;
       bool wake_idle = false;
       switch (thread_state) {
         case ThreadState::kEmitting: {
           assert(thread_kind == ThreadKind::kEmitter);
-          assert(slot == (next_to_emit & ring_buffer_mask));
-          // NOTE: overflow is thrown away by the uint64_t
-          next_atomic_state += uint64_t{1} << kNextToEmitShift;
-          next_to_emit++;
-          auto idle_count = BitwiseAnd(
-              last_known_atomic_state >> kIdleWorkersShift, kIdleWorkersMask);
+          assert(slot == (next_state.Get<NextToEmit>() & ring_buffer_mask));
+          next_state.Ref<NextToEmit>() += 1;
           // Check whether to wake up idle worker thread
-          if (idle_count > 0 &&
+          if (next_state.Get<IdleWorkerCount>() > 0 &&
               // The number of blocks for which compression hasn't started
               // is well over the number of active threads.
-              static_cast<uint8_t>(next_to_emit - next_to_compress) >=
+              static_cast<uint8_t>(next_state.Get<NextToEmit>() -
+                                   next_state.Get<NextToCompress>()) >=
                   (ring_buffer_mask + 1) / 4 +
-                      (num_worker_threads - idle_count)) {
+                      (num_worker_threads -
+                       next_state.Get<IdleWorkerCount>())) {
             // At first, emit_counter_for_wake_up is negative to aggressively
             // wake up idle worker threads. Then it backs off the interval at
             // which we wake up, up to some maximum that attempts to balance
             // maximum throughput and minimum CPU overhead.
             if (emit_counter_toward_wake_up >= emit_counter_for_wake_up) {
+              // We reached a threshold to justify a wake-up.
+              wake_idle = true;
+              // Adjust idle count assuming we are going to own waking it up,
+              // so no one else can duplicate that. (The idle count is really
+              // the number idling for which no one yet owns waking them up.)
+              next_state.Ref<IdleWorkerCount>() -= 1;
+              // Reset the counter toward the threshold for wake-up
               emit_counter_toward_wake_up = 0;
+              // Raise the threshold (up to some limit) to stabilize the number
+              // of active threads after some ramp-up period.
               emit_counter_for_wake_up =
                   std::min(emit_counter_for_wake_up + 1,
                            static_cast<int32_t>(num_worker_threads +
                                                 kMaxWakeupInterval));
-              wake_idle = true;
-              // Adjust idle count if we are going to own waking it up
-              next_atomic_state -= uint64_t{1} << kIdleWorkersShift;
             } else {
+              // Advance closer to the threshold for justifying a wake-up
               emit_counter_toward_wake_up++;
             }
           }
@@ -475,39 +519,33 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
           // desirable to avoid spurious/extra Release().
           break;
         case ThreadState::kCompressing:
-          next_atomic_state |= uint64_t{1} << kNeedsWriterShift << slot;
+          next_state.Ref<NeedsWriter>() |= uint32_t{1} << slot;
           if constexpr (thread_kind == ThreadKind::kEmitter) {
-            auto idle_workers = BitwiseAnd(
-                last_known_atomic_state >> kIdleWorkersShift, kIdleWorkersMask);
-            if (idle_workers == num_worker_threads) {
+            if (next_state.Get<IdleWorkerCount>() == num_worker_threads) {
+              // Work is available for a worker thread and none are running
               wake_idle = true;
-              // Adjust idle count if we are going to own waking it up
-              next_atomic_state -= uint64_t{1} << kIdleWorkersShift;
+              // Adjust idle count assuming we are going to own waking it up
+              next_state.Ref<IdleWorkerCount>() -= 1;
             }
           }
           break;
         case ThreadState::kEnd:
-          // Should have already recognzied the end state
+          // Should have already recognized the end state
           assert(thread_state != ThreadState::kEnd);
           return;
         case ThreadState::kCompressingAndWriting:
         case ThreadState::kWriting:
           assert(thread_kind == ThreadKind::kWorker);
-          assert((next_to_write & ring_buffer_mask) == slot);
-          assert(next_to_compress != next_to_write);
-          assert(next_to_emit != next_to_write);
-          assert((last_known_atomic_state &
-                  (uint64_t{1} << kNeedsWriterShift << slot)) == 0);
-          if (next_to_write < UINT8_MAX) {
-            next_atomic_state += uint64_t{1} << kNextToWriteShift;
-          } else {
-            next_atomic_state -= uint64_t{UINT8_MAX} << kNextToWriteShift;
-          }
-          next_to_write++;
-          if (last_known_atomic_state & kIdleEmitFlag) {
+          assert((next_state.Get<NextToWrite>() & ring_buffer_mask) == slot);
+          assert(next_state.Get<NextToCompress>() !=
+                 next_state.Get<NextToWrite>());
+          assert(next_state.Get<NextToEmit>() != next_state.Get<NextToWrite>());
+          assert((next_state.Get<NeedsWriter>() & (uint32_t{1} << slot)) == 0);
+          next_state.Ref<NextToWrite>() += 1;
+          if (next_state.Get<IdleEmitFlag>()) {
             wake_idle = true;
-            // Clear idle flag if we are going to own waking it up
-            next_atomic_state &= ~kIdleEmitFlag;
+            // Clear idle emit flag assuming we are going to own waking it up
+            next_state.Set<IdleEmitFlag>(false);
           }
           break;
       }
@@ -518,21 +556,24 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
       if constexpr (thread_kind == ThreadKind::kEmitter) {
         // First priority is emitting more uncompressed blocks, if there's
         // room in the ring buffer.
-        if (static_cast<uint8_t>(next_to_emit - next_to_write) <=
+        if (static_cast<uint8_t>(next_state.Get<NextToEmit>() -
+                                 next_state.Get<NextToWrite>()) <=
             ring_buffer_mask) {
           // There is room
           next_thread_state = ThreadState::kEmitting;
-          next_slot = next_to_emit & ring_buffer_mask;
+          next_slot = next_state.Get<NextToEmit>() & ring_buffer_mask;
         }
       }
       if constexpr (thread_kind == ThreadKind::kWorker) {
-        // First priority is writing next block to write is ready and not
-        // already claimed
-        uint32_t next_to_write_slot = next_to_write & ring_buffer_mask;
-        if (next_atomic_state &
-            (uint64_t{1} << kNeedsWriterShift << next_to_write_slot)) {
-          next_atomic_state &=
-              ~(uint64_t{1} << kNeedsWriterShift << next_to_write_slot);
+        // First priority is writing next block to write, if it needs a writer
+        // assigned to it
+        uint32_t next_to_write_slot =
+            next_state.Get<NextToWrite>() & ring_buffer_mask;
+        uint32_t needs_writer_bit = uint32_t{1} << next_to_write_slot;
+        if (next_state.Get<NeedsWriter>() & needs_writer_bit) {
+          // Clear the "needs writer" marker on the slot
+          next_state.Ref<NeedsWriter>() &= ~needs_writer_bit;
+          // Take ownership of writing it
           next_thread_state = ThreadState::kWriting;
           next_slot = next_to_write_slot;
         }
@@ -540,45 +581,42 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
       // If didn't find higher priority work
       if (next_thread_state == ThreadState::kEnd) {
-        if (next_to_compress != next_to_emit) {
+        if (next_state.Get<NextToCompress>() != seen_state.Get<NextToEmit>()) {
           // Compression work is available, select that
           if (thread_kind == ThreadKind::kWorker &&
-              next_to_compress == next_to_write) {
+              next_state.Get<NextToCompress>() ==
+                  next_state.Get<NextToWrite>()) {
             next_thread_state = ThreadState::kCompressingAndWriting;
           } else {
             next_thread_state = ThreadState::kCompressing;
           }
-          next_slot = next_to_compress & ring_buffer_mask;
-          next_to_compress++;
-          next_atomic_state &= ~(uint64_t{UINT8_MAX} << kNextToCompressShift);
-          next_atomic_state |= uint64_t{next_to_compress}
-                               << kNextToCompressShift;
+          next_slot = next_state.Get<NextToCompress>() & ring_buffer_mask;
+          next_state.Ref<NextToCompress>() += 1;
         } else if constexpr (thread_kind == ThreadKind::kEmitter) {
           // Emitter thread goes idle
           next_thread_state = ThreadState::kIdle;
-          assert((next_atomic_state & kIdleEmitFlag) == 0);
-          assert((next_atomic_state & kNoMoreToEmitFlag) == 0);
-          next_atomic_state |= kIdleEmitFlag;
-        } else if (next_atomic_state & kNoMoreToEmitFlag) {
+          assert(next_state.Get<IdleEmitFlag>() == false);
+          assert(next_state.Get<NoMoreToEmitFlag>() == false);
+          next_state.Set<IdleEmitFlag>(true);
+        } else if (next_state.Get<NoMoreToEmitFlag>()) {
           // Worker thread shall not idle if we are done emitting. At least
           // one worker will remain unblocked to finish writing
           next_thread_state = ThreadState::kEnd;
         } else {
           // Worker thread goes idle
           next_thread_state = ThreadState::kIdle;
-          assert(((next_atomic_state >> kIdleWorkersShift) & kIdleWorkersMask) <
-                 kIdleWorkersMask);
-          next_atomic_state += uint64_t{1} << kIdleWorkersShift;
+          assert(next_state.Get<IdleWorkerCount>() < IdleWorkerCount::kMask);
+          next_state.Ref<IdleWorkerCount>() += 1;
         }
       }
       assert(thread_state != ThreadState::kEnd);
 
       // Attempt to atomically apply the desired/computed state transition
-      if (atomic_state.CasWeak(last_known_atomic_state, next_atomic_state)) {
+      if (atomic_state.CasWeak(seen_state, next_state)) {
         // Success
         thread_state = next_thread_state;
         slot = next_slot;
-        last_known_atomic_state = next_atomic_state;
+        seen_state = next_state;
         if (wake_idle) {
           if constexpr (thread_kind == ThreadKind::kEmitter) {
             idle_worker_sem.Release();
@@ -607,7 +645,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
           idle_worker_sem.Acquire();  // Likely block
         }
         // Update state after sleep
-        last_known_atomic_state = atomic_state.Load();
+        seen_state = atomic_state.Load();
       }
       // else loop and try again
     }
@@ -627,22 +665,16 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
   // Exactly wake all idling threads (for an end state)
   void WakeAllIdle() {
-    uint64_t last_known_atomic_state = atomic_state.Load();
-    bool wake_emit;
-    uint32_t wake_workers;
-    uint64_t next_atomic_state;
-    do {
-      next_atomic_state = last_known_atomic_state;
-      wake_emit = (next_atomic_state & kIdleEmitFlag) != 0;
-      wake_workers =
-          BitwiseAnd(next_atomic_state >> kIdleWorkersShift, kIdleWorkersMask);
-      next_atomic_state &=
-          ~(kIdleEmitFlag | (uint64_t{kIdleWorkersMask} << kIdleWorkersShift));
-    } while (!atomic_state.CasWeak(last_known_atomic_state, next_atomic_state));
-    if (wake_emit) {
+    State old_state, new_state;
+    auto transform =
+        IdleEmitFlag::ClearTransform() + IdleWorkerCount::ClearTransform();
+    atomic_state.Apply(transform, &old_state, &new_state);
+    assert(new_state.Get<IdleEmitFlag>() == false);
+    assert(new_state.Get<IdleWorkerCount>() == 0);
+    if (old_state.Get<IdleEmitFlag>()) {
       idle_emit_sem.Release();
     }
-    idle_worker_sem.Release(wake_workers);
+    idle_worker_sem.Release(old_state.Get<IdleWorkerCount>());
   }
 
   // Called by emit thread if it is decided no more blocks will be emitted into
@@ -650,22 +682,21 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   void SetNoMoreToEmit(/*in/out*/ ThreadState& thread_state,
                        /*in/out*/ uint32_t& slot) {
     (void)slot;
+    State old_state;
+    atomic_state.Apply(NoMoreToEmitFlag::SetTransform(), &old_state);
+    assert(old_state.Get<NoMoreToEmitFlag>() == false);
+    assert(slot == BitwiseAnd(old_state.Get<NextToEmit>(), ring_buffer_mask));
     assert(thread_state == ThreadState::kEmitting);
-    [[maybe_unused]] uint64_t last_known_atomic_state =
-        atomic_state.FetchOr(kNoMoreToEmitFlag);
-    [[maybe_unused]] uint64_t next_atomic_state =
-        last_known_atomic_state | kNoMoreToEmitFlag;
     thread_state = ThreadState::kEnd;
-    assert(slot == BitwiseAnd(last_known_atomic_state >> kNextToEmitShift,
-                              ring_buffer_mask));
     WakeAllIdle();
   }
 
   // Called by any thread to abort parallel compression, etc. because of an
   // error.
   void SetAbort(/*in/out*/ ThreadState& thread_state) {
-    uint64_t prev_atomic_state = atomic_state.FetchOr(kAbortFlag);
-    if ((prev_atomic_state & kAbortFlag) == 0) {
+    State old_state;
+    atomic_state.Apply(AbortFlag::SetTransform(), &old_state);
+    if (old_state.Get<AbortFlag>() == false) {
       // First to set abort. Wake all workers and emitter
       WakeAllIdle();
     }
@@ -701,7 +732,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
         count_toward_deadlock_judgment = 0;
       } else {
         // Could be a deadlock state, but could also be a transient
-        // state where someone has woken up but not cleared their idle flag.
+        // state where someone has woken up but not cleared their idling flag.
         // Give it plenty of time and watchdog thread wake-ups before
         // declaring deadlock.
         count_toward_deadlock_judgment++;
@@ -712,7 +743,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
                   (unsigned)idling_workers.LoadRelaxed(),
                   (unsigned)live_workers.LoadRelaxed(),
                   (int)idling_emit.LoadRelaxed(), (int)live_emit.LoadRelaxed(),
-                  (long long)atomic_state.Load());
+                  (long long)atomic_state.Load().underlying);
           std::terminate();
         }
       }
@@ -1158,10 +1189,10 @@ struct BlockBasedTableBuilder::Rep {
         std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder(
             table_options.user_defined_index_factory->NewBuilder());
         if (user_defined_index_builder != nullptr) {
-          index_builder.reset(new UserDefinedIndexBuilderWrapper(
+          index_builder = std::make_unique<UserDefinedIndexBuilderWrapper>(
               std::string(table_options.user_defined_index_factory->Name()),
               std::move(index_builder), std::move(user_defined_index_builder),
-              &internal_comparator, ts_sz, persist_user_defined_timestamps));
+              &internal_comparator, ts_sz, persist_user_defined_timestamps);
         }
       }
     }
@@ -1197,13 +1228,13 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
     table_properties_collectors.emplace_back(
-        new BlockBasedTablePropertiesCollector(
+        std::make_unique<BlockBasedTablePropertiesCollector>(
             table_options.index_type, table_options.whole_key_filtering,
             prefix_extractor != nullptr,
             table_options.decouple_partitioned_filters));
     if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
-          new TimestampTablePropertiesCollector(
+          std::make_unique<TimestampTablePropertiesCollector>(
               tbo.internal_comparator.user_comparator()));
     }
 
@@ -1353,7 +1384,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   auto ucmp = tbo.internal_comparator.user_comparator();
   assert(ucmp);
   (void)ucmp;  // avoids unused variable error.
-  rep_ = new Rep(sanitized_table_options, tbo, file);
+  rep_ = std::make_unique<Rep>(sanitized_table_options, tbo, file);
 
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
@@ -1372,11 +1403,10 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   // Catch errors where caller forgot to call Finish()
   assert(rep_->state == Rep::State::kClosed);
-  delete rep_;
 }
 
 void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(rep_->state != Rep::State::kClosed);
   if (UNLIKELY(!ok())) {
     return;
@@ -1472,7 +1502,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
 }
 
 void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(rep_->state != Rep::State::kClosed);
   if (UNLIKELY(!ok())) {
     return;
@@ -1575,7 +1605,7 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
 void BlockBasedTableBuilder::EmitBlockForParallel(
     std::string& uncompressed, const Slice& last_key_in_current_block,
     const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kUnbuffered);
   assert(uncompressed.size() > 0);
   auto& pc_rep = *r->pc_rep;
@@ -1631,7 +1661,7 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
 void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
                                        const Slice& last_key_in_current_block,
                                        const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kUnbuffered);
   // Single-threaded context only
   assert(!r->IsParallelCompressionActive());
@@ -1654,7 +1684,7 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
 void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
                                         BlockHandle* handle,
                                         BlockType block_type) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kUnbuffered);
   // Single-threaded context only
   assert(!r->IsParallelCompressionActive());
@@ -1760,7 +1790,7 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
     const Slice& uncompressed_block_data, bool is_data_block,
     WorkingAreaPair& working_area, GrowableBuffer* compressed_output,
     CompressionType* result_compression_type) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   Status status;
 
   Compressor* compressor = nullptr;
@@ -1880,7 +1910,7 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
   //    block_data: uint8[n]
   //    compression_type: uint8
   //    checksum: uint32
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   bool is_data_block = block_type == BlockType::kData;
   IOOptions io_options;
   // Always return io_s for NRVO
@@ -1975,8 +2005,8 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   if (rep_->compression_parallel_threads <= 1) {
     return;
   }
-  rep_->pc_rep.reset(
-      new ParallelCompressionRep(rep_->compression_parallel_threads));
+  rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
+      rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;
   for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
     pc_rep.ring_buffer[i].prepared_index_entry =
@@ -2352,7 +2382,7 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
 void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
   assert(LIKELY(ok()));
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
@@ -2383,7 +2413,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
 
 void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kBuffered);
   // Don't yet enter unbuffered (early return) if none of the conditions are
   // met
@@ -2555,7 +2585,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
 }
 
 Status BlockBasedTableBuilder::Finish() {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state != Rep::State::kClosed);
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries first, in Flush().

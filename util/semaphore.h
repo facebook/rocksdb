@@ -12,6 +12,7 @@
 #include <semaphore>
 #endif
 
+#include "port/port.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 // worse performance. See std::counting_semaphore for general contract.
 //
 // NOTE1: std::counting_semaphore is known to be buggy on many std library
-// implementations, so be cautious about enabling it. Reporedly, an acquire()
+// implementations, so be cautious about enabling it. Reportedly, an acquire()
 // can falsely block indefinitely. And we can't easily work around that with
 // try_acquire_for because another common bug has that function consistently
 // sleeping for the entire timeout duration even if a release() happens earlier.
@@ -33,14 +34,14 @@ namespace ROCKSDB_NAMESPACE {
 //
 // NOTE2: Also tried wrapping folly::fibers::Semaphore here but it was not as
 // efficient (for parallel compression) as even the mutex+condvar version.
-class CountingSemaphore {
+class ALIGN_AS(CACHE_LINE_SIZE) CountingSemaphore {
  public:
   explicit CountingSemaphore(std::ptrdiff_t starting_count)
 #ifdef ROCKSDB_USE_STD_SEMAPHORES
       : sem_(starting_count)
 #else
       : count_(static_cast<int32_t>(starting_count))
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   {
     assert(starting_count >= 0);
     assert(starting_count <= INT32_MAX);
@@ -53,7 +54,7 @@ class CountingSemaphore {
     assert(count_ >= 0);
     cv_.wait(lock, [this] { return count_ > 0; });
     --count_;
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   }
   bool TryAcquire() {
 #ifdef ROCKSDB_USE_STD_SEMAPHORES
@@ -67,7 +68,7 @@ class CountingSemaphore {
       --count_;
       return true;
     }
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   }
   void Release(std::ptrdiff_t n = 1) {
 #ifdef ROCKSDB_USE_STD_SEMAPHORES
@@ -78,15 +79,15 @@ class CountingSemaphore {
     if (n > 0) {
       std::unique_lock<std::mutex> lock(mutex_);
       assert(count_ >= 0);
-      assert(n + count_ >= 0);  // no overflow
       count_ += static_cast<int32_t>(n);
+      assert(count_ >= 0);  // no overflow
       if (n == 1) {
         cv_.notify_one();
       } else {
         cv_.notify_all();
       }
     }
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   }
 
  private:
@@ -96,7 +97,7 @@ class CountingSemaphore {
   int32_t count_;
   std::mutex mutex_;
   std::condition_variable cv_;
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
 };  // namespace ROCKSDB_NAMESPACE
 
 // Wrapper providing a chosen binary semaphore implementation. See notes on
@@ -108,7 +109,7 @@ class BinarySemaphore {
       : sem_(starting_count)
 #else
       : state_(starting_count > 0)
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   {
     assert(starting_count >= 0);
   }
@@ -119,7 +120,7 @@ class BinarySemaphore {
     std::unique_lock<std::mutex> lock(mutex_);
     cv_.wait(lock, [this] { return state_; });
     state_ = false;
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   }
   bool TryAcquire() {
 #ifdef ROCKSDB_USE_STD_SEMAPHORES
@@ -132,7 +133,7 @@ class BinarySemaphore {
     } else {
       return false;
     }
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   }
   void Release() {
     // NOTE: implementations of std::binary_semaphore::release() tend to behave
@@ -147,7 +148,7 @@ class BinarySemaphore {
     assert(state_ == false);
     state_ = true;
     cv_.notify_one();
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
   }
 
  private:
@@ -157,7 +158,7 @@ class BinarySemaphore {
   bool state_;
   std::mutex mutex_;
   std::condition_variable cv_;
-#endif
+#endif  // ROCKSDB_USE_STD_SEMAPHORES
 };
 
 }  // namespace ROCKSDB_NAMESPACE

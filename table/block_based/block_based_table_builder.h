@@ -167,7 +167,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
-  Rep* rep_;
+  std::unique_ptr<Rep> rep_;
   struct WorkingAreaPair;
   struct ParallelCompressionRep;
 
