@@ -1,0 +1,1 @@
+Fix a race condition in FIFO size-based compaction where concurrent threads could select the same non-L0 file, causing assertion failures in debug builds or "Cannot delete table file from LSM tree" errors in release builds.
