@@ -3669,8 +3669,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
               "Compaction\n");
       exit(1);
     }
-    options_.compaction_service =
-        std::make_shared<DbStressCompactionService>(shared);
+    options_.compaction_service = std::make_shared<DbStressCompactionService>(
+        shared, FLAGS_remote_compaction_failure_fall_back_to_local);
   }
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||

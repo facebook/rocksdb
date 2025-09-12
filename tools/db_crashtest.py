@@ -366,9 +366,10 @@ default_params = {
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
-    "track_and_verify_wals": lambda: random.choice([0]),
-    # TODO(jaykorean): re-enable remote compaction worker threads after addressing all issues
-    "remote_compaction_worker_threads": 0,
+    "track_and_verify_wals": lambda: random.choice([0]),    
+    "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
+    # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
+    "remote_compaction_failure_fall_back_to_local": 1,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -803,6 +804,7 @@ def finalize_and_sanitize(src_params):
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
         dest_params["use_timed_put_one_in"] = 0
+        dest_params["test_secondary"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
