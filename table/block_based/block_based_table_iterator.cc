@@ -1185,11 +1185,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       }
 #endif  // NDEBUG
       assert(end_offset > start_offset);
-      FSReadRequest read_req;
-      read_req.offset = start_offset;
-      read_req.len = end_offset - start_offset;
-      total_len += read_req.len;
-      read_reqs.emplace_back(std::move(read_req));
+      read_reqs.emplace_back();
+      read_reqs.back().offset = start_offset;
+      read_reqs.back().len = end_offset - start_offset;
+      total_len += read_reqs.back().len;
       if (multiscan_opts->use_async_io) {
         for (const auto& block_idx : blocks) {
           block_to_async_read[block_idx] = read_reqs.size() - 1;
@@ -1312,11 +1311,12 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 
   // Successful Prepare, init related states so the iterator reads from prepared
   // blocks.
-  multi_scan_.reset(new MultiScanState(
+  multi_scan_ = std::make_unique<MultiScanState>(
       table_->get_rep()->ioptions.env->GetFileSystem(), multiscan_opts,
       std::move(pinned_data_blocks_guard), std::move(block_ranges_per_scan),
       std::move(block_to_async_read), std::move(async_states),
-      prefetched_max_idx));
+      prefetched_max_idx);
+
   is_index_at_curr_block_ = false;
   block_iter_points_to_real_block_ = false;
 }
@@ -1449,9 +1449,8 @@ Status BlockBasedTableIterator::PollForBlock(size_t idx) {
     return async_read.status;
   }
 
-  std::vector<void*> handles;
-  handles.emplace_back(async_read.io_handle);
   {
+    std::vector<void*> handles = {async_read.io_handle};
     Status poll_s =
         table_->get_rep()->ioptions.env->GetFileSystem()->Poll(handles, 1);
     if (!poll_s.ok()) {

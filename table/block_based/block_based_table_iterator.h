@@ -398,12 +398,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     bool finished{false};
 
     AsyncReadState() = default;
-
-    // Explicitly default move operations since we have a user-defined
-    // destructor.
-    AsyncReadState(AsyncReadState&&) = default;
-    AsyncReadState& operator=(AsyncReadState&&) = default;
-
+    DECLARE_DEFAULT_MOVES(AsyncReadState);
     // Delete copy operations
     AsyncReadState(const AsyncReadState&) = delete;
     AsyncReadState& operator=(const AsyncReadState&) = delete;
