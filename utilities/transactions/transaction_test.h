@@ -596,6 +596,12 @@ class TimestampedSnapshotWithTsSanityCheck
   std::vector<ColumnFamilyHandle*> handles_{};
 };
 
+// The following templates causes a bug in GCC 14, ignore the error for now
+#if defined(__GNUC__) && __GNUC__ == 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
+
 // Wrap existing params with per-key point lock manager parameters
 template <typename TargetParamType, typename SourceParamType, std::size_t... Is>
 std::vector<TargetParamType> WrapParamWithPerKeyPointLockManagerParamsImpl(
@@ -642,6 +648,10 @@ std::vector<TargetParamType> WrapParamsWithPerKeyPointLockManagerParams(
   }
   return wrapped_params;
 }
+
+#if defined(__GNUC__) && __GNUC__ == 14
+#pragma GCC diagnostic pop
+#endif
 
 #define WRAP_PARAM(...) __VA_ARGS__
 

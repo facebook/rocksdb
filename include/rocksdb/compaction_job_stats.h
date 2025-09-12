@@ -24,9 +24,10 @@ struct CompactionJobStats {
   // the elapsed CPU time of this compaction in microseconds.
   uint64_t cpu_micros = 0;
 
-  // Used internally indicating whether a subcompaction's
-  // `num_input_records` is accurate.
-  bool has_num_input_records = false;
+  // True if `num_input_records` is accurate across all subcompactions.
+  // See CompactionIterator::must_count_input_entries for some implementation
+  // details why `num_input_records` may not be accurate.
+  bool has_accurate_num_input_records = true;
   // the number of compaction input records.
   uint64_t num_input_records = 0;
   // the number of blobs read from blob files

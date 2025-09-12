@@ -396,7 +396,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "temperature field wrong size";
           } else {
             Temperature casted_field = static_cast<Temperature>(field[0]);
-            if (casted_field <= Temperature::kCold) {
+            if (casted_field < Temperature::kLastTemperature) {
               f.temperature = casted_field;
             }
           }

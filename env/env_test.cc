@@ -3692,6 +3692,24 @@ TEST_F(TestGetFileSize, GetFileSize) {
   ASSERT_EQ(fileSizeFromFsRandomAccessFileAPI, expectedFileSize);
 }
 
+class TestIOActivity : public testing::Test {
+ public:
+  TestIOActivity() {}
+};
+
+TEST_F(TestIOActivity, IOActivityToString) {
+  ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kMultiGet), "MultiGet");
+
+  ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kCustomIOActivity80),
+            "CustomIOActivity80");
+  ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kCustomIOActivityA9),
+            "CustomIOActivityA9");
+  ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kCustomIOActivityFE),
+            "CustomIOActivityFE");
+
+  ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kUnknown), "Unknown");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
