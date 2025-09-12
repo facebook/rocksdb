@@ -1130,16 +1130,19 @@ class LevelIterator final : public InternalIterator {
       if (timestamp_size == 0) {
         istart =
             InternalKey(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
-        iend = InternalKey(end.value(), 0, kValueTypeForSeekForPrev);
+        // end key is exclusive for multiscan
+        iend = InternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
       } else {
         std::string start_key_with_ts, end_key_with_ts;
         AppendKeyWithMaxTimestamp(&start_key_with_ts, start.value(),
                                   timestamp_size);
-        AppendKeyWithMinTimestamp(&end_key_with_ts, end.value(),
+        AppendKeyWithMaxTimestamp(&end_key_with_ts, end.value(),
                                   timestamp_size);
         istart = InternalKey(start_key_with_ts, kMaxSequenceNumber,
                              kValueTypeForSeek);
-        iend = InternalKey(end_key_with_ts, 0, kValueTypeForSeekForPrev);
+        // end key is exclusive for multiscan
+        iend =
+            InternalKey(end_key_with_ts, kMaxSequenceNumber, kValueTypeForSeek);
       }
 
       // TODO: This needs to be optimized, right now we iterate twice, which
