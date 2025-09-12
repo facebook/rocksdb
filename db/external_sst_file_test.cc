@@ -4235,20 +4235,19 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
       db_->ReleaseSnapshot(snapshot);
     }
 
-    // Use cache missing stats to verify that we are not scanning the ingested
-    // file to get smallest and largest seqno, they should be in table property.
-    uint64_t block_cache_data_miss_before = 0;
-    block_cache_data_miss_before =
-        options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
+    std::atomic<int> file_scan_count{0};
+    SyncPoint::GetInstance()->SetCallBack(
+        "ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile:FileScan",
+        [&](void* /*arg*/) { file_scan_count++; });
+    SyncPoint::GetInstance()->EnableProcessing();
 
     ASSERT_OK(
         db_->IngestExternalFile(non_overlap_cf, sst_file_paths, ingest_opts));
 
-    uint64_t block_cache_data_miss_after =
-        options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
-    // For each file we read first and last block for smallest and largest key.
-    EXPECT_LT(block_cache_data_miss_after - block_cache_data_miss_before,
-              sst_file_paths.size() * 3);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    EXPECT_EQ(file_scan_count, 0);
 
     // Validate ingested data.
     ReadOptions ro;

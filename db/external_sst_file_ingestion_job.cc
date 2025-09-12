@@ -1539,6 +1539,8 @@ Status ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile(
 
   // For older SST files they may not be recorded in table properties, so
   // we scan the file to find out.
+  TEST_SYNC_POINT(
+      "ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile:FileScan");
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
   SequenceNumber largest_seqno_from_iter = 0;
   ReadOptions ro;
