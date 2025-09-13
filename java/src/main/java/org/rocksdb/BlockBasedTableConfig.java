@@ -41,8 +41,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     enableIndexCompression = true;
     blockAlign = false;
     superBlockAlign = false;
-    superBlockAlignmentSize = 1024 * 1024;
-    superBlockAlignmentMaxPaddingSize = 4 * 1024;
+    superBlockAlignmentSize = 512 * 1024;
+    superBlockAlignmentMaxPaddingSize = 32 * 1024;
     indexShortening = IndexShorteningMode.kShortenSeparators;
 
     // NOTE: ONLY used if blockCache == null
