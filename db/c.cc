@@ -82,6 +82,7 @@ using ROCKSDB_NAMESPACE::DbPath;
 using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::EventListener;
+using ROCKSDB_NAMESPACE::ExportImportFilesMetaData;
 using ROCKSDB_NAMESPACE::ExternalFileIngestionInfo;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
@@ -89,6 +90,7 @@ using ROCKSDB_NAMESPACE::FlushJobInfo;
 using ROCKSDB_NAMESPACE::FlushOptions;
 using ROCKSDB_NAMESPACE::HistogramData;
 using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
+using ROCKSDB_NAMESPACE::ImportColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
@@ -245,6 +247,9 @@ struct rocksdb_write_buffer_manager_t {
 struct rocksdb_sst_file_manager_t {
   std::shared_ptr<SstFileManager> rep;
 };
+struct rocksdb_livefile_t {
+  LiveFileMetaData rep;
+};
 struct rocksdb_livefiles_t {
   std::vector<LiveFileMetaData> rep;
 };
@@ -254,6 +259,12 @@ struct rocksdb_column_family_handle_t {
 };
 struct rocksdb_column_family_metadata_t {
   ColumnFamilyMetaData rep;
+};
+struct rocksdb_export_import_files_metadata_t {
+  ExportImportFilesMetaData* rep;
+};
+struct rocksdb_import_column_family_options_t {
+  ImportColumnFamilyOptions rep;
 };
 struct rocksdb_level_metadata_t {
   const LevelMetaData* rep;
@@ -947,6 +958,22 @@ void rocksdb_checkpoint_create(rocksdb_checkpoint_t* checkpoint,
                         std::string(checkpoint_dir), log_size_for_flush));
 }
 
+rocksdb_export_import_files_metadata_t* rocksdb_checkpoint_export_column_family(
+    rocksdb_checkpoint_t* checkpoint,
+    rocksdb_column_family_handle_t* column_family, const char* export_dir,
+    char** errptr) {
+  ExportImportFilesMetaData* metadata = nullptr;
+  if (SaveError(errptr,
+                checkpoint->rep->ExportColumnFamily(
+                    column_family->rep, std::string(export_dir), &metadata))) {
+    return nullptr;
+  }
+  rocksdb_export_import_files_metadata_t* result =
+      new rocksdb_export_import_files_metadata_t;
+  result->rep = metadata;
+  return result;
+}
+
 void rocksdb_checkpoint_object_destroy(rocksdb_checkpoint_t* checkpoint) {
   delete checkpoint->rep;
   delete checkpoint;
@@ -1188,6 +1215,26 @@ rocksdb_column_family_handle_t** rocksdb_create_column_families(
   }
 
   return c_handles;
+}
+
+rocksdb_column_family_handle_t* rocksdb_create_column_family_with_import(
+    rocksdb_t* db, rocksdb_options_t* column_family_options,
+    const char* column_family_name,
+    rocksdb_import_column_family_options_t* import_options,
+    rocksdb_export_import_files_metadata_t* export_import_files_metadata,
+    char** errptr) {
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  handle->rep = nullptr;
+  if (SaveError(errptr,
+                db->rep->CreateColumnFamilyWithImport(
+                    ColumnFamilyOptions(column_family_options->rep),
+                    std::string(column_family_name), import_options->rep,
+                    *(export_import_files_metadata->rep), &(handle->rep)))) {
+    delete handle;
+    return nullptr;
+  }
+  handle->immortal = false;
+  return handle;
 }
 
 void rocksdb_create_column_families_destroy(
@@ -6209,6 +6256,10 @@ void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt,
   }
 }
 
+rocksdb_livefiles_t* rocksdb_livefiles_create() {
+  return new rocksdb_livefiles_t;
+}
+
 int rocksdb_livefiles_count(const rocksdb_livefiles_t* lf) {
   return static_cast<int>(lf->rep.size());
 }
@@ -6220,6 +6271,16 @@ const char* rocksdb_livefiles_column_family_name(const rocksdb_livefiles_t* lf,
 
 const char* rocksdb_livefiles_name(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].name.c_str();
+}
+
+const char* rocksdb_livefiles_directory(const rocksdb_livefiles_t* lf,
+                                        int index) {
+  if (lf->rep[index].directory.empty()) {
+    // db_path is deprecated but still returned by some code paths
+    return lf->rep[index].db_path.c_str();
+  } else {
+    return lf->rep[index].directory.c_str();
+  }
 }
 
 int rocksdb_livefiles_level(const rocksdb_livefiles_t* lf, int index) {
@@ -6242,6 +6303,16 @@ const char* rocksdb_livefiles_largestkey(const rocksdb_livefiles_t* lf,
   return lf->rep[index].largestkey.data();
 }
 
+uint64_t rocksdb_livefiles_smallest_seqno(const rocksdb_livefiles_t* lf,
+                                          int index) {
+  return lf->rep[index].smallest_seqno;
+}
+
+uint64_t rocksdb_livefiles_largest_seqno(const rocksdb_livefiles_t* lf,
+                                         int index) {
+  return lf->rep[index].largest_seqno;
+}
+
 uint64_t rocksdb_livefiles_entries(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].num_entries;
 }
@@ -6251,6 +6322,71 @@ uint64_t rocksdb_livefiles_deletions(const rocksdb_livefiles_t* lf, int index) {
 }
 
 void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }
+
+rocksdb_livefile_t* rocksdb_livefile_create() { return new rocksdb_livefile_t; }
+
+void rocksdb_livefile_set_column_family_name(rocksdb_livefile_t* lf,
+                                             const char* column_family_name) {
+  lf->rep.column_family_name = std::string(column_family_name);
+}
+
+void rocksdb_livefile_set_level(rocksdb_livefile_t* lf, int level) {
+  lf->rep.level = level;
+}
+
+void rocksdb_livefile_set_name(rocksdb_livefile_t* lf, const char* name) {
+  lf->rep.name = std::string(name);
+}
+
+void rocksdb_livefile_set_directory(rocksdb_livefile_t* lf,
+                                    const char* directory) {
+  lf->rep.directory = std::string(directory);
+  lf->rep.db_path = std::string(directory);  // deprecated but still needed
+}
+
+void rocksdb_livefile_set_size(rocksdb_livefile_t* lf, size_t size) {
+  lf->rep.size = size;
+}
+
+void rocksdb_livefile_set_smallest_key(rocksdb_livefile_t* lf,
+                                       const char* smallest_key,
+                                       size_t smallest_key_len) {
+  lf->rep.smallestkey = std::string(smallest_key, smallest_key_len);
+}
+
+void rocksdb_livefile_set_largest_key(rocksdb_livefile_t* lf,
+                                      const char* largest_key,
+                                      size_t largest_key_len) {
+  lf->rep.largestkey = std::string(largest_key, largest_key_len);
+}
+
+void rocksdb_livefile_set_smallest_seqno(rocksdb_livefile_t* lf,
+                                         uint64_t smallest_seqno) {
+  lf->rep.smallest_seqno = smallest_seqno;
+}
+
+void rocksdb_livefile_set_largest_seqno(rocksdb_livefile_t* lf,
+                                        uint64_t largest_seqno) {
+  lf->rep.largest_seqno = largest_seqno;
+}
+
+void rocksdb_livefile_set_num_entries(rocksdb_livefile_t* lf,
+                                      uint64_t num_entries) {
+  lf->rep.num_entries = num_entries;
+}
+
+void rocksdb_livefile_set_num_deletions(rocksdb_livefile_t* lf,
+                                        uint64_t num_deletions) {
+  lf->rep.num_deletions = num_deletions;
+}
+
+void rocksdb_livefile_destroy(rocksdb_livefile_t* lf) { delete lf; }
+
+void rocksdb_livefiles_add(rocksdb_livefiles_t* lf,
+                           rocksdb_livefile_t* livefile) {
+  lf->rep.push_back(std::move(livefile->rep));
+  delete livefile;
+}
 
 void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
                                      const char* opts_str,
@@ -6400,6 +6536,58 @@ char* rocksdb_sst_file_metadata_get_largestkey(
     rocksdb_sst_file_metadata_t* file_meta, size_t* key_len) {
   *key_len = file_meta->rep->largestkey.size();
   return CopyString(file_meta->rep->largestkey);
+}
+
+rocksdb_import_column_family_options_t*
+rocksdb_import_column_family_options_create() {
+  return new rocksdb_import_column_family_options_t;
+}
+
+void rocksdb_import_column_family_options_set_move_files(
+    rocksdb_import_column_family_options_t* opt, unsigned char v) {
+  opt->rep.move_files = v;
+}
+
+void rocksdb_import_column_family_options_destroy(
+    rocksdb_import_column_family_options_t* metadata) {
+  delete metadata;
+}
+
+rocksdb_export_import_files_metadata_t*
+rocksdb_export_import_files_metadata_create() {
+  auto metadata = new rocksdb_export_import_files_metadata_t;
+  metadata->rep = new ExportImportFilesMetaData;
+  return metadata;
+}
+
+char* rocksdb_export_import_files_metadata_get_db_comparator_name(
+    rocksdb_export_import_files_metadata_t* metadata) {
+  return strdup(metadata->rep->db_comparator_name.c_str());
+}
+
+void rocksdb_export_import_files_metadata_set_db_comparator_name(
+    rocksdb_export_import_files_metadata_t* metadata, const char* name) {
+  metadata->rep->db_comparator_name = std::string(name);
+}
+
+rocksdb_livefiles_t* rocksdb_export_import_files_metadata_get_files(
+    rocksdb_export_import_files_metadata_t* export_import_metadata) {
+  auto files = new rocksdb_livefiles_t;
+  files->rep = std::vector(export_import_metadata->rep->files);
+  return files;
+}
+
+void rocksdb_export_import_files_metadata_set_files(
+    rocksdb_export_import_files_metadata_t* metadata,
+    rocksdb_livefiles_t* files) {
+  metadata->rep->files = std::move(files->rep);
+  delete files;
+}
+
+void rocksdb_export_import_files_metadata_destroy(
+    rocksdb_export_import_files_metadata_t* metadata) {
+  delete metadata->rep;
+  delete metadata;
 }
 
 /* Transactions */
