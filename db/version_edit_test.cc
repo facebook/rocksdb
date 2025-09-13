@@ -794,6 +794,390 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
   }
 }
 
+class ResumableSubcompactionProgressTest : public VersionEditTest {
+ protected:
+  static constexpr uint64_t kTestFileSize = 1024;
+  static constexpr SequenceNumber kTestSmallestSeq = 50;
+  static constexpr SequenceNumber kTestLargestSeq = 150;
+  static constexpr uint64_t kTestOldestAncesterTime = 12345;
+  static constexpr uint64_t kTestFileCreationTime = 67890;
+  static constexpr uint64_t kTestEpochNumber = 10;
+  static const std::string kTestChecksumFuncName;
+
+  FileMetaData CreateTestFile(uint64_t file_number, const std::string& prefix) {
+    FileMetaData file;
+    file.fd = FileDescriptor(file_number, 0, kTestFileSize, kTestSmallestSeq,
+                             kTestLargestSeq);
+    file.smallest = InternalKey(prefix + "a", kTestSmallestSeq, kTypeValue);
+    file.largest = InternalKey(prefix + "z", kTestLargestSeq, kTypeValue);
+    file.oldest_ancester_time = kTestOldestAncesterTime;
+    file.file_creation_time = kTestFileCreationTime;
+    file.epoch_number = kTestEpochNumber;
+    file.file_checksum = "checksum_" + std::to_string(file_number);
+    file.file_checksum_func_name = kTestChecksumFuncName;
+    file.marked_for_compaction = false;
+    file.temperature = Temperature::kUnknown;
+    return file;
+  }
+
+  // Store external file metadata objects for testing
+  // These simulate files owned by CompactionOutputs
+  std::vector<FileMetaData> compaction_output_files_;
+  std::vector<FileMetaData> proximal_level_compaction_output_files_;
+
+  void SetupOutputFilePointers(
+      ResumableSubcompactionProgress& progress,
+      const std::vector<FileMetaData>& compaction_output_files,
+      const std::vector<FileMetaData>& proximal_level_compaction_output_files) {
+    // Clear existing pointers
+    progress.CompactionOutputFiles(false /* is_proximal_level */).clear();
+    progress.CompactionOutputFiles(true /* is_proximal_level */).clear();
+
+    // Point to external objects (simulating compaction outputs)
+    for (const auto& file : compaction_output_files) {
+      progress.CompactionOutputFiles(false /* is_proximal_level */)
+          .push_back(&file);
+    }
+    for (const auto& file : proximal_level_compaction_output_files) {
+      progress.CompactionOutputFiles(true /* is_proximal_level */)
+          .push_back(&file);
+    }
+  }
+
+  ResumableSubcompactionProgress CreateResumableSubcompactionProgress(
+      const std::string& next_key, uint64_t num_processed_input_records,
+      uint64_t num_processed_output_records,
+      uint64_t num_processed_proximal_level_output_records,
+      const std::vector<uint64_t>& output_file_numbers = {},
+      const std::vector<uint64_t>& proximal_file_numbers = {},
+      const std::string& file_prefix = "file_") {
+    ResumableSubcompactionProgress progress;
+    progress.next_internal_key_to_compact = next_key;
+    progress.num_processed_input_records = num_processed_input_records;
+
+    progress.NumProcessedOutputRecords(false /* is_proximal_level */) =
+        num_processed_output_records;
+    progress.NumProcessedOutputRecords(true /* is_proximal_level */) =
+        num_processed_proximal_level_output_records;
+
+    for (uint64_t file_num : output_file_numbers) {
+      compaction_output_files_.push_back(
+          CreateTestFile(file_num, file_prefix + "output_"));
+    }
+
+    for (uint64_t file_num : proximal_file_numbers) {
+      proximal_level_compaction_output_files_.push_back(
+          CreateTestFile(file_num, file_prefix + "proximal_"));
+    }
+
+    SetupOutputFilePointers(progress, compaction_output_files_,
+                            proximal_level_compaction_output_files_);
+
+    EXPECT_TRUE(
+        progress.TemporaryDeserializationOutputFileAllocation(false).empty());
+    EXPECT_TRUE(
+        progress.TemporaryDeserializationOutputFileAllocation(true).empty());
+
+    return progress;
+  }
+
+  std::pair<VersionEdit, ResumableSubcompactionProgress> EncodeDecodeProgress(
+      const ResumableSubcompactionProgress& progress) {
+    VersionEdit edit;
+    edit.SetResumableSubcompactionProgress(progress);
+
+    std::string encoded;
+    EXPECT_TRUE(edit.EncodeTo(&encoded, 0 /* ts_sz */));
+
+    VersionEdit decoded_edit;
+    EXPECT_OK(decoded_edit.DecodeFrom(encoded));
+    EXPECT_TRUE(decoded_edit.HasResumableSubcompactionProgress());
+
+    ResumableSubcompactionProgress decoded_progress =
+        decoded_edit.GetResumableSubcompactionProgress();
+    return {std::move(decoded_edit), std::move(decoded_progress)};
+  }
+
+  void VerifyFileMetaDataEquality(const FileMetaData& expected,
+                                  const FileMetaData& actual,
+                                  const std::string& context = "") {
+    SCOPED_TRACE(context);
+
+    // Key serialized fields only
+    ASSERT_EQ(actual.fd.GetNumber(), expected.fd.GetNumber());
+    ASSERT_EQ(actual.fd.GetFileSize(), expected.fd.GetFileSize());
+    ASSERT_EQ(actual.smallest.Encode(), expected.smallest.Encode());
+    ASSERT_EQ(actual.largest.Encode(), expected.largest.Encode());
+    ASSERT_EQ(actual.oldest_ancester_time, expected.oldest_ancester_time);
+    ASSERT_EQ(actual.file_creation_time, expected.file_creation_time);
+    ASSERT_EQ(actual.epoch_number, expected.epoch_number);
+    ASSERT_EQ(actual.file_checksum, expected.file_checksum);
+    ASSERT_EQ(actual.file_checksum_func_name, expected.file_checksum_func_name);
+    ASSERT_EQ(actual.marked_for_compaction, expected.marked_for_compaction);
+    ASSERT_EQ(actual.temperature, expected.temperature);
+  }
+
+  void VerifyProgressEquality(const ResumableSubcompactionProgress& expected,
+                              const ResumableSubcompactionProgress& actual) {
+    ASSERT_EQ(actual.next_internal_key_to_compact,
+              expected.next_internal_key_to_compact);
+
+    ASSERT_EQ(actual.num_processed_input_records,
+              expected.num_processed_input_records);
+
+    for (const bool is_proximal_level : {false, true}) {
+      ASSERT_EQ(actual.NumProcessedOutputRecords(is_proximal_level),
+                expected.NumProcessedOutputRecords(is_proximal_level));
+    }
+
+    for (const bool is_proximal_level : {false, true}) {
+      const std::string level_context =
+          is_proximal_level ? "proximal level" : "regular level";
+
+      // Compare original CompactionOutputFiles with decoded
+      // TemporaryDeserializationOutputFileAllocation
+      const auto& expected_output_file_pointers =
+          expected.CompactionOutputFiles(is_proximal_level);
+      const auto& actual_temp_output_file_allocation =
+          actual.TemporaryDeserializationOutputFileAllocation(
+              is_proximal_level);
+
+      ASSERT_EQ(actual_temp_output_file_allocation.size(),
+                expected_output_file_pointers.size())
+          << "File count mismatch for " << level_context;
+
+      for (size_t i = 0; i < expected_output_file_pointers.size(); ++i) {
+        std::string file_context =
+            level_context + " file[" + std::to_string(i) + "]";
+        ASSERT_NE(expected_output_file_pointers[i], nullptr)
+            << "Expected output file pointer should not be null for "
+            << file_context;
+
+        VerifyFileMetaDataEquality(*expected_output_file_pointers[i],
+                                   actual_temp_output_file_allocation[i],
+                                   file_context);
+      }
+    }
+  }
+};
+
+// Define the static constant
+const std::string ResumableSubcompactionProgressTest::kTestChecksumFuncName =
+    "crc32c";
+
+TEST_F(ResumableSubcompactionProgressTest, BasicEncodeDecode) {
+  // Create progress with files for both levels
+  ResumableSubcompactionProgress progress =
+      CreateResumableSubcompactionProgress(
+          "key_100",  // next_internal_key_to_compact
+          500,        // num_processed_input_records
+          400,        // num_processed_output_records
+          100,        // num_processed_proximal_level_output_records
+          {1},        // output_file_numbers
+          {2},        // proximal_file_numbers
+          "test_"     // file_prefix
+      );
+
+  auto [ignored, decoded_progress] = EncodeDecodeProgress(progress);
+
+  VerifyProgressEquality(progress, decoded_progress);
+}
+
+TEST_F(ResumableSubcompactionProgressTest, OutputFilesDeltaEncodeDecode) {
+  // ===== PART 1: Test Individual Delta Encoding/Decoding =====
+  ResumableSubcompactionProgress initial_progress =
+      CreateResumableSubcompactionProgress(
+          "key_100",  // next_internal_key_to_compact
+          500,        // num_processed_input_records
+          500,        // num_processed_output_records
+          0,          // num_processed_proximal_level_output_records
+          {1},        // output_file_numbers
+          {},         // proximal_file_numbers
+          "initial_"  // file_prefix
+      );
+  auto [initial_decoded_edit, ignored_1] =
+      EncodeDecodeProgress(initial_progress);
+  initial_progress.LastPersistedOutputFilesCount(
+      false /* is_proximal_level */) = 1;
+
+  ResumableSubcompactionProgress updated_progress = initial_progress;
+  updated_progress.next_internal_key_to_compact = "key_300";
+  updated_progress.num_processed_input_records = 1000;
+  updated_progress.NumProcessedOutputRecords(false /* is_proximal_level */) =
+      1000;
+  // Create a new output file for updated progress
+  FileMetaData new_file = CreateTestFile(3, "new_");
+  compaction_output_files_.push_back(new_file);
+  SetupOutputFilePointers(updated_progress, compaction_output_files_,
+                          proximal_level_compaction_output_files_);
+  auto [delta_decoded_edit, delta_decoded_progress] =
+      EncodeDecodeProgress(updated_progress);
+
+  ASSERT_EQ(delta_decoded_progress.next_internal_key_to_compact,
+            updated_progress.next_internal_key_to_compact);
+
+  ASSERT_EQ(delta_decoded_progress.num_processed_input_records,
+            updated_progress.num_processed_input_records);
+
+  for (const bool& is_proximal_level : {false, true}) {
+    ASSERT_EQ(
+        delta_decoded_progress.NumProcessedOutputRecords(is_proximal_level),
+        updated_progress.NumProcessedOutputRecords(is_proximal_level));
+
+    ASSERT_EQ(
+        delta_decoded_progress
+            .TemporaryDeserializationOutputFileAllocation(is_proximal_level)
+            .size(),
+        (is_proximal_level ? proximal_level_compaction_output_files_.size()
+                           : compaction_output_files_.size()) -
+            initial_progress.LastPersistedOutputFilesCount(is_proximal_level));
+  }
+
+  ASSERT_EQ(delta_decoded_progress
+                .TemporaryDeserializationOutputFileAllocation(
+                    false /* is_proximal_level */)
+                .size(),
+            1);
+
+  ASSERT_EQ(delta_decoded_progress
+                .TemporaryDeserializationOutputFileAllocation(
+                    false /* is_proximal_level */)[0]
+                .fd.GetNumber(),
+            new_file.fd.GetNumber());
+
+  // ===== PART 2: Test ResumableSubcompactionProgressBuilder =====
+  // Test that the builder can accumulate multiple progress edit correctly
+  ResumableSubcompactionProgressBuilder builder;
+  ASSERT_FALSE(builder.HasAccumulatedResumableSubcompactionProgress());
+
+  // Step 1: Process initial progress edit
+  ASSERT_TRUE(builder.ProcessVersionEdit(initial_decoded_edit));
+  ASSERT_TRUE(builder.HasAccumulatedResumableSubcompactionProgress());
+
+  const auto& accumulated_after_initial =
+      builder.GetAccumulatedResumableSubcompactionProgress();
+  ASSERT_EQ(accumulated_after_initial.next_internal_key_to_compact,
+            initial_progress.next_internal_key_to_compact);
+  ASSERT_EQ(accumulated_after_initial.num_processed_input_records,
+            initial_progress.num_processed_input_records);
+
+  for (const bool& is_proximal_level : {false, true}) {
+    ASSERT_EQ(
+        accumulated_after_initial.NumProcessedOutputRecords(is_proximal_level),
+        initial_progress.NumProcessedOutputRecords(is_proximal_level));
+
+    ASSERT_EQ(
+        accumulated_after_initial
+            .TemporaryDeserializationOutputFileAllocation(is_proximal_level)
+            .size(),
+        initial_progress.CompactionOutputFiles(is_proximal_level).size());
+  }
+
+  // Step 2: Process delta progress edit
+  ASSERT_TRUE(builder.ProcessVersionEdit(delta_decoded_edit));
+
+  const auto& accumulated_final =
+      builder.GetAccumulatedResumableSubcompactionProgress();
+
+  ASSERT_EQ(accumulated_final.next_internal_key_to_compact,
+            updated_progress.next_internal_key_to_compact);
+  ASSERT_EQ(accumulated_final.num_processed_input_records,
+            updated_progress.num_processed_input_records);
+
+  for (const bool& is_proximal_level : {false, true}) {
+    ASSERT_EQ(
+        accumulated_after_initial.NumProcessedOutputRecords(is_proximal_level),
+        updated_progress.NumProcessedOutputRecords(is_proximal_level));
+
+    ASSERT_EQ(
+        accumulated_after_initial
+            .TemporaryDeserializationOutputFileAllocation(is_proximal_level)
+            .size(),
+        updated_progress.CompactionOutputFiles(is_proximal_level).size());
+  }
+
+  std::set<uint64_t> accumulated_file_numbers;
+  for (const auto& file :
+       accumulated_final.TemporaryDeserializationOutputFileAllocation(
+           false /* is_proximal_level */)) {
+    accumulated_file_numbers.insert(file.fd.GetNumber());
+  }
+  std::set<uint64_t> expected_file_numbers = {
+      updated_progress.CompactionOutputFiles(false /* is_proximal_level */)[0]
+          ->fd.GetNumber(),
+      updated_progress.CompactionOutputFiles(false /* is_proximal_level */)[1]
+          ->fd.GetNumber()};
+  ASSERT_EQ(accumulated_file_numbers, expected_file_numbers);
+
+  // ===== PART 3: Test Builder Reset =====
+  builder.Clear();
+  ASSERT_FALSE(builder.HasAccumulatedResumableSubcompactionProgress());
+}
+
+TEST_F(ResumableSubcompactionProgressTest, UnknownTags) {
+  ResumableSubcompactionProgress progress;
+  std::string encoded;
+
+  // 1. Test unknown ignorable tag
+  // Create and encode progress with known tags
+  progress.next_internal_key_to_compact = "test_key";
+  progress.num_processed_input_records = 100;
+
+  PutVarint32(&encoded,
+              ResumableSubcompactionCustomTag::kNextInternalKeyToCompact);
+  PutLengthPrefixedSlice(&encoded, progress.next_internal_key_to_compact);
+
+  PutVarint32(&encoded,
+              ResumableSubcompactionCustomTag::kNumProcessedInputRecords);
+  std::string varint_records;
+  PutVarint64(&varint_records, progress.num_processed_input_records);
+  PutLengthPrefixedSlice(&encoded, varint_records);
+
+  // Manually encode with unknown ignorable tag (has
+  // ResumableSubcompactionCustomTag::kResumableCustomTagSafeIgnoreMask bit set)
+  uint32_t unknown_ignorable_tag =
+      ResumableSubcompactionCustomTag::kResumableCustomTagSafeIgnoreMask + 1;
+  PutVarint32(&encoded, unknown_ignorable_tag);
+  PutLengthPrefixedSlice(&encoded, "future_data");
+
+  PutVarint32(&encoded, ResumableSubcompactionCustomTag::
+                            kResumableSubcompactionProgressTerminate);
+
+  // Test decoding - should succeed and ignore unknown tag
+  Slice input(encoded);
+  ResumableSubcompactionProgress decoded_progress;
+  Status s = decoded_progress.DecodeFrom(&input);
+  ASSERT_OK(s);
+
+  // Verify known fields are preserved
+  ASSERT_EQ(decoded_progress.next_internal_key_to_compact,
+            progress.next_internal_key_to_compact);
+  ASSERT_EQ(decoded_progress.num_processed_input_records,
+            progress.num_processed_input_records);
+
+  // 2. Test unknown non-ignorable tag
+  encoded.clear();
+  PutVarint32(&encoded,
+              ResumableSubcompactionCustomTag::kNextInternalKeyToCompact);
+  PutLengthPrefixedSlice(&encoded, "test_key");
+
+  // Manually encode with unknown non-ignorable tag (do not have
+  // ResumableSubcompactionCustomTag::kResumableCustomTagSafeIgnoreMask bit set)
+  uint32_t unknown_critical_tag =
+      ResumableSubcompactionCustomTag::kResumableCustomTagSafeIgnoreMask - 1;
+  PutVarint32(&encoded, unknown_critical_tag);
+  PutLengthPrefixedSlice(&encoded, "critical_future_data");
+  PutVarint32(&encoded, ResumableSubcompactionCustomTag::
+                            kResumableSubcompactionProgressTerminate);
+
+  // Test decoding - should fail on critical unknown tag
+  Slice critical_input(encoded);
+  ResumableSubcompactionProgress critical_progress;
+  Status critical_status = critical_progress.DecodeFrom(&critical_input);
+  ASSERT_NOK(critical_status);
+  ASSERT_TRUE(critical_status.IsNotSupported());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
