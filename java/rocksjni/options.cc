@@ -34,6 +34,7 @@
 #include "rocksdb/table.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/statisticsjni.h"
 #include "rocksjni/table_filter_jnicallback.h"
