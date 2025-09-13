@@ -641,8 +641,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // cache.
   Status PollForBlock(size_t idx);
 
-  // *** BEGIN Helper functions for common patterns ***
-
   // Helper function to create and pin a block in cache from buffer data
   // Handles decompressor setup with dictionary loading and block
   // creation/pinning. The buffer_start_offset is the file offset where
@@ -652,7 +650,35 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                      const Slice& buffer_data,
                                      CachableEntry<Block>& pinned_block_entry);
 
-  // *** END Helper functions for common patterns ***
+  // Helper functions for Prepare():
+  bool ValidateScanOptions(const MultiScanArgs* multiscan_opts);
+
+  bool CollectBlockHandles(
+      const std::vector<ScanOptions>& scan_opts,
+      std::vector<BlockHandle>& blocks_to_prepare,
+      std::vector<std::tuple<size_t, size_t>>& block_ranges_per_scan);
+
+  bool FilterAndPinCachedBlocks(
+      const std::vector<BlockHandle>& blocks_to_prepare,
+      const MultiScanArgs* multiscan_opts, std::vector<size_t>& blocks_to_read,
+      std::vector<CachableEntry<Block>>& pinned_data_blocks_guard,
+      size_t& prefetched_max_idx);
+
+  void PrepareIORequests(
+      const std::vector<size_t>& blocks_to_read,
+      const std::vector<BlockHandle>& blocks_to_prepare,
+      const MultiScanArgs* multiscan_opts,
+      std::vector<FSReadRequest>& read_reqs,
+      UnorderedMap<size_t, size_t>& block_to_async_read,
+      std::vector<std::vector<size_t>>& collapsed_blocks_to_read);
+
+  bool ExecuteIOOperations(
+      const std::vector<FSReadRequest>& read_reqs,
+      const std::vector<BlockHandle>& blocks_to_prepare,
+      const MultiScanArgs* multiscan_opts,
+      const std::vector<std::vector<size_t>>& collapsed_blocks_to_read,
+      std::vector<AsyncReadState>& async_states,
+      std::vector<CachableEntry<Block>>& pinned_data_blocks_guard);
 
   // *** END APIs relevant to multiscan ***
 };
