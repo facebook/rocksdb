@@ -183,10 +183,20 @@ class CompactionIterator {
     const Compaction* compaction_;
   };
 
-  // @param must_count_input_entries  if true, `NumInputEntryScanned()` will
-  // return the number of input keys scanned. If false, `NumInputEntryScanned()`
-  // will return this number if no Seek was called on `input`. User should call
-  // `HasNumInputEntryScanned()` first in this case.
+  // @param must_count_input_entries Controls input entry counting accuracy vs
+  // performance:
+  //   - If true: `NumInputEntryScanned()` always returns the exact count of
+  //   input keys
+  //     scanned. The iterator will use sequential `Next()` calls instead of
+  //     `Seek()` to maintain count accuracy as `Seek()` will not count the
+  //     skipped input entries, which is slower but guarantees correctness.
+  //   - If false: `NumInputEntryScanned()` returns the count only if no
+  //   `Seek()` operations
+  //     were performed on the input iterator. When compaction filters request
+  //     skipping ranges of keys or other optimizations trigger seek operations,
+  //     the count becomes unreliable. Always call `HasNumInputEntryScanned()`
+  //     first to verify if the count is accurate before using
+  //     `NumInputEntryScanned()`.
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -255,6 +265,10 @@ class CompactionIterator {
   }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   bool HasNumInputEntryScanned() const { return input_.HasNumItered(); }
+
+  // This method should only be used when `HasNumInputEntryScanned()` returns
+  // true, unless `must_count_input_entries=true` was specified during iterator
+  // creation (which ensures the count is always accurate).
   uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
   Status InputStatus() const { return input_.status(); }
 
