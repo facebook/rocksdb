@@ -432,6 +432,7 @@ DECLARE_uint32(memtable_avg_op_scan_flush_trigger);
 DECLARE_uint32(ingest_wbwi_one_in);
 DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
+DECLARE_bool(multiscan_use_async_io);
 
 // Compaction deletion trigger declarations for stress testing
 DECLARE_bool(enable_compaction_on_deletion_trigger);

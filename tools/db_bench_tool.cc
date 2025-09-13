@@ -1851,6 +1851,10 @@ DEFINE_uint64(multiscan_coalesce_threshold,
               ROCKSDB_NAMESPACE::MultiScanArgs().io_coalesce_threshold,
               "Configures io coalescing threshold for multiscans");
 
+DEFINE_bool(multiscan_use_async_io,
+            ROCKSDB_NAMESPACE::MultiScanArgs().use_async_io,
+            "Sets MultiScanArgs::use_async_io");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -6414,10 +6418,12 @@ class Benchmark {
     options.readahead_size = readahead;
 
     Duration duration(FLAGS_duration, reads_);
-    while (!duration.Done(1)) {
+    int64_t num_keys = 1;
+    while (!duration.Done(num_keys)) {
       DB* db = SelectDB(thread);
       MultiScanArgs opts;
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
+      opts.use_async_io = FLAGS_multiscan_use_async_io;
       std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
       // We create 1 random start, and then multiscan will start from that
@@ -6444,13 +6450,14 @@ class Benchmark {
 
       auto iter =
           db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
+      int64_t keys = 0;
       for (auto rng : *iter) {
-        [[maybe_unused]] size_t keys = 0;
         for ([[maybe_unused]] auto it : rng) {
           keys++;
         }
         assert(keys > 0);
       }
+      num_keys = std::max<int64_t>(1, keys);
 
       if (thread->shared->read_rate_limiter.get() != nullptr) {
         thread->shared->read_rate_limiter->Request(

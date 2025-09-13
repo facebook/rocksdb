@@ -136,7 +136,7 @@ default_params = {
     "max_key": random.choice([100000, 25000000]),
     "max_sequential_skip_in_iterations": lambda: random.choice([1, 2, 8, 16]),
     "max_write_buffer_number": 3,
-    "mmap_read": lambda: random.randint(0, 1),
+    "mmap_read": lambda: random.choice([0, 0, 1]),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
     # the random seed, so the same keys are chosen by every run for disallowing
     # overwrites.
@@ -387,6 +387,7 @@ default_params = {
     "use_multiscan": random.choice([1] + [0] * 3),
     # By default, `statistics` use kExceptDetailedTimers level
     "statistics": random.choice([0, 1]),
+    "multiscan_use_async_io": random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -757,6 +758,7 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+        dest_params["multiscan_use_async_io"] = 0
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
@@ -1154,7 +1156,6 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["use_multiscan"] = 0
     if dest_params.get("use_multiscan") == 1:
-        dest_params["fill_cache"] = 1
         dest_params["async_io"] = 0
     return dest_params
 

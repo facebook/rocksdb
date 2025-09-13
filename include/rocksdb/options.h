@@ -1791,10 +1791,12 @@ class MultiScanArgs {
     original_ranges_ = other.original_ranges_;
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
+    use_async_io = other.use_async_io;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
+        use_async_io(other.use_async_io),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
 
@@ -1803,6 +1805,7 @@ class MultiScanArgs {
     original_ranges_ = other.original_ranges_;
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
+    use_async_io = other.use_async_io;
     return *this;
   }
 
@@ -1812,6 +1815,7 @@ class MultiScanArgs {
       original_ranges_ = std::move(other.original_ranges_);
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
+      use_async_io = other.use_async_io;
     }
     return *this;
   }
@@ -1864,6 +1868,11 @@ class MultiScanArgs {
   // I/O.
   // Note that this limit is per file and applies to compressed block size.
   uint64_t max_prefetch_size = 0;
+
+  // Enable async I/O for multi-scan operations
+  // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
+  // When false, it will use synchronous MultiRead().
+  bool use_async_io = false;
 
  private:
   // The comparator used for ordering ranges
