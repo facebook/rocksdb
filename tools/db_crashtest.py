@@ -11,22 +11,48 @@ import sys
 import tempfile
 import time
 
+per_iteration_random_seed_override = 0
+
+def get_random_seed(override):
+    if override == 0:
+        return random.randint(1, 2**64)
+    else:
+        return override
 
 def setup_random_seed_before_main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--random_seed",
+        "--initial_random_seed_override",
         default=0,
         type=int,
-        help="Random seed used for reproduce the same test parameter set",
+        help="Random seed used for initialize the test parameters at the beginning of stress test run",
     )
-    args, _ = parser.parse_known_args()
-    random_seed = (
-        random.randint(1, 2**64) if args.random_seed == 0 else args.random_seed
+    # sometimes the failure appeared after a few iteration, to reproduce the error, we have to wait for the test to run
+    # multiple iterations to reach the iteration that fails the test. By overriding the seed used within each iteration,
+    # we could skip all the previous iterations.
+    parser.add_argument(
+        "--per_iteration_random_seed_override",
+        default=0,
+        type=int,
+        help="Random seed used for initialize the test parameters in each iteration of the stress test run",
     )
-    print(f"Start with random seed {random_seed}")
-    random.seed(random_seed)
 
+    args, remain_args = parser.parse_known_args()
+    init_random_seed = get_random_seed(args.initial_random_seed_override)
+    global per_iteration_random_seed_override
+    per_iteration_random_seed_override = args.per_iteration_random_seed_override
+
+    print(f"Start with random seed {init_random_seed}")
+    random.seed(init_random_seed)
+
+    # reset the sys.argv with the remaining args
+    sys.argv = remain_args
+
+def apply_random_seed_per_iteration():
+    global per_iteration_random_seed_override
+    per_iteration_random_seed = get_random_seed(per_iteration_random_seed_override)
+    print(f"Use random seed for iteration {per_iteration_random_seed}")
+    random.seed(per_iteration_random_seed)
 
 # Random seed has to be setup before the rest of the script, so that the random
 # value selected in the global variable uses the random seed specified
@@ -1224,7 +1250,6 @@ def gen_cmd(params, unknown_params):
             not in {
                 "test_type",
                 "simple",
-                "random_seed",
                 "duration",
                 "interval",
                 "random_kill_odd",
@@ -1308,6 +1333,7 @@ def blackbox_crash_main(args, unknown_args):
     )
 
     while time.time() < exit_time:
+        apply_random_seed_per_iteration()
         cmd = gen_cmd(
             dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
         )
@@ -1370,6 +1396,7 @@ def whitebox_crash_main(args, unknown_args):
     succeeded = True
     hit_timeout = False
     while time.time() < exit_time:
+        apply_random_seed_per_iteration()
         if check_mode == 0:
             additional_opts = {
                 # use large ops per thread since we will kill it anyway
