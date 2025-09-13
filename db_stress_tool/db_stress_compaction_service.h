@@ -14,8 +14,11 @@ namespace ROCKSDB_NAMESPACE {
 // Service to simulate Remote Compaction in Stress Test
 class DbStressCompactionService : public CompactionService {
  public:
-  explicit DbStressCompactionService(SharedState* shared)
-      : shared_(shared), aborted_(false) {}
+  explicit DbStressCompactionService(SharedState* shared,
+                                     bool failure_should_fall_back_to_local)
+      : shared_(shared),
+        aborted_(false),
+        failure_should_fall_back_to_local_(failure_should_fall_back_to_local) {}
 
   static const char* kClassName() { return "DbStressCompactionService"; }
 
@@ -56,6 +59,11 @@ class DbStressCompactionService : public CompactionService {
       }
       Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
     }
+    if (failure_should_fall_back_to_local_) {
+      fprintf(stdout,
+              "Remote Compaction failed - fall back to local compaction!\n");
+      return CompactionServiceJobStatus::kUseLocal;
+    }
     return CompactionServiceJobStatus::kFailure;
   }
 
@@ -90,6 +98,7 @@ class DbStressCompactionService : public CompactionService {
  private:
   SharedState* shared_;
   std::atomic_bool aborted_{false};
+  bool failure_should_fall_back_to_local_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
