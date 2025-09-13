@@ -607,16 +607,18 @@ class FileSystem : public Customizable {
   }
 
   // Sync the file content to file system.
-  // The default implementation would open, sync and close the file.
   // This function could be overridden with no-op, if the file system
   // automatically sync the data when file is closed.
   // This is used when a user-provided file, probably unsynced, is pulled into a
   // context where power-outage-proof persistence is required (e.g.
   // IngestExternalFile without copy).
-  virtual IOStatus SyncFile(const std::string& fname,
-                            const FileOptions& file_options,
-                            const IOOptions& io_options, bool use_fsync,
-                            IODebugContext* dbg);
+  virtual IOStatus SyncFile(const std::string& /*fname*/,
+                            const FileOptions& /*file_options*/,
+                            const IOOptions& /*io_options*/, bool /*use_fsync*/,
+                            IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported(
+        "Sync File is not supported for this FileSystem");
+  }
 
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
@@ -1604,10 +1606,23 @@ class FileSystemWrapper : public FileSystem {
     return target_->LinkFile(s, t, options, dbg);
   }
 
+  // The default implementation of SyncFile API would open, sync and close the
+  // file.
+  IOStatus DefaultSyncFileImpl(const std::string& fname,
+                               const FileOptions& file_options,
+                               const IOOptions& io_options, bool use_fsync,
+                               IODebugContext* dbg);
+
+  // If the wrapped filesystem does not support SyncFile, it will invoke the
+  // default SyncFile implementation.
   IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
                     const IOOptions& io_options, bool use_fsync,
                     IODebugContext* dbg) override {
-    return target_->SyncFile(fname, file_options, io_options, use_fsync, dbg);
+    auto s = target_->SyncFile(fname, file_options, io_options, use_fsync, dbg);
+    if (s.IsNotSupported()) {
+      s = DefaultSyncFileImpl(fname, file_options, io_options, use_fsync, dbg);
+    }
+    return s;
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,
