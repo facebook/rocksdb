@@ -237,7 +237,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // the cases already mentioned, kEmitting, kCompressing, and kWriting to the
   // SST file writer,
   // * Threads can enter the kIdle state so that they can sleep when no work is
-  // available for them, to be worken up when appropriate.
+  // available for them, to be woken up when appropriate.
   // * The kEnd state means the thread is not doing any more work items, which
   // for worker threads means they will end soon.
   // * The kCompressingAndWriting state means a worker can compress and write a
@@ -344,6 +344,20 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   using NextToEmit = UnsignedBitField<State, 8, NextToCompress>;
   static_assert(NextToEmit::kEndBit == 64);
 
+  // BEGIN fields for use by the emit thread only. These can't live on the stack
+  // because the emit thread frequently returns out of BlockBasedTableBuilder.
+  ALIGN_AS(CACHE_LINE_SIZE)
+  ThreadState emit_thread_state = ThreadState::kEmitting;
+  // Ring buffer index that emit thread is operating on (for emitting and
+  // compressing states)
+  uint32_t emit_slot = 0;
+  // Including some data to inform when to wake up idle worker threads (see
+  // implementation for details)
+  int32_t emit_counter_toward_wake_up = 0;
+  int32_t emit_counter_for_wake_up = 0;
+  static constexpr int32_t kMaxWakeupInterval = 8;
+  // END fields for use by the emit thread only
+
 #ifndef NDEBUG
   // These are for an extra "watchdog" thread in DEBUG builds that heuristically
   // checks for the most likely deadlock conditions. False positives and false
@@ -357,19 +371,6 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   RelaxedAtomic<bool> live_emit{0};
   RelaxedAtomic<bool> idling_emit{0};
 #endif  // !NDEBUG
-
-  // BEGIN fields for use by the emit thread only. These can't live on the stack
-  // because the emit thread frequently returns out of BlockBasedTableBuilder.
-  ThreadState emit_thread_state = ThreadState::kEmitting;
-  // Ring buffer index that emit thread is operating on (for emitting and
-  // compressing states)
-  uint32_t emit_slot = 0;
-  // Including some data to inform when to wake up idle worker threads (see
-  // implementation for details)
-  int32_t emit_counter_toward_wake_up = 0;
-  int32_t emit_counter_for_wake_up = 0;
-  static constexpr int32_t kMaxWakeupInterval = 8;
-  // END fields for use by the emit thread only
 
   int ComputeRingBufferNbits(uint32_t parallel_threads) {
     // Ring buffer size is a power of two not to exceed 32 but otherwise

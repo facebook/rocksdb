@@ -38,10 +38,10 @@ namespace ROCKSDB_NAMESPACE {
 // };
 //
 // // Starts with a 16-bit field returned as uint16_t
-// using Field1 = UnsignedBitField<State, 16, NoPrevBitField>;
-// using Field2 = BoolBitField<State, Field1>;
-// using Field3 = BoolBitField<State, Field2>;
-// using Field4 = UnsignedBitField<State, 5, Field3>;  // 5 bits in a uint8_t
+// using Field1 = UnsignedBitField<MyState, 16, NoPrevBitField>;
+// using Field2 = BoolBitField<MyState, Field1>;
+// using Field3 = BoolBitField<MyState, Field2>;
+// using Field4 = UnsignedBitField<MyState, 5, Field3>;  // 5 bits in a uint8_t
 //
 // MyState state;  // zero-initialized
 // state.Set<Field1>(42U);
@@ -70,8 +70,9 @@ struct BitFields {
   }
 
   template <typename BitFieldT>
-  typename BitFieldT::V Get() {
-    return BitFieldT::GetFrom(static_cast<typename BitFieldT::Parent&>(*this));
+  typename BitFieldT::V Get() const {
+    return BitFieldT::GetFrom(
+        static_cast<const typename BitFieldT::Parent&>(*this));
   }
 
   // Reference and Ref() are not intended to behave as full references but to
@@ -79,9 +80,13 @@ struct BitFields {
   // are preferred for simple operations.
   template <typename BitFieldT>
   struct Reference {
-    Reference(BitFields& bf) : bf_(bf) {}
+    explicit Reference(BitFields& bf) : bf_(bf) {}
     Reference(const Reference&) = default;
     Reference& operator=(const Reference&) = default;
+    // no moves
+    Reference(Reference&&) = default;
+    Reference& operator=(Reference&&) = default;
+
     void operator=(typename BitFieldT::V value) { bf_.Set<BitFieldT>(value); }
     void operator+=(typename BitFieldT::V value) {
       bf_.Set<BitFieldT>(bf_.Get<BitFieldT>() + value);
@@ -104,6 +109,9 @@ struct BitFields {
   Reference<BitFieldT> Ref() {
     return Reference<BitFieldT>(*this);
   }
+
+  bool operator==(const BitFields& other) const = default;
+  bool operator!=(const BitFields& other) const = default;
 };
 
 // For building atomic updates affecting one or more fields, assuming all the
@@ -113,7 +121,7 @@ struct OrTransform {
   using U = typename BitFieldsT::U;
   U to_or = 0;
   // + for general combine
-  OrTransform<BitFieldsT> operator+(OrTransform<BitFieldsT> other) {
+  OrTransform<BitFieldsT> operator+(OrTransform<BitFieldsT> other) const {
     return OrTransform<BitFieldsT>{to_or | other.to_or};
   }
 };
@@ -125,7 +133,7 @@ struct AndTransform {
   using U = typename BitFieldsT::U;
   U to_and = 0;
   // + for general combine
-  AndTransform<BitFieldsT> operator+(AndTransform<BitFieldsT> other) {
+  AndTransform<BitFieldsT> operator+(AndTransform<BitFieldsT> other) const {
     return AndTransform<BitFieldsT>{to_and & other.to_and};
   }
 };
@@ -135,6 +143,8 @@ struct AndTransform {
 
 // Placeholder for PrevField for the first field
 struct NoPrevBitField {
+  // no instances
+  NoPrevBitField() = delete;
   static constexpr int kEndBit = 0;
 };
 
@@ -146,24 +156,27 @@ struct BoolBitField {
   using ParentBase = BitFields<typename BitFieldsT::U, typename BitFieldsT::ID>;
   using U = typename BitFieldsT::U;
   using V = bool;
-  static constexpr int kBitOffest = PrevField::kEndBit;
-  static constexpr int kEndBit = kBitOffest + 1;
-  static_assert(kBitOffest >= 0 && kEndBit <= BitFieldsT::kBitCount);
+  static constexpr int kBitOffset = PrevField::kEndBit;
+  static constexpr int kEndBit = kBitOffset + 1;
+  static_assert(kBitOffset >= 0 && kEndBit <= BitFieldsT::kBitCount);
+
+  // no instances
+  BoolBitField() = delete;
 
   // NOTE: allow BitFieldsT to be derived from BitFields<> which can be
   // passed in here
   static bool GetFrom(const ParentBase& bf) {
-    return (bf.underlying & (U{1} << kBitOffest)) != 0;
+    return (bf.underlying & (U{1} << kBitOffset)) != 0;
   }
   static void SetIn(ParentBase& bf, bool value) {
     bf.underlying =
-        (bf.underlying & ~(U{1} << kBitOffest)) | (U{value} << kBitOffest);
+        (bf.underlying & ~(U{1} << kBitOffset)) | (U{value} << kBitOffset);
   }
   static OrTransform<BitFieldsT> SetTransform() {
-    return OrTransform<BitFieldsT>{U{1} << kBitOffest};
+    return OrTransform<BitFieldsT>{U{1} << kBitOffset};
   }
   static AndTransform<BitFieldsT> ClearTransform() {
-    return AndTransform<BitFieldsT>{~(U{1} << kBitOffest)};
+    return AndTransform<BitFieldsT>{~(U{1} << kBitOffset)};
   }
 };
 
@@ -179,25 +192,28 @@ struct UnsignedBitField {
       std::conditional_t<
           kBitCount <= 16, uint16_t,
           std::conditional_t<kBitCount <= 32, uint32_t, uint64_t>>>;
-  static constexpr int kBitOffest = PrevField::kEndBit;
-  static constexpr int kEndBit = kBitOffest + kBitCount;
+  static constexpr int kBitOffset = PrevField::kEndBit;
+  static constexpr int kEndBit = kBitOffset + kBitCount;
   static_assert(kBitCount >= 1);
-  static_assert(kBitOffest >= 0 && kEndBit <= BitFieldsT::kBitCount);
+  static_assert(kBitCount <= 64);
+  static_assert(kBitOffset >= 0 && kEndBit <= BitFieldsT::kBitCount);
 
-  static_assert(kBitCount >= 1);
   static constexpr V kMask = (V{1} << (kBitCount - 1) << 1) - 1;
 
+  // no instances
+  UnsignedBitField() = delete;
+
   static V GetFrom(const BitFieldsT& bf) {
-    return BitwiseAnd(bf.underlying >> kBitOffest, kMask);
+    return BitwiseAnd(bf.underlying >> kBitOffset, kMask);
   }
 
   static void SetIn(BitFieldsT& bf, V value) {
-    bf.underlying &= ~(static_cast<U>(kMask) << kBitOffest);
-    bf.underlying |= static_cast<U>(value & kMask) << kBitOffest;
+    bf.underlying &= ~(static_cast<U>(kMask) << kBitOffset);
+    bf.underlying |= static_cast<U>(value & kMask) << kBitOffset;
   }
 
   static AndTransform<BitFieldsT> ClearTransform() {
-    return AndTransform<BitFieldsT>{~(static_cast<U>(kMask) << kBitOffest)};
+    return AndTransform<BitFieldsT>{~(static_cast<U>(kMask) << kBitOffset)};
   }
 };
 
