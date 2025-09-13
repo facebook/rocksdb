@@ -60,6 +60,7 @@ BlockBuilder::BlockBuilder(
       is_user_key_(is_user_key),
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
+      no_shared_(false),
       finished_(false) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
@@ -211,10 +212,13 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
     restarts_.push_back(static_cast<uint32_t>(buffer_size));
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
-  } else if (use_delta_encoding_) {
+  } else if (use_delta_encoding_ && !no_shared_) {
     // See how much sharing to do with previous string
     shared = key_to_persist.difference_offset(last_key_persisted);
   }
+
+  // reset after skipping the shared calculation
+  no_shared_ = false;
 
   const size_t non_shared = key_to_persist.size() - shared;
 

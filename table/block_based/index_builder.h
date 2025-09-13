@@ -75,7 +75,8 @@ class IndexBuilder {
   virtual Slice AddIndexEntry(const Slice& last_key_in_current_block,
                               const Slice* first_key_in_next_block,
                               const BlockHandle& block_handle,
-                              std::string* separator_scratch) = 0;
+                              std::string* separator_scratch,
+                              bool add_restart_point) = 0;
 
   // An abstract (extensible) holder for passing data from PrepareIndexEntry to
   // FinishIndexEntry (see below).
@@ -117,8 +118,9 @@ class IndexBuilder {
   //
   // External synchronization ensures Finish is only called after all the
   // FinishIndexEntry calls have completed.
-  virtual void FinishIndexEntry(const BlockHandle& block_handle,
-                                PreparedIndexEntry* entry) = 0;
+  virtual void FinishIndexEntry(
+      const BlockHandle& block_handle, PreparedIndexEntry* entry,
+      bool should_add_restart_point_on_index_block) = 0;
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
@@ -286,12 +288,14 @@ class ShortenedIndexBuilder : public IndexBuilder {
   void AddIndexEntryImpl(const Slice& separator_with_seq,
                          const Slice& first_internal_key,
                          const BlockHandle& block_handle,
-                         bool must_use_separator_with_seq) {
+                         bool must_use_separator_with_seq,
+                         bool add_restart_point) {
     IndexValue entry(block_handle, first_internal_key);
     std::string encoded_entry;
     std::string delta_encoded_entry;
     entry.EncodeTo(&encoded_entry, include_first_key_, nullptr);
-    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull() &&
+        !add_restart_point) {
       entry.EncodeTo(&delta_encoded_entry, include_first_key_,
                      &last_encoded_handle_);
     } else {
@@ -300,6 +304,13 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
     last_encoded_handle_ = block_handle;
     const Slice delta_encoded_entry_slice(delta_encoded_entry);
+
+    if (add_restart_point) {
+      index_block_builder_.Restart();
+      if (!must_use_separator_with_seq) {
+        index_block_builder_without_seq_.Restart();
+      }
+    }
 
     // TODO(yuzhangyu): fix this when "FindShortInternalKeySuccessor"
     //  optimization is available.
@@ -322,7 +333,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override {
+                      std::string* separator_scratch,
+                      bool add_restart_point) override {
     Slice separator_with_seq = GetSeparatorWithSeq(
         last_key_in_current_block, first_key_in_next_block, separator_scratch);
 
@@ -330,7 +342,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     Slice first_internal_key = GetFirstInternalKey(&first_internal_key_buf);
 
     AddIndexEntryImpl(separator_with_seq, first_internal_key, block_handle,
-                      must_use_separator_with_seq_);
+                      must_use_separator_with_seq_, add_restart_point);
     current_block_first_internal_key_.clear();
     return separator_with_seq;
   }
@@ -384,11 +396,13 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* base_entry) override {
+                        PreparedIndexEntry* base_entry,
+                        bool should_add_restart_point_on_index_block) override {
     ShortenedPreparedIndexEntry* entry =
         static_cast<ShortenedPreparedIndexEntry*>(base_entry);
     AddIndexEntryImpl(entry->separator_with_seq, entry->first_internal_key,
-                      block_handle, entry->must_use_separator_with_seq);
+                      block_handle, entry->must_use_separator_with_seq,
+                      should_add_restart_point_on_index_block);
   }
 
   using IndexBuilder::Finish;
@@ -483,11 +497,12 @@ class HashIndexBuilder : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override {
+                      std::string* separator_scratch,
+                      bool add_restart_point) override {
     ++current_restart_index_;
     return primary_index_builder_.AddIndexEntry(
         last_key_in_current_block, first_key_in_next_block, block_handle,
-        separator_scratch);
+        separator_scratch, add_restart_point);
   }
 
   std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override {
@@ -503,8 +518,10 @@ class HashIndexBuilder : public IndexBuilder {
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override {
-    primary_index_builder_.FinishIndexEntry(block_handle, entry);
+                        PreparedIndexEntry* entry,
+                        bool should_add_restart_point_on_index_block) override {
+    primary_index_builder_.FinishIndexEntry(
+        block_handle, entry, should_add_restart_point_on_index_block);
   }
 
   void OnKeyAdded(const Slice& key,
@@ -611,14 +628,16 @@ class PartitionedIndexBuilder : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override;
+                      std::string* separator_scratch,
+                      bool add_restart_point) override;
 
   std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override;
   void PrepareIndexEntry(const Slice& last_key_in_current_block,
                          const Slice* first_key_in_next_block,
                          PreparedIndexEntry* out) override;
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override;
+                        PreparedIndexEntry* entry,
+                        bool should_add_restart_point_on_index_block) override;
   void MaybeFlush(const Slice& index_key, const BlockHandle& index_value);
 
   Status Finish(IndexBlocks* index_blocks,

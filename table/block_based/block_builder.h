@@ -74,6 +74,9 @@ class BlockBuilder {
                             : 0);
   }
 
+  // Add a restart point, if it is not at a restart point.
+  void Restart() { no_shared_ = true; }
+
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;
 
@@ -118,8 +121,9 @@ class BlockBuilder {
   std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
   size_t estimate_;
-  int counter_;    // Number of entries emitted since restart
-  bool finished_;  // Has Finish() been called?
+  int counter_;     // Number of entries emitted since restart
+  bool no_shared_;  // Number of entries emitted since restart
+  bool finished_;   // Has Finish() been called?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
 #ifndef NDEBUG
