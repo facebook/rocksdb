@@ -497,6 +497,13 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   }
 }
 
+// Notes for when direct_io is enabled:
+// Unless req.offset, req.len, req.scratch are all already aligned,
+// RandomAccessFileReader will creats aligned requests and aligned buffer for
+// the request. User should only provide either req.scratch or aligned_buf. If
+// only req.scratch is provided, result will be copied from allocated aligned
+// buffer to req.scratch. If only alignd_buf is provided, it will be set to
+// the ailgned buf allocated by RandomAccessFileReader and saves a copy.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
