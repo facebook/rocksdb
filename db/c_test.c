@@ -1041,21 +1041,18 @@ int main(int argc, char** argv) {
     static char cf_export_path[200];
     static char db_import_path[200];
     snprintf(cf_export_path, sizeof(cf_export_path),
-             "%s/rocksdb_c_test-%d-cf_export-%d", GetTempDir(),
-             ((int)geteuid()), ((int)getpid()));
-    snprintf(db_import_path, sizeof(dbname),
-             "%s/rocksdb_c_test-%d-db_cf_import-%d", GetTempDir(),
-             ((int)geteuid()), ((int)getpid()));
+             "%s/rocksdb_c_test-%d-cf_export", GetTempDir(), ((int)geteuid()));
+    snprintf(db_import_path, sizeof(db_import_path),
+             "%s/rocksdb_c_test-%d-db_import", GetTempDir(), ((int)geteuid()));
 
     rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_column_family_handle_t* cf_export =
         rocksdb_create_column_family(db, db_options, "cf_export", &err);
     CheckNoError(err);
 
-    rocksdb_writeoptions_t* write_options = rocksdb_writeoptions_create();
-    rocksdb_put_cf(db, write_options, cf_export, "k1", 2, "v1", 2, &err);
+    rocksdb_put_cf(db, woptions, cf_export, "k1", 2, "v1", 2, &err);
     CheckNoError(err);
-    rocksdb_put_cf(db, write_options, cf_export, "k2", 2, "v2", 2, &err);
+    rocksdb_put_cf(db, woptions, cf_export, "k2", 2, "v2", 2, &err);
     CheckNoError(err);
 
     rocksdb_checkpoint_t* checkpoint =
@@ -1089,16 +1086,15 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_import_column_family_options_destroy(import_options);
     rocksdb_export_import_files_metadata_destroy(export_metadata);
-    rocksdb_readoptions_t* read_options = rocksdb_readoptions_create();
     size_t val_len;
-    char* val = rocksdb_get_cf(db_import, read_options, cf_import, "k1", 2,
-                               &val_len, &err);
+    char* val =
+        rocksdb_get_cf(db_import, roptions, cf_import, "k1", 2, &val_len, &err);
     CheckNoError(err);
     CheckEqual("v1", val, val_len);
     free(val);
 
-    val = rocksdb_get_cf(db_import, read_options, cf_import, "k2", 2, &val_len,
-                         &err);
+    val =
+        rocksdb_get_cf(db_import, roptions, cf_import, "k2", 2, &val_len, &err);
     CheckNoError(err);
     CheckEqual("v2", val, val_len);
     free(val);
