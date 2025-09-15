@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.6.2 (09/15/2025)
+### Bug Fixes
+* Fix a race condition in FIFO size-based compaction where concurrent threads could select the same non-L0 file, causing assertion failures in debug builds or "Cannot delete table file from LSM tree" errors in release builds.
+
 ## 10.6.1 (09/05/2025)
 ### New Features
 * Add the fail_if_no_udi_on_open flag in BlockBasedTableOption to control whether a missing user defined index block in a SST is a hard error or not.
