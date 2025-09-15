@@ -1029,7 +1029,8 @@ struct BlockBasedTableBuilder::Rep {
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
-                                            !table_opt.block_align),
+                                            !table_opt.block_align &&
+                                            !table_opt.super_block_align),
         reason(tbo.reason),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
@@ -1922,7 +1923,31 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
   }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
-  const uint64_t offset = r->get_offset();
+
+  uint64_t offset = r->get_offset();
+  // try to align the page to the super alignment size, if enabled
+  if (r->table_options.super_block_align && is_data_block) {
+    auto super_block_alignment_mask =
+        r->table_options.super_block_alignment_size - 1;
+    if ((offset & (~super_block_alignment_mask)) !=
+        ((offset + block_contents.size()) & (~super_block_alignment_mask))) {
+      // new block would cross the super block boundary
+      auto pad_bytes = r->table_options.super_block_alignment_size -
+                       (offset & super_block_alignment_mask);
+      if (pad_bytes <=
+          r->table_options.super_block_alignment_max_padding_size) {
+        io_s = r->file->Pad(io_options, pad_bytes);
+        if (!io_s.ok()) {
+          r->SetIOStatus(io_s);
+          return;
+        }
+        r->pre_compression_size += pad_bytes;
+        offset += pad_bytes;
+        r->set_offset(offset);
+      }
+    }
+  }
+
   handle->set_offset(offset);
   handle->set_size(block_contents.size());
   assert(status().ok());

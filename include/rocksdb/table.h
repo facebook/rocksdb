@@ -603,6 +603,17 @@ struct BlockBasedTableOptions {
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
 
+  // Align data blocks on super block alignment. Avoid a data block split across
+  // super block boundaries.
+  bool super_block_align = false;
+
+  // Super block alignment size. Default to 512 KB. It has to be a power of 2
+  // and higher than block size.
+  size_t super_block_alignment_size = 512 * 1024;
+
+  // Maximum number of bytes allowed to be padded for super block alignment.
+  size_t super_block_alignment_max_padding_size = 32 * 1024;
+
   // This enum allows trading off increased index size for improved iterator
   // seek performance in some situations, particularly when block cache is
   // disabled (ReadOptions::fill_cache = false) and direct IO is

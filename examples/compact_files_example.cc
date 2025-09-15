@@ -12,6 +12,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
 
 using ROCKSDB_NAMESPACE::ColumnFamilyMetaData;
 using ROCKSDB_NAMESPACE::CompactionOptions;
@@ -151,24 +152,50 @@ int main() {
   options.IncreaseParallelism(5);
   options.listeners.emplace_back(new FullCompactor(options));
 
+  {
+    rocksdb::BlockBasedTableOptions bbto;
+    bbto.block_align = false;
+    bbto.super_block_align = true;
+    bbto.super_block_alignment_size = 512 * 1024;
+    bbto.super_block_alignment_max_padding_size = 32 * 1024;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  }
+
   DB* db = nullptr;
   ROCKSDB_NAMESPACE::DestroyDB(kDBPath, options);
   Status s = DB::Open(options, kDBPath, &db);
   assert(s.ok());
   assert(db);
 
+  WriteOptions wo;
+  wo.disableWAL = true;
+
   // if background compaction is not working, write will stall
   // because of options.level0_stop_writes_trigger
-  for (int i = 1000; i < 99999; ++i) {
+  for (int i = 1000; i < 200000; ++i) {
     db->Put(WriteOptions(), std::to_string(i),
             std::string(500, 'a' + (i % 26)));
+    if (i % 10000 == 0) {
+      printf("Wrote %d keys\n", i);
+    }
   }
+
+  db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
+
+  delete db;
+
+  s = DB::Open(options, kDBPath, &db);
+  assert(s.ok());
+  assert(db);
 
   // verify the values are still there
   std::string value;
-  for (int i = 1000; i < 99999; ++i) {
+  for (int i = 1000; i < 200000; ++i) {
     db->Get(ReadOptions(), std::to_string(i), &value);
     assert(value == std::string(500, 'a' + (i % 26)));
+    if (i % 10000 == 0) {
+      printf("Verified %d keys\n", i);
+    }
   }
 
   // close the db.
