@@ -7129,6 +7129,70 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
   ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
 }
 
+TEST_F(DBCompactionTest, ConcurrentFIFOPickingSameFileBug) {
+  Options opts = CurrentOptions();
+  opts.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  opts.num_levels = 3;
+  opts.disable_auto_compactions = true;
+  opts.max_background_jobs = 3;
+
+  DestroyAndReopen(opts);
+
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Flush());
+
+  // Create a non-L0 SST file for multi-level FIFO size-based compaction later
+  MoveFilesToLevel(2);
+
+  Options opts_new(opts);
+  opts_new.compaction_style = CompactionStyle::kCompactionStyleFIFO;
+  opts_new.max_open_files = -1;
+  // Set a low threshold to trigger multi-level size-based compaction
+  opts_new.compaction_options_fifo.max_table_files_size = 1;
+
+  Reopen(opts_new);
+
+  const CompactRangeOptions cro;
+  const Slice begin_key("k1");
+  const Slice end_key("k2");
+
+  std::unique_ptr<port::Thread> concurrent_compaction;
+
+  bool within_first_compaction = true;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifestStart", [&](void* /*arg*/) {
+        if (!within_first_compaction) {
+          return;
+        }
+        within_first_compaction = false;
+
+        // To allow the second/concurrent compaction to still see the non-L0
+        // SST file and coerce the bug of picking that file
+        SyncPoint::GetInstance()->LoadDependency({
+            {"DBImpl::BackgroundCompaction:BeforeCompaction",
+             "VersionSet::LogAndApply:WriteManifest"},
+        });
+
+        concurrent_compaction.reset(new port::Thread([&]() {
+          // Before the fix, the second CompactRange() will either fail the
+          // assertion of double file picking `being_compacted !=
+          // inputs_[i][j]->being_compacted` in debug mode or cause LSM shape
+          // corruption "Cannot delete table file XXX from level 2 since it is
+          // not in the LSM tree" in release mode
+          Status s = db_->CompactRange(cro, &begin_key, &end_key);
+          ASSERT_OK(s);
+        }));
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = db_->CompactRange(cro, &begin_key, &end_key);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_OK(s);
+
+  concurrent_compaction->join();
+}
+
 TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   // Regression test for bug where manual compaction hangs forever when the DB
   // is in read-only mode. Verify it now at least returns, despite failing.
