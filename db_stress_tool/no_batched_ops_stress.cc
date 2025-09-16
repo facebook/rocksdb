@@ -3198,8 +3198,9 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       // It is possible that multiple thread concurrently try to write to the
-      // same key, which could cause lock timeout or deadlock, even before
-      // transaction is rolled back. E.g.
+      // same key, which could cause lock timeout or deadlock in the
+      // transactiondb layer, before transaction is rolled back.
+      // E.g.
       // Timestamp 1: Transaction A: lock key M for write
       // Timestamp 2: Transaction B: lock key N for write
       // Timestamp 3: Transaction B: try to lock key M for write -> wait
