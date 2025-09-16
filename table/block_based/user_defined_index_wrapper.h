@@ -251,6 +251,10 @@ class UserDefinedIndexIteratorWrapper
     }
   }
 
+  IterBoundCheck UpperBoundCheckResult() override {
+    return result_.bound_check_result;
+  }
+
  private:
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;
