@@ -56,6 +56,7 @@ Status CompactionOutputs::Finish(
   stats_.bytes_written += current_bytes;
   stats_.bytes_written_pre_comp += builder_->PreCompressionSize();
   stats_.num_output_files = static_cast<int>(outputs_.size());
+  worker_cpu_micros_ += builder_->GetWorkerCPUMicros();
 
   return s;
 }

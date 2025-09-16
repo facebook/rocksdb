@@ -245,6 +245,11 @@ class TableBuilder {
   virtual void SetSeqnoTimeTableProperties(
       const SeqnoToTimeMapping& /*relevant_mapping*/,
       uint64_t /*oldest_ancestor_time*/) {}
+
+  // If this builder used CPU work from threads other than the caller, return
+  // the CPU microseconds used. 0 = no work outside calling thread, or not
+  // supported.
+  virtual uint64_t GetWorkerCPUMicros() const { return 0; }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -112,6 +112,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
                                    uint64_t oldest_ancestor_time) override;
 
+  uint64_t GetWorkerCPUMicros() const override;
+
  private:
   bool ok() const;
 
