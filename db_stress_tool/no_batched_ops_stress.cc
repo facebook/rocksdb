@@ -3197,8 +3197,14 @@ class NonBatchedOpsStressTest : public StressTest {
           assert(false);
       }
 
-      if (s.IsDeadlock()) {
-        // If a dead lock is detected, skip this key
+      // It is possible that multiple thread concurrently try to write to the
+      // same key, which could cause lock timeout or deadlock, even before
+      // transaction is rolled back. E.g.
+      // Timestamp 1: Transaction A: lock key M for write
+      // Timestamp 2: Transaction B: lock key N for write
+      // Timestamp 3: Transaction B: try to lock key M for write -> wait
+      // Timestamp 4: Transaction A: try to lock key N for write -> deadlock
+      if (s.IsTimedOut() || s.IsDeadlock()) {
         return;
       }
 
