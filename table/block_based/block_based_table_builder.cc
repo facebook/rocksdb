@@ -358,7 +358,14 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   static constexpr int32_t kMaxWakeupInterval = 8;
   // END fields for use by the emit thread only
 
-#ifndef NDEBUG
+  // TSAN on GCC has bugs that report false positives on this watchdog code.
+  // Other efforts to work around the bug have failed, so to avoid those false
+  // positive reports, we simply disable the watchdog when running under GCC
+  // TSAN.
+#if !defined(NDEBUG) && !(defined(__GNUC__) && defined(__SANITIZE_THREAD__))
+#define BBTB_PC_WATCHDOG 1
+#endif
+#ifdef BBTB_PC_WATCHDOG
   // These are for an extra "watchdog" thread in DEBUG builds that heuristically
   // checks for the most likely deadlock conditions. False positives and false
   // negatives are technically possible.
@@ -370,7 +377,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   RelaxedAtomic<uint32_t> idling_workers{0};
   RelaxedAtomic<bool> live_emit{0};
   RelaxedAtomic<bool> idling_emit{0};
-#endif  // !NDEBUG
+#endif  // BBTB_PC_WATCHDOG
 
   int ComputeRingBufferNbits(uint32_t parallel_threads) {
     // Ring buffer size is a power of two not to exceed 32 but otherwise
@@ -631,19 +638,22 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
         }
         // Handle idle state
         if constexpr (thread_kind == ThreadKind::kEmitter) {
-#ifndef NDEBUG
-          // Tracking for watchdog
+#ifdef BBTB_PC_WATCHDOG
           idling_emit.StoreRelaxed(true);
           Defer decr{[this]() { idling_emit.StoreRelaxed(false); }};
-#endif
-          idle_emit_sem.Acquire();  // Likely block
+#endif  // BBTB_PC_WATCHDOG
+
+          // Likely go to sleep
+          idle_emit_sem.Acquire();
         } else {
-#ifndef NDEBUG
+#ifdef BBTB_PC_WATCHDOG
           // Tracking for watchdog
           idling_workers.FetchAddRelaxed(1);
           Defer decr{[this]() { idling_workers.FetchSubRelaxed(1); }};
-#endif
-          idle_worker_sem.Acquire();  // Likely block
+#endif  // BBTB_PC_WATCHDOG
+
+          // Likely go to sleep
+          idle_worker_sem.Acquire();
         }
         // Update state after sleep
         seen_state = atomic_state.Load();
@@ -704,7 +714,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     thread_state = ThreadState::kEnd;
   }
 
-#ifndef NDEBUG
+#ifdef BBTB_PC_WATCHDOG
   // Logic for the extra "watchdog" thread in DEBUG builds that heuristically
   // checks for the most likely deadlock conditions.
   //
@@ -757,7 +767,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
       }
     }
   }
-#endif  // !NDEBUG
+#endif  // BBTB_PC_WATCHDOG
 };
 
 struct BlockBasedTableBuilder::Rep {
@@ -1716,11 +1726,10 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
 
 void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
   auto& pc_rep = *rep_->pc_rep;
-#ifndef NDEBUG
-  // Tracking for watchdog
+#ifdef BBTB_PC_WATCHDOG
   pc_rep.live_workers.FetchAddRelaxed(1);
   Defer decr{[&pc_rep]() { pc_rep.live_workers.FetchSubRelaxed(1); }};
-#endif  // !NDEBUG
+#endif  // BBTB_PC_WATCHDOG
   ParallelCompressionRep::ThreadState thread_state =
       ParallelCompressionRep::ThreadState::kIdle;
   uint32_t slot = 0;
@@ -2026,11 +2035,11 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
     }
     pc_rep.worker_threads.emplace_back([this, &wa] { BGWorker(wa); });
   }
-#ifndef NDEBUG
-  // Start watchdog thread in DEBUG builds
+#ifdef BBTB_PC_WATCHDOG
+  // Start watchdog thread
   pc_rep.watchdog_thread = std::thread([&pc_rep] { pc_rep.BGWatchdog(); });
   pc_rep.live_emit.StoreRelaxed(true);
-#endif  // !NDEBUG
+#endif  // BBTB_PC_WATCHDOG
 }
 
 void BlockBasedTableBuilder::StopParallelCompression(bool abort) {
@@ -2043,15 +2052,14 @@ void BlockBasedTableBuilder::StopParallelCompression(bool abort) {
     assert(rep_->props.num_data_blocks == 0);
     pc_rep.SetNoMoreToEmit(pc_rep.emit_thread_state, pc_rep.emit_slot);
   }
-#ifndef NDEBUG
-  // Tracking for watchdog
+#ifdef BBTB_PC_WATCHDOG
   pc_rep.live_emit.StoreRelaxed(false);
-#endif  // !NDEBUG
+#endif  // BBTB_PC_WATCHDOG
   assert(pc_rep.emit_thread_state == ParallelCompressionRep::ThreadState::kEnd);
   for (auto& thread : pc_rep.worker_threads) {
     thread.join();
   }
-#ifndef NDEBUG
+#ifdef BBTB_PC_WATCHDOG
   // Wake & shutdown watchdog thread
   {
     std::unique_lock<std::mutex> lock(pc_rep.watchdog_mutex);
@@ -2059,7 +2067,7 @@ void BlockBasedTableBuilder::StopParallelCompression(bool abort) {
     pc_rep.watchdog_cv.notify_all();
   }
   pc_rep.watchdog_thread.join();
-#endif  // !NDEBUG
+#endif  // BBTB_PC_WATCHDOG
   rep_->pc_rep.reset();
 }
 
