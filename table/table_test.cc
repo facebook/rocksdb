@@ -8074,6 +8074,8 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
   ASSERT_OK(writer->Open(ingest_file));
 
   bool skip = false;
+  // Create a sparse file with some missing key ranges so we can do
+  // MultiScans with empty scans interspersed with non-zero scans.
   for (int i = 0; i < 100; i++) {
     if (i > 0 && i % 20 == 0) {
       skip = !skip;
@@ -8122,17 +8124,34 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
 
+  std::vector<int> key_counts;
   MultiScanArgs scan_opts;
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(5);
+  // Empty scans
   scan_opts.insert(Slice("key25"), Slice("key30"), std::optional(property_bag));
+  key_counts.push_back(0);
   scan_opts.insert(Slice("key33"), Slice("key37"), std::optional(property_bag));
+  key_counts.push_back(0);
+  // Non-empty scan with range greater than count
   scan_opts.insert(Slice("key42"), Slice("key56"), std::optional(property_bag));
+  // In the key42:key56 range, we might read an additional block worth of
+  // keys due to the boundaries (5 + 3)
+  key_counts.push_back(8);
+  // Empty scan succeeding a non-empty one
   scan_opts.insert(Slice("key65"), Slice("key70"), std::optional(property_bag));
+  key_counts.push_back(0);
+  // A non-empty scan with range smaller than count
   scan_opts.insert(Slice("key85"), Slice("key87"), std::optional(property_bag));
+  key_counts.push_back(2);
+  // Scan range completely outside the DB
+  scan_opts.insert(Slice("key991"), Slice("key999"),
+                   std::optional(property_bag));
+  key_counts.push_back(0);
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
+  int index = 0;
   auto opts = scan_opts.GetScanRanges();
   for (auto opt : opts) {
     ub = opt.range.limit.value();
@@ -8142,10 +8161,10 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
       key_count++;
       iter->Next();
     }
+    ASSERT_EQ(key_count, key_counts[index]);
+    key_count = 0;
+    index++;
   }
-  // In the key42:key56 range, we might read an additional block worth of
-  // keys due to the boundaries (5 + 3)
-  ASSERT_GE(key_count, 10);
   ASSERT_OK(iter->status());
   iter.reset();
 

@@ -1307,7 +1307,7 @@ bool BlockBasedTableIterator::CollectBlockHandles(
       start_key = InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
     }
     index_iter_->Seek(start_key.Encode());
-    while (index_iter_->Valid() &&
+    while (index_iter_->status().ok() && index_iter_->Valid() &&
            (!scan_opt.range.limit.has_value() ||
             user_comparator_.CompareWithoutTimestamp(
                 index_iter_->user_key(),

@@ -185,17 +185,20 @@ class UserDefinedIndexIteratorWrapper
   }
 
   void Seek(const Slice& target) override {
+    assert(!valid_);
+
     ParsedInternalKey pkey;
     status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
     if (status_.ok()) {
       status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_);
-      if (status_.ok()) {
-        valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-        if (valid_) {
-          ikey_.Set(result_.key, 0, ValueType::kTypeValue);
-        }
+    }
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
       }
     } else {
+      // valid_ should already be false to begin with, but just make sure
       valid_ = false;
     }
   }
