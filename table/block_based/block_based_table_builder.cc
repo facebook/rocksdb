@@ -589,7 +589,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
       // If didn't find higher priority work
       if (next_thread_state == ThreadState::kEnd) {
-        if (next_state.Get<NextToCompress>() != seen_state.Get<NextToEmit>()) {
+        if (next_state.Get<NextToCompress>() != next_state.Get<NextToEmit>()) {
           // Compression work is available, select that
           if (thread_kind == ThreadKind::kWorker &&
               next_state.Get<NextToCompress>() ==
@@ -904,6 +904,7 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<InternalTblPropColl>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
+  RelaxedAtomic<uint64_t> worker_cpu_micros{0};
   BlockCreateContext create_context;
 
   // The size of the "tail" part of a SST file. "Tail" refers to
@@ -1286,6 +1287,11 @@ struct BlockBasedTableBuilder::Rep {
       SetStatus(Status::InvalidArgument(
           "Enable block_align, but compression enabled"));
     }
+  }
+
+  ~Rep() {
+    // Must have been cleaned up by StopParallelCompression
+    assert(pc_rep == nullptr);
   }
 
   Rep(const Rep&) = delete;
@@ -1724,7 +1730,19 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   }
 }
 
+uint64_t BlockBasedTableBuilder::GetWorkerCPUMicros() const {
+  return rep_->worker_cpu_micros.LoadRelaxed();
+}
+
 void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
+  // Record CPU usage of this thread
+  const uint64_t start_cpu_micros =
+      rep_->ioptions.env->GetSystemClock()->CPUMicros();
+  Defer log_cpu{[this, start_cpu_micros]() {
+    rep_->worker_cpu_micros.FetchAddRelaxed(
+        rep_->ioptions.env->GetSystemClock()->CPUMicros() - start_cpu_micros);
+  }};
+
   auto& pc_rep = *rep_->pc_rep;
 #ifdef BBTB_PC_WATCHDOG
   pc_rep.live_workers.FetchAddRelaxed(1);
@@ -2013,6 +2031,18 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
 
 void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   if (rep_->compression_parallel_threads <= 1) {
+    return;
+  }
+  // Although in theory having a separate thread for writing to the SST file
+  // could help to hide the latency associated with writing, it is more often
+  // the case that the latency comes in large units for rare calls to write that
+  // flush downstream buffers, including in WritableFileWriter. The buffering
+  // provided by the compression ring buffer is almost negligible for hiding
+  // that latency. So even with some optimizations, turning on the parallel
+  // framework when compression is disabled just eats more CPU with little-to-no
+  // improvement in throughput.
+  if (rep_->data_block_compressor == nullptr) {
+    // Force the generally best configuration for no compression: no parallelism
     return;
   }
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(

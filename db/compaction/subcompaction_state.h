@@ -191,6 +191,14 @@ class SubcompactionState {
     return &compaction_outputs_.stats_;
   }
 
+  uint64_t GetWorkerCPUMicros() const {
+    uint64_t rv = compaction_outputs_.GetWorkerCPUMicros();
+    if (compaction->SupportsPerKeyPlacement()) {
+      rv += proximal_level_outputs_.GetWorkerCPUMicros();
+    }
+    return rv;
+  }
+
   CompactionRangeDelAggregator* RangeDelAgg() const {
     return range_del_agg_.get();
   }

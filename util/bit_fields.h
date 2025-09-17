@@ -83,7 +83,6 @@ struct BitFields {
     explicit Reference(BitFields& bf) : bf_(bf) {}
     Reference(const Reference&) = default;
     Reference& operator=(const Reference&) = default;
-    // no moves
     Reference(Reference&&) = default;
     Reference& operator=(Reference&&) = default;
 
