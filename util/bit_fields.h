@@ -8,6 +8,7 @@
 #include <atomic>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,13 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 // The specific bit fields are declared outside the declaration using
 // BoolBitField and UnsignedBitField below. Example usage:
 //
-// // A unique compile-time identifier to ensure we don't mix up different
-// // bit fields.
-// struct MyStateID {};
-//
-// using MyState = BitFields<uint32_t, MyStateID>;
-//  - or -
-// struct MyState : public BitFields<uint32_t, MyStateID> {
+// struct MyState : public BitFields<uint32_t, MyState> {
 //   // Extra helper declarations and/or field type declarations
 // };
 //
@@ -43,9 +38,8 @@ namespace ROCKSDB_NAMESPACE {
 // using Field3 = BoolBitField<MyState, Field2>;
 // using Field4 = UnsignedBitField<MyState, 5, Field3>;  // 5 bits in a uint8_t
 //
-// MyState state;  // zero-initialized
-// state.Set<Field1>(42U);
-// state.Set<Field2>(true);
+// // MyState{} is zero-initialized
+// auto state = MyState{}.With<Field1>(42U).With<Field2>(true);
 // state.Set<Field4>(3U);
 // state.Ref<Field1>() += state.Get<Field4>();
 //
@@ -56,23 +50,36 @@ namespace ROCKSDB_NAMESPACE {
 //
 // using Field3a = UnsignedBitField<State, 6, Field2>;  // 6 bits in a uint8_t
 //
-template <typename UnderlyingT, typename IdentifyingT>
+template <typename UnderlyingT, typename DerivedT>
 struct BitFields {
   using U = UnderlyingT;
   U underlying = 0;
   static constexpr int kBitCount = sizeof(U) * 8;
 
-  using ID = IdentifyingT;
+  using Derived = DerivedT;
 
+  // Modify a given field in place
   template <typename BitFieldT>
   void Set(typename BitFieldT::V value) {
-    BitFieldT::SetIn(static_cast<typename BitFieldT::Parent&>(*this), value);
+    static_assert(std::is_same_v<typename BitFieldT::Parent, Derived>);
+    Derived& derived = static_cast<Derived&>(*this);
+    BitFieldT::SetIn(derived, value);
   }
 
+  // Return a copy with the given field modified
+  template <typename BitFieldT>
+  Derived With(typename BitFieldT::V value) const {
+    static_assert(std::is_same_v<typename BitFieldT::Parent, Derived>);
+    Derived rv = static_cast<const Derived&>(*this);
+    BitFieldT::SetIn(rv, value);
+    return rv;
+  }
+
+  // Get the value of a field
   template <typename BitFieldT>
   typename BitFieldT::V Get() const {
-    return BitFieldT::GetFrom(
-        static_cast<const typename BitFieldT::Parent&>(*this));
+    static_assert(std::is_same_v<typename BitFieldT::Parent, Derived>);
+    return BitFieldT::GetFrom(static_cast<const Derived&>(*this));
   }
 
   // Reference and Ref() are not intended to behave as full references but to
@@ -152,7 +159,8 @@ struct NoPrevBitField {
 template <typename BitFieldsT, typename PrevField>
 struct BoolBitField {
   using Parent = BitFieldsT;
-  using ParentBase = BitFields<typename BitFieldsT::U, typename BitFieldsT::ID>;
+  using ParentBase =
+      BitFields<typename BitFieldsT::U, typename BitFieldsT::Derived>;
   using U = typename BitFieldsT::U;
   using V = bool;
   static constexpr int kBitOffset = PrevField::kEndBit;

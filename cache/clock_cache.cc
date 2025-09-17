@@ -26,10 +26,9 @@
 #include "cache/cache_key.h"
 #include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics_impl.h"
-#include "port/lang.h"
+#include "port/likely.h"
 #include "rocksdb/env.h"
+#include "util/autovector.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
@@ -361,16 +360,9 @@ void ConstApplyToEntriesRange(const Func& func, const HandleImpl* begin,
   }
 }
 
-constexpr uint32_t kStrictCapacityLimitBit = 1u << 31;
-
-uint32_t SanitizeEncodeEecAndScl(int eviction_effort_cap,
-                                 bool strict_capacit_limit) {
+uint32_t SanitizeEvictionEffortCap(int eviction_effort_cap) {
   eviction_effort_cap = std::max(int{1}, eviction_effort_cap);
-  eviction_effort_cap =
-      std::min(static_cast<int>(~kStrictCapacityLimitBit), eviction_effort_cap);
-  uint32_t eec_and_scl = static_cast<uint32_t>(eviction_effort_cap);
-  eec_and_scl |= strict_capacit_limit ? kStrictCapacityLimitBit : 0;
-  return eec_and_scl;
+  return static_cast<uint32_t>(eviction_effort_cap);
 }
 
 }  // namespace
@@ -380,6 +372,22 @@ void ClockHandleBasicData::FreeData(MemoryAllocator* allocator) const {
     helper->del_cb(value, allocator);
   }
 }
+
+BaseClockTable::BaseClockTable(size_t capacity, bool strict_capacity_limit,
+                               int eviction_effort_cap,
+                               CacheMetadataChargePolicy metadata_charge_policy,
+                               MemoryAllocator* allocator,
+                               const Cache::EvictionCallback* eviction_callback,
+                               const uint32_t* hash_seed)
+    : capacity_(capacity),
+      eec_and_scl_(EecAndScl{}
+                       .With<EvictionEffortCap>(
+                           SanitizeEvictionEffortCap(eviction_effort_cap))
+                       .With<StrictCapacityLimit>(strict_capacity_limit)),
+      metadata_charge_policy_(metadata_charge_policy),
+      allocator_(allocator),
+      eviction_callback_(*eviction_callback),
+      hash_seed_(*hash_seed) {}
 
 template <class HandleImpl>
 HandleImpl* BaseClockTable::StandaloneInsert(
@@ -402,8 +410,7 @@ HandleImpl* BaseClockTable::StandaloneInsert(
 
 template <class Table>
 typename Table::HandleImpl* BaseClockTable::CreateStandalone(
-    ClockHandleBasicData& proto, size_t capacity, uint32_t eec_and_scl,
-    bool allow_uncharged) {
+    ClockHandleBasicData& proto, bool allow_uncharged) {
   Table& derived = static_cast<Table&>(*this);
   typename Table::InsertState state;
   derived.StartInsert(state);
@@ -412,10 +419,10 @@ typename Table::HandleImpl* BaseClockTable::CreateStandalone(
   // NOTE: we can use eec_and_scl as eviction_effort_cap below because
   // strict_capacity_limit=true is supposed to disable the limit on eviction
   // effort, and a large value effectively does that.
-  if (eec_and_scl & kStrictCapacityLimitBit) {
+  if (eec_and_scl_.LoadRelaxed().Get<StrictCapacityLimit>()) {
     Status s = ChargeUsageMaybeEvictStrict<Table>(
-        total_charge, capacity,
-        /*need_evict_for_occupancy=*/false, eec_and_scl, state);
+        total_charge,
+        /*need_evict_for_occupancy=*/false, state);
     if (!s.ok()) {
       if (allow_uncharged) {
         proto.total_charge = 0;
@@ -426,8 +433,8 @@ typename Table::HandleImpl* BaseClockTable::CreateStandalone(
   } else {
     // Case strict_capacity_limit == false
     bool success = ChargeUsageMaybeEvictNonStrict<Table>(
-        total_charge, capacity,
-        /*need_evict_for_occupancy=*/false, eec_and_scl, state);
+        total_charge,
+        /*need_evict_for_occupancy=*/false, state);
     if (!success) {
       // Force the issue
       usage_.FetchAddRelaxed(total_charge);
@@ -439,8 +446,9 @@ typename Table::HandleImpl* BaseClockTable::CreateStandalone(
 
 template <class Table>
 Status BaseClockTable::ChargeUsageMaybeEvictStrict(
-    size_t total_charge, size_t capacity, bool need_evict_for_occupancy,
-    uint32_t eviction_effort_cap, typename Table::InsertState& state) {
+    size_t total_charge, bool need_evict_for_occupancy,
+    typename Table::InsertState& state) {
+  const size_t capacity = capacity_.LoadRelaxed();
   if (total_charge > capacity) {
     return Status::MemoryLimit(
         "Cache entry too large for a single cache shard: " +
@@ -465,8 +473,7 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
   }
   if (request_evict_charge > 0) {
     EvictionData data;
-    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data,
-                                     eviction_effort_cap);
+    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data);
     occupancy_.FetchSub(data.freed_count);
     if (LIKELY(data.freed_charge > need_evict_charge)) {
       assert(data.freed_count > 0);
@@ -495,8 +502,8 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
 
 template <class Table>
 inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
-    size_t total_charge, size_t capacity, bool need_evict_for_occupancy,
-    uint32_t eviction_effort_cap, typename Table::InsertState& state) {
+    size_t total_charge, bool need_evict_for_occupancy,
+    typename Table::InsertState& state) {
   // For simplicity, we consider that either the cache can accept the insert
   // with no evictions, or we must evict enough to make (at least) enough
   // space. It could lead to unnecessary failures or excessive evictions in
@@ -506,7 +513,8 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
   // charge. Thus, we should evict some extra if it's not a signifcant
   // portion of the shard capacity. This can have the side benefit of
   // involving fewer threads in eviction.
-  size_t old_usage = usage_.LoadRelaxed();
+  const size_t old_usage = usage_.LoadRelaxed();
+  const size_t capacity = capacity_.LoadRelaxed();
   size_t need_evict_charge;
   // NOTE: if total_charge > old_usage, there isn't yet enough to evict
   // `total_charge` amount. Even if we only try to evict `old_usage` amount,
@@ -532,8 +540,7 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
   }
   EvictionData data;
   if (need_evict_charge > 0) {
-    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data,
-                                     eviction_effort_cap);
+    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data);
     // Deal with potential occupancy deficit
     if (UNLIKELY(need_evict_for_occupancy) && data.freed_count == 0) {
       assert(data.freed_charge == 0);
@@ -569,8 +576,10 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(ClockHandle* h) {
   MarkEmpty(*h);
 }
 
-bool IsEvictionEffortExceeded(const BaseClockTable::EvictionData& data,
-                              uint32_t eviction_effort_cap) {
+bool BaseClockTable::IsEvictionEffortExceeded(
+    const BaseClockTable::EvictionData& data) const {
+  auto eviction_effort_cap =
+      eec_and_scl_.LoadRelaxed().GetEffectiveEvictionEffortCap();
   // Basically checks whether the ratio of useful effort to wasted effort is
   // too low, with a start-up allowance for wasted effort before any useful
   // effort.
@@ -581,8 +590,7 @@ bool IsEvictionEffortExceeded(const BaseClockTable::EvictionData& data,
 template <class Table>
 Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
                               typename Table::HandleImpl** handle,
-                              Cache::Priority priority, size_t capacity,
-                              uint32_t eec_and_scl) {
+                              Cache::Priority priority) {
   using HandleImpl = typename Table::HandleImpl;
   Table& derived = static_cast<Table&>(*this);
 
@@ -603,9 +611,9 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
   // NOTE: we can use eec_and_scl as eviction_effort_cap below because
   // strict_capacity_limit=true is supposed to disable the limit on eviction
   // effort, and a large value effectively does that.
-  if (eec_and_scl & kStrictCapacityLimitBit) {
+  if (eec_and_scl_.LoadRelaxed().Get<StrictCapacityLimit>()) {
     Status s = ChargeUsageMaybeEvictStrict<Table>(
-        total_charge, capacity, need_evict_for_occupancy, eec_and_scl, state);
+        total_charge, need_evict_for_occupancy, state);
     if (!s.ok()) {
       // Revert occupancy
       occupancy_.FetchSubRelaxed(1);
@@ -614,7 +622,7 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
   } else {
     // Case strict_capacity_limit == false
     bool success = ChargeUsageMaybeEvictNonStrict<Table>(
-        total_charge, capacity, need_evict_for_occupancy, eec_and_scl, state);
+        total_charge, need_evict_for_occupancy, state);
     if (!success) {
       // Revert occupancy
       occupancy_.FetchSubRelaxed(1);
@@ -718,11 +726,13 @@ void BaseClockTable::TEST_ReleaseNMinus1(ClockHandle* h, size_t n) {
 #endif
 
 FixedHyperClockTable::FixedHyperClockTable(
-    size_t capacity, CacheMetadataChargePolicy metadata_charge_policy,
+    size_t capacity, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const Opts& opts)
-    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+    : BaseClockTable(capacity, strict_capacity_limit, opts.eviction_effort_cap,
+                     metadata_charge_policy, allocator, eviction_callback,
                      hash_seed),
       length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
@@ -1113,8 +1123,7 @@ inline void FixedHyperClockTable::ReclaimEntryUsage(size_t total_charge) {
 }
 
 inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
-                                        EvictionData* data,
-                                        uint32_t eviction_effort_cap) {
+                                        EvictionData* data) {
   // precondition
   assert(requested_charge > 0);
 
@@ -1149,7 +1158,7 @@ inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
     if (old_clock_pointer >= max_clock_pointer) {
       return;
     }
-    if (IsEvictionEffortExceeded(*data, eviction_effort_cap)) {
+    if (IsEvictionEffortExceeded(*data)) {
       eviction_effort_exceeded_count_.FetchAddRelaxed(1);
       return;
     }
@@ -1167,14 +1176,11 @@ ClockCacheShard<Table>::ClockCacheShard(
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const typename Table::Opts& opts)
     : CacheShardBase(metadata_charge_policy),
-      table_(capacity, metadata_charge_policy, allocator, eviction_callback,
-             hash_seed, opts),
-      capacity_(capacity),
-      eec_and_scl_(SanitizeEncodeEecAndScl(opts.eviction_effort_cap,
-                                           strict_capacity_limit)) {
+      table_(capacity, strict_capacity_limit, metadata_charge_policy, allocator,
+             eviction_callback, hash_seed, opts) {
   // Initial charge metadata should not exceed capacity
-  assert(table_.GetUsage() <= capacity_.LoadRelaxed() ||
-         capacity_.LoadRelaxed() < sizeof(HandleImpl));
+  assert(table_.GetUsage() <= table_.GetCapacity() ||
+         table_.GetCapacity() < sizeof(HandleImpl));
 }
 
 template <class Table>
@@ -1240,18 +1246,14 @@ int FixedHyperClockTable::CalcHashBits(
 
 template <class Table>
 void ClockCacheShard<Table>::SetCapacity(size_t capacity) {
-  capacity_.StoreRelaxed(capacity);
+  table_.SetCapacity(capacity);
   // next Insert will take care of any necessary evictions
 }
 
 template <class Table>
 void ClockCacheShard<Table>::SetStrictCapacityLimit(
     bool strict_capacity_limit) {
-  if (strict_capacity_limit) {
-    eec_and_scl_.FetchOrRelaxed(kStrictCapacityLimitBit);
-  } else {
-    eec_and_scl_.FetchAndRelaxed(~kStrictCapacityLimitBit);
-  }
+  table_.SetStrictCapacityLimit(strict_capacity_limit);
   // next Insert will take care of any necessary evictions
 }
 
@@ -1271,9 +1273,7 @@ Status ClockCacheShard<Table>::Insert(const Slice& key,
   proto.value = value;
   proto.helper = helper;
   proto.total_charge = charge;
-  return table_.template Insert<Table>(proto, handle, priority,
-                                       capacity_.LoadRelaxed(),
-                                       eec_and_scl_.LoadRelaxed());
+  return table_.template Insert<Table>(proto, handle, priority);
 }
 
 template <class Table>
@@ -1288,9 +1288,7 @@ typename Table::HandleImpl* ClockCacheShard<Table>::CreateStandalone(
   proto.value = obj;
   proto.helper = helper;
   proto.total_charge = charge;
-  return table_.template CreateStandalone<Table>(proto, capacity_.LoadRelaxed(),
-                                                 eec_and_scl_.LoadRelaxed(),
-                                                 allow_uncharged);
+  return table_.template CreateStandalone<Table>(proto, allow_uncharged);
 }
 
 template <class Table>
@@ -1359,7 +1357,7 @@ size_t ClockCacheShard<Table>::GetStandaloneUsage() const {
 
 template <class Table>
 size_t ClockCacheShard<Table>::GetCapacity() const {
-  return capacity_.LoadRelaxed();
+  return table_.GetCapacity();
 }
 
 template <class Table>
@@ -1969,11 +1967,13 @@ class AutoHyperClockTable::ChainRewriteLock {
 };
 
 AutoHyperClockTable::AutoHyperClockTable(
-    size_t capacity, CacheMetadataChargePolicy metadata_charge_policy,
+    size_t capacity, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const Opts& opts)
-    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+    : BaseClockTable(capacity, strict_capacity_limit, opts.eviction_effort_cap,
+                     metadata_charge_policy, allocator, eviction_callback,
                      hash_seed),
       array_(MemMapping::AllocateLazyZeroed(
           sizeof(HandleImpl) * CalcMaxUsableLength(capacity,
@@ -3468,8 +3468,7 @@ void AutoHyperClockTable::EraseUnRefEntries() {
 }
 
 void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
-                                EvictionData* data,
-                                uint32_t eviction_effort_cap) {
+                                EvictionData* data) {
   // precondition
   assert(requested_charge > 0);
 
@@ -3561,7 +3560,7 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
       return;
     }
 
-    if (IsEvictionEffortExceeded(*data, eviction_effort_cap)) {
+    if (IsEvictionEffortExceeded(*data)) {
       eviction_effort_exceeded_count_.FetchAddRelaxed(1);
       return;
     }
