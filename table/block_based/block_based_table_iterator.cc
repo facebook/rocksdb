@@ -1007,7 +1007,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 
     // Scan range is specified in user key, here we seek to the minimum internal
     // key with this user key.
-    while (index_iter_->Valid() &&
+    while (index_iter_->Valid() && index_iter_->Valid() &&
            (!scan_opt.range.limit.has_value() ||
             user_comparator_.CompareWithoutTimestamp(
                 index_iter_->user_key(),
@@ -1039,14 +1039,14 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
         blocks_to_prepare.push_back(index_iter_->value().handle);
       }
       ++num_blocks;
-    } else if (num_blocks == 0) {
+    } else if (num_blocks == 0 && index_iter_->UpperBoundCheckResult() !=
+                                      IterBoundCheck::kOutOfBound) {
       // We should not have scan ranges that are completely after the file's
       // range. This is important for FindBlockForwardInMultiScan() which only
       // lets the upper layer (LevelIterator) advance to the next SST file when
       // the last scan range is exhausted.
       return;
     }
-    assert(num_blocks);
     block_ranges_per_scan.emplace_back(blocks_to_prepare.size() - num_blocks,
                                        blocks_to_prepare.size());
   }
