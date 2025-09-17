@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.6.3 (09/17/2025)
+### Bug Fixes
+* Fix a bug in RocksDB MultiScan with UDI when one of the scan ranges is determined to be empty by the UDI, which causes incorrect results.
+
 ## 10.6.2 (09/15/2025)
 ### Bug Fixes
 * Fix a race condition in FIFO size-based compaction where concurrent threads could select the same non-L0 file, causing assertion failures in debug builds or "Cannot delete table file from LSM tree" errors in release builds.
