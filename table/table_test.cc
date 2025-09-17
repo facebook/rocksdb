@@ -7721,6 +7721,32 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
 
  protected:
   void BasicTest(bool use_partitioned_index);
+
+  void ValidateMultiScan(const ReadOptions& ro, MultiScanArgs& scan_opts,
+                         std::vector<int>& key_counts, std::unique_ptr<DB>& db,
+                         ColumnFamilyHandle* cfh) {
+    Slice ub;
+    ReadOptions read_opts = ro;
+    int key_count = 0;
+    int index = 0;
+    auto opts = scan_opts.GetScanRanges();
+    read_opts.iterate_upper_bound = &ub;
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_opts, cfh));
+    iter->Prepare(scan_opts);
+    for (auto opt : opts) {
+      ub = opt.range.limit.value();
+      iter->Seek(opt.range.start.value());
+      EXPECT_OK(iter->status());
+      while (iter->Valid()) {
+        key_count++;
+        iter->Next();
+      }
+      EXPECT_EQ(key_count, key_counts[index]);
+      key_count = 0;
+      index++;
+    }
+    EXPECT_OK(iter->status());
+  }
 };
 
 void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
@@ -8119,11 +8145,6 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
   iter.reset();
 
   ro.table_index_factory = user_defined_index_factory.get();
-  Slice ub;
-  ro.iterate_upper_bound = &ub;
-  iter.reset(db->NewIterator(ro, cfh));
-  ASSERT_NE(iter, nullptr);
-
   std::vector<int> key_counts;
   MultiScanArgs scan_opts;
   std::unordered_map<std::string, std::string> property_bag;
@@ -8148,25 +8169,52 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
   scan_opts.insert(Slice("key991"), Slice("key999"),
                    std::optional(property_bag));
   key_counts.push_back(0);
-  iter->Prepare(scan_opts);
-  // Test that we can read all the keys
-  key_count = 0;
-  int index = 0;
-  auto opts = scan_opts.GetScanRanges();
-  for (auto opt : opts) {
-    ub = opt.range.limit.value();
-    iter->Seek(opt.range.start.value());
-    ASSERT_OK(iter->status());
-    while (iter->Valid()) {
-      key_count++;
-      iter->Next();
-    }
-    ASSERT_EQ(key_count, key_counts[index]);
-    key_count = 0;
-    index++;
-  }
-  ASSERT_OK(iter->status());
-  iter.reset();
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  key_counts.clear();
+  (*scan_opts).clear();
+  // Scans that overlap with part of key range, with overlap less than count
+  scan_opts.insert(Slice("key18"), Slice("key25"), std::optional(property_bag));
+  key_counts.push_back(2);
+  scan_opts.insert(Slice("key38"), Slice("key43"), std::optional(property_bag));
+  key_counts.push_back(3);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  // Scans that overlap with part of key range, with overlap same as count
+  key_counts.clear();
+  (*scan_opts).clear();
+  scan_opts.insert(Slice("key15"), Slice("key26"), std::optional(property_bag));
+  key_counts.push_back(5);
+  scan_opts.insert(Slice("key38"), Slice("key46"), std::optional(property_bag));
+  key_counts.push_back(6);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  // Scans that overlap with part of key range, with overlap greater than count
+  key_counts.clear();
+  (*scan_opts).clear();
+  scan_opts.insert(Slice("key10"), Slice("key26"), std::optional(property_bag));
+  key_counts.push_back(8);
+  scan_opts.insert(Slice("key38"), Slice("key49"), std::optional(property_bag));
+  key_counts.push_back(7);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  // Scan bigger than one contiguous range of keys, with overlap greater than
+  // count
+  key_counts.clear();
+  (*scan_opts).clear();
+  scan_opts.insert(Slice("key75"), Slice("key991"),
+                   std::optional(property_bag));
+  key_counts.push_back(8);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  // Scan bigger than one contiguous range of keys, with overlap less than count
+  key_counts.clear();
+  (*scan_opts).clear();
+  property_bag["count"] = std::to_string(25);
+  scan_opts.insert(Slice("key75"), Slice("key991"),
+                   std::optional(property_bag));
+  key_counts.push_back(20);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());

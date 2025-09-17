@@ -185,8 +185,6 @@ class UserDefinedIndexIteratorWrapper
   }
 
   void Seek(const Slice& target) override {
-    assert(!valid_);
-
     ParsedInternalKey pkey;
     status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
     if (status_.ok()) {
@@ -198,7 +196,6 @@ class UserDefinedIndexIteratorWrapper
         ikey_.Set(result_.key, 0, ValueType::kTypeValue);
       }
     } else {
-      // valid_ should already be false to begin with, but just make sure
       valid_ = false;
     }
   }
