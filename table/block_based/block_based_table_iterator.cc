@@ -1307,7 +1307,7 @@ bool BlockBasedTableIterator::CollectBlockHandles(
       start_key = InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
     }
     index_iter_->Seek(start_key.Encode());
-    while (index_iter_->Valid() &&
+    while (index_iter_->status().ok() && index_iter_->Valid() &&
            (!scan_opt.range.limit.has_value() ||
             user_comparator_.CompareWithoutTimestamp(
                 index_iter_->user_key(),
@@ -1337,14 +1337,14 @@ bool BlockBasedTableIterator::CollectBlockHandles(
         scan_block_handles->push_back(index_iter_->value().handle);
       }
       ++num_blocks;
-    } else if (num_blocks == 0) {
+    } else if (num_blocks == 0 && index_iter_->UpperBoundCheckResult() !=
+                                      IterBoundCheck::kOutOfBound) {
       // We should not have scan ranges that are completely after the file's
       // range. This is important for FindBlockForwardInMultiScan() which only
       // lets the upper layer (LevelIterator) advance to the next SST file when
       // the last scan range is exhausted.
       return false;
     }
-    assert(num_blocks);
     block_index_ranges_per_scan->emplace_back(
         scan_block_handles->size() - num_blocks, scan_block_handles->size());
   }
