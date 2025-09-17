@@ -10,12 +10,12 @@
 #include "cache/clock_cache.h"
 
 #include <algorithm>
-#include <atomic>
 #include <bitset>
 #include <cassert>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <numeric>
@@ -26,10 +26,9 @@
 #include "cache/cache_key.h"
 #include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics_impl.h"
-#include "port/lang.h"
+#include "port/likely.h"
 #include "rocksdb/env.h"
+#include "util/autovector.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
@@ -1985,6 +1984,11 @@ AutoHyperClockTable::AutoHyperClockTable(
       grow_frontier_(GetTableSize()),
       clock_pointer_mask_(
           BottomNBits(UINT64_MAX, LengthInfoToMinShift(length_info_.Load()))) {
+  if (array_.Get() == nullptr) {
+    fprintf(stderr,
+            "Anonymous mmap for RocksDB HyperClockCache failed. Aborting.\n");
+    std::terminate();
+  }
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     // NOTE: ignoring page boundaries for simplicity

@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include <array>
-#include <atomic>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -19,14 +17,9 @@
 
 #include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
-#include "port/lang.h"
-#include "port/malloc.h"
 #include "port/mmap.h"
-#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/secondary_cache.h"
 #include "util/atomic.h"
-#include "util/autovector.h"
 #include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
