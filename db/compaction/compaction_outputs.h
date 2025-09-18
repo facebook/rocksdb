@@ -168,6 +168,10 @@ class CompactionOutputs {
 
   uint64_t NumEntries() const { return builder_->NumEntries(); }
 
+  uint64_t GetWorkerCPUMicros() const {
+    return worker_cpu_micros_ + (builder_ ? builder_->GetWorkerCPUMicros() : 0);
+  }
+
   void ResetBuilder() {
     builder_.reset();
     current_output_file_size_ = 0;
@@ -295,6 +299,9 @@ class CompactionOutputs {
   std::unique_ptr<WritableFileWriter> file_writer_;
   uint64_t current_output_file_size_ = 0;
   SequenceNumber smallest_preferred_seqno_ = kMaxSequenceNumber;
+
+  // Sum of all the GetWorkerCPUMicros() for all the closed builders so far.
+  uint64_t worker_cpu_micros_ = 0;
 
   // all the compaction outputs so far
   std::vector<Output> outputs_;

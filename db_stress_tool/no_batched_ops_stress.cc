@@ -3156,13 +3156,15 @@ class NonBatchedOpsStressTest : public StressTest {
 
       Status s;
 
+      ExpectedValue new_expected_value;
+
       switch (op) {
         case Op::PutOrPutEntity:
         case Op::Merge: {
           ExpectedValue put_value;
           put_value.SyncPut(static_cast<uint32_t>(thread->rand.Uniform(
               static_cast<int>(ExpectedValue::GetValueBaseMask()))));
-          ryw_expected_values[k] = put_value;
+          new_expected_value = put_value;
 
           const uint32_t value_base = put_value.GetValueBase();
 
@@ -3186,7 +3188,7 @@ class NonBatchedOpsStressTest : public StressTest {
         case Op::Delete: {
           ExpectedValue delete_value;
           delete_value.SyncDelete();
-          ryw_expected_values[k] = delete_value;
+          new_expected_value = delete_value;
 
           s = txn->Delete(cfh, k);
           break;
@@ -3194,6 +3196,20 @@ class NonBatchedOpsStressTest : public StressTest {
         default:
           assert(false);
       }
+
+      // It is possible that multiple thread concurrently try to write to the
+      // same key, which could cause lock timeout or deadlock in the
+      // transactiondb layer, before transaction is rolled back.
+      // E.g.
+      // Timestamp 1: Transaction A: lock key M for write
+      // Timestamp 2: Transaction B: lock key N for write
+      // Timestamp 3: Transaction B: try to lock key M for write -> wait
+      // Timestamp 4: Transaction A: try to lock key N for write -> deadlock
+      if (s.IsTimedOut() || s.IsDeadlock()) {
+        return;
+      }
+
+      ryw_expected_values[k] = new_expected_value;
 
       if (!s.ok()) {
         fprintf(stderr,

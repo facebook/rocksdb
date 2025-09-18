@@ -1124,8 +1124,26 @@ class LevelIterator final : public InternalIterator {
         continue;
       }
 
-      InternalKey istart(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
-      InternalKey iend(end.value(), 0, kValueTypeForSeekForPrev);
+      const size_t timestamp_size =
+          user_comparator_.user_comparator()->timestamp_size();
+      InternalKey istart, iend;
+      if (timestamp_size == 0) {
+        istart =
+            InternalKey(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+        // end key is exclusive for multiscan
+        iend = InternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+      } else {
+        std::string start_key_with_ts, end_key_with_ts;
+        AppendKeyWithMaxTimestamp(&start_key_with_ts, start.value(),
+                                  timestamp_size);
+        AppendKeyWithMaxTimestamp(&end_key_with_ts, end.value(),
+                                  timestamp_size);
+        istart = InternalKey(start_key_with_ts, kMaxSequenceNumber,
+                             kValueTypeForSeek);
+        // end key is exclusive for multiscan
+        iend =
+            InternalKey(end_key_with_ts, kMaxSequenceNumber, kValueTypeForSeek);
+      }
 
       // TODO: This needs to be optimized, right now we iterate twice, which
       // we dont need to. We can do this in N rather than 2N.
@@ -1147,6 +1165,7 @@ class LevelIterator final : public InternalIterator {
     // Propagate io colaescing threshold
     for (auto& file_to_arg : *file_to_scan_opts_) {
       file_to_arg.second.io_coalesce_threshold = so->io_coalesce_threshold;
+      file_to_arg.second.use_async_io = so->use_async_io;
     }
   }
 

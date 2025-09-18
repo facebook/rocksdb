@@ -1153,7 +1153,7 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
 #else
     (void)io_handles;
-    return IOStatus::NotSupported("Poll");
+    return IOStatus::NotSupported("Poll not implemented");
 #endif
   }
 

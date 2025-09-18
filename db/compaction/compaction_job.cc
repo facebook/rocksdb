@@ -1578,9 +1578,8 @@ void CompactionJob::FinalizeSubcompactionJobStats(
                                            cur_cpu_micros, prev_cpu_micros);
 
   // Finalize timing and I/O statistics
-
   sub_compact->compaction_job_stats.cpu_micros =
-      cur_cpu_micros - start_cpu_micros;
+      cur_cpu_micros - start_cpu_micros + sub_compact->GetWorkerCPUMicros();
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=
