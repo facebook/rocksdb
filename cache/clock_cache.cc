@@ -2056,15 +2056,20 @@ AutoHyperClockTable::~AutoHyperClockTable() {
              HandleImpl::kUnusedMarker) {
     used_end++;
   }
-#ifndef NDEBUG
+  // This check can be extra expensive for a cache that is just created,
+  // maybe used for a small number of entries, as in a unit test, and then
+  // destroyed. Only do this in rare modes.
+#ifdef MUST_FREE_HEAP_ALLOCATIONS
   for (size_t i = used_end; i < array_.Count(); i++) {
     assert(array_[i].head_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].chain_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].meta.LoadRelaxed() == 0);
   }
+#endif          // MUST_FREE_HEAP_ALLOCATIONS
+#ifndef NDEBUG  // Extra invariant checking
   std::vector<bool> was_populated(used_end);
   std::vector<bool> was_pointed_to(used_end);
-#endif
+#endif  // !NDEBUG
   for (size_t i = 0; i < used_end; i++) {
     HandleImpl& h = array_[i];
     switch (h.meta.LoadRelaxed() >> ClockHandle::kStateShift) {
@@ -2087,7 +2092,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
           assert(!was_pointed_to[next]);
           was_pointed_to[next] = true;
         }
-#endif
+#endif  // !NDEBUG
         break;
       // otherwise
       default:
@@ -2101,7 +2106,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[next]);
       was_pointed_to[next] = true;
     }
-#endif
+#endif  // !NDEBUG
   }
 #ifndef NDEBUG  // Extra invariant checking
   // This check is not perfect, but should detect most reasonable cases
@@ -2114,7 +2119,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[i]);
     }
   }
-#endif
+#endif  // !NDEBUG
 
   // Metadata charging only follows the published table size
   assert(usage_.LoadRelaxed() == 0 ||
