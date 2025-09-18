@@ -1847,13 +1847,17 @@ DEFINE_bool(universal_reduce_file_locking,
                 .compaction_options_universal.reduce_file_locking,
             "See Options().compaction_options_universal.reduce_file_locking");
 
-DEFINE_uint64(multiscan_coalesce_threshold,
-              ROCKSDB_NAMESPACE::MultiScanArgs().io_coalesce_threshold,
-              "Configures io coalescing threshold for multiscans");
+DEFINE_uint64(
+    multiscan_coalesce_threshold,
+    ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
+        .io_coalesce_threshold,
+    "Configures io coalescing threshold for multiscans");
 
-DEFINE_bool(multiscan_use_async_io,
-            ROCKSDB_NAMESPACE::MultiScanArgs().use_async_io,
-            "Sets MultiScanArgs::use_async_io");
+DEFINE_bool(
+    multiscan_use_async_io,
+    ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
+        .use_async_io,
+    "Sets MultiScanArgs::use_async_io");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -6421,7 +6425,7 @@ class Benchmark {
     int64_t num_keys = 1;
     while (!duration.Done(num_keys)) {
       DB* db = SelectDB(thread);
-      MultiScanArgs opts;
+      MultiScanArgs opts(open_options_.comparator);
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       opts.use_async_io = FLAGS_multiscan_use_async_io;
       std::vector<std::unique_ptr<const char[]>> guards;

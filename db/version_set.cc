@@ -1101,6 +1101,27 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
+  inline bool FileHasMultiScanArg(size_t file_index) {
+    if (file_to_scan_opts_.get()) {
+      auto it = file_to_scan_opts_->find(file_index);
+      if (it != file_to_scan_opts_->end()) {
+        return !it->second.empty();
+      }
+    }
+    return false;
+  }
+
+  MultiScanArgs& GetMultiScanArgForFile(size_t file_index) {
+    auto multi_scan_args_it = file_to_scan_opts_->find(file_index);
+    if (multi_scan_args_it == file_to_scan_opts_->end()) {
+      auto ret = file_to_scan_opts_->emplace(
+          file_index, MultiScanArgs(user_comparator_.user_comparator()));
+      multi_scan_args_it = ret.first;
+      assert(ret.second);
+    }
+    return multi_scan_args_it->second;
+  }
+
   void Prepare(const MultiScanArgs* so) override {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
@@ -1108,6 +1129,9 @@ class LevelIterator final : public InternalIterator {
       return;
     }
     scan_opts_ = so;
+
+    // Verify comparator is consistent
+    assert(so->GetComparator() == user_comparator_.user_comparator());
 
     file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
     for (size_t k = 0; k < scan_opts_->size(); k++) {
@@ -1157,8 +1181,8 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].insert(start.value(), end.value(),
-                                          opt.property_bag);
+          auto args = GetMultiScanArgForFile(i);
+          args.insert(start.value(), end.value(), opt.property_bag);
         }
       }
     }
@@ -1562,9 +1586,10 @@ bool LevelIterator::SkipEmptyFileForward() {
     if (file_iter_.iter() != nullptr) {
       // If we are doing prepared scan opts then we should seek to the values
       // specified by the scan opts
-      if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
+
+      if (scan_opts_ && FileHasMultiScanArg(file_index_)) {
         const ScanOptions& opts =
-            file_to_scan_opts_->at(file_index_).GetScanRanges().front();
+            GetMultiScanArgForFile(file_index_).GetScanRanges().front();
         if (opts.range.start.has_value()) {
           InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
                              kValueTypeForSeek);
@@ -1621,9 +1646,8 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
 
   InternalIterator* old_iter = file_iter_.Set(iter);
   if (iter && scan_opts_) {
-    if (file_to_scan_opts_.get() &&
-        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      const MultiScanArgs& new_opts = file_to_scan_opts_->at(file_index_);
+    if (FileHasMultiScanArg(file_index_)) {
+      const MultiScanArgs& new_opts = GetMultiScanArgForFile(file_index_);
       file_iter_.Prepare(&new_opts);
     } else {
       file_iter_.Prepare(scan_opts_);
