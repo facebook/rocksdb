@@ -1267,6 +1267,8 @@ struct BlockBasedTableBuilder::Rep {
     // Default is UINT64_MAX for unknown. Setting it to 0 here
     // to allow updating it by taking max in BlockBasedTableBuilder::Add().
     props.key_largest_seqno = 0;
+    // Default is UINT64_MAX for unknown.
+    props.key_smallest_seqno = UINT64_MAX;
     PrePopulateCompressionProperties(mgr);
 
     if (FormatVersionUsesContextChecksum(table_options.format_version)) {
@@ -1432,6 +1434,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   SequenceNumber seq;
   UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
   r->props.key_largest_seqno = std::max(r->props.key_largest_seqno, seq);
+  r->props.key_smallest_seqno = std::min(r->props.key_smallest_seqno, seq);
   if (IsValueType(value_type)) {
 #ifndef NDEBUG
     if (r->props.num_entries > r->props.num_range_deletions) {
