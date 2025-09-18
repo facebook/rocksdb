@@ -472,7 +472,7 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // keep operations very fast.
   int eviction_effort_cap = 30;
 
-  HyperClockCacheOptions(
+  explicit HyperClockCacheOptions(
       size_t _capacity, size_t _estimated_entry_charge = 0,
       int _num_shard_bits = -1, bool _strict_capacity_limit = false,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
