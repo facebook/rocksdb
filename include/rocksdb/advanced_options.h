@@ -1101,11 +1101,21 @@ struct AdvancedColumnFamilyOptions {
   uint32_t bottommost_file_compaction_delay = 0;
 
   // Enables additional integrity checks during reads/scans.
-  // Specifically, for skiplist-based memtables, we verify that keys visited
-  // are in order. This is helpful to detect corrupted memtable keys during
-  // reads. Enabling this feature incurs a performance overhead due to an
-  // additional key comparison during memtable lookup.
+  // Specifically, for skiplist-based memtables, key ordering validation could
+  // be enabled optionally. This is helpful to detect corrupted memtable keys
+  // during reads. Enabling this feature incurs a performance overhead due to
+  // additional comparison during memtable lookup.
   bool paranoid_memory_checks = false;
+
+  // Enables additional integrity checks during seek.
+  // Specifically, for skiplist-based memtables, key checksum validation could
+  // be enabled during seek optionally. This is helpful to detect corrupted
+  // memtable keys during reads. Enabling this feature incurs a performance
+  // overhead due to additional key checksum validation during memtable seek
+  // operation.
+  // This option depends on memtable_protection_bytes_per_key to be non zero.
+  // If memtable_protection_bytes_per_key is zero, no validation is performed.
+  bool memtable_veirfy_per_key_checksum_on_seek = false;
 
   // When an iterator scans this number of invisible entries (tombstones or
   // hidden puts) from the active memtable during a single iterator operation,

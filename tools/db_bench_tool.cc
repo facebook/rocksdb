@@ -1281,6 +1281,9 @@ DEFINE_bool(
 DEFINE_bool(paranoid_memory_checks, false,
             "Sets CF option paranoid_memory_checks");
 
+DEFINE_bool(memtable_veirfy_per_key_checksum_on_seek, false,
+            "Sets CF option memtable_veirfy_per_key_checksum_on_seek");
+
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot, false,
     "When set to true, RocksDB iterator will automatically refresh itself "
@@ -4850,6 +4853,8 @@ class Benchmark {
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
+    options.memtable_veirfy_per_key_checksum_on_seek =
+        FLAGS_memtable_veirfy_per_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
     options.compaction_options_universal.reduce_file_locking =

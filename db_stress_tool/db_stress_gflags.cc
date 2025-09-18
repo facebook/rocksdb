@@ -1484,6 +1484,11 @@ DEFINE_bool(paranoid_memory_checks,
             ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
 
+DEFINE_bool(
+    memtable_veirfy_per_key_checksum_on_seek,
+    ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
+    "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
