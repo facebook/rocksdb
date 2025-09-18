@@ -217,6 +217,8 @@ public class SstFileReaderTest {
       assertThat(iterator.isValid()).isTrue();
       assertThat(iterator.key()).isEqualTo("key1".getBytes());
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
+
+      iterator.close();
     }
   }
 }

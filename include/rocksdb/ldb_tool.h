@@ -32,8 +32,16 @@ struct LDBOptions {
 
 class LDBTool {
  public:
+  // DEPRECATED because this function does not return, which can result in
+  // memory leaks being reported because of the default Options() etc. not being
+  // destroyed.
   void Run(
       int argc, char** argv, Options db_options = Options(),
+      const LDBOptions& ldb_options = LDBOptions(),
+      const std::vector<ColumnFamilyDescriptor>* column_families = nullptr);
+
+  int RunAndReturn(
+      int argc, char** argv, const Options& db_options = Options(),
       const LDBOptions& ldb_options = LDBOptions(),
       const std::vector<ColumnFamilyDescriptor>* column_families = nullptr);
 };
