@@ -289,7 +289,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "0;column_family_"
       "name=64656661756C74;user_defined_timestamps_persisted=1;num_entries=100;"
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
-      "is_user_key=0;key_largest_seqno=18446744073709551615;",
+      "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
+      "18;",
       new_tp));
 
   // All bytes are set from the parse
