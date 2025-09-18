@@ -281,8 +281,9 @@ Compaction::Compaction(
     std::vector<CompactionInputFiles> _inputs, int _output_level,
     uint64_t _target_file_size, uint64_t _max_compaction_bytes,
     uint32_t _output_path_id, CompressionType _compression,
-    CompressionOptions _compression_opts, Temperature _output_temperature,
-    uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
+    CompressionOptions _compression_opts,
+    Temperature _output_temperature_override, uint32_t _max_subcompactions,
+    std::vector<FileMetaData*> _grandparents,
     std::optional<SequenceNumber> _earliest_snapshot,
     const SnapshotChecker* _snapshot_checker,
     CompactionReason _compaction_reason, const std::string& _trim_ts,
@@ -303,7 +304,12 @@ Compaction::Compaction(
       output_path_id_(_output_path_id),
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
-      output_temperature_(_output_temperature),
+      output_temperature_(
+          _output_temperature_override == Temperature::kUnknown
+              ? (is_last_level()
+                     ? mutable_cf_options().last_level_temperature
+                     : mutable_cf_options().default_write_temperature)
+              : _output_temperature_override),
       deletion_compaction_(_compaction_reason == CompactionReason::kFIFOTtl ||
                            _compaction_reason ==
                                CompactionReason::kFIFOMaxSize),
