@@ -788,8 +788,6 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
 }
 
 TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
-  // Options options = CurrentOptions();
-  // Reopen(options);
   ASSERT_OK(db_->Put(WriteOptions(), "key1", "value1"));
   ASSERT_OK(db_->Put(WriteOptions(), "key2", "value2"));
   ASSERT_OK(db_->Put(WriteOptions(), "key3", "value3"));
