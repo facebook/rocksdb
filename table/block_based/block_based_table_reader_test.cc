@@ -304,7 +304,7 @@ class BlockBasedTableReaderTest
   uint32_t compression_parallel_threads_;
   uint32_t compression_dict_bytes_;
   bool same_key_diff_ts_;
-  const Comparator* comparator_;
+  const Comparator* comparator_{};
 };
 
 class BlockBasedTableReaderGetTest : public BlockBasedTableReaderTest {};
@@ -1241,9 +1241,6 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
   options.comparator = comparator_;
   ReadOptions read_opts;
   size_t ts_sz = options.comparator->timestamp_size();
-
-  const auto name = comparator_->Name();
-  printf("%s\n", name);
 
   // Generate data that spans multiple blocks
   std::vector<std::pair<std::string, std::string>> kv =
