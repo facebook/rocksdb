@@ -1458,11 +1458,13 @@ TEST_P(BlockBasedTableReaderTest, MultiScanUnpinPreviousBlocks) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   MultiScanArgs scan_options(BytewiseComparator());
-  // Create ranges with gaps: Range 0: blocks 0-4, Range 1: blocks 10-14
+  // Range 1: block 0-4, Range 2: block 4-4, Range 3: block 5-15
   scan_options.insert(ExtractUserKey(kv[0 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[5 * kEntriesPerBlock - 2].first));
-  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 1].first),
-                      ExtractUserKey(kv[15 * kEntriesPerBlock].first));
+                      ExtractUserKey(kv[5 * kEntriesPerBlock - 5].first));
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 4].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock - 3].first));
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 2].first),
+                      ExtractUserKey(kv[15 * kEntriesPerBlock - 1].first));
 
   iter->Prepare(&scan_options);
   auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
@@ -1471,25 +1473,37 @@ TEST_P(BlockBasedTableReaderTest, MultiScanUnpinPreviousBlocks) {
     ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
   }
 
-  // Seek to first range: MultiScan require seeks to be called in scan_option
-  // order
+  // MultiScan require seeks to be called in scan_option order
   iter->Seek(kv[0 * kEntriesPerBlock].first);
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
 
   // Seek to second range - should unpin blocks from first range
-  iter->Seek(kv[5 * kEntriesPerBlock - 1].first);
+  iter->Seek(kv[5 * kEntriesPerBlock - 4].first);
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[5 * kEntriesPerBlock - 4].first);
+  ASSERT_EQ(iter->value(), kv[5 * kEntriesPerBlock - 4].second);
 
-  // Block from first range should be unpinned, except for the last block
-  // which is shared with the second range
+  // The last block (block 4) is shared with the second range, so
+  // it's not unpinned yet.
   for (int block = 0; block < 4; ++block) {
     ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
   }
-  // Blocks from second range still in cache
+  // Blocks from second range still in cache.
   // We skip block 4 here since it's ownership is moved to the actual data
   // block iter.
+  for (int block = 5; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+
+  iter->Seek(kv[5 * kEntriesPerBlock - 2].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[5 * kEntriesPerBlock - 2].first);
+  ASSERT_EQ(iter->value(), kv[5 * kEntriesPerBlock - 2].second);
+
+  // Still pinned
   for (int block = 5; block < 15; ++block) {
     ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
   }

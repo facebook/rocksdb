@@ -1099,10 +1099,14 @@ void BlockBasedTableIterator::UnpinPreviousScanBlocks(size_t current_scan_idx) {
   // TODO: support aborting and clearn up async IO requests, currently
   // only unpins already initialized blocks
   assert(multi_scan_);
+  assert(current_scan_idx < multi_scan_->block_index_ranges_per_scan.size());
   if (current_scan_idx == 0) return;
 
   auto [prev_start_block_idx, prev_end_block_idx] =
       multi_scan_->block_index_ranges_per_scan[current_scan_idx - 1];
+  // Since a block can be shared between consecutive scans, we need
+  // curr_start_block_idx here instead of just release blocks
+  // up to prev_end_block_idx.
   auto [curr_start_block_idx, curr_end_block_idx] =
       multi_scan_->block_index_ranges_per_scan[current_scan_idx];
   for (size_t block_idx = prev_start_block_idx;
