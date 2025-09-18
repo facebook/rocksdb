@@ -10,12 +10,12 @@
 #include "cache/clock_cache.h"
 
 #include <algorithm>
-#include <atomic>
 #include <bitset>
 #include <cassert>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <numeric>
@@ -26,10 +26,9 @@
 #include "cache/cache_key.h"
 #include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics_impl.h"
-#include "port/lang.h"
+#include "port/likely.h"
 #include "rocksdb/env.h"
+#include "util/autovector.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
@@ -1985,6 +1984,11 @@ AutoHyperClockTable::AutoHyperClockTable(
       grow_frontier_(GetTableSize()),
       clock_pointer_mask_(
           BottomNBits(UINT64_MAX, LengthInfoToMinShift(length_info_.Load()))) {
+  if (array_.Get() == nullptr) {
+    fprintf(stderr,
+            "Anonymous mmap for RocksDB HyperClockCache failed. Aborting.\n");
+    std::terminate();
+  }
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     // NOTE: ignoring page boundaries for simplicity
@@ -2052,15 +2056,20 @@ AutoHyperClockTable::~AutoHyperClockTable() {
              HandleImpl::kUnusedMarker) {
     used_end++;
   }
-#ifndef NDEBUG
+  // This check can be extra expensive for a cache that is just created,
+  // maybe used for a small number of entries, as in a unit test, and then
+  // destroyed. Only do this in rare modes.
+#ifdef MUST_FREE_HEAP_ALLOCATIONS
   for (size_t i = used_end; i < array_.Count(); i++) {
     assert(array_[i].head_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].chain_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].meta.LoadRelaxed() == 0);
   }
+#endif          // MUST_FREE_HEAP_ALLOCATIONS
+#ifndef NDEBUG  // Extra invariant checking
   std::vector<bool> was_populated(used_end);
   std::vector<bool> was_pointed_to(used_end);
-#endif
+#endif  // !NDEBUG
   for (size_t i = 0; i < used_end; i++) {
     HandleImpl& h = array_[i];
     switch (h.meta.LoadRelaxed() >> ClockHandle::kStateShift) {
@@ -2083,7 +2092,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
           assert(!was_pointed_to[next]);
           was_pointed_to[next] = true;
         }
-#endif
+#endif  // !NDEBUG
         break;
       // otherwise
       default:
@@ -2097,7 +2106,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[next]);
       was_pointed_to[next] = true;
     }
-#endif
+#endif  // !NDEBUG
   }
 #ifndef NDEBUG  // Extra invariant checking
   // This check is not perfect, but should detect most reasonable cases
@@ -2110,7 +2119,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[i]);
     }
   }
-#endif
+#endif  // !NDEBUG
 
   // Metadata charging only follows the published table size
   assert(usage_.LoadRelaxed() == 0 ||
