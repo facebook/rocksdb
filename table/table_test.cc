@@ -8056,7 +8056,7 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
-  MultiScanArgs scan_opts;
+  MultiScanArgs scan_opts(options.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
   scan_opts.insert(Slice("key20"), std::optional(property_bag));
@@ -8146,7 +8146,7 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
 
   ro.table_index_factory = user_defined_index_factory.get();
   std::vector<int> key_counts;
-  MultiScanArgs scan_opts;
+  MultiScanArgs scan_opts(options.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(5);
   // Empty scans
@@ -8405,7 +8405,7 @@ TEST_F(UserDefinedIndexTest, ConfigTest) {
   ro.table_index_factory = user_defined_index_factory.get();
   std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
-  MultiScanArgs scan_opts;
+  MultiScanArgs scan_opts(options.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
   scan_opts.insert(Slice("key20"), std::optional(property_bag));
