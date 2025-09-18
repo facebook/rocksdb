@@ -1115,7 +1115,7 @@ struct AdvancedColumnFamilyOptions {
   // operation.
   // This option depends on memtable_protection_bytes_per_key to be non zero.
   // If memtable_protection_bytes_per_key is zero, no validation is performed.
-  bool paranoid_memory_check_key_checksum_on_seek = false;
+  bool memtable_veirfy_per_key_checksum_on_seek = false;
 
   // When an iterator scans this number of invisible entries (tombstones or
   // hidden puts) from the active memtable during a single iterator operation,

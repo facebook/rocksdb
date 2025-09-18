@@ -662,9 +662,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, paranoid_memory_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"paranoid_memory_check_key_checksum_on_seek",
+        {"memtable_veirfy_per_key_checksum_on_seek",
          {offsetof(struct MutableCFOptions,
-                   paranoid_memory_check_key_checksum_on_seek),
+                   memtable_veirfy_per_key_checksum_on_seek),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {kOptNameCompOpts,
@@ -1183,8 +1183,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  preserve_internal_time_seconds);
   ROCKS_LOG_INFO(log, "                   paranoid_memory_checks: %d",
                  paranoid_memory_checks);
-  ROCKS_LOG_INFO(log, "paranoid_memory_check_key_checksum_on_seek: %d",
-                 paranoid_memory_check_key_checksum_on_seek);
+  ROCKS_LOG_INFO(log, "memtable_veirfy_per_key_checksum_on_seek: %d",
+                 memtable_veirfy_per_key_checksum_on_seek);
   std::string result;
   char buf[10];
   for (const auto m : max_bytes_for_level_multiplier_additional) {

@@ -5087,7 +5087,7 @@ TEST_F(DBBasicTest, DisallowMemtableWrite) {
   Options options_disallow = options_allow;
   options_disallow.disallow_memtable_writes = true;
   options_disallow.paranoid_memory_checks = true;
-  options_disallow.paranoid_memory_check_key_checksum_on_seek = true;
+  options_disallow.memtable_veirfy_per_key_checksum_on_seek = true;
 
   DestroyAndReopen(options_allow);
   // CFs allowing and disallowing memtable write

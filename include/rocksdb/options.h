@@ -623,7 +623,7 @@ struct DBOptions {
   // checking for corruption, including
   // * paranoid_file_checks
   // * paranoid_memory_checks
-  // * paranoid_memory_check_key_checksum_on_seek
+  // * memtable_veirfy_per_key_checksum_on_seek
   // * DB::VerifyChecksum()
   //
   // Default: true

@@ -364,7 +364,7 @@ default_params = {
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
-    "paranoid_memory_check_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
+    "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),    
@@ -780,7 +780,7 @@ def finalize_and_sanitize(src_params):
     # only skip list memtable representation supports paranoid memory checks
     if dest_params.get("memtablerep") != "skip_list":
         dest_params["paranoid_memory_checks"] = 0
-        dest_params["paranoid_memory_check_key_checksum_on_seek"] = 0
+        dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
