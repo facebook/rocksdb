@@ -1470,6 +1470,29 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
   }
 }
 
+TEST_F(CompactionPickerTest, CompactFilesOutputTemperature) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  auto file_number = 66U;
+  Add(0, file_number, "150", "200", 1000000000U);
+  UpdateVersionStorageInfo();
+
+  std::unordered_set<uint64_t> input{file_number};
+  std::vector<CompactionInputFiles> input_files;
+  ASSERT_OK(level_compaction_picker.GetCompactionInputsFromFileNumbers(
+      &input_files, &input, vstorage_.get(), CompactionOptions()));
+
+  auto compactionOptions = CompactionOptions();
+  compactionOptions.output_temperature = Temperature::kCold;
+
+  std::unique_ptr<Compaction> compaction(
+      level_compaction_picker.PickCompactionForCompactFiles(
+          compactionOptions, input_files, 1, vstorage_.get(),
+          mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
+
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
+}
+
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   NewVersionStorage(6, kCompactionStyleLevel);
   ioptions_.compaction_pri = kMinOverlappingRatio;

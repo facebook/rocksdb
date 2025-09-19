@@ -288,7 +288,8 @@ Compaction::Compaction(
     CompactionReason _compaction_reason, const std::string& _trim_ts,
     double _score, bool l0_files_might_overlap,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
-    double _blob_garbage_collection_age_cutoff)
+    double _blob_garbage_collection_age_cutoff,
+    bool _can_temperature_be_overriden)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
@@ -304,6 +305,7 @@ Compaction::Compaction(
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
       output_temperature_(_output_temperature),
+      can_temperature_be_overriden_(_can_temperature_be_overriden),
       deletion_compaction_(_compaction_reason == CompactionReason::kFIFOTtl ||
                            _compaction_reason ==
                                CompactionReason::kFIFOMaxSize),

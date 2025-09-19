@@ -99,7 +99,8 @@ class Compaction {
              bool l0_files_might_overlap = true,
              BlobGarbageCollectionPolicy blob_garbage_collection_policy =
                  BlobGarbageCollectionPolicy::kUseDefault,
-             double blob_garbage_collection_age_cutoff = -1);
+             double blob_garbage_collection_age_cutoff = -1,
+             bool can_temperature_be_overriden = true);
 
   // The type of the proximal level output range
   enum class ProximalOutputRangeType : int {
@@ -410,6 +411,9 @@ class Compaction {
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
   Temperature output_temperature() const { return output_temperature_; }
+  bool can_temperature_be_overriden() const {
+    return can_temperature_be_overriden_;
+  }
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
@@ -542,6 +546,7 @@ class Compaction {
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
   Temperature output_temperature_;
+  bool can_temperature_be_overriden_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
   // should it split the output file using the compact cursor?
