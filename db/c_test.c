@@ -1036,6 +1036,78 @@ int main(int argc, char** argv) {
     rocksdb_options_set_error_if_exists(options, 1);
   }
 
+  StartPhase("checkpoint_export_column_family");
+  {
+    static char cf_export_path[200];
+    static char db_import_path[200];
+    snprintf(cf_export_path, sizeof(cf_export_path),
+             "%s/rocksdb_c_test-%d-cf_export", GetTempDir(), ((int)geteuid()));
+    snprintf(db_import_path, sizeof(db_import_path),
+             "%s/rocksdb_c_test-%d-db_import", GetTempDir(), ((int)geteuid()));
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_column_family_handle_t* cf_export =
+        rocksdb_create_column_family(db, db_options, "cf_export", &err);
+    CheckNoError(err);
+
+    rocksdb_put_cf(db, woptions, cf_export, "k1", 2, "v1", 2, &err);
+    CheckNoError(err);
+    rocksdb_put_cf(db, woptions, cf_export, "k2", 2, "v2", 2, &err);
+    CheckNoError(err);
+
+    rocksdb_checkpoint_t* checkpoint =
+        rocksdb_checkpoint_object_create(db, &err);
+    CheckNoError(err);
+
+    rocksdb_export_import_files_metadata_t* export_metadata =
+        rocksdb_checkpoint_export_column_family(checkpoint, cf_export,
+                                                cf_export_path, &err);
+    CheckNoError(err);
+    const char* comparator_name =
+        rocksdb_export_import_files_metadata_get_db_comparator_name(
+            export_metadata);
+    CheckEqual("leveldb.BytewiseComparator", comparator_name, 26);
+    rocksdb_free((void*)comparator_name);
+    rocksdb_checkpoint_object_destroy(checkpoint);
+    checkpoint = NULL;
+    rocksdb_drop_column_family(db, cf_export, &err);
+    CheckNoError(err);
+    rocksdb_column_family_handle_destroy(cf_export);
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    rocksdb_options_set_error_if_exists(db_options, 1);
+    rocksdb_t* db_import = rocksdb_open(db_options, db_import_path, &err);
+    CheckNoError(err);
+    rocksdb_import_column_family_options_t* import_options =
+        rocksdb_import_column_family_options_create();
+    rocksdb_column_family_handle_t* cf_import =
+        rocksdb_create_column_family_with_import(db_import, db_options,
+                                                 "cf_import", import_options,
+                                                 export_metadata, &err);
+    CheckNoError(err);
+    rocksdb_import_column_family_options_destroy(import_options);
+    rocksdb_export_import_files_metadata_destroy(export_metadata);
+    size_t val_len;
+    char* val =
+        rocksdb_get_cf(db_import, roptions, cf_import, "k1", 2, &val_len, &err);
+    CheckNoError(err);
+    CheckEqual("v1", val, val_len);
+    free(val);
+
+    val =
+        rocksdb_get_cf(db_import, roptions, cf_import, "k2", 2, &val_len, &err);
+    CheckNoError(err);
+    CheckEqual("v2", val, val_len);
+    free(val);
+
+    rocksdb_column_family_handle_destroy(cf_import);
+    cf_import = NULL;
+    rocksdb_close(db_import);
+    rocksdb_destroy_db(db_options, db_import_path, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(db_options);
+    db_options = NULL;
+  }
+
   StartPhase("compactall");
   rocksdb_compact_range(db, NULL, 0, NULL, 0);
   CheckGet(db, roptions, "foo", "hello");

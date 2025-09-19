@@ -170,6 +170,8 @@ struct MutableCFOptions {
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
         paranoid_memory_checks(options.paranoid_memory_checks),
+        memtable_veirfy_per_key_checksum_on_seek(
+            options.memtable_veirfy_per_key_checksum_on_seek),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level),
@@ -231,6 +233,7 @@ struct MutableCFOptions {
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
         paranoid_memory_checks(false),
+        memtable_veirfy_per_key_checksum_on_seek(false),
         sample_for_compression(0),
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
@@ -337,6 +340,7 @@ struct MutableCFOptions {
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
   bool paranoid_memory_checks;
+  bool memtable_veirfy_per_key_checksum_on_seek;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;

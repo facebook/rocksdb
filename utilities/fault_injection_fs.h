@@ -229,14 +229,25 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   static const char* kClassName() { return "FaultInjectionTestFS"; }
   const char* Name() const override { return kClassName(); }
 
-  static bool IsInjectedError(const Status& s) {
-    assert(!s.ok());
-    return std::strstr(s.getState(), kInjected.c_str());
+  static bool IsInjectedError(const Status& s,
+                              const std::string& specific_error_marker = "") {
+    if (s.ok()) {
+      return false;
+    }
+    const char* state = s.getState();
+    if (state == nullptr) {
+      return false;
+    }
+    bool is_injected_error = std::strstr(state, kInjected.c_str()) != nullptr;
+    bool is_specific_error =
+        specific_error_marker.empty() ||
+        std::strstr(state, specific_error_marker.c_str()) != nullptr;
+
+    return is_injected_error && is_specific_error;
   }
 
   static bool IsFailedToWriteToWALError(const Status& s) {
-    assert(!s.ok());
-    return std::strstr(s.getState(), kFailedToWriteToWAL.c_str());
+    return IsInjectedError(s, kFailedToWriteToWAL);
   }
 
   IOStatus NewDirectory(const std::string& name, const IOOptions& options,

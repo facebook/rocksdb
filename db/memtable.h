@@ -64,6 +64,7 @@ struct ImmutableMemTableOptions {
   uint32_t protection_bytes_per_key;
   bool allow_data_in_errors;
   bool paranoid_memory_checks;
+  bool memtable_veirfy_per_key_checksum_on_seek;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -826,6 +827,9 @@ class MemTable final : public ReadOnlyMemTable {
                                     uint32_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
+  // Validate the checksum of the key/value pair.
+  Status ValidateKey(const char* key, bool allow_data_in_errors);
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -956,6 +960,8 @@ class MemTable final : public ReadOnlyMemTable {
                            SequenceNumber s, char* checksum_ptr);
 
   void MaybeUpdateNewestUDT(const Slice& user_key);
+
+  const std::function<Status(const char*, bool)> key_validation_callback_;
 };
 
 const char* EncodeKey(std::string* scratch, const Slice& target);

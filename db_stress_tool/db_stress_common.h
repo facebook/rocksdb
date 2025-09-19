@@ -275,6 +275,7 @@ DECLARE_string(last_level_temperature);
 DECLARE_string(default_write_temperature);
 DECLARE_string(default_temperature);
 DECLARE_bool(paranoid_memory_checks);
+DECLARE_bool(memtable_veirfy_per_key_checksum_on_seek);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)

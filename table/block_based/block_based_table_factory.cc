@@ -437,10 +437,10 @@ void BlockBasedTableFactory::InitializeOptions() {
   if (table_options_.no_block_cache) {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
-    LRUCacheOptions co;
-    // 32MB, the recommended minimum size for 64 shards, to reduce contention
-    co.capacity = 32 << 20;
-    table_options_.block_cache = NewLRUCache(co);
+    // Now using AutoHCC by default, with existing default size of 32MB
+    // which is just one cache shard in HCC
+    HyperClockCacheOptions hcc_opts{size_t{32} << 20};
+    table_options_.block_cache = hcc_opts.MakeSharedCache();
   }
   if (table_options_.block_size_deviation < 0 ||
       table_options_.block_size_deviation > 100) {

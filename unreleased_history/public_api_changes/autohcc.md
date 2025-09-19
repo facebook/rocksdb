@@ -1,0 +1,1 @@
+* HyperClockCache with no `estimated_entry_charge` is now production-ready and is the preferred block cache implementation vs. LRUCache. Please consider updating your code to minimize the risk of hitting performance bottlenecks or anomalies from LRUCache. See cache.h for more detail.

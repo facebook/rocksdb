@@ -623,6 +623,7 @@ struct DBOptions {
   // checking for corruption, including
   // * paranoid_file_checks
   // * paranoid_memory_checks
+  // * memtable_veirfy_per_key_checksum_on_seek
   // * DB::VerifyChecksum()
   //
   // Default: true
@@ -1782,8 +1783,7 @@ struct ScanOptions {
 class MultiScanArgs {
  public:
   // Constructor that takes a comparator
-  explicit MultiScanArgs(const Comparator* comparator = BytewiseComparator())
-      : comp_(comparator) {}
+  explicit MultiScanArgs(const Comparator* comparator) : comp_(comparator) {}
 
   // Copy Constructor
   MultiScanArgs(const MultiScanArgs& other) {
@@ -1854,6 +1854,8 @@ class MultiScanArgs {
   const std::vector<ScanOptions>& GetScanRanges() const {
     return original_ranges_;
   }
+
+  const Comparator* GetComparator() const { return comp_; }
 
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
 

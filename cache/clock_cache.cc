@@ -10,12 +10,12 @@
 #include "cache/clock_cache.h"
 
 #include <algorithm>
-#include <atomic>
 #include <bitset>
 #include <cassert>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <numeric>
@@ -1725,10 +1725,13 @@ inline uint64_t UsedLengthToLengthInfo(size_t used_length) {
   return length_info;
 }
 
+// Avoid potential initialization order race with port::kPageSize
+constexpr size_t kPresumedPageSize = 4096;
+
 inline size_t GetStartingLength(size_t capacity) {
-  if (capacity > port::kPageSize) {
+  if (capacity > kPresumedPageSize) {
     // Start with one memory page
-    return port::kPageSize / sizeof(AutoHyperClockTable::HandleImpl);
+    return kPresumedPageSize / sizeof(AutoHyperClockTable::HandleImpl);
   } else {
     // Mostly to make unit tests happy
     return 4;
@@ -1985,6 +1988,11 @@ AutoHyperClockTable::AutoHyperClockTable(
       grow_frontier_(GetTableSize()),
       clock_pointer_mask_(
           BottomNBits(UINT64_MAX, LengthInfoToMinShift(length_info_.Load()))) {
+  if (array_.Get() == nullptr) {
+    fprintf(stderr,
+            "Anonymous mmap for RocksDB HyperClockCache failed. Aborting.\n");
+    std::terminate();
+  }
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     // NOTE: ignoring page boundaries for simplicity
@@ -2052,15 +2060,20 @@ AutoHyperClockTable::~AutoHyperClockTable() {
              HandleImpl::kUnusedMarker) {
     used_end++;
   }
-#ifndef NDEBUG
+  // This check can be extra expensive for a cache that is just created,
+  // maybe used for a small number of entries, as in a unit test, and then
+  // destroyed. Only do this in rare modes.
+#ifdef MUST_FREE_HEAP_ALLOCATIONS
   for (size_t i = used_end; i < array_.Count(); i++) {
     assert(array_[i].head_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].chain_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].meta.LoadRelaxed() == 0);
   }
+#endif          // MUST_FREE_HEAP_ALLOCATIONS
+#ifndef NDEBUG  // Extra invariant checking
   std::vector<bool> was_populated(used_end);
   std::vector<bool> was_pointed_to(used_end);
-#endif
+#endif  // !NDEBUG
   for (size_t i = 0; i < used_end; i++) {
     HandleImpl& h = array_[i];
     switch (h.meta.LoadRelaxed() >> ClockHandle::kStateShift) {
@@ -2083,7 +2096,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
           assert(!was_pointed_to[next]);
           was_pointed_to[next] = true;
         }
-#endif
+#endif  // !NDEBUG
         break;
       // otherwise
       default:
@@ -2097,7 +2110,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[next]);
       was_pointed_to[next] = true;
     }
-#endif
+#endif  // !NDEBUG
   }
 #ifndef NDEBUG  // Extra invariant checking
   // This check is not perfect, but should detect most reasonable cases
@@ -2110,7 +2123,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[i]);
     }
   }
-#endif
+#endif  // !NDEBUG
 
   // Metadata charging only follows the published table size
   assert(usage_.LoadRelaxed() == 0 ||
@@ -3578,7 +3591,7 @@ size_t AutoHyperClockTable::CalcMaxUsableLength(
   size_t num_slots =
       static_cast<size_t>(capacity / min_avg_slot_charge + 0.999999);
 
-  const size_t slots_per_page = port::kPageSize / sizeof(HandleImpl);
+  const size_t slots_per_page = kPresumedPageSize / sizeof(HandleImpl);
 
   // Round up to page size
   return ((num_slots + slots_per_page - 1) / slots_per_page) * slots_per_page;

@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include <array>
-#include <atomic>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
