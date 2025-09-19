@@ -22,6 +22,7 @@
 #include "rocksdb/options.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/partitioned_index_iterator.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
@@ -1428,6 +1429,83 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
     // Should not hit prefetch limit
     ASSERT_OK(iter->status());
     ASSERT_EQ(scanned_keys, 5 + 4 * kEntriesPerBlock + 1 * kEntriesPerBlock);
+  }
+}
+
+TEST_P(BlockBasedTableReaderTest, MultiScanUnpinPreviousBlocks) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          30 /* num_block */,
+          true /* mixed_with_human_readable_string_value */);
+  std::string table_name = "BlockBasedTableReaderTest_UnpinPreviousBlocks" +
+                           CompressionTypeToString(compression_type_);
+  ImmutableOptions ioptions(options_);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options_.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  ReadOptions read_opts;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  // Range 1: block 0-4, Range 2: block 4-4, Range 3: block 5-15
+  scan_options.insert(ExtractUserKey(kv[0 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock - 5].first));
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 4].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock - 3].first));
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 2].first),
+                      ExtractUserKey(kv[15 * kEntriesPerBlock - 1].first));
+
+  iter->Prepare(&scan_options);
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  for (int block = 0; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+
+  // MultiScan require seeks to be called in scan_option order
+  iter->Seek(kv[0 * kEntriesPerBlock].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Seek to second range - should unpin blocks from first range
+  iter->Seek(kv[5 * kEntriesPerBlock - 4].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[5 * kEntriesPerBlock - 4].first);
+  ASSERT_EQ(iter->value(), kv[5 * kEntriesPerBlock - 4].second);
+
+  // The last block (block 4) is shared with the second range, so
+  // it's not unpinned yet.
+  for (int block = 0; block < 4; ++block) {
+    ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+  // Blocks from second range still in cache.
+  // We skip block 4 here since it's ownership is moved to the actual data
+  // block iter.
+  for (int block = 5; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+
+  iter->Seek(kv[5 * kEntriesPerBlock - 2].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[5 * kEntriesPerBlock - 2].first);
+  ASSERT_EQ(iter->value(), kv[5 * kEntriesPerBlock - 2].second);
+
+  // Still pinned
+  for (int block = 5; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
   }
 }
 

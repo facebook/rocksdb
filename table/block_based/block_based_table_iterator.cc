@@ -1047,6 +1047,10 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     // Unexpected seek key
     multi_scan_.reset();
   } else {
+    if (multi_scan_->next_scan_idx > 0) {
+      UnpinPreviousScanBlocks(multi_scan_->next_scan_idx);
+    }
+
     auto [cur_scan_start_idx, cur_scan_end_idx] =
         multi_scan_->block_index_ranges_per_scan[multi_scan_->next_scan_idx];
     // We should have the data block already loaded
@@ -1089,6 +1093,28 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
   assert(!is_index_at_curr_block_);
   assert(!block_iter_points_to_real_block_);
   return false;
+}
+
+void BlockBasedTableIterator::UnpinPreviousScanBlocks(size_t current_scan_idx) {
+  // TODO: support aborting and clearn up async IO requests, currently
+  // only unpins already initialized blocks
+  assert(multi_scan_);
+  assert(current_scan_idx < multi_scan_->block_index_ranges_per_scan.size());
+  if (current_scan_idx == 0) return;
+
+  auto [prev_start_block_idx, prev_end_block_idx] =
+      multi_scan_->block_index_ranges_per_scan[current_scan_idx - 1];
+  // Since a block can be shared between consecutive scans, we need
+  // curr_start_block_idx here instead of just release blocks
+  // up to prev_end_block_idx.
+  auto [curr_start_block_idx, curr_end_block_idx] =
+      multi_scan_->block_index_ranges_per_scan[current_scan_idx];
+  for (size_t block_idx = prev_start_block_idx;
+       block_idx < curr_start_block_idx; ++block_idx) {
+    if (!multi_scan_->pinned_data_blocks[block_idx].IsEmpty()) {
+      multi_scan_->pinned_data_blocks[block_idx].Reset();
+    }
+  }
 }
 
 void BlockBasedTableIterator::FindBlockForwardInMultiScan() {

@@ -238,6 +238,16 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
 
+  bool TEST_IsBlockPinnedByMultiScan(size_t block_idx) {
+    if (!multi_scan_) {
+      return false;
+    }
+    if (block_idx >= multi_scan_->pinned_data_blocks.size()) {
+      return false;
+    }
+    return !multi_scan_->pinned_data_blocks[block_idx].IsEmpty();
+  }
+
  private:
   enum class IterDirection {
     kForward,
@@ -593,6 +603,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool SeekMultiScan(const Slice* target);
 
   void FindBlockForwardInMultiScan();
+
+  // Unpins blocks from the immediately previous scan range.
+  void UnpinPreviousScanBlocks(size_t current_scan_idx);
 
   void PrepareReadAsyncCallBack(FSReadRequest& req, void* cb_arg) {
     // Record status, result and sanity check offset from `req`.
