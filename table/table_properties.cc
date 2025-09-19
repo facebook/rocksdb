@@ -65,6 +65,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
                  prop_delim, kv_delim);
 
   AppendProperty(result, "data block size", data_size, prop_delim, kv_delim);
+  AppendProperty(result, "data uncompressed size", uncompressed_data_size,
+                 prop_delim, kv_delim);
   char index_block_size_str[80];
   snprintf(index_block_size_str, sizeof(index_block_size_str),
            "index block size (user-key? %d, delta-value? %d)",
@@ -180,6 +182,7 @@ std::string TableProperties::ToString(const std::string& prop_delim,
 
 void TableProperties::Add(const TableProperties& tp) {
   data_size += tp.data_size;
+  uncompressed_data_size += tp.uncompressed_data_size;
   index_size += tp.index_size;
   index_partitions += tp.index_partitions;
   top_level_index_size += tp.top_level_index_size;
@@ -204,6 +207,7 @@ std::map<std::string, uint64_t>
 TableProperties::GetAggregatablePropertiesAsMap() const {
   std::map<std::string, uint64_t> rv;
   rv["data_size"] = data_size;
+  rv["uncompressed_data_size"] = uncompressed_data_size;
   rv["index_size"] = index_size;
   rv["index_partitions"] = index_partitions;
   rv["top_level_index_size"] = top_level_index_size;
@@ -334,6 +338,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"data_size",
          {offsetof(struct TableProperties, data_size), OptionType::kUInt64T,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"uncompressed_data_size",
+         {offsetof(struct TableProperties, uncompressed_data_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"index_size",
          {offsetof(struct TableProperties, index_size), OptionType::kUInt64T,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},

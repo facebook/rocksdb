@@ -15,6 +15,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/block_based/block.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/sst_file_dumper.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -84,7 +85,7 @@ void print_help(bool to_stderr) {
       Print table properties after iterating over the file when executing
       check|scan|raw|identify
 
-    --set_block_size=<block_size>
+    --block_size=<block_size>
       Can be combined with --command=recompress to set the block size that will
       be used when trying different compression algorithms
 
@@ -103,6 +104,9 @@ void print_help(bool to_stderr) {
       Convenience option to parse an internal key on the command line. Dumps the
       internal key in hex format {'key' @ SN: type}
 
+    --compression_level=<compression_level>
+      Sets both --compression_level_from= and --compression_level_to=
+
     --compression_level_from=<compression_level>
       Compression level to start compressing when executing recompress. One compression type
       and compression_level_to must also be specified
@@ -111,17 +115,20 @@ void print_help(bool to_stderr) {
       Compression level to stop compressing when executing recompress. One compression type
       and compression_level_from must also be specified
 
-    --compression_max_dict_bytes=<uint32_t>
-      Maximum size of dictionary used to prime the compression library
-
-    --compression_zstd_max_train_bytes=<uint32_t>
-      Maximum size of training data passed to zstd's dictionary trainer
-
     --compression_max_dict_buffer_bytes=<int64_t>
       Limit on buffer size from which we collect samples for dictionary generation.
 
+    --compression_max_dict_bytes=<uint32_t>
+      Maximum size of dictionary used to prime the compression library
+
+    --compression_parallel_threads=<uint32_t>
+      Number of parallel threads to use with --command=recompress
+
     --compression_use_zstd_finalize_dict
       Use zstd's finalizeDictionary() API instead of zstd's dictionary trainer to generate dictionary.
+
+    --compression_zstd_max_train_bytes=<uint32_t>
+      Maximum size of training data passed to zstd's dictionary trainer
 
     --list_meta_blocks
       Print the list of all meta blocks in the file
@@ -167,7 +174,6 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   bool show_properties = false;
   bool show_summary = false;
   bool list_meta_blocks = false;
-  bool set_block_size = false;
   bool has_compression_level_from = false;
   bool has_compression_level_to = false;
   bool has_specified_compression_types = false;
@@ -176,7 +182,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::string block_size_str;
   std::string compression_level_from_str;
   std::string compression_level_to_str;
-  size_t block_size = 0;
+  size_t block_size = 16384;  // A popular choice for default
   size_t readahead_size = 2 * 1024 * 1024;
   std::vector<CompressionType> compression_types;
   std::shared_ptr<CompressionManager> compression_manager;
@@ -195,6 +201,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes;
   bool compression_use_zstd_finalize_dict =
       !ROCKSDB_NAMESPACE::CompressionOptions().use_zstd_dict_trainer;
+  uint32_t compression_parallel_threads = 1;
 
   int64_t tmp_val;
 
@@ -235,8 +242,9 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (strcmp(argv[i], "--show_summary") == 0) {
       show_summary = true;
     } else if (ParseIntArg(argv[i], "--set_block_size=",
+                           "block size must be numeric", &tmp_val) ||
+               ParseIntArg(argv[i], "--block_size=",
                            "block size must be numeric", &tmp_val)) {
-      set_block_size = true;
       block_size = static_cast<size_t>(tmp_val);
     } else if (ParseIntArg(argv[i], "--readahead_size=",
                            "readahead_size must be numeric", &tmp_val)) {
@@ -297,6 +305,12 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       }
       fprintf(stdout, "key=%s\n", ikey.DebugString(true, true).c_str());
       return retc;
+    } else if (ParseIntArg(argv[i], "--compression_level=",
+                           "compression_level must be numeric", &tmp_val)) {
+      has_compression_level_from = true;
+      has_compression_level_to = true;
+      compress_level_from = static_cast<int>(tmp_val);
+      compress_level_to = static_cast<int>(tmp_val);
     } else if (ParseIntArg(argv[i], "--compression_level_from=",
                            "compression_level_from must be numeric",
                            &tmp_val)) {
@@ -316,6 +330,16 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         return 1;
       }
       compression_max_dict_bytes = static_cast<uint32_t>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--compression_parallel_threads=",
+                           "compression_parallel_threads must be numeric",
+                           &tmp_val)) {
+      if (tmp_val < 0 || tmp_val > 100) {
+        fprintf(stderr, "compression_parallel_threads out of range: '%s'\n",
+                argv[i]);
+        print_help(/*to_stderr*/ true);
+        return 1;
+      }
+      compression_parallel_threads = static_cast<uint32_t>(tmp_val);
     } else if (ParseIntArg(argv[i], "--compression_zstd_max_train_bytes=",
                            "compression_zstd_max_train_bytes must be numeric",
                            &tmp_val)) {
@@ -448,9 +472,32 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       verify_checksum = true;
     }
 
+    // Update options for when simulating writing a table file
+    {
+      BlockBasedTableOptions bbto;
+      if (options.table_factory->IsInstanceOf(
+              TableFactory::kBlockBasedTableName()) &&
+          options.table_factory->GetOptions<BlockBasedTableOptions>()) {
+        bbto = *options.table_factory->GetOptions<BlockBasedTableOptions>();
+      }
+      bbto.block_size = block_size;
+      // Maximize compression features available
+      bbto.format_version = kLatestFormatVersion;
+      options.table_factory = std::make_shared<BlockBasedTableFactory>(bbto);
+    }
+    options.compression_opts.max_dict_bytes = compression_max_dict_bytes;
+    options.compression_opts.zstd_max_train_bytes =
+        compression_zstd_max_train_bytes;
+    options.compression_opts.max_dict_buffer_bytes =
+        compression_max_dict_buffer_bytes;
+    options.compression_opts.use_zstd_dict_trainer =
+        !compression_use_zstd_finalize_dict;
+    options.compression_opts.parallel_threads = compression_parallel_threads;
+
     ROCKSDB_NAMESPACE::SstFileDumper dumper(
         options, filename, Temperature::kUnknown, readahead_size,
         verify_checksum, output_hex, decode_blob_index);
+
     // Not a valid SST
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
@@ -471,15 +518,14 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
 
     if (command == "recompress") {
+      fprintf(stdout, "Block Size: %zu  Threads: %u\n", block_size,
+              (unsigned)compression_parallel_threads);
       // TODO: consider getting supported compressions from the compression
       // manager
       st = dumper.ShowAllCompressionSizes(
-          set_block_size ? block_size : 16384,
           compression_types.empty() ? GetSupportedCompressions()
                                     : compression_types,
-          compress_level_from, compress_level_to, compression_max_dict_bytes,
-          compression_zstd_max_train_bytes, compression_max_dict_buffer_bytes,
-          !compression_use_zstd_finalize_dict);
+          compress_level_from, compress_level_to);
       if (!st.ok()) {
         fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
         exit(1);
