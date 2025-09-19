@@ -136,14 +136,15 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return block_iter_.value();
   }
   Status status() const override {
+    if (!multi_scan_status_.ok()) {
+      return multi_scan_status_;
+    }
     // In case of block cache readahead lookup, it won't add the block to
     // block_handles if it's index is invalid. So index_iter_->status check can
     // be skipped.
     // Prefix index set status to NotFound when the prefix does not exist.
-    if (!multi_scan_status_.ok()) {
-      return multi_scan_status_;
-    } else if (IsIndexAtCurr() && !index_iter_->status().ok() &&
-               !index_iter_->status().IsNotFound()) {
+    if (IsIndexAtCurr() && !index_iter_->status().ok() &&
+        !index_iter_->status().IsNotFound()) {
       assert(!multi_scan_);
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {

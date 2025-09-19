@@ -8414,7 +8414,8 @@ TEST_F(UserDefinedIndexTest, MultiScanFailureTest) {
 
   ub = key_ranges[3];
   iter->Seek(key_ranges[2]);
-  ASSERT_NOK(iter->status());
+  // This should fail due to reaching max_prefetch_size limit
+  ASSERT_EQ(iter->status(), Status::Incomplete());
   iter.reset();
 
   iter.reset(db->NewIterator(ro, cfh));
@@ -8423,7 +8424,8 @@ TEST_F(UserDefinedIndexTest, MultiScanFailureTest) {
   iter->Prepare(scan_options);
   ub = key_ranges[3];
   iter->Seek(key_ranges[2]);
-  ASSERT_NOK(iter->status());
+  // Seek should fail as its not in the order specified in scan_options
+  ASSERT_EQ(iter->status(), Status::InvalidArgument());
   iter.reset();
 
   iter.reset(db->NewIterator(ro, cfh));
@@ -8435,7 +8437,8 @@ TEST_F(UserDefinedIndexTest, MultiScanFailureTest) {
   iter->Prepare(scan_options);
   ub = key_ranges[3];
   iter->Seek(key_ranges[2]);
-  ASSERT_NOK(iter->status());
+  // Should fail due to overlapping ranges
+  ASSERT_EQ(iter->status(), Status::InvalidArgument());
   iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
