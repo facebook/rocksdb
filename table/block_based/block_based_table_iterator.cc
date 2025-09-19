@@ -961,8 +961,8 @@ BlockBasedTableIterator::MultiScanState::~MultiScanState() {
 // - scan ranges should be non-overlapping, and have increasing start keys.
 // If a scan range's limit is not set, then there should only be one scan range.
 // - After Prepare(), the iterator expects Seek to be called on the start key
-// of each ScanOption in order. If any other seek is done, the optimization here
-// is aborted and fall back to vanilla iterator.
+// of each ScanOption in order. If any other Seek is done, an error status is
+// returned
 // FIXME: DBIter and MergingIterator may
 // internally do Seek() on child iterators, e.g. due to
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
@@ -973,12 +973,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   if (multi_scan_) {
     multi_scan_.reset();
     multi_scan_status_ = Status::InvalidArgument("Prepare already called");
-    ;
     return;
   }
-  Status s = ValidateScanOptions(multiscan_opts);
-  if (!s.ok()) {
-    multi_scan_status_ = s;
+  multi_scan_status_ = ValidateScanOptions(multiscan_opts);
+  if (!multi_scan_status_.ok()) {
     return;
   }
 
@@ -987,10 +985,9 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   std::vector<BlockHandle> scan_block_handles;
   std::vector<std::tuple<size_t, size_t>> block_index_ranges_per_scan;
   const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
-  s = CollectBlockHandles(scan_opts, &scan_block_handles,
-                          &block_index_ranges_per_scan);
-  if (!s.ok()) {
-    multi_scan_status_ = s;
+  multi_scan_status_ = CollectBlockHandles(scan_opts, &scan_block_handles,
+                                           &block_index_ranges_per_scan);
+  if (!multi_scan_status_.ok()) {
     return;
   }
 
@@ -999,11 +996,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   std::vector<CachableEntry<Block>> pinned_data_blocks_guard(
       scan_block_handles.size());
   size_t prefetched_max_idx;
-  s = FilterAndPinCachedBlocks(scan_block_handles, multiscan_opts,
-                               &block_indices_to_read,
-                               &pinned_data_blocks_guard, &prefetched_max_idx);
-  if (!s.ok()) {
-    multi_scan_status_ = s;
+  multi_scan_status_ = FilterAndPinCachedBlocks(
+      scan_block_handles, multiscan_opts, &block_indices_to_read,
+      &pinned_data_blocks_guard, &prefetched_max_idx);
+  if (!multi_scan_status_.ok()) {
     return;
   }
 
@@ -1017,10 +1013,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
                       &read_reqs, &block_idx_to_readreq_idx,
                       &coalesced_block_indices);
 
-    s = ExecuteIO(scan_block_handles, multiscan_opts, coalesced_block_indices,
+    multi_scan_status_ =
+        ExecuteIO(scan_block_handles, multiscan_opts, coalesced_block_indices,
                   &read_reqs, &async_states, &pinned_data_blocks_guard);
-    if (!s.ok()) {
-      multi_scan_status_ = s;
+    if (!multi_scan_status_.ok()) {
       return;
     }
   }
