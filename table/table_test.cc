@@ -7724,7 +7724,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
 
   void ValidateMultiScan(const ReadOptions& ro, MultiScanArgs& scan_opts,
                          std::vector<int>& key_counts, std::unique_ptr<DB>& db,
-                         ColumnFamilyHandle* cfh) {
+                         ColumnFamilyHandle* cfh,
+                         bool skip_after_count_limit = false, int count = 0) {
     Slice ub;
     ReadOptions read_opts = ro;
     int key_count = 0;
@@ -7740,6 +7741,11 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
       while (iter->Valid()) {
         key_count++;
         iter->Next();
+        if (skip_after_count_limit) {
+          if (key_count == count) {
+            break;
+          }
+        }
       }
       EXPECT_EQ(key_count, key_counts[index]);
       key_count = 0;
@@ -8102,6 +8108,7 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
   bool skip = false;
   // Create a sparse file with some missing key ranges so we can do
   // MultiScans with empty scans interspersed with non-zero scans.
+  // Insert key key0 ~ key19, key40 ~ key59, key80 ~ key99,
   for (int i = 0; i < 100; i++) {
     if (i > 0 && i % 20 == 0) {
       skip = !skip;
@@ -8148,7 +8155,8 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
   std::vector<int> key_counts;
   MultiScanArgs scan_opts(options.comparator);
   std::unordered_map<std::string, std::string> property_bag;
-  property_bag["count"] = std::to_string(5);
+  auto count = 5;
+  property_bag["count"] = std::to_string(count);
   // Empty scans
   scan_opts.insert(Slice("key25"), Slice("key30"), std::optional(property_bag));
   key_counts.push_back(0);
@@ -8215,6 +8223,20 @@ TEST_F(UserDefinedIndexTest, EmptyRangeTest) {
                    std::optional(property_bag));
   key_counts.push_back(20);
   ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  // Read only the number of keys specified in the count, then skip to next
+  // range
+  key_counts.clear();
+  (*scan_opts).clear();
+  scan_opts.insert(Slice("key10"), Slice("key26"), std::optional(property_bag));
+  key_counts.push_back(5);
+  scan_opts.insert(Slice("key29"), Slice("key36"), std::optional(property_bag));
+  key_counts.push_back(0);
+  scan_opts.insert(Slice("key38"), Slice("key49"), std::optional(property_bag));
+  key_counts.push_back(5);
+  scan_opts.insert(Slice("key50"), Slice("key69"), std::optional(property_bag));
+  key_counts.push_back(5);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh, true, count);
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());
