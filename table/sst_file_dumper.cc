@@ -231,8 +231,7 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
 }
 
 Status SstFileDumper::CalculateCompressedTableSize(
-    const TableBuilderOptions& tb_options, size_t block_size,
-    uint64_t* num_data_blocks, uint64_t* compressed_table_size) {
+    const TableBuilderOptions& tb_options, TableProperties* props) {
   std::unique_ptr<Env> env(NewMemEnv(options_.env));
   std::unique_ptr<WritableFileWriter> dest_writer;
   Status s =
@@ -241,12 +240,9 @@ Status SstFileDumper::CalculateCompressedTableSize(
   if (!s.ok()) {
     return s;
   }
-  BlockBasedTableOptions table_options;
-  table_options.block_size = block_size;
-  BlockBasedTableFactory block_based_tf(table_options);
-  std::unique_ptr<TableBuilder> table_builder;
-  table_builder.reset(
-      block_based_tf.NewTableBuilder(tb_options, dest_writer.get()));
+  std::unique_ptr<TableBuilder> table_builder{
+      tb_options.moptions.table_factory->NewTableBuilder(tb_options,
+                                                         dest_writer.get())};
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
@@ -261,18 +257,13 @@ Status SstFileDumper::CalculateCompressedTableSize(
   if (!s.ok()) {
     return s;
   }
-  *compressed_table_size = table_builder->FileSize();
-  assert(num_data_blocks != nullptr);
-  *num_data_blocks = table_builder->GetTableProperties().num_data_blocks;
+  *props = table_builder->GetTableProperties();
   return env->DeleteFile(testFileName);
 }
 
 Status SstFileDumper::ShowAllCompressionSizes(
-    size_t block_size, const std::vector<CompressionType>& compression_types,
-    int32_t compress_level_from, int32_t compress_level_to,
-    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
-    uint64_t max_dict_buffer_bytes, bool use_zstd_dict_trainer) {
-  fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
+    const std::vector<CompressionType>& compression_types,
+    int32_t compress_level_from, int32_t compress_level_to) {
   for (CompressionType ctype : compression_types) {
     std::string cname;
     if (!GetStringFromCompressionType(&cname, ctype).ok()) {
@@ -283,15 +274,11 @@ Status SstFileDumper::ShowAllCompressionSizes(
             ? options_.compression_manager->SupportsCompressionType(ctype)
             : CompressionTypeSupported(ctype)) {
       fprintf(stdout, "Compression: %-24s\n", cname.c_str());
-      CompressionOptions compress_opt;
-      compress_opt.max_dict_bytes = max_dict_bytes;
-      compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
-      compress_opt.max_dict_buffer_bytes = max_dict_buffer_bytes;
-      compress_opt.use_zstd_dict_trainer = use_zstd_dict_trainer;
+      CompressionOptions compress_opt = options_.compression_opts;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;
-        Status s = ShowCompressionSize(block_size, ctype, compress_opt);
+        Status s = ShowCompressionSize(ctype, compress_opt);
         if (!s.ok()) {
           return s;
         }
@@ -304,14 +291,20 @@ Status SstFileDumper::ShowAllCompressionSizes(
 }
 
 Status SstFileDumper::ShowCompressionSize(
-    size_t block_size, CompressionType compress_type,
-    const CompressionOptions& compress_opt) {
-  Options opts;
+    CompressionType compress_type, const CompressionOptions& compress_opt) {
+  Options opts = options_;  // Use compression_manager etc.
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.statistics->set_stats_level(StatsLevel::kAll);
+  if (!opts.table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+    // Currently need block-based table for compression
+    opts.table_factory = std::make_shared<BlockBasedTableFactory>();
+  }
+
+  // Create internal Options types
   const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
+
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;
@@ -326,20 +319,24 @@ Status SstFileDumper::ShowCompressionSize(
       &block_based_table_factories, compress_type, compress_opt,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level, kUnknownNewestKeyTime);
-  uint64_t num_data_blocks = 0;
+  TableProperties props;
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
-  uint64_t file_size;
-  Status s = CalculateCompressedTableSize(tb_opts, block_size, &num_data_blocks,
-                                          &file_size);
+  Status s = CalculateCompressedTableSize(tb_opts, &props);
   if (!s.ok()) {
     return s;
   }
 
+  uint64_t num_data_blocks = props.num_data_blocks;
+
   std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-  fprintf(stdout, " Size: %10" PRIu64, file_size);
-  fprintf(stdout, " Blocks: %6" PRIu64, num_data_blocks);
-  fprintf(stdout, " Time Taken: %10s microsecs",
+  fprintf(stdout, " Comp size: %10" PRIu64, props.data_size);
+  fprintf(stdout, " Uncompressed: %10" PRIu64, props.uncompressed_data_size);
+  fprintf(stdout, " Ratio: %10s",
+          std::to_string(static_cast<double>(props.uncompressed_data_size) /
+                         static_cast<double>(props.data_size))
+              .c_str());
+  fprintf(stdout, " Microsecs: %10s ",
           std::to_string(
               std::chrono::duration_cast<std::chrono::microseconds>(end - start)
                   .count())
@@ -373,7 +370,7 @@ Status SstFileDumper::ShowCompressionSize(
                              : ((static_cast<double>(not_compressed_blocks) /
                                  static_cast<double>(num_data_blocks)) *
                                 100.0);
-  fprintf(stdout, " Compressed: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
+  fprintf(stdout, " Comp count: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
           compressed_pcnt);
   fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
           ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
@@ -405,14 +402,21 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
   assert(table_properties_);
   if (table_magic_number == kBlockBasedTableMagicNumber ||
       table_magic_number == kLegacyBlockBasedTableMagicNumber) {
-    BlockBasedTableFactory* bbtf = new BlockBasedTableFactory();
+    // Preserve BlockBasedTableOptions on options_ when possible
+    if (!options_.table_factory->IsInstanceOf(
+            TableFactory::kBlockBasedTableName())) {
+      options_.table_factory = std::make_shared<BlockBasedTableFactory>();
+    }
+
+    BlockBasedTableFactory* bbtf =
+        static_cast_with_check<BlockBasedTableFactory>(
+            options_.table_factory.get());
     // To force tail prefetching, we fake reporting two useful reads of 512KB
     // from the tail.
     // It needs at least two data points to warm up the stats.
     bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
     bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
 
-    options_.table_factory.reset(bbtf);
     if (!silent_) {
       fprintf(stdout, "Sst file format: block-based\n");
     }
@@ -464,7 +468,10 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
 
 Status SstFileDumper::SetOldTableOptions() {
   assert(table_properties_ == nullptr);
-  options_.table_factory = std::make_shared<BlockBasedTableFactory>();
+  if (!options_.table_factory->IsInstanceOf(
+          TableFactory::kBlockBasedTableName())) {
+    options_.table_factory = std::make_shared<BlockBasedTableFactory>();
+  }
   if (!silent_) {
     fprintf(stdout, "Sst file format: block-based(old version)\n");
   }

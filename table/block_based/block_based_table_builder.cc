@@ -1729,6 +1729,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
+    r->props.uncompressed_data_size += uncompressed_block_data.size();
     ++r->props.num_data_blocks;
   }
 }
@@ -1776,6 +1777,7 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
           &uncompressed);
       if (LIKELY(ios.ok())) {
         rep_->props.data_size = rep_->get_offset();
+        rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
         ++rep_->props.num_data_blocks;
 
         rep_->index_builder->FinishIndexEntry(

@@ -221,6 +221,8 @@ struct TableProperties {
   uint64_t orig_file_number = 0;
   // the total size of all data blocks.
   uint64_t data_size = 0;
+  // the total uncompressed size of all data blocks (since RocksDB 10.7)
+  uint64_t uncompressed_data_size = 0;
   // the size of index block.
   uint64_t index_size = 0;
   // Total number of index partitions if kTwoLevelIndexSearch is used
