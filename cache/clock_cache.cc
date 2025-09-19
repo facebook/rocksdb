@@ -1727,9 +1727,11 @@ inline uint64_t UsedLengthToLengthInfo(size_t used_length) {
 }
 
 inline size_t GetStartingLength(size_t capacity) {
-  if (capacity > port::kPageSize) {
+  // Avoid potential initialization order race with port::kPageSize
+  constexpr size_t kPresumedPageSize = 4096;
+  if (capacity > kPresumedPageSize) {
     // Start with one memory page
-    return port::kPageSize / sizeof(AutoHyperClockTable::HandleImpl);
+    return kPresumedPageSize / sizeof(AutoHyperClockTable::HandleImpl);
   } else {
     // Mostly to make unit tests happy
     return 4;
