@@ -112,23 +112,34 @@ class BlockBasedTableBuilder : public TableBuilder {
   void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
                                    uint64_t oldest_ancestor_time) override;
 
+  uint64_t GetWorkerCPUMicros() const override;
+
  private:
-  bool ok() const { return status().ok(); }
+  bool ok() const;
 
   // Transition state from buffered to unbuffered if the conditions are met. See
   // `Rep::State` API comment for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
   void MaybeEnterUnbuffered(const Slice* first_key_in_next_block);
 
+  // Try to keep some parallel-specific code separate to improve hot code
+  // locality for non-parallel case
   void EmitBlock(std::string& uncompressed,
                  const Slice& last_key_in_current_block,
                  const Slice* first_key_in_next_block);
+  void EmitBlockForParallel(std::string& uncompressed,
+                            const Slice& last_key_in_current_block,
+                            const Slice* first_key_in_next_block);
 
-  // Compress and write block content to the file.
+  // Compress and write block content to the file, from a single-threaded
+  // context
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type);
   // Directly write data to the file.
   void WriteMaybeCompressedBlock(
+      const Slice& block_contents, CompressionType, BlockHandle* handle,
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr);
+  IOStatus WriteMaybeCompressedBlockImpl(
       const Slice& block_contents, CompressionType, BlockHandle* handle,
       BlockType block_type, const Slice* uncompressed_block_data = nullptr);
 
@@ -158,7 +169,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
-  Rep* rep_;
+  std::unique_ptr<Rep> rep_;
   struct WorkingAreaPair;
   struct ParallelCompressionRep;
 
@@ -173,27 +184,23 @@ class BlockBasedTableBuilder : public TableBuilder {
   // compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 
-  // Get blocks from mem-table walking thread, compress them and
-  // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(WorkingAreaPair& working_area);
+  // Code for a "parallel compression" worker thread, which can really do SST
+  // writes and block compressions alternately.
+  void BGWorker(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
   // compression type
-  void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
-                              bool is_data_block, WorkingAreaPair& working_area,
-                              GrowableBuffer* compressed_output,
-                              CompressionType* result_compression_type,
-                              Status* out_status);
+  Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
+                                bool is_data_block,
+                                WorkingAreaPair& working_area,
+                                GrowableBuffer* compressed_output,
+                                CompressionType* result_compression_type);
 
-  // Get compressed blocks from BGWorkCompression and write them into SST
-  void BGWorkWriteMaybeCompressedBlock();
+  // If configured, start worker threads for parallel compression
+  void MaybeStartParallelCompression();
 
-  // Initialize parallel compression context and
-  // start BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
-  void StartParallelCompression();
-
-  // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
-  void StopParallelCompression();
+  // Stop worker threads for parallel compression
+  void StopParallelCompression(bool abort);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

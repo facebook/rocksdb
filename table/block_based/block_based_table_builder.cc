@@ -50,11 +50,13 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "util/bit_fields.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/defer.h"
+#include "util/semaphore.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/work_queue.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -191,269 +193,581 @@ struct BlockBasedTableBuilder::WorkingAreaPair {
   Decompressor::ManagedWorkingArea verify;
 };
 
+// ParallelCompressionRep essentially defines a framework for parallelizing
+// block generation ("emit"), block compression, and block writing to storage.
+// The synchronization is lock-free/wait-free, so thread waiting only happens
+// when work-order dependencies are unsatisfied, though sleeping/idle threads
+// might be kept idle when it seems unlikely they would improve throughput by
+// waking them up (essentially auto-tuned parallelism). But because all threads
+// are capable of 2 out of 3 kinds of work, in a quasi-work-stealing system,
+// running threads can usually expect that compatible work is available.
+//
+// This is currently activated with CompressionOptions::parallel_threads > 1
+// but that is a somewhat crude API that would ideally be adapted along with
+// the implementation in the future to allow threads to serve multiple
+// flush/compaction jobs, though the available improvement might be small.
+// Even within the scope of a single file it might be nice to use a general
+// framework for distributing work across threads, but (a) different threads
+// are limited to which work they can do because of technical challenges, (b)
+// being largely CPU bound on small work units means such a framework would
+// likely have big overheads compared to this hand-optimized solution.
 struct BlockBasedTableBuilder::ParallelCompressionRep {
-  // TODO: consider replacing with autovector or similar
-  // Keys is a wrapper of vector of strings avoiding
-  // releasing string memories during vector clear()
-  // in order to save memory allocation overhead
-  class Keys {
-   public:
-    Keys() : keys_(kKeysInitSize), size_(0) {}
-    void PushBack(const Slice& key) {
-      if (size_ == keys_.size()) {
-        keys_.emplace_back(key.data(), key.size());
-      } else {
-        keys_[size_].assign(key.data(), key.size());
-      }
-      size_++;
-    }
-    void SwapAssign(std::vector<std::string>& keys) {
-      size_ = keys.size();
-      std::swap(keys_, keys);
-    }
-    void Clear() { size_ = 0; }
-    size_t Size() { return size_; }
-    std::string& Back() { return keys_[size_ - 1]; }
-    std::string& operator[](size_t idx) {
-      assert(idx < size_);
-      return keys_[idx];
-    }
-
-   private:
-    static constexpr size_t kKeysInitSize = 32;
-    std::vector<std::string> keys_;
-    size_t size_;
+  // The framework has two kinds of threads: the calling thread from
+  // flush/compaction/SstFileWriter is called the "emit thread" (kEmitter).
+  // Other threads cannot generally take over "emit" work because that is
+  // largely happening up the call stack from BlockBasedTableBuilder.
+  // The emit thread can also take on compression work in a quasi-work-stealing
+  // manner when the buffer for emitting new blocks is full.
+  //
+  // When parallelism is enabled, there are also "worker" threads that
+  // can handle compressing blocks and (one worker thread at a time) write them
+  // to the SST file (and handle other single-threaded wrap-up of each block).
+  //
+  // NOTE: when parallelism is enabled, the emit thread is not permitted to
+  // write to the SST file because that is the potential "output" bottleneck,
+  // and it's generally bad for parallelism to allow the only thread that can
+  // serve the "input" bottleneck (emit work) to also spend exclusive time on
+  // the output bottleneck.
+  enum class ThreadKind {
+    kEmitter,
+    kWorker,
   };
 
-  struct BlockRep;
-
-  // Use BlockRepSlot to keep block order in write thread.
-  // slot_ will pass references to BlockRep
-  class BlockRepSlot {
-   public:
-    BlockRepSlot() : slot_(1) {}
-    template <typename T>
-    void Fill(T&& rep) {
-      slot_.push(std::forward<T>(rep));
-    }
-    void Take(BlockRep*& rep) { slot_.pop(rep); }
-
-   private:
-    // slot_ will pass references to BlockRep in block_rep_buf,
-    // and those references are always valid before the destruction of
-    // block_rep_buf.
-    WorkQueue<BlockRep*> slot_;
+  // ThreadState allows each thread to track its work assignment. In addition to
+  // the cases already mentioned, kEmitting, kCompressing, and kWriting to the
+  // SST file writer,
+  // * Threads can enter the kIdle state so that they can sleep when no work is
+  // available for them, to be woken up when appropriate.
+  // * The kEnd state means the thread is not doing any more work items, which
+  // for worker threads means they will end soon.
+  // * The kCompressingAndWriting state means a worker can compress and write a
+  // block without additional state updates because the same block to be
+  // compressed is the next to be written.
+  enum class ThreadState {
+    /* BEGIN Emitter only states */
+    kEmitting,
+    /* END Emitter only states */
+    /* BEGIN states for emitter and worker */
+    kIdle,
+    kCompressing,
+    kEnd,
+    /* END states for emitter and worker */
+    /* BEGIN Worker only states */
+    kCompressingAndWriting,
+    kWriting,
+    /* END Worker only states */
   };
 
-  // BlockRep instances are fetched from and recycled to
-  // block_rep_pool during parallel compression.
+  // BlockRep instances are used and reused in a ring buffer (below), so that
+  // many blocks can be in an intermediate state between serialized into
+  // uncompressed bytes and written to the SST file. Notably, each block is
+  // "emitted" in uncompressed form into a BlockRep, compressed (at least
+  // attempted, when configured) for updated BlockRep, and then written from the
+  // BlockRep to the writer for the SST file bytes.
   struct ALIGN_AS(CACHE_LINE_SIZE) BlockRep {
     // Uncompressed block contents
     std::string uncompressed;
     GrowableBuffer compressed;
     CompressionType compression_type = kNoCompression;
     std::unique_ptr<IndexBuilder::PreparedIndexEntry> prepared_index_entry;
-    BlockRepSlot slot;
-    Status status;
   };
 
-  // Use a vector of BlockRep as a buffer for a determined number
-  // of BlockRep structures. All data referenced by pointers in
-  // BlockRep will be freed when this vector is destructed.
-  using BlockRepBuffer = std::vector<BlockRep>;
-  BlockRepBuffer block_rep_buf;
-  // Use a thread-safe queue for concurrent access from block
-  // building thread and writer thread.
-  using BlockRepPool = WorkQueue<BlockRep*>;
-  BlockRepPool block_rep_pool;
+  // Ring buffer of emitted blocks that may or may not yet be compressed.
+  std::unique_ptr<BlockRep[]> ring_buffer;
+  // log_2(ring buffer size), where ring buffer size must be a power of two
+  const int ring_buffer_nbits;
+  // ring buffer size - 1, to function as a bit mask for ring buffer positions
+  // (e.g. given the ordinal number of a block)
+  const uint32_t ring_buffer_mask;
+  // Number of threads in worker_threads. (Emit thread doesn't count)
+  const uint32_t num_worker_threads;
 
-  // Compression queue will pass references to BlockRep in block_rep_buf,
-  // and those references are always valid before the destruction of
-  // block_rep_buf.
-  using CompressQueue = WorkQueue<BlockRep*>;
-  CompressQueue compress_queue;
-  std::vector<port::Thread> compress_thread_pool;
+  // Rough upper bound on the sst file size contribution from blocks emitted
+  // into the parallel compression ring buffer but not yet written. Tracks
+  // uncompressed size, with trailer, until a block is compressed, then
+  // compressed size until the block is written. (TODO: does not currently
+  // account for block_align)
+  RelaxedAtomic<uint64_t> estimated_inflight_size{0};
+  // Thread objects for worker threads
+  std::vector<port::Thread> worker_threads;
+  // Working areas for data_block_compressor for each worker thread
+  std::vector<WorkingAreaPair> working_areas;
 
-  // Write queue will pass references to BlockRep::slot in block_rep_buf,
-  // and those references are always valid before the corresponding
-  // BlockRep::slot is destructed, which is before the destruction of
-  // block_rep_buf.
-  using WriteQueue = WorkQueue<BlockRepSlot*>;
-  WriteQueue write_queue;
-  std::unique_ptr<port::Thread> write_thread;
+  // Semaphores for threads to sleep when there's no available work for them
+  // and to wake back up when someone determines there is available work (most
+  // likely). Split between worker threads and emit thread because they can do
+  // different kinds of work.
+  CountingSemaphore idle_worker_sem{0};
+  BinarySemaphore idle_emit_sem{0};
 
-  // Estimate output file size when parallel compression is enabled. This is
-  // necessary because compression & flush are no longer synchronized,
-  // and BlockBasedTableBuilder::FileSize() is no longer accurate.
-  // memory_order_relaxed suffices because accurate statistics is not required.
-  class FileSizeEstimator {
-   public:
-    explicit FileSizeEstimator()
-        : uncomp_bytes_compressed(0),
-          uncomp_bytes_curr_block(0),
-          uncomp_bytes_curr_block_set(false),
-          uncomp_bytes_inflight(0),
-          blocks_inflight(0),
-          curr_compression_ratio(0),
-          estimated_file_size(0) {}
+  // Primary atomic state of parallel compression, which includes a number of
+  // state fields that are best updated atomically to avoid locking and/or to
+  // simplify the interesting interleavings that have to be considered and
+  // accommodated.
+  struct StateID {};
+  struct State : public BitFields<uint64_t, StateID> {};
+  ALIGN_AS(CACHE_LINE_SIZE) AcqRelBitFieldsAtomic<State> atomic_state;
 
-    // Estimate file size when a block is about to be emitted to
-    // compression thread
-    void EmitBlock(uint64_t uncomp_block_size, uint64_t curr_file_size) {
-      uint64_t new_uncomp_bytes_inflight =
-          uncomp_bytes_inflight.fetch_add(uncomp_block_size,
-                                          std::memory_order_relaxed) +
-          uncomp_block_size;
+  // The first field is a bit for each ring buffer slot (max 32) for whether
+  // that slot is ready to be claimed for writing by a worker thread. Because
+  // compressions might finish out-of-order, we need to track individually
+  // whether they are finished, though this field doesn't differentiate
+  // "compression completed" from "compression not started" because that can be
+  // inferred from NextToCompress. A block might not enter this state, because
+  // the same thread that compresses it can also immediately write the block if
+  // it notices that the block is next to write.
+  using NeedsWriter = UnsignedBitField<State, 32, NoPrevBitField>;
+  // Track how many worker threads are in an idle state because there was no
+  // available work and haven't been selected to wake back up.
+  using IdleWorkerCount = UnsignedBitField<State, 5, NeedsWriter>;
+  // Track whether the emit thread is an idle state because there was no
+  // available work and hasn't been triggered to wake back up. The nature of
+  // available work and atomic CAS assignment of work ensures at least one
+  // thread is kept out of the idle state.
+  using IdleEmitFlag = BoolBitField<State, IdleWorkerCount>;
+  // Track whether threads should end when they finish available work because no
+  // more blocks will be emitted.
+  using NoMoreToEmitFlag = BoolBitField<State, IdleEmitFlag>;
+  // Track whether threads should abort ASAP because of an error.
+  using AbortFlag = BoolBitField<State, NoMoreToEmitFlag>;
+  // Track three "NextTo" counters for the positions of the next block to write,
+  // to start compression, and to emit into the ring buffer. If these counters
+  // never overflowed / wrapped around, we would have next_to_write <=
+  // next_to_compress <= next_to_emit because a block must be emitted before
+  // compressed, and compressed (at least attempted) before writing. We need to
+  // track more than ring_buffer_nbits of these counters to be able to
+  // distinguish an empty ring buffer (next_to_write == next_to_emit) from a
+  // full ring buffer (next_to_write != next_to_emit but equal under
+  // ring_buffer_mask).
+  using NextToWrite = UnsignedBitField<State, 8, AbortFlag>;
+  using NextToCompress = UnsignedBitField<State, 8, NextToWrite>;
+  using NextToEmit = UnsignedBitField<State, 8, NextToCompress>;
+  static_assert(NextToEmit::kEndBit == 64);
 
-      uint64_t new_blocks_inflight =
-          blocks_inflight.fetch_add(1, std::memory_order_relaxed) + 1;
+  // BEGIN fields for use by the emit thread only. These can't live on the stack
+  // because the emit thread frequently returns out of BlockBasedTableBuilder.
+  ALIGN_AS(CACHE_LINE_SIZE)
+  ThreadState emit_thread_state = ThreadState::kEmitting;
+  // Ring buffer index that emit thread is operating on (for emitting and
+  // compressing states)
+  uint32_t emit_slot = 0;
+  // Including some data to inform when to wake up idle worker threads (see
+  // implementation for details)
+  int32_t emit_counter_toward_wake_up = 0;
+  int32_t emit_counter_for_wake_up = 0;
+  static constexpr int32_t kMaxWakeupInterval = 8;
+  // END fields for use by the emit thread only
 
-      estimated_file_size.store(
-          curr_file_size +
-              static_cast<uint64_t>(
-                  static_cast<double>(new_uncomp_bytes_inflight) *
-                  curr_compression_ratio.load(std::memory_order_relaxed)) +
-              new_blocks_inflight * kBlockTrailerSize,
-          std::memory_order_relaxed);
+  // TSAN on GCC has bugs that report false positives on this watchdog code.
+  // Other efforts to work around the bug have failed, so to avoid those false
+  // positive reports, we simply disable the watchdog when running under GCC
+  // TSAN.
+#if !defined(NDEBUG) && !(defined(__GNUC__) && defined(__SANITIZE_THREAD__))
+#define BBTB_PC_WATCHDOG 1
+#endif
+#ifdef BBTB_PC_WATCHDOG
+  // These are for an extra "watchdog" thread in DEBUG builds that heuristically
+  // checks for the most likely deadlock conditions. False positives and false
+  // negatives are technically possible.
+  std::thread watchdog_thread;
+  std::mutex watchdog_mutex;
+  std::condition_variable watchdog_cv;
+  bool shutdown_watchdog = false;
+  RelaxedAtomic<uint32_t> live_workers{0};
+  RelaxedAtomic<uint32_t> idling_workers{0};
+  RelaxedAtomic<bool> live_emit{0};
+  RelaxedAtomic<bool> idling_emit{0};
+#endif  // BBTB_PC_WATCHDOG
+
+  int ComputeRingBufferNbits(uint32_t parallel_threads) {
+    // Ring buffer size is a power of two not to exceed 32 but otherwise
+    // at least twice the number of threads.
+    if (parallel_threads >= 9) {
+      return 5;
+    } else if (parallel_threads >= 5) {
+      return 4;
+    } else if (parallel_threads >= 3) {
+      return 3;
+    } else {
+      assert(parallel_threads > 1);
+      return 2;
     }
-
-    // Estimate file size when a block is already reaped from
-    // compression thread
-    void ReapBlock(uint64_t compressed_block_size, uint64_t curr_file_size) {
-      assert(uncomp_bytes_curr_block_set);
-
-      uint64_t new_uncomp_bytes_compressed =
-          uncomp_bytes_compressed + uncomp_bytes_curr_block;
-      assert(new_uncomp_bytes_compressed > 0);
-
-      curr_compression_ratio.store(
-          (curr_compression_ratio.load(std::memory_order_relaxed) *
-               uncomp_bytes_compressed +
-           compressed_block_size) /
-              static_cast<double>(new_uncomp_bytes_compressed),
-          std::memory_order_relaxed);
-      uncomp_bytes_compressed = new_uncomp_bytes_compressed;
-
-      uint64_t new_uncomp_bytes_inflight =
-          uncomp_bytes_inflight.fetch_sub(uncomp_bytes_curr_block,
-                                          std::memory_order_relaxed) -
-          uncomp_bytes_curr_block;
-
-      uint64_t new_blocks_inflight =
-          blocks_inflight.fetch_sub(1, std::memory_order_relaxed) - 1;
-
-      estimated_file_size.store(
-          curr_file_size +
-              static_cast<uint64_t>(
-                  static_cast<double>(new_uncomp_bytes_inflight) *
-                  curr_compression_ratio.load(std::memory_order_relaxed)) +
-              new_blocks_inflight * kBlockTrailerSize,
-          std::memory_order_relaxed);
-
-      uncomp_bytes_curr_block_set = false;
-    }
-
-    void SetEstimatedFileSize(uint64_t size) {
-      estimated_file_size.store(size, std::memory_order_relaxed);
-    }
-
-    uint64_t GetEstimatedFileSize() {
-      return estimated_file_size.load(std::memory_order_relaxed);
-    }
-
-    void SetCurrBlockUncompSize(uint64_t size) {
-      uncomp_bytes_curr_block = size;
-      uncomp_bytes_curr_block_set = true;
-    }
-
-   private:
-    // Input bytes compressed so far.
-    uint64_t uncomp_bytes_compressed;
-    // Size of current block being appended.
-    uint64_t uncomp_bytes_curr_block;
-    // Whether uncomp_bytes_curr_block has been set for next
-    // ReapBlock call.
-    bool uncomp_bytes_curr_block_set;
-    // Input bytes under compression and not appended yet.
-    std::atomic<uint64_t> uncomp_bytes_inflight;
-    // Number of blocks under compression and not appended yet.
-    std::atomic<uint64_t> blocks_inflight;
-    // Current compression ratio, maintained by BGWorkWriteMaybeCompressedBlock.
-    std::atomic<double> curr_compression_ratio;
-    // Estimated SST file size.
-    std::atomic<uint64_t> estimated_file_size;
-  };
-  FileSizeEstimator file_size_estimator;
-
-  // Facilities used for waiting first block completion. Need to Wait for
-  // the completion of first block compression and flush to get a non-zero
-  // compression ratio.
-  std::atomic<bool> first_block_processed;
-  std::condition_variable first_block_cond;
-  std::mutex first_block_mutex;
+  }
 
   explicit ParallelCompressionRep(uint32_t parallel_threads)
-      : block_rep_buf(parallel_threads),
-        block_rep_pool(parallel_threads),
-        compress_queue(parallel_threads),
-        write_queue(parallel_threads),
-        first_block_processed(false) {
-    for (uint32_t i = 0; i < parallel_threads; i++) {
-      // Prime the queue of available BlockReps
-      block_rep_pool.push(&block_rep_buf[i]);
-    }
+      : ring_buffer_nbits(ComputeRingBufferNbits(parallel_threads)),
+        ring_buffer_mask((uint32_t{1} << ring_buffer_nbits) - 1),
+        num_worker_threads(std::min(parallel_threads, ring_buffer_mask)) {
+    assert(num_worker_threads <= IdleWorkerCount::kMask);
+
+    ring_buffer = std::make_unique<BlockRep[]>(ring_buffer_mask + 1);
+
+    // Start by aggressively waking up idle workers
+    emit_counter_for_wake_up = -static_cast<int32_t>(num_worker_threads);
   }
 
   ~ParallelCompressionRep() {
-    block_rep_pool.finish();
 #ifndef NDEBUG
-    // Silence ASSERT_STATUS_CHECKED warnings
-    for (auto& block_rep : block_rep_buf) {
-      assert(block_rep.status.ok());
+    auto state = atomic_state.Load();
+    if (state.Get<AbortFlag>() == false) {
+      // Should be clear / cancelled out with normal shutdown
+      assert(state.Get<NeedsWriter>() == 0);
+
+      // Ring buffer reached empty state
+      assert(state.Get<NextToWrite>() == state.Get<NextToCompress>());
+      assert(state.Get<NextToCompress>() == state.Get<NextToEmit>());
+
+      // Everything cancels out in inflight size
+      assert(estimated_inflight_size.LoadRelaxed() == 0);
     }
-#endif
+    // All idling metadata cleaned up, properly tracked
+    assert(state.Get<IdleWorkerCount>() == 0);
+    assert(state.Get<IdleEmitFlag>() == false);
+
+    // No excess in semaphores
+    assert(!idle_emit_sem.TryAcquire());
+    assert(!idle_worker_sem.TryAcquire());
+#endif  // !NDEBUG
   }
 
-  BlockRep* PopRecycledBlockRep() {
-    BlockRep* block_rep = nullptr;
-    block_rep_pool.pop(block_rep);
-    assert(block_rep != nullptr);
+  // The primary function for a thread transitioning from one state or work
+  // assignment to the next. `slot` refers to a position in the ring buffer
+  // for assigned emit, compression, or write work.
+  //
+  // Because both the emit thread and worker threads can work on compression,
+  // this is a quasi-work-stealing parallel algorithm. (Enabling other threads
+  // to do emit work would be quite challenging, and allowing the emit thread
+  // to handle writes could create a bottle-neck.)
+  //
+  // This function is basically a CAS loop trying to pick the next piece of work
+  // for this thread and retrying if CAS fails. This function also handles
+  // thread idling when that's the appropriate assignment, continuing the loop
+  // looking for productive work when woken from an idle state.
+  //
+  // Precondition: thread_state is appropriate for thread_kind and not kEnd. It
+  // must match the previously returned state for that thread, and is only kIdle
+  // for the thread on startup (though the kIdle state is used internal to the
+  // function).
+  //
+  // Postcondition: thread_state is appropriate for thread_kind and not kIdle.
+  // Except for kEnd state, the calling thread has exclusive access to
+  // ring_buffer[slot] until next StateTransition().
+  template <ThreadKind thread_kind>
+  void StateTransition(
+      /*in/out*/ ThreadState& thread_state,
+      /*in/out*/ uint32_t& slot) {
+    assert(slot <= ring_buffer_mask);
+    // Last known value for atomic_state
+    State seen_state = atomic_state.Load();
 
-    block_rep->compression_type = kNoCompression;
-    return block_rep;
+    for (;;) {
+      if (seen_state.Get<AbortFlag>()) {
+        thread_state = ThreadState::kEnd;
+        return;
+      }
+
+      assert(static_cast<uint8_t>(seen_state.Get<NextToEmit>() -
+                                  seen_state.Get<NextToCompress>()) <=
+             ring_buffer_mask + 1);
+      assert(static_cast<uint8_t>(seen_state.Get<NextToCompress>() -
+                                  seen_state.Get<NextToWrite>()) <=
+             ring_buffer_mask + 1);
+      assert(static_cast<uint8_t>(seen_state.Get<NextToEmit>() -
+                                  seen_state.Get<NextToWrite>()) <=
+             ring_buffer_mask + 1);
+
+      // Draft of the next proposed atomic_state. Start by marking completion of
+      // the current thread's last work.
+      State next_state = seen_state;
+      bool wake_idle = false;
+      switch (thread_state) {
+        case ThreadState::kEmitting: {
+          assert(thread_kind == ThreadKind::kEmitter);
+          assert(slot == (next_state.Get<NextToEmit>() & ring_buffer_mask));
+          next_state.Ref<NextToEmit>() += 1;
+          // Check whether to wake up idle worker thread
+          if (next_state.Get<IdleWorkerCount>() > 0 &&
+              // The number of blocks for which compression hasn't started
+              // is well over the number of active threads.
+              static_cast<uint8_t>(next_state.Get<NextToEmit>() -
+                                   next_state.Get<NextToCompress>()) >=
+                  (ring_buffer_mask + 1) / 4 +
+                      (num_worker_threads -
+                       next_state.Get<IdleWorkerCount>())) {
+            // At first, emit_counter_for_wake_up is negative to aggressively
+            // wake up idle worker threads. Then it backs off the interval at
+            // which we wake up, up to some maximum that attempts to balance
+            // maximum throughput and minimum CPU overhead.
+            if (emit_counter_toward_wake_up >= emit_counter_for_wake_up) {
+              // We reached a threshold to justify a wake-up.
+              wake_idle = true;
+              // Adjust idle count assuming we are going to own waking it up,
+              // so no one else can duplicate that. (The idle count is really
+              // the number idling for which no one yet owns waking them up.)
+              next_state.Ref<IdleWorkerCount>() -= 1;
+              // Reset the counter toward the threshold for wake-up
+              emit_counter_toward_wake_up = 0;
+              // Raise the threshold (up to some limit) to stabilize the number
+              // of active threads after some ramp-up period.
+              emit_counter_for_wake_up =
+                  std::min(emit_counter_for_wake_up + 1,
+                           static_cast<int32_t>(num_worker_threads +
+                                                kMaxWakeupInterval));
+            } else {
+              // Advance closer to the threshold for justifying a wake-up
+              emit_counter_toward_wake_up++;
+            }
+          }
+          break;
+        }
+        case ThreadState::kIdle:
+          // NOTE: thread that signalled to wake up already updated idle count
+          // or marker. This is required to avoid overflow on the semaphore,
+          // especially the binary semaphore for idle_emit_sem, and likely
+          // desirable to avoid spurious/extra Release().
+          break;
+        case ThreadState::kCompressing:
+          next_state.Ref<NeedsWriter>() |= uint32_t{1} << slot;
+          if constexpr (thread_kind == ThreadKind::kEmitter) {
+            if (next_state.Get<IdleWorkerCount>() == num_worker_threads) {
+              // Work is available for a worker thread and none are running
+              wake_idle = true;
+              // Adjust idle count assuming we are going to own waking it up
+              next_state.Ref<IdleWorkerCount>() -= 1;
+            }
+          }
+          break;
+        case ThreadState::kEnd:
+          // Should have already recognized the end state
+          assert(thread_state != ThreadState::kEnd);
+          return;
+        case ThreadState::kCompressingAndWriting:
+        case ThreadState::kWriting:
+          assert(thread_kind == ThreadKind::kWorker);
+          assert((next_state.Get<NextToWrite>() & ring_buffer_mask) == slot);
+          assert(next_state.Get<NextToCompress>() !=
+                 next_state.Get<NextToWrite>());
+          assert(next_state.Get<NextToEmit>() != next_state.Get<NextToWrite>());
+          assert((next_state.Get<NeedsWriter>() & (uint32_t{1} << slot)) == 0);
+          next_state.Ref<NextToWrite>() += 1;
+          if (next_state.Get<IdleEmitFlag>()) {
+            wake_idle = true;
+            // Clear idle emit flag assuming we are going to own waking it up
+            next_state.Set<IdleEmitFlag>(false);
+          }
+          break;
+      }
+
+      // Find the next state, depending on the kind of thread
+      ThreadState next_thread_state = ThreadState::kEnd;
+      uint32_t next_slot = 0;
+      if constexpr (thread_kind == ThreadKind::kEmitter) {
+        // First priority is emitting more uncompressed blocks, if there's
+        // room in the ring buffer.
+        if (static_cast<uint8_t>(next_state.Get<NextToEmit>() -
+                                 next_state.Get<NextToWrite>()) <=
+            ring_buffer_mask) {
+          // There is room
+          next_thread_state = ThreadState::kEmitting;
+          next_slot = next_state.Get<NextToEmit>() & ring_buffer_mask;
+        }
+      }
+      if constexpr (thread_kind == ThreadKind::kWorker) {
+        // First priority is writing next block to write, if it needs a writer
+        // assigned to it
+        uint32_t next_to_write_slot =
+            next_state.Get<NextToWrite>() & ring_buffer_mask;
+        uint32_t needs_writer_bit = uint32_t{1} << next_to_write_slot;
+        if (next_state.Get<NeedsWriter>() & needs_writer_bit) {
+          // Clear the "needs writer" marker on the slot
+          next_state.Ref<NeedsWriter>() &= ~needs_writer_bit;
+          // Take ownership of writing it
+          next_thread_state = ThreadState::kWriting;
+          next_slot = next_to_write_slot;
+        }
+      }
+
+      // If didn't find higher priority work
+      if (next_thread_state == ThreadState::kEnd) {
+        if (next_state.Get<NextToCompress>() != next_state.Get<NextToEmit>()) {
+          // Compression work is available, select that
+          if (thread_kind == ThreadKind::kWorker &&
+              next_state.Get<NextToCompress>() ==
+                  next_state.Get<NextToWrite>()) {
+            next_thread_state = ThreadState::kCompressingAndWriting;
+          } else {
+            next_thread_state = ThreadState::kCompressing;
+          }
+          next_slot = next_state.Get<NextToCompress>() & ring_buffer_mask;
+          next_state.Ref<NextToCompress>() += 1;
+        } else if constexpr (thread_kind == ThreadKind::kEmitter) {
+          // Emitter thread goes idle
+          next_thread_state = ThreadState::kIdle;
+          assert(next_state.Get<IdleEmitFlag>() == false);
+          assert(next_state.Get<NoMoreToEmitFlag>() == false);
+          next_state.Set<IdleEmitFlag>(true);
+        } else if (next_state.Get<NoMoreToEmitFlag>()) {
+          // Worker thread shall not idle if we are done emitting. At least
+          // one worker will remain unblocked to finish writing
+          next_thread_state = ThreadState::kEnd;
+        } else {
+          // Worker thread goes idle
+          next_thread_state = ThreadState::kIdle;
+          assert(next_state.Get<IdleWorkerCount>() < IdleWorkerCount::kMask);
+          next_state.Ref<IdleWorkerCount>() += 1;
+        }
+      }
+      assert(thread_state != ThreadState::kEnd);
+
+      // Attempt to atomically apply the desired/computed state transition
+      if (atomic_state.CasWeak(seen_state, next_state)) {
+        // Success
+        thread_state = next_thread_state;
+        slot = next_slot;
+        seen_state = next_state;
+        if (wake_idle) {
+          if constexpr (thread_kind == ThreadKind::kEmitter) {
+            idle_worker_sem.Release();
+          } else {
+            idle_emit_sem.Release();
+          }
+        }
+        if (thread_state != ThreadState::kIdle) {
+          // Successfully transitioned to another useful state
+          return;
+        }
+        // Handle idle state
+        if constexpr (thread_kind == ThreadKind::kEmitter) {
+#ifdef BBTB_PC_WATCHDOG
+          idling_emit.StoreRelaxed(true);
+          Defer decr{[this]() { idling_emit.StoreRelaxed(false); }};
+#endif  // BBTB_PC_WATCHDOG
+
+          // Likely go to sleep
+          idle_emit_sem.Acquire();
+        } else {
+#ifdef BBTB_PC_WATCHDOG
+          // Tracking for watchdog
+          idling_workers.FetchAddRelaxed(1);
+          Defer decr{[this]() { idling_workers.FetchSubRelaxed(1); }};
+#endif  // BBTB_PC_WATCHDOG
+
+          // Likely go to sleep
+          idle_worker_sem.Acquire();
+        }
+        // Update state after sleep
+        seen_state = atomic_state.Load();
+      }
+      // else loop and try again
+    }
   }
 
-  // Emit a block to compression thread
-  void EmitBlock(BlockRep* block_rep) {
-    assert(block_rep != nullptr);
-    assert(block_rep->status.ok());
-    if (!write_queue.push(&block_rep->slot)) {
-      return;
-    }
-    if (!compress_queue.push(block_rep)) {
-      return;
-    }
-
-    if (!first_block_processed.load(std::memory_order_relaxed)) {
-      std::unique_lock<std::mutex> lock(first_block_mutex);
-      first_block_cond.wait(lock, [this] {
-        return first_block_processed.load(std::memory_order_relaxed);
-      });
-    }
+  void EmitterStateTransition(
+      /*in/out*/ ThreadState& thread_state,
+      /*in/out*/ uint32_t& slot) {
+    StateTransition<ThreadKind::kEmitter>(thread_state, slot);
   }
 
-  // Reap a block from compression thread
-  void ReapBlock(BlockRep* block_rep) {
-    assert(block_rep != nullptr);
-    block_rep->compressed.ResetForSize(0);
-    block_rep_pool.push(block_rep);
+  void WorkerStateTransition(
+      /*in/out*/ ThreadState& thread_state,
+      /*in/out*/ uint32_t& slot) {
+    StateTransition<ThreadKind::kWorker>(thread_state, slot);
+  }
 
-    if (!first_block_processed.load(std::memory_order_relaxed)) {
-      std::lock_guard<std::mutex> lock(first_block_mutex);
-      first_block_processed.store(true, std::memory_order_relaxed);
-      first_block_cond.notify_one();
+  // Exactly wake all idling threads (for an end state)
+  void WakeAllIdle() {
+    State old_state, new_state;
+    auto transform =
+        IdleEmitFlag::ClearTransform() + IdleWorkerCount::ClearTransform();
+    atomic_state.Apply(transform, &old_state, &new_state);
+    assert(new_state.Get<IdleEmitFlag>() == false);
+    assert(new_state.Get<IdleWorkerCount>() == 0);
+    if (old_state.Get<IdleEmitFlag>()) {
+      idle_emit_sem.Release();
+    }
+    idle_worker_sem.Release(old_state.Get<IdleWorkerCount>());
+  }
+
+  // Called by emit thread if it is decided no more blocks will be emitted into
+  // this SST file.
+  void SetNoMoreToEmit(/*in/out*/ ThreadState& thread_state,
+                       /*in/out*/ uint32_t& slot) {
+    (void)slot;
+    State old_state;
+    atomic_state.Apply(NoMoreToEmitFlag::SetTransform(), &old_state);
+    assert(old_state.Get<NoMoreToEmitFlag>() == false);
+    assert(slot == BitwiseAnd(old_state.Get<NextToEmit>(), ring_buffer_mask));
+    assert(thread_state == ThreadState::kEmitting);
+    thread_state = ThreadState::kEnd;
+    WakeAllIdle();
+  }
+
+  // Called by any thread to abort parallel compression, etc. because of an
+  // error.
+  void SetAbort(/*in/out*/ ThreadState& thread_state) {
+    State old_state;
+    atomic_state.Apply(AbortFlag::SetTransform(), &old_state);
+    if (old_state.Get<AbortFlag>() == false) {
+      // First to set abort. Wake all workers and emitter
+      WakeAllIdle();
+    }
+    thread_state = ThreadState::kEnd;
+  }
+
+#ifdef BBTB_PC_WATCHDOG
+  // Logic for the extra "watchdog" thread in DEBUG builds that heuristically
+  // checks for the most likely deadlock conditions.
+  //
+  // Some ways to manually validate the watchdog:
+  // * Insert
+  //      if (Random::GetTLSInstance()->OneIn(100)) {
+  //        sleep(100);
+  //      }
+  //   after either of the calls to semaphore Acquire above.
+  // * Miss some Release()s in WakeAllIdle()
+  //
+  // and run table_test unit tests.
+  void BGWatchdog() {
+    int count_toward_deadlock_judgment = 0;
+    for (;;) {
+      // Check for termination condition: All workers and emit thread have
+      // completed.
+      if (live_workers.LoadRelaxed() == 0 && live_emit.LoadRelaxed() == false) {
+        return;
+      }
+
+      // Check for potential deadlock condition
+      if (idling_workers.LoadRelaxed() < live_workers.LoadRelaxed() ||
+          (live_emit.LoadRelaxed() && !idling_emit.LoadRelaxed())) {
+        // Someone is working, all good
+        count_toward_deadlock_judgment = 0;
+      } else {
+        // Could be a deadlock state, but could also be a transient
+        // state where someone has woken up but not cleared their idling flag.
+        // Give it plenty of time and watchdog thread wake-ups before
+        // declaring deadlock.
+        count_toward_deadlock_judgment++;
+        if (count_toward_deadlock_judgment >= 70) {
+          fprintf(stderr,
+                  "Error: apparent deadlock in parallel compression. "
+                  "Aborting. %u / %u, %d / %d, %llx\n",
+                  (unsigned)idling_workers.LoadRelaxed(),
+                  (unsigned)live_workers.LoadRelaxed(),
+                  (int)idling_emit.LoadRelaxed(), (int)live_emit.LoadRelaxed(),
+                  (long long)atomic_state.Load().underlying);
+          std::terminate();
+        }
+      }
+
+      // Sleep for 1s at a time unless we are woken up because other threads
+      // ended.
+      std::unique_lock<std::mutex> lock(watchdog_mutex);
+      if (!shutdown_watchdog) {
+        watchdog_cv.wait_for(lock, std::chrono::seconds{1});
+      }
     }
   }
+#endif  // BBTB_PC_WATCHDOG
 };
 
 struct BlockBasedTableBuilder::Rep {
@@ -479,7 +793,9 @@ struct BlockBasedTableBuilder::Rep {
   // user key should contain the minimum timestamp.
   bool persist_user_defined_timestamps;
   WritableFileWriter* file;
-  std::atomic<uint64_t> offset;
+  // The current offset is only written by the current designated writer thread
+  // but can be read by other threads to estimate current file size
+  RelaxedAtomic<uint64_t> offset{0};
   size_t alignment;
   BlockBuilder data_block;
   // Buffers uncompressed data blocks to replay later. Needed when
@@ -498,11 +814,11 @@ struct BlockBasedTableBuilder::Rep {
   bool uses_explicit_compression_manager = false;
 
   uint64_t sample_for_compression;
-  std::atomic<uint64_t> compressible_input_data_bytes;
-  std::atomic<uint64_t> uncompressible_input_data_bytes;
-  std::atomic<uint64_t> sampled_input_data_bytes;
-  std::atomic<uint64_t> sampled_output_slow_data_bytes;
-  std::atomic<uint64_t> sampled_output_fast_data_bytes;
+  RelaxedAtomic<uint64_t> compressible_input_data_bytes{0};
+  RelaxedAtomic<uint64_t> uncompressible_input_data_bytes{0};
+  RelaxedAtomic<uint64_t> sampled_input_data_bytes{0};
+  RelaxedAtomic<uint64_t> sampled_output_slow_data_bytes{0};
+  RelaxedAtomic<uint64_t> sampled_output_fast_data_bytes{0};
   uint32_t compression_parallel_threads;
   int max_compressed_bytes_per_kb;
   size_t max_dict_sample_bytes = 0;
@@ -539,9 +855,8 @@ struct BlockBasedTableBuilder::Rep {
 
   // Working area for basic_compressor when compression_parallel_threads==1
   WorkingAreaPair basic_working_area;
-  // Working areas for data_block_compressor, for each of
-  // compression_parallel_threads
-  std::vector<WorkingAreaPair> data_block_working_areas;
+  // Working area for data_block_compressor, for emit/compaction thread
+  WorkingAreaPair data_block_working_area;
 
   size_t data_begin_offset = 0;
 
@@ -589,6 +904,7 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<InternalTblPropColl>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
+  RelaxedAtomic<uint64_t> worker_cpu_micros{0};
   BlockCreateContext create_context;
 
   // The size of the "tail" part of a SST file. "Tail" refers to
@@ -602,75 +918,85 @@ struct BlockBasedTableBuilder::Rep {
   // See class Footer
   uint32_t base_context_checksum;
 
-  uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
-  void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
+  uint64_t get_offset() { return offset.LoadRelaxed(); }
+  void set_offset(uint64_t o) { offset.StoreRelaxed(o); }
 
-  bool IsParallelCompressionEnabled() const {
-    return compression_parallel_threads > 1;
-  }
+  bool IsParallelCompressionActive() const { return pc_rep != nullptr; }
 
-  Status GetStatus() {
-    // We need to make modifications of status visible when status_ok is set
-    // to false, and this is ensured by status_mutex, so no special memory
-    // order for status_ok is required.
-    if (status_ok.load(std::memory_order_relaxed)) {
-      return Status::OK();
-    } else {
-      return CopyStatus();
+  Status GetStatus() { return GetIOStatus(); }
+
+  bool StatusOk() {
+    // The OK case is optimized with an atomic. Relaxed is sufficient because
+    // if a thread other than the emit/compaction thread sets to non-OK it
+    // will synchronize that in aborting parallel compression.
+    bool ok = io_status_ok.LoadRelaxed();
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    if (ok) {
+      std::lock_guard<std::mutex> lock(io_status_mutex);
+      // Double-check
+      if (io_status_ok.LoadRelaxed()) {
+        io_status.PermitUncheckedError();
+        assert(io_status.ok());
+      } else {
+        ok = false;
+      }
     }
-  }
-
-  Status CopyStatus() {
-    std::lock_guard<std::mutex> lock(status_mutex);
-    return status;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return ok;
   }
 
   IOStatus GetIOStatus() {
-    // We need to make modifications of io_status visible when status_ok is set
-    // to false, and this is ensured by io_status_mutex, so no special memory
-    // order for io_status_ok is required.
-    if (io_status_ok.load(std::memory_order_relaxed)) {
-#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  // Avoid unnecessary lock acquisition
-      auto ios = CopyIOStatus();
-      ios.PermitUncheckedError();
-      // Assume no races in unit tests
-      assert(ios.ok());
+    // See StatusOk, which is optimized to avoid Status object copies
+    if (LIKELY(io_status_ok.LoadRelaxed())) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+      std::lock_guard<std::mutex> lock(io_status_mutex);
+      // Double-check
+      if (io_status_ok.LoadRelaxed()) {
+        io_status.PermitUncheckedError();
+        assert(io_status.ok());
+      } else {
+        return io_status;
+      }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
       return IOStatus::OK();
     } else {
-      return CopyIOStatus();
-    }
-  }
-
-  IOStatus CopyIOStatus() {
-    std::lock_guard<std::mutex> lock(io_status_mutex);
-    return io_status;
-  }
-
-  // Never erase an existing status that is not OK.
-  void SetStatus(Status s) {
-    if (!s.ok() && status_ok.load(std::memory_order_relaxed)) {
-      // Locking is an overkill for non compression_parallel_threads
-      // case but since it's unlikely that s is not OK, we take this cost
-      // to be simplicity.
-      std::lock_guard<std::mutex> lock(status_mutex);
-      status = s;
-      status_ok.store(false, std::memory_order_relaxed);
-    }
-  }
-
-  // Never erase an existing I/O status that is not OK.
-  // Calling this will also SetStatus(ios)
-  void SetIOStatus(IOStatus ios) {
-    if (!ios.ok() && io_status_ok.load(std::memory_order_relaxed)) {
-      // Locking is an overkill for non compression_parallel_threads
-      // case but since it's unlikely that s is not OK, we take this cost
-      // to be simplicity.
       std::lock_guard<std::mutex> lock(io_status_mutex);
-      io_status = ios;
-      io_status_ok.store(false, std::memory_order_relaxed);
+      return io_status;
     }
-    SetStatus(ios);
+  }
+
+  // Avoid copying Status and IOStatus objects as much as possible.
+  // Never erase an existing I/O status that is not OK.
+  void SetStatus(Status&& s) {
+    if (UNLIKELY(!s.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(status_to_io_status(std::move(s)));
+    }
+  }
+  void SetStatus(const Status& s) {
+    if (UNLIKELY(!s.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(status_to_io_status(Status(s)));
+    }
+  }
+  void SetIOStatus(IOStatus&& ios) {
+    if (UNLIKELY(!ios.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(std::move(ios));
+    }
+  }
+  void SetIOStatus(const IOStatus& ios) {
+    if (UNLIKELY(!ios.ok()) && io_status_ok.LoadRelaxed()) {
+      SetFailedIOStatus(IOStatus(ios));
+    }
+  }
+
+  void SetFailedIOStatus(IOStatus&& ios) {
+    assert(!ios.ok());
+    // Because !s.ok() is rare, locking is acceptable even in non-parallel case.
+    std::lock_guard<std::mutex> lock(io_status_mutex);
+    // Double-check
+    if (io_status.ok()) {
+      io_status = std::move(ios);
+      io_status_ok.StoreRelaxed(false);
+    }
   }
 
   Rep(const BlockBasedTableOptions& table_opt, const TableBuilderOptions& tbo,
@@ -684,7 +1010,6 @@ struct BlockBasedTableBuilder::Rep {
         persist_user_defined_timestamps(
             tbo.ioptions.persist_user_defined_timestamps),
         file(f),
-        offset(0),
         alignment(table_options.block_align
                       ? std::min(static_cast<size_t>(table_options.block_size),
                                  kDefaultPageSize)
@@ -706,11 +1031,6 @@ struct BlockBasedTableBuilder::Rep {
             persist_user_defined_timestamps),
         internal_prefix_transform(prefix_extractor.get()),
         sample_for_compression(tbo.moptions.sample_for_compression),
-        compressible_input_data_bytes(0),
-        uncompressible_input_data_bytes(0),
-        sampled_input_data_bytes(0),
-        sampled_output_slow_data_bytes(0),
-        sampled_output_fast_data_bytes(0),
         compression_parallel_threads(
             ((table_opt.partition_filters &&
               !table_opt.decouple_partitioned_filters) ||
@@ -719,7 +1039,6 @@ struct BlockBasedTableBuilder::Rep {
                 : tbo.compression_opts.parallel_threads),
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
-        data_block_working_areas(compression_parallel_threads),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         reason(tbo.reason),
@@ -733,9 +1052,7 @@ struct BlockBasedTableBuilder::Rep {
                        !use_delta_encoding_for_index_values,
                        table_opt.index_type ==
                            BlockBasedTableOptions::kBinarySearchWithFirstKey),
-        tail_size(0),
-        status_ok(true),
-        io_status_ok(true) {
+        tail_size(0) {
     FilterBuildingContext filter_context(table_options);
 
     filter_context.info_log = ioptions.logger;
@@ -797,10 +1114,8 @@ struct BlockBasedTableBuilder::Rep {
       } else {
         // No distinct data block compressor using dictionary
         data_block_compressor = basic_compressor.get();
-        for (uint32_t i = 0; i < compression_parallel_threads; i++) {
-          data_block_working_areas[i].compress =
-              data_block_compressor->ObtainWorkingArea();
-        }
+        data_block_working_area.compress =
+            data_block_compressor->ObtainWorkingArea();
       }
       basic_decompressor = basic_compressor->GetOptimizedDecompressor();
       if (basic_decompressor == nullptr) {
@@ -818,11 +1133,9 @@ struct BlockBasedTableBuilder::Rep {
         if (state == State::kUnbuffered) {
           assert(data_block_compressor);
           data_block_verify_decompressor = verify_decompressor.get();
-          for (uint32_t i = 0; i < compression_parallel_threads; i++) {
-            data_block_working_areas[i].verify =
-                data_block_verify_decompressor->ObtainWorkingArea(
-                    data_block_compressor->GetPreferredCompressionType());
-          }
+          data_block_working_area.verify =
+              data_block_verify_decompressor->ObtainWorkingArea(
+                  data_block_compressor->GetPreferredCompressionType());
         }
       }
     }
@@ -888,10 +1201,10 @@ struct BlockBasedTableBuilder::Rep {
         std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder(
             table_options.user_defined_index_factory->NewBuilder());
         if (user_defined_index_builder != nullptr) {
-          index_builder.reset(new UserDefinedIndexBuilderWrapper(
+          index_builder = std::make_unique<UserDefinedIndexBuilderWrapper>(
               std::string(table_options.user_defined_index_factory->Name()),
               std::move(index_builder), std::move(user_defined_index_builder),
-              &internal_comparator, ts_sz, persist_user_defined_timestamps));
+              &internal_comparator, ts_sz, persist_user_defined_timestamps);
         }
       }
     }
@@ -927,13 +1240,13 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
     table_properties_collectors.emplace_back(
-        new BlockBasedTablePropertiesCollector(
+        std::make_unique<BlockBasedTablePropertiesCollector>(
             table_options.index_type, table_options.whole_key_filtering,
             prefix_extractor != nullptr,
             table_options.decouple_partitioned_filters));
     if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
-          new TimestampTablePropertiesCollector(
+          std::make_unique<TimestampTablePropertiesCollector>(
               tbo.internal_comparator.user_comparator()));
     }
 
@@ -954,6 +1267,8 @@ struct BlockBasedTableBuilder::Rep {
     // Default is UINT64_MAX for unknown. Setting it to 0 here
     // to allow updating it by taking max in BlockBasedTableBuilder::Add().
     props.key_largest_seqno = 0;
+    // Default is UINT64_MAX for unknown.
+    props.key_smallest_seqno = UINT64_MAX;
     PrePopulateCompressionProperties(mgr);
 
     if (FormatVersionUsesContextChecksum(table_options.format_version)) {
@@ -976,6 +1291,11 @@ struct BlockBasedTableBuilder::Rep {
     }
   }
 
+  ~Rep() {
+    // Must have been cleaned up by StopParallelCompression
+    assert(pc_rep == nullptr);
+  }
+
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
@@ -991,9 +1311,9 @@ struct BlockBasedTableBuilder::Rep {
       props.compression_name.push_back(';');
       // Rest of property to be filled out at the end of building the file
     } else {
-      // Use legacy compression_name property, populated at the end of building
-      // the file. Not compatible with compression managers using custom
-      // algorithms / compression types.
+      // Use legacy compression_name property, populated at the end of
+      // building the file. Not compatible with compression managers using
+      // custom algorithms / compression types.
       assert(Slice(mgr->CompatibilityName())
                  .compare(GetBuiltinCompressionManager(
                               GetCompressFormatForVersion(
@@ -1024,8 +1344,8 @@ struct BlockBasedTableBuilder::Rep {
 
     std::string& compression_name = props.compression_name;
     if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
-      // Fill in extended field of "compression name" property, which is the set
-      // of compression types used, sorted by unsigned byte and then hex
+      // Fill in extended field of "compression name" property, which is the
+      // set of compression types used, sorted by unsigned byte and then hex
       // encoded with two digits each (so that table properties are human
       // readable).
       assert(*compression_name.rbegin() == ';');
@@ -1047,8 +1367,8 @@ struct BlockBasedTableBuilder::Rep {
       // based on the legacy configured compression type.
       assert(compression_name.empty());
       if (ctype_count == 0) {
-        // We could get a slight performance boost in the reader by marking the
-        // file as "no compression" if compression is configured but
+        // We could get a slight performance boost in the reader by marking
+        // the file as "no compression" if compression is configured but
         // consistently rejected, but that would give misleading info for
         // debugging purposes. So instead we record the configured compression
         // type, matching the historical behavior.
@@ -1069,13 +1389,10 @@ struct BlockBasedTableBuilder::Rep {
   }
 
  private:
-  // Synchronize status & io_status accesses across threads from main thread,
-  // compression thread and write thread in parallel compression.
-  std::mutex status_mutex;
-  std::atomic<bool> status_ok;
-  Status status;
+  // Synchronize io_status to be readable/writable across threads, but
+  // optimize for the OK case
   std::mutex io_status_mutex;
-  std::atomic<bool> io_status_ok;
+  RelaxedAtomic<bool> io_status_ok{true};
   IOStatus io_status;
 };
 
@@ -1086,7 +1403,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   auto ucmp = tbo.internal_comparator.user_comparator();
   assert(ucmp);
   (void)ucmp;  // avoids unused variable error.
-  rep_ = new Rep(sanitized_table_options, tbo, file);
+  rep_ = std::make_unique<Rep>(sanitized_table_options, tbo, file);
 
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
@@ -1095,9 +1412,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   BlockBasedTable::SetupBaseCacheKey(&rep_->props, tbo.db_session_id,
                                      tbo.cur_file_num, &rep_->base_cache_key);
 
-  if (rep_->IsParallelCompressionEnabled()) {
-    StartParallelCompression();
-  } else if (rep_->basic_compressor) {
+  MaybeStartParallelCompression();
+  if (!rep_->IsParallelCompressionActive() && rep_->basic_compressor) {
     rep_->single_threaded_compressed_output.ResetForSize(
         table_options.block_size);
   }
@@ -1106,19 +1422,19 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   // Catch errors where caller forgot to call Finish()
   assert(rep_->state == Rep::State::kClosed);
-  delete rep_;
 }
 
 void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(rep_->state != Rep::State::kClosed);
-  if (!ok()) {
+  if (UNLIKELY(!ok())) {
     return;
   }
   ValueType value_type;
   SequenceNumber seq;
   UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
   r->props.key_largest_seqno = std::max(r->props.key_largest_seqno, seq);
+  r->props.key_smallest_seqno = std::min(r->props.key_smallest_seqno, seq);
   if (IsValueType(value_type)) {
 #ifndef NDEBUG
     if (r->props.num_entries > r->props.num_range_deletions) {
@@ -1206,9 +1522,9 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
 }
 
 void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(rep_->state != Rep::State::kClosed);
-  if (!ok()) {
+  if (UNLIKELY(!ok())) {
     return;
   }
   if (r->data_block.empty()) {
@@ -1221,7 +1537,8 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
   // property collectors:
   // * BlockAdd function expects block_compressed_bytes_{fast,slow} for
   //   historical reasons. Probably a hassle to remove.
-  // * Collector is not thread safe so calls need to be serialized/synchronized.
+  // * Collector is not thread safe so calls need to be
+  // serialized/synchronized.
   // * Ideally, AddUserKey and BlockAdd calls need to line up such that a
   //   reported block corresponds to all the keys reported since the previous
   //   block.
@@ -1268,12 +1585,12 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
 
     if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
       // Currently compression sampling is only enabled for data block.
-      r->sampled_input_data_bytes.fetch_add(uncompressed_block_data.size(),
-                                            std::memory_order_relaxed);
-      r->sampled_output_slow_data_bytes.fetch_add(sampled_output_slow.size(),
-                                                  std::memory_order_relaxed);
-      r->sampled_output_fast_data_bytes.fetch_add(sampled_output_fast.size(),
-                                                  std::memory_order_relaxed);
+      r->sampled_input_data_bytes.FetchAddRelaxed(
+          uncompressed_block_data.size());
+      r->sampled_output_slow_data_bytes.FetchAddRelaxed(
+          sampled_output_slow.size());
+      r->sampled_output_fast_data_bytes.FetchAddRelaxed(
+          sampled_output_fast.size());
     }
 
     NotifyCollectTableCollectorsOnBlockAdd(
@@ -1294,61 +1611,111 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
     rep_->data_begin_offset += uncompressed_block_data.size();
     MaybeEnterUnbuffered(first_key_in_next_block);
   } else {
-    EmitBlock(r->data_block.MutableBuffer(), r->last_ikey,
-              first_key_in_next_block);
+    if (r->IsParallelCompressionActive()) {
+      EmitBlockForParallel(r->data_block.MutableBuffer(), r->last_ikey,
+                           first_key_in_next_block);
+    } else {
+      EmitBlock(r->data_block.MutableBuffer(), r->last_ikey,
+                first_key_in_next_block);
+    }
     r->data_block.Reset();
   }
 }
 
+void BlockBasedTableBuilder::EmitBlockForParallel(
+    std::string& uncompressed, const Slice& last_key_in_current_block,
+    const Slice* first_key_in_next_block) {
+  Rep* r = rep_.get();
+  assert(r->state == Rep::State::kUnbuffered);
+  assert(uncompressed.size() > 0);
+  auto& pc_rep = *r->pc_rep;
+  // Can emit the uncompressed block into the ring buffer
+  assert(pc_rep.emit_thread_state ==
+         ParallelCompressionRep::ThreadState::kEmitting);
+  auto* block_rep = &pc_rep.ring_buffer[pc_rep.emit_slot];
+  pc_rep.estimated_inflight_size.FetchAddRelaxed(uncompressed.size() +
+                                                 kBlockTrailerSize);
+  std::swap(uncompressed, block_rep->uncompressed);
+  r->index_builder->PrepareIndexEntry(last_key_in_current_block,
+                                      first_key_in_next_block,
+                                      block_rep->prepared_index_entry.get());
+  block_rep->compressed.Reset();
+  block_rep->compression_type = kNoCompression;
+
+  // Might need to take up some compression work before we are able to
+  // resume emitting the next uncompressed block.
+  for (;;) {
+    pc_rep.EmitterStateTransition(pc_rep.emit_thread_state, pc_rep.emit_slot);
+
+    if (pc_rep.emit_thread_state ==
+        ParallelCompressionRep::ThreadState::kCompressing) {
+      // Took up some compression work to help unblock ourself
+      block_rep = &pc_rep.ring_buffer[pc_rep.emit_slot];
+      Status s = CompressAndVerifyBlock(
+          block_rep->uncompressed, /*is_data_block=*/true,
+          r->data_block_working_area, &block_rep->compressed,
+          &block_rep->compression_type);
+      if (UNLIKELY(!s.ok())) {
+        r->SetStatus(s);
+        pc_rep.SetAbort(pc_rep.emit_thread_state);
+        break;
+      }
+    } else {
+      assert(pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kCompressingAndWriting);
+      assert(pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kWriting);
+      assert(pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kIdle);
+      // Either emitting or end state.
+      // Detect nothing more to emit and set if so.
+      if (first_key_in_next_block == nullptr &&
+          pc_rep.emit_thread_state ==
+              ParallelCompressionRep::ThreadState::kEmitting) {
+        pc_rep.SetNoMoreToEmit(pc_rep.emit_thread_state, pc_rep.emit_slot);
+      }
+      break;
+    }
+  }
+}
 void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
                                        const Slice& last_key_in_current_block,
                                        const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kUnbuffered);
+  // Single-threaded context only
+  assert(!r->IsParallelCompressionActive());
   assert(uncompressed.size() > 0);
-  if (r->IsParallelCompressionEnabled()) {
-    ParallelCompressionRep::BlockRep* block_rep =
-        r->pc_rep->PopRecycledBlockRep();
-    std::swap(uncompressed, block_rep->uncompressed);
-    r->index_builder->PrepareIndexEntry(last_key_in_current_block,
-                                        first_key_in_next_block,
-                                        block_rep->prepared_index_entry.get());
-
-    assert(block_rep != nullptr);
-    r->pc_rep->file_size_estimator.EmitBlock(block_rep->uncompressed.size(),
-                                             r->get_offset());
-    r->pc_rep->EmitBlock(block_rep);
-  } else {
-    WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
-    if (ok()) {
-      // We do not emit the index entry for a block until we have seen the
-      // first key for the next data block.  This allows us to use shorter
-      // keys in the index block.  For example, consider a block boundary
-      // between the keys "the quick brown fox" and "the who".  We can use
-      // "the r" as the key for the index block entry since it is >= all
-      // entries in the first block and < all entries in subsequent
-      // blocks.
-      r->index_builder->AddIndexEntry(
-          last_key_in_current_block, first_key_in_next_block, r->pending_handle,
-          &r->index_separator_scratch);
-    }
+  WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
+  if (LIKELY(ok())) {
+    // We do not emit the index entry for a block until we have seen the
+    // first key for the next data block.  This allows us to use shorter
+    // keys in the index block.  For example, consider a block boundary
+    // between the keys "the quick brown fox" and "the who".  We can use
+    // "the r" as the key for the index block entry since it is >= all
+    // entries in the first block and < all entries in subsequent
+    // blocks.
+    r->index_builder->AddIndexEntry(last_key_in_current_block,
+                                    first_key_in_next_block, r->pending_handle,
+                                    &r->index_separator_scratch);
   }
 }
 
 void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
                                         BlockHandle* handle,
                                         BlockType block_type) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kUnbuffered);
+  // Single-threaded context only
+  assert(!r->IsParallelCompressionActive());
   CompressionType type;
-  Status compress_status;
   bool is_data_block = block_type == BlockType::kData;
-  CompressAndVerifyBlock(
+  Status compress_status = CompressAndVerifyBlock(
       uncompressed_block_data, is_data_block,
-      is_data_block ? r->data_block_working_areas[0] : r->basic_working_area,
-      &r->single_threaded_compressed_output, &type, &compress_status);
+      is_data_block ? r->data_block_working_area : r->basic_working_area,
+      &r->single_threaded_compressed_output, &type);
   r->SetStatus(compress_status);
-  if (!ok()) {
+  if (UNLIKELY(!ok())) {
     return;
   }
 
@@ -1366,25 +1733,96 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   }
 }
 
-void BlockBasedTableBuilder::BGWorkCompression(WorkingAreaPair& working_area) {
-  ParallelCompressionRep::BlockRep* block_rep = nullptr;
-  while (rep_->pc_rep->compress_queue.pop(block_rep)) {
-    assert(block_rep != nullptr);
-    // Skip compression if we are aborting anyway
-    if (ok()) {
-      CompressAndVerifyBlock(block_rep->uncompressed, true, /* is_data_block*/
-                             working_area, &block_rep->compressed,
-                             &block_rep->compression_type, &block_rep->status);
-    }
-    block_rep->slot.Fill(block_rep);
-  }
+uint64_t BlockBasedTableBuilder::GetWorkerCPUMicros() const {
+  return rep_->worker_cpu_micros.LoadRelaxed();
 }
 
-void BlockBasedTableBuilder::CompressAndVerifyBlock(
+void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
+  // Record CPU usage of this thread
+  const uint64_t start_cpu_micros =
+      rep_->ioptions.env->GetSystemClock()->CPUMicros();
+  Defer log_cpu{[this, start_cpu_micros]() {
+    rep_->worker_cpu_micros.FetchAddRelaxed(
+        rep_->ioptions.env->GetSystemClock()->CPUMicros() - start_cpu_micros);
+  }};
+
+  auto& pc_rep = *rep_->pc_rep;
+#ifdef BBTB_PC_WATCHDOG
+  pc_rep.live_workers.FetchAddRelaxed(1);
+  Defer decr{[&pc_rep]() { pc_rep.live_workers.FetchSubRelaxed(1); }};
+#endif  // BBTB_PC_WATCHDOG
+  ParallelCompressionRep::ThreadState thread_state =
+      ParallelCompressionRep::ThreadState::kIdle;
+  uint32_t slot = 0;
+  // Workers should avoid checking the shared status (e.g. ok()) to minimize
+  // potential data dependencies across threads. If another thread hits an
+  // error, we will pick up the kEnd state from the abort.
+  IOStatus ios;
+  do {
+    pc_rep.WorkerStateTransition(thread_state, slot);
+    ParallelCompressionRep::BlockRep* block_rep = &pc_rep.ring_buffer[slot];
+    auto compress_fn = [this, block_rep, &ios, &working_area]() {
+      ios = status_to_io_status(CompressAndVerifyBlock(
+          block_rep->uncompressed, /*is_data_block=*/true, working_area,
+          &block_rep->compressed, &block_rep->compression_type));
+    };
+    auto write_fn = [this, block_rep, &ios]() {
+      Slice compressed = block_rep->compressed;
+      Slice uncompressed = block_rep->uncompressed;
+      ios = WriteMaybeCompressedBlockImpl(
+          block_rep->compression_type == kNoCompression ? uncompressed
+                                                        : compressed,
+          block_rep->compression_type, &rep_->pending_handle, BlockType::kData,
+          &uncompressed);
+      if (LIKELY(ios.ok())) {
+        rep_->props.data_size = rep_->get_offset();
+        ++rep_->props.num_data_blocks;
+
+        rep_->index_builder->FinishIndexEntry(
+            rep_->pending_handle, block_rep->prepared_index_entry.get());
+      }
+    };
+    switch (thread_state) {
+      case ParallelCompressionRep::ThreadState::kEnd:
+        // All done
+        assert(ios.ok());
+        return;
+      case ParallelCompressionRep::ThreadState::kCompressing:
+        compress_fn();
+        break;
+      case ParallelCompressionRep::ThreadState::kCompressingAndWriting:
+        compress_fn();
+        if (LIKELY(ios.ok())) {
+          write_fn();
+        }
+        break;
+      case ParallelCompressionRep::ThreadState::kWriting:
+        write_fn();
+        break;
+      case ParallelCompressionRep::ThreadState::kEmitting:
+        // Shouldn't happen
+        assert(thread_state != ParallelCompressionRep::ThreadState::kEmitting);
+        break;
+      case ParallelCompressionRep::ThreadState::kIdle:
+        // Shouldn't happen
+        assert(thread_state != ParallelCompressionRep::ThreadState::kIdle);
+        break;
+      default:
+        assert(false);
+        break;
+    }
+  } while (LIKELY(ios.ok()));
+  // Hit an error, so abort
+  rep_->SetIOStatus(ios);
+  pc_rep.SetAbort(thread_state);
+}
+
+Status BlockBasedTableBuilder::CompressAndVerifyBlock(
     const Slice& uncompressed_block_data, bool is_data_block,
     WorkingAreaPair& working_area, GrowableBuffer* compressed_output,
-    CompressionType* result_compression_type, Status* out_status) {
-  Rep* r = rep_;
+    CompressionType* result_compression_type) {
+  Rep* r = rep_.get();
+  Status status;
 
   Compressor* compressor = nullptr;
   Decompressor* verify_decomp = nullptr;
@@ -1409,12 +1847,12 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
            uncompressed_block_data.size()) >>
           10);
       compressed_output->ResetForSize(max_compressed_size);
-      *out_status = compressor->CompressBlock(
+      status = compressor->CompressBlock(
           uncompressed_block_data, compressed_output->data(),
           &compressed_output->MutableSize(), &type, &working_area.compress);
 
       // Post-condition of Compressor::CompressBlock
-      assert(type == kNoCompression || out_status->ok());
+      assert(type == kNoCompression || status.ok());
       assert(type == kNoCompression ||
              r->table_options.verify_compression == (verify_decomp != nullptr));
 
@@ -1428,21 +1866,20 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
             *verify_decomp, &contents, r->ioptions,
             /*allocator=*/nullptr, &working_area.verify);
 
-        if (uncompress_status.ok()) {
+        if (LIKELY(uncompress_status.ok())) {
           bool data_match = contents.data.compare(uncompressed_block_data) == 0;
           if (!data_match) {
             // The result of the compression was invalid. abort.
             const char* const msg =
                 "Decompressed block did not match pre-compression block";
             ROCKS_LOG_ERROR(r->ioptions.logger, "%s", msg);
-            *out_status = Status::Corruption(msg);
+            status = Status::Corruption(msg);
             type = kNoCompression;
           }
         } else {
           // Decompression reported an error. abort.
-          *out_status =
-              Status::Corruption(std::string("Could not decompress: ") +
-                                 uncompress_status.getState());
+          status = Status::Corruption(std::string("Could not decompress: ") +
+                                      uncompress_status.getState());
           type = kNoCompression;
         }
       }
@@ -1452,17 +1889,15 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       }
     }
     if (is_data_block) {
-      r->compressible_input_data_bytes.fetch_add(uncompressed_block_data.size(),
-                                                 std::memory_order_relaxed);
-      r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
-                                                   std::memory_order_relaxed);
+      r->compressible_input_data_bytes.FetchAddRelaxed(
+          uncompressed_block_data.size());
+      r->uncompressible_input_data_bytes.FetchAddRelaxed(kBlockTrailerSize);
     }
   } else {
     // Status is not OK, or block is too big to be compressed.
     if (is_data_block) {
-      r->uncompressible_input_data_bytes.fetch_add(
-          uncompressed_block_data.size() + kBlockTrailerSize,
-          std::memory_order_relaxed);
+      r->uncompressible_input_data_bytes.FetchAddRelaxed(
+          uncompressed_block_data.size() + kBlockTrailerSize);
     }
   }
 
@@ -1483,25 +1918,37 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
                uncompressed_block_data.size());
     RecordTick(r->ioptions.stats, BYTES_COMPRESSED_TO,
                compressed_output->size());
+    if (r->IsParallelCompressionActive() && is_data_block) {
+      r->pc_rep->estimated_inflight_size.FetchSubRelaxed(
+          uncompressed_block_data.size() - compressed_output->size());
+    }
   }
   *result_compression_type = type;
+  return status;
 }
 
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
+    const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
+    BlockType block_type, const Slice* uncompressed_block_data) {
+  rep_->SetIOStatus(WriteMaybeCompressedBlockImpl(
+      block_contents, comp_type, handle, block_type, uncompressed_block_data));
+}
+
+IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    compression_type: uint8
   //    checksum: uint32
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   bool is_data_block = block_type == BlockType::kData;
   IOOptions io_options;
+  // Always return io_s for NRVO
   IOStatus io_s =
       WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
-  if (!io_s.ok()) {
-    r->SetIOStatus(io_s);
-    return;
+  if (UNLIKELY(!io_s.ok())) {
+    return io_s;
   }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
@@ -1520,9 +1967,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   // r->file->Append call
   {
     io_s = r->file->Append(io_options, block_contents);
-    if (!io_s.ok()) {
-      r->SetIOStatus(io_s);
-      return;
+    if (UNLIKELY(!io_s.ok())) {
+      return io_s;
     }
   }
 
@@ -1535,10 +1981,10 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   if (block_type == BlockType::kFilter) {
-    Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
-    if (!s.ok()) {
-      r->SetStatus(s);
-      return;
+    io_s = status_to_io_status(
+        r->filter_builder->MaybePostVerifyFilter(block_contents));
+    if (UNLIKELY(!io_s.ok())) {
+      return io_s;
     }
   }
 
@@ -1548,18 +1994,16 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
       trailer.data());
   {
     io_s = r->file->Append(io_options, Slice(trailer.data(), trailer.size()));
-    if (!io_s.ok()) {
-      r->SetIOStatus(io_s);
-      return;
+    if UNLIKELY (!io_s.ok()) {
+      return io_s;
     }
   }
 
   if (r->warm_cache) {
-    Status s =
-        InsertBlockInCacheHelper(*uncompressed_block_data, handle, block_type);
-    if (!s.ok()) {
-      r->SetStatus(s);
-      return;
+    io_s = status_to_io_status(
+        InsertBlockInCacheHelper(*uncompressed_block_data, handle, block_type));
+    if (UNLIKELY(!io_s.ok())) {
+      return io_s;
     }
   }
 
@@ -1573,90 +2017,91 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         (r->alignment - 1);
 
     io_s = r->file->Pad(io_options, pad_bytes);
-    if (io_s.ok()) {
+    if (LIKELY(io_s.ok())) {
       r->pre_compression_size += pad_bytes;
       r->set_offset(r->get_offset() + pad_bytes);
     } else {
-      r->SetIOStatus(io_s);
-      return;
+      return io_s;
     }
   }
 
-  if (r->IsParallelCompressionEnabled()) {
-    if (is_data_block) {
-      r->pc_rep->file_size_estimator.ReapBlock(block_contents.size(),
-                                               r->get_offset());
-    } else {
-      r->pc_rep->file_size_estimator.SetEstimatedFileSize(r->get_offset());
-    }
+  if (r->IsParallelCompressionActive() && is_data_block) {
+    r->pc_rep->estimated_inflight_size.FetchSubRelaxed(block_contents.size() +
+                                                       kBlockTrailerSize);
   }
+  return io_s;
 }
 
-void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
-  Rep* r = rep_;
-  ParallelCompressionRep::BlockRepSlot* slot = nullptr;
-  ParallelCompressionRep::BlockRep* block_rep = nullptr;
-  // Starts empty; see FilterBlockBuilder::AddWithPrevKey
-  while (r->pc_rep->write_queue.pop(slot)) {
-    // FIXME: this is weird popping off write queue just to wait again on
-    // compress queue
-    assert(slot != nullptr);
-    slot->Take(block_rep);
-    assert(block_rep != nullptr);
-    if (!block_rep->status.ok()) {
-      r->SetStatus(block_rep->status);
-      // Reap block so that blocked Flush() can finish
-      // if there is one, and Flush() will notice !ok() next time.
-      block_rep->status = Status::OK();
-      r->pc_rep->ReapBlock(block_rep);
-      continue;
-    }
-
-    r->pc_rep->file_size_estimator.SetCurrBlockUncompSize(
-        block_rep->uncompressed.size());
-    Slice compressed = block_rep->compressed;
-    Slice uncompressed = block_rep->uncompressed;
-    WriteMaybeCompressedBlock(block_rep->compression_type == kNoCompression
-                                  ? uncompressed
-                                  : compressed,
-                              block_rep->compression_type, &r->pending_handle,
-                              BlockType::kData, &uncompressed);
-    if (!ok()) {
-      break;
-    }
-
-    r->props.data_size = r->get_offset();
-    ++r->props.num_data_blocks;
-
-    r->index_builder->FinishIndexEntry(r->pending_handle,
-                                       block_rep->prepared_index_entry.get());
-
-    r->pc_rep->ReapBlock(block_rep);
+void BlockBasedTableBuilder::MaybeStartParallelCompression() {
+  if (rep_->compression_parallel_threads <= 1) {
+    return;
   }
-}
-
-void BlockBasedTableBuilder::StartParallelCompression() {
-  rep_->pc_rep.reset(
-      new ParallelCompressionRep(rep_->compression_parallel_threads));
-  rep_->pc_rep->compress_thread_pool.reserve(
+  // Although in theory having a separate thread for writing to the SST file
+  // could help to hide the latency associated with writing, it is more often
+  // the case that the latency comes in large units for rare calls to write that
+  // flush downstream buffers, including in WritableFileWriter. The buffering
+  // provided by the compression ring buffer is almost negligible for hiding
+  // that latency. So even with some optimizations, turning on the parallel
+  // framework when compression is disabled just eats more CPU with little-to-no
+  // improvement in throughput.
+  if (rep_->data_block_compressor == nullptr) {
+    // Force the generally best configuration for no compression: no parallelism
+    return;
+  }
+  rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
-  for (uint32_t i = 0; i < rep_->compression_parallel_threads; i++) {
-    rep_->pc_rep->block_rep_buf[i].prepared_index_entry =
+  auto& pc_rep = *rep_->pc_rep;
+  for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
+    pc_rep.ring_buffer[i].prepared_index_entry =
         rep_->index_builder->CreatePreparedIndexEntry();
-    rep_->pc_rep->compress_thread_pool.emplace_back(
-        [this, i] { BGWorkCompression(rep_->data_block_working_areas[i]); });
   }
-  rep_->pc_rep->write_thread.reset(
-      new port::Thread([this] { BGWorkWriteMaybeCompressedBlock(); }));
+  pc_rep.worker_threads.reserve(pc_rep.num_worker_threads);
+  pc_rep.working_areas.resize(pc_rep.num_worker_threads);
+  for (uint32_t i = 0; i < pc_rep.num_worker_threads; i++) {
+    auto& wa = pc_rep.working_areas[i];
+    if (rep_->data_block_compressor) {
+      wa.compress = rep_->data_block_compressor->ObtainWorkingArea();
+    }
+    if (rep_->data_block_verify_decompressor) {
+      wa.verify = rep_->data_block_verify_decompressor->ObtainWorkingArea(
+          rep_->data_block_compressor->GetPreferredCompressionType());
+    }
+    pc_rep.worker_threads.emplace_back([this, &wa] { BGWorker(wa); });
+  }
+#ifdef BBTB_PC_WATCHDOG
+  // Start watchdog thread
+  pc_rep.watchdog_thread = std::thread([&pc_rep] { pc_rep.BGWatchdog(); });
+  pc_rep.live_emit.StoreRelaxed(true);
+#endif  // BBTB_PC_WATCHDOG
 }
 
-void BlockBasedTableBuilder::StopParallelCompression() {
-  rep_->pc_rep->compress_queue.finish();
-  for (auto& thread : rep_->pc_rep->compress_thread_pool) {
+void BlockBasedTableBuilder::StopParallelCompression(bool abort) {
+  auto& pc_rep = *rep_->pc_rep;
+  if (abort) {
+    pc_rep.SetAbort(pc_rep.emit_thread_state);
+  } else if (pc_rep.emit_thread_state !=
+             ParallelCompressionRep::ThreadState::kEnd) {
+    // In case we didn't do a final flush with no next key
+    assert(rep_->props.num_data_blocks == 0);
+    pc_rep.SetNoMoreToEmit(pc_rep.emit_thread_state, pc_rep.emit_slot);
+  }
+#ifdef BBTB_PC_WATCHDOG
+  pc_rep.live_emit.StoreRelaxed(false);
+#endif  // BBTB_PC_WATCHDOG
+  assert(pc_rep.emit_thread_state == ParallelCompressionRep::ThreadState::kEnd);
+  for (auto& thread : pc_rep.worker_threads) {
     thread.join();
   }
-  rep_->pc_rep->write_queue.finish();
-  rep_->pc_rep->write_thread->join();
+#ifdef BBTB_PC_WATCHDOG
+  // Wake & shutdown watchdog thread
+  {
+    std::unique_lock<std::mutex> lock(pc_rep.watchdog_mutex);
+    pc_rep.shutdown_watchdog = true;
+    pc_rep.watchdog_cv.notify_all();
+  }
+  pc_rep.watchdog_thread.join();
+#endif  // BBTB_PC_WATCHDOG
+  rep_->pc_rep.reset();
 }
 
 Status BlockBasedTableBuilder::status() const { return rep_->GetStatus(); }
@@ -1664,6 +2109,8 @@ Status BlockBasedTableBuilder::status() const { return rep_->GetStatus(); }
 IOStatus BlockBasedTableBuilder::io_status() const {
   return rep_->GetIOStatus();
 }
+
+bool BlockBasedTableBuilder::ok() const { return rep_->StatusOk(); }
 
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
@@ -1683,7 +2130,7 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     s = WarmInCache(block_cache, key.AsSlice(), block_contents,
                     &rep_->create_context, helper, Cache::Priority::LOW,
                     &charge);
-    if (s.ok()) {
+    if (LIKELY(s.ok())) {
       BlockBasedTable::UpdateCacheInsertionMetrics(
           block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
           rep_->ioptions.stats);
@@ -1709,11 +2156,11 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   }
   BlockHandle filter_block_handle;
   bool is_partitioned_filter = rep_->table_options.partition_filters;
-  if (ok()) {
+  if (LIKELY(ok())) {
     rep_->props.num_filter_entries +=
         rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
-    while (ok() && s.IsIncomplete()) {
+    while (LIKELY(ok()) && s.IsIncomplete()) {
       // filter_data is used to store the transferred filter data payload from
       // FilterBlockBuilder and deallocate the payload by going out of scope.
       // Otherwise, the payload will unnecessarily remain until
@@ -1743,7 +2190,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     }
     rep_->filter_builder->ResetFilterBitsBuilder();
   }
-  if (ok()) {
+  if (LIKELY(ok())) {
     // Add mapping from "<filter_block_prefix>.Name" to location
     // of filter data.
     std::string key;
@@ -1756,12 +2203,12 @@ void BlockBasedTableBuilder::WriteFilterBlock(
 
 void BlockBasedTableBuilder::WriteIndexBlock(
     MetaIndexBuilder* meta_index_builder, BlockHandle* index_block_handle) {
-  if (!ok()) {
+  if (UNLIKELY(!ok())) {
     return;
   }
   IndexBuilder::IndexBlocks index_blocks;
   auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
-  if (ok() && !index_builder_status.ok() &&
+  if (LIKELY(ok()) && !index_builder_status.ok() &&
       !index_builder_status.IsIncomplete()) {
     // If the index builder failed for non-Incomplete errors, we should
     // mark the entire builder as having failed wit that status. However,
@@ -1770,7 +2217,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     rep_->SetStatus(index_builder_status);
   }
 
-  if (ok()) {
+  if (LIKELY(ok())) {
     for (const auto& item : index_blocks.meta_blocks) {
       BlockHandle block_handle;
       if (item.second.first == BlockType::kIndex) {
@@ -1780,13 +2227,13 @@ void BlockBasedTableBuilder::WriteIndexBlock(
         WriteMaybeCompressedBlock(item.second.second, kNoCompression,
                                   &block_handle, item.second.first);
       }
-      if (!ok()) {
+      if (UNLIKELY(!ok())) {
         break;
       }
       meta_index_builder->Add(item.first, block_handle);
     }
   }
-  if (ok()) {
+  if (LIKELY(ok())) {
     if (rep_->table_options.enable_index_compression) {
       WriteBlock(index_blocks.index_block_contents, index_block_handle,
                  BlockType::kIndex);
@@ -1799,7 +2246,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   // If there are more index partitions, finish them and write them out
   if (index_builder_status.IsIncomplete()) {
     bool index_building_finished = false;
-    while (ok() && !index_building_finished) {
+    while (LIKELY(ok()) && !index_building_finished) {
       Status s =
           rep_->index_builder->Finish(&index_blocks, *index_block_handle);
       if (s.ok()) {
@@ -1825,8 +2272,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     }
   }
   // If success and need to record in metaindex rather than footer...
-  if (ok() && !FormatVersionUsesIndexHandleInFooter(
-                  rep_->table_options.format_version)) {
+  if (LIKELY(ok()) && !FormatVersionUsesIndexHandleInFooter(
+                          rep_->table_options.format_version)) {
     meta_index_builder->Add(kIndexBlockName, *index_block_handle);
   }
 }
@@ -1834,7 +2281,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
 void BlockBasedTableBuilder::WritePropertiesBlock(
     MetaIndexBuilder* meta_index_builder) {
   BlockHandle properties_block_handle;
-  if (ok()) {
+  if (LIKELY(ok())) {
     PropertyBlockBuilder property_block_builder;
     rep_->props.filter_policy_name =
         rep_->table_options.filter_policy != nullptr
@@ -1870,32 +2317,34 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       assert(rep_->p_index_builder_ != nullptr);
       rep_->props.index_partitions = rep_->p_index_builder_->NumPartitions();
       rep_->props.top_level_index_size =
-          rep_->p_index_builder_->TopLevelIndexSize(rep_->offset);
+          rep_->p_index_builder_->TopLevelIndexSize(rep_->offset.LoadRelaxed());
     }
     rep_->props.index_key_is_user_key =
         !rep_->index_builder->separator_is_key_plus_seq();
     rep_->props.index_value_is_delta_encoded =
         rep_->use_delta_encoding_for_index_values;
-    if (rep_->sampled_input_data_bytes > 0) {
+    if (rep_->sampled_input_data_bytes.LoadRelaxed() > 0) {
       rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
-          static_cast<double>(rep_->sampled_output_slow_data_bytes) /
-              rep_->sampled_input_data_bytes *
-              rep_->compressible_input_data_bytes +
-          rep_->uncompressible_input_data_bytes + 0.5);
+          static_cast<double>(
+              rep_->sampled_output_slow_data_bytes.LoadRelaxed()) /
+              rep_->sampled_input_data_bytes.LoadRelaxed() *
+              rep_->compressible_input_data_bytes.LoadRelaxed() +
+          rep_->uncompressible_input_data_bytes.LoadRelaxed() + 0.5);
       rep_->props.fast_compression_estimated_data_size = static_cast<uint64_t>(
-          static_cast<double>(rep_->sampled_output_fast_data_bytes) /
-              rep_->sampled_input_data_bytes *
-              rep_->compressible_input_data_bytes +
-          rep_->uncompressible_input_data_bytes + 0.5);
+          static_cast<double>(
+              rep_->sampled_output_fast_data_bytes.LoadRelaxed()) /
+              rep_->sampled_input_data_bytes.LoadRelaxed() *
+              rep_->compressible_input_data_bytes.LoadRelaxed() +
+          rep_->uncompressible_input_data_bytes.LoadRelaxed() + 0.5);
     } else if (rep_->sample_for_compression > 0) {
-      // We tried to sample but none were found. Assume worst-case (compression
-      // ratio 1.0) so data is complete and aggregatable.
+      // We tried to sample but none were found. Assume worst-case
+      // (compression ratio 1.0) so data is complete and aggregatable.
       rep_->props.slow_compression_estimated_data_size =
-          rep_->compressible_input_data_bytes +
-          rep_->uncompressible_input_data_bytes;
+          rep_->compressible_input_data_bytes.LoadRelaxed() +
+          rep_->uncompressible_input_data_bytes.LoadRelaxed();
       rep_->props.fast_compression_estimated_data_size =
-          rep_->compressible_input_data_bytes +
-          rep_->uncompressible_input_data_bytes;
+          rep_->compressible_input_data_bytes.LoadRelaxed() +
+          rep_->uncompressible_input_data_bytes.LoadRelaxed();
     }
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
@@ -1916,7 +2365,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     WriteMaybeCompressedBlock(block_data, kNoCompression,
                               &properties_block_handle, BlockType::kProperties);
   }
-  if (ok()) {
+  if (LIKELY(ok())) {
 #ifndef NDEBUG
     {
       uint64_t props_block_offset = properties_block_handle.offset();
@@ -1946,7 +2395,7 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
   }
   if (!compression_dict.empty()) {
     BlockHandle compression_dict_block_handle;
-    if (ok()) {
+    if (LIKELY(ok())) {
       WriteMaybeCompressedBlock(compression_dict, kNoCompression,
                                 &compression_dict_block_handle,
                                 BlockType::kCompressionDictionary);
@@ -1954,7 +2403,7 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
           "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
           &compression_dict);
     }
-    if (ok()) {
+    if (LIKELY(ok())) {
       meta_index_builder->Add(kCompressionDictBlockName,
                               compression_dict_block_handle);
     }
@@ -1963,7 +2412,7 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
 
 void BlockBasedTableBuilder::WriteRangeDelBlock(
     MetaIndexBuilder* meta_index_builder) {
-  if (ok() && !rep_->range_del_block.empty()) {
+  if (LIKELY(ok()) && !rep_->range_del_block.empty()) {
     BlockHandle range_del_block_handle;
     WriteMaybeCompressedBlock(rep_->range_del_block.Finish(), kNoCompression,
                               &range_del_block_handle,
@@ -1974,8 +2423,8 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
 
 void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
-  assert(ok());
-  Rep* r = rep_;
+  assert(LIKELY(ok()));
+  Rep* r = rep_.get();
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
@@ -2006,9 +2455,10 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
 
 void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     const Slice* first_key_in_next_block) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state == Rep::State::kBuffered);
-  // Don't yet enter unbuffered (early return) if none of the conditions are met
+  // Don't yet enter unbuffered (early return) if none of the conditions are
+  // met
   if (first_key_in_next_block != nullptr) {
     bool exceeds_buffer_limit =
         (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
@@ -2043,7 +2493,8 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
   // Abstract algebra teaches us that a finite cyclic group (such as the
   // additive group of integers modulo N) can be generated by a number that is
   // coprime with N. Since N is variable (number of buffered data blocks), we
-  // must then pick a prime number in order to guarantee coprimeness with any N.
+  // must then pick a prime number in order to guarantee coprimeness with any
+  // N.
   //
   // One downside of this approach is the spread will be poor when
   // `kPrimeGeneratorRemainder` is close to zero or close to
@@ -2085,10 +2536,6 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
   r->data_block_compressor = r->compressor_with_dict
                                  ? r->compressor_with_dict.get()
                                  : r->basic_compressor.get();
-  for (uint32_t i = 0; i < r->compression_parallel_threads; i++) {
-    r->data_block_working_areas[i].compress =
-        r->data_block_compressor->ObtainWorkingArea();
-  }
   Slice serialized_dict = r->data_block_compressor->GetSerializedDict();
   if (r->verify_decompressor) {
     if (serialized_dict.empty()) {
@@ -2098,17 +2545,12 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
       // Get an updated dictionary-aware decompressor for verification.
       Status s = r->verify_decompressor->MaybeCloneForDict(
           serialized_dict, &r->verify_decompressor_with_dict);
-      // Dictionary support must be present on the decompressor side if it's on
-      // the compressor side.
+      // Dictionary support must be present on the decompressor side if it's
+      // on the compressor side.
       assert(r->verify_decompressor_with_dict);
       if (r->verify_decompressor_with_dict) {
         r->data_block_verify_decompressor =
             r->verify_decompressor_with_dict.get();
-        for (uint32_t i = 0; i < r->compression_parallel_threads; i++) {
-          r->data_block_working_areas[i].verify =
-              r->data_block_verify_decompressor->ObtainWorkingArea(
-                  r->data_block_compressor->GetPreferredCompressionType());
-        }
         assert(s.ok());
       } else {
         assert(!s.ok());
@@ -2165,7 +2607,13 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     auto& data_block = r->data_block_buffers[i];
     iter->SeekToLast();
     assert(iter->Valid());
-    EmitBlock(data_block, iter->key(), first_key_in_loop_next_block_ptr);
+    if (r->IsParallelCompressionActive()) {
+      EmitBlockForParallel(data_block, iter->key(),
+                           first_key_in_loop_next_block_ptr);
+
+    } else {
+      EmitBlock(data_block, iter->key(), first_key_in_loop_next_block_ptr);
+    }
     std::swap(iter, next_block_iter);
   }
   r->data_block_buffers.clear();
@@ -2179,7 +2627,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
 }
 
 Status BlockBasedTableBuilder::Finish() {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   assert(r->state != Rep::State::kClosed);
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries first, in Flush().
@@ -2188,16 +2636,11 @@ Status BlockBasedTableBuilder::Finish() {
     MaybeEnterUnbuffered(nullptr);
   }
   assert(r->state == Rep::State::kUnbuffered);
-  if (r->IsParallelCompressionEnabled()) {
-    StopParallelCompression();
-#ifndef NDEBUG
-    for (const auto& br : r->pc_rep->block_rep_buf) {
-      assert(br.status.ok());
-    }
-#endif  // !NDEBUG
+  if (r->IsParallelCompressionActive()) {
+    StopParallelCompression(/*abort=*/false);
   }
 
-  r->props.tail_start_offset = r->offset;
+  r->props.tail_start_offset = r->offset.LoadRelaxed();
 
   // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
@@ -2214,36 +2657,27 @@ Status BlockBasedTableBuilder::Finish() {
   WriteCompressionDictBlock(&meta_index_builder);
   WriteRangeDelBlock(&meta_index_builder);
   WritePropertiesBlock(&meta_index_builder);
-  if (ok()) {
+  if (LIKELY(ok())) {
     // flush the meta index block
     WriteMaybeCompressedBlock(meta_index_builder.Finish(), kNoCompression,
                               &metaindex_block_handle, BlockType::kMetaIndex);
   }
-  if (ok()) {
+  if (LIKELY(ok())) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
   r->state = Rep::State::kClosed;
-  r->tail_size = r->offset - r->props.tail_start_offset;
+  r->tail_size = r->offset.LoadRelaxed() - r->props.tail_start_offset;
 
-  Status ret_status = r->CopyStatus();
-  IOStatus ios = r->GetIOStatus();
-  if (!ios.ok() && ret_status.ok()) {
-    // Let io_status supersede ok status (otherwise status takes precedennce)
-    ret_status = ios;
-  }
-  return ret_status;
+  return r->GetStatus();
 }
 
 void BlockBasedTableBuilder::Abandon() {
   assert(rep_->state != Rep::State::kClosed);
-  if (rep_->IsParallelCompressionEnabled()) {
-    StopParallelCompression();
+  if (rep_->IsParallelCompressionActive()) {
+    StopParallelCompression(/*abort=*/true);
   }
   rep_->state = Rep::State::kClosed;
-#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  // Avoid unnecessary lock acquisition
-  rep_->CopyStatus().PermitUncheckedError();
-  rep_->CopyIOStatus().PermitUncheckedError();
-#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+  rep_->GetIOStatus().PermitUncheckedError();
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {
@@ -2258,13 +2692,14 @@ uint64_t BlockBasedTableBuilder::PreCompressionSize() const {
   return rep_->pre_compression_size;
 }
 
-uint64_t BlockBasedTableBuilder::FileSize() const { return rep_->offset; }
+uint64_t BlockBasedTableBuilder::FileSize() const {
+  return rep_->offset.LoadRelaxed();
+}
 
 uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
-  if (rep_->IsParallelCompressionEnabled()) {
-    // Use compression ratio so far and inflight uncompressed bytes to estimate
-    // final SST size.
-    return rep_->pc_rep->file_size_estimator.GetEstimatedFileSize();
+  if (rep_->IsParallelCompressionActive()) {
+    // Use upper bound on "inflight" data size to estimate
+    return FileSize() + rep_->pc_rep->estimated_inflight_size.LoadRelaxed();
   } else {
     return FileSize();
   }

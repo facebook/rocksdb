@@ -155,8 +155,9 @@ class MultiScan {
   MultiScan(const ReadOptions& read_options, const MultiScanArgs& scan_opts,
             DB* db, ColumnFamilyHandle* cfh);
 
-  explicit MultiScan(std::unique_ptr<Iterator>&& db_iter)
-      : db_iter_(std::move(db_iter)) {}
+  explicit MultiScan(const Comparator* comp,
+                     std::unique_ptr<Iterator>&& db_iter)
+      : scan_opts_(comp), db_iter_(std::move(db_iter)) {}
 
   class MultiScanIterator {
    public:

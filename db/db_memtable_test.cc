@@ -339,6 +339,135 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
   }
 }
 
+class DBMemTableTestForSeek : public DBMemTableTest,
+                              virtual public ::testing::WithParamInterface<
+                                  std::tuple<bool, bool, bool>> {};
+
+TEST_P(DBMemTableTestForSeek, IntegrityChecks) {
+  // Validate key corruption could be detected during seek.
+  // We insert many keys into skiplist. Then we corrupt the each key one at a
+  // time. With memtable_veirfy_per_key_checksum_on_seek enabled, when the
+  // corrupted key is searched, the checksum of every key visited during the
+  // seek is validated. It will report data corruption. Otherwise seek returns
+  // not found.
+  auto allow_data_in_error = std::get<0>(GetParam());
+  Options options = CurrentOptions();
+  options.allow_data_in_errors = allow_data_in_error;
+  options.paranoid_memory_checks = std::get<1>(GetParam());
+  options.memtable_veirfy_per_key_checksum_on_seek = std::get<2>(GetParam());
+  options.memtable_protection_bytes_per_key = 8;
+  DestroyAndReopen(options);
+
+  // capture the data pointer of all of the keys
+  std::vector<char*> raw_data_pointer;
+
+  // Insert enough keys, so memtable would create multiple levels.
+  auto key_count = 100;
+  for (int i = 0; i < key_count; i++) {
+    // The last digit of the key will be corrupted from value 0 to value 5
+    ASSERT_OK(Put(Key(i * 10), "val0"));
+  }
+
+  ReadOptions rops;
+
+  // Iterate all the keys to get key pointers
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack("InlineSkipList::Iterator::Next::key",
+                                        [&raw_data_pointer](void* key) {
+                                          auto p = static_cast<char*>(key);
+                                          raw_data_pointer.push_back(p);
+                                        });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  {
+    std::unique_ptr<Iterator> iter{db_->NewIterator(rops)};
+    iter->Seek(Key(0));
+    while (iter->Valid()) {
+      ASSERT_OK(iter->status());
+      iter->Next();
+    }
+    // check status after valid returned false.
+    auto status = iter->status();
+    ASSERT_TRUE(status.ok());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(raw_data_pointer.size(), key_count);
+
+  bool enable_key_validation_on_seek =
+      options.memtable_veirfy_per_key_checksum_on_seek;
+
+  // For each key, corrupt it, validate corruption is detected correctly, then
+  // revert it.
+  for (int i = 0; i < key_count; i++) {
+    std::string key_to_corrupt = Key(i * 10);
+    raw_data_pointer[i][key_to_corrupt.size()] = '5';
+
+    auto corrupted_key = key_to_corrupt;
+    corrupted_key.data()[key_to_corrupt.size() - 1] = '5';
+    auto corrupted_key_slice =
+        Slice(corrupted_key.data(), corrupted_key.length());
+    auto corrupted_key_hex = corrupted_key_slice.ToString(/*hex=*/true);
+
+    {
+      // Test Get API
+      std::string val;
+      auto status = db_->Get(rops, key_to_corrupt, &val);
+      if (enable_key_validation_on_seek) {
+        ASSERT_TRUE(status.IsCorruption()) << key_to_corrupt;
+        ASSERT_EQ(
+            status.ToString().find(corrupted_key_hex) != std::string::npos,
+            allow_data_in_error)
+            << status.ToString() << "\n"
+            << corrupted_key_hex;
+      } else {
+        ASSERT_TRUE(status.IsNotFound());
+      }
+    }
+
+    {
+      // Test MultiGet API
+      std::vector<std::string> vals;
+      std::vector<Status> statuses = db_->MultiGet(
+          rops, {db_->DefaultColumnFamily()}, {key_to_corrupt}, &vals, nullptr);
+      if (enable_key_validation_on_seek) {
+        ASSERT_TRUE(statuses[0].IsCorruption());
+        ASSERT_EQ(
+            statuses[0].ToString().find(corrupted_key_hex) != std::string::npos,
+            allow_data_in_error);
+      } else {
+        ASSERT_TRUE(statuses[0].IsNotFound());
+      }
+    }
+
+    {
+      // Test Iterator Seek API
+      std::unique_ptr<Iterator> iter{db_->NewIterator(rops)};
+      ASSERT_OK(iter->status());
+      iter->Seek(key_to_corrupt);
+      auto status = iter->status();
+      if (enable_key_validation_on_seek) {
+        ASSERT_TRUE(status.IsCorruption());
+        ASSERT_EQ(
+            status.ToString().find(corrupted_key_hex) != std::string::npos,
+            allow_data_in_error);
+      } else {
+        ASSERT_FALSE(iter->Valid());
+        ASSERT_FALSE(status.ok());
+      }
+    }
+
+    // revert the key corruption.
+    raw_data_pointer[i][key_to_corrupt.size()] = '0';
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(DBMemTableTestForSeek, DBMemTableTestForSeek,
+                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool()));
+
 TEST_F(DBMemTableTest, IntegrityChecks) {
   // We insert keys key000000, key000001 and key000002 into skiplist at fixed
   // height 1 (smallest height). Then we corrupt the second key to aey000001 to

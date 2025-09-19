@@ -210,7 +210,15 @@ struct ShardedCacheOptions {
 // shard has its own LRU list for evictions. Each shard also has a mutex for
 // exclusive access during operations; even read operations need exclusive
 // access in order to update the LRU list. Mutex contention is usually low
-// with enough shards.
+// with enough shards. However,
+// * For a single hot block, there will be mutex contention even for reads
+// regardless of the number of shards.
+// * LRUCaches in the size of MBs instead of GBs can have shards small enough
+// that there is a random probability of some modest number of large blocks
+// (especially non-partitioned filters) thrashing a single cache shard.
+//
+// HYPERCLOCKCACHE IS NOW GENERALLY RECOMMENDED OVER LRUCACHE. See
+// HyperClockCacheOptions below.
 struct LRUCacheOptions : public ShardedCacheOptions {
   // Ratio of cache reserved for high-priority and low-priority entries,
   // respectively. (See Cache::Priority below more information on the levels.)
@@ -371,64 +379,50 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
   return opts.MakeSharedSecondaryCache();
 }
 
-// HyperClockCache - A lock-free Cache alternative for RocksDB block cache
-// that offers much improved CPU efficiency vs. LRUCache under high parallel
-// load or high contention, with some caveats:
+// HyperClockCache (also known as HCC) - A lock-free Cache alternative for
+// RocksDB block cache that offers much improved CPU efficiency vs. LRUCache
+// under high parallel load or high contention. Additionally, HCC only uses
+// sharding for a modest performance boost, so can use much larger cache shards
+// than LRUCache, dramatically reducing the risk of thrashing in configurations
+// or work loads with some large blocks.
+//
+// HYPERCLOCKCACHE IS NOW GENERALLY RECOMMENDED OVER LRUCACHE
+//
+// Some caveats:
 // * Not a general Cache implementation: can only be used for
 // BlockBasedTableOptions::block_cache, which RocksDB uses in a way that is
 // compatible with HyperClockCache.
-// * Requires an extra tuning parameter: see estimated_entry_charge below.
-// Similarly, substantially changing the capacity with SetCapacity could
-// harm efficiency. -> EXPERIMENTAL: the tuning parameter can be set to 0
-// to find the appropriate balance automatically.
 // * Cache priorities are less aggressively enforced, which could cause
 // cache dilution from long range scans (unless they use fill_cache=false).
+// * In some configurations, depends on anonymous mmap support, available in
+// Linux, Windows and more.
+// * May have slightly lower (or slightly higher) cache hit rate vs. LRUCache,
+// because of the bounded counting-CLOCK eviction algorithm.
 //
 // See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
-  // The estimated average `charge` associated with cache entries.
+  // OPTIONAL: The estimated average `charge` associated with cache entries.
   //
-  // EXPERIMENTAL: the field can be set to 0 to size the table dynamically
-  // and automatically. See also min_avg_entry_charge. This feature requires
-  // platform support for lazy anonymous memory mappings (incl Linux, Windows).
-  // Performance is very similar to choosing the best configuration parameter.
+  // When not provided (== 0, recommended and default), an HCC variant with a
+  // dynamically-growing table and generally good performance is used. This
+  // variant depends on anonymous mmaps so might not be available on all
+  // platforms.
   //
-  // PRODUCTION-TESTED: This is a critical configuration parameter for good
-  // performance, because having a table size that is fixed at creation time
-  // greatly reduces the required synchronization between threads.
-  // * If the estimate is substantially too low (e.g. less than half the true
-  // average) then metadata space overhead with be substantially higher (e.g.
-  // 200 bytes per entry rather than 100). With kFullChargeCacheMetadata, this
-  // can slightly reduce cache hit rates, and slightly reduce access times due
-  // to the larger working memory size.
-  // * If the estimate is substantially too high (e.g. 25% higher than the true
-  // average) then there might not be sufficient slots in the hash table for
-  // both efficient operation and capacity utilization (hit rate). The hyper
-  // cache will evict entries to prevent load factors that could dramatically
-  // affect lookup times, instead letting the hit rate suffer by not utilizing
-  // the full capacity.
-  //
-  // A reasonable choice is the larger of block_size and metadata_block_size.
-  // When WriteBufferManager (and similar) charge memory usage to the block
-  // cache, this can lead to the same effect as estimate being too low, which
-  // is better than the opposite. Therefore, the general recommendation is to
-  // assume that other memory charged to block cache could be negligible, and
-  // ignore it in making the estimate.
-  //
-  // The best parameter choice based on a cache in use is given by
-  // GetUsage() / GetOccupancyCount(), ignoring metadata overheads such as
-  // with kDontChargeCacheMetadata. More precisely with
-  // kFullChargeCacheMetadata is (GetUsage() - 64 * GetTableAddressCount()) /
-  // GetOccupancyCount(). However, when the average value size might vary
-  // (e.g. balance between metadata and data blocks in cache), it is better
-  // to estimate toward the lower side than the higher side.
+  // If the average "charge" (uncompressed block size) of block cache entries
+  // is reasonably predicted and provided here, the most efficient variant of
+  // HCC is used. Performance is degraded if the prediction is inaccurate.
+  // Prediction could be difficult or impossible with cache-charging features
+  // such as WriteBufferManager. The best parameter choice based on a cache
+  // in use is roughly given by GetUsage() / GetOccupancyCount(), though it is
+  // better to estimate toward the lower side than the higher side when the
+  // ratio might vary.
   size_t estimated_entry_charge;
 
-  // EXPERIMENTAL: When estimated_entry_charge == 0, this parameter establishes
-  // a promised lower bound on the average charge of all entries in the table,
-  // which is roughly the average uncompressed SST block size of block cache
-  // entries, typically > 4KB. The default should generally suffice with almost
-  // no cost. (This option is ignored for estimated_entry_charge > 0.)
+  // When estimated_entry_charge == 0, this parameter establishes a promised
+  // lower bound on the average charge of all entries in the table, which is
+  // roughly the average uncompressed SST block size of block cache entries,
+  // typically > 4KB. The default should generally suffice with almost no cost.
+  // (This option is ignored for estimated_entry_charge > 0.)
   //
   // More detail: The table for indexing cache entries will grow automatically
   // as needed, but a hard upper bound on that size is needed at creation time.
@@ -478,8 +472,8 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // keep operations very fast.
   int eviction_effort_cap = 30;
 
-  HyperClockCacheOptions(
-      size_t _capacity, size_t _estimated_entry_charge,
+  explicit HyperClockCacheOptions(
+      size_t _capacity, size_t _estimated_entry_charge = 0,
       int _num_shard_bits = -1, bool _strict_capacity_limit = false,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
       CacheMetadataChargePolicy _metadata_charge_policy =

@@ -22,11 +22,15 @@
 #include "rocksdb/options.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/partitioned_index_iterator.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+
+// Enable io_uring support for this test
+extern "C" bool RocksDbIOUringEnable() { return true; }
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -49,7 +53,8 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
   // user defined timestamps and different sequence number to differentiate them
   static std::vector<std::pair<std::string, std::string>> GenerateKVMap(
       int num_block = 2, bool mixed_with_human_readable_string_value = false,
-      size_t ts_sz = 0, bool same_key_diff_ts = false) {
+      size_t ts_sz = 0, bool same_key_diff_ts = false,
+      const Comparator* comparator = BytewiseComparator()) {
     std::vector<std::pair<std::string, std::string>> kv;
 
     SequenceNumber seq_no = 0;
@@ -97,6 +102,10 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         }
       }
     }
+    auto comparator_name = std::string(comparator->Name());
+    if (comparator_name.find("Reverse") != std::string::npos) {
+      std::reverse(kv.begin(), kv.end());
+    }
     return kv;
   }
 
@@ -125,6 +134,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
 
     InternalKeyComparator comparator(ioptions.user_comparator);
     ColumnFamilyOptions cf_options;
+    cf_options.comparator = ioptions.user_comparator;
     cf_options.prefix_extractor = options_.prefix_extractor;
     MutableCFOptions moptions(cf_options);
     CompressionOptions compression_opts;
@@ -169,8 +179,9 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         false /* _force_direct_prefetch */, -1 /* _level */,
         nullptr /* _block_cache_tracer */,
         0 /* _max_file_size_for_l0_meta_pin */, "" /* _cur_db_session_id */,
-        0 /* _cur_file_num */, {} /* _unique_id */, 0 /* _largest_seqno */,
-        0 /* _tail_size */, user_defined_timestamps_persisted);
+        table_num_++ /* _cur_file_num */, {} /* _unique_id */,
+        0 /* _largest_seqno */, 0 /* _tail_size */,
+        user_defined_timestamps_persisted);
 
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, foptions, &file, ioptions.statistics.get());
@@ -202,6 +213,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   Options options_;
+  uint64_t table_num_{0};
 
  private:
   void WriteToFile(const std::string& content, const std::string& filename) {
@@ -250,11 +262,13 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
 //          generate keys with different user provided key, same user-defined
 //          timestamps (if udt enabled), same sequence number. This test mode is
 //          used for testing `Get`, `MultiGet`, and `NewIterator`.
+// Param 9: test both the default comparator and a reverse comparator.
 class BlockBasedTableReaderTest
     : public BlockBasedTableReaderBaseTest,
-      public testing::WithParamInterface<std::tuple<
-          CompressionType, bool, BlockBasedTableOptions::IndexType, bool,
-          test::UserDefinedTimestampTestMode, uint32_t, uint32_t, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<CompressionType, bool, BlockBasedTableOptions::IndexType,
+                     bool, test::UserDefinedTimestampTestMode, uint32_t,
+                     uint32_t, bool, const Comparator*>> {
  protected:
   void SetUp() override {
     compression_type_ = std::get<0>(GetParam());
@@ -265,6 +279,7 @@ class BlockBasedTableReaderTest
     compression_parallel_threads_ = std::get<5>(GetParam());
     compression_dict_bytes_ = std::get<6>(GetParam());
     same_key_diff_ts_ = std::get<7>(GetParam());
+    comparator_ = std::get<8>(GetParam());
     BlockBasedTableReaderBaseTest::SetUp();
   }
 
@@ -290,6 +305,7 @@ class BlockBasedTableReaderTest
   uint32_t compression_parallel_threads_;
   uint32_t compression_dict_bytes_;
   bool same_key_diff_ts_;
+  const Comparator* comparator_{};
 };
 
 class BlockBasedTableReaderGetTest : public BlockBasedTableReaderTest {};
@@ -993,6 +1009,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
+// TODO: test no block cache case
 TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   std::ostringstream param_trace;
   param_trace << "[MultiScanPrepare] Test params: " << "CompressionType="
@@ -1004,176 +1021,215 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
               << compression_parallel_threads_
               << ", CompressionDictBytes=" << compression_dict_bytes_
               << ", SameKeyDiffTs=" << (same_key_diff_ts_ ? "true" : "false");
-  std::cout << param_trace.str() << std::endl;
+  SCOPED_TRACE(param_trace.str());
 
-  Options options;
-  options.statistics = CreateDBStatistics();
-  ReadOptions read_opts;
-  size_t ts_sz = options.comparator->timestamp_size();
-  std::vector<std::pair<std::string, std::string>> kv =
-      BlockBasedTableReaderBaseTest::GenerateKVMap(
-          100 /* num_block */,
-          true /* mixed_with_human_readable_string_value */, ts_sz);
+  for (bool fill_cache : {false, true}) {
+    SCOPED_TRACE(std::string("fill_cache=") + std::to_string(fill_cache));
+    for (bool use_async_io : {false,
+#ifdef ROCKSDB_IOURING_PRESENT
+                              true
+#endif
+         }) {
+      SCOPED_TRACE(std::string("use_async_io=") + std::to_string(use_async_io));
+      Options options;
+      options.statistics = CreateDBStatistics();
+      options.comparator = comparator_;
+      std::shared_ptr<FileSystem> fs = options.env->GetFileSystem();
+      ReadOptions read_opts;
+      read_opts.fill_cache = fill_cache;
+      size_t ts_sz = options.comparator->timestamp_size();
+      std::vector<std::pair<std::string, std::string>> kv =
+          BlockBasedTableReaderBaseTest::GenerateKVMap(
+              100 /* num_block */,
+              true /* mixed_with_human_readable_string_value */, ts_sz,
+              same_key_diff_ts_, comparator_);
+      std::string table_name = "BlockBasedTableReaderTest_NewIterator" +
+                               CompressionTypeToString(compression_type_) +
+                               "_async" + std::to_string(use_async_io);
+      ImmutableOptions ioptions(options);
+      CreateTable(table_name, ioptions, compression_type_, kv,
+                  compression_parallel_threads_, compression_dict_bytes_);
 
-  std::string table_name = "BlockBasedTableReaderTest_NewIterator" +
-                           CompressionTypeToString(compression_type_);
+      std::unique_ptr<BlockBasedTable> table;
+      FileOptions foptions;
+      foptions.use_direct_reads = use_direct_reads_;
+      InternalKeyComparator comparator(options.comparator);
+      NewBlockBasedTableReader(
+          foptions, ioptions, comparator, table_name, &table,
+          true /* bool prefetch_index_and_filter_in_cache */,
+          nullptr /* status */, persist_udt_);
 
-  ImmutableOptions ioptions(options);
-  CreateTable(table_name, ioptions, compression_type_, kv,
-              compression_parallel_threads_, compression_dict_bytes_);
+      // 1. Should coalesce into a single I/O
+      std::unique_ptr<InternalIterator> iter;
+      iter.reset(table->NewIterator(
+          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
-  std::unique_ptr<BlockBasedTable> table;
-  FileOptions foptions;
-  foptions.use_direct_reads = true;
-  InternalKeyComparator comparator(options.comparator);
-  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
-                           true /* bool prefetch_index_and_filter_in_cache */,
-                           nullptr /* status */, persist_udt_);
+      MultiScanArgs scan_options(comparator_);
+      scan_options.use_async_io = use_async_io;
+      scan_options.insert(ExtractUserKey(kv[0].first),
+                          ExtractUserKey(kv[kEntriesPerBlock].first));
+      scan_options.insert(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
+                          ExtractUserKey(kv[3 * kEntriesPerBlock].first));
+      auto read_count_before =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
 
-  std::unique_ptr<InternalIterator> iter;
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+      iter->Prepare(&scan_options);
+      iter->Seek(kv[0].first);
+      for (size_t i = 0; i < kEntriesPerBlock + 1; ++i) {
+        ASSERT_TRUE(iter->status().ok()) << iter->status().ToString();
+        ASSERT_TRUE(iter->Valid()) << i;
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      // Iter may still be valid after scan range. Upper layer (DBIter) handles
+      // exact upper bound checking. So we don't check !iter->Valid() here.
+      ASSERT_OK(iter->status());
+      iter->Seek(kv[2 * kEntriesPerBlock].first);
+      for (size_t i = 2 * kEntriesPerBlock; i < 3 * kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+      auto read_count_after =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+      ASSERT_EQ(read_count_before + 1, read_count_after);
 
-  // Should coalesce into a single I/O
-  MultiScanArgs scan_options(BytewiseComparator());
-  scan_options.insert(ExtractUserKey(kv[0].first),
-                      ExtractUserKey(kv[kEntriesPerBlock].first));
-  scan_options.insert(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[3 * kEntriesPerBlock].first));
+      // 2. No IO coalesce, should do MultiRead/ReadAsync with 2 read requests.
+      iter.reset(table->NewIterator(
+          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+      scan_options = MultiScanArgs(comparator_);
+      scan_options.insert(ExtractUserKey(kv[70 * kEntriesPerBlock].first),
+                          ExtractUserKey(kv[75 * kEntriesPerBlock].first));
+      scan_options.insert(ExtractUserKey(kv[90 * kEntriesPerBlock].first),
+                          ExtractUserKey(kv[95 * kEntriesPerBlock].first));
 
-  auto read_count_before =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  iter->Prepare(&scan_options);
-  auto read_count_after =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  ASSERT_EQ(read_count_before + 1, read_count_after);
-  iter->Seek(kv[0].first);
-  for (size_t i = 0; i < kEntriesPerBlock + 1; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
+      read_count_before =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+      iter->Prepare(&scan_options);
+
+      iter->Seek(kv[70 * kEntriesPerBlock].first);
+      for (size_t i = 70 * kEntriesPerBlock; i < 75 * kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+      iter->Seek(kv[90 * kEntriesPerBlock].first);
+      for (size_t i = 90 * kEntriesPerBlock; i < 95 * kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+
+      read_count_after =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+      ASSERT_EQ(read_count_before + 2, read_count_after);
+
+      iter.reset(table->NewIterator(
+          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+      // 3. Tests I/O excludes blocks already in cache.
+      // Reading blocks from 50-99
+      // From reads above, blocks 70-75 and 90-95 already in cache
+      // So we should read 50-70 76-89 96-99 in three I/Os.
+      // If fill_cache is false, then we'll do one giant I/O.
+      scan_options = MultiScanArgs(comparator_);
+      scan_options.use_async_io = use_async_io;
+      scan_options.insert(ExtractUserKey(kv[50 * kEntriesPerBlock].first));
+      read_count_before =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+      iter->Prepare(&scan_options);
+      read_count_after =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+      if (!use_async_io) {
+        if (!fill_cache) {
+          ASSERT_EQ(read_count_before + 1, read_count_after);
+        } else {
+          ASSERT_EQ(read_count_before + 3, read_count_after);
+        }
+      } else {
+        // stat is recorded in async callback which happens in Poll(), and
+        // Poll() happens during scanning.
+        ASSERT_EQ(read_count_before, read_count_after);
+      }
+
+      iter->Seek(kv[50 * kEntriesPerBlock].first);
+      for (size_t i = 50 * kEntriesPerBlock; i < 100 * kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+      read_count_after =
+          options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+      if (!fill_cache) {
+        ASSERT_EQ(read_count_before + 1, read_count_after);
+      } else {
+        ASSERT_EQ(read_count_before + 3, read_count_after);
+      }
+
+      // 4. Check cases when Seek key does not match start key in ScanOptions
+      iter.reset(table->NewIterator(
+          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+      scan_options = MultiScanArgs(comparator_);
+      scan_options.use_async_io = use_async_io;
+      scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
+                          ExtractUserKey(kv[20 * kEntriesPerBlock].first));
+      scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
+                          ExtractUserKey(kv[40 * kEntriesPerBlock].first));
+      iter->Prepare(&scan_options);
+      // Match start key
+      iter->Seek(kv[10 * kEntriesPerBlock].first);
+      for (size_t i = 10 * kEntriesPerBlock; i < 20 * kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+
+      // Does not match start key of the second ScanOptions.
+      iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
+      for (size_t i = 50 * kEntriesPerBlock + 1; i < 100 * kEntriesPerBlock;
+           ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      iter.reset(table->NewIterator(
+          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+      scan_options = MultiScanArgs(comparator_);
+      scan_options.use_async_io = use_async_io;
+      scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first));
+      scan_options.insert(ExtractUserKey(kv[11 * kEntriesPerBlock].first));
+      iter->Prepare(&scan_options);
+      // Does not match the first ScanOptions.
+      iter->SeekToFirst();
+      for (size_t i = 0; i < kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+      iter->Seek(kv[10 * kEntriesPerBlock].first);
+      for (size_t i = 10 * kEntriesPerBlock; i < 12 * kEntriesPerBlock; ++i) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key().ToString(), kv[i].first);
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+    }
   }
-  // Iter may still be valid after scan range. Upper layer (DBIter) handles
-  // exact upper bound checking. So we don't check !iter->Valid() here.
-  ASSERT_OK(iter->status());
-  iter->Seek(kv[2 * kEntriesPerBlock].first);
-  for (size_t i = 2 * kEntriesPerBlock; i < 3 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
-  // No I/O expected during scanning since all blocks were loaded and pinned.
-  ASSERT_EQ(read_count_after,
-            options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
-
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  // No IO coalesce, should do MultiRead with 2 read requests.
-  scan_options = MultiScanArgs(BytewiseComparator());
-  scan_options.insert(ExtractUserKey(kv[70 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[75 * kEntriesPerBlock].first));
-  scan_options.insert(ExtractUserKey(kv[90 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[95 * kEntriesPerBlock].first));
-
-  read_count_before =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  iter->Prepare(&scan_options);
-  read_count_after =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  ASSERT_EQ(read_count_before + 2, read_count_after);
-
-  iter->Seek(kv[70 * kEntriesPerBlock].first);
-  for (size_t i = 70 * kEntriesPerBlock; i < 75 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
-  iter->Seek(kv[90 * kEntriesPerBlock].first);
-  for (size_t i = 90 * kEntriesPerBlock; i < 95 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
-
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
-  // reads from blocks 50-79 and 82-.. are coalesced.
-  scan_options = MultiScanArgs(BytewiseComparator());
-  scan_options.insert(ExtractUserKey(kv[50 * kEntriesPerBlock].first));
-  read_count_before =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  iter->Prepare(&scan_options);
-  read_count_after =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  ASSERT_EQ(read_count_before + 3, read_count_after);
-  iter->Seek(kv[50 * kEntriesPerBlock].first);
-  for (size_t i = 50 * kEntriesPerBlock; i < 100 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(read_count_after,
-            options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
-
-  // Check cases when Seek key does not match start key in ScanOptions
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanArgs(BytewiseComparator());
-  scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[20 * kEntriesPerBlock].first));
-  scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[40 * kEntriesPerBlock].first));
-  iter->Prepare(&scan_options);
-  // Match start key
-  iter->Seek(kv[10 * kEntriesPerBlock].first);
-  for (size_t i = 10 * kEntriesPerBlock; i < 20 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
-  // Does not match start key of the second ScanOptions.
-  iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
-  for (size_t i = 50 * kEntriesPerBlock + 1; i < 100 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_OK(iter->status());
-
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanArgs(BytewiseComparator());
-  scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first));
-  scan_options.insert(ExtractUserKey(kv[11 * kEntriesPerBlock].first));
-  iter->Prepare(&scan_options);
-  // Does not match the first ScanOptions.
-  iter->SeekToFirst();
-  for (size_t i = 0; i < kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
-  iter->Seek(kv[10 * kEntriesPerBlock].first);
-  for (size_t i = 10 * kEntriesPerBlock; i < 12 * kEntriesPerBlock; ++i) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().ToString(), kv[i].first);
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
 }
 
 TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
@@ -1183,6 +1239,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
     return;
   }
   Options options;
+  options.comparator = comparator_;
   ReadOptions read_opts;
   size_t ts_sz = options.comparator->timestamp_size();
 
@@ -1190,7 +1247,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
   std::vector<std::pair<std::string, std::string>> kv =
       BlockBasedTableReaderBaseTest::GenerateKVMap(
           20 /* num_block */, true /* mixed_with_human_readable_string_value */,
-          ts_sz);
+          ts_sz, same_key_diff_ts_, comparator_);
 
   std::string table_name = "BlockBasedTableReaderTest_PrefetchSizeLimit" +
                            CompressionTypeToString(compression_type_);
@@ -1216,7 +1273,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
         read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
-    MultiScanArgs scan_options(BytewiseComparator());
+    MultiScanArgs scan_options(comparator_);
     scan_options.max_prefetch_size = 1024;  // less than block size
     scan_options.insert(ExtractUserKey(kv[0].first),
                         ExtractUserKey(kv[5].first));
@@ -1236,7 +1293,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
         read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
-    MultiScanArgs scan_options(BytewiseComparator());
+    MultiScanArgs scan_options(comparator_);
     scan_options.max_prefetch_size = 9 * 1024;  // 9KB - 2 blocks with buffer
     scan_options.insert(ExtractUserKey(kv[1 * kEntriesPerBlock].first),
                         ExtractUserKey(kv[8 * kEntriesPerBlock].first));
@@ -1267,7 +1324,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
         read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
-    MultiScanArgs scan_options(BytewiseComparator());
+    MultiScanArgs scan_options(comparator_);
     scan_options.max_prefetch_size = 3 * 4 * 1024 + 1024;  // 3 blocks + 1KB
     scan_options.insert(ExtractUserKey(kv[0].first),
                         ExtractUserKey(kv[5 * kEntriesPerBlock].first));
@@ -1293,7 +1350,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
         read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
-    MultiScanArgs scan_options(BytewiseComparator());
+    MultiScanArgs scan_options(comparator_);
     scan_options.max_prefetch_size = 5 * 4 * 1024 + 1024;  // 5 blocks + 1KB
     // Will read 5 entries from first scan range, and 4 blocks from the second
     // scan range
@@ -1330,7 +1387,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
         read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
-    MultiScanArgs scan_options(BytewiseComparator());
+    MultiScanArgs scan_options(comparator_);
     scan_options.max_prefetch_size = 10 * 1024 * 1024;  // 10MB
     scan_options.insert(ExtractUserKey(kv[0].first),
                         ExtractUserKey(kv[5].first));
@@ -1375,6 +1432,83 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
   }
 }
 
+TEST_P(BlockBasedTableReaderTest, MultiScanUnpinPreviousBlocks) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          30 /* num_block */,
+          true /* mixed_with_human_readable_string_value */);
+  std::string table_name = "BlockBasedTableReaderTest_UnpinPreviousBlocks" +
+                           CompressionTypeToString(compression_type_);
+  ImmutableOptions ioptions(options_);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options_.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  ReadOptions read_opts;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  // Range 1: block 0-4, Range 2: block 4-4, Range 3: block 5-15
+  scan_options.insert(ExtractUserKey(kv[0 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock - 5].first));
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 4].first),
+                      ExtractUserKey(kv[5 * kEntriesPerBlock - 3].first));
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock - 2].first),
+                      ExtractUserKey(kv[15 * kEntriesPerBlock - 1].first));
+
+  iter->Prepare(&scan_options);
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  for (int block = 0; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+
+  // MultiScan require seeks to be called in scan_option order
+  iter->Seek(kv[0 * kEntriesPerBlock].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Seek to second range - should unpin blocks from first range
+  iter->Seek(kv[5 * kEntriesPerBlock - 4].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[5 * kEntriesPerBlock - 4].first);
+  ASSERT_EQ(iter->value(), kv[5 * kEntriesPerBlock - 4].second);
+
+  // The last block (block 4) is shared with the second range, so
+  // it's not unpinned yet.
+  for (int block = 0; block < 4; ++block) {
+    ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+  // Blocks from second range still in cache.
+  // We skip block 4 here since it's ownership is moved to the actual data
+  // block iter.
+  for (int block = 5; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+
+  iter->Seek(kv[5 * kEntriesPerBlock - 2].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[5 * kEntriesPerBlock - 2].first);
+  ASSERT_EQ(iter->value(), kv[5 * kEntriesPerBlock - 2].second);
+
+  // Still pinned
+  for (int block = 5; block < 15; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+}
+
 // Param 1: compression type
 // Param 2: whether to use direct reads
 // Param 3: Block Based Table Index type, partitioned filters are also enabled
@@ -1397,7 +1531,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey),
         ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
         ::testing::Values(1, 2), ::testing::Values(0, 4096),
-        ::testing::Values(false)));
+        ::testing::Values(false),
+        ::testing::Values(BytewiseComparator(), ReverseBytewiseComparator())));
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderGetTest, BlockBasedTableReaderGetTest,
     ::testing::Combine(
@@ -1409,7 +1544,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey),
         ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
         ::testing::Values(1, 2), ::testing::Values(0, 4096),
-        ::testing::Values(false, true)));
+        ::testing::Values(false, true),
+        ::testing::Values(BytewiseComparator(), ReverseBytewiseComparator())));
 INSTANTIATE_TEST_CASE_P(
     StrictCapacityLimitReaderTest, StrictCapacityLimitReaderTest,
     ::testing::Combine(
@@ -1418,7 +1554,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
         ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
         ::testing::Values(1, 2), ::testing::Values(0),
-        ::testing::Values(false, true)));
+        ::testing::Values(false, true),
+        ::testing::Values(BytewiseComparator(), ReverseBytewiseComparator())));
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
     ::testing::Combine(
@@ -1427,8 +1564,8 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
         ::testing::Values(true), ::testing::ValuesIn(test::GetUDTTestModes()),
-        ::testing::Values(1, 2), ::testing::Values(0),
-        ::testing::Values(false)));
+        ::testing::Values(1, 2), ::testing::Values(0), ::testing::Values(false),
+        ::testing::Values(BytewiseComparator(), ReverseBytewiseComparator())));
 
 }  // namespace ROCKSDB_NAMESPACE
 

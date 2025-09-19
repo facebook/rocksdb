@@ -3,6 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// Because there are a small set of tests for Slice and there's a cost in having
+// extra test binaries for each component, this test file has evolved into a
+// "grab bag" of small tests for various reusable components, mostly in  util/.
+
 #include "rocksdb/slice.h"
 
 #include <gtest/gtest.h>
@@ -15,7 +19,9 @@
 #include "rocksdb/types.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/bit_fields.h"
 #include "util/cast_util.h"
+#include "util/semaphore.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -424,22 +430,134 @@ TEST(ToBaseCharsStringTest, Tests) {
   ASSERT_EQ(ToBaseCharsString<32>(2, 255, false), "7v");
 }
 
-TEST(SemaphoreTest, BasicStdCountingSemaphore) {
-  // Verify the C++20 API is available and apparently working
-  std::counting_semaphore sem{0};
+TEST(SemaphoreTest, CountingSemaphore) {
+  CountingSemaphore sem{0};
   int kCount = 5;
   std::vector<std::thread> threads;
   for (int i = 0; i < kCount; ++i) {
-    threads.emplace_back([&sem] { sem.release(); });
+    threads.emplace_back([&sem] { sem.Release(); });
   }
   for (int i = 0; i < kCount; ++i) {
-    threads.emplace_back([&sem] { sem.acquire(); });
+    threads.emplace_back([&sem] { sem.Acquire(); });
   }
   for (auto& t : threads) {
     t.join();
   }
   // Nothing left on the semaphore
-  ASSERT_FALSE(sem.try_acquire());
+  ASSERT_FALSE(sem.TryAcquire());
+  // Keep testing
+  sem.Release(2);
+  ASSERT_TRUE(sem.TryAcquire());
+  sem.Acquire();
+  ASSERT_FALSE(sem.TryAcquire());
+}
+
+TEST(SemaphoreTest, BinarySemaphore) {
+  BinarySemaphore sem{0};
+  int kCount = 5;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] {
+      sem.Acquire();
+      sem.Release();
+    });
+  }
+  threads.emplace_back([&sem] { sem.Release(); });
+  for (auto& t : threads) {
+    t.join();
+  }
+  // Only able to acquire one excess release
+  ASSERT_TRUE(sem.TryAcquire());
+  ASSERT_FALSE(sem.TryAcquire());
+}
+
+TEST(BitFieldsTest, BitFields) {
+  // Start by verifying example from BitFields comment
+  struct MyStateID {};
+  struct MyState : public BitFields<uint32_t, MyStateID> {
+    // Extra helper declarations and/or field type declarations
+  };
+
+  using Field1 = UnsignedBitField<MyState, 16, NoPrevBitField>;
+  using Field2 = BoolBitField<MyState, Field1>;
+  using Field3 = BoolBitField<MyState, Field2>;
+  using Field4 = UnsignedBitField<MyState, 5, Field3>;
+
+  MyState state;  // zero-initialized
+  state.Set<Field1>(42U);
+  state.Set<Field2>(true);
+  state.Set<Field4>(3U);
+  state.Ref<Field1>() += state.Get<Field4>();
+
+  ASSERT_EQ(state.Get<Field1>(), 45U);
+  ASSERT_EQ(state.Get<Field2>(), true);
+  ASSERT_EQ(state.Get<Field3>(), false);
+  ASSERT_EQ(state.Get<Field4>(), 3U);
+
+  // Misc operators
+  auto ref = state.Ref<Field3>();
+  auto ref2 = std::move(ref);
+  ref2 = true;
+  ASSERT_EQ(state.Get<Field3>(), true);
+
+  MyState state2;
+  // Basic non-concurrent tests for atomic wrappers
+  {
+    RelaxedBitFieldsAtomic<MyState> relaxed{state};
+    ASSERT_EQ(state, relaxed.LoadRelaxed());
+    relaxed.StoreRelaxed(state2);
+    ASSERT_EQ(state2, relaxed.LoadRelaxed());
+    MyState state3 = relaxed.ExchangeRelaxed(state);
+    ASSERT_EQ(state2, state3);
+    ASSERT_TRUE(relaxed.CasStrongRelaxed(state, state2));
+    while (!relaxed.CasWeakRelaxed(state2, state)) {
+    }
+    ASSERT_EQ(state2, state3);
+    ASSERT_EQ(state, relaxed.LoadRelaxed());
+
+    auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
+    MyState before, after;
+    relaxed.ApplyRelaxed(transform1, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2 = Field2::SetTransform() + Field3::SetTransform();
+    relaxed.ApplyRelaxed(transform2, &before, &after);
+    ASSERT_NE(before, state);
+    ASSERT_EQ(before.Get<Field2>(), false);
+    ASSERT_EQ(before.Get<Field3>(), false);
+    ASSERT_EQ(after, state);
+  }
+  {
+    AcqRelBitFieldsAtomic<MyState> acqrel{state};
+    ASSERT_EQ(state, acqrel.Load());
+    acqrel.Store(state2);
+    ASSERT_EQ(state2, acqrel.Load());
+    MyState state3 = acqrel.Exchange(state);
+    ASSERT_EQ(state2, state3);
+    ASSERT_TRUE(acqrel.CasStrong(state, state2));
+    while (!acqrel.CasWeak(state2, state)) {
+    }
+    ASSERT_EQ(state2, state3);
+    ASSERT_EQ(state, acqrel.Load());
+
+    auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
+    MyState before, after;
+    acqrel.Apply(transform1, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2 = Field2::SetTransform() + Field3::SetTransform();
+    acqrel.Apply(transform2, &before, &after);
+    ASSERT_NE(before, state);
+    ASSERT_EQ(before.Get<Field2>(), false);
+    ASSERT_EQ(before.Get<Field3>(), false);
+    ASSERT_EQ(after, state);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -108,7 +108,7 @@ default_params = {
     ),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
-    "compression_parallel_threads": lambda: random.choice([1] * 3 + [4, 8, 16]),
+    "compression_parallel_threads": lambda: random.choice([1, 1, 2, 3, 4, 5, 8, 9, 16]),
     "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
     "compression_checksum": lambda: random.randint(0, 1),
@@ -162,7 +162,7 @@ default_params = {
     "max_key": random.choice([100000, 25000000]),
     "max_sequential_skip_in_iterations": lambda: random.choice([1, 2, 8, 16]),
     "max_write_buffer_number": 3,
-    "mmap_read": lambda: random.randint(0, 1),
+    "mmap_read": lambda: random.choice([0, 0, 1]),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
     # the random seed, so the same keys are chosen by every run for disallowing
     # overwrites.
@@ -390,6 +390,7 @@ default_params = {
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
+    "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
@@ -413,6 +414,7 @@ default_params = {
     "use_multiscan": random.choice([1] + [0] * 3),
     # By default, `statistics` use kExceptDetailedTimers level
     "statistics": random.choice([0, 1]),
+    "multiscan_use_async_io": random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -783,6 +785,7 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+        dest_params["multiscan_use_async_io"] = 0
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
@@ -799,7 +802,11 @@ def finalize_and_sanitize(src_params):
 
     if dest_params.get("memtablerep") == "vector":
         dest_params["inplace_update_support"] = 0
+
+    # only skip list memtable representation supports paranoid memory checks
+    if dest_params.get("memtablerep") != "skip_list":
         dest_params["paranoid_memory_checks"] = 0
+        dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
@@ -1180,7 +1187,6 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["use_multiscan"] = 0
     if dest_params.get("use_multiscan") == 1:
-        dest_params["fill_cache"] = 1
         dest_params["async_io"] = 0
     return dest_params
 
