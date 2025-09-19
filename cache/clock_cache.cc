@@ -1726,9 +1726,10 @@ inline uint64_t UsedLengthToLengthInfo(size_t used_length) {
   return length_info;
 }
 
+// Avoid potential initialization order race with port::kPageSize
+constexpr size_t kPresumedPageSize = 4096;
+
 inline size_t GetStartingLength(size_t capacity) {
-  // Avoid potential initialization order race with port::kPageSize
-  constexpr size_t kPresumedPageSize = 4096;
   if (capacity > kPresumedPageSize) {
     // Start with one memory page
     return kPresumedPageSize / sizeof(AutoHyperClockTable::HandleImpl);
@@ -3590,7 +3591,7 @@ size_t AutoHyperClockTable::CalcMaxUsableLength(
   size_t num_slots =
       static_cast<size_t>(capacity / min_avg_slot_charge + 0.999999);
 
-  const size_t slots_per_page = port::kPageSize / sizeof(HandleImpl);
+  const size_t slots_per_page = kPresumedPageSize / sizeof(HandleImpl);
 
   // Round up to page size
   return ((num_slots + slots_per_page - 1) / slots_per_page) * slots_per_page;
