@@ -297,6 +297,21 @@ class BlockBasedTableReaderTest
         std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(3));
   }
 
+  std::string FormatTestParameters() {
+    std::ostringstream param_trace;
+    param_trace << "[MultiScanPrepare] Test params: " << "CompressionType="
+                << CompressionTypeToString(compression_type_)
+                << ", UseDirectReads=" << (use_direct_reads_ ? "true" : "false")
+                << ", UDTEnabled=" << (udt_enabled_ ? "true" : "false")
+                << ", PersistUDT=" << (persist_udt_ ? "true" : "false")
+                << ", CompressionParallelThreads="
+                << compression_parallel_threads_
+                << ", CompressionDictBytes=" << compression_dict_bytes_
+                << ", SameKeyDiffTs=" << (same_key_diff_ts_ ? "true" : "false")
+                << ", Comparator=" << comparator_->Name();
+    return param_trace.str();
+  }
+
   CompressionType compression_type_;
   bool use_direct_reads_;
   bool udt_enabled_;
@@ -1010,17 +1025,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 
 // TODO: test no block cache case
 TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
-  std::ostringstream param_trace;
-  param_trace << "[MultiScanPrepare] Test params: " << "CompressionType="
-              << CompressionTypeToString(compression_type_)
-              << ", UseDirectReads=" << (use_direct_reads_ ? "true" : "false")
-              << ", UDTEnabled=" << (udt_enabled_ ? "true" : "false")
-              << ", PersistUDT=" << (persist_udt_ ? "true" : "false")
-              << ", CompressionParallelThreads="
-              << compression_parallel_threads_
-              << ", CompressionDictBytes=" << compression_dict_bytes_
-              << ", SameKeyDiffTs=" << (same_key_diff_ts_ ? "true" : "false");
-  SCOPED_TRACE(param_trace.str());
+  SCOPED_TRACE(FormatTestParameters());
 
   for (bool fill_cache : {false, true}) {
     SCOPED_TRACE(std::string("fill_cache=") + std::to_string(fill_cache));
@@ -1232,6 +1237,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
 }
 
 TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
+  SCOPED_TRACE(FormatTestParameters());
   if (compression_type_ != kNoCompression) {
     // This test relies on block sizes to be close to what's set in option.
     ROCKSDB_GTEST_BYPASS("This test assumes no compression.");
@@ -1431,17 +1437,6 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrefetchSizeLimit) {
   }
 }
 
-// Param 1: compression type
-// Param 2: whether to use direct reads
-// Param 3: Block Based Table Index type, partitioned filters are also enabled
-//          when index type is kTwoLevelIndexSearch
-// Param 4: BBTO no_block_cache option
-// Param 5: test mode for the user-defined timestamp feature
-// Param 6: number of parallel compression threads
-// Param 7: CompressionOptions.max_dict_bytes and
-//          CompressionOptions.max_dict_buffer_bytes. This enable/disables
-//          compression dictionary.
-// Param 8: test mode to specify the pattern for generating key / value pairs.
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderTest, BlockBasedTableReaderTest,
     ::testing::Combine(
