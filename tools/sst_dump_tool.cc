@@ -35,9 +35,9 @@ void print_help(bool to_stderr) {
   }
   fprintf(
       to_stderr ? stderr : stdout,
-      R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress|identify]
-    --file=<data_dir_OR_sst_file>
-      Path to SST file or directory containing SST files
+      R"(sst_dump <db_dirs_OR_sst_files...> [--command=check|scan|raw|recompress|identify]
+    --file=<db_dir_OR_sst_file>
+      Path to SST file or directory containing SST files (old option syntax)
 
     --env_uri=<uri of underlying Env>
       URI of underlying Env, mutually exclusive with fs_uri
@@ -158,7 +158,12 @@ bool ParseIntArg(const char* arg, const std::string arg_name,
 
 int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::string env_uri, fs_uri;
-  const char* dir_or_file = nullptr;
+  enum DirVsFile {
+    kUnknownDirVsFile,
+    kDir,
+    kFile,
+  };
+  std::vector<std::pair<const char*, DirVsFile>> dirs_or_files;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
 
@@ -214,7 +219,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (strncmp(argv[i], "--fs_uri=", 9) == 0) {
       fs_uri = argv[i] + 9;
     } else if (strncmp(argv[i], "--file=", 7) == 0) {
-      dir_or_file = argv[i] + 7;
+      dirs_or_files.emplace_back(argv[i] + 7, kUnknownDirVsFile);
     } else if (strcmp(argv[i], "--output_hex") == 0) {
       output_hex = true;
     } else if (strcmp(argv[i], "--decode_blob_index") == 0) {
@@ -372,10 +377,18 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (strcmp(argv[i], "--version") == 0) {
       printf("%s\n", GetRocksBuildInfoAsString("sst_dump").c_str());
       return 0;
-    } else {
+    } else if (strcmp(argv[i], "--") == 0) {
+      // Remaining args are dir-or-file
+      for (++i; i < argc; ++i) {
+        dirs_or_files.emplace_back(argv[i], kUnknownDirVsFile);
+      }
+    } else if (argv[i][0] == '-') {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
       print_help(/*to_stderr*/ true);
       return 1;
+    } else {
+      // Dir-or-file arg
+      dirs_or_files.emplace_back(argv[i], kUnknownDirVsFile);
     }
   }
 
@@ -405,7 +418,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
   }
 
-  if (dir_or_file == nullptr) {
+  if (dirs_or_files.empty()) {
     fprintf(stderr, "file or directory must be specified.\n\n");
     print_help(/*to_stderr*/ true);
     exit(1);
@@ -431,26 +444,35 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 
   std::vector<std::string> filenames;
   ROCKSDB_NAMESPACE::Env* env = options.env;
-  ROCKSDB_NAMESPACE::Status st = env->GetChildren(dir_or_file, &filenames);
-  bool dir = true;
-  if (!st.ok() || filenames.empty()) {
-    // dir_or_file does not exist or does not contain children
-    // Check its existence first
-    Status s = env->FileExists(dir_or_file);
-    // dir_or_file does not exist
-    if (!s.ok()) {
-      fprintf(stderr, "%s%s: No such file or directory\n", s.ToString().c_str(),
-              dir_or_file);
-      return 1;
+  ROCKSDB_NAMESPACE::Status st;
+
+  for (size_t i = 0; i < dirs_or_files.size(); ++i) {
+    auto dir_or_file = dirs_or_files[i].first;
+    std::vector<std::string> children;
+    st = env->GetChildren(dirs_or_files[i].first, &children);
+    if (!st.ok() || children.empty()) {
+      // dir_or_file does not exist or does not contain children
+      // Check its existence first
+      Status s = env->FileExists(dir_or_file);
+      // dir_or_file does not exist
+      if (!s.ok()) {
+        fprintf(stderr, "%s%s: No such file or directory\n",
+                s.ToString().c_str(), dir_or_file);
+        return 1;
+      }
+      // dir_or_file exists and is treated as a "file"
+      // since it has no children
+      // This is ok since later it will be checked
+      // that whether it is a valid sst or not
+      // (A directory "file" is not a valid sst)
+      filenames.emplace_back(dir_or_file);
+      dirs_or_files[i].second = kFile;
+    } else {
+      for (auto& child : children) {
+        filenames.push_back(std::string{dir_or_file} + "/" + child);
+      }
+      dirs_or_files[i].second = kDir;
     }
-    // dir_or_file exists and is treated as a "file"
-    // since it has no children
-    // This is ok since later it will be checked
-    // that whether it is a valid sst or not
-    // (A directory "file" is not a valid sst)
-    filenames.clear();
-    filenames.emplace_back(dir_or_file);
-    dir = false;
   }
 
   uint64_t total_read = 0;
@@ -462,10 +484,6 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         filename.rfind(".sst") != filename.length() - 4) {
       // ignore
       continue;
-    }
-
-    if (dir) {
-      filename = std::string(dir_or_file) + "/" + filename;
     }
 
     if (command == "verify") {
@@ -530,7 +548,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
         exit(1);
       }
-      return 0;
+      continue;
     }
 
     if (command == "raw") {
@@ -658,25 +676,34 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   if (valid_sst_files.empty()) {
     // No valid SST files are found
     // Exit with an error state
-    if (dir) {
-      fprintf(stdout, "------------------------------\n");
-      fprintf(stderr, "No valid SST files found in %s\n", dir_or_file);
-    } else {
-      fprintf(stderr, "%s is not a valid SST file\n", dir_or_file);
+    for (auto& e : dirs_or_files) {
+      if (e.second == kDir) {
+        fprintf(stdout, "------------------------------\n");
+        fprintf(stderr, "No valid SST files found in %s\n", e.first);
+      } else {
+        assert(e.second == kFile);
+        fprintf(stderr, "%s is not a valid SST file\n", e.first);
+      }
     }
     return 1;
   } else {
+    assert(!dirs_or_files.empty());
     if (command == "identify") {
-      if (dir) {
+      if (dirs_or_files.size() > 1 || dirs_or_files[0].second == kDir) {
         fprintf(stdout, "------------------------------\n");
-        fprintf(stdout, "List of valid SST files found in %s:\n", dir_or_file);
+        std::string single_dir_msg;
+        if (dirs_or_files.size() == 1) {
+          single_dir_msg += " found in ";
+          single_dir_msg += dirs_or_files[0].first;
+        }
+        fprintf(stdout, "List of valid SST files%s:\n", single_dir_msg.c_str());
         for (const auto& f : valid_sst_files) {
           fprintf(stdout, "%s\n", f.c_str());
         }
         fprintf(stdout, "Number of valid SST files: %zu\n",
                 valid_sst_files.size());
       } else {
-        fprintf(stdout, "%s is a valid SST file\n", dir_or_file);
+        fprintf(stdout, "%s is a valid SST file\n", dirs_or_files[0].first);
       }
     }
     // At least one valid SST
