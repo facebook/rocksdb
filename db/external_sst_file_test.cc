@@ -4094,6 +4094,17 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
   ingest_opts.fail_if_not_bottommost_level = std::get<3>(GetParam());
   ingest_opts.link_files = std::get<4>(GetParam());
   Random* rnd = Random::GetTLSInstance();
+  rnd->Reset(std::random_device{}());
+  std::ostringstream ingest_opts_trace;
+  ingest_opts_trace << "ingest_opts params: " << "snapshot_consistency="
+                    << ingest_opts.snapshot_consistency << ", "
+                    << "allow_global_seqno=" << ingest_opts.allow_global_seqno
+                    << ", " << "allow_blocking_flush="
+                    << ingest_opts.allow_blocking_flush << ", "
+                    << "fail_if_not_bottommost_level="
+                    << ingest_opts.fail_if_not_bottommost_level << ", "
+                    << "link_files=" << ingest_opts.link_files;
+  SCOPED_TRACE(ingest_opts_trace.str());
 
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
@@ -4263,11 +4274,17 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
       s = db_->IngestExternalFile(overlap_cf, sst_file_paths, ingest_opts);
 
       ASSERT_NOK(s);
-      ASSERT_TRUE(s.ToString().find("An ingested file overlaps with existing "
-                                    "data in the DB and has been "
-                                    "assigned a non-zero sequence number") !=
-                  std::string::npos)
-          << s.ToString();
+      if (ingest_opts.fail_if_not_bottommost_level) {
+        ASSERT_TRUE(s.ToString().find("Files cannot be ingested to Lmax") !=
+                    std::string::npos)
+            << s.ToString();
+      } else {
+        ASSERT_TRUE(s.ToString().find("An ingested file overlaps with existing "
+                                      "data in the DB and has been "
+                                      "assigned a non-zero sequence number") !=
+                    std::string::npos)
+            << s.ToString();
+      }
     }
 
     // Cleanup
