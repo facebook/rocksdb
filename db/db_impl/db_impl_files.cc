@@ -614,6 +614,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kOptionsFile:
         keep = (number >= optsfile_num2);
         break;
+      case kCompactionProgressFile:
+        // Keep compaction progress files - they are managed
+        // separately by DBImplSecondary for now
+        keep = true;
+        break;
       case kCurrentFile:
       case kDBLockFile:
       case kIdentityFile:
