@@ -124,7 +124,10 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
                                const std::string& log_dir = "");
 
 extern const std::string kOptionsFileNamePrefix;  // = "OPTIONS-"
-extern const std::string kTempFileNameSuffix;     // = "dbtmp"
+extern const std::string
+    kCompactionProgressFileNamePrefix;         // =
+                                               // "COMPACTION_PROGRESS-"
+extern const std::string kTempFileNameSuffix;  // = "dbtmp"
 
 // Return a options file name given the "dbname" and file number.
 // Format:  OPTIONS-[number].dbtmp
@@ -134,6 +137,16 @@ std::string OptionsFileName(uint64_t file_num);
 // Return a temp options file name given the "dbname" and file number.
 // Format:  OPTIONS-[number]
 std::string TempOptionsFileName(const std::string& dbname, uint64_t file_num);
+
+// Return a compaction progress file name given the timestamp.
+// Format:  COMPACTION_PROGRESS-[timestamp]
+std::string CompactionProgressFileName(const std::string& dbname,
+                                       uint64_t timestamp);
+
+// Return a temp compaction progress file name given the timestamp.
+// Format:  COMPACTION_PROGRESS-[timestamp].dbtmp
+std::string TempCompactionProgressFileName(const std::string& dbname,
+                                           uint64_t timestamp);
 
 // Return the name to use for a metadatabase. The result will be prefixed with
 // "dbname".
