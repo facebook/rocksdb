@@ -2778,6 +2778,22 @@ struct CompactionServiceOptionsOverride {
 struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
+
+  // EXPERIMENTAL
+  //
+  // When enabled, compaction progress is periodically persisted to
+  // `output_directory` during `OpenAndCompact()`, allowing the future
+  // `OpenAndCompact()` with the same `output_directory` to resume from the last
+  // persisted compaction progress
+  //
+  // Progress persistence is sequential without holes and best-effort for every
+  // new output file created. This means that if compaction is interrupted in
+  // the middle of an output file, some work may need to be redone.
+  //
+  // Limitation: Currently incompatible with paranoid_file_checks=true. The
+  // option is effectively disabled when `paranoid_file_checks` is enabled
+  // (which is disabled by default).
+  bool resume_compaciton = false;
 };
 
 struct LiveFilesStorageInfoOptions {
