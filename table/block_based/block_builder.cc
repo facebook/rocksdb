@@ -151,11 +151,13 @@ Slice BlockBuilder::Finish() {
 }
 
 void BlockBuilder::Add(const Slice& key, const Slice& value,
-                       const Slice* const delta_value) {
+                       const Slice* const delta_value,
+                       bool skip_delta_encoding) {
   // Ensure no unsafe mixing of Add and AddWithLastKey
   assert(!add_with_last_key_called_);
 
-  AddWithLastKeyImpl(key, value, last_key_, delta_value, buffer_.size());
+  AddWithLastKeyImpl(key, value, last_key_, delta_value, skip_delta_encoding,
+                     buffer_.size());
   if (use_delta_encoding_) {
     // Update state
     // We used to just copy the changed data, but it appears to be
@@ -166,7 +168,8 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
 
 void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
                                   const Slice& last_key_param,
-                                  const Slice* const delta_value) {
+                                  const Slice* const delta_value,
+                                  bool skip_delta_encoding) {
   // Ensure no unsafe mixing of Add and AddWithLastKey
   assert(last_key_.empty());
 #ifndef NDEBUG
@@ -185,13 +188,15 @@ void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
 
   Slice last_key(last_key_param.data(), last_key_size * (buffer_size > 0));
 
-  AddWithLastKeyImpl(key, value, last_key, delta_value, buffer_size);
+  AddWithLastKeyImpl(key, value, last_key, delta_value, skip_delta_encoding,
+                     buffer_size);
 }
 
 inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
                                              const Slice& value,
                                              const Slice& last_key,
                                              const Slice* const delta_value,
+                                             bool skip_delta_encoding,
                                              size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
@@ -210,7 +215,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
     restarts_.push_back(static_cast<uint32_t>(buffer_size));
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
-  } else if (use_delta_encoding_ && (delta_value != nullptr)) {
+  } else if (use_delta_encoding_ && !skip_delta_encoding) {
     // See how much sharing to do with previous string
     shared = key_to_persist.difference_offset(last_key_persisted);
   }
