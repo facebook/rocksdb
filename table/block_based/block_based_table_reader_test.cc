@@ -1196,14 +1196,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
 
       // Does not match start key of the second ScanOptions.
       iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
-      for (size_t i = 50 * kEntriesPerBlock + 1; i < 100 * kEntriesPerBlock;
-           ++i) {
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(iter->key().ToString(), kv[i].first);
-        iter->Next();
-      }
-      ASSERT_FALSE(iter->Valid());
-      ASSERT_OK(iter->status());
+      ASSERT_NOK(iter->status());
 
       iter.reset(table->NewIterator(
           read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
@@ -1215,19 +1208,9 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       iter->Prepare(&scan_options);
       // Does not match the first ScanOptions.
       iter->SeekToFirst();
-      for (size_t i = 0; i < kEntriesPerBlock; ++i) {
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(iter->key().ToString(), kv[i].first);
-        iter->Next();
-      }
-      ASSERT_OK(iter->status());
+      ASSERT_NOK(iter->status());
       iter->Seek(kv[10 * kEntriesPerBlock].first);
-      for (size_t i = 10 * kEntriesPerBlock; i < 12 * kEntriesPerBlock; ++i) {
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(iter->key().ToString(), kv[i].first);
-        iter->Next();
-      }
-      ASSERT_OK(iter->status());
+      ASSERT_NOK(iter->status());
     }
   }
 }
