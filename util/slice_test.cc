@@ -473,8 +473,7 @@ TEST(SemaphoreTest, BinarySemaphore) {
 
 TEST(BitFieldsTest, BitFields) {
   // Start by verifying example from BitFields comment
-  struct MyStateID {};
-  struct MyState : public BitFields<uint32_t, MyStateID> {
+  struct MyState : public BitFields<uint32_t, MyState> {
     // Extra helper declarations and/or field type declarations
   };
 
@@ -483,9 +482,8 @@ TEST(BitFieldsTest, BitFields) {
   using Field3 = BoolBitField<MyState, Field2>;
   using Field4 = UnsignedBitField<MyState, 5, Field3>;
 
-  MyState state;  // zero-initialized
-  state.Set<Field1>(42U);
-  state.Set<Field2>(true);
+  // MyState{} is zero-initialized
+  auto state = MyState{}.With<Field1>(42U).With<Field2>(true);
   state.Set<Field4>(3U);
   state.Ref<Field1>() += state.Get<Field4>();
 

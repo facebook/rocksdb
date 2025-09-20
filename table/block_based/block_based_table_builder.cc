@@ -304,8 +304,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // state fields that are best updated atomically to avoid locking and/or to
   // simplify the interesting interleavings that have to be considered and
   // accommodated.
-  struct StateID {};
-  struct State : public BitFields<uint64_t, StateID> {};
+  struct State : public BitFields<uint64_t, State> {};
   ALIGN_AS(CACHE_LINE_SIZE) AcqRelBitFieldsAtomic<State> atomic_state;
 
   // The first field is a bit for each ring buffer slot (max 32) for whether
