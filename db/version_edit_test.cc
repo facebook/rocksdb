@@ -825,27 +825,6 @@ class SubcompactionProgressTest : public VersionEditTest {
   std::vector<FileMetaData> compaction_output_files_;
   std::vector<FileMetaData> proximal_level_compaction_output_files_;
 
-  void SetupOutputFilePointers(
-      SubcompactionProgress& progress,
-      const std::vector<FileMetaData>& compaction_output_files,
-      const std::vector<FileMetaData>& proximal_level_compaction_output_files) {
-    if (!compaction_output_files.empty()) {
-      progress.output_level_progress.TEST_ClearOutputFiles();
-    }
-
-    for (const auto& file : compaction_output_files) {
-      progress.output_level_progress.AddToOutputFiles(&file);
-    }
-
-    if (!proximal_level_compaction_output_files.empty()) {
-      progress.proximal_output_level_progress.TEST_ClearOutputFiles();
-    }
-
-    for (const auto& file : proximal_level_compaction_output_files) {
-      progress.proximal_output_level_progress.AddToOutputFiles(&file);
-    }
-  }
-
   SubcompactionProgress CreateSubcompactionProgress(
       const std::string& next_key, uint64_t num_processed_input_records,
       uint64_t num_processed_output_records,
@@ -862,16 +841,14 @@ class SubcompactionProgressTest : public VersionEditTest {
         num_processed_proximal_level_output_records);
 
     for (uint64_t file_num : output_file_numbers) {
-      compaction_output_files_.push_back(
-          CreateTestFile(file_num, file_prefix + "output_"));
-    }
-    for (uint64_t file_num : proximal_file_numbers) {
-      proximal_level_compaction_output_files_.push_back(
-          CreateTestFile(file_num, file_prefix + "proximal_"));
+      FileMetaData file = CreateTestFile(file_num, file_prefix + "output_");
+      progress.output_level_progress.AddToOutputFiles(file);
     }
 
-    SetupOutputFilePointers(progress, compaction_output_files_,
-                            proximal_level_compaction_output_files_);
+    for (uint64_t file_num : proximal_file_numbers) {
+      FileMetaData file = CreateTestFile(file_num, file_prefix + "proximal_");
+      progress.proximal_output_level_progress.AddToOutputFiles(file);
+    }
 
     return progress;
   }
@@ -935,17 +912,15 @@ class SubcompactionProgressTest : public VersionEditTest {
               .GetNumProcessedOutputRecords());
 
       ASSERT_EQ(
-          actual_subcompaction_progress_by_level.GetTempOutputFilesAllocation()
-              .size(),
+          actual_subcompaction_progress_by_level.GetOutputFiles().size(),
           expected_subcompaction_progress_by_level.GetOutputFiles().size());
 
       for (size_t i = 0;
            i < expected_subcompaction_progress_by_level.GetOutputFiles().size();
            ++i) {
         VerifyFileMetaDataEquality(
-            *expected_subcompaction_progress_by_level.GetOutputFiles()[i],
-            actual_subcompaction_progress_by_level
-                .GetTempOutputFilesAllocation()[i]);
+            expected_subcompaction_progress_by_level.GetOutputFiles()[i],
+            actual_subcompaction_progress_by_level.GetOutputFiles()[i]);
       }
     }
   }
@@ -992,18 +967,16 @@ TEST_F(SubcompactionProgressTest, OutputFilesDeltaEncodeDecode) {
   SubcompactionProgress updated_progress = initial_progress;
   updated_progress.next_internal_key_to_compact = "key_300";
   updated_progress.num_processed_input_records = 1000;
-
   updated_progress.output_level_progress.SetNumProcessedOutputRecords(400);
-  FileMetaData new_file = CreateTestFile(3, "new_");
-  compaction_output_files_.push_back(new_file);
-
   updated_progress.proximal_output_level_progress.SetNumProcessedOutputRecords(
       600);
-  FileMetaData new_file_proximal = CreateTestFile(4, "new_");
-  proximal_level_compaction_output_files_.push_back(new_file_proximal);
 
-  SetupOutputFilePointers(updated_progress, compaction_output_files_,
-                          proximal_level_compaction_output_files_);
+  FileMetaData new_file = CreateTestFile(3, "new_");
+  updated_progress.output_level_progress.AddToOutputFiles(new_file);
+
+  FileMetaData new_file_proximal = CreateTestFile(4, "new_");
+  updated_progress.proximal_output_level_progress.AddToOutputFiles(
+      new_file_proximal);
 
   auto [delta_decoded_edit, delta_decoded_progress] =
       EncodeDecodeProgress(updated_progress);
@@ -1027,13 +1000,10 @@ TEST_F(SubcompactionProgressTest, OutputFilesDeltaEncodeDecode) {
     ASSERT_EQ(delta_progress_per_level.GetNumProcessedOutputRecords(),
               updated_progress_per_level.GetNumProcessedOutputRecords());
 
-    // Delta encoding: only the one newly added file is present, not the
-    // previously persisted file
-    ASSERT_EQ(delta_progress_per_level.GetTempOutputFilesAllocation().size(),
-              1);
+    // Only the newly added file since last persistence should be present
+    ASSERT_EQ(delta_progress_per_level.GetOutputFiles().size(), 1);
 
-    ASSERT_EQ(delta_progress_per_level.GetTempOutputFilesAllocation()[0]
-                  .fd.GetNumber(),
+    ASSERT_EQ(delta_progress_per_level.GetOutputFiles()[0].fd.GetNumber(),
               is_proximal_level ? new_file_proximal.fd.GetNumber()
                                 : new_file.fd.GetNumber());
   }
@@ -1057,31 +1027,27 @@ TEST_F(SubcompactionProgressTest, OutputFilesDeltaEncodeDecode) {
 
   for (const bool& is_proximal_level : {false, true}) {
     const SubcompactionProgressPerLevel& accumulated_progress_per_level =
-        is_proximal_level ? accumulated_progress.output_level_progress
-                          : accumulated_progress.proximal_output_level_progress;
+        is_proximal_level ? accumulated_progress.proximal_output_level_progress
+                          : accumulated_progress.output_level_progress;
 
     const SubcompactionProgressPerLevel& updated_progress_per_level =
-        is_proximal_level ? updated_progress.output_level_progress
-                          : updated_progress.proximal_output_level_progress;
+        is_proximal_level ? updated_progress.proximal_output_level_progress
+                          : updated_progress.output_level_progress;
 
     ASSERT_EQ(accumulated_progress_per_level.GetNumProcessedOutputRecords(),
               updated_progress_per_level.GetNumProcessedOutputRecords());
 
-    ASSERT_EQ(
-        accumulated_progress_per_level.GetTempOutputFilesAllocation().size(),
-        updated_progress_per_level.GetOutputFiles().size());
+    ASSERT_EQ(accumulated_progress_per_level.GetOutputFiles().size(),
+              updated_progress_per_level.GetOutputFiles().size());
 
     std::set<uint64_t> accumulated_file_numbers;
-
-    for (const auto& file :
-         accumulated_progress_per_level.GetTempOutputFilesAllocation()) {
+    for (const auto& file : accumulated_progress_per_level.GetOutputFiles()) {
       accumulated_file_numbers.insert(file.fd.GetNumber());
     }
 
     std::set<uint64_t> expected_file_numbers;
-
     for (const auto& file : updated_progress_per_level.GetOutputFiles()) {
-      expected_file_numbers.insert(file->fd.GetNumber());
+      expected_file_numbers.insert(file.fd.GetNumber());
     }
 
     ASSERT_EQ(accumulated_file_numbers, expected_file_numbers);

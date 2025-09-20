@@ -208,10 +208,20 @@ class SubcompactionState {
     return range_del_agg_ && !range_del_agg_->IsEmpty();
   }
 
+  void SetSubcompactionProgress(
+      const SubcompactionProgress& subcompaction_progress) {
+    subcompaction_progress_ = subcompaction_progress;
+  }
+
+  SubcompactionProgress& GetSubcompactionProgressRef() {
+    return subcompaction_progress_;
+  }
+
   // Add compaction_iterator key/value to the `Current` output group.
   Status AddToOutput(const CompactionIterator& iter, bool use_proximal_output,
                      const CompactionFileOpenFunc& open_file_func,
-                     const CompactionFileCloseFunc& close_file_func);
+                     const CompactionFileCloseFunc& close_file_func,
+                     const ParsedInternalKey& prev_table_last_internal_key);
 
   // Close all compaction output files, both output_to_proximal_level outputs
   // and normal outputs.
@@ -241,6 +251,8 @@ class SubcompactionState {
   CompactionOutputs proximal_level_outputs_;
   CompactionOutputs* current_outputs_ = &compaction_outputs_;
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_;
+
+  SubcompactionProgress subcompaction_progress_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

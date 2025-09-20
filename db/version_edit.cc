@@ -1144,11 +1144,6 @@ void SubcompactionProgressPerLevel::EncodeTo(std::string* dst) const {
     std::string files_data;
     EncodeOutputFiles(&files_data);
     PutLengthPrefixedSlice(dst, files_data);
-  } else if (!temp_output_files_allocation_.empty()) {
-    PutVarint32(dst, SubcompactionProgressPerLevelCustomTag::kOutputFilesDelta);
-    std::string files_data;
-    EncodeTemporaryOutputFilesAllocation(&files_data);
-    PutLengthPrefixedSlice(dst, files_data);
   }
 
   PutVarint32(dst, SubcompactionProgressPerLevelCustomTag::
@@ -1185,7 +1180,7 @@ Status SubcompactionProgressPerLevel::DecodeFrom(Slice* input) {
       }
 
       case SubcompactionProgressPerLevelCustomTag::kOutputFilesDelta: {
-        Status s = DecodeOutputFiles(&field, temp_output_files_allocation_);
+        Status s = DecodeOutputFiles(&field, output_files_);
         if (!s.ok()) {
           return s;
         }
@@ -1220,60 +1215,29 @@ void SubcompactionProgressPerLevel::EncodeOutputFiles(std::string* dst) const {
 
   for (size_t i = last_persisted_output_files_count_; i < output_files_.size();
        ++i) {
-    const FileMetaData* file_ptr = output_files_[i];
-    assert(file_ptr != nullptr);
-
     std::string file_dst;
     bool ignored_min_log_written = false;
 
-    VersionEdit::EncodeToNewFile4(*file_ptr, -1 /* level */, 0 /* ts_sz */,
-                                  false /* has_min_log_number_to_keep */,
-                                  0 /* min_log_number_to_keep */,
-                                  ignored_min_log_written, &file_dst);
-
-    PutLengthPrefixedSlice(dst, file_dst);
-  }
-}
-
-void SubcompactionProgressPerLevel::EncodeTemporaryOutputFilesAllocation(
-    std::string* dst) const {
-  size_t new_files_count =
-      temp_output_files_allocation_.size() > last_persisted_output_files_count_
-          ? temp_output_files_allocation_.size() -
-                last_persisted_output_files_count_
-          : 0;
-
-  assert(new_files_count > 0);
-
-  PutVarint32(dst, static_cast<uint32_t>(new_files_count));
-
-  for (size_t i = last_persisted_output_files_count_;
-       i < temp_output_files_allocation_.size(); ++i) {
-    const FileMetaData& file = temp_output_files_allocation_[i];
-
-    std::string file_dst;
-    bool ignored_min_log_written = false;
-
-    VersionEdit::EncodeToNewFile4(file, -1 /* level */, 0 /* ts_sz */,
-                                  false /* has_min_log_number_to_keep */,
-                                  0 /* min_log_number_to_keep */,
-                                  ignored_min_log_written, &file_dst);
+    VersionEdit::EncodeToNewFile4(
+        output_files_[i], -1 /* level */, 0 /* ts_sz */,
+        false /* has_min_log_number_to_keep */, 0 /* min_log_number_to_keep */,
+        ignored_min_log_written, &file_dst);
 
     PutLengthPrefixedSlice(dst, file_dst);
   }
 }
 
 Status SubcompactionProgressPerLevel::DecodeOutputFiles(
-    Slice* input, autovector<FileMetaData>& temporary_output_files_allocation) {
+    Slice* input, autovector<FileMetaData>& output_files) {
   uint32_t new_file_count = 0;
   if (!GetVarint32(input, &new_file_count)) {
     return Status::Corruption("SubcompactionProgressPerLevel",
                               "new output file count");
   }
 
-  assert(temporary_output_files_allocation.size() == 0);
+  assert(output_files.size() == 0);
 
-  temporary_output_files_allocation.reserve(new_file_count);
+  output_files.reserve(new_file_count);
 
   for (uint32_t i = 0; i < new_file_count; ++i) {
     Slice file_input;
@@ -1302,7 +1266,7 @@ Status SubcompactionProgressPerLevel::DecodeOutputFiles(
       return Status::Corruption("SubcompactionProgressPerLevel", err);
     }
 
-    temporary_output_files_allocation.push_back(std::move(file));
+    output_files.push_back(std::move(file));
   }
 
   return Status::OK();
@@ -1314,12 +1278,10 @@ void SubcompactionProgress::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, next_internal_key_to_compact);
   }
 
-  if (num_processed_input_records > 0) {
-    PutVarint32(dst, SubcompactionProgressCustomTag::kNumProcessedInputRecords);
-    std::string varint_records;
-    PutVarint64(&varint_records, num_processed_input_records);
-    PutLengthPrefixedSlice(dst, varint_records);
-  }
+  PutVarint32(dst, SubcompactionProgressCustomTag::kNumProcessedInputRecords);
+  std::string varint_records;
+  PutVarint64(&varint_records, num_processed_input_records);
+  PutLengthPrefixedSlice(dst, varint_records);
 
   if (output_level_progress.GetOutputFiles().size() >
       output_level_progress.GetLastPersistedOutputFilesCount()) {
@@ -1439,27 +1401,16 @@ void SubcompactionProgressBuilder::MergeDeltaProgress(
 void SubcompactionProgressBuilder::MaybeMergeDeltaProgressPerLevel(
     SubcompactionProgressPerLevel& accumulated_level_progress,
     const SubcompactionProgressPerLevel& delta_level_progress) {
-  assert(delta_level_progress.GetOutputFiles().empty());
-
-  if (delta_level_progress.GetTempOutputFilesAllocation().empty()) {
+  const auto& delta_files = delta_level_progress.GetOutputFiles();
+  if (delta_files.empty()) {
     return;
+  }
+  for (const FileMetaData& file : delta_files) {
+    accumulated_level_progress.AddToOutputFiles(file);  // Stored as copy
   }
 
   accumulated_level_progress.SetNumProcessedOutputRecords(
       delta_level_progress.GetNumProcessedOutputRecords());
-
-  auto& accumulated_temp_files =
-      accumulated_level_progress.TempOutputFilesAllocation();
-
-  const auto& delta_temp_files =
-      delta_level_progress.GetTempOutputFilesAllocation();
-
-  accumulated_temp_files.reserve(accumulated_temp_files.size() +
-                                 delta_temp_files.size());
-
-  for (const auto& file_allocation : delta_temp_files) {
-    accumulated_temp_files.push_back(file_allocation);
-  }
 }
 
 void SubcompactionProgressBuilder::Clear() {

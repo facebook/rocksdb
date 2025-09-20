@@ -466,20 +466,12 @@ struct SubcompactionProgressPerLevel {
     num_processed_output_records_ = num;
   }
 
-  const autovector<const FileMetaData*>& GetOutputFiles() const {
+  const autovector<FileMetaData>& GetOutputFiles() const {
     return output_files_;
   }
 
-  void AddToOutputFiles(const FileMetaData* file) {
+  void AddToOutputFiles(const FileMetaData& file) {
     output_files_.push_back(file);
-  }
-
-  const autovector<FileMetaData>& GetTempOutputFilesAllocation() const {
-    return temp_output_files_allocation_;
-  }
-
-  autovector<FileMetaData>& TempOutputFilesAllocation() {
-    return temp_output_files_allocation_;
   }
 
   size_t GetLastPersistedOutputFilesCount() const {
@@ -487,8 +479,7 @@ struct SubcompactionProgressPerLevel {
   }
 
   void UpdateLastPersistedOutputFilesCount() {
-    last_persisted_output_files_count_ =
-        std::max(output_files_.size(), temp_output_files_allocation_.size());
+    last_persisted_output_files_count_ = output_files_.size();
   }
 
   void EncodeTo(std::string* dst) const;
@@ -498,7 +489,6 @@ struct SubcompactionProgressPerLevel {
   void Clear() {
     num_processed_output_records_ = 0;
     output_files_.clear();
-    temp_output_files_allocation_.clear();
     last_persisted_output_files_count_ = 0;
   }
 
@@ -507,8 +497,6 @@ struct SubcompactionProgressPerLevel {
     oss << "SubcompactionProgressPerLevel{";
     oss << " num_processed_output_records=" << num_processed_output_records_;
     oss << ", output_files_count=" << output_files_.size();
-    oss << ", temp_output_files_allocation_count="
-        << temp_output_files_allocation_.size();
     oss << ", last_persisted_output_files_count="
         << last_persisted_output_files_count_;
     oss << " }";
@@ -520,15 +508,7 @@ struct SubcompactionProgressPerLevel {
  private:
   uint64_t num_processed_output_records_ = 0;
 
-  // These pointers ONLY point to FileMetaData objects owned by compaction
-  // outputs. They are NEVER set to point to objects in
-  // `temp_output_files_allocation` This ensures stable pointers that don't get
-  // invalidated by copy/move operations on `SubcompactionProgress`
-  autovector<const FileMetaData*> output_files_ = {};
-
-  // These are ONLY used during deserialization from VersionEdit.
-  // They provide temporary storage before being moved to compaction outputs.
-  autovector<FileMetaData> temp_output_files_allocation_ = {};
+  autovector<FileMetaData> output_files_ = {};
 
   // Number of files already persisted to help calculate the new output files to
   // persist in the future. This is to prevent having to persist all the output
@@ -540,16 +520,11 @@ struct SubcompactionProgressPerLevel {
 
   void EncodeOutputFiles(std::string* dst) const;
 
-  void EncodeTemporaryOutputFilesAllocation(std::string* dst) const;
-
   Status DecodeOutputFiles(Slice* input,
                            autovector<FileMetaData>& temp_storage);
 };
 
 struct SubcompactionProgress {
-  static constexpr uint64_t kInaccurateNumProcessedInputRecords =
-      std::numeric_limits<uint64_t>::max();
-
   std::string next_internal_key_to_compact;
 
   uint64_t num_processed_input_records = 0;
