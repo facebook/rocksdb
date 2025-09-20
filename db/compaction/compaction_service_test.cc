@@ -16,12 +16,12 @@ class MyTestCompactionService : public CompactionService {
   MyTestCompactionService(
       std::string db_path, Options& options,
       std::shared_ptr<Statistics>& statistics,
-      std::vector<std::shared_ptr<EventListener>>& listeners,
+      std::vector<std::shared_ptr<EventListener>> listeners,
       std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
           table_properties_collector_factories)
       : db_path_(std::move(db_path)),
-        options_(options),
         statistics_(statistics),
+        options_(options),
         start_info_("na", "na", "na", 0, "na", 0, Env::TOTAL,
                     CompactionReason::kUnknown, false, false, false, -1, -1),
         wait_info_("na", "na", "na", 0, "na", 0, Env::TOTAL,
@@ -72,6 +72,31 @@ class MyTestCompactionService : public CompactionService {
     if (is_override_wait_status_) {
       return override_wait_status_;
     }
+
+    CompactionServiceOptionsOverride options_override = GetOptionsOverride();
+
+    OpenAndCompactOptions options;
+    options.canceled = &canceled_;
+
+    Status s =
+        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+                           compaction_input, result, options_override);
+    {
+      InstrumentedMutexLock l(&mutex_);
+      if (is_override_wait_result_) {
+        *result = override_wait_result_;
+      }
+      result_ = *result;
+    }
+    compaction_num_.fetch_add(1);
+    if (s.ok()) {
+      return CompactionServiceJobStatus::kSuccess;
+    } else {
+      return CompactionServiceJobStatus::kFailure;
+    }
+  }
+
+  CompactionServiceOptionsOverride GetOptionsOverride() {
     CompactionServiceOptionsOverride options_override;
     options_override.env = options_.env;
     options_override.file_checksum_gen_factory =
@@ -94,26 +119,7 @@ class MyTestCompactionService : public CompactionService {
       options_override.table_properties_collector_factories =
           table_properties_collector_factories_;
     }
-
-    OpenAndCompactOptions options;
-    options.canceled = &canceled_;
-
-    Status s =
-        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
-                           compaction_input, result, options_override);
-    {
-      InstrumentedMutexLock l(&mutex_);
-      if (is_override_wait_result_) {
-        *result = override_wait_result_;
-      }
-      result_ = *result;
-    }
-    compaction_num_.fetch_add(1);
-    if (s.ok()) {
-      return CompactionServiceJobStatus::kSuccess;
-    } else {
-      return CompactionServiceJobStatus::kFailure;
-    }
+    return options_override;
   }
 
   void CancelAwaitingJobs() override { canceled_ = true; }
@@ -160,14 +166,17 @@ class MyTestCompactionService : public CompactionService {
     return final_updated_status_.load();
   }
 
- private:
+ protected:
   InstrumentedMutex mutex_;
-  std::atomic_int compaction_num_{0};
+  const std::string db_path_;
+  std::shared_ptr<Statistics> statistics_;
   std::map<std::string, std::string> jobs_;
   std::map<std::string, CompactionServiceJobInfo> infos_;
-  const std::string db_path_;
+  std::string result_;
+
+ private:
+  std::atomic_int compaction_num_{0};
   Options options_;
-  std::shared_ptr<Statistics> statistics_;
   CompactionServiceJobInfo start_info_;
   CompactionServiceJobInfo wait_info_;
   bool is_override_start_status_ = false;
@@ -177,7 +186,6 @@ class MyTestCompactionService : public CompactionService {
   CompactionServiceJobStatus override_wait_status_ =
       CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result_ = false;
-  std::string result_;
   std::string override_wait_result_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
@@ -2005,6 +2013,209 @@ TEST_F(CompactionServiceTest, TablePropertiesCollector) {
   ASSERT_TRUE(has_user_property);
 }
 
+class ResumeCompactionService : public MyTestCompactionService {
+ public:
+  ResumeCompactionService(const std::string& db_path, Options& options,
+                          std::shared_ptr<Statistics> statistics,
+                          bool ignore_existing_progress)
+      : MyTestCompactionService(db_path, options, statistics,
+                                {} /* listeners */,
+                                {} /* table_properties_collector_factories */),
+        ignore_existing_progress_(ignore_existing_progress) {}
+
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
+    std::string compaction_input = ExtractCompactionInput(scheduled_job_id);
+    EXPECT_FALSE(compaction_input.empty());
+
+    OpenAndCompactOptions open_and_compaction_options;
+    open_and_compaction_options.resume_compaciton = true;
+    auto override_options = GetOptionsOverride();
+
+    // Force creation of one key per output file for test simplicity.
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionOutputs::ShouldStopBefore::manual_decision", [](void* p) {
+          auto* pair = static_cast<std::pair<bool*, const Slice>*>(p);
+          *(pair->first) = true;
+        });
+    // Simulate cancelled compaction
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImplSecondary::CompactWithoutInstallation::End", [&](void* status) {
+          auto s = static_cast<Status*>(status);
+          *s = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    auto cancelled_compaction_write_stats =
+        RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
+                               compaction_input, override_options);
+
+    SyncPoint::GetInstance()->ClearCallBack(
+        "DBImplSecondary::CompactWithoutInstallation::End");
+
+    if (ignore_existing_progress_) {
+      open_and_compaction_options.resume_compaciton = false;
+    }
+
+    auto second_compaction_write_stats =
+        RunCompaction(open_and_compaction_options, scheduled_job_id,
+                      compaction_input, override_options, result);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    if (ignore_existing_progress_) {
+      EXPECT_GE(second_compaction_write_stats.count,
+                cancelled_compaction_write_stats.count);
+    } else {
+      EXPECT_LT(second_compaction_write_stats.count,
+                cancelled_compaction_write_stats.count);
+    }
+
+    StoreResult(*result);
+
+    return CompactionServiceJobStatus::kSuccess;
+  }
+
+ private:
+  std::string ExtractCompactionInput(const std::string& scheduled_job_id) {
+    InstrumentedMutexLock l(&mutex_);
+
+    auto job_index = jobs_.find(scheduled_job_id);
+    if (job_index == jobs_.end()) {
+      return "";
+    }
+    std::string compaction_input = std::move(job_index->second);
+    jobs_.erase(job_index);
+
+    auto info_index = infos_.find(scheduled_job_id);
+    if (info_index == infos_.end()) {
+      return "";
+    }
+    infos_.erase(info_index);
+
+    return compaction_input;
+  }
+
+  HistogramData RunCancelledCompaction(
+      const OpenAndCompactOptions& options, const std::string& scheduled_job_id,
+      const std::string& compaction_input,
+      const CompactionServiceOptionsOverride& override_options) {
+    std::string temp_result;
+    EXPECT_OK(statistics_->Reset());
+
+    Status s =
+        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+                           compaction_input, &temp_result, override_options);
+
+    EXPECT_TRUE(s.IsManualCompactionPaused());
+
+    HistogramData stats;
+    statistics_->histogramData(FILE_WRITE_COMPACTION_MICROS, &stats);
+    return stats;
+  }
+
+  HistogramData RunCompaction(
+      const OpenAndCompactOptions& options, const std::string& scheduled_job_id,
+      const std::string& compaction_input,
+      const CompactionServiceOptionsOverride& override_options,
+      std::string* result) {
+    EXPECT_OK(statistics_->Reset());
+
+    Status s =
+        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+                           compaction_input, result, override_options);
+
+    EXPECT_TRUE(s.ok());
+
+    HistogramData stats;
+    statistics_->histogramData(FILE_WRITE_COMPACTION_MICROS, &stats);
+    return stats;
+  }
+
+  void StoreResult(const std::string& result) {
+    InstrumentedMutexLock l(&mutex_);
+    result_ = result;
+  }
+
+  bool ignore_existing_progress_;
+};
+
+class ResumeCompactionServiceTest : public CompactionServiceTest {
+ public:
+  explicit ResumeCompactionServiceTest() : CompactionServiceTest() {}
+
+  void RunCompactionCancelTest(bool ignore_existing_progress) {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+    options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+    BlockBasedTableOptions table_options;
+    table_options.verify_compression = true;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    auto resume_cs = std::make_shared<ResumeCompactionService>(
+        dbname_, options, statistics, ignore_existing_progress);
+    options.compaction_service = resume_cs;
+
+    DestroyAndReopen(options);
+
+    GenerateTestData();
+
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    Status s = db_->CompactRange(cro, nullptr, nullptr);
+    ASSERT_OK(s);
+
+    VerifyTestData();
+
+    s = db_->VerifyChecksum();
+    ASSERT_OK(s);
+
+    s = db_->VerifyFileChecksums(ReadOptions());
+    ASSERT_OK(s);
+
+    CompactionServiceResult result;
+    resume_cs->GetResult(&result);
+    ASSERT_OK(result.status);
+    ASSERT_TRUE(result.stats.is_manual_compaction);
+    ASSERT_TRUE(result.stats.is_remote_compaction);
+    ASSERT_GT(result.output_files.size(), 0);
+  }
+
+  void GenerateTestData() {
+    for (int i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(Put(Key(i), "value"));
+      ASSERT_OK(Flush());
+      if (i % 2 == 0) {
+        ASSERT_OK(Delete(Key(i)));
+        ASSERT_OK(Flush());
+      }
+    }
+  }
+
+  void VerifyTestData() {
+    for (int i = 0; i < kNumKeys; ++i) {
+      if (i % 2 == 0) {
+        ASSERT_EQ("NOT_FOUND", Get((Key(i))));
+      } else {
+        ASSERT_EQ("value", Get((Key(i))));
+      }
+    }
+  }
+
+ private:
+  static constexpr int kNumKeys = 10;
+};
+
+TEST_F(ResumeCompactionServiceTest, CompactionCancelAndResume) {
+  RunCompactionCancelTest(false /* ignore_existing_progress */);
+}
+
+TEST_F(ResumeCompactionServiceTest, CompactionCancelAndDisableResume) {
+  RunCompactionCancelTest(true /* ignore_existing_progress */);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

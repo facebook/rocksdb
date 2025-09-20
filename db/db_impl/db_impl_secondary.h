@@ -303,6 +303,53 @@ class DBImplSecondary : public DBImpl {
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 
+ private:
+  Status InitializeCompactionWorkspace(
+      bool resume_compaciton, std::unique_ptr<FSDirectory>* output_dir,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status PrepareCompactionProgressState(bool resume_compaciton);
+
+  Status FindLatestCompactionProgressFile(
+      std::string* latest_compaction_progress_file);
+
+  Status CleanupOldAndTemporaryCompactionProgressFiles(
+      const std::string& latest_compaction_progress_file);
+
+  Status LoadCompactionProgressAndCleanupExtraOutputFiles(
+      const std::string& compaction_progress_file_path);
+
+  Status ParseCompactionProgressFile(
+      const std::string& compaction_progress_file_path,
+      CompactionProgress* compaction_progress);
+
+  Status HandleInvalidOrNoCompactionProgress(
+      const std::string& invalid_compaction_progress_file_path);
+
+  Status CleanupPhysicalCompactionOutputFiles(bool preserve_tracked_files);
+
+  Status FinalizeCompactionProgressWriter(
+      bool resume_compaciton,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status CreateCompactionProgressWriter(
+      const std::string& file_path,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status PersistInitialCompactionProgress(
+      log::Writer* compaction_progress_writer,
+      const CompactionProgress& compaction_progress);
+
+  Status RenameCompactionProgressFile(const std::string& temp_file_path,
+                                      std::string* final_file_path);
+
+  Status HandleCompactionProgressWriterCreationFailure(
+      const std::string& temp_file_path, const std::string& final_file_path,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status DeleteFileIfExists(const std::string& file_path,
+                            Env::IOActivity io_activity);
+
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
@@ -311,6 +358,8 @@ class DBImplSecondary : public DBImpl {
   std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 
   const std::string secondary_path_;
+
+  CompactionProgress compaction_progress_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
