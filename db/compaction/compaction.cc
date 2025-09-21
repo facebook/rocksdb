@@ -304,12 +304,7 @@ Compaction::Compaction(
       output_path_id_(_output_path_id),
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
-      output_temperature_(
-          _output_temperature_override == Temperature::kUnknown
-              ? (is_last_level()
-                     ? mutable_cf_options().last_level_temperature
-                     : mutable_cf_options().default_write_temperature)
-              : _output_temperature_override),
+      output_temperature_override_(_output_temperature_override),
       deletion_compaction_(_compaction_reason == CompactionReason::kFIFOTtl ||
                            _compaction_reason ==
                                CompactionReason::kFIFOMaxSize),
@@ -1132,6 +1127,19 @@ void Compaction::FilterInputsForCompactionIterator() {
     DoGenerateLevelFilesBrief(&input_levels_[level],
                               non_start_level_input_files[level - 1], &arena_);
   }
+}
+
+Temperature Compaction::output_temperature(bool is_proximal_level) const {
+  if (output_temperature_override_ != Temperature::kUnknown) {
+    return output_temperature_override_;
+  }
+
+  if (is_last_level() && !is_proximal_level &&
+      mutable_cf_options_.last_level_temperature != Temperature::kUnknown) {
+    return mutable_cf_options_.last_level_temperature;
+  }
+
+  return mutable_cf_options_.default_write_temperature;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1481,12 +1481,12 @@ TEST_F(CompactionPickerTest, CompactFilesOutputTemperature) {
   ASSERT_OK(level_compaction_picker.GetCompactionInputsFromFileNumbers(
       &input_files, &input, vstorage_.get(), CompactionOptions()));
 
-  auto compactionOptions = CompactionOptions();
-  compactionOptions.output_temperature = Temperature::kCold;
+  auto compaction_options = CompactionOptions();
+  compaction_options.output_temperature_override = Temperature::kCold;
 
   std::unique_ptr<Compaction> compaction(
       level_compaction_picker.PickCompactionForCompactFiles(
-          compactionOptions, input_files, 1, vstorage_.get(),
+          compaction_options, input_files, 1, vstorage_.get(),
           mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
 
   ASSERT_TRUE(compaction.get() != nullptr);

@@ -557,7 +557,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionType(vstorage_, mutable_cf_options_, output_level_,
                          vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
-      mutable_cf_options_.default_write_temperature,
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_),
       /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
       compaction_reason_,

@@ -2354,7 +2354,7 @@ struct CompactionOptions {
   // Create output compaction file using this file temperature. If unset, will
   // default to "last_level_temperature" if output level is last level otherwise
   // "default_write_temperature"
-  Temperature output_temperature = Temperature::kUnknown;
+  Temperature output_temperature_override = Temperature::kUnknown;
 
   CompactionOptions()
       : compression(kDisableCompressionOption),
