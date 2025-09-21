@@ -119,7 +119,9 @@ fi
 set -e
 
 # Exclude third-party from formatting
-EXCLUDE=':!third-party/'
+# Exclude thirdparty.inc as it is a cmake file.
+EXCLUDE="':!third-party/' ':!thirdparty.inc'"
+
 
 uncommitted_code=`git diff HEAD`
 
