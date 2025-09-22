@@ -1311,7 +1311,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     });
     if (i == 0) {
       SyncPoint::GetInstance()->SetCallBack(
-          "ExternalSstFileIngestionJob::CheckSyncReturnCode", [&](void* s) {
+          "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* s) {
             Status* status = static_cast<Status*>(s);
             if (status->IsNotSupported()) {
               no_sync = true;
@@ -1372,11 +1372,11 @@ TEST_F(ExternalSSTFileBasicTest, ReopenNotSupported) {
   options.create_if_missing = true;
   options.env = env_;
 
-  SyncPoint::GetInstance()->SetCallBack("FileSystem::SyncFile:Open",
-                                        [&](void* arg) {
-                                          Status* s = static_cast<Status*>(arg);
-                                          *s = Status::NotSupported();
-                                        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* arg) {
+        Status* s = static_cast<Status*>(arg);
+        *s = Status::NotSupported();
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   DestroyAndReopen(options);
