@@ -1189,6 +1189,7 @@ class LevelIterator final : public InternalIterator {
     // Propagate io colaescing threshold
     for (auto& file_to_arg : *file_to_scan_opts_) {
       file_to_arg.second.io_coalesce_threshold = so->io_coalesce_threshold;
+      file_to_arg.second.max_prefetch_size = so->max_prefetch_size;
       file_to_arg.second.use_async_io = so->use_async_io;
     }
   }
