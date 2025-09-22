@@ -1,6 +1,34 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.7.0 (09/19/2025)
+### New Features
+* Add the fail_if_no_udi_on_open flag in BlockBasedTableOption to control whether a missing user defined index block in a SST is a hard error or not.
+* A new flag memtable_veirfy_per_key_checksum_on_seek is added to AdvancedColumnFamilyOptions. When it is enabled, it will validate key checksum along the binary search path on skiplist based memtable during seek operation.
+* Introduce option MultiScanArgs::use_async_io to enable asynchronous I/O during MultiScan, instead of waiting for I/O to be done in Prepare().
+* Add new option `MultiScanArgs::max_prefetch_size` that limits the memory usage of per file pinning of prefetched blocks.
+* Improved `sst_dump` by allowing standalone file and directory arguments without `--file=`. Also added new options and better output for `sst_dump --command=recompress`. See `sst_dump --help`
+
+### Public API Changes
+* HyperClockCache with no `estimated_entry_charge` is now production-ready and is the preferred block cache implementation vs. LRUCache. Please consider updating your code to minimize the risk of hitting performance bottlenecks or anomalies from LRUCache. See cache.h for more detail.
+* RocksDB now requires a C++20 compatible compiler (GCC >= 11, Clang >= 10, Visual Studio >= 2019), including for any code using RocksDB headers.
+* MultiScanArgs used to have a default constructor with default parameter of BytewiseComparator. Now it always requires Comparator in its constructor.
+
+### Behavior Changes
+* The default provided block cache implementation is now HyperClockCache instead of LRUCache, when `block_cache` is nullptr (default) and `no_block_cache==false` (default). We recommend explicitly creating a HyperClockCache block cache based on memory budget and sharing it across all column families and even DB instances. This change could expose previously hidden memory or resource leaks.
+
+### Bug Fixes
+* Reported numbers for compaction and flush CPU usage now include time spent by parallel compression worker threads. This now means compaction/flush CPU usage could exceed the wall clock time.
+* Fix a race condition in FIFO size-based compaction where concurrent threads could select the same non-L0 file, causing assertion failures in debug builds or "Cannot delete table file from LSM tree" errors in release builds.
+* Fix a bug in RocksDB MultiScan with UDI when one of the scan ranges is determined to be empty by the UDI, which causes incorrect results.
+
+### Performance Improvements
+* Add a new table property "rocksdb.key.smallest.seqno" which records the smallest sequence number of all keys in file. It makes ingesting DB generated files faster by
+avoiding scanning the whole file to find the smallest sequence number.
+* Add a new experimental PerKeyPointLockManager to improve efficiency under high lock contention. PointLockManager was not efficient when there is high write contention on same key, as it uses a single conditional variable per lock stripe. PerKeyPointLockManager uses per thread conditional variable supporting fifo order. Although this is an experimental feature. By default, it is disabled. A new boolean flag TransactionDBOptions::use_per_key_point_lock_mgr is added to optionally enable it. Search the flag in code for more info.
+Together, a new configuration TransactionOptions::deadlock_timeout_us is added, which allows the transaction to wait for a short period before perform deadlock detection. When the workload has low lock contention, the deadlock_timeout_us can be configured to be slightly higher than average transaction execution time, so that transaction would likely be able to take the lock before deadlock detection is performed when it is waiting for a lock. This allows transaction to reduce CPU cost on performing deadlock detection, which could be expensive in CPU time. When the workload has high lock contention, the deadlock_timeout_us can be configured to 0, so that transaction would perform deadlock detection immediately. By default the value is 0 to keep the behavior same as before.
+* Majorly improved CPU efficiency and scalability of parallel compression (`CompressionOptions::parallel_threads` > 1), though this efficiency improvement makes parallel compression currently incompatible with UserDefinedIndex and with old setting of `decouple_partitioned_filters=false`. Parallel compression is now considered a production-ready feature. Maximum performance is available with `-DROCKSDB_USE_STD_SEMAPHORES` at compile time, but this is not currently recommended because of reported bugs in implementations of `std::counting_semaphore`/`binary_semaphore`.
+
 ## 10.6.0 (08/22/2025)
 ### New Features
 * Introduce column family option `cf_allow_ingest_behind`. This option aims to replace `DBOptions::allow_ingest_behind` to enable ingest behind at the per-CF level. `DBOptions::allow_ingest_behind` is deprecated.
