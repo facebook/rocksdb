@@ -529,13 +529,6 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->LinkFile(s, t));
   }
 
-  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
-                    const IOOptions& /*io_options*/, bool use_fsync,
-                    IODebugContext* /*dbg*/) override {
-    return status_to_io_status(
-        target_->SyncFile(fname, file_options, use_fsync));
-  }
-
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*options*/,
                         uint64_t* count, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->NumFileLinks(fname, count));
@@ -876,43 +869,6 @@ std::string Env::GenerateUniqueId() {
            result[19] == 'b');
   }
   return result;
-}
-
-// This API Env::SyncFile is used for testing for 2 reasons:
-//
-// 1. The default implementation of SyncFile API is essentially a wrapper of
-// other FileSystem APIs. FaultInjectionTestEnv uses this default
-// implementation to call other FileSystem APIs defined at
-// FaultInjectionTestEnv class to inject failurses. See
-// FaultInjectionTestEnv::SyncFile for more details
-//
-// 2. Some of old tests are using LegacyFileSystemWrapper.
-// LegacyFileSystemWrapper forwards the API call to EnvWrapper, which forwards
-// to CompositeEnv, and then forwards to the actual FileSystem implemention.
-// Without this API in Env, LegacyFileSystemWrapper will not be able to
-// forward the API call to EnvWrapper, causing the default FileSystem API to
-// be called.
-//
-// Due to the above reason, adding a new API in FileSystem, would very likely
-// require the same API to be added to Env.
-//
-// TODO xingbo. Getting rid of FileSystem functions from Env.
-// We need to simplify the relationship between Env and FileSystem. At least
-// for internal test, we should stop using Env and switch to FileSystem, if
-// possible. Related github issue #9274
-Status Env::SyncFile(const std::string& fname, const EnvOptions& env_options,
-                     bool use_fsync) {
-  std::unique_ptr<WritableFile> file_to_sync;
-  auto status = ReopenWritableFile(fname, &file_to_sync, env_options);
-  TEST_SYNC_POINT_CALLBACK("FileSystem::SyncFile:Open", &status);
-  if (status.ok()) {
-    if (use_fsync) {
-      status = file_to_sync->Fsync();
-    } else {
-      status = file_to_sync->Sync();
-    }
-  }
-  return status;
 }
 
 SequentialFile::~SequentialFile() = default;
