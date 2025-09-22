@@ -4306,14 +4306,25 @@ TEST_P(DBMultiScanIteratorTest, RangeAcrossFiles) {
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
-  int i = 10;
-  for (auto range : *iter) {
-    for (auto it : range) {
-      ASSERT_EQ(it.first.ToString(), Key(i));
-      ++i;
+  try {
+    int i = 10;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_EQ(it.first.ToString(), Key(i));
+        ++i;
+      }
     }
+    ASSERT_EQ(i, 90);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
   }
-  ASSERT_EQ(i, 90);
+  iter.reset();
 }
 
 TEST_P(DBMultiScanIteratorTest, FailureTest) {

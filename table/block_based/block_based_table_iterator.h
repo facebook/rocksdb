@@ -45,7 +45,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         need_upper_bound_check_(need_upper_bound_check),
         async_read_in_progress_(false),
         is_last_level_(table->IsLastLevel()),
-        block_iter_points_to_real_block_(false) {}
+        block_iter_points_to_real_block_(false) {
+    multi_scan_status_.PermitUncheckedError();
+  }
 
   ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
