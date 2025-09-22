@@ -1558,7 +1558,9 @@ Status BlockBasedTableIterator::ExecuteIO(
       for (auto& req : *read_reqs) {
         if (!req.status.ok()) {
           assert(false);
-          return req.status;
+          // Silence compiler warning about NRVO
+          s = req.status;
+          return s;
         }
       }
     }
@@ -1593,7 +1595,9 @@ Status BlockBasedTableIterator::ExecuteIO(
     }
     for (auto& req : *read_reqs) {
       if (!req.status.ok()) {
-        return req.status;
+        // Silence compiler warning about NRVO
+        s = req.status;
+        return s;
       }
     }
 
