@@ -292,7 +292,6 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
     if (udi_iter) {
       InternalIteratorBase<IndexValue>* wrap_iter =
           new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
-      assert(wrap_iter->status().ok());
       return wrap_iter;
     }
     return NewErrorInternalIterator<IndexValue>(

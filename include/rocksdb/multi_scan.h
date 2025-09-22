@@ -97,7 +97,13 @@ class Scan {
 
     ScanIterator() : db_iter_(nullptr), valid_(false) {}
 
-    ~ScanIterator() { assert(status_.ok()); }
+    ~ScanIterator() {
+      if (!status_.ok()) {
+        fprintf(stderr, "ScanIterator status: %s\n",
+                status_.ToString().c_str());
+        assert(false);
+      }
+    }
 
     ScanIterator& operator++() {
       if (!valid_) {

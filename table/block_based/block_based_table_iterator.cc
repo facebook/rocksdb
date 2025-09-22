@@ -970,6 +970,10 @@ BlockBasedTableIterator::MultiScanState::~MultiScanState() {
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
 void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   assert(!multi_scan_);
+  if (!index_iter_->status().ok()) {
+    multi_scan_status_ = index_iter_->status();
+    return;
+  }
   if (multi_scan_) {
     multi_scan_.reset();
     multi_scan_status_ = Status::InvalidArgument("Prepare already called");
