@@ -414,7 +414,7 @@ class Compaction {
   // 1. Override temp if not kUnknown
   // 2. Temperature of the last level files if applicable
   // 3. Default write temperature
-  Temperature output_temperature(bool is_proximal_level = false) const;
+  Temperature GetOutputTemperature(bool is_proximal_level = false) const;
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 

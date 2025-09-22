@@ -1129,7 +1129,7 @@ void Compaction::FilterInputsForCompactionIterator() {
   }
 }
 
-Temperature Compaction::output_temperature(bool is_proximal_level) const {
+Temperature Compaction::GetOutputTemperature(bool is_proximal_level) const {
   if (output_temperature_override_ != Temperature::kUnknown) {
     return output_temperature_override_;
   }

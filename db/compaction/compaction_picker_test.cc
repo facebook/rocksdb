@@ -1178,7 +1178,7 @@ TEST_F(CompactionPickerTest, FIFOToCold1) {
     ASSERT_TRUE(compaction.get() != nullptr);
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kChangeTemperature);
-    ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
+    ASSERT_EQ(compaction->GetOutputTemperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
   }
@@ -1248,7 +1248,7 @@ TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kChangeTemperature);
     // Compaction picker picks older files first and picks one file at a time.
-    ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
+    ASSERT_EQ(compaction->GetOutputTemperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   }
@@ -1316,7 +1316,7 @@ TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kChangeTemperature);
     // Compaction picker picks older files first and picks one file at a time.
-    ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
+    ASSERT_EQ(compaction->GetOutputTemperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
   }
@@ -1383,7 +1383,7 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
     ASSERT_TRUE(compaction.get() != nullptr);
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kChangeTemperature);
-    ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
+    ASSERT_EQ(compaction->GetOutputTemperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
   }
@@ -1464,7 +1464,7 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kChangeTemperature);
     // Compaction picker picks older files first and picks one file at a time.
-    ASSERT_EQ(compaction->output_temperature(), Temperature::kWarm);
+    ASSERT_EQ(compaction->GetOutputTemperature(), Temperature::kWarm);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   }
@@ -1490,7 +1490,7 @@ TEST_F(CompactionPickerTest, CompactFilesOutputTemperature) {
           mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
 
   ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
+  ASSERT_EQ(compaction->GetOutputTemperature(), Temperature::kCold);
 }
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {

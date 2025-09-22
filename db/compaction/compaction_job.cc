@@ -2122,7 +2122,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   // Pass temperature of the last level files to FileSystem.
   FileOptions fo_copy = file_options_;
   auto temperature =
-      sub_compact->compaction->output_temperature(outputs.IsProximalLevel());
+      sub_compact->compaction->GetOutputTemperature(outputs.IsProximalLevel());
   fo_copy.temperature = temperature;
   fo_copy.write_hint = write_hint_;
 
