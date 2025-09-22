@@ -1181,7 +1181,7 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          auto args = GetMultiScanArgForFile(i);
+          auto& args = GetMultiScanArgForFile(i);
           args.insert(start.value(), end.value(), opt.property_bag);
         }
       }
