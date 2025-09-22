@@ -664,8 +664,6 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                               const FileOptions& options,
                               std::unique_ptr<FSWritableFile>* result,
                               IODebugContext* dbg) override {
-    // TODO xingbo Add unit test for the new implementation of
-    // EncryptedFileSysmteImpl::ReopenWritableFile.
     result->reset();
     if (options.use_mmap_reads || options.use_mmap_writes) {
       return IOStatus::InvalidArgument();
@@ -814,15 +812,6 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
       *file_size -= prefixLength;
     }
     return status;
-  }
-
-  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
-                    const IOOptions& io_options, bool use_fsync,
-                    IODebugContext* dbg) override {
-    // Use the underlying file system to sync the file, as we don't need to
-    // read/write the file.
-    return FileSystemWrapper::SyncFile(fname, file_options, io_options,
-                                       use_fsync, dbg);
   }
 
  private:

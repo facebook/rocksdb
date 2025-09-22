@@ -312,10 +312,6 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus LinkFile(const std::string& src, const std::string& target,
                     const IOOptions& options, IODebugContext* dbg) override;
 
-  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
-                    const IOOptions& io_options, bool use_fsync,
-                    IODebugContext* dbg) override;
-
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,
                         uint64_t* count, IODebugContext* dbg) override;
 
