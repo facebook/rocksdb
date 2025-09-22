@@ -1046,6 +1046,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
   if (multi_scan_->next_scan_idx >= multi_scan_->scan_opts->size()) {
     multi_scan_status_ = Status::InvalidArgument("Outside MultiScan range");
   } else if (!target) {
+    assert(false);
     // start key must be set for multi-scan
     multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
   } else if (user_comparator_.CompareWithoutTimestamp(
