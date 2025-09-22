@@ -375,12 +375,13 @@ Compaction* CompactionPicker::PickCompactionForCompactFiles(
     // without configurable `CompressionOptions`, which is inconsistent.
     compression_type = compact_options.compression;
   }
+
   auto c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options, input_files,
       output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      mutable_cf_options.default_write_temperature,
+      compact_options.output_temperature_override,
       compact_options.max_subcompactions,
       /* grandparents */ {}, earliest_snapshot, snapshot_checker,
       CompactionReason::kManualCompaction);
@@ -679,8 +680,7 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
         compact_range_options.target_path_id,
         GetCompressionType(vstorage, mutable_cf_options, output_level, 1),
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-        mutable_cf_options.default_write_temperature,
-        compact_range_options.max_subcompactions,
+        Temperature::kUnknown, compact_range_options.max_subcompactions,
         /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
         /* snapshot_checker */ nullptr, CompactionReason::kManualCompaction,
         trim_ts, /* score */ -1,
@@ -871,8 +871,8 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
       GetCompressionType(vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      mutable_cf_options.default_write_temperature,
-      compact_range_options.max_subcompactions, std::move(grandparents),
+      Temperature::kUnknown, compact_range_options.max_subcompactions,
+      std::move(grandparents),
       /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
       CompactionReason::kManualCompaction, trim_ts, /* score */ -1,
       /* l0_files_might_overlap */ true,

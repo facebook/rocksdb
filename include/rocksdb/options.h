@@ -2353,6 +2353,11 @@ struct CompactionOptions {
   // canceled variable in CompactionOptions, as it does for CompactRangeOptions
   // - this is because ManualCompactionState is not used
 
+  // Create output compaction file using this file temperature. If unset, will
+  // default to "last_level_temperature" if output level is last level otherwise
+  // "default_write_temperature"
+  Temperature output_temperature_override = Temperature::kUnknown;
+
   CompactionOptions()
       : compression(kDisableCompressionOption),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),

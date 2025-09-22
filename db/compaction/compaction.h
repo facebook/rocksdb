@@ -90,7 +90,8 @@ class Compaction {
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
              CompressionOptions compression_opts,
-             Temperature output_temperature, uint32_t max_subcompactions,
+             Temperature output_temperature_override,
+             uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              std::optional<SequenceNumber> earliest_snapshot,
              const SnapshotChecker* snapshot_checker,
@@ -409,7 +410,11 @@ class Compaction {
 
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
-  Temperature output_temperature() const { return output_temperature_; }
+  // Order of precedence for temperature:
+  // 1. Override temp if not kUnknown
+  // 2. Temperature of the last level files if applicable
+  // 3. Default write temperature
+  Temperature GetOutputTemperature(bool is_proximal_level = false) const;
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
@@ -541,7 +546,7 @@ class Compaction {
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
-  Temperature output_temperature_;
+  Temperature output_temperature_override_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
   // should it split the output file using the compact cursor?

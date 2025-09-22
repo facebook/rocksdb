@@ -1843,8 +1843,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         ,
         LLONG_MAX /* max compaction bytes, not applicable */,
         0 /* output path ID, not applicable */, mutable_cf_options.compression,
-        mutable_cf_options.compression_opts,
-        mutable_cf_options.default_write_temperature,
+        mutable_cf_options.compression_opts, Temperature::kUnknown,
         0 /* max_subcompactions, not applicable */,
         {} /* grandparents, not applicable */,
         std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
@@ -3861,7 +3860,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       uint64_t out_file_creation_time = static_cast<uint64_t>(tmp_current_time);
 
       FileOptions copied_file_options = file_options_;
-      copied_file_options.temperature = c->output_temperature();
+      copied_file_options.temperature = c->GetOutputTemperature();
       std::unique_ptr<WritableFileWriter> dest_writer;
       {
         std::unique_ptr<FSWritableFile> dest_file;
@@ -3879,7 +3878,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
               "NewWritableFile %s\n"
               " out_fname=%s, temperature=%s, io_status=%s",
               c->column_family_data()->GetName().c_str(), out_fname.c_str(),
-              temperature_to_string[c->output_temperature()].c_str(),
+              temperature_to_string[c->GetOutputTemperature()].c_str(),
               io_s.ToString().c_str());
           break;
         }
@@ -3901,7 +3900,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           c->column_family_data()->GetName().c_str(), in_fname.c_str(),
           temperature_to_string[in_file->temperature].c_str(),
           out_fname.c_str(),
-          temperature_to_string[c->output_temperature()].c_str(),
+          temperature_to_string[c->GetOutputTemperature()].c_str(),
           c->mutable_cf_options()
               .compaction_options_fifo.trivial_copy_buffer_size);
       // Add IO_LOW HINT for compaction
@@ -3941,7 +3940,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
               c->column_family_data()->GetName().c_str(), in_fname.c_str(),
               temperature_to_string[in_file->temperature].c_str(),
               out_fname.c_str(),
-              temperature_to_string[c->output_temperature()].c_str(),
+              temperature_to_string[c->GetOutputTemperature()].c_str(),
               io_s.ToString().c_str());
           break;
         }
@@ -3950,15 +3949,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       io_s = copy_file_io_status;
 
       if (!io_s.ok()) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Failed to copy from: %s\n"
-                         " temperature=%s, to=%s, temperature=%s, io_status=%s",
-                         c->column_family_data()->GetName().c_str(),
-                         in_fname.c_str(),
-                         temperature_to_string[in_file->temperature].c_str(),
-                         out_fname.c_str(),
-                         temperature_to_string[c->output_temperature()].c_str(),
-                         io_s.ToString().c_str());
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Failed to copy from: %s\n"
+            " temperature=%s, to=%s, temperature=%s, io_status=%s",
+            c->column_family_data()->GetName().c_str(), in_fname.c_str(),
+            temperature_to_string[in_file->temperature].c_str(),
+            out_fname.c_str(),
+            temperature_to_string[c->GetOutputTemperature()].c_str(),
+            io_s.ToString().c_str());
         break;
       }
       ROCKS_LOG_BUFFER(log_buffer,
@@ -3968,7 +3967,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        in_fname.c_str(),
                        temperature_to_string[in_file->temperature].c_str(),
                        out_fname.c_str(),
-                       temperature_to_string[c->output_temperature()].c_str(),
+                       temperature_to_string[c->GetOutputTemperature()].c_str(),
                        io_s.ToString().c_str());
 
       FileMetaData out_file_metadata{
@@ -3980,7 +3979,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           in_file->fd.smallest_seqno,
           in_file->fd.largest_seqno,
           false /* marked_for_compact */,
-          c->output_temperature() /* temperature */,
+          c->GetOutputTemperature() /* temperature */,
           in_file->oldest_blob_file_number,
           in_file->oldest_ancester_time,
           out_file_creation_time,
@@ -4049,7 +4048,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             " temperature=%s, to temperature=%s, status=%s, io_status=%s",
             c->column_family_data()->GetName().c_str(), in_fname.c_str(),
             temperature_to_string[in_file->temperature].c_str(),
-            temperature_to_string[c->output_temperature()].c_str(),
+            temperature_to_string[c->GetOutputTemperature()].c_str(),
             status.ToString().c_str(), io_s.ToString().c_str());
       }
     }
@@ -4428,7 +4427,7 @@ Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
                      c->output_level(), c->target_output_file_size(),
                      c->max_compaction_bytes(), c->output_path_id(),
                      c->output_compression(), c->output_compression_opts(),
-                     c->output_temperature(), c->max_subcompactions(),
+                     c->GetOutputTemperature(), c->max_subcompactions(),
                      c->grandparents(), std::nullopt /* earliest_snapshot */,
                      nullptr /* snapshot_checker */, c->compaction_reason());
 

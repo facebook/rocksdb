@@ -1,0 +1,1 @@
+* `kChangeTemperature` FIFO compaction will now honor `compaction_target_temp` to all levels regardless of `cf_options::last_level_temperature`
