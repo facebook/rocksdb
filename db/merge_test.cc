@@ -97,12 +97,14 @@ uint64_t EnvMergeTest::now_nanos_count_{0};
 std::unique_ptr<EnvMergeTest> EnvMergeTest::singleton_;
 
 std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
-                           const size_t max_successive_merges = 0) {
+                           const size_t max_successive_merges = 0,
+                           bool atomic_flush = false) {
   DB* db;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
   options.max_successive_merges = max_successive_merges;
+  options.atomic_flush = atomic_flush;
   options.env = EnvMergeTest::GetInstance();
   EXPECT_OK(DestroyDB(dbname, Options()));
   Status s;
@@ -613,6 +615,19 @@ TEST_F(MergeTest, MergeWithCompactionAndFlush) {
       test::PerThreadDBPath("merge_with_compaction_and_flush");
   {
     auto db = OpenDb(dbname);
+    {
+      MergeBasedCounters counters(db, 0);
+      testCountersWithFlushAndCompaction(counters, db.get());
+    }
+  }
+  ASSERT_OK(DestroyDB(dbname, Options()));
+}
+
+TEST_F(MergeTest, MergeWithCompactionAndAtomicFlush) {
+  const std::string dbname =
+      test::PerThreadDBPath("merge_with_compaction_and_flush");
+  {
+    auto db = OpenDb(dbname, false, 0, true);
     {
       MergeBasedCounters counters(db, 0);
       testCountersWithFlushAndCompaction(counters, db.get());
