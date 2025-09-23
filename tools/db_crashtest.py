@@ -12,12 +12,15 @@ import tempfile
 import time
 
 per_iteration_random_seed_override = 0
+remain_argv = None
+
 
 def get_random_seed(override):
     if override == 0:
         return random.randint(1, 2**64)
     else:
         return override
+
 
 def setup_random_seed_before_main():
     parser = argparse.ArgumentParser()
@@ -37,6 +40,7 @@ def setup_random_seed_before_main():
         help="Random seed used for initialize the test parameters in each iteration of the stress test run",
     )
 
+    global remain_args
     args, remain_args = parser.parse_known_args()
     init_random_seed = get_random_seed(args.initial_random_seed_override)
     global per_iteration_random_seed_override
@@ -45,14 +49,13 @@ def setup_random_seed_before_main():
     print(f"Start with random seed {init_random_seed}")
     random.seed(init_random_seed)
 
-    # reset the sys.argv with the remaining args, so that the rest of the argument parser would not see these 2 args
-    sys.argv = remain_args
 
 def apply_random_seed_per_iteration():
     global per_iteration_random_seed_override
     per_iteration_random_seed = get_random_seed(per_iteration_random_seed_override)
     print(f"Use random seed for iteration {per_iteration_random_seed}")
     random.seed(per_iteration_random_seed)
+
 
 # Random seed has to be setup before the rest of the script, so that the random
 # value selected in the global variable uses the random seed specified
@@ -1603,8 +1606,9 @@ def main():
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
     # unknown_args are passed directly to db_stress
-    args, unknown_args = parser.parse_known_args()
 
+    global remain_args
+    args, unknown_args = parser.parse_known_args(remain_args)
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is not None and not args.skip_tmpdir_check:
         isdir = False
