@@ -37,13 +37,13 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
   // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
   // even when `target == nullptr` that is when `SeekToFirst()` is called
-  if (multi_scan_) {
-    if (SeekMultiScan(target)) {
-      return;
-    }
+  if (!multi_scan_status_.ok()) {
+    return;
   }
-
-  assert(!multi_scan_);
+  if (multi_scan_) {
+    SeekMultiScan(target);
+    return;
+  }
 
   if (target != nullptr && prefix_extractor_ &&
       read_options_.prefix_same_as_start) {
@@ -961,30 +961,37 @@ BlockBasedTableIterator::MultiScanState::~MultiScanState() {
 // - scan ranges should be non-overlapping, and have increasing start keys.
 // If a scan range's limit is not set, then there should only be one scan range.
 // - After Prepare(), the iterator expects Seek to be called on the start key
-// of each ScanOption in order. If any other seek is done, the optimization here
-// is aborted and fall back to vanilla iterator.
+// of each ScanOption in order. If any other Seek is done, an error status is
+// returned
 // FIXME: DBIter and MergingIterator may
 // internally do Seek() on child iterators, e.g. due to
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
 // end key. So these Seeks can cause iterator to fall back to normal
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
 void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
-  index_iter_->Prepare(multiscan_opts);
-
   assert(!multi_scan_);
+  if (!index_iter_->status().ok()) {
+    multi_scan_status_ = index_iter_->status();
+    return;
+  }
   if (multi_scan_) {
     multi_scan_.reset();
+    multi_scan_status_ = Status::InvalidArgument("Prepare already called");
     return;
   }
-  if (!ValidateScanOptions(multiscan_opts)) {
+  multi_scan_status_ = ValidateScanOptions(multiscan_opts);
+  if (!multi_scan_status_.ok()) {
     return;
   }
+
+  index_iter_->Prepare(multiscan_opts);
 
   std::vector<BlockHandle> scan_block_handles;
   std::vector<std::tuple<size_t, size_t>> block_index_ranges_per_scan;
   const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
-  if (!CollectBlockHandles(scan_opts, &scan_block_handles,
-                           &block_index_ranges_per_scan)) {
+  multi_scan_status_ = CollectBlockHandles(scan_opts, &scan_block_handles,
+                                           &block_index_ranges_per_scan);
+  if (!multi_scan_status_.ok()) {
     return;
   }
 
@@ -993,9 +1000,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   std::vector<CachableEntry<Block>> pinned_data_blocks_guard(
       scan_block_handles.size());
   size_t prefetched_max_idx;
-  if (!FilterAndPinCachedBlocks(
-          scan_block_handles, multiscan_opts, &block_indices_to_read,
-          &pinned_data_blocks_guard, &prefetched_max_idx)) {
+  multi_scan_status_ = FilterAndPinCachedBlocks(
+      scan_block_handles, multiscan_opts, &block_indices_to_read,
+      &pinned_data_blocks_guard, &prefetched_max_idx);
+  if (!multi_scan_status_.ok()) {
     return;
   }
 
@@ -1009,8 +1017,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
                       &read_reqs, &block_idx_to_readreq_idx,
                       &coalesced_block_indices);
 
-    if (!ExecuteIO(scan_block_handles, multiscan_opts, coalesced_block_indices,
-                   &read_reqs, &async_states, &pinned_data_blocks_guard)) {
+    multi_scan_status_ =
+        ExecuteIO(scan_block_handles, multiscan_opts, coalesced_block_indices,
+                  &read_reqs, &async_states, &pinned_data_blocks_guard);
+    if (!multi_scan_status_.ok()) {
       return;
     }
   }
@@ -1028,16 +1038,16 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   block_iter_points_to_real_block_ = false;
 }
 
-bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
-  assert(multi_scan_);
+void BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
+  assert(multi_scan_ && multi_scan_status_.ok());
   // This is a MultiScan and Preapre() has been called.
   //
   // Validate seek key with scan options
   if (multi_scan_->next_scan_idx >= multi_scan_->scan_opts->size()) {
-    multi_scan_.reset();
+    multi_scan_status_ = Status::InvalidArgument("Outside MultiScan range");
   } else if (!target) {
     // start key must be set for multi-scan
-    multi_scan_.reset();
+    multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
                  multi_scan_->scan_opts
@@ -1045,7 +1055,7 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key
-    multi_scan_.reset();
+    multi_scan_status_ = Status::InvalidArgument("Unexpected seek key");
   } else {
     if (multi_scan_->next_scan_idx > 0) {
       UnpinPreviousScanBlocks(multi_scan_->next_scan_idx);
@@ -1058,7 +1068,7 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     if (cur_scan_start_idx >= cur_scan_end_idx) {
       is_out_of_bound_ = true;
       assert(!Valid());
-      return true;
+      return;
     } else {
       is_out_of_bound_ = false;
     }
@@ -1074,25 +1084,18 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
       ResetDataIter();
 
       multi_scan_->cur_data_block_idx = cur_scan_start_idx;
-      multi_scan_->status = MultiScanLoadDataBlock(cur_scan_start_idx);
-      if (!multi_scan_->status.ok()) {
+      multi_scan_status_ = MultiScanLoadDataBlock(cur_scan_start_idx);
+      if (!multi_scan_status_.ok()) {
         assert(!Valid());
-        assert(status() == multi_scan_->status);
-        return true;
+        assert(status() == multi_scan_status_);
+        return;
       }
     }
     multi_scan_->cur_data_block_idx = cur_scan_start_idx;
     block_iter_points_to_real_block_ = true;
     block_iter_.Seek(*target);
     FindKeyForward();
-    return true;
   }
-
-  // We are aborting MultiScan.
-  ResetDataIter();
-  assert(!is_index_at_curr_block_);
-  assert(!block_iter_points_to_real_block_);
-  return false;
 }
 
 void BlockBasedTableIterator::UnpinPreviousScanBlocks(size_t current_scan_idx) {
@@ -1153,11 +1156,11 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     ResetDataIter();
     ++multi_scan_->cur_data_block_idx;
 
-    multi_scan_->status =
+    multi_scan_status_ =
         MultiScanLoadDataBlock(multi_scan_->cur_data_block_idx);
-    if (!multi_scan_->status.ok()) {
+    if (!multi_scan_status_.ok()) {
       assert(!Valid());
-      assert(status() == multi_scan_->status);
+      assert(status() == multi_scan_status_);
       return;
     }
 
@@ -1268,24 +1271,24 @@ Status BlockBasedTableIterator::CreateAndPinBlockFromBuffer(
       &pinned_block_entry.As<Block_kData>());
 }
 
-bool BlockBasedTableIterator::ValidateScanOptions(
+Status BlockBasedTableIterator::ValidateScanOptions(
     const MultiScanArgs* multiscan_opts) {
   if (multiscan_opts == nullptr || multiscan_opts->empty()) {
-    return false;
+    return Status::InvalidArgument("Empty MultiScanArgs");
   }
 
   const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
   const bool has_limit = scan_opts.front().range.limit.has_value();
   if (!has_limit && scan_opts.size() > 1) {
     // Abort: overlapping ranges
-    return false;
+    return Status::InvalidArgument("Scan has no upper bound");
   }
 
   for (size_t i = 0; i < scan_opts.size(); ++i) {
     const auto& scan_range = scan_opts[i].range;
     if (!scan_range.start.has_value()) {
       // Abort: no start key
-      return false;
+      return Status::InvalidArgument("Scan has no start key");
     }
 
     if (scan_range.limit.has_value()) {
@@ -1297,7 +1300,7 @@ bool BlockBasedTableIterator::ValidateScanOptions(
     if (i > 0) {
       if (!scan_range.limit.has_value()) {
         // multiple no limit scan ranges
-        return false;
+        return Status::InvalidArgument("Scan has no upper bound");
       }
 
       const auto& last_end_key = scan_opts[i - 1].range.limit.value();
@@ -1305,14 +1308,14 @@ bool BlockBasedTableIterator::ValidateScanOptions(
               scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
               /*b_has_ts=*/false) < 0) {
         // Abort: overlapping ranges
-        return false;
+        return Status::InvalidArgument("Overlapping ranges");
       }
     }
   }
-  return true;
+  return Status::OK();
 }
 
-bool BlockBasedTableIterator::CollectBlockHandles(
+Status BlockBasedTableIterator::CollectBlockHandles(
     const std::vector<ScanOptions>& scan_opts,
     std::vector<BlockHandle>* scan_block_handles,
     std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan) {
@@ -1352,7 +1355,7 @@ bool BlockBasedTableIterator::CollectBlockHandles(
 
     if (!index_iter_->status().ok()) {
       // Abort: index iterator error
-      return false;
+      return index_iter_->status();
     }
 
     if (index_iter_->Valid()) {
@@ -1369,15 +1372,16 @@ bool BlockBasedTableIterator::CollectBlockHandles(
       // range. This is important for FindBlockForwardInMultiScan() which only
       // lets the upper layer (LevelIterator) advance to the next SST file when
       // the last scan range is exhausted.
-      return false;
+      return Status::InvalidArgument("Scan does not intersect with file");
+      ;
     }
     block_index_ranges_per_scan->emplace_back(
         scan_block_handles->size() - num_blocks, scan_block_handles->size());
   }
-  return true;
+  return Status::OK();
 }
 
-bool BlockBasedTableIterator::FilterAndPinCachedBlocks(
+Status BlockBasedTableIterator::FilterAndPinCachedBlocks(
     const std::vector<BlockHandle>& scan_block_handles,
     const MultiScanArgs* multiscan_opts,
     std::vector<size_t>* block_indices_to_read,
@@ -1406,14 +1410,14 @@ bool BlockBasedTableIterator::FilterAndPinCachedBlocks(
 
     if (!s.ok()) {
       // Abort: block cache look up failed.
-      return false;
+      return s;
     }
     if (!(*pinned_data_blocks_guard)[i].GetValue()) {
       // Block not in cache
       block_indices_to_read->emplace_back(i);
     }
   }
-  return true;
+  return Status::OK();
 }
 
 void BlockBasedTableIterator::PrepareIORequests(
@@ -1500,7 +1504,7 @@ void BlockBasedTableIterator::PrepareIORequests(
   }
 }
 
-bool BlockBasedTableIterator::ExecuteIO(
+Status BlockBasedTableIterator::ExecuteIO(
     const std::vector<BlockHandle>& scan_block_handles,
     const MultiScanArgs* multiscan_opts,
     const std::vector<std::vector<size_t>>& coalesced_block_indices,
@@ -1508,9 +1512,11 @@ bool BlockBasedTableIterator::ExecuteIO(
     std::vector<AsyncReadState>* async_states,
     std::vector<CachableEntry<Block>>* pinned_data_blocks_guard) {
   IOOptions io_opts;
-  if (!table_->get_rep()->file->PrepareIOOptions(read_options_, io_opts).ok()) {
+  Status s;
+  s = table_->get_rep()->file->PrepareIOOptions(read_options_, io_opts);
+  if (!s.ok()) {
     // Abort: PrepareIOOptions failed
-    return false;
+    return s;
   }
   const bool direct_io = table_->get_rep()->file->use_direct_io();
 
@@ -1538,7 +1544,7 @@ bool BlockBasedTableIterator::ExecuteIO(
                           this, std::placeholders::_1, std::placeholders::_2);
       // TODO: for mmap, io_handle will not be set but callback will already
       // be called.
-      Status s = table_->get_rep()->file.get()->ReadAsync(
+      s = table_->get_rep()->file.get()->ReadAsync(
           read_req, io_opts, cb, &async_read, &async_read.io_handle,
           &async_read.del_fn, direct_io ? &async_read.aligned_buf : nullptr);
       if (!s.ok()) {
@@ -1546,13 +1552,15 @@ bool BlockBasedTableIterator::ExecuteIO(
         fprintf(stderr, "ReadAsync failed with %s\n", s.ToString().c_str());
 #endif
         assert(false);
-        return false;
+        return s;
       }
       assert(async_read.io_handle);
       for (auto& req : *read_reqs) {
         if (!req.status.ok()) {
           assert(false);
-          return false;
+          // Silence compiler warning about NRVO
+          s = req.status;
+          return s;
         }
       }
     }
@@ -1579,15 +1587,17 @@ bool BlockBasedTableIterator::ExecuteIO(
     }
 
     AlignedBuf aligned_buf;
-    Status s = table_->get_rep()->file->MultiRead(
-        io_opts, read_reqs->data(), read_reqs->size(),
-        direct_io ? &aligned_buf : nullptr);
+    s = table_->get_rep()->file->MultiRead(io_opts, read_reqs->data(),
+                                           read_reqs->size(),
+                                           direct_io ? &aligned_buf : nullptr);
     if (!s.ok()) {
-      return false;
+      return s;
     }
     for (auto& req : *read_reqs) {
       if (!req.status.ok()) {
-        return false;
+        // Silence compiler warning about NRVO
+        s = req.status;
+        return s;
       }
     }
 
@@ -1604,13 +1614,13 @@ bool BlockBasedTableIterator::ExecuteIO(
         if (!s.ok()) {
           assert(false);
           // Abort: failed to create and pin block in cache
-          return false;
+          return s;
         }
         assert((*pinned_data_blocks_guard)[block_idx].GetValue());
       }
     }
   }
-  return true;
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -45,7 +45,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         need_upper_bound_check_(need_upper_bound_check),
         async_read_in_progress_(false),
         is_last_level_(table->IsLastLevel()),
-        block_iter_points_to_real_block_(false) {}
+        block_iter_points_to_real_block_(false) {
+    multi_scan_status_.PermitUncheckedError();
+  }
 
   ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
@@ -136,6 +138,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return block_iter_.value();
   }
   Status status() const override {
+    if (!multi_scan_status_.ok()) {
+      return multi_scan_status_;
+    }
     // In case of block cache readahead lookup, it won't add the block to
     // block_handles if it's index is invalid. So index_iter_->status check can
     // be skipped.
@@ -151,7 +156,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       assert(!multi_scan_);
       return Status::TryAgain("Async read in progress");
     } else if (multi_scan_) {
-      return multi_scan_->status;
+      return multi_scan_status_;
     } else {
       return Status::OK();
     }
@@ -454,7 +459,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     // async_states[j].
     std::vector<AsyncReadState> async_states;
     UnorderedMap<size_t, size_t> block_idx_to_readreq_idx;
-    Status status;
     size_t prefetch_max_idx;
 
     MultiScanState(
@@ -471,14 +475,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
           cur_data_block_idx(0),
           async_states(std::move(_async_states)),
           block_idx_to_readreq_idx(std::move(_block_idx_to_readreq_idx)),
-          status(Status::OK()),
-          prefetch_max_idx(_prefetch_max_idx) {
-      status.PermitUncheckedError();
-    }
+          prefetch_max_idx(_prefetch_max_idx) {}
 
     ~MultiScanState();
   };
 
+  Status multi_scan_status_;
   std::unique_ptr<MultiScanState> multi_scan_;
   // *** END MultiScan related APIs and states ***
 
@@ -599,8 +601,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   // *** BEGIN APIs relevant to multiscan ***
 
-  // Returns true iff we should fallback to regular scan.
-  bool SeekMultiScan(const Slice* target);
+  void SeekMultiScan(const Slice* target);
 
   void FindBlockForwardInMultiScan();
 
@@ -665,14 +666,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                      CachableEntry<Block>& pinned_block_entry);
 
   // Helper functions for Prepare():
-  bool ValidateScanOptions(const MultiScanArgs* multiscan_opts);
+  Status ValidateScanOptions(const MultiScanArgs* multiscan_opts);
 
-  bool CollectBlockHandles(
+  Status CollectBlockHandles(
       const std::vector<ScanOptions>& scan_opts,
       std::vector<BlockHandle>* scan_block_handles,
       std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan);
 
-  bool FilterAndPinCachedBlocks(
+  Status FilterAndPinCachedBlocks(
       const std::vector<BlockHandle>& scan_block_handles,
       const MultiScanArgs* multiscan_opts,
       std::vector<size_t>* block_indices_to_read,
@@ -687,7 +688,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       UnorderedMap<size_t, size_t>* block_idx_to_readreq_idx,
       std::vector<std::vector<size_t>>* coalesced_block_indices);
 
-  bool ExecuteIO(
+  Status ExecuteIO(
       const std::vector<BlockHandle>& scan_block_handles,
       const MultiScanArgs* multiscan_opts,
       const std::vector<std::vector<size_t>>& coalesced_block_indices,

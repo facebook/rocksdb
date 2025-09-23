@@ -289,7 +289,13 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
     }
     std::unique_ptr<UserDefinedIndexIterator> udi_iter =
         udi_reader_->NewIterator(read_options);
-    return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
+    if (udi_iter) {
+      InternalIteratorBase<IndexValue>* wrap_iter =
+          new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
+      return wrap_iter;
+    }
+    return NewErrorInternalIterator<IndexValue>(
+        Status::NotFound("COuld not create UDI iterator"));
   }
 
   virtual Status CacheDependencies(
