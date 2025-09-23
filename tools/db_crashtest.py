@@ -1191,6 +1191,8 @@ def finalize_and_sanitize(src_params):
         dest_params["use_multiscan"] = 0
     if dest_params.get("use_multiscan") == 1:
         dest_params["async_io"] = 0
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
     return dest_params
 
 
