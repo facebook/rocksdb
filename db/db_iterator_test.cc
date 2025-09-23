@@ -4192,66 +4192,6 @@ TEST_P(DBMultiScanIteratorTest, BasicTest) {
     abort();
   }
   iter.reset();
-
-  // Test the overlapping scan case
-  key_ranges[1] = "k30";
-  scan_options = MultiScanArgs(BytewiseComparator());
-  scan_options.insert(key_ranges[0], key_ranges[1]);
-  scan_options.insert(key_ranges[2], key_ranges[3]);
-
-  iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
-  try {
-    int idx = 0;
-    int count = 0;
-    for (auto range : *iter) {
-      for (auto it : range) {
-        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
-        ASSERT_LT(it.first.ToString().compare(key_ranges[idx + 1]), 0);
-        count++;
-      }
-      idx += 2;
-    }
-    ASSERT_EQ(count, 52);
-  } catch (MultiScanException& ex) {
-    // Make sure exception contains the status
-    ASSERT_NOK(ex.status());
-    std::cerr << "Iterator returned status " << ex.what();
-    abort();
-  } catch (std::logic_error& ex) {
-    std::cerr << "Iterator returned logic error " << ex.what();
-    abort();
-  }
-  iter.reset();
-
-  // Test the no limit scan case
-  scan_options = MultiScanArgs(BytewiseComparator());
-  scan_options.insert(key_ranges[0]);
-  scan_options.insert(key_ranges[2]);
-  iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
-  try {
-    int idx = 0;
-    int count = 0;
-    for (auto range : *iter) {
-      for (auto it : range) {
-        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
-        if (it.first.ToString().compare(key_ranges[idx + 1]) == 0) {
-          break;
-        }
-        count++;
-      }
-      idx += 2;
-    }
-    ASSERT_EQ(count, 52);
-  } catch (MultiScanException& ex) {
-    // Make sure exception contains the status
-    ASSERT_NOK(ex.status());
-    std::cerr << "Iterator returned status " << ex.what();
-    abort();
-  } catch (std::logic_error& ex) {
-    std::cerr << "Iterator returned logic error " << ex.what();
-    abort();
-  }
-  iter.reset();
 }
 
 TEST_P(DBMultiScanIteratorTest, MixedBoundsTest) {
@@ -4366,15 +4306,95 @@ TEST_P(DBMultiScanIteratorTest, RangeAcrossFiles) {
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
-  int i = 10;
-  for (auto range : *iter) {
-    for (auto it : range) {
-      ASSERT_EQ(it.first.ToString(), Key(i));
-      ++i;
+  try {
+    int i = 10;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_EQ(it.first.ToString(), Key(i));
+        ++i;
+      }
     }
+    ASSERT_EQ(i, 90);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
   }
-  ASSERT_EQ(i, 90);
+  iter.reset();
 }
+
+TEST_P(DBMultiScanIteratorTest, FailureTest) {
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  // Create a file
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    ASSERT_OK(Put("k" + ss.str(), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> key_ranges({"k04", "k06", "k12", "k14"});
+  ReadOptions ro;
+  Slice ub;
+  ro.iterate_upper_bound = &ub;
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.max_prefetch_size = 4500;
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Prepare(scan_options);
+  int count = 0;
+  ub = key_ranges[1];
+  iter->Seek(key_ranges[0]);
+  while (iter->status().ok() && iter->Valid()) {
+    ASSERT_GE(iter->key().compare(key_ranges[0]), 0);
+    ASSERT_LT(iter->key().compare(key_ranges[1]), 0);
+    count++;
+    iter->Next();
+  }
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+  ASSERT_EQ(count, 2);
+
+  // Second seek should hit the max_prefetch_size limit
+  ub = key_ranges[3];
+  iter->Seek(key_ranges[2]);
+  ASSERT_NOK(iter->status());
+  iter.reset();
+
+  // Test the case of unexpected Seek key
+  iter.reset(dbfull()->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  scan_options.max_prefetch_size = 0;
+  iter->Prepare(scan_options);
+  ub = key_ranges[3];
+  iter->Seek(key_ranges[2]);
+  ASSERT_NOK(iter->status());
+  iter.reset();
+
+  // Test the case of overlapping ranges
+  iter.reset(dbfull()->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  (*scan_options).clear();
+  scan_options.insert(key_ranges[0]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  iter->Prepare(scan_options);
+  ub = key_ranges[3];
+  iter->Seek(key_ranges[2]);
+  ASSERT_NOK(iter->status());
+  iter.reset();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

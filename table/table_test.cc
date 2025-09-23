@@ -8341,6 +8341,111 @@ TEST_F(UserDefinedIndexTest, IngestEmptyUDI) {
   ASSERT_OK(DestroyDB(dbname, options));
 }
 
+TEST_F(UserDefinedIndexTest, MultiScanFailureTest) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  Random rnd(301);
+  // Add 100 keys instead of just 5
+  for (int i = 0; i < 100; i++) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = rnd.RandomString(1024);
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  std::vector<std::string> key_ranges({"key03", "key05", "key12", "key14"});
+  ReadOptions ro;
+  ro.table_index_factory = user_defined_index_factory.get();
+  Slice ub;
+  ro.iterate_upper_bound = &ub;
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(5);
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
+  scan_options.insert(key_ranges[2], key_ranges[3], property_bag);
+  scan_options.max_prefetch_size = 3500;
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Prepare(scan_options);
+  int count = 0;
+  ub = key_ranges[1];
+  iter->Seek(key_ranges[0]);
+  while (iter->status().ok() && iter->Valid()) {
+    ASSERT_GE(iter->key().compare(key_ranges[0]), 0);
+    ASSERT_LT(iter->key().compare(key_ranges[1]), 0);
+    count++;
+    iter->Next();
+  }
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+  ASSERT_EQ(count, 2);
+
+  ub = key_ranges[3];
+  iter->Seek(key_ranges[2]);
+  // This should fail due to reaching max_prefetch_size limit
+  ASSERT_EQ(iter->status(), Status::Incomplete());
+  iter.reset();
+
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  scan_options.max_prefetch_size = 0;
+  iter->Prepare(scan_options);
+  ub = key_ranges[3];
+  iter->Seek(key_ranges[2]);
+  // Seek should fail as its not in the order specified in scan_options
+  ASSERT_EQ(iter->status(), Status::InvalidArgument());
+  iter.reset();
+
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  (*scan_options).clear();
+  key_ranges[1] = "key20";
+  scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
+  scan_options.insert(key_ranges[2], key_ranges[3], property_bag);
+  iter->Prepare(scan_options);
+  ub = key_ranges[3];
+  iter->Seek(key_ranges[2]);
+  // Should fail due to overlapping ranges
+  ASSERT_EQ(iter->status(), Status::InvalidArgument());
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
 TEST_F(UserDefinedIndexTest, ConfigTest) {
   Options options;
   BlockBasedTableOptions table_options;
