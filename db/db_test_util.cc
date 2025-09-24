@@ -1872,4 +1872,13 @@ template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kBlockBasedTableReader>;
 template class TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>;
 
+const std::vector<Temperature> kKnownTemperatures = {
+    Temperature::kHot, Temperature::kWarm, Temperature::kCool,
+    Temperature::kCold, Temperature::kIce};
+
+Temperature RandomKnownTemperature() {
+  return kKnownTemperatures[Random::GetTLSInstance()->Uniform(
+      static_cast<int>(kKnownTemperatures.size()))];
+}
+
 }  // namespace ROCKSDB_NAMESPACE
