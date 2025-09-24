@@ -7422,6 +7422,8 @@ TEST_F(ExternalTableTest, IngestionTest) {
   ASSERT_OK(db->Close());
 }
 
+// Test with a bool parameter for BytewiseComparator() (false) or
+// ReverseBytewiseComparator() (true)
 class UserDefinedIndexTest : public BlockBasedTableTestBase {
  public:
   class CustomFlushBlockPolicy : public FlushBlockPolicy {
@@ -7458,23 +7460,43 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
  public:
   class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
    public:
+    TestUserDefinedIndexFactory(bool reverse = false) { reverse_ = reverse; }
     const char* Name() const override { return "test_index"; }
     UserDefinedIndexBuilder* NewBuilder() const override {
-      return new TestUserDefinedIndexBuilder();
+      return new TestUserDefinedIndexBuilder(reverse_);
     }
 
     std::unique_ptr<UserDefinedIndexReader> NewReader(
         Slice& index_block) const override {
-      return std::make_unique<TestUserDefinedIndexReader>(index_block, this);
+      return std::make_unique<TestUserDefinedIndexReader>(reverse_, index_block,
+                                                          this);
     }
 
     uint64_t seek_error_count_ = 0;
     uint64_t next_error_count_ = 0;
 
    private:
+    struct TestUserDefinedIndexCompare {
+      bool operator()(const std::string& lhs, const std::string& rhs) const {
+        if (!reverse) {
+          return lhs < rhs;
+        } else {
+          return rhs < lhs;
+        }
+      }
+
+      bool reverse;
+      explicit TestUserDefinedIndexCompare(bool _reverse) {
+        reverse = _reverse;
+      }
+    };
+
     class TestUserDefinedIndexBuilder : public UserDefinedIndexBuilder {
      public:
-      TestUserDefinedIndexBuilder() : entries_added_(0), keys_added_(0) {}
+      TestUserDefinedIndexBuilder(bool reverse)
+          : entries_added_(0),
+            index_data_(TestUserDefinedIndexCompare(reverse)),
+            keys_added_(0) {}
 
       Slice AddIndexEntry(const Slice& last_key_in_current_block,
                           const Slice* first_key_in_next_block,
@@ -7536,7 +7558,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
 
      private:
       int entries_added_;
-      std::map<std::string, std::string> index_data_;
+      std::map<std::string, std::string, TestUserDefinedIndexCompare>
+          index_data_;
       uint32_t keys_added_;
       std::string index_contents_data_;
     };
@@ -7544,8 +7567,11 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
     class TestUserDefinedIndexReader : public UserDefinedIndexReader {
      public:
       explicit TestUserDefinedIndexReader(
-          Slice& index_block, const TestUserDefinedIndexFactory* factory)
-          : factory_(factory) {
+          bool reverse, Slice& index_block,
+          const TestUserDefinedIndexFactory* factory)
+          : reverse_(reverse),
+            factory_(factory),
+            index_data_(TestUserDefinedIndexCompare(reverse)) {
         Slice block = index_block;
         while (!block.empty()) {
           Slice key;
@@ -7568,8 +7594,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
 
       std::unique_ptr<UserDefinedIndexIterator> NewIterator(
           const ReadOptions& /*ro*/) override {
-        return std::make_unique<TestUserDefinedIndexIterator>(index_data_,
-                                                              factory_);
+        return std::make_unique<TestUserDefinedIndexIterator>(
+            reverse_, index_data_, factory_);
       }
 
       size_t ApproximateMemoryUsage() const override { return 0; }
@@ -7578,9 +7604,10 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
       class TestUserDefinedIndexIterator : public UserDefinedIndexIterator {
        public:
         TestUserDefinedIndexIterator(
+            bool reverse,
             std::map<std::string,
-                     std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
-                index,
+                     std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>,
+                     TestUserDefinedIndexCompare>& index,
             const TestUserDefinedIndexFactory* factory)
             : index_(index),
               iter_(index_.end()),
@@ -7588,7 +7615,9 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
               num_opts_(0),
               target_num_keys_(0),
               seek_error_count_(factory->seek_error_count_),
-              next_error_count_(factory->next_error_count_) {}
+              next_error_count_(factory->next_error_count_),
+              comp_(reverse ? ReverseBytewiseComparator()
+                            : BytewiseComparator()) {}
 
         Status SeekAndGetResult(const Slice& key,
                                 IterateResult* result) override {
@@ -7602,8 +7631,9 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
           }
           if (scan_opts_) {
             // Seeks should be in order specified in scan_opts_
-            EXPECT_EQ(scan_opts_[scan_idx_].range.start.value().compare(key),
-                      0);
+            EXPECT_EQ(
+                comp_->Compare(scan_opts_[scan_idx_].range.start.value(), key),
+                0);
             EXPECT_TRUE(scan_opts_[scan_idx_].property_bag.has_value());
             target_num_keys_ = std::stoi(scan_opts_[scan_idx_]
                                              .property_bag.value()
@@ -7617,7 +7647,7 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
             result->bound_check_result = IterBoundCheck::kInbound;
             result->key = Slice(iter_->first);
             if (scan_opts_ && target_num_keys_ > 0 &&
-                iter_->first.compare(key.ToString()) == 0) {
+                comp_->Compare(iter_->first, key) == 0) {
               target_num_keys_--;
             }
           } else {
@@ -7637,8 +7667,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
             return s;
           }
           if (scan_opts_ && scan_opts_[scan_idx_ - 1].range.limit.has_value()) {
-            if (iter_->first.compare(
-                    scan_opts_[scan_idx_ - 1].range.limit.value().ToString()) >=
+            if (comp_->Compare(iter_->first,
+                               scan_opts_[scan_idx_ - 1].range.limit.value()) >=
                 0) {
               result->bound_check_result = IterBoundCheck::kOutOfBound;
               result->key = Slice();
@@ -7676,8 +7706,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
             return true;
           }
           if (scan_opts_[scan_idx_ - 1].range.limit.has_value() &&
-              scan_opts_[scan_idx_ - 1].range.limit.value().compare(
-                  iter_->first) <= 0) {
+              comp_->Compare(scan_opts_[scan_idx_ - 1].range.limit.value(),
+                             iter_->first) <= 0) {
             return false;
           }
           return true;
@@ -7700,8 +7730,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
 
        private:
         std::map<std::string,
-                 std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
-            index_;
+                 std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>,
+                 TestUserDefinedIndexCompare>& index_;
         std::map<std::string, std::pair<UserDefinedIndexBuilder::BlockHandle,
                                         uint32_t>>::iterator iter_;
         const ScanOptions* scan_opts_;
@@ -7710,13 +7740,18 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
         uint32_t target_num_keys_;
         uint64_t seek_error_count_;
         uint64_t next_error_count_;
+        const Comparator* comp_;
       };
 
+      bool reverse_;
       const TestUserDefinedIndexFactory* factory_;
       std::map<std::string,
-               std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>
+               std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>,
+               TestUserDefinedIndexCompare>
           index_data_;
     };
+
+    bool reverse_;
   };
 
  protected:
@@ -7727,6 +7762,7 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
                          ColumnFamilyHandle* cfh) {
     Slice ub;
     ReadOptions read_opts = ro;
+    const Comparator* comp = cfh->GetComparator();
     int key_count = 0;
     int index = 0;
     auto opts = scan_opts.GetScanRanges();
@@ -7739,6 +7775,8 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
       EXPECT_OK(iter->status());
       while (iter->Valid()) {
         key_count++;
+        ASSERT_GE(comp->Compare(iter->key(), opt.range.start.value()), 0);
+        ASSERT_LT(comp->Compare(iter->key(), opt.range.limit.value()), 0);
         iter->Next();
       }
       EXPECT_EQ(key_count, key_counts[index]);
@@ -7887,7 +7925,7 @@ void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
-  MultiScanArgs scan_opts(BytewiseComparator());
+  MultiScanArgs scan_opts(options.comparator);
 
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
@@ -8393,7 +8431,7 @@ TEST_F(UserDefinedIndexTest, MultiScanFailureTest) {
   ro.iterate_upper_bound = &ub;
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(5);
-  MultiScanArgs scan_options(BytewiseComparator());
+  MultiScanArgs scan_options(options.comparator);
   scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
   scan_options.insert(key_ranges[2], key_ranges[3], property_bag);
   scan_options.max_prefetch_size = 3500;
@@ -8531,6 +8569,71 @@ TEST_F(UserDefinedIndexTest, ConfigTest) {
   ASSERT_OK(db->Close());
   ASSERT_OK(DestroyDB(dbname, options));
 }
+
+TEST_F(UserDefinedIndexTest, ReverseMultiScanTest) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory with ReverseBytewiseComparator
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>(/*reverse=*/true);
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.comparator = ReverseBytewiseComparator();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  Random rnd(301);
+  // Add 100 keys in reverse bytewise order
+  for (int i = 99; i >= 0; i--) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = rnd.RandomString(1024);
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  std::vector<std::string> key_ranges({"key90", "key75", "key30", "key02"});
+  std::vector<int> key_counts;
+  ReadOptions ro;
+  ro.table_index_factory = user_defined_index_factory.get();
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(20);
+  MultiScanArgs scan_opts(options.comparator);
+  scan_opts.insert(key_ranges[0], key_ranges[1], property_bag);
+  key_counts.emplace_back(15);
+  scan_opts.insert(key_ranges[2], key_ranges[3], property_bag);
+  key_counts.emplace_back(24);
+  ValidateMultiScan(ro, scan_opts, key_counts, db, cfh);
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
