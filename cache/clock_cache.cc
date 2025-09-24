@@ -2062,9 +2062,10 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   }
   // This check can be extra expensive for a cache that is just created,
   // maybe used for a small number of entries, as in a unit test, and then
-  // destroyed. Only do this in rare modes.
+  // destroyed. Only do this in rare modes. REVISED: Don't scan the whole mmap,
+  // just a reasonable frontier past what we expect to have written.
 #ifdef MUST_FREE_HEAP_ALLOCATIONS
-  for (size_t i = used_end; i < array_.Count(); i++) {
+  for (size_t i = used_end; i < array_.Count() && i < used_end + 64U; i++) {
     assert(array_[i].head_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].chain_next_with_shift.LoadRelaxed() == 0);
     assert(array_[i].meta.LoadRelaxed() == 0);
