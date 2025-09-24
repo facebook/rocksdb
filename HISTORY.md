@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 10.7.0 (09/19/2025)
+## 10.7.0 (09/24/2025)
 ### New Features
 * Add the fail_if_no_udi_on_open flag in BlockBasedTableOption to control whether a missing user defined index block in a SST is a hard error or not.
 * A new flag memtable_veirfy_per_key_checksum_on_seek is added to AdvancedColumnFamilyOptions. When it is enabled, it will validate key checksum along the binary search path on skiplist based memtable during seek operation.
@@ -16,6 +16,7 @@
 
 ### Behavior Changes
 * The default provided block cache implementation is now HyperClockCache instead of LRUCache, when `block_cache` is nullptr (default) and `no_block_cache==false` (default). We recommend explicitly creating a HyperClockCache block cache based on memory budget and sharing it across all column families and even DB instances. This change could expose previously hidden memory or resource leaks.
+* Allow UDIs with a non BytewiseComparator
 
 ### Bug Fixes
 * Reported numbers for compaction and flush CPU usage now include time spent by parallel compression worker threads. This now means compaction/flush CPU usage could exceed the wall clock time.
