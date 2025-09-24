@@ -670,6 +670,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   Status CollectBlockHandles(
       const std::vector<ScanOptions>& scan_opts,
+      const MultiScanArgs* multiscan_opts,
       std::vector<BlockHandle>* scan_block_handles,
       std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan);
 

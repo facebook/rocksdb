@@ -1876,6 +1876,11 @@ class MultiScanArgs {
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
 
+  // Internal use only.
+  // Fail the Prepare() on a file if a scan range does not overlap
+  // with the file.
+  bool require_file_overlap = false;
+
  private:
   // The comparator used for ordering ranges
   const Comparator* comp_;

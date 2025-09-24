@@ -1193,6 +1193,7 @@ class LevelIterator final : public InternalIterator {
       file_to_arg.second.io_coalesce_threshold = so->io_coalesce_threshold;
       file_to_arg.second.max_prefetch_size = so->max_prefetch_size;
       file_to_arg.second.use_async_io = so->use_async_io;
+      file_to_arg.second.require_file_overlap = true;
     }
   }
 
