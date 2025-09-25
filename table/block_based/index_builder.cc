@@ -117,20 +117,18 @@ Slice ShortenedIndexBuilder::FindShortInternalKeySuccessor(
   }
 }
 
-uint64_t ShortenedIndexBuilder::EstimateCurrentIndexSize() const {
+void ShortenedIndexBuilder::UpdateIndexSizeEstimate() const {
   uint64_t current_size =
       must_use_separator_with_seq_
           ? index_block_builder_.CurrentSizeEstimate()
           : index_block_builder_without_seq_.CurrentSizeEstimate();
 
-  if (num_index_entries_ == 0) {
-    return current_size;
+  uint64_t final_estimate = current_size;
+  if (num_index_entries_ > 0) {
+    // Add buffer to generously account (in most cases) for the next index entry
+    final_estimate += (2 * (current_size / num_index_entries_));
   }
-
-  uint64_t avg_entry_size = current_size / num_index_entries_;
-
-  // Add buffer to generously account (in most cases) for the next index entry
-  return current_size + (2 * avg_entry_size);
+  estimated_index_size_.StoreRelaxed(final_estimate);
 }
 
 PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
@@ -237,6 +235,11 @@ void PartitionedIndexBuilder::MaybeFlush(const Slice& index_key,
                        index_key, EncodedBlockHandle(index_value).AsSlice()));
   if (do_flush) {
     assert(entries_.back().value.get() == sub_index_builder_);
+
+    // Update estimate of completed partitions when a partition is flushed
+    estimated_completed_partitions_size_.FetchAddRelaxed(
+        sub_index_builder_->CurrentIndexSizeEstimate());
+
     cut_filter_block = true;
     MakeNewSubIndexBuilder();
   }
@@ -277,6 +280,11 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
       last_key_in_current_block, first_key_in_next_block, block_handle,
       separator_scratch, skip_delta_encoding);
   entries_.back().key.assign(sep.data(), sep.size());
+
+  // Update cached size estimate when data blocks are finalized for more
+  // accurate tail size estimation. This ensures the estimate reflects current
+  // state after each data block is added.
+  UpdateIndexSizeEstimate();
 
   if (!must_use_separator_with_seq_ &&
       sub_index_builder_->must_use_separator_with_seq_) {
@@ -347,4 +355,45 @@ Status PartitionedIndexBuilder::Finish(
 }
 
 size_t PartitionedIndexBuilder::NumPartitions() const { return partition_cnt_; }
+
+void PartitionedIndexBuilder::UpdateIndexSizeEstimate() const {
+  uint64_t total_size = 0;
+
+  // Ignore last entry which is a placeholder for the partition being built
+  size_t completed_partitions = entries_.size() > 0 ? entries_.size() - 1 : 0;
+
+  // Use running estimate of completed partitions instead of IndexSize() which
+  // is only available after calling Finish().
+  uint64_t completed_partitions_size = estimated_completed_partitions_size_.LoadRelaxed();
+  total_size += completed_partitions_size;
+
+  // Add current active partition size if it exists
+  uint64_t current_sub_index_size = 0;
+  if (sub_index_builder_ != nullptr) {
+    current_sub_index_size = sub_index_builder_->CurrentIndexSizeEstimate();
+    total_size += current_sub_index_size;
+  }
+
+  // Add buffer for top-level index and next partition
+  if (completed_partitions > 0) {
+    // Calculate top-level index size. Each top-level entry consists of:
+    // separator key (~20-50 bytes) + BlockHandle (~20 bytes) + overhead
+    // Estimate ~70 bytes per top-level entry as a reasonable average
+    auto estimated_top_level_size = completed_partitions * 70;
+    total_size += completed_partitions * 70;
+
+    // Buffer for next partition + next top-level entry
+    uint64_t avg_partition_size = completed_partitions_size / completed_partitions;
+    uint64_t avg_top_level_entry_size = estimated_top_level_size / completed_partitions;
+
+    uint64_t buffer_size = 2 * (avg_partition_size + avg_top_level_entry_size);
+    total_size += buffer_size;
+  } else if (sub_index_builder_ != nullptr) {
+    // For the first partition, estimate using the current partition's state
+      uint64_t buffer_size = 2 * current_sub_index_size;
+      total_size += buffer_size;
+  }
+  estimated_index_size_.StoreRelaxed(total_size);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

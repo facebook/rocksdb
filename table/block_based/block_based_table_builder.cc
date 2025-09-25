@@ -1692,6 +1692,12 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
   WriteBlock(uncompressed, &r->pending_handle, BlockType::kData,
              &skip_delta_encoding);
   if (LIKELY(ok())) {
+    // Notify filter builder that a data block has been finalized
+    // Add 1 to account for the data block that is about to be written
+    if (r->filter_builder) {
+      r->filter_builder->OnDataBlockFinalized(r->props.num_data_blocks + 1);
+    }
+
     // We do not emit the index entry for a block until we have seen the
     // first key for the next data block.  This allows us to use shorter
     // keys in the index block.  For example, consider a block boundary
@@ -1785,6 +1791,11 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
         ++rep_->props.num_data_blocks;
+
+        if (rep_->filter_builder) {
+          rep_->filter_builder->OnDataBlockFinalized(
+              rep_->props.num_data_blocks);
+        }
 
         rep_->index_builder->FinishIndexEntry(
             rep_->pending_handle, block_rep->prepared_index_entry.get(),
@@ -2762,6 +2773,50 @@ uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
   } else {
     return FileSize();
   }
+}
+
+uint64_t BlockBasedTableBuilder::EstimatedTailSize() const {
+  uint64_t estimated_tail_size = 0;
+
+  // 1. Estimate index size
+  if (rep_->table_options.index_type ==
+      BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    assert(rep_->p_index_builder_);
+    estimated_tail_size +=
+    rep_->p_index_builder_->CurrentIndexSizeEstimate();
+  } else {
+    assert(rep_->index_builder);
+    estimated_tail_size += rep_->index_builder->CurrentIndexSizeEstimate();
+  }
+
+  // 2. Estimate filter size
+  if (rep_->filter_builder) {
+    estimated_tail_size += rep_->filter_builder->CurrentFilterSizeEstimate();
+  }
+
+  // 3. Estimate compression dictionary size
+  if (rep_->compressor_with_dict) {
+    Slice dict = rep_->compressor_with_dict->GetSerializedDict();
+    if (!dict.empty()) {
+      estimated_tail_size += dict.size();
+    }
+  }
+
+  // 4. Estimate range deletion block size
+  if (!rep_->range_del_block.empty()) {
+    estimated_tail_size += rep_->range_del_block.CurrentSizeEstimate();
+  }
+
+  // 5. Estimate properties block size conservatively (~1-2KB)
+  estimated_tail_size += 2048;
+
+  // 6. Estimate meta-index block size conservatively (~1KB)
+  estimated_tail_size += 1024;
+
+  // 7. Add footer size
+  estimated_tail_size += Footer::kMaxEncodedLength;
+
+  return estimated_tail_size;
 }
 
 uint64_t BlockBasedTableBuilder::GetTailSize() const { return rep_->tail_size; }

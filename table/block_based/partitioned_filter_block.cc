@@ -209,6 +209,62 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
   return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
 }
 
+size_t PartitionedFilterBlockBuilder::CurrentFilterSizeEstimate() {
+  size_t active_partition_size =
+      filter_bits_builder_->EstimateEntriesAdded() * 2;  // 2 bytes per key
+
+  return estimated_filter_size_ + active_partition_size;
+}
+
+void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
+    uint64_t num_data_blocks) {
+  UpdateFilterSizeEstimate(num_data_blocks);
+}
+
+void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
+    uint64_t num_data_blocks) {
+  size_t filter_size = 0;
+
+  // Estimate filter size for completed partitions
+  // TODO: Keep a running estimate of filter size for completed partitions to
+  // avoid recaluclating it when a data block is finalized
+  for (const auto& filter_entry : filters_) {
+    filter_size += filter_entry.filter.size();
+  }
+
+  // Estimate top-level partition index size
+  if (p_index_builder_->separator_is_key_plus_seq()) {
+    filter_size += index_on_filter_block_builder_.CurrentSizeEstimate();
+  } else {
+    filter_size +=
+        index_on_filter_block_builder_without_seq_.CurrentSizeEstimate();
+  }
+
+  // Fallback: Reserve space if no partitions have been cut yet
+  size_t active_filter_estimate = 0;
+  if (filters_.empty()) {
+    size_t avg_bytes_per_entry =
+        2;  // 2 bytes per entry, approx 15 bits per key
+    active_filter_estimate = EstimateEntriesAdded() * avg_bytes_per_entry;
+
+    // Add a 2x buffer (for top-level index, etc.)
+    active_filter_estimate = active_filter_estimate * 2;
+  }
+
+  // Use the larger estimate
+  size_t base_estimate = std::max(filter_size, active_filter_estimate);
+
+  // Reserve filter space for the next data block
+  size_t reserved = 0;
+  if (num_data_blocks > 0) {
+    reserved = (base_estimate / num_data_blocks) *
+               2;  // 2x average size per data block
+    estimated_filter_size_ = base_estimate + reserved;
+  } else {
+    estimated_filter_size_ = base_estimate;
+  }
+}
+
 void PartitionedFilterBlockBuilder::PrevKeyBeforeFinish(
     const Slice& prev_key_without_ts) {
   assert(prev_key_without_ts.compare(DEBUG_add_with_prev_key_called_

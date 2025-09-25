@@ -46,6 +46,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   }
 
   size_t EstimateEntriesAdded() override;
+  size_t CurrentFilterSizeEstimate() override;
+  void OnDataBlockFinalized(uint64_t num_data_blocks) override;
 
   void PrevKeyBeforeFinish(const Slice& prev_key_without_ts) override;
   Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
@@ -66,6 +68,9 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   Status MaybePostVerifyFilter(const Slice& /* filter_content */) override {
     return Status::OK();
   }
+
+ protected:
+  void UpdateFilterSizeEstimate(uint64_t num_data_blocks) override;
 
  private:  // fns
   // Whether to cut a filter block before the next key
@@ -106,6 +111,10 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   // For Add without prev key
   std::string prev_key_without_ts_;
+
+  // Cached filter size estimate for hot path performance - updated only when data
+  // blocks are written for meaningful estimate updates
+  mutable size_t estimated_filter_size_ = 0;
 
 #ifndef NDEBUG
   // For verifying accurate previous keys are provided by the caller, so that
