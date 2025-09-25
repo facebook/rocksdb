@@ -158,12 +158,14 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
-  // Get an estimate for current total index size based on current builder
-  // state.
+  // Returns an estimate of the current index size based on the builder's state.
+  // Implementations should cache the estimate and update it via
+  // UpdateIndexSizeEstimate() to avoid recalculating on every key add,
+  // which is critical for performance in the compaction hot path.
   //
-  // Called during compaction to estimate final index size for file cutting
-  // decisions.
-  virtual uint64_t EstimateCurrentIndexSize() const = 0;
+  // Can be called at any time during table construction, even before calling
+  // Finish(). Used during table construction to determine when to cut files.
+  virtual uint64_t CurrentIndexSizeEstimate() const = 0;
 
   virtual bool separator_is_key_plus_seq() { return true; }
 
@@ -186,6 +188,12 @@ class IndexBuilder {
                : comparator_->user_comparator()->CompareWithoutTimestamp(
                      l_user_key, r_user_key) == 0;
   }
+
+  // Updates the cached index size estimate used by CurrentIndexSizeEstimate().
+  // Subclasses that keep a cached estimate should override this method
+  // and call it whenever their internal state changes (such as when index
+  // entries are added).
+  virtual void UpdateIndexSizeEstimate() const {}
 
   const InternalKeyComparator* comparator_;
   // Size of user-defined timestamp in bytes.
@@ -333,6 +341,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
 
     ++num_index_entries_;
+    UpdateIndexSizeEstimate();
   }
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
@@ -425,7 +434,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
-  uint64_t EstimateCurrentIndexSize() const override;
+  uint64_t CurrentIndexSizeEstimate() const override {
+    return estimated_index_size_.LoadRelaxed();
+  }
+
+  // Updates the cached size estimate to minimize CPU usage in hot path
+  void UpdateIndexSizeEstimate() const override;
 
   bool separator_is_key_plus_seq() override {
     return must_use_separator_with_seq_;
@@ -458,6 +472,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   std::string current_block_first_internal_key_;
   uint64_t num_index_entries_ = 0;
+  // Cache for index size estimate to avoid recalculating in hot path
+  mutable RelaxedAtomic<uint64_t> estimated_index_size_{0};
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -579,8 +595,7 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
-  // TODO: implement
-  uint64_t EstimateCurrentIndexSize() const override { return 0; }
+  uint64_t CurrentIndexSizeEstimate() const override { return 0; }
 
   bool separator_is_key_plus_seq() override {
     return primary_index_builder_.separator_is_key_plus_seq();
@@ -658,8 +673,16 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
 
-  // TODO: implement
-  uint64_t EstimateCurrentIndexSize() const override { return 0; }
+  // Returns a cached estimate of the current index size. This
+  // estimate is updated when data blocks are added.
+  uint64_t CurrentIndexSizeEstimate() const override {
+    uint64_t estimate = estimated_index_size_.LoadRelaxed();
+    printf(
+        "[PartitionedIndexBuilder] CurrentIndexSizeEstimate: returning "
+        "estimated_index_size_=%lu\n",
+        (unsigned long)estimate);
+    return estimate;
+  }
 
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
@@ -694,6 +717,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t partition_cnt_ = 0;
 
   void MakeNewSubIndexBuilder();
+  void UpdateIndexSizeEstimate() const override;
 
   struct Entry {
     std::string key;
@@ -721,5 +745,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
+  // Cached estimate of current index size, updated when data blocks are added
+  mutable RelaxedAtomic<uint64_t> estimated_index_size_{0};
+  // Running estimate of completed partitions total size
+  mutable RelaxedAtomic<uint64_t> estimated_completed_partitions_size_{0};
 };
 }  // namespace ROCKSDB_NAMESPACE

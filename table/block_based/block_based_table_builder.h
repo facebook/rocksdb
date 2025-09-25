@@ -89,10 +89,14 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
-  // Estimated size of the file generated so far. This is used when
-  // FileSize() cannot estimate final SST size, e.g. parallel compression
-  // is enabled.
+  // Estimated size of the file generated so far (based on data blocks, this
+  // estimate does not include meta blocks). This is used when FileSize() cannot
+  // estimate final SST size, e.g. parallel compression is enabled.
   uint64_t EstimatedFileSize() const override;
+
+  // Estimated tail size of the SST file generated so far. The "tail" refers to
+  // all blocks written after data blocks (index + filter).
+  uint64_t EstimatedTailSize() const override;
 
   // Get the size of the "tail" part of a SST file. "Tail" refers to
   // all blocks after data blocks till the end of the SST file.
