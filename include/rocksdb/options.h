@@ -1848,7 +1848,7 @@ class MultiScanArgs {
   operator std::vector<ScanOptions>*() { return &original_ranges_; }
 
   operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
-  // Destructor
+
   ~MultiScanArgs() {}
 
   const std::vector<ScanOptions>& GetScanRanges() const {
@@ -1889,7 +1889,6 @@ class MultiScanArgs {
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
-
 
  private:
   // The comparator used for ordering ranges
