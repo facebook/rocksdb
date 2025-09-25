@@ -1857,6 +1857,20 @@ class MultiScanArgs {
 
   const Comparator* GetComparator() const { return comp_; }
 
+  void SetRequireFileOverlap(bool require_overlap) {
+    require_file_overlap_ = require_overlap;
+  }
+
+  bool RequireFileOverlap() const { return require_file_overlap_; }
+
+  // Copies the configurations (excluding actual scan ranges) from another
+  // MultiScanArgs.
+  void CopyConfigFrom(const MultiScanArgs& other) {
+    io_coalesce_threshold = other.io_coalesce_threshold;
+    max_prefetch_size = other.max_prefetch_size;
+    use_async_io = other.use_async_io;
+  }
+
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
 
   // Maximum size (in bytes) for the data blocks loaded by a MultiScan.
@@ -1876,15 +1890,16 @@ class MultiScanArgs {
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
 
-  // Internal use only.
-  // Fail the Prepare() on a file if a scan range does not overlap
-  // with the file.
-  bool require_file_overlap = false;
 
  private:
   // The comparator used for ordering ranges
   const Comparator* comp_;
   std::vector<ScanOptions> original_ranges_;
+
+  // Internal use only.
+  // Fail the Prepare() on a file if a scan range does not overlap
+  // with the file.
+  bool require_file_overlap_{false};
 };
 
 // Options that control read operations

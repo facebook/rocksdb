@@ -1521,7 +1521,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanOptFileOverlapChecking) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   MultiScanArgs scan_options(BytewiseComparator());
-  scan_options.require_file_overlap = false;
+  scan_options.SetRequireFileOverlap(false);
   scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock].first),
                       ExtractUserKey(kv[6 * kEntriesPerBlock].first));
   scan_options.insert(ExtractUserKey(kv[16 * kEntriesPerBlock].first),
@@ -1533,7 +1533,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanOptFileOverlapChecking) {
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options.require_file_overlap = true;
+  scan_options.SetRequireFileOverlap(true);
   iter->Prepare(&scan_options);
   ASSERT_TRUE(iter->status().IsInvalidArgument());
 }
