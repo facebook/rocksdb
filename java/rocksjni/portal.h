@@ -5199,12 +5199,16 @@ class TickerTypeJni {
         return -0x31;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
         return -0x32;
+      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES:
+        return -0x5B;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
         return -0x33;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
         return -0x34;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
         return -0x35;
+      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT:
+        return -0x5C;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
         return -0x36;
       case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
@@ -5664,12 +5668,16 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
       case -0x32:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
+      case -0x5B:
+        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES;
       case -0x33:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
       case -0x34:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
       case -0x35:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
+      case -0x5C:
+        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT;
       case -0x36:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
       case -0x37:
