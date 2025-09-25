@@ -764,10 +764,12 @@ public enum TickerType {
      */
     HOT_FILE_READ_BYTES((byte) -0x31),
     WARM_FILE_READ_BYTES((byte) -0x32),
+    COOL_FILE_READ_BYTES((byte) -0x5B),
     COLD_FILE_READ_BYTES((byte) -0x33),
     ICE_FILE_READ_BYTES((byte) -0x58),
     HOT_FILE_READ_COUNT((byte) -0x34),
     WARM_FILE_READ_COUNT((byte) -0x35),
+    COOL_FILE_READ_COUNT((byte) -0x5C),
     COLD_FILE_READ_COUNT((byte) -0x36),
     ICE_FILE_READ_COUNT((byte) -0x59),
 

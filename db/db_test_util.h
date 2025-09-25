@@ -1467,4 +1467,8 @@ class DBTestBase : public testing::Test {
 // unique ids.
 void VerifySstUniqueIds(const TablePropertiesCollection& props);
 
+// Excludes kUnknown
+extern const std::vector<Temperature> kKnownTemperatures;
+Temperature RandomKnownTemperature();
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -9915,6 +9915,20 @@ static void VerifyTemperatureFileReadStats(const Statistics& st,
     EXPECT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
   }
 
+  if (temps.Contains(Temperature::kCool)) {
+    EXPECT_GE(st.getTickerCount(COOL_FILE_READ_BYTES), min_bytes);
+    EXPECT_GE(st.getTickerCount(COOL_FILE_READ_COUNT), min_count);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.cool_file_bytes_read,
+              min_bytes);
+    EXPECT_GE(iostats->file_io_stats_by_temperature.cool_file_read_count,
+              min_count);
+  } else {
+    EXPECT_EQ(st.getTickerCount(COOL_FILE_READ_BYTES), 0);
+    EXPECT_EQ(st.getTickerCount(COOL_FILE_READ_COUNT), 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.cool_file_bytes_read, 0);
+    EXPECT_EQ(iostats->file_io_stats_by_temperature.cool_file_read_count, 0);
+  }
+
   if (temps.Contains(Temperature::kCold)) {
     EXPECT_GE(st.getTickerCount(COLD_FILE_READ_BYTES), min_bytes);
     EXPECT_GE(st.getTickerCount(COLD_FILE_READ_COUNT), min_count);
@@ -9945,7 +9959,7 @@ static void VerifyTemperatureFileReadStats(const Statistics& st,
 }
 
 TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
-  // Test multi-tier aging: Hot -> Warm -> Cold -> Ice
+  // Test multi-tier aging: Hot -> Warm -> Cool -> Cold -> Ice
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.num_levels = 1;
@@ -9961,8 +9975,9 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   // Multi-tier aging: files age through multiple temperatures
   fifo_options.file_temperature_age_thresholds = {
       {Temperature::kWarm, 500},   // Hot -> Warm after 500s
-      {Temperature::kCold, 1000},  // Warm -> Cold after 1000s
-      {Temperature::kIce, 1500}    // Cold -> Ice after 1500s
+      {Temperature::kCool, 1000},  // Warm -> Cool
+      {Temperature::kCold, 1500},  // Cool -> Cold
+      {Temperature::kIce, 2000}    // Cold -> Ice
   };
   fifo_options.max_table_files_size = 100000000;
   fifo_options.allow_trivial_copy_when_change_temperature = true;
@@ -9973,8 +9988,8 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   env_->SetMockSleep();
 
   // Track all temperature file creations
-  int total_hot = 0, total_warm = 0, total_cold = 0, total_ice = 0,
-      total_unknown = 0;
+  int total_hot = 0, total_warm = 0, total_cool = 0, total_cold = 0,
+      total_ice = 0, total_unknown = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewWritableFile::FileOptions.temperature", [&](void* arg) {
         Temperature temperature = *(static_cast<Temperature*>(arg));
@@ -9984,6 +9999,9 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
             break;
           case Temperature::kWarm:
             total_warm++;
+            break;
+          case Temperature::kCool:
+            total_cool++;
             break;
           case Temperature::kCold:
             total_cold++;
@@ -10016,8 +10034,11 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
 
   VerifyTemperatureFileReadStats(*options.statistics, Temperature::kHot);
 
+  // Land well into each time interval
+  env_->MockSleepForSeconds(100);
+
   // Age initial files to warm
-  env_->MockSleepForSeconds(600);
+  env_->MockSleepForSeconds(500);
   ASSERT_OK(Put(Key(1), Random::GetTLSInstance()->RandomBinaryString(101)));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -10031,9 +10052,23 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   // Verify Warm file statistics
   VerifyTemperatureFileReadStats(*options.statistics, Temperature::kWarm);
 
-  // Age initial files to cold
-  env_->MockSleepForSeconds(600);
+  // Age initial files to cool
+  env_->MockSleepForSeconds(500);
   ASSERT_OK(Put(Key(2), Random::GetTLSInstance()->RandomBinaryString(102)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Test reading from Cool temperature file (the aged file)
+  ASSERT_OK(options.statistics->Reset());
+  get_iostats_context()->Reset();
+
+  ASSERT_EQ(100U, Get(Key(0)).size());
+
+  VerifyTemperatureFileReadStats(*options.statistics, Temperature::kCool);
+
+  // Age initial files to cold
+  env_->MockSleepForSeconds(500);
+  ASSERT_OK(Put(Key(3), Random::GetTLSInstance()->RandomBinaryString(103)));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
@@ -10046,8 +10081,8 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   VerifyTemperatureFileReadStats(*options.statistics, Temperature::kCold);
 
   // Age initial files to ice
-  env_->MockSleepForSeconds(600);
-  ASSERT_OK(Put(Key(3), Random::GetTLSInstance()->RandomBinaryString(103)));
+  env_->MockSleepForSeconds(500);
+  ASSERT_OK(Put(Key(4), Random::GetTLSInstance()->RandomBinaryString(104)));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
@@ -10072,12 +10107,14 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   // Verify current files temperatures
   EXPECT_EQ(temp_counts[Temperature::kHot], 1);
   EXPECT_EQ(temp_counts[Temperature::kWarm], 1);
+  EXPECT_EQ(temp_counts[Temperature::kCool], 1);
   EXPECT_EQ(temp_counts[Temperature::kCold], 1);
   EXPECT_EQ(temp_counts[Temperature::kIce], 3);
 
   // Verify historical (and current) file temperatures
-  EXPECT_EQ(total_hot, 6);
-  EXPECT_EQ(total_warm, 5);
+  EXPECT_EQ(total_hot, 7);
+  EXPECT_EQ(total_warm, 6);
+  EXPECT_EQ(total_cool, 5);
   EXPECT_EQ(total_cold, 4);
   EXPECT_EQ(total_ice, 3);
 
@@ -10087,7 +10124,7 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   get_iostats_context()->Reset();
 
   // Read from all files to verify cumulative statistics
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     ASSERT_EQ(static_cast<unsigned>(100 + i), Get(Key(i)).size());
   }
 

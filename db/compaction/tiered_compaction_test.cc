@@ -1764,9 +1764,10 @@ TEST_P(PrecludeLastLevelTest, SmallPrecludeTime) {
   options.env = mock_env_.get();
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
-  // This existing test selected to also check the kIce case, which should not
-  // be interesting enough to exercise across all the test cases
-  options.last_level_temperature = Temperature::kIce;
+  // This existing test selected to also check the case of various temperatures
+  // for last_level_temperature, which should not be interesting enough to
+  // exercise across many/all test cases
+  options.last_level_temperature = RandomKnownTemperature();
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -1794,8 +1795,9 @@ TEST_P(PrecludeLastLevelTest, SmallPrecludeTime) {
   auto seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_FALSE(seqs.empty());
   ASSERT_GE(GetSstSizeHelper(Temperature::kUnknown), 1);
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kIce), 0);
+  for (auto t : kKnownTemperatures) {
+    ASSERT_EQ(GetSstSizeHelper(t), 0);
+  }
 
   // Wait more than preclude_last_level time, then make sure all the data is
   // compacted to the last level even there's no write (no seqno -> time
@@ -1804,9 +1806,14 @@ TEST_P(PrecludeLastLevelTest, SmallPrecludeTime) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
-  ASSERT_GE(GetSstSizeHelper(Temperature::kIce), 1);
+
+  for (auto t : kKnownTemperatures) {
+    if (t == options.last_level_temperature) {
+      ASSERT_GT(GetSstSizeHelper(t), 0);
+    } else {
+      ASSERT_EQ(GetSstSizeHelper(t), 0);
+    }
+  }
 
   Close();
 }

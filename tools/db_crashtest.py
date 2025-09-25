@@ -377,13 +377,13 @@ default_params = {
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
     "last_level_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
+        ["kUnknown", "kHot", "kWarm", "kCool", "kCold", "kIce"]
     ),
     "default_write_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
+        ["kUnknown", "kHot", "kWarm", "kCool", "kCold", "kIce"]
     ),
     "default_temperature": lambda: random.choice(
-        ["kUnknown", "kHot", "kWarm", "kCold", "kIce"]
+        ["kUnknown", "kHot", "kWarm", "kCool", "kCold", "kIce"]
     ),
     # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
     # after fixing the surfaced issue with delete range
@@ -696,7 +696,7 @@ tiered_params = {
     # For FIFO compaction (ignored otherwise)
     "file_temperature_age_thresholds": lambda: random.choice(
         [
-            "{{temperature=kWarm;age=10}:{temperature=kCold;age=50}:{temperature=kIce;age=250}}",
+            "{{temperature=kWarm;age=10}:{temperature=kCool;age=30}:{temperature=kCold;age=100}:{temperature=kIce;age=300}}",
             "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
             "{{temperature=kCold;age=100}}",
         ]
