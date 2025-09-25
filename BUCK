@@ -4771,6 +4771,12 @@ cpp_unittest_wrapper(name="data_block_hash_index_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="index_builder_test",
+            srcs=["table/block_based/index_builder_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_basic_test",
             srcs=["db/db_basic_test.cc"],
             deps=[":rocksdb_test_lib"],

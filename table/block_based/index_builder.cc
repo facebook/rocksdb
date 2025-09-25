@@ -117,6 +117,24 @@ Slice ShortenedIndexBuilder::FindShortInternalKeySuccessor(
   }
 }
 
+uint64_t ShortenedIndexBuilder::EstimateCurrentIndexSize() const {
+  // Get current size estimate from the appropriate block builder
+  uint64_t current_size = must_use_separator_with_seq_
+      ? index_block_builder_.CurrentSizeEstimate()
+      : index_block_builder_without_seq_.CurrentSizeEstimate();
+  
+  if (num_index_entries_ == 0) {
+    return current_size;
+  }
+  
+  // Calculate average entry size based on entries added so far
+  uint64_t avg_entry_size = current_size / num_index_entries_;
+  
+  // Add 2x the average entry size to account for the next index entry
+  // This bounds the estimate in the right direction as suggested in the feedback
+  return current_size + (2 * avg_entry_size);
+}
+
 PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const bool use_value_delta_encoding,
