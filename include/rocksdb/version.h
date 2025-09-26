@@ -15,12 +15,17 @@
 #define ROCKSDB_MINOR 8
 #define ROCKSDB_PATCH 0
 
-// Do not use these. We made the mistake of declaring macros starting with
-// double underscore. Now we have to live with our choice. We'll deprecate these
-// at some point
-#define __ROCKSDB_MAJOR__ ROCKSDB_MAJOR
-#define __ROCKSDB_MINOR__ ROCKSDB_MINOR
-#define __ROCKSDB_PATCH__ ROCKSDB_PATCH
+// Make it easy to do conditional compilation based on version checks, i.e.
+// #if ROCKSDB_VERSION_GE(4, 5, 6)
+// int thisCoderequiresVersion_4_5_6_OrGreater;
+// #else
+// int thisCodeIsForOlderVersions;
+// #endif
+#define ROCKSDB_MAKE_VERSION_INT(a, b, c) ((a) * 1000000 + (b) * 1000 + (c))
+#define ROCKSDB_VERSION_INT \
+  ROCKSDB_MAKE_VERSION_INT(ROCKSDB_MAJOR, ROCKSDB_MINOR, ROCKSDB_PATCH)
+#define ROCKSDB_VERSION_GE(a, b, c) \
+  (ROCKSDB_VERSION_INT >= ROCKSDB_MAKE_VERSION_INT(a, b, c))
 
 namespace ROCKSDB_NAMESPACE {
 // Returns a set of properties indicating how/when/where this version of RocksDB
