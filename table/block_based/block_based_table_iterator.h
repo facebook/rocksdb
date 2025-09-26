@@ -669,7 +669,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   Status ValidateScanOptions(const MultiScanArgs* multiscan_opts);
 
   Status CollectBlockHandles(
-      const std::vector<ScanOptions>& scan_opts,
+      const std::vector<ScanOptions>& scan_opts, bool require_file_overlap,
       std::vector<BlockHandle>* scan_block_handles,
       std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan);
 

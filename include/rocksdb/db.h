@@ -96,8 +96,8 @@ class ColumnFamilyHandle {
   virtual const Comparator* GetComparator() const = 0;
 };
 
-static const int kMajorVersion = __ROCKSDB_MAJOR__;
-static const int kMinorVersion = __ROCKSDB_MINOR__;
+static const int kMajorVersion = ROCKSDB_MAJOR;
+static const int kMinorVersion = ROCKSDB_MINOR;
 
 struct GetMergeOperandsOptions {
   using ContinueCallback = std::function<bool(Slice)>;

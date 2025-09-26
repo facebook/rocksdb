@@ -118,6 +118,7 @@ enum class Temperature : uint8_t {
   kUnknown = 0,
   kHot = 0x04,
   kWarm = 0x08,
+  kCool = 0x0A,
   kCold = 0x0C,
   kIce = 0x10,
   // XXX: this is mis-named. It is instead an invalid temperature beyond the

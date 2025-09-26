@@ -24,6 +24,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -253,6 +254,10 @@ struct IODebugContext {
 
   // Arbitrary structure containing cost information about the IO request
   std::any cost_info;
+
+  // FileSystem implementations can use this mutex to synchronize concurrent
+  // reads/writes as needed (e.g. to update the counters or cost_info field)
+  std::shared_mutex mutex;
 
   IODebugContext() {}
 

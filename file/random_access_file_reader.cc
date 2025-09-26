@@ -80,6 +80,12 @@ inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
         RecordTick(stats, WARM_FILE_READ_BYTES, size);
         RecordTick(stats, WARM_FILE_READ_COUNT, 1);
         break;
+      case Temperature::kCool:
+        IOSTATS_ADD(file_io_stats_by_temperature.cool_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.cool_file_read_count, 1);
+        RecordTick(stats, COOL_FILE_READ_BYTES, size);
+        RecordTick(stats, COOL_FILE_READ_COUNT, 1);
+        break;
       case Temperature::kCold:
         IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, size);
         IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);

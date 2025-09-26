@@ -428,8 +428,9 @@ bool StressTest::BuildOptionsTable() {
     options_tbl.emplace(
         "file_temperature_age_thresholds",
         std::vector<std::string>{
-            "{{temperature=kWarm;age=10}:{temperature=kCold;age=50}:{"
-            "temperature=kIce;age=250}}",
+            "{{temperature=kWarm;age=10}:{temperature=kCool;age=30}:{"
+            "temperature=kCold;age=100}:{"
+            "temperature=kIce;age=300}}",
             "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
             "{{temperature=kCold;age=100}}", "{}"});
     options_tbl.emplace(

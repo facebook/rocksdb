@@ -963,6 +963,15 @@ BlockBasedTableIterator::MultiScanState::~MultiScanState() {
 // - After Prepare(), the iterator expects Seek to be called on the start key
 // of each ScanOption in order. If any other Seek is done, an error status is
 // returned
+// - Whenever all blocks of a scan opt are exhausted, the iterator will become
+// invalid and UpperBoundCheckResult() will return kOutOfBound. So that the
+// upper layer (LevelIterator) will stop scanning instead thinking EOF is
+// reached and continue into the next file. The only exception is for the last
+// scan opt. If we reach the end of the last scan opt, UpperBoundCheckResult()
+// will return kUnknown instead of kOutOfBound. This mechanism requires that
+// scan opts are properly pruned such that there is no scan opt that is after
+// this file's key range. This check can be enforeced by setting
+// MultiScanArgs::require_file_overlap to true.
 // FIXME: DBIter and MergingIterator may
 // internally do Seek() on child iterators, e.g. due to
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
@@ -989,8 +998,9 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   std::vector<BlockHandle> scan_block_handles;
   std::vector<std::tuple<size_t, size_t>> block_index_ranges_per_scan;
   const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
-  multi_scan_status_ = CollectBlockHandles(scan_opts, &scan_block_handles,
-                                           &block_index_ranges_per_scan);
+  multi_scan_status_ =
+      CollectBlockHandles(scan_opts, multiscan_opts->RequireFileOverlap(),
+                          &scan_block_handles, &block_index_ranges_per_scan);
   if (!multi_scan_status_.ok()) {
     return;
   }
@@ -1316,7 +1326,7 @@ Status BlockBasedTableIterator::ValidateScanOptions(
 }
 
 Status BlockBasedTableIterator::CollectBlockHandles(
-    const std::vector<ScanOptions>& scan_opts,
+    const std::vector<ScanOptions>& scan_opts, bool require_file_overlap,
     std::vector<BlockHandle>* scan_block_handles,
     std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan) {
   for (const auto& scan_opt : scan_opts) {
@@ -1368,12 +1378,14 @@ Status BlockBasedTableIterator::CollectBlockHandles(
       ++num_blocks;
     } else if (num_blocks == 0 && index_iter_->UpperBoundCheckResult() !=
                                       IterBoundCheck::kOutOfBound) {
-      // We should not have scan ranges that are completely after the file's
-      // range. This is important for FindBlockForwardInMultiScan() which only
-      // lets the upper layer (LevelIterator) advance to the next SST file when
-      // the last scan range is exhausted.
-      return Status::InvalidArgument("Scan does not intersect with file");
-      ;
+      // If require_file_overlap is set, then the scan ranges for this file
+      // must intersect with the file. Otherwise, allow empty intersection.
+      if (require_file_overlap) {
+        // This is important for FindBlockForwardInMultiScan() which only
+        // lets the upper layer (LevelIterator) advance to the next SST file
+        // when the last scan range is exhausted.
+        return Status::InvalidArgument("Scan does not intersect with file");
+      }
     }
     block_index_ranges_per_scan->emplace_back(
         scan_block_handles->size() - num_blocks, scan_block_handles->size());
