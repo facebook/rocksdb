@@ -410,7 +410,6 @@ DECLARE_uint64(max_sequential_skip_in_iterations);
 DECLARE_bool(enable_sst_partitioner_factory);
 DECLARE_bool(enable_do_not_compress_roles);
 DECLARE_bool(block_align);
-DECLARE_bool(super_block_align);
 DECLARE_uint64(super_block_alignment_size);
 DECLARE_uint64(super_block_alignment_max_padding_size);
 DECLARE_uint32(lowest_used_cache_tier);

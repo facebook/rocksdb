@@ -364,9 +364,6 @@ static struct BlockBasedTableTypeInfo {
         {"block_align",
          {offsetof(struct BlockBasedTableOptions, block_align),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
-        {"super_block_align",
-         {offsetof(struct BlockBasedTableOptions, super_block_align),
-          OptionType::kBoolean, OptionVerificationType::kNormal}},
         {"super_block_alignment_size",
          {offsetof(struct BlockBasedTableOptions, super_block_alignment_size),
           OptionType::kSizeT, OptionVerificationType::kNormal}},
@@ -703,8 +700,7 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "block size exceeds maximum number (4GiB) allowed");
   }
-  if (table_options_.super_block_align &&
-      (table_options_.super_block_alignment_size &
+  if ((table_options_.super_block_alignment_size &
        (table_options_.super_block_alignment_size - 1))) {
     return Status::InvalidArgument(
         "Super Block alignment requested but super block alignment size is not "
@@ -930,9 +926,6 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  super_block_align: %d\n",
-           table_options_.super_block_align);
   ret.append(buffer);
   snprintf(buffer, kBufferSize,
            "  super_block_alignment_size: %" ROCKSDB_PRIszt "\n",

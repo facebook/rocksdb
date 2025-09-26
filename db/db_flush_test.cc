@@ -3562,9 +3562,9 @@ TEST_F(DBFlushTest, VerifyOutputRecordCount) {
   }
 }
 
-class DBFlushSuperBlockTest : public DBFlushTest,
-                              public ::testing::WithParamInterface<
-                                  std::tuple<bool, bool, size_t, size_t>> {
+class DBFlushSuperBlockTest
+    : public DBFlushTest,
+      public ::testing::WithParamInterface<std::tuple<bool, size_t, size_t>> {
  public:
   DBFlushSuperBlockTest() : DBFlushTest() {}
 
@@ -3614,10 +3614,12 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   options.write_buffer_size = 1024 * 1024;
   BlockBasedTableOptions block_options;
   block_options.block_align = get<0>(GetParam());
-  block_options.super_block_align = get<1>(GetParam());
   block_options.index_block_restart_interval = 3;
-  block_options.super_block_alignment_size = get<2>(GetParam());
-  block_options.super_block_alignment_max_padding_size = get<3>(GetParam());
+  block_options.super_block_alignment_size = get<1>(GetParam());
+  block_options.super_block_alignment_max_padding_size = get<2>(GetParam());
+  if (block_options.super_block_alignment_size == 0) {
+    block_options.super_block_alignment_max_padding_size = 0;
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
   if (block_options.block_align) {
     // When block align is enabled, disable compression
@@ -3658,13 +3660,15 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
   // When block_align is enabled, super block is always aligned, so there should
   // be 0 padding for super block alignment
-  if (block_options.super_block_align && !block_options.block_align) {
+  if (block_options.super_block_alignment_size != 0 &&
+      !block_options.block_align) {
     ASSERT_GT(super_block_pad_count, 0);
   } else {
     ASSERT_EQ(super_block_pad_count, 0);
   }
 
-  if (!block_options.block_align && block_options.super_block_align &&
+  if (!block_options.block_align &&
+      block_options.super_block_alignment_size != 0 &&
       block_options.super_block_alignment_max_padding_size ==
           kSmallMaxPaddingSize) {
     ASSERT_GT(super_block_pad_exceed_limit_count, 0);
@@ -3680,9 +3684,12 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
   // Reopen options and flip the option of super block configuration, read still
   // works. This verifies the forward/backward compatibility
-  block_options.super_block_align = !block_options.super_block_align;
-  block_options.super_block_alignment_size *= 2;
-  block_options.super_block_alignment_max_padding_size *= 2;
+  if (block_options.super_block_alignment_size == 0) {
+    block_options.super_block_alignment_size = 16 * 1024;
+  } else {
+    block_options.super_block_alignment_size = 0;
+    block_options.super_block_alignment_max_padding_size = 0;
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
 
   Reopen(options);
@@ -3698,8 +3705,7 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
 INSTANTIATE_TEST_CASE_P(
     SuperBlockTests, DBFlushSuperBlockTest,
-    testing::Combine(testing::Bool(), testing::Bool(),
-                     testing::Values(32 * 1024, 16 * 1024),
+    testing::Combine(testing::Bool(), testing::Values(0, 32 * 1024, 16 * 1024),
                      // Use very small padding size to test
                      // the case where padded bytes is
                      // larger than the max padding size

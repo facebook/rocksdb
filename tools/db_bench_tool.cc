@@ -717,10 +717,6 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
-DEFINE_bool(super_block_align,
-            ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_align,
-            "Prevent blocks span Super blocks for remote storage optimization");
-
 DEFINE_uint64(
     super_block_alignment_size,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_alignment_size,

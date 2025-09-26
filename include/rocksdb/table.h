@@ -605,14 +605,15 @@ struct BlockBasedTableOptions {
 
   // Align data blocks on super block alignment. Avoid a data block split across
   // super block boundaries. Works with/without compression.
-  bool super_block_align = false;
-
-  // Super block alignment size. Default to 512 KB. It has to be a power of 2
-  // and higher than block size.
-  size_t super_block_alignment_size = 512 * 1024;
+  // Super block alignment size. Default to 0, which means super block alignment
+  // is disabled. If it is enabled, it needs to be a power of 2 and higher than
+  // block size.
+  size_t super_block_alignment_size = 0;
 
   // Maximum number of bytes allowed to be padded for super block alignment.
-  size_t super_block_alignment_max_padding_size = 32 * 1024;
+  // Default to 0. If super_block_alignment_size is non zero, this option
+  // needs to be less than 25% of super_block_alignment_size.
+  size_t super_block_alignment_max_padding_size = 0;
 
   // This enum allows trading off increased index size for improved iterator
   // seek performance in some situations, particularly when block cache is

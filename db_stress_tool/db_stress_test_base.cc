@@ -4319,7 +4319,6 @@ void InitializeOptionsFromFlags(
       static_cast<BlockBasedTableOptions::IndexShorteningMode>(
           FLAGS_index_shortening);
   block_based_options.block_align = FLAGS_block_align;
-  block_based_options.super_block_align = fLB::FLAGS_super_block_align;
   block_based_options.super_block_alignment_size =
       fLU64::FLAGS_super_block_alignment_size;
   block_based_options.super_block_alignment_max_padding_size =

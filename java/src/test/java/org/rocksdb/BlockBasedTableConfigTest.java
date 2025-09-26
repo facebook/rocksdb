@@ -378,13 +378,6 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
-  public void superBlockAlign() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setSuperBlockAlign(true);
-    assertThat(blockBasedTableConfig.superBlockAlign()).isTrue();
-  }
-
-  @Test
   public void superBlockAlignmentSize() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setSuperBlockAlignmentSize(1024 * 1024);

@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJIIIJZZZJZZIIZZZJJBJI)J
+ * Signature: (ZZZZBBDBZJJJIIIJZZZJZZIIZZJJBJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv *, jclass, jboolean jcache_index_and_filter_blocks,
@@ -137,7 +137,6 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.enable_index_compression =
       static_cast<bool>(jenable_index_compression);
   options.block_align = static_cast<bool>(jblock_align);
-  options.super_block_align = static_cast<bool>(jsuper_block_align);
   options.super_block_alignment_size =
       static_cast<size_t>(jsuper_block_alignment_size);
   options.super_block_alignment_max_padding_size =

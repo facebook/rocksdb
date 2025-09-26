@@ -40,9 +40,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     formatVersion = 6;
     enableIndexCompression = true;
     blockAlign = false;
-    superBlockAlign = false;
-    superBlockAlignmentSize = 512 * 1024;
-    superBlockAlignmentMaxPaddingSize = 32 * 1024;
+    superBlockAlignmentSize = 0;
+    superBlockAlignmentMaxPaddingSize = 0;
     indexShortening = IndexShorteningMode.kShortenSeparators;
 
     // NOTE: ONLY used if blockCache == null
@@ -63,7 +62,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean partitionFilters, final boolean optimizeFiltersForMemory,
       final boolean useDeltaEncoding, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
-      final boolean enableIndexCompression, final boolean blockAlign, final boolean superBlockAlign,
+      final boolean enableIndexCompression, final boolean blockAlign,
       final long superBlockAlignmentSize, final long superBlockAlignmentMaxPaddingSize,
       final byte indexShortening, final byte filterPolicyType, final long filterPolicyHandle,
       final double filterPolicyConfigValue) {
@@ -90,7 +89,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.formatVersion = formatVersion;
     this.enableIndexCompression = enableIndexCompression;
     this.blockAlign = blockAlign;
-    this.superBlockAlign = superBlockAlign;
     this.superBlockAlignmentSize = superBlockAlignmentSize;
     this.superBlockAlignmentMaxPaddingSize = superBlockAlignmentMaxPaddingSize;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
@@ -807,27 +805,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Determines whether super block alignment is enabled.
-   *
-   * @return true if super block alignment is enabled.
-   */
-  public boolean superBlockAlign() {
-    return superBlockAlign;
-  }
-
-  /**
-   * Set whether super block alignment should be enabled.
-   *
-   * @param superBlockAlign true to enable super block alignment.
-   *
-   * @return the reference to the current option.
-   */
-  public BlockBasedTableConfig setSuperBlockAlign(final boolean superBlockAlign) {
-    this.superBlockAlign = superBlockAlign;
-    return this;
-  }
-
-  /**
    * Get the super block alignment size.
    *
    * @return the super block alignment size.
@@ -838,6 +815,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Set the super block alignment size.
+   * When set to 0, super block alignment is disabled.
    *
    * @param superBlockAlignmentSize the super block alignment size.
    *
@@ -1016,7 +994,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         persistentCacheHandle, blockSize, blockSizeDeviation, blockRestartInterval,
         indexBlockRestartInterval, metadataBlockSize, partitionFilters, optimizeFiltersForMemory,
         useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
-        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign, superBlockAlign,
+        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
         superBlockAlignmentSize, superBlockAlignmentMaxPaddingSize, indexShortening.getValue(),
         blockCacheSize, blockCacheNumShardBits);
   }
@@ -1033,7 +1011,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean useDeltaEncoding, final long filterPolicyHandle,
       final boolean wholeKeyFiltering, final boolean verifyCompression,
       final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
-      final boolean blockAlign, final boolean superBlockAlign, final long superBlockAlignmentSize,
+      final boolean blockAlign, final long superBlockAlignmentSize,
       final long superBlockAlignmentMaxPaddingSize, final byte indexShortening,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
@@ -1065,7 +1043,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private int formatVersion;
   private boolean enableIndexCompression;
   private boolean blockAlign;
-  private boolean superBlockAlign;
   private long superBlockAlignmentSize;
   private long superBlockAlignmentMaxPaddingSize;
   private IndexShorteningMode indexShortening;

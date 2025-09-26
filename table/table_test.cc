@@ -1142,7 +1142,7 @@ class GeneralTableTest : public TableTest {};
 class BlockBasedTableTestBase : public TableTest {};
 class BlockBasedTableTest : public BlockBasedTableTestBase,
                             virtual public ::testing::WithParamInterface<
-                                std::tuple<uint32_t, bool, size_t, size_t>> {
+                                std::tuple<uint32_t, size_t, size_t>> {
  public:
   BlockBasedTableTest() : format_(std::get<0>(GetParam())) {
     env_ = Env::Default();
@@ -1152,9 +1152,11 @@ class BlockBasedTableTest : public BlockBasedTableTestBase,
     BlockBasedTableOptions options;
     options.format_version = format_;
     auto param = GetParam();
-    options.super_block_align = std::get<1>(param);
-    options.super_block_alignment_size = std::get<2>(param);
-    options.super_block_alignment_max_padding_size = std::get<3>(param);
+    options.super_block_alignment_size = std::get<1>(param);
+    options.super_block_alignment_max_padding_size = std::get<2>(param);
+    if (options.super_block_alignment_size == 0) {
+      options.super_block_alignment_max_padding_size = 0;
+    }
     return options;
   }
 
@@ -1389,8 +1391,8 @@ uint64_t FileChecksumTestHelper::checksum_file_num_ = 1;
 INSTANTIATE_TEST_CASE_P(
     FormatVersions, BlockBasedTableTest,
     testing::Combine(testing::ValuesIn(test::kFooterFormatVersionsToTest),
-                     testing::Bool(),
-                     testing::Values(128 * 1024, 512 * 1024, 2 * 1024 * 1024),
+                     testing::Values(0, 128 * 1024, 512 * 1024,
+                                     2 * 1024 * 1024),
                      testing::Values(64, 4 * 1024, 32 * 1024)));
 
 // This test serves as the living tutorial for the prefix scan of user collected

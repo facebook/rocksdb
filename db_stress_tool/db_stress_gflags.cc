@@ -1432,10 +1432,6 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "BlockBasedTableOptions.block_align");
 
-DEFINE_bool(super_block_align,
-            ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_align,
-            "BlockBasedTableOptions.super_block_align");
-
 DEFINE_uint64(
     super_block_alignment_size,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_alignment_size,

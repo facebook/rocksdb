@@ -1967,7 +1967,7 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
 
   auto offset = r->get_offset();
   // try to align the data block page to the super alignment size, if enabled
-  if (r->table_options.super_block_align && is_data_block) {
+  if ((r->table_options.super_block_alignment_size != 0) && is_data_block) {
     auto super_block_alignment_mask =
         r->table_options.super_block_alignment_size - 1;
     if ((offset & (~super_block_alignment_mask)) !=

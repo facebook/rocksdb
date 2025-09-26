@@ -373,6 +373,12 @@ default_params = {
     "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
     "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
     "block_align": lambda: random.choice([0, 1]),
+    "super_block_alignment_size": lambda: random.choice(
+        [0, 128 * 1024, 512 * 1024, 2 * 1024 * 1024]
+    ),
+    "super_block_alignment_max_padding_size": lambda: random.choice(
+        [0, 4 * 1024, 2 * 1024]
+    ),
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
@@ -1135,6 +1141,10 @@ def finalize_and_sanitize(src_params):
         if dest_params.get("block_align") == 1:
             dest_params["compression_type"] = "none"
             dest_params["bottommost_compression_type"] = "none"
+    # If super_block_alignment_size is 0, super block alignment is disabled,
+    # set super_block_alignment_max_padding_size as 0 as well.
+    if dest_params.get("super_block_alignment_size") == 0:
+        dest_params["super_block_alignment_max_padding_size"] = 0
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""

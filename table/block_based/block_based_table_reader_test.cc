@@ -253,8 +253,7 @@ struct BlockBasedTableReaderTestParam {
       test::UserDefinedTimestampTestMode _udt_test_mode,
       uint32_t _compression_parallel_threads, uint32_t _compression_dict_bytes,
       bool _same_key_diff_ts, const Comparator* _comparator, bool _fill_cache,
-      bool _use_async_io, bool _block_align, bool _super_block_align,
-      size_t _super_block_alignment_size,
+      bool _use_async_io, bool _block_align, size_t _super_block_alignment_size,
       size_t _super_block_alignment_max_padding_size)
       : compression_type(_compression_type),
         use_direct_reads(_use_direct_reads),
@@ -268,7 +267,6 @@ struct BlockBasedTableReaderTestParam {
         fill_cache(_fill_cache),
         use_async_io(_use_async_io),
         block_align(_block_align),
-        super_block_align(_super_block_align),
         super_block_alignment_size(_super_block_alignment_size),
         super_block_alignment_max_padding_size(
             _super_block_alignment_max_padding_size) {}
@@ -285,7 +283,6 @@ struct BlockBasedTableReaderTestParam {
   bool fill_cache;
   bool use_async_io;
   bool block_align;
-  bool super_block_align;
   size_t super_block_alignment_size;
   size_t super_block_alignment_max_padding_size;
 };
@@ -306,7 +303,6 @@ std::ostream& operator<<(std::ostream& os,
      << " fill_cache: " << param.fill_cache
      << " use_async_io: " << param.use_async_io
      << " block_align: " << param.block_align
-     << " super_block_align: " << param.super_block_align
      << " super_block_alignment_size: " << param.super_block_alignment_size
      << " super_block_alignment_max_padding_size: "
      << param.super_block_alignment_max_padding_size;
@@ -354,7 +350,6 @@ class BlockBasedTableReaderTest
     auto param = GetParam();
     opts.index_type = param.index_type;
     opts.no_block_cache = param.no_block_cache;
-    opts.super_block_align = param.super_block_align;
     opts.super_block_alignment_size = param.super_block_alignment_size;
     opts.super_block_alignment_max_padding_size =
         param.super_block_alignment_max_padding_size;
@@ -1611,7 +1606,6 @@ std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
     const std::vector<bool>& fill_cache_flags,
     const std::vector<bool>& use_async_io_flags,
     const std::vector<bool>& block_align_flags,
-    const std::vector<bool>& super_block_align_flags,
     const std::vector<size_t>& super_block_alignment_sizes,
     const std::vector<size_t>& super_block_alignment_max_padding_sizes) {
   std::vector<BlockBasedTableReaderTestParam> params;
@@ -1629,23 +1623,24 @@ std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
                     for (auto fill_cache : fill_cache_flags) {
                       for (auto use_async_io : use_async_io_flags) {
                         for (auto block_align : block_align_flags) {
-                          for (auto super_block_align :
-                               super_block_align_flags) {
-                            for (auto super_block_alignment_size :
-                                 super_block_alignment_sizes) {
-                              for (auto super_block_alignment_max_padding_size :
-                                   super_block_alignment_max_padding_sizes) {
-                                params.emplace_back(
-                                    compression_type, use_direct_read,
-                                    index_type, no_block_cache, udt_test_mode,
-                                    parallel_compression_thread_count,
-                                    compression_dict_byte_count,
-                                    same_key_diff_ts_flag, comparator,
-                                    fill_cache, use_async_io, block_align,
-                                    super_block_align,
-                                    super_block_alignment_size,
-                                    super_block_alignment_max_padding_size);
+                          for (auto super_block_alignment_size :
+                               super_block_alignment_sizes) {
+                            for (auto super_block_alignment_max_padding_size :
+                                 super_block_alignment_max_padding_sizes) {
+                              if (super_block_alignment_size == 0) {
+                                // Override padding size to 0 if alignment size
+                                // is 0, which means no super block alignment
+                                super_block_alignment_max_padding_size = 0;
                               }
+                              params.emplace_back(
+                                  compression_type, use_direct_read, index_type,
+                                  no_block_cache, udt_test_mode,
+                                  parallel_compression_thread_count,
+                                  compression_dict_byte_count,
+                                  same_key_diff_ts_flag, comparator, fill_cache,
+                                  use_async_io, block_align,
+                                  super_block_alignment_size,
+                                  super_block_alignment_max_padding_size);
                             }
                           }
                         }
@@ -1681,8 +1676,7 @@ INSTANTIATE_TEST_CASE_P(
          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
         {false}, test::GetUDTTestModes(), {1, 2}, {0, 4096}, {false},
-        {BytewiseComparator()}, {true}, {false}, {false}, {false}, {32 * 4096},
-        {4096})));
+        {BytewiseComparator()}, {true}, {false}, {false}, {0}, {0})));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderMultiScanAsyncIOTest,
@@ -1697,7 +1691,7 @@ INSTANTIATE_TEST_CASE_P(
         {test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp},
         {1, 2}, {0, 4096}, {false},
         {BytewiseComparator(), ReverseBytewiseComparator()}, {true, false},
-        IOUringFlags(), {false}, {false}, {32 * 4096}, {4096})));
+        IOUringFlags(), {false}, {0}, {0})));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderMultiScanTest, BlockBasedTableReaderMultiScanTest,
@@ -1711,7 +1705,7 @@ INSTANTIATE_TEST_CASE_P(
         {test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp},
         {1, 2}, {0, 4096}, {false},
         {BytewiseComparator(), ReverseBytewiseComparator()}, {true}, {false},
-        {false}, {false}, {32 * 4096}, {4096})));
+        {false}, {0}, {0})));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderGetTest, BlockBasedTableReaderGetTest,
@@ -1723,7 +1717,7 @@ INSTANTIATE_TEST_CASE_P(
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
         {false}, test::GetUDTTestModes(), {1, 2}, {0, 4096}, Bool(),
         {BytewiseComparator(), ReverseBytewiseComparator()}, {false}, {false},
-        {false}, {false}, {32 * 4096}, {4096})));
+        {false}, {0}, {0})));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderSuperBlockAlignTest, BlockBasedTableReaderGetTest,
@@ -1734,7 +1728,7 @@ INSTANTIATE_TEST_CASE_P(
         {false},
         {test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp},
         {1, 2}, {0, 4096}, {false}, {BytewiseComparator()}, {false}, {false},
-        Bool(), Bool(), {32 * 1024, 16 * 4096}, {64, 4096})));
+        Bool(), {0, 32 * 1024, 16 * 4096}, {64, 4096})));
 
 INSTANTIATE_TEST_CASE_P(
     StrictCapacityLimitReaderTest, StrictCapacityLimitReaderTest,
@@ -1742,7 +1736,7 @@ INSTANTIATE_TEST_CASE_P(
         GetSupportedCompressions(), Bool(),
         {BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}, {false},
         test::GetUDTTestModes(), {1, 2}, {0}, Bool(), {BytewiseComparator()},
-        {false}, {false}, {false}, {false}, {32 * 4096}, {4096})));
+        {false}, {false}, {false}, {0}, {0})));
 
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
@@ -1750,7 +1744,7 @@ INSTANTIATE_TEST_CASE_P(
         GetSupportedCompressions(), {false},
         {BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}, {true},
         test::GetUDTTestModes(), {1, 2}, {0}, {false}, {BytewiseComparator()},
-        {false}, {false}, {false}, {false}, {32 * 4096}, {4096})));
+        {false}, {false}, {false}, {0}, {0})));
 
 }  // namespace ROCKSDB_NAMESPACE
 
