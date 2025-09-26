@@ -4395,6 +4395,74 @@ TEST_P(DBMultiScanIteratorTest, FailureTest) {
   iter.reset();
 }
 
+TEST_P(DBMultiScanIteratorTest, OutOfL0FileRange) {
+  // Test that prepare does not fail scan when a scan range
+  // is outside of a L0 file's key range.
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  // Create a Lmax file
+  // key01 ~ key99
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    ASSERT_OK(Put("k" + ss.str(), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Create a L0 file
+  // key00 ~ key09
+  for (int i = 0; i < 10; ++i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    ASSERT_OK(Put("k" + ss.str(), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // The second range is outside of L0 file's key range
+  std::vector<std::string> key_ranges({"k04", "k06", "k12", "k14"});
+  ReadOptions ro;
+  Slice ub;
+  ro.iterate_upper_bound = &ub;
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Prepare(scan_options);
+  int count = 0;
+  ub = key_ranges[1];
+  iter->Seek(key_ranges[0]);
+  while (iter->status().ok() && iter->Valid()) {
+    ASSERT_GE(iter->key().compare(key_ranges[0]), 0);
+    ASSERT_LT(iter->key().compare(key_ranges[1]), 0);
+    count++;
+    iter->Next();
+  }
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+  ASSERT_EQ(count, 2);
+
+  ub = key_ranges[3];
+  count = 0;
+  iter->Seek(key_ranges[2]);
+  while (iter->status().ok() && iter->Valid()) {
+    ASSERT_GE(iter->key().compare(key_ranges[2]), 0);
+    ASSERT_LT(iter->key().compare(key_ranges[3]), 0);
+    count++;
+    iter->Next();
+  }
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+  ASSERT_EQ(count, 2);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
