@@ -1369,15 +1369,20 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       if (s.ok()) {
         assert(!rep_->udi_block.IsEmpty());
 
-        std::unique_ptr<UserDefinedIndexReader> udi_reader =
-            table_options.user_defined_index_factory->NewReader(
-                rep_->udi_block.GetValue()->data);
-        if (udi_reader) {
-          index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
-              udi_name, std::move(index_reader), std::move(udi_reader));
-        } else {
-          s = Status::Corruption("Failed to create UDI reader for " + udi_name +
-                                 " in file " + rep_->file->file_name());
+        std::unique_ptr<UserDefinedIndexReader> udi_reader;
+        UserDefinedIndexOption udi_option;
+        udi_option.comparator = rep_->internal_comparator.user_comparator();
+        s = table_options.user_defined_index_factory->NewReader(
+            udi_option, rep_->udi_block.GetValue()->data, udi_reader);
+        if (s.ok()) {
+          if (udi_reader) {
+            index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
+                udi_name, std::move(index_reader), std::move(udi_reader));
+          } else {
+            s = Status::Corruption("Failed to create UDI reader for " +
+                                   udi_name + " in file " +
+                                   rep_->file->file_name());
+          }
         }
       }
     }
