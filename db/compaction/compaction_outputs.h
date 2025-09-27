@@ -21,7 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 class CompactionOutputs;
 using CompactionFileOpenFunc = std::function<Status(CompactionOutputs&)>;
 using CompactionFileCloseFunc =
-    std::function<Status(CompactionOutputs&, const Status&, const Slice&)>;
+    std::function<Status(const Status&, const ParsedInternalKey&, const Slice&,
+                         const CompactionIterator*, CompactionOutputs&)>;
 
 // Files produced by subcompaction, most of the functions are used by
 // compaction_job Open/Close compaction file functions.
@@ -57,6 +58,8 @@ class CompactionOutputs {
     outputs_.emplace_back(std::move(meta), icmp, enable_hash, finished,
                           precalculated_hash, is_proximal_level_);
   }
+
+  const std::vector<Output>& GetOutputs() const { return outputs_; }
 
   // Set new table builder for the current output
   void NewBuilder(const TableBuilderOptions& tboptions);
@@ -195,6 +198,10 @@ class CompactionOutputs {
       std::pair<SequenceNumber, SequenceNumber> keep_seqno_range,
       const Slice& next_table_min_key, const std::string& full_history_ts_low);
 
+  void SetNumOutputRecords(uint64_t num_output_records) {
+    stats_.num_output_records = num_output_records;
+  }
+
  private:
   friend class SubcompactionState;
 
@@ -254,7 +261,8 @@ class CompactionOutputs {
   // close and open new compaction output with the functions provided.
   Status AddToOutput(const CompactionIterator& c_iter,
                      const CompactionFileOpenFunc& open_file_func,
-                     const CompactionFileCloseFunc& close_file_func);
+                     const CompactionFileCloseFunc& close_file_func,
+                     const ParsedInternalKey& prev_table_last_internal_key);
 
   // Close the current output. `open_file_func` is needed for creating new file
   // for range-dels only output file.
@@ -270,9 +278,12 @@ class CompactionOutputs {
         !range_del_agg->IsEmpty()) {
       status = open_file_func(*this);
     }
+
     if (HasBuilder()) {
+      const ParsedInternalKey empty_internal_key{};
       const Slice empty_key{};
-      Status s = close_file_func(*this, status, empty_key);
+      Status s = close_file_func(status, empty_internal_key, empty_key,
+                                 nullptr /* c_iter */, *this);
       if (!s.ok() && status.ok()) {
         status = s;
       }
