@@ -63,7 +63,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean jwhole_key_filtering, jboolean jverify_compression,
     jint jread_amp_bytes_per_bit, jint jformat_version,
     jboolean jenable_index_compression, jboolean jblock_align,
-    jboolean jsuper_block_align, jlong jsuper_block_alignment_size,
+    jlong jsuper_block_alignment_size,
     jlong jsuper_block_alignment_max_padding_size, jbyte jindex_shortening,
     jlong jblock_cache_size, jint jblock_cache_num_shard_bits) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
