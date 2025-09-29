@@ -324,6 +324,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
                                            encoded_entry,
                                            &delta_encoded_entry_slice);
     }
+
+    ++num_index_entries_;
   }
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
@@ -339,7 +341,6 @@ class ShortenedIndexBuilder : public IndexBuilder {
     AddIndexEntryImpl(separator_with_seq, first_internal_key, block_handle,
                       must_use_separator_with_seq_);
     current_block_first_internal_key_.clear();
-    ++num_index_entries_;
     return separator_with_seq;
   }
 
@@ -389,7 +390,6 @@ class ShortenedIndexBuilder : public IndexBuilder {
     entry->SaveFrom(separator, first_internal_key,
                     must_use_separator_with_seq_);
     current_block_first_internal_key_.clear();
-    ++num_index_entries_;
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
@@ -447,7 +447,6 @@ class ShortenedIndexBuilder : public IndexBuilder {
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   std::string current_block_first_internal_key_;
-  // Number of index entries added so far
   uint64_t num_index_entries_ = 0;
 };
 

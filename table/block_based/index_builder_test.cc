@@ -125,7 +125,7 @@ TEST_P(IndexBuilderTest, EstimateCurrentIndexSize) {
           << "Estimate should be positive for " << i << " entry";
       if (i > 0) {
         EXPECT_GT(estimate, estimates[i - 1])
-            << "Estimate should not decrease with more entries (entry " << i
+            << "Estimate should not decrease with more entries (entry " << i - 1
             << ": " << estimates[i - 1] << ", entry " << i << ": " << estimate
             << ")";
       }
@@ -134,8 +134,8 @@ TEST_P(IndexBuilderTest, EstimateCurrentIndexSize) {
     }
   }
 
-  // Test consistency - multiple calls should return the same value if the
-  // builder state is not modified
+  // Multiple calls should return the same value if the builder state is not
+  // modified
   uint64_t estimate1 = builder->EstimateCurrentIndexSize();
   uint64_t estimate2 = builder->EstimateCurrentIndexSize();
   uint64_t estimate3 = builder->EstimateCurrentIndexSize();
@@ -153,16 +153,18 @@ TEST_P(IndexBuilderTest, EstimateCurrentIndexSize) {
     EXPECT_TRUE(s.ok()) << "ShortenedIndexBuilder should finish successfully: "
                         << s.ToString();
 
-    if (s.ok()) {
-      uint64_t estimate_after_finish = builder->EstimateCurrentIndexSize();
-      EXPECT_GT(estimate_after_finish, 0)
-          << "Estimate should still be positive after finish";
-      // Estimate should remain reasonably consistent after finish
-      EXPECT_LE(std::abs(static_cast<int64_t>(estimate_after_finish -
-                                              estimate_before_finish)),
-                static_cast<int64_t>(estimate_before_finish / 2))
-          << "Estimate should not change dramatically after finish";
-    }
+    uint64_t estimate_after_finish = builder->EstimateCurrentIndexSize();
+    EXPECT_GT(estimate_after_finish, 0);
+    EXPECT_LE(estimate_before_finish, estimate_after_finish)
+        << "Estimate should not decrease after finish";
+
+    // Ensure that the actual index size is not greater than the estimated size
+    // after finish is called to prevent underestimation.
+    uint64_t actual_index_size = builder->IndexSize();
+    EXPECT_LE(actual_index_size, estimate_after_finish)
+        << "Actual index size should not be greater than estimated size: "
+           "actual size:  "
+        << actual_index_size << ", estimated size: " << estimate_after_finish;
   }
 }
 
