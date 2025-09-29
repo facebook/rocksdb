@@ -888,6 +888,19 @@ public enum TickerType {
 
     FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
 
+    /**
+     * Counter for the number of times a WBWI is ingested into the DB. This
+     * happens when IngestWriteBatchWithIndex() is used and when large
+     * transaction optimization is enabled through
+     * TransactionOptions::large_txn_commit_optimize_threshold.
+     */
+    NUMBER_WBWI_INGEST((byte) -0x5D),
+
+    /**
+     * Failure to load the UDI during SST table open
+     */
+    SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT((byte) -0x5E),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;
