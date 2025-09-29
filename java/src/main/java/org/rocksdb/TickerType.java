@@ -766,12 +766,12 @@ public enum TickerType {
     WARM_FILE_READ_BYTES((byte) -0x32),
     COOL_FILE_READ_BYTES((byte) -0x5B),
     COLD_FILE_READ_BYTES((byte) -0x33),
-    ICE_FILE_READ_BYTES((byte) -0x58),
+    ICE_FILE_READ_BYTES((byte) -0x59),
     HOT_FILE_READ_COUNT((byte) -0x34),
     WARM_FILE_READ_COUNT((byte) -0x35),
     COOL_FILE_READ_COUNT((byte) -0x5C),
     COLD_FILE_READ_COUNT((byte) -0x36),
-    ICE_FILE_READ_COUNT((byte) -0x59),
+    ICE_FILE_READ_COUNT((byte) -0x5A),
 
     /**
      * (non-)last level read statistics
@@ -874,6 +874,8 @@ public enum TickerType {
 
     FIFO_TTL_COMPACTIONS((byte) -0x50),
 
+    FIFO_CHANGE_TEMPERATURE_COMPACTIONS((byte) -0x58),
+
     PREFETCH_BYTES((byte) -0x51),
 
     PREFETCH_BYTES_USEFUL((byte) -0x52),
@@ -885,6 +887,19 @@ public enum TickerType {
     FILE_READ_CORRUPTION_RETRY_COUNT((byte) -0x56),
 
     FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
+
+    /**
+     * Counter for the number of times a WBWI is ingested into the DB. This
+     * happens when IngestWriteBatchWithIndex() is used and when large
+     * transaction optimization is enabled through
+     * TransactionOptions::large_txn_commit_optimize_threshold.
+     */
+    NUMBER_WBWI_INGEST((byte) -0x5D),
+
+    /**
+     * Failure to load the UDI during SST table open
+     */
+    SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT((byte) -0x5E),
 
     TICKER_ENUM_MAX((byte) -0x54);
 
