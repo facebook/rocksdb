@@ -5199,16 +5199,12 @@ class TickerTypeJni {
         return -0x31;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
         return -0x32;
-      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES:
-        return -0x5B;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
         return -0x33;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
         return -0x34;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
         return -0x35;
-      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT:
-        return -0x5C;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
         return -0x36;
       case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
@@ -5283,6 +5279,14 @@ class TickerTypeJni {
         return -0x59;
       case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT:
         return -0x5A;
+      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES:
+        return -0x5B;
+      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT:
+        return -0x5C;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_WBWI_INGEST:
+        return -0x5D;
+      case ROCKSDB_NAMESPACE::Tickers::SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT:
+        return -0x5E;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5668,16 +5672,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
       case -0x32:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
-      case -0x5B:
-        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES;
       case -0x33:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
       case -0x34:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
       case -0x35:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
-      case -0x5C:
-        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT;
       case -0x36:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
       case -0x37:
@@ -5755,6 +5755,15 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES;
       case -0x5A:
         return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT;
+      case -0x5B:
+        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES;
+      case -0x5C:
+        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT;
+      case -0x5D:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_WBWI_INGEST;
+      case -0x5E:
+        return ROCKSDB_NAMESPACE::Tickers::
+            SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

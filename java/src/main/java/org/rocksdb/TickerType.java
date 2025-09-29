@@ -766,12 +766,12 @@ public enum TickerType {
     WARM_FILE_READ_BYTES((byte) -0x32),
     COOL_FILE_READ_BYTES((byte) -0x5B),
     COLD_FILE_READ_BYTES((byte) -0x33),
-    ICE_FILE_READ_BYTES((byte) -0x58),
+    ICE_FILE_READ_BYTES((byte) -0x59),
     HOT_FILE_READ_COUNT((byte) -0x34),
     WARM_FILE_READ_COUNT((byte) -0x35),
     COOL_FILE_READ_COUNT((byte) -0x5C),
     COLD_FILE_READ_COUNT((byte) -0x36),
-    ICE_FILE_READ_COUNT((byte) -0x59),
+    ICE_FILE_READ_COUNT((byte) -0x5A),
 
     /**
      * (non-)last level read statistics
@@ -873,6 +873,8 @@ public enum TickerType {
     FIFO_MAX_SIZE_COMPACTIONS((byte) -0x4F),
 
     FIFO_TTL_COMPACTIONS((byte) -0x50),
+
+    FIFO_CHANGE_TEMPERATURE_COMPACTIONS((byte) -0x58),
 
     PREFETCH_BYTES((byte) -0x51),
 
