@@ -570,6 +570,12 @@ class DBImpl : public DB {
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                ColumnFamilyMetaData* metadata) override;
 
+  // Get column family metadata with filtering based on key range and level
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               const Slice& start_key, const Slice& end_key,
+                               ColumnFamilyMetaData* metadata,
+                               int level = -1) override;
+
   void GetAllColumnFamilyMetaData(
       std::vector<ColumnFamilyMetaData>* metadata) override;
 

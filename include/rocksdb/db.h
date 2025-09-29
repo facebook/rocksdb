@@ -1916,9 +1916,21 @@ class DB {
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
 
+  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
+                                       const Slice& /*start_key*/,
+                                       const Slice& /*end_key*/,
+                                       ColumnFamilyMetaData* /*metadata*/,
+                                       int /*level*/ = -1) {}
+
   // Get the metadata of the default column family.
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* metadata) {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
+  }
+
+  void GetColumnFamilyMetaData(const Slice& start_key, const Slice& end_key,
+                               ColumnFamilyMetaData* metadata, int level) {
+    GetColumnFamilyMetaData(DefaultColumnFamily(), start_key, end_key, metadata,
+                            level);
   }
 
   // Obtains the LSM-tree meta data of all column families of the DB, including
