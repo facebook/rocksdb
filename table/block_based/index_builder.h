@@ -156,7 +156,8 @@ class IndexBuilder {
   // Get an estimate for current total index size based on current builder
   // state.
   //
-  // Called during compaction to estimate final index size for file cutting decisions.
+  // Called during compaction to estimate final index size for file cutting
+  // decisions.
   virtual uint64_t EstimateCurrentIndexSize() const = 0;
 
   virtual bool separator_is_key_plus_seq() { return true; }
