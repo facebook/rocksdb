@@ -4149,6 +4149,7 @@ class DBMultiScanIteratorTest : public DBTestBase,
       : DBTestBase("db_multi_scan_iterator_test", /*env_do_fsync=*/true) {}
 };
 
+// Param 0: ReadOptions::fill_cache
 INSTANTIATE_TEST_CASE_P(DBMultiScanIteratorTest, DBMultiScanIteratorTest,
                         ::testing::Bool());
 
@@ -4461,6 +4462,86 @@ TEST_P(DBMultiScanIteratorTest, OutOfL0FileRange) {
   }
   ASSERT_OK(iter->status()) << iter->status().ToString();
   ASSERT_EQ(count, 2);
+}
+
+TEST_P(DBMultiScanIteratorTest, RangeBetweenFiles) {
+  auto options = CurrentOptions();
+  options.target_file_size_base = 100 << 10;  // 20KB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  auto rnd = Random::GetTLSInstance();
+  // Write ~200KB data
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put(Key(i), rnd->RandomString(2 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_EQ(2, NumTableFilesAtLevel(49));
+
+  // Test with a scan range that overlaps an entire file, with upper bound
+  // between 2 files
+  std::vector<LiveFileMetaData> file_meta;
+  dbfull()->GetLiveFilesMetaData(&file_meta);
+  ASSERT_EQ(file_meta.size(), 2);
+  std::vector<std::string> key_ranges(4);
+  key_ranges[0] = file_meta[0].smallestkey;
+  key_ranges[1] = file_meta[0].largestkey + "0";
+  key_ranges[2] = file_meta[1].smallestkey + "0";
+  key_ranges[3] = file_meta[1].largestkey;
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString(), key_ranges[0]);
+      }
+    }
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+
+  // Test multiscan with a range entirely between adjacent files
+  key_ranges[0] = file_meta[0].largestkey + "0";
+  key_ranges[1] = file_meta[0].largestkey + "1";
+  key_ranges[2] = file_meta[1].smallestkey + "0";
+  key_ranges[3] = file_meta[1].largestkey;
+  (*scan_options).clear();
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString(), key_ranges[0]);
+      }
+    }
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

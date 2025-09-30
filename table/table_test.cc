@@ -8490,6 +8490,22 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   iter->Seek(key_ranges[2]);
   // Seek should fail as its not in the order specified in scan_options
   ASSERT_EQ(iter->status(), Status::InvalidArgument());
+  ASSERT_FALSE(iter->Valid());
+  iter.reset();
+
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  scan_options.max_prefetch_size = 0;
+  iter->Prepare(scan_options);
+  ub = key_ranges[1];
+  iter->Seek(key_ranges[0]);
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+  ASSERT_TRUE(iter->Valid());
+  ub = key_ranges[3];
+  iter->Seek("key13");
+  // Seek should fail as its not in the order specified in scan_options
+  ASSERT_EQ(iter->status(), Status::InvalidArgument());
+  ASSERT_FALSE(iter->Valid());
   iter.reset();
 
   iter.reset(db->NewIterator(ro, cfh));
