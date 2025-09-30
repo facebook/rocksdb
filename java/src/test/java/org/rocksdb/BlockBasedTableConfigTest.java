@@ -385,10 +385,10 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
-  public void superBlockAlignmentMaxPaddingSize() {
+  public void superBlockAlignmentSpaceOverheadRatio() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setSuperBlockAlignmentMaxPaddingSize(4096);
-    assertThat(blockBasedTableConfig.superBlockAlignmentMaxPaddingSize()).isEqualTo(4096);
+    blockBasedTableConfig.setSuperBlockAlignmentSpaceOverheadRatio(4096);
+    assertThat(blockBasedTableConfig.superBlockAlignmentSpaceOverheadRatio()).isEqualTo(4096);
   }
 
   @Test

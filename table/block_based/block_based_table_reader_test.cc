@@ -254,7 +254,7 @@ struct BlockBasedTableReaderTestParam {
       uint32_t _compression_parallel_threads, uint32_t _compression_dict_bytes,
       bool _same_key_diff_ts, const Comparator* _comparator, bool _fill_cache,
       bool _use_async_io, bool _block_align, size_t _super_block_alignment_size,
-      size_t _super_block_alignment_max_padding_size)
+      size_t _super_block_alignment_space_overhead_ratio)
       : compression_type(_compression_type),
         use_direct_reads(_use_direct_reads),
         index_type(_index_type),
@@ -268,8 +268,8 @@ struct BlockBasedTableReaderTestParam {
         use_async_io(_use_async_io),
         block_align(_block_align),
         super_block_alignment_size(_super_block_alignment_size),
-        super_block_alignment_max_padding_size(
-            _super_block_alignment_max_padding_size) {}
+        super_block_alignment_space_overhead_ratio(
+            _super_block_alignment_space_overhead_ratio) {}
 
   CompressionType compression_type;
   bool use_direct_reads;
@@ -284,7 +284,7 @@ struct BlockBasedTableReaderTestParam {
   bool use_async_io;
   bool block_align;
   size_t super_block_alignment_size;
-  size_t super_block_alignment_max_padding_size;
+  size_t super_block_alignment_space_overhead_ratio;
 };
 
 // Define operator<< for SpotLockManagerTestParam to stop valgrind from
@@ -304,8 +304,8 @@ std::ostream& operator<<(std::ostream& os,
      << " use_async_io: " << param.use_async_io
      << " block_align: " << param.block_align
      << " super_block_alignment_size: " << param.super_block_alignment_size
-     << " super_block_alignment_max_padding_size: "
-     << param.super_block_alignment_max_padding_size;
+     << " super_block_alignment_space_overhead_ratio: "
+     << param.super_block_alignment_space_overhead_ratio;
 
   return os;
 }
@@ -351,8 +351,8 @@ class BlockBasedTableReaderTest
     opts.index_type = param.index_type;
     opts.no_block_cache = param.no_block_cache;
     opts.super_block_alignment_size = param.super_block_alignment_size;
-    opts.super_block_alignment_max_padding_size =
-        param.super_block_alignment_max_padding_size;
+    opts.super_block_alignment_space_overhead_ratio =
+        param.super_block_alignment_space_overhead_ratio;
     opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
     opts.partition_filters =
         opts.index_type ==
@@ -1607,7 +1607,7 @@ std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
     const std::vector<bool>& use_async_io_flags,
     const std::vector<bool>& block_align_flags,
     const std::vector<size_t>& super_block_alignment_sizes,
-    const std::vector<size_t>& super_block_alignment_max_padding_sizes) {
+    const std::vector<size_t>& super_block_alignment_space_overhead_ratios) {
   std::vector<BlockBasedTableReaderTestParam> params;
   for (const auto& compression_type : compression_types) {
     for (auto use_direct_read : use_direct_read_flags) {
@@ -1625,12 +1625,14 @@ std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
                         for (auto block_align : block_align_flags) {
                           for (auto super_block_alignment_size :
                                super_block_alignment_sizes) {
-                            for (auto super_block_alignment_max_padding_size :
-                                 super_block_alignment_max_padding_sizes) {
+                            for (
+                                auto
+                                    super_block_alignment_space_overhead_ratio :
+                                super_block_alignment_space_overhead_ratios) {
                               if (super_block_alignment_size == 0) {
                                 // Override padding size to 0 if alignment size
                                 // is 0, which means no super block alignment
-                                super_block_alignment_max_padding_size = 0;
+                                super_block_alignment_space_overhead_ratio = 0;
                               }
                               params.emplace_back(
                                   compression_type, use_direct_read, index_type,
@@ -1640,7 +1642,7 @@ std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
                                   same_key_diff_ts_flag, comparator, fill_cache,
                                   use_async_io, block_align,
                                   super_block_alignment_size,
-                                  super_block_alignment_max_padding_size);
+                                  super_block_alignment_space_overhead_ratio);
                             }
                           }
                         }
@@ -1659,6 +1661,144 @@ std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
 }
 
 std::vector<bool> Bool() { return {true, false}; }
+
+struct BlockBasedTableReaderTestParamBuilder {
+  BlockBasedTableReaderTestParamBuilder() {
+    // Default values
+    compression_types = GetSupportedCompressions();
+    use_direct_read_flags = Bool();
+    index_types = {
+        BlockBasedTableOptions::IndexType::kBinarySearch,
+        BlockBasedTableOptions::IndexType::kHashSearch,
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+        BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey};
+    no_block_cache_flags = {false};
+    udt_test_modes = {
+        test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp};
+    parallel_compression_thread_counts = {1, 2};
+    compression_dict_byte_counts = {0, 4096};
+    same_key_diff_ts_flags = {false};
+    comparators = {BytewiseComparator()};
+    fill_cache_flags = {true};
+    use_async_io_flags = {false};
+    block_align_flags = {false};
+    super_block_alignment_sizes = {0};
+    super_block_alignment_space_overhead_ratios = {128};
+  }
+
+  // builder methods for each member
+  BlockBasedTableReaderTestParamBuilder& WithCompressionTypes(
+      const std::vector<CompressionType>& _compression_types) {
+    compression_types = _compression_types;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithUseDirectReadFlags(
+      const std::vector<bool>& _use_direct_read_flags) {
+    use_direct_read_flags = _use_direct_read_flags;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithIndexTypes(
+      const std::vector<BlockBasedTableOptions::IndexType>& _index_types) {
+    index_types = _index_types;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithNoBlockCacheFlags(
+      const std::vector<bool>& _no_block_cache_flags) {
+    no_block_cache_flags = _no_block_cache_flags;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithUDTTestModes(
+      const std::vector<test::UserDefinedTimestampTestMode>& _udt_test_modes) {
+    udt_test_modes = _udt_test_modes;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithParallelCompressionThreadCounts(
+      const std::vector<int>& _parallel_compression_thread_counts) {
+    parallel_compression_thread_counts = _parallel_compression_thread_counts;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithCompressionDictByteCounts(
+      const std::vector<uint32_t>& _compression_dict_byte_counts) {
+    compression_dict_byte_counts = _compression_dict_byte_counts;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithSameKeyDiffTsFlags(
+      const std::vector<bool>& _same_key_diff_ts_flags) {
+    same_key_diff_ts_flags = _same_key_diff_ts_flags;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithComparators(
+      const std::vector<const Comparator*>& _comparators) {
+    comparators = _comparators;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithFillCacheFlags(
+      const std::vector<bool>& _fill_cache_flags) {
+    fill_cache_flags = _fill_cache_flags;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithUseAsyncIoFlags(
+      const std::vector<bool>& _use_async_io_flags) {
+    use_async_io_flags = _use_async_io_flags;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithBlockAlignFlags(
+      const std::vector<bool>& _block_align_flags) {
+    block_align_flags = _block_align_flags;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder& WithSuperBlockAlignmentSizes(
+      const std::vector<size_t>& _super_block_alignment_sizes) {
+    super_block_alignment_sizes = _super_block_alignment_sizes;
+    return *this;
+  }
+
+  BlockBasedTableReaderTestParamBuilder&
+  WithSuperBlockAlignmentSpaceOverheadRatios(
+      const std::vector<size_t>& _super_block_alignment_space_overhead_ratios) {
+    super_block_alignment_space_overhead_ratios =
+        _super_block_alignment_space_overhead_ratios;
+    return *this;
+  }
+
+  std::vector<BlockBasedTableReaderTestParam> build() {
+    return GenerateCombinedParameters(
+        compression_types, use_direct_read_flags, index_types,
+        no_block_cache_flags, udt_test_modes,
+        parallel_compression_thread_counts, compression_dict_byte_counts,
+        same_key_diff_ts_flags, comparators, fill_cache_flags,
+        use_async_io_flags, block_align_flags, super_block_alignment_sizes,
+        super_block_alignment_space_overhead_ratios);
+  }
+
+  std::vector<CompressionType> compression_types;
+  std::vector<bool> use_direct_read_flags;
+  std::vector<BlockBasedTableOptions::IndexType> index_types;
+  std::vector<bool> no_block_cache_flags;
+  std::vector<test::UserDefinedTimestampTestMode> udt_test_modes;
+  std::vector<int> parallel_compression_thread_counts;
+  std::vector<uint32_t> compression_dict_byte_counts;
+  std::vector<bool> same_key_diff_ts_flags;
+  std::vector<const Comparator*> comparators;
+  std::vector<bool> fill_cache_flags;
+  std::vector<bool> use_async_io_flags;
+  std::vector<bool> block_align_flags;
+  std::vector<size_t> super_block_alignment_sizes;
+  std::vector<size_t> super_block_alignment_space_overhead_ratios;
+};
+
 std::vector<bool> IOUringFlags() {
 #ifdef ROCKSDB_IOURING_PRESENT
   return {false, true};
@@ -1669,83 +1809,74 @@ std::vector<bool> IOUringFlags() {
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderTest, BlockBasedTableReaderTest,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), Bool(),
-        {BlockBasedTableOptions::IndexType::kBinarySearch,
-         BlockBasedTableOptions::IndexType::kHashSearch,
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
-        {false}, test::GetUDTTestModes(), {1, 2}, {0, 4096}, {false},
-        {BytewiseComparator()}, {true}, {false}, {false}, {0}, {0})));
+    ::testing::ValuesIn(BlockBasedTableReaderTestParamBuilder()
+                            .WithUDTTestModes(test::GetUDTTestModes())
+                            .build()));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderMultiScanAsyncIOTest,
     BlockBasedTableReaderMultiScanAsyncIOTest,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), Bool(),
-        {BlockBasedTableOptions::IndexType::kBinarySearch,
-         BlockBasedTableOptions::IndexType::kHashSearch,
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
-        {false},
-        {test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp},
-        {1, 2}, {0, 4096}, {false},
-        {BytewiseComparator(), ReverseBytewiseComparator()}, {true, false},
-        IOUringFlags(), {false}, {0}, {0})));
+    ::testing::ValuesIn(BlockBasedTableReaderTestParamBuilder()
+                            .WithComparators({BytewiseComparator(),
+                                              ReverseBytewiseComparator()})
+                            .WithFillCacheFlags(Bool())
+                            .WithUseAsyncIoFlags(IOUringFlags())
+                            .build()));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderMultiScanTest, BlockBasedTableReaderMultiScanTest,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), Bool(),
-        {BlockBasedTableOptions::IndexType::kBinarySearch,
-         BlockBasedTableOptions::IndexType::kHashSearch,
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
-        {false},
-        {test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp},
-        {1, 2}, {0, 4096}, {false},
-        {BytewiseComparator(), ReverseBytewiseComparator()}, {true}, {false},
-        {false}, {0}, {0})));
+    ::testing::ValuesIn(BlockBasedTableReaderTestParamBuilder()
+                            .WithComparators({BytewiseComparator(),
+                                              ReverseBytewiseComparator()})
+                            .build()));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderGetTest, BlockBasedTableReaderGetTest,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), Bool(),
-        {BlockBasedTableOptions::IndexType::kBinarySearch,
-         BlockBasedTableOptions::IndexType::kHashSearch,
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
-        {false}, test::GetUDTTestModes(), {1, 2}, {0, 4096}, Bool(),
-        {BytewiseComparator(), ReverseBytewiseComparator()}, {false}, {false},
-        {false}, {0}, {0})));
+    ::testing::ValuesIn(BlockBasedTableReaderTestParamBuilder()
+                            .WithUDTTestModes(test::GetUDTTestModes())
+                            .WithSameKeyDiffTsFlags(Bool())
+                            .WithComparators({BytewiseComparator(),
+                                              ReverseBytewiseComparator()})
+                            .WithFillCacheFlags({false})
+                            .build()));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderSuperBlockAlignTest, BlockBasedTableReaderGetTest,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), Bool(),
-        {BlockBasedTableOptions::IndexType::kBinarySearch,
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch},
-        {false},
-        {test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp},
-        {1, 2}, {0, 4096}, {false}, {BytewiseComparator()}, {false}, {false},
-        Bool(), {0, 32 * 1024, 16 * 4096}, {64, 4096})));
+    ::testing::ValuesIn(
+        BlockBasedTableReaderTestParamBuilder()
+            .WithIndexTypes(
+                {BlockBasedTableOptions::IndexType::kBinarySearch,
+                 BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch})
+            .WithFillCacheFlags({false})
+            .WithBlockAlignFlags(Bool())
+            .WithSuperBlockAlignmentSizes({0, 32 * 1024, 16 * 1024})
+            .WithSuperBlockAlignmentSpaceOverheadRatios({0, 4, 256})
+            .build()));
 
 INSTANTIATE_TEST_CASE_P(
     StrictCapacityLimitReaderTest, StrictCapacityLimitReaderTest,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), Bool(),
-        {BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}, {false},
-        test::GetUDTTestModes(), {1, 2}, {0}, Bool(), {BytewiseComparator()},
-        {false}, {false}, {false}, {0}, {0})));
+    ::testing::ValuesIn(
+        BlockBasedTableReaderTestParamBuilder()
+            .WithIndexTypes(
+                {BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch})
+            .WithUDTTestModes(test::GetUDTTestModes())
+            .WithCompressionDictByteCounts({0})
+            .WithSameKeyDiffTsFlags(Bool())
+            .WithFillCacheFlags({false})
+            .build()));
 
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
-    ::testing::ValuesIn(GenerateCombinedParameters(
-        GetSupportedCompressions(), {false},
-        {BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}, {true},
-        test::GetUDTTestModes(), {1, 2}, {0}, {false}, {BytewiseComparator()},
-        {false}, {false}, {false}, {0}, {0})));
-
+    ::testing::ValuesIn(
+        BlockBasedTableReaderTestParamBuilder()
+            .WithUseDirectReadFlags({false})
+            .WithIndexTypes(
+                {BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch})
+            .WithNoBlockCacheFlags({true})
+            .WithUDTTestModes(test::GetUDTTestModes())
+            .WithCompressionDictByteCounts({0})
+            .WithFillCacheFlags({false})
+            .build()));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

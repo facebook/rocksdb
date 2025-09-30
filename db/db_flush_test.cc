@@ -3603,7 +3603,7 @@ class DBFlushSuperBlockTest
   std::unordered_map<std::string, std::string> added_data;
 };
 
-constexpr size_t kSmallMaxPaddingSize = 64;
+constexpr size_t kLowSpaceOverheadRatio = 256;
 
 TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   constexpr int key_count = 12345;
@@ -3616,10 +3616,7 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
   block_options.block_align = get<0>(GetParam());
   block_options.index_block_restart_interval = 3;
   block_options.super_block_alignment_size = get<1>(GetParam());
-  block_options.super_block_alignment_max_padding_size = get<2>(GetParam());
-  if (block_options.super_block_alignment_size == 0) {
-    block_options.super_block_alignment_max_padding_size = 0;
-  }
+  block_options.super_block_alignment_space_overhead_ratio = get<2>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
   if (block_options.block_align) {
     // When block align is enabled, disable compression
@@ -3669,8 +3666,8 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 
   if (!block_options.block_align &&
       block_options.super_block_alignment_size != 0 &&
-      block_options.super_block_alignment_max_padding_size ==
-          kSmallMaxPaddingSize) {
+      block_options.super_block_alignment_space_overhead_ratio ==
+          kLowSpaceOverheadRatio) {
     ASSERT_GT(super_block_pad_exceed_limit_count, 0);
   }
 
@@ -3688,7 +3685,6 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
     block_options.super_block_alignment_size = 16 * 1024;
   } else {
     block_options.super_block_alignment_size = 0;
-    block_options.super_block_alignment_max_padding_size = 0;
   }
   options.table_factory.reset(NewBlockBasedTableFactory(block_options));
 
@@ -3706,10 +3702,10 @@ TEST_P(DBFlushSuperBlockTest, SuperBlock) {
 INSTANTIATE_TEST_CASE_P(
     SuperBlockTests, DBFlushSuperBlockTest,
     testing::Combine(testing::Bool(), testing::Values(0, 32 * 1024, 16 * 1024),
-                     // Use very small padding size to test
-                     // the case where padded bytes is
-                     // larger than the max padding size
-                     testing::Values(4 * 1024, kSmallMaxPaddingSize)));
+                     // Use very low space overhead ratio to test
+                     // the case where required padded bytes is
+                     // larger than the max allowed padding size
+                     testing::Values(4, kLowSpaceOverheadRatio)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

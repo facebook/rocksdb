@@ -1970,15 +1970,18 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
   if ((r->table_options.super_block_alignment_size != 0) && is_data_block) {
     auto super_block_alignment_mask =
         r->table_options.super_block_alignment_size - 1;
-    if ((offset & (~super_block_alignment_mask)) !=
-        ((offset + block_contents.size()) & (~super_block_alignment_mask))) {
+    if ((r->table_options.super_block_alignment_space_overhead_ratio != 0) &&
+        (offset & (~super_block_alignment_mask)) !=
+            ((offset + block_contents.size()) &
+             (~super_block_alignment_mask))) {
+      auto allowed_max_padding_size =
+          r->table_options.super_block_alignment_size /
+          r->table_options.super_block_alignment_space_overhead_ratio;
       // new block would cross the super block boundary
       auto pad_bytes = r->table_options.super_block_alignment_size -
                        (offset & super_block_alignment_mask);
-      if (pad_bytes < r->table_options.super_block_alignment_max_padding_size) {
-        io_s = r->file->Pad(
-            io_options, pad_bytes,
-            r->table_options.super_block_alignment_max_padding_size);
+      if (pad_bytes < allowed_max_padding_size) {
+        io_s = r->file->Pad(io_options, pad_bytes, allowed_max_padding_size);
         if (UNLIKELY(!io_s.ok())) {
           r->SetIOStatus(io_s);
           return io_s;

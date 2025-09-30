@@ -367,9 +367,9 @@ static struct BlockBasedTableTypeInfo {
         {"super_block_alignment_size",
          {offsetof(struct BlockBasedTableOptions, super_block_alignment_size),
           OptionType::kSizeT, OptionVerificationType::kNormal}},
-        {"super_block_alignment_max_padding_size",
+        {"super_block_alignment_space_overhead_ratio",
          {offsetof(struct BlockBasedTableOptions,
-                   super_block_alignment_max_padding_size),
+                   super_block_alignment_space_overhead_ratio),
           OptionType::kSizeT, OptionVerificationType::kNormal}},
         {"pin_top_level_index_and_filter",
          {offsetof(struct BlockBasedTableOptions,
@@ -711,11 +711,10 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "Super block alignment size exceeds maximum number (4GiB) allowed");
   }
-  if (table_options_.super_block_alignment_max_padding_size >
-      table_options_.super_block_alignment_size / 4) {
+  if (table_options_.super_block_alignment_space_overhead_ratio > 0 &&
+      table_options_.super_block_alignment_space_overhead_ratio < 4) {
     return Status::InvalidArgument(
-        "Super block alignment max padding size exceeds 1/4 of super block "
-        "alignment size");
+        "Super block alignment space overhead is too high");
   }
   if (table_options_.data_block_index_type ==
           BlockBasedTableOptions::kDataBlockBinaryAndHash &&
@@ -932,8 +931,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
            table_options_.super_block_alignment_size);
   ret.append(buffer);
   snprintf(buffer, kBufferSize,
-           "  super_block_alignment_max_padding_size: %" ROCKSDB_PRIszt "\n",
-           table_options_.super_block_alignment_max_padding_size);
+           "  super_block_alignment_space_overhead_ratio: %" ROCKSDB_PRIszt
+           "\n",
+           table_options_.super_block_alignment_space_overhead_ratio);
   ret.append(buffer);
   snprintf(buffer, kBufferSize,
            "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",

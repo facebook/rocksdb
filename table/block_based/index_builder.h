@@ -69,6 +69,8 @@ class IndexBuilder {
   // @separator_scratch: a scratch buffer to back a computed separator between
   //                     those, as needed. May be modified on each call.
   // @skip_delta_encoding: whether to skip delta encoding for this index entry
+  //                       for cases of violating the assumption that this
+  //                       block_handle starts where the last one ended.
   // @return: the key or separator stored in the index, which could be
   //          last_key_in_current_block or a computed separator backed by
   //          separator_scratch or last_key_in_current_block.

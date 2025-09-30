@@ -41,7 +41,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     enableIndexCompression = true;
     blockAlign = false;
     superBlockAlignmentSize = 0;
-    superBlockAlignmentMaxPaddingSize = 0;
+    superBlockAlignmentSpaceOverheadRatio = 128;
     indexShortening = IndexShorteningMode.kShortenSeparators;
 
     // NOTE: ONLY used if blockCache == null
@@ -63,7 +63,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean useDeltaEncoding, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
       final boolean enableIndexCompression, final boolean blockAlign,
-      final long superBlockAlignmentSize, final long superBlockAlignmentMaxPaddingSize,
+      final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
       final byte indexShortening, final byte filterPolicyType, final long filterPolicyHandle,
       final double filterPolicyConfigValue) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
@@ -90,7 +90,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.enableIndexCompression = enableIndexCompression;
     this.blockAlign = blockAlign;
     this.superBlockAlignmentSize = superBlockAlignmentSize;
-    this.superBlockAlignmentMaxPaddingSize = superBlockAlignmentMaxPaddingSize;
+    this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
     try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
              filterPolicyHandle, filterPolicyConfigValue)) {
@@ -827,24 +827,24 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Get the maximum padding size for super block alignment.
+   * Get the space overhead ratio of super block alignment.
    *
-   * @return the maximum padding size for super block alignment.
+   * @return space overhead ratio of super block alignment.
    */
-  public long superBlockAlignmentMaxPaddingSize() {
-    return superBlockAlignmentMaxPaddingSize;
+  public long superBlockAlignmentSpaceOverheadRatio() {
+    return superBlockAlignmentSpaceOverheadRatio;
   }
 
   /**
-   * Set the maximum padding size for super block alignment.
+   * Set the space overhead ratio of super block alignment.
    *
-   * @param superBlockAlignmentMaxPaddingSize the maximum padding size for super block alignment.
+   * @param superBlockAlignmentSpaceOverheadRatio the space overhead ratio of super block alignment.
    *
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setSuperBlockAlignmentMaxPaddingSize(
-      final long superBlockAlignmentMaxPaddingSize) {
-    this.superBlockAlignmentMaxPaddingSize = superBlockAlignmentMaxPaddingSize;
+  public BlockBasedTableConfig setSuperBlockAlignmentSpaceOverheadRatio(
+      final long superBlockAlignmentSpaceOverheadRatio) {
+    this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
     return this;
   }
 
@@ -995,7 +995,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         indexBlockRestartInterval, metadataBlockSize, partitionFilters, optimizeFiltersForMemory,
         useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
         readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        superBlockAlignmentSize, superBlockAlignmentMaxPaddingSize, indexShortening.getValue(),
+        superBlockAlignmentSize, superBlockAlignmentSpaceOverheadRatio, indexShortening.getValue(),
         blockCacheSize, blockCacheNumShardBits);
   }
 
@@ -1012,7 +1012,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean wholeKeyFiltering, final boolean verifyCompression,
       final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
       final boolean blockAlign, final long superBlockAlignmentSize,
-      final long superBlockAlignmentMaxPaddingSize, final byte indexShortening,
+      final long superBlockAlignmentSpaceOverheadRatio, final byte indexShortening,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
 
@@ -1044,7 +1044,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean enableIndexCompression;
   private boolean blockAlign;
   private long superBlockAlignmentSize;
-  private long superBlockAlignmentMaxPaddingSize;
+  private long superBlockAlignmentSpaceOverheadRatio;
   private IndexShorteningMode indexShortening;
 
   // NOTE: ONLY used if blockCache == null

@@ -64,7 +64,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jint jread_amp_bytes_per_bit, jint jformat_version,
     jboolean jenable_index_compression, jboolean jblock_align,
     jlong jsuper_block_alignment_size,
-    jlong jsuper_block_alignment_max_padding_size, jbyte jindex_shortening,
+    jlong jsuper_block_alignment_space_overhead_ratio, jbyte jindex_shortening,
     jlong jblock_cache_size, jint jblock_cache_num_shard_bits) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
   options.cache_index_and_filter_blocks =
@@ -139,8 +139,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.block_align = static_cast<bool>(jblock_align);
   options.super_block_alignment_size =
       static_cast<size_t>(jsuper_block_alignment_size);
-  options.super_block_alignment_max_padding_size =
-      static_cast<size_t>(jsuper_block_alignment_max_padding_size);
+  options.super_block_alignment_space_overhead_ratio =
+      static_cast<size_t>(jsuper_block_alignment_space_overhead_ratio);
   options.index_shortening =
       ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(
           jindex_shortening);

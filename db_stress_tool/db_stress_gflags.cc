@@ -1437,10 +1437,11 @@ DEFINE_uint64(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_alignment_size,
     "BlockBasedTableOptions.super_block_alignment_size");
 
-DEFINE_uint64(super_block_alignment_max_padding_size,
-              ROCKSDB_NAMESPACE::BlockBasedTableOptions()
-                  .super_block_alignment_max_padding_size,
-              "BlockBasedTableOptions.super_block_alignment_max_padding_size");
+DEFINE_uint64(
+    super_block_alignment_space_overhead_ratio,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .super_block_alignment_space_overhead_ratio,
+    "BlockBasedTableOptions.super_block_alignment_space_overhead_ratio");
 
 DEFINE_uint32(
     lowest_used_cache_tier,

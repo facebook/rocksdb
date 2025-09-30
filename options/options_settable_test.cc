@@ -201,7 +201,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "enable_index_compression=false;"
       "block_align=true;"
       "super_block_alignment_size=65536;"
-      "super_block_alignment_max_padding_size=4096;"
+      "super_block_alignment_space_overhead_ratio=4096;"
       "max_auto_readahead_size=0;"
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
