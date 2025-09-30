@@ -156,8 +156,7 @@ class IndexBuilder {
   // Get an estimate for current total index size based on current builder
   // state.
   //
-  // Called during compaction to estimate final index size for ShouldStopBefore
-  // decisions.
+  // Called during compaction to estimate final index size for file cutting decisions.
   virtual uint64_t EstimateCurrentIndexSize() const = 0;
 
   virtual bool separator_is_key_plus_seq() { return true; }
@@ -566,6 +565,7 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
+  // TODO: implement
   uint64_t EstimateCurrentIndexSize() const override { return 0; }
 
   bool separator_is_key_plus_seq() override {
@@ -641,6 +641,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t IndexSize() const override { return index_size_; }
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
+
+  // TODO: implement
   uint64_t EstimateCurrentIndexSize() const override { return 0; }
 
   inline bool ShouldCutFilterBlock() {

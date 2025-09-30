@@ -129,7 +129,7 @@ uint64_t ShortenedIndexBuilder::EstimateCurrentIndexSize() const {
 
   uint64_t avg_entry_size = current_size / num_index_entries_;
 
-  // Add buffer to account for the next index entry
+  // Add buffer to generously account (in most cases) for the next index entry
   return current_size + (2 * avg_entry_size);
 }
 
