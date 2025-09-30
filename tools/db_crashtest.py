@@ -367,7 +367,7 @@ default_params = {
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
-    "track_and_verify_wals": lambda: random.choice([0]),    
+    "track_and_verify_wals": lambda: random.choice([0]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
     "remote_compaction_failure_fall_back_to_local": 1,
@@ -1155,13 +1155,15 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
-    if (
-        dest_params.get("prefix_size", 0) > 0
-        or dest_params.get("read_fault_one_in", 0) > 0
-    ):
-        dest_params["use_multiscan"] = 0
     if dest_params.get("use_multiscan") == 1:
         dest_params["async_io"] = 0
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
+        dest_params["prefix_size"] = -1
+        dest_params["iterpercent"] += dest_params["prefixpercent"]
+        dest_params["prefixpercent"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["memtable_prefix_bloom_size_ratio"] = 0
     return dest_params
 
 
