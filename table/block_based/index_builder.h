@@ -153,6 +153,13 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
+  // Get an estimate for current total index size based on current builder
+  // state.
+  //
+  // Called during compaction to estimate final index size for file cutting
+  // decisions.
+  virtual uint64_t EstimateCurrentIndexSize() const = 0;
+
   virtual bool separator_is_key_plus_seq() { return true; }
 
  protected:
@@ -317,6 +324,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
                                            encoded_entry,
                                            &delta_encoded_entry_slice);
     }
+
+    ++num_index_entries_;
   }
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
@@ -406,6 +415,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
+  uint64_t EstimateCurrentIndexSize() const override;
+
   bool separator_is_key_plus_seq() override {
     return must_use_separator_with_seq_;
   }
@@ -436,6 +447,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   std::string current_block_first_internal_key_;
+  uint64_t num_index_entries_ = 0;
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -554,6 +566,9 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
+  // TODO: implement
+  uint64_t EstimateCurrentIndexSize() const override { return 0; }
+
   bool separator_is_key_plus_seq() override {
     return primary_index_builder_.separator_is_key_plus_seq();
   }
@@ -627,6 +642,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t IndexSize() const override { return index_size_; }
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
+
+  // TODO: implement
+  uint64_t EstimateCurrentIndexSize() const override { return 0; }
 
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters

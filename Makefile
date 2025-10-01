@@ -1739,6 +1739,9 @@ block_test: $(OBJ_DIR)/table/block_based/block_test.o $(TEST_LIBRARY) $(LIBRARY)
 data_block_hash_index_test: $(OBJ_DIR)/table/block_based/data_block_hash_index_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+index_builder_test: $(OBJ_DIR)/table/block_based/index_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 inlineskiplist_test: $(OBJ_DIR)/memtable/inlineskiplist_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
