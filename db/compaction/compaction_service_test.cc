@@ -463,8 +463,6 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
 
 TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
   Options options = CurrentOptions();
-  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  ReopenWithCompactionService(&options);
 
   size_t num_files_after_filtered = 0;
   SyncPoint::GetInstance()->SetCallBack(
@@ -472,83 +470,97 @@ TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
       [&](void* arg) {
         num_files_after_filtered = *static_cast<size_t*>(arg);
       });
-
   SyncPoint::GetInstance()->EnableProcessing();
 
-  std::vector<std::string> files;
-  {
-    // Writes first version of data in range partitioned files.
-    SstFileWriter sst_file_writer(EnvOptions(), options);
-    std::string file1 = dbname_ + "file1.sst";
-    ASSERT_OK(sst_file_writer.Open(file1));
-    ASSERT_OK(sst_file_writer.Put("a", "a1"));
-    ASSERT_OK(sst_file_writer.Put("b", "b1"));
-    ExternalSstFileInfo file1_info;
-    ASSERT_OK(sst_file_writer.Finish(&file1_info));
-    files.push_back(std::move(file1));
+  for (auto compaction_style : {CompactionStyle::kCompactionStyleLevel,
+                                CompactionStyle::kCompactionStyleUniversal}) {
+    SCOPED_TRACE("Style: " + std::to_string(compaction_style));
+    options.compaction_style = compaction_style;
+    ReopenWithCompactionService(&options);
 
-    std::string file2 = dbname_ + "file2.sst";
-    ASSERT_OK(sst_file_writer.Open(file2));
-    ASSERT_OK(sst_file_writer.Put("x", "x1"));
-    ASSERT_OK(sst_file_writer.Put("y", "y1"));
-    ExternalSstFileInfo file2_info;
-    ASSERT_OK(sst_file_writer.Finish(&file2_info));
-    files.push_back(std::move(file2));
+    num_files_after_filtered = 0;
+
+    std::vector<std::string> files;
+    {
+      // Writes first version of data in range partitioned files.
+      SstFileWriter sst_file_writer(EnvOptions(), options);
+      std::string file1 = dbname_ + "file1.sst";
+      ASSERT_OK(sst_file_writer.Open(file1));
+      ASSERT_OK(sst_file_writer.Put("a", "a1"));
+      ASSERT_OK(sst_file_writer.Put("b", "b1"));
+      ExternalSstFileInfo file1_info;
+      ASSERT_OK(sst_file_writer.Finish(&file1_info));
+      files.push_back(std::move(file1));
+
+      std::string file2 = dbname_ + "file2.sst";
+      ASSERT_OK(sst_file_writer.Open(file2));
+      ASSERT_OK(sst_file_writer.Put("x", "x1"));
+      ASSERT_OK(sst_file_writer.Put("y", "y1"));
+      ExternalSstFileInfo file2_info;
+      ASSERT_OK(sst_file_writer.Finish(&file2_info));
+      files.push_back(std::move(file2));
+    }
+
+    IngestExternalFileOptions ifo;
+    ASSERT_OK(db_->IngestExternalFile(files, ifo));
+    ASSERT_EQ(Get("a"), "a1");
+    ASSERT_EQ(Get("b"), "b1");
+    ASSERT_EQ(Get("x"), "x1");
+    ASSERT_EQ(Get("y"), "y1");
+    ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+    auto my_cs = GetCompactionService();
+    uint64_t comp_num = my_cs->GetCompactionNum();
+
+    {
+      // Atomically delete old version of data with one range delete file.
+      // And a new batch of range partitioned files with new version of data.
+      files.clear();
+      SstFileWriter sst_file_writer(EnvOptions(), options);
+      std::string file2 = dbname_ + "file2.sst";
+      ASSERT_OK(sst_file_writer.Open(file2));
+      ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+      ExternalSstFileInfo file2_info;
+      ASSERT_OK(sst_file_writer.Finish(&file2_info));
+      files.push_back(std::move(file2));
+
+      std::string file3 = dbname_ + "file3.sst";
+      ASSERT_OK(sst_file_writer.Open(file3));
+      ASSERT_OK(sst_file_writer.Put("a", "a2"));
+      ASSERT_OK(sst_file_writer.Put("b", "b2"));
+      ExternalSstFileInfo file3_info;
+      ASSERT_OK(sst_file_writer.Finish(&file3_info));
+      files.push_back(std::move(file3));
+
+      std::string file4 = dbname_ + "file4.sst";
+      ASSERT_OK(sst_file_writer.Open(file4));
+      ASSERT_OK(sst_file_writer.Put("x", "x2"));
+      ASSERT_OK(sst_file_writer.Put("y", "y2"));
+      ExternalSstFileInfo file4_info;
+      ASSERT_OK(sst_file_writer.Finish(&file4_info));
+      files.push_back(std::move(file4));
+    }
+
+    ASSERT_OK(db_->IngestExternalFile(files, ifo));
+    ASSERT_OK(db_->WaitForCompact(WaitForCompactOptions()));
+    ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+    CompactionServiceResult result;
+    my_cs->GetResult(&result);
+    ASSERT_OK(result.status);
+    ASSERT_TRUE(result.stats.is_manual_compaction);
+    ASSERT_TRUE(result.stats.is_remote_compaction);
+
+    if (compaction_style == kCompactionStyleUniversal) {
+      ASSERT_EQ(num_files_after_filtered, 1);
+    } else {
+      // Not filtered
+      ASSERT_EQ(num_files_after_filtered, 3);
+    }
+
+    Close();
   }
 
-  IngestExternalFileOptions ifo;
-  ASSERT_OK(db_->IngestExternalFile(files, ifo));
-  ASSERT_EQ(Get("a"), "a1");
-  ASSERT_EQ(Get("b"), "b1");
-  ASSERT_EQ(Get("x"), "x1");
-  ASSERT_EQ(Get("y"), "y1");
-  ASSERT_EQ(2, NumTableFilesAtLevel(6));
-
-  auto my_cs = GetCompactionService();
-  uint64_t comp_num = my_cs->GetCompactionNum();
-
-  {
-    // Atomically delete old version of data with one range delete file.
-    // And a new batch of range partitioned files with new version of data.
-    files.clear();
-    SstFileWriter sst_file_writer(EnvOptions(), options);
-    std::string file2 = dbname_ + "file2.sst";
-    ASSERT_OK(sst_file_writer.Open(file2));
-    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
-    ExternalSstFileInfo file2_info;
-    ASSERT_OK(sst_file_writer.Finish(&file2_info));
-    files.push_back(std::move(file2));
-
-    std::string file3 = dbname_ + "file3.sst";
-    ASSERT_OK(sst_file_writer.Open(file3));
-    ASSERT_OK(sst_file_writer.Put("a", "a2"));
-    ASSERT_OK(sst_file_writer.Put("b", "b2"));
-    ExternalSstFileInfo file3_info;
-    ASSERT_OK(sst_file_writer.Finish(&file3_info));
-    files.push_back(std::move(file3));
-
-    std::string file4 = dbname_ + "file4.sst";
-    ASSERT_OK(sst_file_writer.Open(file4));
-    ASSERT_OK(sst_file_writer.Put("x", "x2"));
-    ASSERT_OK(sst_file_writer.Put("y", "y2"));
-    ExternalSstFileInfo file4_info;
-    ASSERT_OK(sst_file_writer.Finish(&file4_info));
-    files.push_back(std::move(file4));
-  }
-
-  ASSERT_OK(db_->IngestExternalFile(files, ifo));
-  ASSERT_OK(db_->WaitForCompact(WaitForCompactOptions()));
-  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
-
-  CompactionServiceResult result;
-  my_cs->GetResult(&result);
-  ASSERT_OK(result.status);
-  ASSERT_TRUE(result.stats.is_manual_compaction);
-  ASSERT_TRUE(result.stats.is_remote_compaction);
-
-  ASSERT_EQ(num_files_after_filtered, 1);
-
-  Close();
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
