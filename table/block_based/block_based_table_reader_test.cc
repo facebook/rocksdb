@@ -1593,6 +1593,99 @@ TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanOptFileOverlapChecking) {
   ASSERT_TRUE(iter->status().IsInvalidArgument());
 }
 
+// Test that fs_prefetch_support flag is correctly initialized during table
+// construction based on filesystem capabilities
+TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
+  // Custom FileSystem that can report different prefetch support
+  class ConfigurablePrefetchFS : public FileSystemWrapper {
+   public:
+    ConfigurablePrefetchFS(const std::shared_ptr<FileSystem>& target,
+                           bool support_prefetch)
+        : FileSystemWrapper(target), support_prefetch_(support_prefetch) {}
+
+    static const char* kClassName() { return "ConfigurablePrefetchFS"; }
+    const char* Name() const override { return kClassName(); }
+
+    void SupportedOps(int64_t& supported_ops) override {
+      target()->SupportedOps(supported_ops);
+      if (support_prefetch_) {
+        supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
+      } else {
+        supported_ops &= ~(1 << FSSupportedOps::kFSPrefetch);
+      }
+    }
+
+   private:
+    bool support_prefetch_;
+  };
+
+  // Prepare test table
+  Options options;
+  options.persist_user_defined_timestamps = persist_udt_;
+  if (udt_enabled_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  }
+  size_t ts_sz = options.comparator->timestamp_size();
+  auto kv = BlockBasedTableReaderBaseTest::GenerateKVMap(5, true, ts_sz);
+  std::string table_name = "BlockBasedTableReaderTest_BlockPrefetcherTest" +
+                           CompressionTypeToString(compression_type_);
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  // Test Case 1: Filesystem supports prefetch, fs_prefetch_support should be
+  // true
+  {
+    auto fs_with_prefetch = std::make_shared<ConfigurablePrefetchFS>(
+        fs_, true /* support_prefetch */);
+    Options opts = options;
+    opts.env = new CompositeEnvWrapper(options_.env, fs_with_prefetch);
+
+    FileOptions fopts;
+    fopts.use_direct_reads = use_direct_reads_;
+    InternalKeyComparator cmp(options.comparator);
+    ImmutableOptions iopts(opts);
+
+    std::unique_ptr<BlockBasedTable> table;
+    NewBlockBasedTableReader(fopts, iopts, cmp, table_name, &table,
+                             false /* prefetch_index_and_filter_in_cache */,
+                             nullptr, persist_udt_);
+
+    // Verify that fs_prefetch_support flag is set to false and
+    // fs supports prefetch
+    ASSERT_TRUE(table->get_rep()->fs_prefetch_support);
+    ASSERT_TRUE(CheckFSFeatureSupport(fs_with_prefetch.get(),
+                                      FSSupportedOps::kFSPrefetch));
+    delete opts.env;
+  }
+
+  // Test Case 2: Filesystem doesn't support prefetch, fs_prefetch_support
+  // should be false
+  {
+    auto fs_without_prefetch = std::make_shared<ConfigurablePrefetchFS>(
+        fs_, false /* support_prefetch */);
+    Options opts = options;
+    opts.env = new CompositeEnvWrapper(options_.env, fs_without_prefetch);
+
+    FileOptions fopts;
+    fopts.use_direct_reads = use_direct_reads_;
+    InternalKeyComparator cmp(options.comparator);
+    ImmutableOptions iopts(opts);
+
+    std::unique_ptr<BlockBasedTable> table;
+    NewBlockBasedTableReader(fopts, iopts, cmp, table_name, &table,
+                             false /* prefetch_index_and_filter_in_cache */,
+                             nullptr, persist_udt_);
+
+    // Verify that fs_prefetch_support flag is set to false and
+    // fs doesn't support prefetch
+    ASSERT_FALSE(table->get_rep()->fs_prefetch_support);
+    ASSERT_FALSE(CheckFSFeatureSupport(fs_without_prefetch.get(),
+                                       FSSupportedOps::kFSPrefetch));
+    delete opts.env;
+  }
+}
+
 std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
     const std::vector<CompressionType>& compression_types,
     const std::vector<bool>& use_direct_read_flags,
@@ -1807,6 +1900,17 @@ std::vector<bool> IOUringFlags() {
 #endif
 }
 
+// Param 1: compression type
+// Param 2: whether to use direct reads
+// Param 3: Block Based Table Index type, partitioned filters are also enabled
+//          when index type is kTwoLevelIndexSearch
+// Param 4: BBTO no_block_cache option
+// Param 5: test mode for the user-defined timestamp feature
+// Param 6: number of parallel compression threads
+// Param 7: CompressionOptions.max_dict_bytes and
+//          CompressionOptions.max_dict_buffer_bytes. This enable/disables
+//          compression dictionary.
+// Param 8: test mode to specify the pattern for generating key / value pairs.
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderTest, BlockBasedTableReaderTest,
     ::testing::ValuesIn(BlockBasedTableReaderTestParamBuilder()

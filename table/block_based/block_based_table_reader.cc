@@ -1067,8 +1067,7 @@ Status BlockBasedTable::PrefetchTail(
   Status s = file->PrepareIOOptions(ro, opts, &dbg);
   // Try file system prefetch
   if (s.ok() && !file->use_direct_io() && !force_direct_prefetch) {
-    if (CheckFSFeatureSupport(ioptions.fs.get(), FSSupportedOps::kFSPrefetch) &&
-        !file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {
+    if (!file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {
       prefetch_buffer->reset(new FilePrefetchBuffer(
           ReadaheadParams(), false /* enable */, true /* track_min_offset */));
       return Status::OK();
