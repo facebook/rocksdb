@@ -536,14 +536,20 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
 
     if (command == "recompress") {
-      fprintf(stdout, "Block Size: %zu  Threads: %u\n", block_size,
-              (unsigned)compression_parallel_threads);
-      // TODO: consider getting supported compressions from the compression
-      // manager
+      if (compression_types.empty()) {
+        if (options.compression_manager != nullptr) {
+          for (int c = 0; c < kDisableCompressionOption; ++c) {
+            if (options.compression_manager->SupportsCompressionType(
+                    static_cast<CompressionType>(c))) {
+              compression_types.emplace_back(static_cast<CompressionType>(c));
+            }
+          }
+        } else {
+          compression_types = GetSupportedCompressions();
+        }
+      }
       st = dumper.ShowAllCompressionSizes(
-          compression_types.empty() ? GetSupportedCompressions()
-                                    : compression_types,
-          compress_level_from, compress_level_to);
+          compression_types, compress_level_from, compress_level_to);
       if (!st.ok()) {
         fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
         exit(1);
