@@ -44,8 +44,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
       if (!s.ok()) {
         return;
       }
-      if (CheckFSFeatureSupport(rep->ioptions.fs.get(),
-                                FSSupportedOps::kFSPrefetch)) {
+      if (rep->fs_prefetch_support) {
         s = rep->file->Prefetch(opts, offset, len + compaction_readahead_size_);
         if (s.ok()) {
           readahead_limit_ = offset + len + compaction_readahead_size_;
@@ -53,8 +52,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
         } else if (!s.IsNotSupported()) {
           return;
         }
-        // If prefetch returned NotSupported despite feature bit being set,
-        // fall through to use internal prefetch buffer
+        // If FS prefetch returned NotSupported despite feature bit being set,
+        // fall through to use internal prefetch buffer.
       }
     }
     // If FS prefetch is not supported, fall back to use internal prefetch
@@ -148,29 +147,22 @@ void BlockPrefetcher::PrefetchIfNeeded(
     return;
   }
 
-  if (CheckFSFeatureSupport(rep->ioptions.fs.get(),
-                            FSSupportedOps::kFSPrefetch)) {
+  if (rep->fs_prefetch_support) {
     s = rep->file->Prefetch(
         opts, handle.offset(),
         BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
-    if (s.IsNotSupported()) {
-      // If prefetch returned NotSupported despite feature bit being set,
-      // fall back to use internal prefetch buffer
-      rep->CreateFilePrefetchBufferIfNotExists(
-          readahead_params, &prefetch_buffer_, readaheadsize_cb,
-          /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
+    if (s.ok()) {
+      readahead_limit_ = offset + len + readahead_size_;
+      // Keep exponentially increasing readahead size until
+      // max_auto_readahead_size.
+      readahead_size_ = std::min(max_auto_readahead_size, readahead_size_ * 2);
       return;
     }
-
-    readahead_limit_ = offset + len + readahead_size_;
-    // Keep exponentially increasing readahead size until
-    // max_auto_readahead_size.
-    readahead_size_ = std::min(max_auto_readahead_size, readahead_size_ * 2);
-  } else {
-    // If prefetch is not supported, fall back to use internal prefetch buffer.
-    rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_params, &prefetch_buffer_, readaheadsize_cb,
-        /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
   }
+  // If FS prefetch is not supported or returned NotSupported, fall back to use
+  // internal prefetch buffer.
+  rep->CreateFilePrefetchBufferIfNotExists(
+      readahead_params, &prefetch_buffer_, readaheadsize_cb,
+      /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
 }
 }  // namespace ROCKSDB_NAMESPACE

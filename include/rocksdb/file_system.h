@@ -772,17 +772,12 @@ class FileSystem : public Customizable {
   //  If async_io is supported by the underlying FileSystem, then supported_ops
   //  will have corresponding bit (i.e FSSupportedOps::kAsyncIO) set to 1.
   //
-  // By default, async_io and prefetch operation are set and FS should override
+  // By default, async_io operation are set and FS should override
   // this API and set all the operations they support provided in FSSupportedOps
-  // (including async_io and prefetch).
-  //
-  // Prefetch is enabled by default and FS is expected to override this API and
-  // set it to 0 if it doesn't support. This preserves the original behavior
-  // where prefetch was called on all file systems.
+  // (including async_io).
   virtual void SupportedOps(int64_t& supported_ops) {
     supported_ops = 0;
     supported_ops |= (1 << FSSupportedOps::kAsyncIO);
-    supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
