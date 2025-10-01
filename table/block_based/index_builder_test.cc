@@ -55,13 +55,13 @@ class IndexBuilderTest
 
       if (i == num_entries) {
         // Last entry - no next key
-        builder->AddIndexEntry(key_current, nullptr, handle,
-                               &separator_scratch);
+        builder->AddIndexEntry(key_current, nullptr, handle, &separator_scratch,
+                               false);
       } else {
         std::string key_next = MakeKey(i + 1);
         Slice key_next_slice(key_next);
         builder->AddIndexEntry(key_current, &key_next_slice, handle,
-                               &separator_scratch);
+                               &separator_scratch, false);
       }
 
       if (estimates) {
