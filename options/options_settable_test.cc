@@ -200,6 +200,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
       "block_align=true;"
+      "super_block_alignment_size=65536;"
+      "super_block_alignment_space_overhead_ratio=4096;"
       "max_auto_readahead_size=0;"
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"

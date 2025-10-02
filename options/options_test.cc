@@ -1721,6 +1721,9 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, cf_opts,
       "paranoid_file_checks=true; block_based_table_factory.block_align=false; "
+      "block_based_table_factory.super_block_alignment_size=65536; "
+      "block_based_table_factory.super_block_alignment_space_overhead_ratio="
+      "4096; "
       "block_based_table_factory.block_size=8192;",
       &cf_opts));
   ASSERT_TRUE(cf_opts.paranoid_file_checks);
@@ -1729,6 +1732,8 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_NE(bbto, nullptr);
   ASSERT_EQ(bbto->block_size, 8192);
   ASSERT_EQ(bbto->block_align, false);
+  ASSERT_EQ(bbto->super_block_alignment_size, 65536);
+  ASSERT_EQ(bbto->super_block_alignment_space_overhead_ratio, 4096);
   std::unordered_map<std::string, std::string> unused_opts;
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts, {{"paranoid_file_checks", "false"}}, &cf_opts));

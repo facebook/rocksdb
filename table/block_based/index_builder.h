@@ -68,6 +68,9 @@ class IndexBuilder {
   //                           the last one in the table
   // @separator_scratch: a scratch buffer to back a computed separator between
   //                     those, as needed. May be modified on each call.
+  // @skip_delta_encoding: whether to skip delta encoding for this index entry
+  //                       for cases of violating the assumption that this
+  //                       block_handle starts where the last one ended.
   // @return: the key or separator stored in the index, which could be
   //          last_key_in_current_block or a computed separator backed by
   //          separator_scratch or last_key_in_current_block.
@@ -75,7 +78,8 @@ class IndexBuilder {
   virtual Slice AddIndexEntry(const Slice& last_key_in_current_block,
                               const Slice* first_key_in_next_block,
                               const BlockHandle& block_handle,
-                              std::string* separator_scratch) = 0;
+                              std::string* separator_scratch,
+                              bool skip_delta_encoding) = 0;
 
   // An abstract (extensible) holder for passing data from PrepareIndexEntry to
   // FinishIndexEntry (see below).
@@ -118,7 +122,8 @@ class IndexBuilder {
   // External synchronization ensures Finish is only called after all the
   // FinishIndexEntry calls have completed.
   virtual void FinishIndexEntry(const BlockHandle& block_handle,
-                                PreparedIndexEntry* entry) = 0;
+                                PreparedIndexEntry* entry,
+                                bool skip_delta_encoding) = 0;
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
@@ -293,12 +298,14 @@ class ShortenedIndexBuilder : public IndexBuilder {
   void AddIndexEntryImpl(const Slice& separator_with_seq,
                          const Slice& first_internal_key,
                          const BlockHandle& block_handle,
-                         bool must_use_separator_with_seq) {
+                         bool must_use_separator_with_seq,
+                         bool skip_delta_encoding) {
     IndexValue entry(block_handle, first_internal_key);
     std::string encoded_entry;
     std::string delta_encoded_entry;
     entry.EncodeTo(&encoded_entry, include_first_key_, nullptr);
-    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull() &&
+        !skip_delta_encoding) {
       entry.EncodeTo(&delta_encoded_entry, include_first_key_,
                      &last_encoded_handle_);
     } else {
@@ -318,11 +325,11 @@ class ShortenedIndexBuilder : public IndexBuilder {
     // What are the implications if a "FindShortInternalKeySuccessor"
     // optimization is provided.
     index_block_builder_.Add(separator_with_seq, encoded_entry,
-                             &delta_encoded_entry_slice);
+                             &delta_encoded_entry_slice, skip_delta_encoding);
     if (!must_use_separator_with_seq) {
-      index_block_builder_without_seq_.Add(ExtractUserKey(separator_with_seq),
-                                           encoded_entry,
-                                           &delta_encoded_entry_slice);
+      index_block_builder_without_seq_.Add(
+          ExtractUserKey(separator_with_seq), encoded_entry,
+          &delta_encoded_entry_slice, skip_delta_encoding);
     }
 
     ++num_index_entries_;
@@ -331,7 +338,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override {
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override {
     Slice separator_with_seq = GetSeparatorWithSeq(
         last_key_in_current_block, first_key_in_next_block, separator_scratch);
 
@@ -339,7 +347,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     Slice first_internal_key = GetFirstInternalKey(&first_internal_key_buf);
 
     AddIndexEntryImpl(separator_with_seq, first_internal_key, block_handle,
-                      must_use_separator_with_seq_);
+                      must_use_separator_with_seq_, skip_delta_encoding);
     current_block_first_internal_key_.clear();
     return separator_with_seq;
   }
@@ -393,11 +401,13 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* base_entry) override {
+                        PreparedIndexEntry* base_entry,
+                        bool skip_delta_encoding) override {
     ShortenedPreparedIndexEntry* entry =
         static_cast<ShortenedPreparedIndexEntry*>(base_entry);
     AddIndexEntryImpl(entry->separator_with_seq, entry->first_internal_key,
-                      block_handle, entry->must_use_separator_with_seq);
+                      block_handle, entry->must_use_separator_with_seq,
+                      skip_delta_encoding);
   }
 
   using IndexBuilder::Finish;
@@ -495,11 +505,12 @@ class HashIndexBuilder : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override {
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override {
     ++current_restart_index_;
     return primary_index_builder_.AddIndexEntry(
         last_key_in_current_block, first_key_in_next_block, block_handle,
-        separator_scratch);
+        separator_scratch, skip_delta_encoding);
   }
 
   std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override {
@@ -515,8 +526,10 @@ class HashIndexBuilder : public IndexBuilder {
   }
 
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override {
-    primary_index_builder_.FinishIndexEntry(block_handle, entry);
+                        PreparedIndexEntry* entry,
+                        bool skip_delta_encoding) override {
+    primary_index_builder_.FinishIndexEntry(block_handle, entry,
+                                            skip_delta_encoding);
   }
 
   void OnKeyAdded(const Slice& key,
@@ -626,14 +639,16 @@ class PartitionedIndexBuilder : public IndexBuilder {
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override;
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override;
 
   std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override;
   void PrepareIndexEntry(const Slice& last_key_in_current_block,
                          const Slice* first_key_in_next_block,
                          PreparedIndexEntry* out) override;
   void FinishIndexEntry(const BlockHandle& block_handle,
-                        PreparedIndexEntry* entry) override;
+                        PreparedIndexEntry* entry,
+                        bool skip_delta_encoding) override;
   void MaybeFlush(const Slice& index_key, const BlockHandle& index_value);
 
   Status Finish(IndexBlocks* index_blocks,

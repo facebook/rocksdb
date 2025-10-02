@@ -1432,6 +1432,17 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "BlockBasedTableOptions.block_align");
 
+DEFINE_uint64(
+    super_block_alignment_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_alignment_size,
+    "BlockBasedTableOptions.super_block_alignment_size");
+
+DEFINE_uint64(
+    super_block_alignment_space_overhead_ratio,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .super_block_alignment_space_overhead_ratio,
+    "BlockBasedTableOptions.super_block_alignment_space_overhead_ratio");
+
 DEFINE_uint32(
     lowest_used_cache_tier,
     static_cast<uint32_t>(ROCKSDB_NAMESPACE::Options().lowest_used_cache_tier),

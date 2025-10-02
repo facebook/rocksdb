@@ -1140,15 +1140,20 @@ class TableTest : public testing::Test {
 
 class GeneralTableTest : public TableTest {};
 class BlockBasedTableTestBase : public TableTest {};
-class BlockBasedTableTest
-    : public BlockBasedTableTestBase,
-      virtual public ::testing::WithParamInterface<uint32_t> {
+class BlockBasedTableTest : public BlockBasedTableTestBase,
+                            virtual public ::testing::WithParamInterface<
+                                std::tuple<uint32_t, size_t, size_t>> {
  public:
-  BlockBasedTableTest() : format_(GetParam()) { env_ = Env::Default(); }
+  BlockBasedTableTest() : format_(std::get<0>(GetParam())) {
+    env_ = Env::Default();
+  }
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
     BlockBasedTableOptions options;
     options.format_version = format_;
+    auto param = GetParam();
+    options.super_block_alignment_size = std::get<1>(param);
+    options.super_block_alignment_space_overhead_ratio = std::get<2>(param);
     return options;
   }
 
@@ -1380,8 +1385,12 @@ class FileChecksumTestHelper {
 
 uint64_t FileChecksumTestHelper::checksum_file_num_ = 1;
 
-INSTANTIATE_TEST_CASE_P(FormatVersions, BlockBasedTableTest,
-                        testing::ValuesIn(test::kFooterFormatVersionsToTest));
+INSTANTIATE_TEST_CASE_P(
+    FormatVersions, BlockBasedTableTest,
+    testing::Combine(testing::ValuesIn(test::kFooterFormatVersionsToTest),
+                     testing::Values(0, 128 * 1024, 512 * 1024,
+                                     2 * 1024 * 1024),
+                     testing::Values(2048, 32, 128)));
 
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.

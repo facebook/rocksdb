@@ -1686,7 +1686,11 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
   // Single-threaded context only
   assert(!r->IsParallelCompressionActive());
   assert(uncompressed.size() > 0);
-  WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
+  // When data blocks are aligned with super block alignment, delta encoding
+  // needs to be skipped for the first block after padding.
+  bool skip_delta_encoding = false;
+  WriteBlock(uncompressed, &r->pending_handle, BlockType::kData,
+             &skip_delta_encoding);
   if (LIKELY(ok())) {
     // We do not emit the index entry for a block until we have seen the
     // first key for the next data block.  This allows us to use shorter
@@ -1695,15 +1699,16 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
     // "the r" as the key for the index block entry since it is >= all
     // entries in the first block and < all entries in subsequent
     // blocks.
-    r->index_builder->AddIndexEntry(last_key_in_current_block,
-                                    first_key_in_next_block, r->pending_handle,
-                                    &r->index_separator_scratch);
+    r->index_builder->AddIndexEntry(
+        last_key_in_current_block, first_key_in_next_block, r->pending_handle,
+        &r->index_separator_scratch, skip_delta_encoding);
   }
 }
 
 void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
                                         BlockHandle* handle,
-                                        BlockType block_type) {
+                                        BlockType block_type,
+                                        bool* skip_delta_encoding) {
   Rep* r = rep_.get();
   assert(r->state == Rep::State::kUnbuffered);
   // Single-threaded context only
@@ -1722,10 +1727,10 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
       &r->single_threaded_compressed_output);
-  WriteMaybeCompressedBlock(type == kNoCompression
-                                ? uncompressed_block_data
-                                : Slice(r->single_threaded_compressed_output),
-                            type, handle, block_type, &uncompressed_block_data);
+  WriteMaybeCompressedBlock(
+      type == kNoCompression ? uncompressed_block_data
+                             : Slice(r->single_threaded_compressed_output),
+      type, handle, block_type, &uncompressed_block_data, skip_delta_encoding);
   r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
@@ -1770,18 +1775,20 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
     auto write_fn = [this, block_rep, &ios]() {
       Slice compressed = block_rep->compressed;
       Slice uncompressed = block_rep->uncompressed;
+      bool skip_delta_encoding = false;
       ios = WriteMaybeCompressedBlockImpl(
           block_rep->compression_type == kNoCompression ? uncompressed
                                                         : compressed,
           block_rep->compression_type, &rep_->pending_handle, BlockType::kData,
-          &uncompressed);
+          &uncompressed, &skip_delta_encoding);
       if (LIKELY(ios.ok())) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
         ++rep_->props.num_data_blocks;
 
         rep_->index_builder->FinishIndexEntry(
-            rep_->pending_handle, block_rep->prepared_index_entry.get());
+            rep_->pending_handle, block_rep->prepared_index_entry.get(),
+            skip_delta_encoding);
       }
     };
     switch (thread_state) {
@@ -1931,20 +1938,30 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
 
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
-    BlockType block_type, const Slice* uncompressed_block_data) {
+    BlockType block_type, const Slice* uncompressed_block_data,
+    bool* skip_delta_encoding) {
   rep_->SetIOStatus(WriteMaybeCompressedBlockImpl(
-      block_contents, comp_type, handle, block_type, uncompressed_block_data));
+      block_contents, comp_type, handle, block_type, uncompressed_block_data,
+      skip_delta_encoding));
 }
 
 IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
-    BlockType block_type, const Slice* uncompressed_block_data) {
+    BlockType block_type, const Slice* uncompressed_block_data,
+    bool* skip_delta_encoding) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    compression_type: uint8
   //    checksum: uint32
   Rep* r = rep_.get();
   bool is_data_block = block_type == BlockType::kData;
+  // For data block, skip_delta_encoding must be non null
+  if (is_data_block) {
+    assert(skip_delta_encoding != nullptr);
+  }
+  if (skip_delta_encoding != nullptr) {
+    *skip_delta_encoding = false;
+  }
   IOOptions io_options;
   // Always return io_s for NRVO
   IOStatus io_s =
@@ -1954,7 +1971,47 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
   }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
-  const uint64_t offset = r->get_offset();
+
+  auto offset = r->get_offset();
+  // try to align the data block page to the super alignment size, if enabled
+  if ((r->table_options.super_block_alignment_size != 0) && is_data_block) {
+    auto super_block_alignment_mask =
+        r->table_options.super_block_alignment_size - 1;
+    if ((r->table_options.super_block_alignment_space_overhead_ratio != 0) &&
+        (offset & (~super_block_alignment_mask)) !=
+            ((offset + block_contents.size()) &
+             (~super_block_alignment_mask))) {
+      auto allowed_max_padding_size =
+          r->table_options.super_block_alignment_size /
+          r->table_options.super_block_alignment_space_overhead_ratio;
+      // new block would cross the super block boundary
+      auto pad_bytes = r->table_options.super_block_alignment_size -
+                       (offset & super_block_alignment_mask);
+      if (pad_bytes < allowed_max_padding_size) {
+        io_s = r->file->Pad(io_options, pad_bytes, allowed_max_padding_size);
+        if (UNLIKELY(!io_s.ok())) {
+          r->SetIOStatus(io_s);
+          return io_s;
+        }
+        r->pre_compression_size += pad_bytes;
+        offset += pad_bytes;
+        r->set_offset(offset);
+        if (skip_delta_encoding != nullptr) {
+          // Skip delta encoding in index block builder when a super block
+          // alignment padding is added for data block.
+          *skip_delta_encoding = true;
+        }
+        TEST_SYNC_POINT(
+            "BlockBasedTableBuilder::WriteMaybeCompressedBlock:"
+            "SuperBlockAlignment");
+      } else {
+        TEST_SYNC_POINT(
+            "BlockBasedTableBuilder::WriteMaybeCompressedBlock:"
+            "SuperBlockAlignmentPaddingBytesExceedLimit");
+      }
+    }
+  }
+
   handle->set_offset(offset);
   handle->set_size(block_contents.size());
   assert(status().ok());
@@ -2018,7 +2075,7 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
          ((block_contents.size() + kBlockTrailerSize) & (r->alignment - 1))) &
         (r->alignment - 1);
 
-    io_s = r->file->Pad(io_options, pad_bytes);
+    io_s = r->file->Pad(io_options, pad_bytes, kDefaultPageSize);
     if (LIKELY(io_s.ok())) {
       r->pre_compression_size += pad_bytes;
       r->set_offset(r->get_offset() + pad_bytes);

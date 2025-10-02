@@ -256,7 +256,8 @@ class WritableFileWriter {
   IOStatus Append(const IOOptions& opts, const Slice& data,
                   uint32_t crc32c_checksum = 0);
 
-  IOStatus Pad(const IOOptions& opts, const size_t pad_bytes);
+  IOStatus Pad(const IOOptions& opts, const size_t pad_bytes,
+               const size_t max_pad_size);
 
   IOStatus Flush(const IOOptions& opts);
 

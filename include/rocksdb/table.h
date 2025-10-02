@@ -603,6 +603,30 @@ struct BlockBasedTableOptions {
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
 
+  // Align data blocks on super block alignment. Avoid a data block split across
+  // super block boundaries. Works with/without compression.
+  //
+  // Here a "super block" refers to an aligned unit of underlying Filesystem
+  // storage for which there is an extra cost when a random read involves two
+  // such super blocks instead of just one. Configuring that size here suggests
+  // inserting padding in the SST file to avoid a single SST block splitting
+  // across two super blocks. Only power-of-two sizes are supported. See also
+  // super_block_alignment_space_overhead_ratio. Default to 0, which means super
+  // block alignment is disabled.
+  //
+  // Super block alignment size. Default to 0, which means super block alignment
+  // is disabled. If it is enabled, it needs to be a power of 2 and higher than
+  // block size.
+  size_t super_block_alignment_size = 0;
+
+  // This option constrols the storage space overhead of super block alignment.
+  // It is used to calculate the max padding size allowed for super block
+  // alignment. It is calculated in this way. If super_block_alignment_size is
+  // 2MB, and super_block_alignment_overhead_ratio is 128, then the max padding
+  // size allowed for super block alignment is 2MB / 128 = 16KB.
+  // Note that, when it is set to 0, super block alignment is disabled.
+  size_t super_block_alignment_space_overhead_ratio = 128;
+
   // This enum allows trading off increased index size for improved iterator
   // seek performance in some situations, particularly when block cache is
   // disabled (ReadOptions::fill_cache = false) and direct IO is
