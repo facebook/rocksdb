@@ -301,10 +301,11 @@ class SharedState {
     return false;
   }
 
-  void AddRemoteCompactionResult(const std::string& job_id,
+  void AddRemoteCompactionResult(const std::string& job_id, Status status,
                                  const std::string& result) {
     MutexLock l(&remote_compaction_result_map_mu_);
-    remote_compaction_result_map_.emplace(job_id, result);
+    remote_compaction_result_map_.emplace(
+        job_id, std::pair<Status, std::string>{status, result});
   }
 
   Status GetRemoteCompactionResult(const std::string& job_id,
@@ -312,8 +313,9 @@ class SharedState {
     MutexLock l(&remote_compaction_result_map_mu_);
     if (remote_compaction_result_map_.find(job_id) !=
         remote_compaction_result_map_.end()) {
-      *result = remote_compaction_result_map_.at(job_id);
-      return Status::OK();
+      const auto& pair = remote_compaction_result_map_.at(job_id);
+      *result = pair.second;
+      return pair.first;
     }
     return Status::NotFound();
   }
@@ -485,7 +487,8 @@ class SharedState {
   // Result Map for the remote compaciton. Key is the scheduled_job_id and value
   // is serialized compaction_service_result
   port::Mutex remote_compaction_result_map_mu_;
-  std::unordered_map<std::string, std::string> remote_compaction_result_map_;
+  std::unordered_map<std::string, std::pair<Status, std::string>>
+      remote_compaction_result_map_;
 
   // Keys that should not be overwritten
   const std::unordered_set<int64_t> no_overwrite_ids_;

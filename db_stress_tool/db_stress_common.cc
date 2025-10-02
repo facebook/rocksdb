@@ -280,7 +280,7 @@ void RemoteCompactionWorkerThread(void* v) {
       // Add the output regardless of status, so that primary DB doesn't rely on
       // the timeout to finish waiting. The actual failure from the
       // deserialization can fail the compaction properly
-      shared->AddRemoteCompactionResult(job_id, serialized_output);
+      shared->AddRemoteCompactionResult(job_id, s, serialized_output);
     }
     db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_remote_compaction_worker_interval * 1000 +
