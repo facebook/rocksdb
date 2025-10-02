@@ -2073,7 +2073,35 @@ enum {
   rocksdb_internal_range_del_reseek_count,
   rocksdb_block_read_cpu_time,
   rocksdb_internal_merge_point_lookup_count,
-  rocksdb_total_metric_count = 80
+  rocksdb_block_cache_index_hit_count,
+  rocksdb_block_cache_filter_hit_count,
+  rocksdb_index_block_read_count,
+  rocksdb_filter_block_read_count,
+  rocksdb_iter_next_count,
+  rocksdb_iter_seek_count,
+  rocksdb_iter_prev_count,
+  rocksdb_iter_next_cpu_nanos,
+  rocksdb_iter_prev_cpu_nanos,
+  rocksdb_iter_seek_cpu_nanos,
+  rocksdb_total_metric_count = 90,
+};
+
+/* IOContext */
+enum {
+  rocksdb_iostats_thread_pool_id = 0,
+  rocksdb_iostats_bytes_written,
+  rocksdb_iostats_bytes_read,
+  rocksdb_iostats_open_nanos,
+  rocksdb_iostats_allocate_nanos,
+  rocksdb_iostats_write_nanos,
+  rocksdb_iostats_read_nanos,
+  rocksdb_iostats_range_sync_nanos,
+  rocksdb_iostats_fsync_nanos,
+  rocksdb_iostats_prepare_write_nanos,
+  rocksdb_iostats_logger_nanos,
+  rocksdb_iostats_cpu_write_nanos,
+  rocksdb_iostats_cpu_read_nanos,
+  rocksdb_iostats_total_metric_count = 12
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
@@ -2087,6 +2115,20 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context, int metric);
 extern ROCKSDB_LIBRARY_API void rocksdb_perfcontext_destroy(
     rocksdb_perfcontext_t* context);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_perfcontext_enable_per_level_perfcontext(
+    rocksdb_perfcontext_t* context);
+
+extern ROCKSDB_LIBRARY_API rocksdb_iostatscontext_t*
+rocksdb_iostatscontext_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_iostatscontext_reset(
+    rocksdb_iostatscontext_t* context);
+extern ROCKSDB_LIBRARY_API char* rocksdb_iostatscontext_report(
+    rocksdb_iostatscontext_t* context, unsigned char exclude_zero_counters);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_iostatscontext_metric(rocksdb_iostatscontext_t* context, int metric);
+extern ROCKSDB_LIBRARY_API void rocksdb_iostatscontext_destroy(
+    rocksdb_iostatscontext_t* context);
 
 /* Compaction Filter */
 
