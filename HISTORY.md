@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.7.2 (09/30/2025)
+### Bug Fixes
+* Fix incorrect MultiScan seek error status due to bugs in handling range limit falling between adjacent SST files key range.
+
+### Performance Improvements
+* Fixed a performance regression in LZ4 compression that started in version 10.6.0
+
 ## 10.7.0 (09/24/2025)
 ### New Features
 * Add the fail_if_no_udi_on_open flag in BlockBasedTableOption to control whether a missing user defined index block in a SST is a hard error or not.
