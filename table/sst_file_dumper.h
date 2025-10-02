@@ -59,7 +59,9 @@ class SstFileDumper {
                              FilePrefetchBuffer* prefetch_buffer);
 
   Status CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
-                                      TableProperties* props);
+                                      TableProperties* props,
+                                      std::chrono::microseconds* write_time,
+                                      std::chrono::microseconds* read_time);
 
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();

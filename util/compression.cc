@@ -516,7 +516,7 @@ class BuiltinBZip2CompressorV2 : public CompressorWithSimpleDictBase {
   }
 };
 
-class BuiltinLZ4CompressorV2 : public CompressorWithSimpleDictBase {
+class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
  public:
   using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
 
@@ -527,8 +527,8 @@ class BuiltinLZ4CompressorV2 : public CompressorWithSimpleDictBase {
   }
 
   std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
-    return std::make_unique<BuiltinLZ4CompressorV2>(opts_,
-                                                    std::move(dict_data));
+    return std::make_unique<BuiltinLZ4CompressorV2WithDict>(
+        opts_, std::move(dict_data));
   }
 
   ManagedWorkingArea ObtainWorkingArea() override {
@@ -588,6 +588,72 @@ class BuiltinLZ4CompressorV2 : public CompressorWithSimpleDictBase {
         stream, uncompressed_data.data(), alg_output,
         static_cast<int>(uncompressed_data.size()),
         static_cast<int>(alg_max_output_size), acceleration);
+    if (outlen > 0) {
+      // Compression kept/successful
+      size_t output_size = static_cast<size_t>(
+          outlen + /*header size*/ (alg_output - compressed_output));
+      assert(output_size <= *compressed_output_size);
+      *compressed_output_size = output_size;
+      *out_compression_type = kLZ4Compression;
+      return Status::OK();
+    }
+    // Compression rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    (void)wa;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+};
+
+class BuiltinLZ4CompressorV2NoDict : public BuiltinLZ4CompressorV2WithDict {
+ public:
+  BuiltinLZ4CompressorV2NoDict(const CompressionOptions& opts)
+      : BuiltinLZ4CompressorV2WithDict(opts, /*dict_data=*/{}) {}
+
+  ManagedWorkingArea ObtainWorkingArea() override {
+    // Using an LZ4_stream_t between compressions and resetting with
+    // LZ4_resetStream_fast is actually slower than using a fresh LZ4_stream_t
+    // each time, or not involving a stream at all. Similarly, using an extState
+    // does not seem to offer a performance boost, perhaps a small regression.
+    return {};
+  }
+
+  void ReleaseWorkingArea(WorkingArea* wa) override {
+    // Should not be called
+    (void)wa;
+    assert(wa == nullptr);
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override {
+#ifdef LZ4
+    (void)wa;
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      // Compression bypassed
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+    int acceleration;
+    if (opts_.level < 0) {
+      acceleration = -opts_.level;
+    } else {
+      acceleration = 1;
+    }
+    auto outlen =
+        LZ4_compress_fast(uncompressed_data.data(), alg_output,
+                          static_cast<int>(uncompressed_data.size()),
+                          static_cast<int>(alg_max_output_size), acceleration);
     if (outlen > 0) {
       // Compression kept/successful
       size_t output_size = static_cast<size_t>(
@@ -1508,7 +1574,7 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       case kBZip2Compression:
         return std::make_unique<BuiltinBZip2CompressorV2>(opts);
       case kLZ4Compression:
-        return std::make_unique<BuiltinLZ4CompressorV2>(opts);
+        return std::make_unique<BuiltinLZ4CompressorV2NoDict>(opts);
       case kLZ4HCCompression:
         return std::make_unique<BuiltinLZ4HCCompressorV2>(opts);
       case kXpressCompression:

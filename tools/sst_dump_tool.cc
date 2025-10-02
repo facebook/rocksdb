@@ -181,7 +181,6 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   bool list_meta_blocks = false;
   bool has_compression_level_from = false;
   bool has_compression_level_to = false;
-  bool has_specified_compression_types = false;
   std::string from_key;
   std::string to_key;
   std::string block_size_str;
@@ -258,7 +257,6 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       std::string compression_types_csv = argv[i] + 20;
       std::istringstream iss(compression_types_csv);
       std::string compression_type;
-      has_specified_compression_types = true;
 
       while (std::getline(iss, compression_type, ',')) {
         auto iter =
@@ -392,12 +390,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
   }
 
-  if (has_compression_level_from && has_compression_level_to) {
-    if (!has_specified_compression_types || compression_types.size() != 1) {
-      fprintf(stderr, "Specify one compression type.\n\n");
-      exit(1);
-    }
-  } else if (has_compression_level_from || has_compression_level_to) {
+  if (has_compression_level_from ^ has_compression_level_to) {
     fprintf(stderr,
             "Specify both --compression_level_from and "
             "--compression_level_to.\n\n");
@@ -536,14 +529,20 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
 
     if (command == "recompress") {
-      fprintf(stdout, "Block Size: %zu  Threads: %u\n", block_size,
-              (unsigned)compression_parallel_threads);
-      // TODO: consider getting supported compressions from the compression
-      // manager
+      if (compression_types.empty()) {
+        if (options.compression_manager != nullptr) {
+          for (int c = 0; c < kDisableCompressionOption; ++c) {
+            if (options.compression_manager->SupportsCompressionType(
+                    static_cast<CompressionType>(c))) {
+              compression_types.emplace_back(static_cast<CompressionType>(c));
+            }
+          }
+        } else {
+          compression_types = GetSupportedCompressions();
+        }
+      }
       st = dumper.ShowAllCompressionSizes(
-          compression_types.empty() ? GetSupportedCompressions()
-                                    : compression_types,
-          compress_level_from, compress_level_to);
+          compression_types, compress_level_from, compress_level_to);
       if (!st.ok()) {
         fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
         exit(1);
