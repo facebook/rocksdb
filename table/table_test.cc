@@ -7799,7 +7799,8 @@ class UserDefinedIndexTest
       std::unordered_map<std::string, std::string> property_bag,
       const ReadOptions& ro, MultiScanArgs& scan_opts,
       std::vector<int>& key_counts, std::unique_ptr<DB>& db,
-      ColumnFamilyHandle* cfh) {
+      ColumnFamilyHandle* cfh, bool skip_after_count_limit = false,
+      int count = 0) {
     key_counts.clear();
     (*scan_opts).clear();
 
@@ -7848,6 +7849,11 @@ class UserDefinedIndexTest
           printf("found key %s\n", iter->key().ToString().c_str());
         }
         key_count++;
+        if (skip_after_count_limit) {
+          if (key_count == count) {
+            break;
+          }
+        }
         iter->Next();
       }
       EXPECT_EQ(key_count, key_counts[index]);
@@ -8167,7 +8173,6 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   property_bag["count"] = std::to_string(25);
   scan_opts.insert(Slice("key40"), std::optional(property_bag));
   iter->Prepare(scan_opts);
-  // Test that we can read all the keys
   key_count = 0;
   for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
@@ -8176,6 +8181,157 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   ASSERT_GE(key_count, 25);
   // The index may undercount by 2 blocks
   ASSERT_LE(key_count, 30);
+  ASSERT_OK(iter->status());
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+
+TEST_P(UserDefinedIndexTest, IngestTestWithCompaction) {
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options_));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  auto kvs = generateKVs(/*key_count*/ 100);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(writer->Put(kv.first, kv.second));
+  }
+
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options_.create_if_missing = true;
+  Status s = DB::Open(options_, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+
+  // Use a SST partitioner to create multiple files, use the first 4 bytes of
+  // key to partition the file,
+  // The key is formatted with 2 digit following "key" string, e.g. key01,
+  // key99
+  options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+  ASSERT_OK(db->CreateColumnFamily(options_, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  // Perform a manual compaction. The compacted files should have UDI as well
+  s = db->CompactRange(
+      {.exclusive_manual_compaction = true,
+       .bottommost_level_compaction = BottommostLevelCompaction::kForce},
+      cfh, nullptr, nullptr);
+  ASSERT_OK(s);
+
+  ReadOptions ro;
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  ASSERT_OK(iter->status());
+
+  // Test that we can read all the keys
+  int key_count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 100);  // We added 100 keys
+  ASSERT_OK(iter->status());
+  iter.reset();
+
+  ro.table_index_factory = user_defined_index_factory.get();
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+
+  // Test seek specific key
+  key_count = 0;
+  for (iter->Seek(is_reverse_comparator_ ? "key49" : "key40"); iter->Valid();
+       iter->Next()) {
+    key_count++;
+  }
+  // Since SeekToFirst is not implemented in UDI, so iterate to next file is not
+  // supported, therefore iterator only returns the keys within the file.
+  ASSERT_EQ(key_count, 10);
+  ASSERT_EQ(iter->status(), Status::NotSupported("SeekToFirst not supported"));
+
+  // Test seek specific key with upper bound
+  Slice ub(is_reverse_comparator_ ? "key31" : "key39");
+  ro.iterate_upper_bound = &ub;
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+
+  key_count = 0;
+  for (iter->Seek("key35"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 4);
+  ASSERT_OK(iter->status());
+
+  // Test MultiScan API with upper bound cross file boundary
+  ro.iterate_upper_bound = &ub;
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  MultiScanArgs scan_opts(options_.comparator);
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(9);
+  std::vector<Slice> range = {
+      // Range span 2 files
+      Slice("key40"),
+      Slice("key59"),
+      // Range within a file
+      Slice("key80"),
+      Slice("key85"),
+  };
+  if (is_reverse_comparator_) {
+    std::reverse(range.begin(), range.end());
+  }
+  scan_opts.insert(range[0], range[1], std::optional(property_bag));
+  scan_opts.insert(range[2], range[3], std::optional(property_bag));
+  iter->Prepare(scan_opts);
+
+  // Update upper bound before each seek
+  ub = range[1];
+  key_count = 0;
+  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
+       iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  if (is_reverse_comparator_) {
+    ASSERT_EQ(key_count, 5);
+  } else {
+    ASSERT_EQ(key_count, 19);
+  }
+
+  // Update upper bound before each seek
+  ub = range[3];
+  key_count = 0;
+  for (iter->Seek(scan_opts.GetScanRanges()[1].range.start.value());
+       iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  if (is_reverse_comparator_) {
+    ASSERT_EQ(key_count, 19);
+  } else {
+    ASSERT_EQ(key_count, 5);
+  }
+
   ASSERT_OK(iter->status());
   iter.reset();
 
@@ -8290,6 +8446,12 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
                      // Cross block boundary
                      {{"key38", "key49"}, 7, 9}},
                     property_bag, ro, scan_opts, key_counts, db, cfh);
+
+  // Seek to next range before exhaust current iterator
+  ValidateMultiScan({{{"key10", "key26"}, 5, 5},
+                     // Cross block boundary
+                     {{"key38", "key49"}, 5, 5}},
+                    property_bag, ro, scan_opts, key_counts, db, cfh, true, 5);
 
   // Scan bigger than one contiguous range of keys, with overlap greater than
   // count
