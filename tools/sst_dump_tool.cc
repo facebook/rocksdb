@@ -181,7 +181,6 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   bool list_meta_blocks = false;
   bool has_compression_level_from = false;
   bool has_compression_level_to = false;
-  bool has_specified_compression_types = false;
   std::string from_key;
   std::string to_key;
   std::string block_size_str;
@@ -258,7 +257,6 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       std::string compression_types_csv = argv[i] + 20;
       std::istringstream iss(compression_types_csv);
       std::string compression_type;
-      has_specified_compression_types = true;
 
       while (std::getline(iss, compression_type, ',')) {
         auto iter =
@@ -392,12 +390,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
   }
 
-  if (has_compression_level_from && has_compression_level_to) {
-    if (!has_specified_compression_types || compression_types.size() != 1) {
-      fprintf(stderr, "Specify one compression type.\n\n");
-      exit(1);
-    }
-  } else if (has_compression_level_from || has_compression_level_to) {
+  if (has_compression_level_from ^ has_compression_level_to) {
     fprintf(stderr,
             "Specify both --compression_level_from and "
             "--compression_level_to.\n\n");

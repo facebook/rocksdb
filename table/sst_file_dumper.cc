@@ -330,7 +330,8 @@ Status SstFileDumper::ShowAllCompressionSizes(
             ? options_.compression_manager->SupportsCompressionType(ctype)
             : CompressionTypeSupported(ctype)) {
       CompressionOptions compress_opt = options_.compression_opts;
-      fprintf(stdout, "Compression: %-24s Block Size: %zu  Threads: %d\n",
+      fprintf(stdout,
+              "Compression: %-24s Block Size: %" PRIu64 "  Threads: %u\n",
               cname.c_str(), bbto.block_size, compress_opt.parallel_threads);
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Cx level: %d", j);
