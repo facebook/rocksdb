@@ -192,7 +192,11 @@ void WalManager::PurgeObsoleteWALFiles() {
                          s.ToString().c_str());
           continue;
         }
-        if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
+
+        // Avoid expression `now_seconds - file_m_time` to prevent unsigned
+        // underflow in case system clock goes backwards. Both timestamps are
+        // based on wall clock time, which is not guaranteed to be monotonic.
+        if (now_seconds > file_m_time + db_options_.WAL_ttl_seconds) {
           s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
                            /*force_fg=*/!wal_in_db_path_);
           if (!s.ok()) {
