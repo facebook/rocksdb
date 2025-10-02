@@ -231,7 +231,9 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
 }
 
 Status SstFileDumper::CalculateCompressedTableSize(
-    const TableBuilderOptions& tb_options, TableProperties* props) {
+    const TableBuilderOptions& tb_options, TableProperties* props,
+    std::chrono::microseconds* write_time,
+    std::chrono::microseconds* read_time) {
   std::unique_ptr<Env> env(NewMemEnv(options_.env));
   std::unique_ptr<WritableFileWriter> dest_writer;
   Status s =
@@ -240,6 +242,8 @@ Status SstFileDumper::CalculateCompressedTableSize(
   if (!s.ok()) {
     return s;
   }
+  std::chrono::steady_clock::time_point start =
+      std::chrono::steady_clock::now();
   std::unique_ptr<TableBuilder> table_builder{
       tb_options.moptions.table_factory->NewTableBuilder(tb_options,
                                                          dest_writer.get())};
@@ -253,17 +257,69 @@ Status SstFileDumper::CalculateCompressedTableSize(
   if (!s.ok()) {
     return s;
   }
+  iter.reset();
   s = table_builder->Finish();
+  *write_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now() - start);
   if (!s.ok()) {
     return s;
   }
+  s = dest_writer->Close({});
+  if (!s.ok()) {
+    return s;
+  }
+  dest_writer.reset();
   *props = table_builder->GetTableProperties();
+  start = std::chrono::steady_clock::now();
+  TableReaderOptions reader_options(ioptions_, moptions_.prefix_extractor,
+                                    moptions_.compression_manager.get(),
+                                    soptions_, internal_comparator_,
+                                    0 /* block_protection_bytes_per_key */);
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  s = RandomAccessFileReader::Create(env->GetFileSystem(), testFileName,
+                                     soptions_, &file_reader, /*dbg=*/nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  std::unique_ptr<TableReader> table_reader;
+  s = tb_options.moptions.table_factory->NewTableReader(
+      reader_options, std::move(file_reader), table_builder->FileSize(),
+      &table_reader);
+  if (!s.ok()) {
+    return s;
+  }
+  iter.reset(table_reader->NewIterator(
+      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  }
+  s = iter->status();
+  if (!s.ok()) {
+    return s;
+  }
+  iter.reset();
+  table_reader.reset();
+  file_reader.reset();
+  *read_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now() - start);
   return env->DeleteFile(testFileName);
 }
 
 Status SstFileDumper::ShowAllCompressionSizes(
     const std::vector<CompressionType>& compression_types,
     int32_t compress_level_from, int32_t compress_level_to) {
+#ifndef NDEBUG
+  fprintf(stdout,
+          "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
+#endif
+  BlockBasedTableOptions bbto;
+  if (options_.table_factory->IsInstanceOf(
+          TableFactory::kBlockBasedTableName())) {
+    bbto = *(static_cast_with_check<BlockBasedTableFactory>(
+                 options_.table_factory.get()))
+                ->GetOptions<BlockBasedTableOptions>();
+  }
+
   for (CompressionType ctype : compression_types) {
     std::string cname;
     if (!GetStringFromCompressionType(&cname, ctype).ok()) {
@@ -273,10 +329,12 @@ Status SstFileDumper::ShowAllCompressionSizes(
     if (options_.compression_manager
             ? options_.compression_manager->SupportsCompressionType(ctype)
             : CompressionTypeSupported(ctype)) {
-      fprintf(stdout, "Compression: %-24s\n", cname.c_str());
       CompressionOptions compress_opt = options_.compression_opts;
+      fprintf(stdout,
+              "Compression: %-24s Block Size: %" PRIu64 "  Threads: %u\n",
+              cname.c_str(), bbto.block_size, compress_opt.parallel_threads);
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
-        fprintf(stdout, "Compression level: %d", j);
+        fprintf(stdout, "Cx level: %d", j);
         compress_opt.level = j;
         Status s = ShowCompressionSize(ctype, compress_opt);
         if (!s.ok()) {
@@ -320,27 +378,26 @@ Status SstFileDumper::ShowCompressionSize(
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level, kUnknownNewestKeyTime);
   TableProperties props;
-  std::chrono::steady_clock::time_point start =
-      std::chrono::steady_clock::now();
-  Status s = CalculateCompressedTableSize(tb_opts, &props);
+  std::chrono::microseconds write_time;
+  std::chrono::microseconds read_time;
+  Status s =
+      CalculateCompressedTableSize(tb_opts, &props, &write_time, &read_time);
   if (!s.ok()) {
     return s;
   }
 
   uint64_t num_data_blocks = props.num_data_blocks;
 
-  std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-  fprintf(stdout, " Comp size: %10" PRIu64, props.data_size);
-  fprintf(stdout, " Uncompressed: %10" PRIu64, props.uncompressed_data_size);
+  fprintf(stdout, " Cx size: %10" PRIu64, props.data_size);
+  fprintf(stdout, " Uncx size: %10" PRIu64, props.uncompressed_data_size);
   fprintf(stdout, " Ratio: %10s",
           std::to_string(static_cast<double>(props.uncompressed_data_size) /
                          static_cast<double>(props.data_size))
               .c_str());
-  fprintf(stdout, " Microsecs: %10s ",
-          std::to_string(
-              std::chrono::duration_cast<std::chrono::microseconds>(end - start)
-                  .count())
-              .c_str());
+  fprintf(stdout, " Write usec: %10s ",
+          std::to_string(write_time.count()).c_str());
+  fprintf(stdout, " Read usec: %10s ",
+          std::to_string(read_time.count()).c_str());
   const uint64_t compressed_blocks =
       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
   const uint64_t not_compressed_blocks =
@@ -370,11 +427,11 @@ Status SstFileDumper::ShowCompressionSize(
                              : ((static_cast<double>(not_compressed_blocks) /
                                  static_cast<double>(num_data_blocks)) *
                                 100.0);
-  fprintf(stdout, " Comp count: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
+  fprintf(stdout, " Cx count: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
           compressed_pcnt);
-  fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
+  fprintf(stdout, " Not cx for ratio: %6" PRIu64 " (%5.1f%%)",
           ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
-  fprintf(stdout, " Not compressed (abort): %6" PRIu64 " (%5.1f%%)\n",
+  fprintf(stdout, " Not cx otherwise: %6" PRIu64 " (%5.1f%%)\n",
           not_compressed_blocks, not_compressed_pcnt);
   return Status::OK();
 }
