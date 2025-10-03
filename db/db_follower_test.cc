@@ -370,10 +370,10 @@ TEST_F(DBFollowerTest, RetryCatchupManifestRollover) {
 
 // This test creates 4 L0 files and compacts them. The follower, during catchup,
 // successfully instantiates 4 Versions corresponding to the 4 files (but
-// donesn't install them yet), followed by deleting those 4 and adding a new
+// doesn't install them yet), followed by deleting those 4 and adding a new
 // file from compaction. The test verifies that the 4 L0 files are deleted
 // correctly by the follower.
-// We use teh Barrier* functions to ensure that the follower first sees the 4
+// We use the Barrier* functions to ensure that the follower first sees the 4
 // L0 files and is able to link them, and then sees the compaction that
 // obsoletes those L0 files (so those L0 files are intermediates that it has
 // to explicitly delete). Suppose we don't have any barriers, its possible

@@ -179,7 +179,7 @@ class WriteThread {
            PostMemTableCallback* _post_memtable_callback = nullptr,
            bool _ingest_wbwi = false)
         : batch(_batch),
-          // TODO: store a copy of WriteOptions instead of its seperated data
+          // TODO: store a copy of WriteOptions instead of its separated data
           // members
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
