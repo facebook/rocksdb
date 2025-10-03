@@ -55,10 +55,6 @@ class DbStressCompactionService : public CompactionService {
       } else if (s.IsNotFound()) {
         // Result not found - Remote Compaction is still running
         Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
-      } else if (s.IsShutdownInProgress() || s.IsManualCompactionPaused()) {
-        // Race: Remote worker aborted before primary sets aborted_ = true
-        // Let primary handle this after fall back to local
-        return CompactionServiceJobStatus::kUseLocal;
       } else {
         // Remote Compaction failed
         if (failure_should_fall_back_to_local_) {
