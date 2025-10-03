@@ -278,23 +278,32 @@ class SharedState {
 
   void EnqueueRemoteCompaction(const std::string& job_id,
                                const CompactionServiceJobInfo& job_info,
-                               const std::string& serialized_input) {
+                               const std::string& serialized_input,
+                               const std::string& output_directory,
+                               bool canceled) {
     MutexLock l(&remote_compaction_queue_mu_);
-    remote_compaction_queue_.emplace(job_id, job_info, serialized_input);
+    remote_compaction_queue_.emplace(job_id, job_info, serialized_input,
+                                     output_directory, canceled);
   }
 
   bool DequeueRemoteCompaction(std::string* job_id,
                                CompactionServiceJobInfo* job_info,
-                               std::string* serialized_input) {
+                               std::string* serialized_input,
+                               std::string* output_directory, bool* canceled) {
     assert(job_id);
     assert(job_info);
     assert(serialized_input);
+    assert(output_directory);
+    assert(canceled);
     MutexLock l(&remote_compaction_queue_mu_);
     if (!remote_compaction_queue_.empty()) {
-      const auto [id, info, input] = remote_compaction_queue_.front();
+      const auto [id, info, input, output_dir, was_canceled] =
+          remote_compaction_queue_.front();
       *job_id = id;
       *job_info = info;
       *serialized_input = input;
+      *output_directory = output_dir;
+      *canceled = was_canceled;
       remote_compaction_queue_.pop();
       return true;
     }
@@ -480,10 +489,11 @@ class SharedState {
   std::atomic<bool> verification_failure_;
   std::atomic<bool> should_stop_test_;
 
-  // Queue for the remote compaction. Tuple of job id, job info and serialized
-  // compaction_service_input
+  // Queue for the remote compaction. Tuple of job id, job info, serialized
+  // compaction_service_input, output_directory and was_canceled
   port::Mutex remote_compaction_queue_mu_;
-  std::queue<std::tuple<std::string, CompactionServiceJobInfo, std::string>>
+  std::queue<std::tuple<std::string, CompactionServiceJobInfo, std::string,
+                        std::string, bool>>
       remote_compaction_queue_;
   // Result Map for the remote compaciton. Key is the scheduled_job_id and value
   // is serialized compaction_service_result
