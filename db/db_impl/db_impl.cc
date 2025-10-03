@@ -5041,6 +5041,21 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   }
 }
 
+void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                                     const Slice& start_key,
+                                     const Slice& end_key,
+                                     ColumnFamilyMetaData* metadata,
+                                     int level) {
+  assert(column_family);
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    cfd->current()->GetColumnFamilyMetaData(start_key, end_key, metadata,
+                                            level);
+  }
+}
+
 void DBImpl::GetAllColumnFamilyMetaData(
     std::vector<ColumnFamilyMetaData>* metadata) {
   InstrumentedMutexLock l(&mutex_);
