@@ -55,6 +55,12 @@ class StressTest {
   }
   Options GetOptions(int cf_id);
   void CleanUp();
+  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
+    assert(!error_s.ok());
+    return error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s) &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
+  }
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -348,13 +354,6 @@ class StressTest {
       ThreadState* /*thread*/,
       const std::vector<int>& /*rand_column_families*/) {
     return Status::NotSupported("TestCustomOperations() must be overridden");
-  }
-
-  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
-    assert(!error_s.ok());
-    return error_s.getState() &&
-           FaultInjectionTestFS::IsInjectedError(error_s) &&
-           !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,
