@@ -235,6 +235,44 @@ void RemoteCompactionWorkerThread(void* v) {
   SharedState* shared = thread->shared;
   StressTest* stress_test = shared->GetStressTest();
   assert(stress_test != nullptr);
+
+#ifndef NDEBUG
+  if (fault_fs_guard) {
+    fault_fs_guard->SetThreadLocalErrorContext(
+        FaultInjectionIOType::kRead, shared->GetSeed(), FLAGS_read_fault_one_in,
+        FLAGS_inject_error_severity == 1 /* retryable */,
+        FLAGS_inject_error_severity == 2 /* has_data_loss*/);
+    fault_fs_guard->EnableThreadLocalErrorInjection(
+        FaultInjectionIOType::kRead);
+
+    fault_fs_guard->SetThreadLocalErrorContext(
+        FaultInjectionIOType::kWrite, shared->GetSeed(),
+        FLAGS_write_fault_one_in,
+        FLAGS_inject_error_severity == 1 /* retryable */,
+        FLAGS_inject_error_severity == 2 /* has_data_loss*/);
+    fault_fs_guard->EnableThreadLocalErrorInjection(
+        FaultInjectionIOType::kWrite);
+
+    fault_fs_guard->SetThreadLocalErrorContext(
+        FaultInjectionIOType::kMetadataRead, shared->GetSeed(),
+        FLAGS_metadata_read_fault_one_in,
+        FLAGS_inject_error_severity == 1 /* retryable */,
+        FLAGS_inject_error_severity == 2 /* has_data_loss*/);
+    fault_fs_guard->EnableThreadLocalErrorInjection(
+        FaultInjectionIOType::kMetadataRead);
+
+    fault_fs_guard->SetThreadLocalErrorContext(
+        FaultInjectionIOType::kMetadataWrite, shared->GetSeed(),
+        FLAGS_metadata_write_fault_one_in,
+        FLAGS_inject_error_severity == 1 /* retryable */,
+        FLAGS_inject_error_severity == 2 /* has_data_loss*/);
+    fault_fs_guard->EnableThreadLocalErrorInjection(
+        FaultInjectionIOType::kMetadataWrite);
+  }
+#endif  // NDEBUG
+
+  uint64_t successful_compaction_end_to_end_micros = 0;
+  Random rand(static_cast<uint32_t>(FLAGS_seed));
   while (true) {
     {
       MutexLock l(shared->GetMutex());
@@ -249,10 +287,16 @@ void RemoteCompactionWorkerThread(void* v) {
     std::string job_id;
     CompactionServiceJobInfo job_info;
     std::string serialized_input;
-    if (shared->DequeueRemoteCompaction(&job_id, &job_info,
-                                        &serialized_input)) {
+    std::string output_directory;
+    bool was_canceled;
+
+    if (shared->DequeueRemoteCompaction(&job_id, &job_info, &serialized_input,
+                                        &output_directory, &was_canceled)) {
       auto options = stress_test->GetOptions(job_info.cf_id);
+      assert(options.env != nullptr);
+
       CompactionServiceOptionsOverride override_options{
+          .env = db_stress_env,
           .file_checksum_gen_factory = options.file_checksum_gen_factory,
           .merge_operator = options.merge_operator,
           .compaction_filter = options.compaction_filter,
@@ -260,27 +304,70 @@ void RemoteCompactionWorkerThread(void* v) {
           .prefix_extractor = options.prefix_extractor,
           .table_factory = options.table_factory,
           .sst_partitioner_factory = options.sst_partitioner_factory,
-          .listeners = {},
+          .listeners = options.listeners,
           .statistics = options.statistics,
           .table_properties_collector_factories =
               options.table_properties_collector_factories};
-      std::string tmp_output_dir = job_info.db_name + "/" + "tmp_output_" +
-                                   db_stress_env->GenerateUniqueId();
-      std::string serialized_output;
-      Status s = DB::OpenAndCompact(OpenAndCompactOptions{}, job_info.db_name,
-                                    tmp_output_dir, serialized_input,
-                                    &serialized_output, override_options);
-      if (!s.ok()) {
-        // Print in stdout instead of stderr to avoid stress test failure,
-        // because OpenAndCompact() failure doesn't necessarily mean
-        // primary db instance failure.
-        fprintf(stdout, "Failed to run OpenAndCompact(%s): %s\n",
-                job_info.db_name.c_str(), s.ToString().c_str());
+
+      OpenAndCompactOptions open_compact_options;
+      open_compact_options.resume_compaciton = FLAGS_resume_compaction;
+
+      std::shared_ptr<std::atomic<bool>> canceled = nullptr;
+
+      if (FLAGS_resume_compaction) {
+        canceled = std::make_shared<std::atomic<bool>>(false);
+        open_compact_options.canceled = canceled.get();
+
+        // Always cancel compaction if it hasn't been canceled yet
+        // or randomly continue canceling with a small probability to
+        // test edge cases where consecutive cancellations occur.
+        bool should_cancel = !was_canceled || rand.OneIn(10);
+        if (should_cancel) {
+          std::thread interruption_thread(
+              [canceled, successful_compaction_end_to_end_micros]() {
+                std::this_thread::sleep_for(std::chrono::microseconds(
+                    successful_compaction_end_to_end_micros == 0
+                        ? 50000
+                        : successful_compaction_end_to_end_micros * 2 / 3));
+                canceled->store(true);
+              });
+          interruption_thread.detach();
+        }
       }
-      // Add the output regardless of status, so that primary DB doesn't rely on
-      // the timeout to finish waiting. The actual failure from the
-      // deserialization can fail the compaction properly
-      shared->AddRemoteCompactionResult(job_id, serialized_output);
+
+      std::string serialized_output;
+      uint64_t start_micros = options.env->NowMicros();
+
+      Status s = DB::OpenAndCompact(open_compact_options, job_info.db_name,
+                                    output_directory, serialized_input,
+                                    &serialized_output, override_options);
+
+      if (s.IsManualCompactionPaused() && FLAGS_resume_compaction) {
+        shared->EnqueueRemoteCompaction(job_id, job_info, serialized_input,
+                                        output_directory,
+                                        true /* was_cancelled */);
+      } else {
+        if (!s.ok()) {
+          // Hack
+          if (stress_test->IsErrorInjectedAndRetryable(s)) {
+            serialized_output = "INJECTED";
+          } else {
+            // Print in stdout instead of stderr to avoid stress test failure,
+            // because OpenAndCompact() failure doesn't necessarily mean
+            // primary db instance failure.
+            fprintf(stdout, "Failed to run OpenAndCompact(%s): %s\n",
+                    job_info.db_name.c_str(), s.ToString().c_str());
+          }
+        } else {
+          successful_compaction_end_to_end_micros =
+              options.env->NowMicros() - start_micros;
+        }
+
+        // Add the output regardless of status, so that primary DB doesn't rely
+        // on the timeout to finish waiting. The actual failure from the //
+        // deserialization can fail the compaction properly
+        shared->AddRemoteCompactionResult(job_id, serialized_output);
+      }
     }
     db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_remote_compaction_worker_interval * 1000 +

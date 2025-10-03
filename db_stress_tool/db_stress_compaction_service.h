@@ -28,16 +28,25 @@ class DbStressCompactionService : public CompactionService {
   static constexpr uint64_t kWaitTimeoutInMicros =
       30 * 1000 * 1000;  // 30 seconds
 
+  static constexpr const char* kTempOutputDirectoryPrefix = "tmp_output_";
+
   CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
     std::string job_id = info.db_id + "_" + info.db_session_id + "_" +
                          std::to_string(info.job_id);
+
     if (aborted_.load()) {
       return CompactionServiceScheduleResponse(
           job_id, CompactionServiceJobStatus::kUseLocal);
     }
-    shared_->EnqueueRemoteCompaction(job_id, info, compaction_service_input);
+    std::string output_directory = info.db_name + "/" +
+                                   kTempOutputDirectoryPrefix +
+                                   Env::Default()->GenerateUniqueId();
+
+    shared_->EnqueueRemoteCompaction(
+        job_id, info, compaction_service_input, output_directory,
+        false /* was_cancelled */);  // Not canceled initially
     CompactionServiceScheduleResponse response(
         job_id, CompactionServiceJobStatus::kSuccess);
     return response;
@@ -45,14 +54,16 @@ class DbStressCompactionService : public CompactionService {
 
   CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
                                   std::string* result) override {
-    auto start = Env::Default()->NowMicros();
-    while (Env::Default()->NowMicros() - start < kWaitTimeoutInMicros) {
+    while (true) {
       if (aborted_.load()) {
         return CompactionServiceJobStatus::kUseLocal;
       }
       if (shared_->GetRemoteCompactionResult(scheduled_job_id, result).ok()) {
         if (result && result->empty()) {
           // Race: Remote worker aborted before client sets aborted_ = true
+          return CompactionServiceJobStatus::kUseLocal;
+        } else if (result && result->find("INJECTED") != std::string::npos) {
+          // Hack
           return CompactionServiceJobStatus::kUseLocal;
         }
         return CompactionServiceJobStatus::kSuccess;
@@ -100,5 +111,4 @@ class DbStressCompactionService : public CompactionService {
   std::atomic_bool aborted_{false};
   bool failure_should_fall_back_to_local_;
 };
-
 }  // namespace ROCKSDB_NAMESPACE
