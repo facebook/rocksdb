@@ -301,7 +301,8 @@ class SharedState {
     return false;
   }
 
-  void AddRemoteCompactionResult(const std::string& job_id, Status status,
+  void AddRemoteCompactionResult(const std::string& job_id,
+                                 const Status& status,
                                  const std::string& result) {
     MutexLock l(&remote_compaction_result_map_mu_);
     remote_compaction_result_map_.emplace(
