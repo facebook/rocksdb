@@ -33,7 +33,7 @@ const char* kTieredCacheName = "TieredCache";
 // proportionally across the primary/secondary caches.
 //
 // The primary block cache is initially sized to the sum of the primary cache
-// budget + teh secondary cache budget, as follows -
+// budget + the secondary cache budget, as follows -
 //   |---------    Primary Cache Configured Capacity  -----------|
 //   |---Secondary Cache Budget----|----Primary Cache Budget-----|
 //
@@ -51,7 +51,7 @@ const char* kTieredCacheName = "TieredCache";
 // placeholder is counted against the primary cache. To compensate and count
 // a portion of it against the secondary cache, the secondary cache Deflate()
 // method is called to shrink it. Since the Deflate() causes the secondary
-// actual usage to shrink, it is refelcted here by releasing an equal amount
+// actual usage to shrink, it is reflected here by releasing an equal amount
 // from the pri_cache_res_ reservation. The Deflate() in the secondary cache
 // can be, but is not required to be, implemented using its own cache
 // reservation manager.
@@ -72,7 +72,7 @@ const char* kTieredCacheName = "TieredCache";
 // reservation is increased by an equal amount.
 //
 // Another way of implementing this would have been to simply split the user
-// reservation into primary and seconary components. However, this would
+// reservation into primary and secondary components. However, this would
 // require allocating a structure to track the associated secondary cache
 // reservation, which adds some complexity and overhead.
 //
@@ -621,7 +621,7 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
   } else {
     // We're shrinking the ratio. Try to avoid unnecessary evictions -
     // 1. Lower the secondary cache capacity
-    // 2. Decrease pri_cache_res_ reservation to relect lower secondary
+    // 2. Decrease pri_cache_res_ reservation to reflect lower secondary
     //    cache utilization (decrease in capacity - decrease in share of cache
     //    reservations)
     // 3. Inflate the secondary cache to give it back the reduction in its

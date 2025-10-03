@@ -77,7 +77,7 @@ class Writer {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
-  // TODO(hx235): seperate WAL related parameters from general `Reader`
+  // TODO(hx235): separate WAL related parameters from general `Reader`
   // parameters
   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, bool recycle_log_files,
