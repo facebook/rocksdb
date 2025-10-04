@@ -1197,6 +1197,7 @@ def finalize_and_sanitize(src_params):
         dest_params["prefixpercent"] = 0
         dest_params["read_fault_one_in"] = 0
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
+        dest_params["max_sequential_skip_in_iterations"] = sys.maxsize
 
     # inplace update and key checksum verification during seek would cause race condition
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
