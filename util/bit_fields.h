@@ -161,7 +161,7 @@ struct AddTransform {
   };
   std::vector<Precondition> preconditions;
 #endif  // NDEBUG
-  void AssertPreconditions(U from) {
+  void AssertPreconditions([[maybe_unused]] U from) {
 #ifndef NDEBUG
     for (auto p : preconditions) {
       U tmp = (from & p.mask) + p.piece;
