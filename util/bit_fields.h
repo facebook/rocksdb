@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/math.h"
@@ -144,8 +145,44 @@ struct AndTransform {
   }
 };
 
-// TODO: AddTransfrom, which is more complicated due to possible overflow into
-// other fields etc.
+// Can represent a combination of both subtractions and additions, representing
+// subtractions as the addition of a negated value. To ensure we don't create a
+// net overflow or underflow between fields, in debug builds we track the
+// corresponding preconditions. (NOTE that when representing a subtraction, we
+// rely on overflow of the unsigned representation.)
+template <typename BitFieldsT>
+struct AddTransform {
+  using U = typename BitFieldsT::U;
+  U to_add = 0;
+#ifndef NDEBUG
+  struct Precondition {
+    U mask;   // for bits of the target field
+    U piece;  // component of to_add for the target field
+  };
+  std::vector<Precondition> preconditions;
+#endif  // NDEBUG
+  void AssertPreconditions(U from) {
+#ifndef NDEBUG
+    for (auto p : preconditions) {
+      U tmp = (from & p.mask) + p.piece;
+      // Assert no under/overflow (unless the field is at the top bits of the
+      // representation in U, which is allowed because it doesn't lead to
+      // leakage into other fields)
+      assert((tmp & ~p.mask) == 0);
+    }
+#endif  // NDEBUG
+  }
+  // + for general combine
+  AddTransform<BitFieldsT> operator+(AddTransform<BitFieldsT> other) const {
+    AddTransform<BitFieldsT> rv{to_add + other.to_add};
+#ifndef NDEBUG
+    rv.preconditions = preconditions;
+    rv.preconditions.insert(rv.preconditions.end(), other.preconditions.begin(),
+                            other.preconditions.end());
+#endif  // NDEBUG
+    return rv;
+  }
+};
 
 // Placeholder for PrevField for the first field
 struct NoPrevBitField {
@@ -222,6 +259,34 @@ struct UnsignedBitField {
   static AndTransform<BitFieldsT> ClearTransform() {
     return AndTransform<BitFieldsT>{~(static_cast<U>(kMask) << kBitOffset)};
   }
+
+  // Create a transform for adding a particular value, but with the precondition
+  // that adding the value will not overflow the field (though that is
+  // technically allowed if this field extends to the highest bits of the
+  // representation). Can be combined with other additive transforms for other
+  // fields.
+  static AddTransform<BitFieldsT> PlusTransformPromiseNoOverflow(V value) {
+    AddTransform<BitFieldsT> rv{static_cast<U>(value) << kBitOffset};
+#ifndef NDEBUG
+    rv.preconditions.push_back(
+        {static_cast<U>(kMask) << kBitOffset, rv.to_add});
+#endif  // NDEBUG
+    return rv;
+  }
+
+  // Create a transform for subtracting a particular value, but with the
+  // precondition that subtracting the value will not underflow the field
+  // (though that is technically allowed if this field extends to the highest
+  // bits of the representation). Can be combined with other additive transforms
+  // for other fields.
+  static AddTransform<BitFieldsT> MinusTransformPromiseNoUnderflow(V value) {
+    AddTransform<BitFieldsT> rv{U{0} - (static_cast<U>(value) << kBitOffset)};
+#ifndef NDEBUG
+    rv.preconditions.push_back(
+        {static_cast<U>(kMask) << kBitOffset, rv.to_add});
+#endif  // NDEBUG
+    return rv;
+  }
 };
 
 // A handy wrapper for a relaxed atomic on some BitFields type (unlike
@@ -278,6 +343,17 @@ class RelaxedBitFieldsAtomic {
       after->underlying = before_val & transform.to_and;
     }
   }
+  void ApplyRelaxed(AddTransform<BitFieldsT> transform,
+                    BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
+    U before_val = v_.fetch_add(transform.to_add, std::memory_order_relaxed);
+    transform.AssertPreconditions(before_val);
+    if (before) {
+      before->underlying = before_val;
+    }
+    if (after) {
+      after->underlying = before_val + transform.to_add;
+    }
+  }
 
  protected:
   std::atomic<U> v_;
@@ -331,6 +407,18 @@ class AcqRelBitFieldsAtomic : public RelaxedBitFieldsAtomic<BitFieldsT> {
     }
     if (after) {
       after->underlying = before_val & transform.to_and;
+    }
+  }
+  void Apply(AddTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
+             BitFieldsT* after = nullptr) {
+    U before_val =
+        Base::v_.fetch_add(transform.to_add, std::memory_order_acq_rel);
+    transform.AssertPreconditions(before_val);
+    if (before) {
+      before->underlying = before_val;
+    }
+    if (after) {
+      after->underlying = before_val + transform.to_add;
     }
   }
 };
