@@ -327,6 +327,33 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     s = Status::ShutdownInProgress();
   }
 
+  // Handle no-space error recovery by switching WAL to avoid WAL corruption
+  if (s.ok() && context.recovering_from_no_space) {
+    // bg_error_reason is always set when recovering_from_no_space is true
+    // Only apply WAL switching for flush operations, which involve WAL writes
+    // Skip for manifest-only operations
+    if (context.bg_error_reason == BackgroundErrorReason::kFlush ||
+        context.bg_error_reason == BackgroundErrorReason::kMemTable ||
+        context.bg_error_reason == BackgroundErrorReason::kWriteCallback) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Applying WAL switching for no-space recovery due to %s error",
+          context.bg_error_reason == BackgroundErrorReason::kFlush ? "flush"
+          : context.bg_error_reason == BackgroundErrorReason::kMemTable
+              ? "memtable"
+              : "write");
+
+      WriteContext write_context;
+      s = SwitchWALForNoSpaceRecovery(&write_context);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "DB resume failed due to WAL switching failure during "
+                       "no-space recovery [%s]",
+                       s.ToString().c_str());
+      }
+    }
+  }
+
   if (s.ok()) {
     Status bg_error = error_handler_.GetBGError();
     if (bg_error.severity() > Status::Severity::kHardError) {
