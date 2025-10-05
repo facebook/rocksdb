@@ -309,8 +309,8 @@ class SharedState {
         job_id, std::pair<Status, std::string>{status, result});
   }
 
-  Status GetRemoteCompactionResult(const std::string& job_id,
-                                   std::string* result) {
+  std::optional<Status> GetRemoteCompactionResult(const std::string& job_id,
+                                                  std::string* result) {
     MutexLock l(&remote_compaction_result_map_mu_);
     if (remote_compaction_result_map_.find(job_id) !=
         remote_compaction_result_map_.end()) {
@@ -318,7 +318,7 @@ class SharedState {
       *result = pair.second;
       return pair.first;
     }
-    return Status::NotFound();
+    return std::nullopt;
   }
 
   void RemoveRemoteCompactionResult(const std::string& job_id) {

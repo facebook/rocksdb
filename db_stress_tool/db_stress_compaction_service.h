@@ -45,32 +45,36 @@ class DbStressCompactionService : public CompactionService {
                                   std::string* result) override {
     while (true) {
       if (aborted_.load()) {
-        return CompactionServiceJobStatus::kUseLocal;
+        return CompactionServiceJobStatus::kAborted;
       }
-      Status s = shared_->GetRemoteCompactionResult(scheduled_job_id, result);
-      if (s.ok()) {
-        assert(result);
-        assert(!result->empty());
-        return CompactionServiceJobStatus::kSuccess;
-      } else if (s.IsNotFound()) {
-        // Result not found - Remote Compaction is still running
-        Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
-      } else {
-        // Remote Compaction failed
-        if (failure_should_fall_back_to_local_) {
-          return CompactionServiceJobStatus::kUseLocal;
-        }
-        if (result && result->empty()) {
-          // If result is empty, set the compaction status in the result so that
-          // it can be bubbled up to main thread
-          CompactionServiceResult compaction_result;
-          compaction_result.status = s;
-          if (compaction_result.Write(result).ok()) {
-            assert(result);
-            assert(!result->empty());
+      auto maybeResultStatus =
+          shared_->GetRemoteCompactionResult(scheduled_job_id, result);
+      if (maybeResultStatus.has_value()) {
+        auto s = maybeResultStatus.value();
+        if (s.ok()) {
+          assert(result);
+          assert(!result->empty());
+          return CompactionServiceJobStatus::kSuccess;
+        } else {
+          // Remote Compaction failed
+          if (failure_should_fall_back_to_local_) {
+            return CompactionServiceJobStatus::kUseLocal;
           }
+          if (result && result->empty()) {
+            // If result is empty, set the compaction status in the result so
+            // that it can be bubbled up to main thread
+            CompactionServiceResult compaction_result;
+            compaction_result.status = s;
+            if (compaction_result.Write(result).ok()) {
+              assert(result);
+              assert(!result->empty());
+            }
+          }
+          return CompactionServiceJobStatus::kFailure;
         }
-        return CompactionServiceJobStatus::kFailure;
+      } else {
+        // Remote Compaction is still running
+        Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
       }
     }
     return CompactionServiceJobStatus::kFailure;
@@ -81,8 +85,8 @@ class DbStressCompactionService : public CompactionService {
     // Clean up tmp directory
     std::string serialized;
     CompactionServiceResult result;
-    if (!shared_->GetRemoteCompactionResult(scheduled_job_id, &serialized)
-             .IsNotFound()) {
+    if (shared_->GetRemoteCompactionResult(scheduled_job_id, &serialized)
+            .has_value()) {
       if (CompactionServiceResult::Read(serialized, &result).ok()) {
         std::vector<std::string> filenames;
         Status s = Env::Default()->GetChildren(result.output_path, &filenames);
