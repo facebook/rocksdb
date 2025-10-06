@@ -8650,6 +8650,121 @@ TEST_F(UserDefinedIndexTest, ReverseMultiScanTest) {
   ASSERT_OK(DestroyDB(dbname, options));
 }
 
+TEST_F(UserDefinedIndexTest, RangeDelete) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  options.num_levels = 50;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  auto create_ingestion_data_file = [&](const std::string& filename) {
+    std::unique_ptr<SstFileWriter> writer;
+    writer.reset(new SstFileWriter(EnvOptions(), options));
+    ASSERT_OK(writer->Open(filename));
+    // Add 100 keys
+    for (int i = 0; i < 100; i++) {
+      std::stringstream ss;
+      ss << std::setw(2) << std::setfill('0') << i;
+      std::string key = "key" + ss.str();
+      std::string value = "value" + ss.str();
+      ASSERT_OK(writer->Put(key, value));
+    }
+    ASSERT_OK(writer->Finish());
+    writer.reset();
+  };
+
+  // Create first ingestion file with data
+  create_ingestion_data_file(ingest_file + "_0");
+
+  // Create second ingestion file with range delete only that covers the first
+  // file to delete all of its keys.
+  {
+    std::unique_ptr<SstFileWriter> writer;
+    writer.reset(new SstFileWriter(EnvOptions(), options));
+    ASSERT_OK(writer->Open(ingest_file + "_1"));
+    ASSERT_OK(writer->DeleteRange("key", "keyz"));
+    ASSERT_OK(writer->Finish());
+    writer.reset();
+  }
+
+  // Create the second ingestion file with data
+  create_ingestion_data_file(ingest_file + "_2");
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  // ingest first data file key00~key99
+  s = db->IngestExternalFile(cfh, {ingest_file + "_0"}, ifo);
+  ASSERT_OK(s);
+  // ingest delete range (key-keyz) and new data file (key00-key99) together
+  s = db->IngestExternalFile(cfh, {ingest_file + "_1", ingest_file + "_2"},
+                             ifo);
+  ASSERT_OK(s);
+
+  ReadOptions ro;
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  ASSERT_OK(iter->status());
+
+  std::vector<Slice> range = {
+      Slice("key10"),
+      Slice("key25"),
+      Slice("key80"),
+      Slice("key95"),
+  };
+
+  Slice ub("");
+  ro.iterate_upper_bound = &ub;
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  MultiScanArgs scan_opts(options.comparator);
+  std::unordered_map<std::string, std::string> property_bag;
+  property_bag["count"] = std::to_string(9);
+
+  std::vector<std::vector<char>> decoded_ranges;
+  for (size_t i = 0; i < range.size() / 2; i++) {
+    scan_opts.insert(range[i * 2], range[i * 2 + 1],
+                     std::optional(property_bag));
+  }
+  iter->Prepare(scan_opts);
+
+  for (size_t i = 0; i < range.size() / 2; i++) {
+    // Update upper bound before each seek
+    ub = range[2 * i + 1];
+    auto key_count = 0;
+    for (iter->Seek(range[i * 2]); iter->Valid(); iter->Next()) {
+      key_count++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(key_count, 15);
+  }
+
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

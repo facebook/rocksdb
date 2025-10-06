@@ -1187,6 +1187,11 @@ class LevelIterator final : public InternalIterator {
                   iend.Encode(), flevel_->files[i].smallest_key) < 0) {
             continue;
           }
+          auto const metadata = flevel_->files[i].file_metadata;
+          if (metadata->num_entries == metadata->num_range_deletions) {
+            // Skip range deletion only files.
+            continue;
+          }
           auto& args = GetMultiScanArgForFile(i);
           args.insert(start.value(), end.value(), opt.property_bag);
         }
