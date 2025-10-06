@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.7.3 (10/06/2025)
+### Bug Fixes
+* Fix a few bugs in MultiScan
+
 ## 10.7.2 (09/30/2025)
 ### Bug Fixes
 * Fix incorrect MultiScan seek error status due to bugs in handling range limit falling between adjacent SST files key range.
