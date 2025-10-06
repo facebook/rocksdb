@@ -828,7 +828,8 @@ class AutoHyperClockTable : public BaseClockTable {
       auto GetShift() const { return Get<Shift>(); }
 
       static NextWithShift Make(size_t next, int shift) {
-        return NextWithShift{}.With<Next>(next).With<Shift>(shift);
+        return NextWithShift{}.With<Next>(next).With<Shift>(
+            static_cast<uint8_t>(shift));
       }
 
       static NextWithShift MakeEnd(size_t next, int shift) {
