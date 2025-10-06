@@ -47,7 +47,7 @@ class DbStressCompactionService : public CompactionService {
       if (aborted_.load()) {
         return CompactionServiceJobStatus::kAborted;
       }
-      auto maybeResultStatus =
+      const auto& maybeResultStatus =
           shared_->GetRemoteCompactionResult(scheduled_job_id, result);
       if (maybeResultStatus.has_value()) {
         auto s = maybeResultStatus.value();
