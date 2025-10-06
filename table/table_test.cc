@@ -8625,6 +8625,7 @@ TEST_P(UserDefinedIndexTest, RangeDelete) {
   BlockBasedTableOptions table_options;
   options_.num_levels = 50;
   options_.compaction_style = kCompactionStyleUniversal;
+  options_.disable_auto_compactions = true;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
   std::string ingest_file = dbname + "test.sst";
 
@@ -8639,7 +8640,7 @@ TEST_P(UserDefinedIndexTest, RangeDelete) {
 
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  auto create_ingestion_data_file = [&](std::string filename) {
+  auto create_ingestion_data_file = [&](const std::string& filename) {
     std::unique_ptr<SstFileWriter> writer;
     writer.reset(new SstFileWriter(EnvOptions(), options_));
     ASSERT_OK(writer->Open(filename));
@@ -8728,8 +8729,8 @@ TEST_P(UserDefinedIndexTest, RangeDelete) {
     for (iter->Seek(range[i * 2]); iter->Valid(); iter->Next()) {
       key_count++;
     }
-    ASSERT_EQ(key_count, 15);
     ASSERT_OK(iter->status());
+    ASSERT_EQ(key_count, 15);
   }
 
   iter.reset();
