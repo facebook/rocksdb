@@ -5,5 +5,5 @@ runs:
   - name: Checkout folly sources
     run: |
       make checkout_folly
-      echo "export GETDEPS_USE_WGET=1" >> $GITHUB_ENV
+      echo "GETDEPS_USE_WGET=1" >> "$GITHUB_ENV"
     shell: bash
