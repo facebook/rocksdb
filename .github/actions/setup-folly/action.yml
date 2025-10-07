@@ -3,5 +3,7 @@ runs:
   using: composite
   steps:
   - name: Checkout folly sources
-    run: make checkout_folly
+    run: |
+      make checkout_folly
+      echo "GETDEPS_USE_WGET=1" >> "$GITHUB_ENV"
     shell: bash
