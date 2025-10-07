@@ -1272,8 +1272,6 @@ class PosixFileSystem : public FileSystem {
       supported_ops |= (1 << FSSupportedOps::kAsyncIO);
     }
 #endif
-    // PosixFileSystem supports prefetch operations
-    supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
 
 #if defined(ROCKSDB_IOURING_PRESENT)

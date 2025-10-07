@@ -1900,17 +1900,6 @@ std::vector<bool> IOUringFlags() {
 #endif
 }
 
-// Param 1: compression type
-// Param 2: whether to use direct reads
-// Param 3: Block Based Table Index type, partitioned filters are also enabled
-//          when index type is kTwoLevelIndexSearch
-// Param 4: BBTO no_block_cache option
-// Param 5: test mode for the user-defined timestamp feature
-// Param 6: number of parallel compression threads
-// Param 7: CompressionOptions.max_dict_bytes and
-//          CompressionOptions.max_dict_buffer_bytes. This enable/disables
-//          compression dictionary.
-// Param 8: test mode to specify the pattern for generating key / value pairs.
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderTest, BlockBasedTableReaderTest,
     ::testing::ValuesIn(BlockBasedTableReaderTestParamBuilder()

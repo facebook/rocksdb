@@ -701,8 +701,6 @@ struct BlockBasedTable::Rep {
   // `end_key` for range deletion entries.
   const bool user_defined_timestamps_persisted;
 
-  // Returns true if fs supports prefetching. Prefetch is set to false by
-  // default, FS has to enable it explicitly.
   const bool fs_prefetch_support;
 
   // Set to >0 when the file is known to be obsolete and should have its block
