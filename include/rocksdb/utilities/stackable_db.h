@@ -423,7 +423,11 @@ class StackableDB : public DB {
 
   Status SyncWAL() override { return db_->SyncWAL(); }
 
+  using DB::FlushWAL;
   Status FlushWAL(bool sync) override { return db_->FlushWAL(sync); }
+  Status FlushWAL(const FlushWALOptions& options) override {
+    return db_->FlushWAL(options);
+  }
 
   Status LockWAL() override { return db_->LockWAL(); }
 
