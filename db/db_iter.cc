@@ -1570,6 +1570,39 @@ void DBIter::Seek(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
+  if (scan_opts_.has_value()) {
+    // Validate the seek target is as expected in the previously prepared range
+    auto const& scan_ranges = scan_opts_.value().GetScanRanges();
+    if (scan_index_ >= scan_ranges.size()) {
+      status_ = Status::InvalidArgument(
+          "Seek called after exhausting all of the scan ranges");
+      valid_ = false;
+      return;
+    }
+
+    // Validate start key of next prepare range matches the seek target
+    auto const& range = scan_ranges[scan_index_];
+    auto const& start = range.range.start;
+    assert(start.has_value());
+    if (user_comparator_.CompareWithoutTimestamp(target, *start) != 0) {
+      status_ = Status::InvalidArgument(
+          "Seek target does not match the start of the next prepared range at "
+          "index " +
+          std::to_string(scan_index_));
+      valid_ = false;
+      return;
+    }
+
+    // Set the upper bound with the limit if it is not set yet.
+    if (iterate_upper_bound_ == nullptr) {
+      auto const& limit = range.range.limit;
+      if (limit.has_value()) {
+        iterate_upper_bound_ = &limit.value();
+      }
+    }
+    scan_index_++;
+  }
+
   if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
