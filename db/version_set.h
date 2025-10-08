@@ -1044,6 +1044,13 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  // Get column family metadata with filtering based on key range and level
+  // If startKey and endKey are provided, only files that overlap with the key
+  // range will be included If level >= 0, only files from that specific level
+  // will be included
+  void GetColumnFamilyMetaData(const Slice& startKey, const Slice& endKey,
+                               ColumnFamilyMetaData* cf_meta, int level = -1);
+
   void GetSstFilesBoundaryKeys(Slice* smallest_user_key,
                                Slice* largest_user_key);
 

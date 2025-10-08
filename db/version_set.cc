@@ -2008,6 +2008,74 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
   }
 }
 
+void Version::GetColumnFamilyMetaData(
+    const Slice& startKey,
+    const Slice& endKey,
+    ColumnFamilyMetaData* cf_meta,
+    int level) {
+  assert(cf_meta);
+  assert(cfd_);
+
+  cf_meta->name = cfd_->GetName();
+  cf_meta->size = 0;
+  cf_meta->file_count = 0;
+  cf_meta->levels.clear();
+  cf_meta->blob_file_size = 0;
+  cf_meta->blob_file_count = 0;
+  cf_meta->blob_files.clear();
+
+  const auto& ioptions = cfd_->ioptions();
+  auto* vstorage = storage_info();
+  const Comparator* ucmp = cfd_->user_comparator();
+
+  int first_level = (level >= 0) ? level : 0;
+  int last_level = (level >= 0) ? level + 1 : cfd_->NumberLevels();
+
+  for (int l = first_level; l < last_level; ++l) {
+    uint64_t level_size = 0;
+    std::vector<SstFileMetaData> files;
+    for (const auto& file : vstorage->LevelFiles(l)) {
+      // Use user key comparator for overlap check
+      if (ucmp->Compare(file->smallest.user_key(), endKey) <= 0 &&
+          ucmp->Compare(file->largest.user_key(), startKey) >= 0) {
+        uint32_t path_id = file->fd.GetPathId();
+        const auto& file_path = (path_id < ioptions.cf_paths.size())
+            ? ioptions.cf_paths[path_id].path
+            : ioptions.cf_paths.back().path;
+        const uint64_t file_number = file->fd.GetNumber();
+        files.emplace_back(
+            MakeTableFileName("", file_number),
+            file_number,
+            file_path,
+            file->fd.GetFileSize(),
+            file->fd.smallest_seqno,
+            file->fd.largest_seqno,
+            file->smallest.user_key().ToString(),
+            file->largest.user_key().ToString(),
+            file->stats.num_reads_sampled.load(std::memory_order_relaxed),
+            file->being_compacted,
+            file->temperature,
+            file->oldest_blob_file_number,
+            file->TryGetOldestAncesterTime(),
+            file->TryGetFileCreationTime(),
+            file->epoch_number,
+            file->file_checksum,
+            file->file_checksum_func_name);
+        files.back().num_entries = file->num_entries;
+        files.back().num_deletions = file->num_deletions;
+        files.back().smallest = file->smallest.Encode().ToString();
+        files.back().largest = file->largest.Encode().ToString();
+        level_size += file->fd.GetFileSize();
+        cf_meta->file_count++;
+      }
+    }
+    if (!files.empty()) {
+      cf_meta->levels.emplace_back(l, level_size, std::move(files));
+      cf_meta->size += level_size;
+    }
+  }
+}
+
 uint64_t Version::GetSstFilesSize() {
   uint64_t sst_files_size = 0;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
