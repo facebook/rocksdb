@@ -1255,6 +1255,70 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_destroy(wb);
   }
 
+  StartPhase("writebatch_vectors_cf");
+  {
+    const char* cf_name = "wb_vectors_cf";
+    rocksdb_column_family_handle_t* wb_cf =
+        rocksdb_create_column_family(db, options, cf_name, &err);
+    CheckNoError(err);
+
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+
+    // Test putv_cf: concatenates multiple slices into a single key/value
+    const char* put_keys[2] = {"k", "ey"};
+    const size_t put_key_sizes[2] = {1, 2};
+    const char* put_vals[3] = {"v", "a", "l"};
+    const size_t put_val_sizes[3] = {1, 1, 1};
+    rocksdb_writebatch_putv_cf(wb, wb_cf, 2, put_keys, put_key_sizes, 3,
+                               put_vals, put_val_sizes);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    // putv_cf concatenates: key="k"+"ey"="key", value="v"+"a"+"l"="val"
+    CheckGetCF(db, roptions, wb_cf, "key", "val");
+    CheckGetCF(db, roptions, wb_cf, "k", NULL);
+    CheckGetCF(db, roptions, wb_cf, "ey", NULL);
+
+    // Test deletev_cf: concatenates multiple slices for key
+    rocksdb_writebatch_clear(wb);
+    const char* del_keys[2] = {"k", "ey"};
+    const size_t del_key_sizes[2] = {1, 2};
+    rocksdb_writebatch_deletev_cf(wb, wb_cf, 2, del_keys, del_key_sizes);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGetCF(db, roptions, wb_cf, "key", NULL);
+
+    // Test delete_rangev_cf: concatenates slices for range deletion
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put_cf(wb, wb_cf, "a", 1, "1", 1);
+    rocksdb_writebatch_put_cf(wb, wb_cf, "b", 1, "2", 1);
+    rocksdb_writebatch_put_cf(wb, wb_cf, "c", 1, "3", 1);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGetCF(db, roptions, wb_cf, "a", "1");
+    CheckGetCF(db, roptions, wb_cf, "b", "2");
+    CheckGetCF(db, roptions, wb_cf, "c", "3");
+
+    rocksdb_writebatch_clear(wb);
+    const char* range_start[2] = {"a", ""};  // "a" + "" = "a"
+    const size_t range_start_sizes[2] = {1, 0};
+    const char* range_end[2] = {"c", ""};
+    const size_t range_end_sizes[2] = {1, 0};
+    rocksdb_writebatch_delete_rangev_cf(wb, wb_cf, 2, range_start,
+                                        range_start_sizes, range_end,
+                                        range_end_sizes);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    // Range [a, c) should delete "a" and "b", but not "c"
+    CheckGetCF(db, roptions, wb_cf, "a", NULL);
+    CheckGetCF(db, roptions, wb_cf, "b", NULL);
+    CheckGetCF(db, roptions, wb_cf, "c", "3");
+
+    rocksdb_writebatch_destroy(wb);
+    rocksdb_drop_column_family(db, wb_cf, &err);
+    CheckNoError(err);
+    rocksdb_column_family_handle_destroy(wb_cf);
+  }
+
   StartPhase("writebatch_vectors");
   {
     rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
@@ -1415,6 +1479,43 @@ int main(int argc, char** argv) {
     CheckIter(iter, "foo", "hello");
     rocksdb_iter_seek_for_prev(iter, "box", 3);
     CheckIter(iter, "box", "c");
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+  }
+
+  StartPhase("iter_slice");
+  {
+    // Test the new slice-based iterator API for better performance
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+
+    // Test rocksdb_iter_key_slice
+    rocksdb_slice_t key_slice = rocksdb_iter_key_slice(iter);
+    CheckEqual("box", key_slice.data, key_slice.size);
+
+    // Test rocksdb_iter_value_slice
+    rocksdb_slice_t value_slice = rocksdb_iter_value_slice(iter);
+    CheckEqual("c", value_slice.data, value_slice.size);
+
+    // Move to next entry and test again
+    rocksdb_iter_next(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    key_slice = rocksdb_iter_key_slice(iter);
+    value_slice = rocksdb_iter_value_slice(iter);
+    CheckEqual("foo", key_slice.data, key_slice.size);
+    CheckEqual("hello", value_slice.data, value_slice.size);
+
+    // Test seeking with slice API
+    rocksdb_iter_seek(iter, "b", 1);
+    CheckCondition(rocksdb_iter_valid(iter));
+    key_slice = rocksdb_iter_key_slice(iter);
+    value_slice = rocksdb_iter_value_slice(iter);
+    CheckEqual("box", key_slice.data, key_slice.size);
+    CheckEqual("c", value_slice.data, value_slice.size);
+
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
@@ -2091,6 +2192,74 @@ int main(int argc, char** argv) {
         CheckNoError(batched_errs[i]);
         CheckEqual(expected_value[i], val, val_len);
         rocksdb_pinnableslice_destroy(pvals[i]);
+      }
+    }
+
+    {
+      // Test rocksdb_batched_multi_get_cf_slice for better performance
+      // Build rocksdb_slice_t array directly to avoid conversion overhead
+      rocksdb_slice_t batched_key_slices[4];
+      batched_key_slices[0].data = "box";
+      batched_key_slices[0].size = 3;
+      batched_key_slices[1].data = "buff";
+      batched_key_slices[1].size = 4;
+      batched_key_slices[2].data = "barfooxx";
+      batched_key_slices[2].size = 8;
+      batched_key_slices[3].data = "box";
+      batched_key_slices[3].size = 3;
+
+      const char* expected_value[4] = {"c", "rocksdb", NULL, "c"};
+      char* batched_errs[4];
+      rocksdb_pinnableslice_t* pvals[4];
+
+      rocksdb_batched_multi_get_cf_slice(db, roptions, handles[1], 4,
+                                         batched_key_slices, pvals,
+                                         batched_errs, false);
+
+      const char* val;
+      size_t val_len;
+      for (i = 0; i < 4; ++i) {
+        CheckNoError(batched_errs[i]);
+        if (pvals[i] != NULL) {
+          val = rocksdb_pinnableslice_value(pvals[i], &val_len);
+          CheckEqual(expected_value[i], val, val_len);
+          rocksdb_pinnableslice_destroy(pvals[i]);
+        } else {
+          CheckEqual(expected_value[i], NULL, 0);
+        }
+      }
+    }
+
+    {
+      // Test rocksdb_batched_multi_get_cf_slice with sorted_input=true
+      // Keys must be in sorted order for this optimization
+      rocksdb_slice_t sorted_key_slices[3];
+      sorted_key_slices[0].data = "box";
+      sorted_key_slices[0].size = 3;
+      sorted_key_slices[1].data = "buff";
+      sorted_key_slices[1].size = 4;
+      sorted_key_slices[2].data = "notfound";
+      sorted_key_slices[2].size = 8;
+
+      const char* expected_value[3] = {"c", "rocksdb", NULL};
+      char* batched_errs[3];
+      rocksdb_pinnableslice_t* pvals[3];
+
+      rocksdb_batched_multi_get_cf_slice(db, roptions, handles[1], 3,
+                                         sorted_key_slices, pvals, batched_errs,
+                                         true);
+
+      const char* val;
+      size_t val_len;
+      for (i = 0; i < 3; ++i) {
+        CheckNoError(batched_errs[i]);
+        if (pvals[i] != NULL) {
+          val = rocksdb_pinnableslice_value(pvals[i], &val_len);
+          CheckEqual(expected_value[i], val, val_len);
+          rocksdb_pinnableslice_destroy(pvals[i]);
+        } else {
+          CheckEqual(expected_value[i], NULL, 0);
+        }
       }
     }
 
