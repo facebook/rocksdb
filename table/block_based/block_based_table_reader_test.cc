@@ -1372,10 +1372,10 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
 
     iter->Prepare(&scan_options);
 
-    auto random_seed = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count();
-    random_seed = 1760042139959013648;
+    auto random_seed = static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
     Random rnd(random_seed);
     std::cout << random_seed << std::endl;
     SCOPED_TRACE("Random seed " + std::to_string(random_seed));
