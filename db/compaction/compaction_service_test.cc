@@ -2013,11 +2013,11 @@ TEST_F(CompactionServiceTest, TablePropertiesCollector) {
   ASSERT_TRUE(has_user_property);
 }
 
-class ResumeCompactionService : public MyTestCompactionService {
+class ResumableCompactionService : public MyTestCompactionService {
  public:
-  ResumeCompactionService(const std::string& db_path, Options& options,
-                          std::shared_ptr<Statistics> statistics,
-                          bool ignore_existing_progress)
+  ResumableCompactionService(const std::string& db_path, Options& options,
+                             std::shared_ptr<Statistics> statistics,
+                             bool ignore_existing_progress)
       : MyTestCompactionService(db_path, options, statistics,
                                 {} /* listeners */,
                                 {} /* table_properties_collector_factories */),
@@ -2029,7 +2029,7 @@ class ResumeCompactionService : public MyTestCompactionService {
     EXPECT_FALSE(compaction_input.empty());
 
     OpenAndCompactOptions open_and_compaction_options;
-    open_and_compaction_options.resume_compaciton = true;
+    open_and_compaction_options.allow_resumption = true;
     auto override_options = GetOptionsOverride();
 
     // Force creation of one key per output file for test simplicity.
@@ -2054,7 +2054,7 @@ class ResumeCompactionService : public MyTestCompactionService {
         "DBImplSecondary::CompactWithoutInstallation::End");
 
     if (ignore_existing_progress_) {
-      open_and_compaction_options.resume_compaciton = false;
+      open_and_compaction_options.allow_resumption = false;
     }
 
     auto second_compaction_write_stats =
@@ -2141,9 +2141,9 @@ class ResumeCompactionService : public MyTestCompactionService {
   bool ignore_existing_progress_;
 };
 
-class ResumeCompactionServiceTest : public CompactionServiceTest {
+class ResumableCompactionServiceTest : public CompactionServiceTest {
  public:
-  explicit ResumeCompactionServiceTest() : CompactionServiceTest() {}
+  explicit ResumableCompactionServiceTest() : CompactionServiceTest() {}
 
   void RunCompactionCancelTest(bool ignore_existing_progress) {
     Options options = CurrentOptions();
@@ -2155,7 +2155,7 @@ class ResumeCompactionServiceTest : public CompactionServiceTest {
     table_options.verify_compression = true;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    auto resume_cs = std::make_shared<ResumeCompactionService>(
+    auto resume_cs = std::make_shared<ResumableCompactionService>(
         dbname_, options, statistics, ignore_existing_progress);
     options.compaction_service = resume_cs;
 
@@ -2209,11 +2209,11 @@ class ResumeCompactionServiceTest : public CompactionServiceTest {
   static constexpr int kNumKeys = 10;
 };
 
-TEST_F(ResumeCompactionServiceTest, CompactionCancelAndResume) {
+TEST_F(ResumableCompactionServiceTest, CompactionCancelAndResume) {
   RunCompactionCancelTest(false /* ignore_existing_progress */);
 }
 
-TEST_F(ResumeCompactionServiceTest, CompactionCancelAndDisableResume) {
+TEST_F(ResumableCompactionServiceTest, CompactionCancelAndDisableResume) {
   RunCompactionCancelTest(true /* ignore_existing_progress */);
 }
 }  // namespace ROCKSDB_NAMESPACE

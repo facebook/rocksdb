@@ -2834,7 +2834,7 @@ struct OpenAndCompactOptions {
   // Limitation: Currently incompatible with paranoid_file_checks=true. The
   // option is effectively disabled when `paranoid_file_checks` is enabled
   // (which is disabled by default).
-  bool resume_compaciton = false;
+  bool allow_resumption = false;
 };
 
 struct LiveFilesStorageInfoOptions {
