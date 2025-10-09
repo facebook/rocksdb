@@ -5,7 +5,7 @@ author: peterd
 category: blog
 ---
 
-The upcoming RocksDB 10.7 release includes a major revamp of parallel compression that **dramatically reduces the feature's CPU overhead by up to 65%** while maintaining significant throughput improvements for compression-heavy workloads. We expect this to broaden the set of workloads that could benefit from parallel compression, especially for **bulk SST generation and remote compaction use cases** that are less sensitive to CPU responsiveness.
+The upcoming RocksDB 10.7 release includes a major revamp of parallel compression that **dramatically reduces the feature's CPU overhead by up to 65%** while maintaining or improving throughput for compression-heavy workloads. We expect this to broaden the set of workloads that could benefit from parallel compression, especially for **bulk SST generation and remote compaction use cases** that are less sensitive to CPU responsiveness.
 
 ## Background
 
@@ -18,6 +18,8 @@ The parallel compression framework has been completely rewritten from the ground
 ### Ring Buffer Architecture
 Instead of separate compression and write queues with complex thread coordination, the new implementation uses a ring buffer of blocks-in-progress that enables efficient work distribution across threads. This bounds working memory while enabling high throughput with minimal cross-thread synchronization.
 
+![Ring Buffer Architecture](/static/images/parallel-compression/ring-buffer-architecture.svg)
+
 ### Work-Stealing Design
 Previously, the calling thread could only generate uncompressed blocks, dedicated compression threads could only compress, and a writer thread could only write the SST file to storage. Now, all threads can participate in compression work in a quasi-work-stealing manner, dramatically reducing the need for threads to block waiting for work. While only one thread (the calling thread or "emit thread") can generate uncompressed SST blocks in the new implementation, feeding compression work to other threads and itself, all other threads are compatible with writing compressed blocks to storage.
 
@@ -27,7 +29,7 @@ The ring buffer enables another key feature: auto-scaling of active threads base
 ### Lock-Free Synchronization
 The entire framework is now lock-free (and wait-free as long as compatible work units are available for each thread), based primarily on atomic operations. To cleanly pack and leverage many data fields into a single atomic value, I've developed a new `BitFields` utility API. This is proving useful for cleaning up the HyperClockCache implementation as well, and will be the topic of a later blog post.
 
-Semaphores are used for lock-free management of idle threads.
+Semaphores are used for lock-free management of idle threads (assuming a lock-free semaphore implementation, which is likely the case with `ROCKSDB_USE_STD_SEMAPHORES` but that is untrustworthy; see below).
 
 ## Performance Improvements
 
@@ -80,7 +82,7 @@ The dramatically reduced CPU overhead means parallel compression is now viable f
 
 Although this offers a great improvement in the implementation of an existing option, we recognize that this setup is suboptimal in a number of ways:
 * There is no work sharing / thread pooling for these SST compression/writer threads among compactions in the same process, so not well able to fit the workload to available CPU cores and not able to use other SST file compression work to avoid a worker thread going to sleep.
-* We are not (yet) using a framework that would allow micro-work sharing with things other than SST generation on a set of threads. That would be a good direction for effective sharing of CPU resources without spikes in usage, but might incur intolerable CPU overhead in managing work. With this "hand optimized" and specialized framework, we can at least evaluate this future endeavors against a perhaps ideal framework in terms of parallelizing with minimal overhead.
+* We are not (yet) using a framework that would allow micro-work sharing with things other than SST generation on a set of threads. That would be a good direction for effective sharing of CPU resources without spikes in usage, but might incur intolerable CPU overhead in managing work. With this "hand optimized" and specialized framework, we can at least evaluate such future endeavors against a perhaps ideal framework in terms of parallelizing with minimal overhead.
 
 ## Try It Out
 
