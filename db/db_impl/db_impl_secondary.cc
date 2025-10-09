@@ -1001,7 +1001,7 @@ Status DBImplSecondary::ParseCompactionProgressFile(
     compaction_progress->push_back(
         progress_builder.GetAccumulatedSubcompactionProgress());
   } else {
-    s = Status::Incomplete("No compaction progress results");
+    s = Status::NotFound("No compaction progress was persisted yet");
   }
 
   return s;
