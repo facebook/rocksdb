@@ -304,32 +304,67 @@ class DBImplSecondary : public DBImpl {
                                     CompactionServiceResult* result);
 
  private:
+  // Holds results of compaction progress files and output files from a single
+  // directory scan
+  struct CompactionProgressFilesScan {
+    // The latest (newest) progress file filename
+    std::optional<std::string> latest_progress_filename;
+    uint64_t latest_progress_timestamp = 0;
+
+    // Older progress file filenames (to be deleted)
+    autovector<std::string> old_progress_filenames;
+
+    // Temporary progress file filenames (to be deleted)
+    autovector<std::string> temp_progress_filenames;
+
+    // All output file numbers - for cleanup optimization
+    std::vector<uint64_t> table_file_numbers;
+
+    bool HasLatestProgressFile() const {
+      return latest_progress_filename.has_value();
+    }
+
+    void Clear() {
+      latest_progress_filename.reset();
+      latest_progress_timestamp = 0;
+      old_progress_filenames.clear();
+      temp_progress_filenames.clear();
+      table_file_numbers.clear();
+    }
+  };
+
   Status InitializeCompactionWorkspace(
-      bool resume_compaciton, std::unique_ptr<FSDirectory>* output_dir,
+      bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
-  Status PrepareCompactionProgressState(bool resume_compaciton);
+  Status PrepareCompactionProgressState(bool allow_resumption);
 
-  Status FindLatestCompactionProgressFile(
-      std::string* latest_compaction_progress_file);
+  Status ScanCompactionProgressFiles(CompactionProgressFilesScan* scan_result);
+
+  Status DeleteCompactionProgressFiles(
+      const std::vector<std::string>& filenames);
 
   Status CleanupOldAndTemporaryCompactionProgressFiles(
-      const std::string& latest_compaction_progress_file);
+      bool preserve_latest, const CompactionProgressFilesScan& scan_result);
 
   Status LoadCompactionProgressAndCleanupExtraOutputFiles(
-      const std::string& compaction_progress_file_path);
+      const std::string& compaction_progress_file_path,
+      const CompactionProgressFilesScan& scan_result);
 
   Status ParseCompactionProgressFile(
       const std::string& compaction_progress_file_path,
       CompactionProgress* compaction_progress);
 
   Status HandleInvalidOrNoCompactionProgress(
-      const std::string& invalid_compaction_progress_file_path);
+      const std::optional<std::string>& compaction_progress_file_path,
+      const CompactionProgressFilesScan& scan_result);
 
-  Status CleanupPhysicalCompactionOutputFiles(bool preserve_tracked_files);
+  Status CleanupPhysicalCompactionOutputFiles(
+      bool preserve_tracked_files,
+      const CompactionProgressFilesScan& scan_result);
 
   Status FinalizeCompactionProgressWriter(
-      bool resume_compaciton,
+      bool allow_resumption,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
   Status CreateCompactionProgressWriter(
