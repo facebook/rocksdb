@@ -381,6 +381,9 @@ class DBImplSecondary : public DBImpl {
       const std::string& temp_file_path, const std::string& final_file_path,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
+  uint64_t CalculateResumedCompactionBytes(
+      const CompactionProgress& compaction_progress) const;
+
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;

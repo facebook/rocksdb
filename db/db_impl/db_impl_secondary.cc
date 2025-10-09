@@ -1226,6 +1226,26 @@ Status DBImplSecondary::PrepareCompactionProgressState() {
   }
 }
 
+uint64_t DBImplSecondary::CalculateResumedCompactionBytes(
+    const CompactionProgress& compaction_progress) const {
+  uint64_t total_resumed_bytes = 0;
+
+  for (const auto& subcompaction_progress : compaction_progress) {
+    for (const auto& file_meta :
+         subcompaction_progress.output_level_progress.GetOutputFiles()) {
+      total_resumed_bytes += file_meta.fd.file_size;
+    }
+
+    for (const auto& file_meta :
+         subcompaction_progress.proximal_output_level_progress
+             .GetOutputFiles()) {
+      total_resumed_bytes += file_meta.fd.file_size;
+    }
+  }
+
+  return total_resumed_bytes;
+}
+
 Status DBImplSecondary::HandleInvalidOrNoCompactionProgress(
     const std::optional<std::string>& compaction_progress_file_path,
     const CompactionProgressFilesScan& scan_result) {
@@ -1402,6 +1422,18 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   TEST_SYNC_POINT_CALLBACK("DBImplSecondary::CompactWithoutInstallation::End",
                            &s);
+
+  if (!compaction_progress_.empty() && s.ok()) {
+    uint64_t total_resumed_bytes =
+        CalculateResumedCompactionBytes(compaction_progress_);
+
+    if (total_resumed_bytes > 0 &&
+        immutable_db_options_.statistics != nullptr) {
+      RecordTick(immutable_db_options_.statistics.get(),
+                 REMOTE_COMPACT_RESUMED_BYTES, total_resumed_bytes);
+    }
+  }
+
   result->status = s;
   return s;
 }

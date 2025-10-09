@@ -5195,6 +5195,8 @@ class TickerTypeJni {
         return -0x2F;
       case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
         return -0x30;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_RESUMED_BYTES:
+        return -0x5F;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
         return -0x31;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
@@ -5668,6 +5670,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
       case -0x30:
         return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
+      case -0x5F:
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_RESUMED_BYTES;
       case -0x31:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
       case -0x32:
