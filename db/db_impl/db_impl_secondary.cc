@@ -828,9 +828,10 @@ Status DB::OpenAsSecondary(
   return s;
 }
 
-Status DBImplSecondary::FindLatestCompactionProgressFile(
-    std::string* latest_compaction_progress_file) {
-  std::vector<std::string> filenames;
+Status DBImplSecondary::ScanCompactionProgressFiles(
+    CompactionProgressFilesScan* scan_result) {
+  assert(scan_result != nullptr);
+  scan_result->Clear();
 
   WriteOptions write_options(Env::IOActivity::kCompaction);
   IOOptions opts;
@@ -839,28 +840,66 @@ Status DBImplSecondary::FindLatestCompactionProgressFile(
     return s;
   }
 
-  s = fs_->GetChildren(secondary_path_, opts, &filenames, nullptr /* dbg*/);
+  std::vector<std::string> all_filenames;
+  s = fs_->GetChildren(secondary_path_, opts, &all_filenames, nullptr /* dbg*/);
   if (!s.ok()) {
     return s;
   }
 
-  uint64_t latest_timestamp = 0;
-  latest_compaction_progress_file->clear();
-
-  for (const auto& filename : filenames) {
+  for (const auto& filename : all_filenames) {
     if (filename == "." || filename == "..") {
       continue;
     }
 
     uint64_t number;
     FileType type;
-    // Only look for normal progress files, not temporary ones
-    if (ParseFileName(filename, &number, &type) &&
-        type == kCompactionProgressFile) {
-      if (number > latest_timestamp) {
-        latest_timestamp = number;
-        *latest_compaction_progress_file = filename;
+
+    if (!ParseFileName(filename, &number, &type)) {
+      continue;
+    }
+
+    // Categorize compaction progress files
+    if (type == kCompactionProgressFile) {
+      if (number > scan_result->latest_progress_timestamp) {
+        // Found a newer progress file
+        if (scan_result->HasLatestProgressFile()) {
+          // Previous "latest" becomes "old"
+          scan_result->old_progress_filenames.push_back(
+              scan_result->latest_progress_filename.value());
+        }
+        scan_result->latest_progress_timestamp = number;
+        scan_result->latest_progress_filename = filename;
+      } else {
+        // This is an older progress file
+        scan_result->old_progress_filenames.push_back(filename);
       }
+    } else if (type == kTempFile &&
+               filename.find(kCompactionProgressFileNamePrefix) == 0) {
+      // Temporary progress files
+      scan_result->temp_progress_filenames.push_back(filename);
+    } else if (type == kTableFile) {
+      // Collect table file numbers for CleanupPhysicalCompactionOutputFiles
+      scan_result->table_file_numbers.push_back(number);
+    }
+  }
+
+  return Status::OK();
+}
+
+Status DBImplSecondary::DeleteCompactionProgressFiles(
+    const std::vector<std::string>& filenames) {
+  WriteOptions write_options(Env::IOActivity::kCompaction);
+  IOOptions opts;
+  Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  if (!s.ok()) {
+    return s;
+  }
+
+  for (const auto& filename : filenames) {
+    std::string file_path = secondary_path_ + "/" + filename;
+    Status delete_status = fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
+    if (!delete_status.ok()) {
+      return delete_status;
     }
   }
 
@@ -868,54 +907,25 @@ Status DBImplSecondary::FindLatestCompactionProgressFile(
 }
 
 Status DBImplSecondary::CleanupOldAndTemporaryCompactionProgressFiles(
-    const std::string& latest_compaction_progress_file) {
-  std::vector<std::string> filenames;
+    bool preserve_latest, const CompactionProgressFilesScan& scan_result) {
+  std::vector<std::string> filenames_to_delete;
 
-  WriteOptions write_options(Env::IOActivity::kCompaction);
-  IOOptions opts;
-  Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
-  if (!s.ok()) {
-    return s;
+  // Always delete old progress files
+  filenames_to_delete.insert(filenames_to_delete.end(),
+                             scan_result.old_progress_filenames.begin(),
+                             scan_result.old_progress_filenames.end());
+
+  // Always delete temp files
+  filenames_to_delete.insert(filenames_to_delete.end(),
+                             scan_result.temp_progress_filenames.begin(),
+                             scan_result.temp_progress_filenames.end());
+
+  // Conditionally delete latest file
+  if (!preserve_latest && scan_result.HasLatestProgressFile()) {
+    filenames_to_delete.push_back(scan_result.latest_progress_filename.value());
   }
 
-  s = fs_->GetChildren(secondary_path_, opts, &filenames, nullptr);
-  if (!s.ok()) {
-    return s;
-  }
-
-  for (const auto& filename : filenames) {
-    if (filename == "." || filename == "..") {
-      continue;
-    }
-
-    uint64_t number;
-    FileType type;
-
-    if (filename.find(kCompactionProgressFileNamePrefix) == 0) {
-      if (!ParseFileName(filename, &number, &type)) {
-        return Status::Corruption(
-            "Failed to parse compaction progress filename", filename);
-      }
-
-      bool should_delete = false;
-      if (type == kCompactionProgressFile) {
-        should_delete = (filename != latest_compaction_progress_file);
-      } else if (type == kTempFile) {
-        should_delete = true;
-      }
-
-      if (should_delete) {
-        std::string file_path = secondary_path_ + "/" + filename;
-
-        Status delete_status =
-            fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
-        if (!delete_status.ok()) {
-          return delete_status;
-        }
-      }
-    }
-  }
-  return Status::OK();
+  return DeleteCompactionProgressFiles(filenames_to_delete);
 }
 
 // Loads compaction progress from a file and cleans up extra output
@@ -924,11 +934,13 @@ Status DBImplSecondary::CleanupOldAndTemporaryCompactionProgressFiles(
 // progress. This ensures consistency between the progress file and
 // actual output files on disk.
 Status DBImplSecondary::LoadCompactionProgressAndCleanupExtraOutputFiles(
-    const std::string& compaction_progress_file_path) {
+    const std::string& compaction_progress_file_path,
+    const CompactionProgressFilesScan& scan_result) {
   Status s = ParseCompactionProgressFile(compaction_progress_file_path,
                                          &compaction_progress_);
   if (s.ok()) {
-    s = CleanupPhysicalCompactionOutputFiles(true /* preserve_tracked_files */);
+    s = CleanupPhysicalCompactionOutputFiles(true /* preserve_tracked_files */,
+                                             scan_result);
   }
   return s;
 }
@@ -1026,7 +1038,8 @@ Status DBImplSecondary::RenameCompactionProgressFile(
 }
 
 Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
-    bool preserve_tracked_files) {
+    bool preserve_tracked_files,
+    const CompactionProgressFilesScan& scan_result) {
   std::unordered_set<uint64_t> files_to_preserve;
 
   if (preserve_tracked_files) {
@@ -1043,8 +1056,6 @@ Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
     }
   }
 
-  std::vector<std::string> filenames;
-
   WriteOptions write_options(Env::IOActivity::kCompaction);
   IOOptions opts;
   Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
@@ -1052,38 +1063,26 @@ Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
     return s;
   }
 
-  s = fs_->GetChildren(secondary_path_, opts, &filenames, nullptr /* dbg */);
-  if (!s.ok()) {
-    return s;
-  }
+  for (uint64_t file_number : scan_result.table_file_numbers) {
+    bool should_delete =
+        !preserve_tracked_files ||
+        (files_to_preserve.find(file_number) == files_to_preserve.end());
 
-  for (const auto& file_name : filenames) {
-    if (file_name == "." || file_name == "..") {
-      continue;
-    }
-
-    uint64_t file_number;
-    FileType type;
-    if (ParseFileName(file_name, &file_number, &type) && type == kTableFile) {
-      bool should_delete =
-          !preserve_tracked_files ||
-          (files_to_preserve.find(file_number) == files_to_preserve.end());
-
-      if (should_delete) {
-        std::string file_path = MakeTableFileName(secondary_path_, file_number);
-        Status delete_status =
-            fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
-        if (!delete_status.ok()) {
-          return delete_status;
-        }
+    if (should_delete) {
+      std::string file_path = MakeTableFileName(secondary_path_, file_number);
+      Status delete_status =
+          fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
+      if (!delete_status.ok()) {
+        return delete_status;
       }
     }
   }
+
   return Status::OK();
 }
 
 Status DBImplSecondary::InitializeCompactionWorkspace(
-    bool resume_compaciton, std::unique_ptr<FSDirectory>* output_dir,
+    bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
   // Create output directory if it doest exist yet
   Status s = CreateAndNewDirectory(fs_.get(), secondary_path_, output_dir);
@@ -1091,12 +1090,12 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
     return s;
   }
 
-  s = PrepareCompactionProgressState(resume_compaciton);
+  s = PrepareCompactionProgressState(allow_resumption);
   if (!s.ok()) {
     return s;
   }
 
-  s = FinalizeCompactionProgressWriter(resume_compaciton,
+  s = FinalizeCompactionProgressWriter(allow_resumption,
                                        compaction_progress_writer);
 
   if (!s.ok()) {
@@ -1125,7 +1124,7 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
 // - 0 or more compaction output files exist in `secondary_path_`
 //
 // POSTCONDITIONS (after this function):
-// - IF resume_compaction = true AND the latest progress file exists AND
+// - IF allow_resumption = true AND the latest progress file exists AND
 //   it parses successfully AND actually contains valid compaction progress:
 //   * Exactly one latest progress file remains
 //   * All older and temporary compaction progress files are deleted
@@ -1143,83 +1142,86 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
 //   * Caller should manually clean up secondary_path_ before retrying
 //   * Subsequent `OpenAndCompact()` calls to this clean `secondary_path_` will
 //   effectively start fresh compaction
-Status DBImplSecondary::PrepareCompactionProgressState(bool resume_compaciton) {
-  std::string latest_compaction_progress_file = "";
+Status DBImplSecondary::PrepareCompactionProgressState(bool allow_resumption) {
   Status s;
 
-  if (resume_compaciton) {
-    s = FindLatestCompactionProgressFile(&latest_compaction_progress_file);
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                      "Encountered error when finding the latest "
-                      "compaction progress file: %s",
-                      s.ToString().c_str());
-      return s;
-    } else if (latest_compaction_progress_file.empty()) {
-      // CASE 1: Resume requested but no progress file found - start fresh
+  // STEP 1: Scan directory ONCE (includes progress files + table files)
+  CompactionProgressFilesScan scan_result;
+  s = ScanCompactionProgressFiles(&scan_result);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                    "Encountered error when scanning for compaction "
+                    "progress files: %s",
+                    s.ToString().c_str());
+    return s;
+  }
+
+  std::optional<std::string> latest_progress_file =
+      scan_result.latest_progress_filename;
+
+  // STEP 2: Determine if we should resume
+  bool should_resume = false;
+  if (allow_resumption) {
+    if (latest_progress_file.has_value()) {
+      should_resume = true;
+    } else {
+      // CASE 1: Resume requested but no progress file found
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Did not find any latest "
-                     "compaction progress file. "
+                     "Did not find any latest compaction progress file. "
                      "Will perform clean up to start fresh compaction");
     }
   } else {
-    // CASE 2: Resume not requested - start fresh
+    // CASE 2: Resume not requested
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Resuming compaction is not enabled. Will perform clean up "
                    "to start fresh compaction");
   }
 
-  // Clean up old and temporary progress files. For CASE 2,
-  // this also cleans up the latest progress file
-  s = CleanupOldAndTemporaryCompactionProgressFiles(
-      latest_compaction_progress_file);
+  // STEP 3: Cleanup using pre-scanned results
+  if (should_resume) {
+    // Keep latest, delete old/temp
+    s = CleanupOldAndTemporaryCompactionProgressFiles(
+        true /* preserve_latest */, scan_result);
+  } else {
+    // Delete everything including latest
+    s = CleanupOldAndTemporaryCompactionProgressFiles(
+        false /* preserve_latest */, scan_result);
+    latest_progress_file.reset();
+  }
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                    "Failed to cleanup old or temporary compaction "
-                    "progress files: %s. Will fail the compaction",
+                    "Failed to clean up compaction progress file(s): %s. "
+                    "Will fail the compaction",
                     s.ToString().c_str());
     return s;
   }
 
-  if (!latest_compaction_progress_file.empty()) {
-    uint64_t timestamp;
-    FileType type;
-    if (!ParseFileName(latest_compaction_progress_file, &timestamp, &type) ||
-        type != kCompactionProgressFile) {
-      ROCKS_LOG_ERROR(
-          immutable_db_options_.info_log,
-          "Failed to parse compaction progress filename or encountered "
-          "wrong file type for %s.",
-          latest_compaction_progress_file.c_str());
-      return Status::InvalidArgument(
-          "Invalid compaction progress filename format",
-          latest_compaction_progress_file);
-    }
+  // STEP 4: Load progress if resuming
+  if (latest_progress_file.has_value()) {
+    uint64_t timestamp = scan_result.latest_progress_timestamp;
 
     std::string compaction_progress_file_path =
         CompactionProgressFileName(secondary_path_, timestamp);
 
     s = LoadCompactionProgressAndCleanupExtraOutputFiles(
-        compaction_progress_file_path);
+        compaction_progress_file_path, scan_result);
 
-    // CASE 3: Progress file exists but failed to load/parse - start fresh
+    // CASE 3: Progress file exists but failed to load
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Failed to load the latest compaction "
                      "progress from %s: %s. Will perform clean up "
                      "to start fresh compaction",
-                     latest_compaction_progress_file.c_str(),
+                     latest_progress_file.value().c_str(),
                      s.ToString().c_str());
-      // Handle CASE 3: Delete all output files since the latest compaction
-      // progress failed to load
-      return HandleInvalidOrNoCompactionProgress(compaction_progress_file_path);
+      return HandleInvalidOrNoCompactionProgress(compaction_progress_file_path,
+                                                 scan_result);
     }
     return s;
   } else {
-    // Handle CASE 1 & 2: Delete all output files since no valid progress to
-    // resume from
-    return HandleInvalidOrNoCompactionProgress("");
+    // CASE 1 & 2: No valid progress to resume from
+    return HandleInvalidOrNoCompactionProgress(std::nullopt, scan_result);
   }
 }
 
@@ -1251,12 +1253,13 @@ Status DBImplSecondary::DeleteFileIfExists(const std::string& file_path,
 }
 
 Status DBImplSecondary::HandleInvalidOrNoCompactionProgress(
-    const std::string& compaction_progress_file_path) {
+    const std::optional<std::string>& compaction_progress_file_path,
+    const CompactionProgressFilesScan& scan_result) {
   compaction_progress_.clear();
 
   Status s;
-  if (!compaction_progress_file_path.empty()) {
-    s = DeleteFileIfExists(compaction_progress_file_path,
+  if (compaction_progress_file_path.has_value()) {
+    s = DeleteFileIfExists(compaction_progress_file_path.value(),
                            Env::IOActivity::kCompaction);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
@@ -1266,7 +1269,8 @@ Status DBImplSecondary::HandleInvalidOrNoCompactionProgress(
     }
   }
 
-  s = CleanupPhysicalCompactionOutputFiles(false /* preserve_tracked_files */);
+  s = CleanupPhysicalCompactionOutputFiles(false /* preserve_tracked_files */,
+                                           scan_result);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "Failed to cleanup existing compaction output files: %s",
@@ -1305,11 +1309,11 @@ Status DBImplSecondary::CompactWithoutInstallation(
   // created. This workaround currently disables resuming compaction when
   // paranoid_file_checks is enabled. Note that paranoid_file_checks is
   // disabled by default.
-  bool should_resume_compaciton =
-      options.resume_compaciton &&
+  bool allow_resumption =
+      options.allow_resumption &&
       !cfd->GetLatestMutableCFOptions().paranoid_file_checks;
 
-  if (options.resume_compaciton &&
+  if (options.allow_resumption &&
       cfd->GetLatestMutableCFOptions().paranoid_file_checks) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Resume compaction configured but disabled due to "
@@ -1318,7 +1322,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   mutex_.Unlock();
 
-  s = InitializeCompactionWorkspace(should_resume_compaciton, &output_dir,
+  s = InitializeCompactionWorkspace(allow_resumption, &output_dir,
                                     &compaction_progress_writer);
   mutex_.Lock();
 
@@ -1652,9 +1656,9 @@ Status DBImplSecondary::HandleCompactionProgressWriterCreationFailure(
 }
 
 Status DBImplSecondary::FinalizeCompactionProgressWriter(
-    bool resume_compaciton,
+    bool allow_resumption,
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
-  if (!resume_compaciton) {
+  if (!allow_resumption) {
     compaction_progress_writer->reset();
     return Status::OK();
   }

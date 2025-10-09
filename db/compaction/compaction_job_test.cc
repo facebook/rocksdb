@@ -2410,11 +2410,11 @@ TEST_F(CompactionJobIOPriorityTest, GetRateLimiterPriority) {
                 Env::IO_LOW, Env::IO_LOW);
 }
 
-class ResumeCompactionJobTest : public CompactionJobTestBase {
+class ResumableCompactionJobTest : public CompactionJobTestBase {
  public:
-  ResumeCompactionJobTest()
+  ResumableCompactionJobTest()
       : CompactionJobTestBase(
-            test::PerThreadDBPath("resume_compaction_job_test"),
+            test::PerThreadDBPath("allow_resumption_job_test"),
             BytewiseComparator(), [](uint64_t /*ts*/) { return ""; },
             /*test_io_priority=*/false, TableTypeForTest::kBlockBasedTable) {}
 
@@ -2727,7 +2727,7 @@ class ResumeCompactionJobTest : public CompactionJobTestBase {
   }
 };
 
-TEST_F(ResumeCompactionJobTest, BasicProgressPersistence) {
+TEST_F(ResumableCompactionJobTest, BasicProgressPersistence) {
   NewDB();
 
   auto file1 = mock::MakeMockFile({
@@ -2760,7 +2760,7 @@ TEST_F(ResumeCompactionJobTest, BasicProgressPersistence) {
       {"a", "b", "c", "d"} /* ordered_intput_keys */);
 }
 
-TEST_F(ResumeCompactionJobTest, BasicProgressResume) {
+TEST_F(ResumableCompactionJobTest, BasicProgressResume) {
   NewDB();
 
   RunCancelAndResumeTest(
@@ -2775,7 +2775,7 @@ TEST_F(ResumeCompactionJobTest, BasicProgressResume) {
       true /* exists_progress */, true /* cancelled_past_mid_point*/);
 }
 
-TEST_F(ResumeCompactionJobTest, NoProgressResumeOnSameKey) {
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSameKey) {
   NewDB();
 
   RunCancelAndResumeTest(
@@ -2789,7 +2789,7 @@ TEST_F(ResumeCompactionJobTest, NoProgressResumeOnSameKey) {
       false /* exists_progress */);
 }
 
-TEST_F(ResumeCompactionJobTest, NoProgressResumeOnDeleteRange) {
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeleteRange) {
   NewDB();
 
   RunCancelAndResumeTest(
@@ -2803,7 +2803,7 @@ TEST_F(ResumeCompactionJobTest, NoProgressResumeOnDeleteRange) {
       false /* exists_progress */);
 }
 
-TEST_F(ResumeCompactionJobTest, NoProgressResumeOnMerge) {
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnMerge) {
   merge_op_ = MergeOperators::CreateStringAppendOperator();
   NewDB();
 
@@ -2819,7 +2819,7 @@ TEST_F(ResumeCompactionJobTest, NoProgressResumeOnMerge) {
       true /* exists_progress */);
 }
 
-TEST_F(ResumeCompactionJobTest, NoProgressResumeOnSingleDelete) {
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSingleDelete) {
   NewDB();
 
   RunCancelAndResumeTest(
@@ -2836,7 +2836,7 @@ TEST_F(ResumeCompactionJobTest, NoProgressResumeOnSingleDelete) {
       true /* exists_progress */);
 }
 
-TEST_F(ResumeCompactionJobTest, NoProgressResumeOnDeletionAtBottom) {
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeletionAtBottom) {
   NewDB();
 
   RunCancelAndResumeTest(
