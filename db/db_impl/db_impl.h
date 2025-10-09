@@ -484,9 +484,12 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   Status FlushWAL(bool sync) override {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    return FlushWAL(WriteOptions(), sync);
+    FlushWALOptions options;
+    options.sync = sync;
+    return FlushWAL(options);
   }
+
+  Status FlushWAL(const FlushWALOptions& options) override;
 
   virtual Status FlushWAL(const WriteOptions& write_options, bool sync);
   bool WALBufferIsEmpty();
