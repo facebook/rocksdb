@@ -9,6 +9,7 @@
 #include <mutex>
 #include <unordered_set>
 
+#include "db_stress_tool/db_stress_compaction_service.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
@@ -309,6 +310,11 @@ class DbStressListener : public EventListener {
           return;
         }
       }
+    }
+    // We can't do exact matching since remote workers use dynamic temp paths
+    if (file_dir.find(DbStressCompactionService::kTempOutputDirectoryPrefix) !=
+        std::string::npos) {
+      return;
     }
     assert(false);
 #else
