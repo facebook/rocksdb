@@ -1596,7 +1596,6 @@ TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanOptFileOverlapChecking) {
 // Test that fs_prefetch_support flag is correctly initialized during table
 // construction based on filesystem capabilities
 TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
-  // Custom FileSystem that can report different prefetch support
   class ConfigurablePrefetchFS : public FileSystemWrapper {
    public:
     ConfigurablePrefetchFS(const std::shared_ptr<FileSystem>& target,
@@ -1608,9 +1607,7 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
 
     void SupportedOps(int64_t& supported_ops) override {
       target()->SupportedOps(supported_ops);
-      if (support_prefetch_) {
-        supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
-      } else {
+      if (!support_prefetch_) { // Disable prefetch support if requested
         supported_ops &= ~(1 << FSSupportedOps::kFSPrefetch);
       }
     }
@@ -1651,8 +1648,6 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
                              false /* prefetch_index_and_filter_in_cache */,
                              nullptr, persist_udt_);
 
-    // Verify that fs_prefetch_support flag is set to false and
-    // fs supports prefetch
     ASSERT_TRUE(table->get_rep()->fs_prefetch_support);
     ASSERT_TRUE(CheckFSFeatureSupport(fs_with_prefetch.get(),
                                       FSSupportedOps::kFSPrefetch));
@@ -1677,8 +1672,6 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
                              false /* prefetch_index_and_filter_in_cache */,
                              nullptr, persist_udt_);
 
-    // Verify that fs_prefetch_support flag is set to false and
-    // fs doesn't support prefetch
     ASSERT_FALSE(table->get_rep()->fs_prefetch_support);
     ASSERT_FALSE(CheckFSFeatureSupport(fs_without_prefetch.get(),
                                        FSSupportedOps::kFSPrefetch));
