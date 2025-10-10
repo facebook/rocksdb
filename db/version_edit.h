@@ -549,13 +549,11 @@ struct SubcompactionProgress {
   std::string ToString() const {
     std::ostringstream oss;
     oss << "SubcompactionProgress{";
-    oss << " next_internal_key_to_compact="
-        << (next_internal_key_to_compact.empty()
-                ? "NONE"
-                : next_internal_key_to_compact);
+    oss << " next_internal_key_to_compact"
+        << (next_internal_key_to_compact.empty() ? " empty" : " non-empty");
     oss << ", num_processed_input_records=" << num_processed_input_records;
-    oss << ", output_level_progress" << output_level_progress.ToString();
-    oss << ", proximal_output_level_progress"
+    oss << ", output_level_progress=" << output_level_progress.ToString();
+    oss << ", proximal_output_level_progress="
         << proximal_output_level_progress.ToString();
     oss << " }";
     return oss.str();

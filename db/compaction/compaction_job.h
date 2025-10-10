@@ -543,7 +543,7 @@ class CompactionJob {
       CompactionOutputs* outputs_to_restore);
 
   bool ShouldUpdateSubcompactionProgress(
-      const SubcompactionState* sub_compact,
+      const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
       const ParsedInternalKey& prev_table_last_internal_key,
       const Slice& next_table_min_internal_key, const FileMetaData* meta) const;
 

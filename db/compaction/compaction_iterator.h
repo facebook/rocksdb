@@ -270,6 +270,16 @@ class CompactionIterator {
   // true, unless `must_count_input_entries=true` was specified during iterator
   // creation (which ensures the count is always accurate).
   uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
+
+  // Returns true if the current valid key was already scanned/counted during
+  // a lookahead operation in a previous iteration.
+  //
+  // REQUIRED: Valid() must be true
+  bool IsCurrentKeyAlreadyScanned() const {
+    assert(Valid());
+    return at_next_ || merge_out_iter_.Valid();
+  }
+
   Status InputStatus() const { return input_.status(); }
 
   bool IsDeleteRangeSentinelKey() const { return is_range_del_; }

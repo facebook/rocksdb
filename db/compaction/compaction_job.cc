@@ -1427,7 +1427,8 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       env_, ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
       blob_resources.blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
-      sub_compact->compaction->DoesInputReferenceBlobFiles(),
+      sub_compact->compaction
+          ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
       sub_compact->compaction, compaction_filter, shutting_down_,
       db_options_.info_log, full_history_ts_low, preserve_seqno_after_);
 }
@@ -2016,7 +2017,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
 
-  if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact,
+  if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact, c_iter,
                                                   prev_table_last_internal_key,
                                                   next_table_min_key, meta)) {
     UpdateSubcompactionProgress(c_iter, next_table_min_key, sub_compact);
@@ -2027,7 +2028,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 }
 
 bool CompactionJob::ShouldUpdateSubcompactionProgress(
-    const SubcompactionState* sub_compact,
+    const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
     const ParsedInternalKey& prev_table_last_internal_key,
     const Slice& next_table_min_internal_key, const FileMetaData* meta) const {
   const auto* cfd = sub_compact->compaction->column_family_data();
@@ -2083,6 +2084,21 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
 
   if (cfd->user_comparator()->EqualWithoutTimestamp(next_table_min_user_key,
                                                     prev_table_last_user_key)) {
+    return false;
+  }
+
+  // LIMITATION: Don't save progress if the current key has already been scanned
+  // (looked ahead) in the input but not yet output. This can happen with merge
+  // operations, single deletes, and deletes at the bottommost level where
+  // CompactionIterator needs to look ahead to process multiple entries for the
+  // same user key before outputting a result. If we saved progress and resumed
+  // at this boundary, the resumed session would see and process the same input
+  // key again through Seek(), leading to incorrect double-counting in
+  // number of processed input entries and input count verification failure
+  //
+  // TODO(hx235): Offset num_processed_input_records to avoid double counting
+  // instead of disabling progress persistence.
+  if (c_iter->IsCurrentKeyAlreadyScanned()) {
     return false;
   }
 
@@ -2770,8 +2786,9 @@ Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
     return Status::NotFound("No subcompaction progress to resume");
   }
 
-  ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] Resuming compaction",
-                 cfd->GetName().c_str(), job_id_);
+  ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] Resuming compaction : %s",
+                 cfd->GetName().c_str(), job_id_,
+                 subcompaction_progress.ToString().c_str());
 
   input_iter->Seek(subcompaction_progress.next_internal_key_to_compact);
 
@@ -2865,8 +2882,18 @@ void CompactionJob::UpdateSubcompactionProgress(
   subcompaction_progress.next_internal_key_to_compact =
       next_ikey_to_compact.GetInternalKey().ToString();
 
+  // Track total processed input records for progress reporting by combining:
+  // - Resumed count: records already processed before compaction was
+  // interrupted
+  // - Current count: records scanned in the current compaction session
+  // Only update when both tracking mechanisms provide accurate counts to ensure
+  // reliability.
   subcompaction_progress.num_processed_input_records =
-      c_iter->HasNumInputEntryScanned() ? c_iter->NumInputEntryScanned() : 0;
+      c_iter->HasNumInputEntryScanned() &&
+              sub_compact->compaction_job_stats.has_accurate_num_input_records
+          ? c_iter->NumInputEntryScanned() +
+                sub_compact->compaction_job_stats.num_input_records
+          : 0;
 
   UpdateSubcompactionProgressPerLevel(
       sub_compact, false /* is_proximal_level */, subcompaction_progress);
