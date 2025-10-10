@@ -1593,11 +1593,19 @@ void DBIter::Seek(const Slice& target) {
       return;
     }
 
-    // Set the upper bound with the limit if it is not set yet.
-    if (iterate_upper_bound_ == nullptr) {
-      auto const& limit = range.range.limit;
-      if (limit.has_value()) {
-        iterate_upper_bound_ = &limit.value();
+    // validate the upper bound is set to the same value of limit, if limit
+    // exists
+    auto const& limit = range.range.limit;
+    if (limit.has_value()) {
+      if (iterate_upper_bound_ == nullptr ||
+          user_comparator_.CompareWithoutTimestamp(
+              limit.value(), *iterate_upper_bound_) != 0) {
+        status_ = Status::InvalidArgument(
+            "Upper bound is not set to the same limit value of the next "
+            "prepared range at index " +
+            std::to_string(scan_index_));
+        valid_ = false;
+        return;
       }
     }
     scan_index_++;

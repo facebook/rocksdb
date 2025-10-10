@@ -8512,42 +8512,80 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   iter->Prepare(scan_options);
   ub = key_ranges[3];
   iter->Seek(key_ranges[2]);
-  // Seek is not allowed to skip scan
-  ASSERT_NOK(iter->status());
-  ASSERT_FALSE(iter->Valid());
-  iter.reset();
-
-  iter.reset(db->NewIterator(ro, cfh));
-  ASSERT_NE(iter, nullptr);
-  scan_options.max_prefetch_size = 0;
-  iter->Prepare(scan_options);
-  ub = key_ranges[1];
-  iter->Seek(key_ranges[0]);
-  ASSERT_OK(iter->status()) << iter->status().ToString();
-  ASSERT_TRUE(iter->Valid());
-  ub = key_ranges[3];
-  iter->Seek("key13");
-  // Seek is not allowed to skip and jump to the middle of a valid range.
-  ASSERT_NOK(iter->status());
+  // Seek is not allowed to seen a key that is not following the prepare order
+  ASSERT_EQ(
+      iter->status(),
+      Status::InvalidArgument(
+          "Seek target does not match the start of the next prepared range at "
+          "index 0"));
   ASSERT_FALSE(iter->Valid());
   iter.reset();
 
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   (*scan_options).clear();
-  if (is_reverse_comparator_) {
-    key_ranges[2] = "key20";
-  } else {
-    key_ranges[1] = "key20";
-  }
-
-  scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
-  scan_options.insert(key_ranges[2], key_ranges[3], property_bag);
+  scan_options.insert(key_ranges[0], key_ranges[2], property_bag);
+  scan_options.insert(key_ranges[1], key_ranges[3], property_bag);
   iter->Prepare(scan_options);
-  ub = key_ranges[3];
-  iter->Seek(key_ranges[2]);
+  ub = key_ranges[2];
+  iter->Seek(key_ranges[0]);
   // Should fail due to overlapping ranges
-  ASSERT_EQ(iter->status(), Status::InvalidArgument());
+  ASSERT_EQ(iter->status(), Status::InvalidArgument("Overlapping ranges"));
+  iter.reset();
+
+  // Validate an error is returned if upper bound is not set to the same value
+  // as limit
+  iter.reset(db->NewIterator(ro, cfh));
+  scan_options = MultiScanArgs(comparator_);
+  scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
+  iter->Prepare(scan_options);
+  ub = "";
+  iter->Seek(key_ranges[0]);
+  ASSERT_EQ(iter->status(),
+            Status::InvalidArgument(
+                "Upper bound is not set to the same limit value of the next "
+                "prepared range at index 0"));
+  ASSERT_FALSE(iter->Valid());
+
+  // Validate an error is returned when seek more keys than prepared
+  iter.reset(db->NewIterator(ro, cfh));
+  scan_options = MultiScanArgs(comparator_);
+  scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
+  iter->Prepare(scan_options);
+  ub = key_ranges[1];
+  iter->Seek(key_ranges[0]);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Seek(key_ranges[2]);
+  ASSERT_EQ(iter->status(),
+            Status::InvalidArgument(
+                "Seek called after exhausting all of the scan ranges"));
+  ASSERT_FALSE(iter->Valid());
+  iter.reset();
+
+  // Check error is returned if upper bound is not set and limit is set
+  ro.iterate_upper_bound = nullptr;
+  iter.reset(db->NewIterator(ro, cfh));
+  scan_options = MultiScanArgs(comparator_);
+  scan_options.insert(key_ranges[0], key_ranges[1], property_bag);
+  iter->Prepare(scan_options);
+  iter->Seek(key_ranges[0]);
+  ASSERT_EQ(iter->status(),
+            Status::InvalidArgument(
+                "Upper bound is not set to the same limit value of the next "
+                "prepared range at index 0"));
+  ASSERT_FALSE(iter->Valid());
+  iter.reset();
+
+  // Upper bound is allowed to be empty, if limit is not set
+  ro.iterate_upper_bound = nullptr;
+  iter.reset(db->NewIterator(ro, cfh));
+  scan_options = MultiScanArgs(comparator_);
+  scan_options.insert(key_ranges[0], property_bag);
+  iter->Prepare(scan_options);
+  iter->Seek(key_ranges[0]);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
   iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
@@ -8895,119 +8933,6 @@ TEST_P(UserDefinedIndexTest, QueryCrossTwoFiles) {
     }
     ASSERT_OK(iter->status());
     ASSERT_EQ(key_count, read_key_per_range_limit);
-  }
-
-  iter.reset();
-
-  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
-  ASSERT_OK(db->Close());
-  ASSERT_OK(DestroyDB(dbname, options_));
-}
-
-std::string FormatKey(int i) {
-  std::stringstream ss;
-  ss << std::setw(2) << std::setfill('0') << i;
-  return "key" + ss.str();
-}
-
-TEST_P(UserDefinedIndexTest, RelaxedSeekKeyCheck) {
-  BlockBasedTableOptions table_options;
-  options_.num_levels = 50;
-  options_.compaction_style = kCompactionStyleUniversal;
-  options_.disable_auto_compactions = true;
-  options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
-  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
-  std::string ingest_file = dbname + "test.sst";
-
-  // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
-  table_options.user_defined_index_factory = user_defined_index_factory;
-
-  // Set up custom flush block policy that flushes every 3 keys
-  table_options.flush_block_policy_factory =
-      std::make_shared<CustomFlushBlockPolicyFactory>();
-
-  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-  std::unique_ptr<SstFileWriter> writer;
-  writer.reset(new SstFileWriter(EnvOptions(), options_));
-  ASSERT_OK(writer->Open(ingest_file + "_0"));
-
-  // Add key range from 10 to 20, 30 to 40, 50 to 60
-  std::vector<std::pair<std::string, std::string>> kvs;
-  for (int start : {10, 30, 50}) {
-    for (int j = start; j < start + 10; j++) {
-      kvs.push_back(std::make_pair(FormatKey(j), "val"));
-    }
-  }
-
-  if (is_reverse_comparator_) {
-    std::reverse(kvs.begin(), kvs.end());
-  }
-
-  for (const auto& kv : kvs) {
-    ASSERT_OK(writer->Put(kv.first, kv.second));
-  }
-  ASSERT_OK(writer->Finish());
-  writer.reset();
-
-  std::unique_ptr<DB> db;
-  options_.create_if_missing = true;
-  Status s = DB::Open(options_, dbname, &db);
-  ASSERT_OK(s);
-  ASSERT_TRUE(db != nullptr);
-  ColumnFamilyHandle* cfh = nullptr;
-  ASSERT_OK(db->CreateColumnFamily(options_, "new_cf", &cfh));
-
-  IngestExternalFileOptions ifo;
-  // ingest data file key00~key99
-  s = db->IngestExternalFile(cfh, {ingest_file + "_0"}, ifo);
-  ASSERT_OK(s);
-
-  // Compact the file with SST partitioner, so that files are split into
-  // multiple ones
-  s = db->CompactRange(
-      {.exclusive_manual_compaction = true,
-       .bottommost_level_compaction = BottommostLevelCompaction::kForce},
-      cfh, nullptr, nullptr);
-  ASSERT_OK(s);
-
-  // Prepare a few ranges across every 3 keys
-  std::vector<std::string> range;
-  auto query_key_max = 72;
-  for (int i = 0; i < query_key_max; i += 3) {
-    range.push_back(FormatKey(i));
-  }
-
-  ASSERT_EQ(range.size() % 2, 0);
-
-  if (is_reverse_comparator_) {
-    std::reverse(range.begin(), range.end());
-  }
-
-  Slice ub("");
-  ReadOptions ro;
-  ro.iterate_upper_bound = &ub;
-  std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
-  ASSERT_NE(iter, nullptr);
-
-  MultiScanArgs scan_opts(options_.comparator);
-  std::unordered_map<std::string, std::string> property_bag;
-  auto read_key_per_range_limit = 2;
-  property_bag["count"] = std::to_string(read_key_per_range_limit);
-
-  for (size_t i = 0; i < range.size() / 2; i++) {
-    scan_opts.insert(range[i * 2], range[i * 2 + 1],
-                     std::optional(property_bag));
-  }
-  iter->Prepare(scan_opts);
-
-  for (size_t i = 0; i < range.size() / 2; i++) {
-    auto seek_key = range[i * 2];
-    ub = seek_key;
-    iter->Seek(seek_key);
-    ASSERT_OK(iter->status());
   }
 
   iter.reset();

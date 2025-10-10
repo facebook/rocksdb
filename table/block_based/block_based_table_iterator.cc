@@ -1101,6 +1101,16 @@ bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
   // Case 3: seek within a prepared range (unexpected, but supported)
   // Case 4: seek between 2 of the prepared ranges, return out of bound
   // Case 5: seek after all of the prepared ranges, should move on to next file
+  // The reason this could happen is due to seek key adjustment due to delete
+  // range file.
+  // E.g. LSM has 3 levels, each level has only 1 file:
+  // L1 : key :              0---10
+  // L2 : Delete range key : 0-5
+  // L3 : key :              0---10
+  // When a range 2-8 was prepared, the prepared key would be 2 on L3 file, but
+  // the seek key would be 5, as the seek key was updated by the largest key of
+  // delete range. This causes all of the cases above to be possible, when the
+  // ranges are adjusted in the above examples.
 
   // Avoid out of bound access
   auto scan_idx = std::min(multi_scan_->next_scan_idx,
@@ -1184,10 +1194,18 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
     block_idx++;
   }
 
-  // The iterator from previous seek may have moved forward a few blocks,
-  // In that case, have block_idx catch up the cur_data_block_idx
-  // Note no need to handle block unpin, as it has been handled during iterating
-  block_idx = std::max(block_idx, multi_scan_->cur_data_block_idx);
+  if (block_idx >= data_block_separators.size()) {
+    // Handle case 5, when seek key is larger than the last block in the last
+    // prepared range.
+    ResetDataIter();
+    assert(!Valid());
+    return;
+  }
+
+  // // The iterator from previous seek may have moved forward a few blocks,
+  // // In that case, have block_idx catch up the cur_data_block_idx
+  // // Note no need to handle block unpin, as it has been handled during
+  // iterating block_idx = std::max(block_idx, multi_scan_->cur_data_block_idx);
 
   // advance to the right prepared range
   while (
@@ -1217,7 +1235,6 @@ void BlockBasedTableIterator::MultiScanSeekTargetFromBlock(
 
     ResetDataIter();
 
-    multi_scan_->cur_data_block_idx = block_idx;
     if (MultiScanLoadDataBlock(block_idx)) {
       return;
     }

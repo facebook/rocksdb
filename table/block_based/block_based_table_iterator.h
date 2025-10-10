@@ -651,16 +651,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool MultiScanLoadDataBlock(size_t idx) {
     if (idx >= multi_scan_->prefetch_max_idx) {
       // TODO: Fix the max_prefetch_size support for multiple files.
-      // If the goal is to limit the overall query response, we should
-      // update prefetch size when moving to next file. Also the name is
-      // confusing.
-      // If the goal is to only limit the memory usage, prefetch could be done
+      // The goal is to limit the memory usage, prefetch could be done
       // incrementally.
       if (multi_scan_->scan_opts->max_prefetch_size == 0) {
         // If max_prefetch_size is not set, treat this as end of file.
         ResetDataIter();
-        // assert(!is_out_of_bound_);
-        // assert(!Valid());
+        assert(!is_out_of_bound_);
+        assert(!Valid());
       } else {
         // If max_prefetch_size is set, treat this as error.
         multi_scan_status_ = Status::PrefetchLimitReached();
