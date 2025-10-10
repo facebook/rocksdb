@@ -307,7 +307,7 @@ class MergeOutputIterator {
 
   Slice key() { return Slice(*it_keys_); }
   Slice value() { return Slice(*it_values_); }
-  bool Valid() { return it_keys_ != merge_helper_->keys().rend(); }
+  bool Valid() const { return it_keys_ != merge_helper_->keys().rend(); }
 
  private:
   const MergeHelper* merge_helper_;

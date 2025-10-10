@@ -8,6 +8,7 @@
 #include "db_stress_shared_state.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/options.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,16 +27,25 @@ class DbStressCompactionService : public CompactionService {
 
   static constexpr uint64_t kWaitIntervalInMicros = 10 * 1000;  // 10ms
 
+  static constexpr const char* kTempOutputDirectoryPrefix = "tmp_output_";
+
   CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
     std::string job_id = info.db_id + "_" + info.db_session_id + "_" +
                          std::to_string(info.job_id);
+
     if (aborted_.load()) {
       return CompactionServiceScheduleResponse(
           job_id, CompactionServiceJobStatus::kUseLocal);
     }
-    shared_->EnqueueRemoteCompaction(job_id, info, compaction_service_input);
+    std::string output_directory = info.db_name + "/" +
+                                   kTempOutputDirectoryPrefix +
+                                   Env::Default()->GenerateUniqueId();
+
+    shared_->EnqueueRemoteCompaction(
+        job_id, info, compaction_service_input, output_directory,
+        false /* was_cancelled */);  // Not canceled initially
     CompactionServiceScheduleResponse response(
         job_id, CompactionServiceJobStatus::kSuccess);
     return response;
@@ -58,6 +68,10 @@ class DbStressCompactionService : public CompactionService {
         } else {
           // Remote Compaction failed
           if (failure_should_fall_back_to_local_) {
+            return CompactionServiceJobStatus::kUseLocal;
+          }
+          if (s.getState() && FaultInjectionTestFS::IsInjectedError(s) &&
+              !status_to_io_status(Status(s)).GetDataLoss()) {
             return CompactionServiceJobStatus::kUseLocal;
           }
           if (result && result->empty()) {
@@ -113,5 +127,4 @@ class DbStressCompactionService : public CompactionService {
   std::atomic_bool aborted_{false};
   bool failure_should_fall_back_to_local_;
 };
-
 }  // namespace ROCKSDB_NAMESPACE

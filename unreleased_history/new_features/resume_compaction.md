@@ -1,0 +1,1 @@
+Added experimental support `OpenAndCompactOptions::allow_resumption` for resumable compaction that persists progress during `OpenAndCompact()`, allowing interrupted compactions to resume from the last progress persitence. The default behavior is to not persist progress.
