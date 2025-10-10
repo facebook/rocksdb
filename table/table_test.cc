@@ -8180,7 +8180,7 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key40"), std::optional(property_bag));
+  scan_opts.insert(Slice("key50"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
@@ -8188,9 +8188,8 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
        iter->Valid(); iter->Next()) {
     key_count++;
   }
-  ASSERT_GE(key_count, 25);
-  // The index may undercount by 2 blocks
-  ASSERT_LE(key_count, 30);
+  // upper bound is not set, so blocks will be prepared to the end of the file
+  ASSERT_EQ(key_count, is_reverse_comparator_ ? 51 : 50);
   ASSERT_OK(iter->status());
   iter.reset();
 
@@ -8655,7 +8654,7 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key40"), std::optional(property_bag));
+  scan_opts.insert(Slice("key50"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   int key_count = 0;
@@ -8663,9 +8662,8 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
        iter->Valid(); iter->Next()) {
     key_count++;
   }
-  ASSERT_GE(key_count, 25);
-  // The index may undercount by 2 blocks
-  ASSERT_LE(key_count, 30);
+  // upper bound is not set, so blocks will be prepared to the end of the file
+  ASSERT_EQ(key_count, is_reverse_comparator_ ? 51 : 50);
   ASSERT_OK(iter->status());
   iter.reset();
 

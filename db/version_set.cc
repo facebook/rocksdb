@@ -1669,7 +1669,9 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
       const MultiScanArgs& new_opts = GetMultiScanArgForFile(file_index_);
       file_iter_.Prepare(&new_opts);
     } else {
-      file_iter_.Prepare(scan_opts_);
+      // If file is not prepared with ranges, skip it
+      delete old_iter;
+      return;
     }
   }
 
