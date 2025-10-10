@@ -1634,14 +1634,13 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
   // true
   {
     auto fs_with_prefetch = std::make_shared<ConfigurablePrefetchFS>(
-        fs_, true /* support_prefetch */);
-    Options opts = options;
-    opts.env = new CompositeEnvWrapper(options_.env, fs_with_prefetch);
+        env_->GetFileSystem(), true /* support_prefetch */);
+    options.env = new CompositeEnvWrapper(env_, fs_with_prefetch);
 
     FileOptions fopts;
     fopts.use_direct_reads = use_direct_reads_;
     InternalKeyComparator cmp(options.comparator);
-    ImmutableOptions iopts(opts);
+    ImmutableOptions iopts(options);
 
     std::unique_ptr<BlockBasedTable> table;
     NewBlockBasedTableReader(fopts, iopts, cmp, table_name, &table,
@@ -1651,21 +1650,19 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
     ASSERT_TRUE(table->get_rep()->fs_prefetch_support);
     ASSERT_TRUE(CheckFSFeatureSupport(fs_with_prefetch.get(),
                                       FSSupportedOps::kFSPrefetch));
-    delete opts.env;
   }
 
   // Test Case 2: Filesystem doesn't support prefetch, fs_prefetch_support
   // should be false
   {
     auto fs_without_prefetch = std::make_shared<ConfigurablePrefetchFS>(
-        fs_, false /* support_prefetch */);
-    Options opts = options;
-    opts.env = new CompositeEnvWrapper(options_.env, fs_without_prefetch);
+        env_->GetFileSystem(), false /* support_prefetch */);
+    options.env = new CompositeEnvWrapper(env_, fs_without_prefetch);
 
     FileOptions fopts;
     fopts.use_direct_reads = use_direct_reads_;
     InternalKeyComparator cmp(options.comparator);
-    ImmutableOptions iopts(opts);
+    ImmutableOptions iopts(options);
 
     std::unique_ptr<BlockBasedTable> table;
     NewBlockBasedTableReader(fopts, iopts, cmp, table_name, &table,
@@ -1675,7 +1672,6 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
     ASSERT_FALSE(table->get_rep()->fs_prefetch_support);
     ASSERT_FALSE(CheckFSFeatureSupport(fs_without_prefetch.get(),
                                        FSSupportedOps::kFSPrefetch));
-    delete opts.env;
   }
 }
 

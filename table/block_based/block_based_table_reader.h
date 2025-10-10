@@ -611,8 +611,8 @@ struct BlockBasedTable::Rep {
         level(_level),
         immortal_table(_immortal_table),
         user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
-        fs_prefetch_support(
-            CheckFSFeatureSupport(_ioptions.fs.get(), kFSPrefetch)) {}
+        fs_prefetch_support(CheckFSFeatureSupport(
+            _ioptions.fs.get(), FSSupportedOps::kFSPrefetch)) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
