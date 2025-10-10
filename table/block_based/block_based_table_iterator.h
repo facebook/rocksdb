@@ -697,9 +697,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                      const Slice& buffer_data,
                                      CachableEntry<Block>& pinned_block_entry);
 
-  // Helper functions for Prepare():
-  Status ValidateScanOptions(const MultiScanArgs* multiscan_opts);
-
   Status CollectBlockHandles(
       const std::vector<ScanOptions>& scan_opts, bool require_file_overlap,
       std::vector<BlockHandle>* scan_block_handles,

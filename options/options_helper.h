@@ -119,4 +119,7 @@ static auto& temperature_string_map = OptionsHelper::temperature_string_map;
 static auto& prepopulate_blob_cache_string_map =
     OptionsHelper::prepopulate_blob_cache_string_map;
 
+Status ValidateScanOptions(const Comparator* user_comparator,
+                           const MultiScanArgs* multiscan_opts);
+
 }  // namespace ROCKSDB_NAMESPACE

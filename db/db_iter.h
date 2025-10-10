@@ -240,17 +240,7 @@ class DBIter final : public Iterator {
 
   bool PrepareValue() override;
 
-  void Prepare(const MultiScanArgs& scan_opts) override {
-    std::optional<MultiScanArgs> new_scan_opts;
-    new_scan_opts.emplace(scan_opts);
-    scan_opts_.swap(new_scan_opts);
-    scan_index_ = 0;
-    if (!scan_opts.empty()) {
-      iter_.Prepare(&scan_opts_.value());
-    } else {
-      iter_.Prepare(nullptr);
-    }
-  }
+  void Prepare(const MultiScanArgs& scan_opts) override;
 
  private:
   DBIter(Env* _env, const ReadOptions& read_options,

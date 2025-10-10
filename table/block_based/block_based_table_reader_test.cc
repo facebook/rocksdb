@@ -1326,7 +1326,6 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
   scan_options.insert(ExtractUserKey(kv[31 * kEntriesPerBlock].first),
                       ExtractUserKey(kv[33 * kEntriesPerBlock].first));
   iter->Prepare(&scan_options);
-  iter->Seek(kv[31 * kEntriesPerBlock].first);
   ASSERT_EQ(iter->status(), Status::InvalidArgument("Overlapping ranges"));
 
   // Test prefetch limit reached.

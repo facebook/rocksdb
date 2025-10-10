@@ -8526,8 +8526,6 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   scan_options.insert(key_ranges[0], key_ranges[2], property_bag);
   scan_options.insert(key_ranges[1], key_ranges[3], property_bag);
   iter->Prepare(scan_options);
-  ub = key_ranges[2];
-  iter->Seek(key_ranges[0]);
   // Should fail due to overlapping ranges
   ASSERT_EQ(iter->status(), Status::InvalidArgument("Overlapping ranges"));
   iter.reset();

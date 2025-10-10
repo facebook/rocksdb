@@ -22,6 +22,7 @@
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
@@ -1562,6 +1563,22 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
       saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
                                    &ts);
     }
+  }
+}
+
+void DBIter::Prepare(const MultiScanArgs& scan_opts) {
+  status_ = ValidateScanOptions(user_comparator_.user_comparator(), &scan_opts);
+  if (!status_.ok()) {
+    return;
+  }
+  std::optional<MultiScanArgs> new_scan_opts;
+  new_scan_opts.emplace(scan_opts);
+  scan_opts_.swap(new_scan_opts);
+  scan_index_ = 0;
+  if (!scan_opts.empty()) {
+    iter_.Prepare(&scan_opts_.value());
+  } else {
+    iter_.Prepare(nullptr);
   }
 }
 

@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
 
+#include "options/options_helper.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
@@ -988,7 +990,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     multi_scan_status_ = Status::InvalidArgument("Prepare already called");
     return;
   }
-  multi_scan_status_ = ValidateScanOptions(multiscan_opts);
+  multi_scan_status_ =
+      ValidateScanOptions(user_comparator_.user_comparator(), multiscan_opts);
   if (!multi_scan_status_.ok()) {
     return;
   }
@@ -1412,50 +1415,6 @@ Status BlockBasedTableIterator::CreateAndPinBlockFromBuffer(
   return table_->CreateAndPinBlockInCache<Block_kData>(
       read_options_, block, decompressor, &tmp_contents,
       &pinned_block_entry.As<Block_kData>());
-}
-
-Status BlockBasedTableIterator::ValidateScanOptions(
-    const MultiScanArgs* multiscan_opts) {
-  if (multiscan_opts == nullptr || multiscan_opts->empty()) {
-    return Status::InvalidArgument("Empty MultiScanArgs");
-  }
-
-  const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
-  const bool has_limit = scan_opts.front().range.limit.has_value();
-  if (!has_limit && scan_opts.size() > 1) {
-    // Abort: overlapping ranges
-    return Status::InvalidArgument("Scan has no upper bound");
-  }
-
-  for (size_t i = 0; i < scan_opts.size(); ++i) {
-    const auto& scan_range = scan_opts[i].range;
-    if (!scan_range.start.has_value()) {
-      // Abort: no start key
-      return Status::InvalidArgument("Scan has no start key");
-    }
-
-    if (scan_range.limit.has_value()) {
-      assert(user_comparator_.CompareWithoutTimestamp(
-                 scan_range.start.value(), /*a_has_ts=*/false,
-                 scan_range.limit.value(), /*b_has_ts=*/false) <= 0);
-    }
-
-    if (i > 0) {
-      if (!scan_range.limit.has_value()) {
-        // multiple no limit scan ranges
-        return Status::InvalidArgument("Scan has no upper bound");
-      }
-
-      const auto& last_end_key = scan_opts[i - 1].range.limit.value();
-      if (user_comparator_.CompareWithoutTimestamp(
-              scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
-              /*b_has_ts=*/false) < 0) {
-        // Abort: overlapping ranges
-        return Status::InvalidArgument("Overlapping ranges");
-      }
-    }
-  }
-  return Status::OK();
 }
 
 Status BlockBasedTableIterator::CollectBlockHandles(
