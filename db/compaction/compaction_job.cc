@@ -2865,8 +2865,18 @@ void CompactionJob::UpdateSubcompactionProgress(
   subcompaction_progress.next_internal_key_to_compact =
       next_ikey_to_compact.GetInternalKey().ToString();
 
+  // Track total processed input records for progress reporting by combining:
+  // - Resumed count: records already processed before compaction was
+  // interrupted
+  // - Current count: records scanned in the current compaction session
+  // Only update when both tracking mechanisms provide accurate counts to ensure
+  // reliability.
   subcompaction_progress.num_processed_input_records =
-      c_iter->HasNumInputEntryScanned() ? c_iter->NumInputEntryScanned() : 0;
+      c_iter->HasNumInputEntryScanned() &&
+              sub_compact->compaction_job_stats.has_accurate_num_input_records
+          ? c_iter->NumInputEntryScanned() +
+                sub_compact->compaction_job_stats.num_input_records
+          : 0;
 
   UpdateSubcompactionProgressPerLevel(
       sub_compact, false /* is_proximal_level */, subcompaction_progress);
