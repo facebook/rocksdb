@@ -809,91 +809,58 @@ Status CompactionJob::SyncOutputDirectories() {
   return status;
 }
 
-Status CompactionJob::VerifyOutputFiles() {
-  Status status;
-  std::vector<port::Thread> thread_pool;
-  std::vector<const CompactionOutputs::Output*> files_output;
-  for (const auto& state : compact_->sub_compact_states) {
-    for (const auto& output : state.GetOutputs()) {
-      files_output.emplace_back(&output);
-    }
-  }
-  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-  std::atomic<size_t> next_file_idx(0);
-  auto verify_table = [&](Status& output_status) {
-    while (true) {
-      size_t file_idx = next_file_idx.fetch_add(1);
-      if (file_idx >= files_output.size()) {
-        break;
-      }
-      // Verify that the table is usable
-      // We set for_compaction to false and don't
-      // OptimizeForCompactionTableRead here because this is a special case
-      // after we finish the table building No matter whether
-      // use_direct_io_for_flush_and_compaction is true, we will regard this
-      // verification as user reads since the goal is to cache it here for
-      // further user reads
-      ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
-      verify_table_read_options.rate_limiter_priority =
-          GetRateLimiterPriority();
-      InternalIterator* iter = cfd->table_cache()->NewIterator(
-          verify_table_read_options, file_options_, cfd->internal_comparator(),
-          files_output[file_idx]->meta,
-          /*range_del_agg=*/nullptr, compact_->compaction->mutable_cf_options(),
-          /*table_reader_ptr=*/nullptr,
-          cfd->internal_stats()->GetFileReadHist(
-              compact_->compaction->output_level()),
-          TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
-          /*skip_filters=*/false, compact_->compaction->output_level(),
-          MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
-          /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
-      auto s = iter->status();
+Status CompactionJob::VerifyOutputFile(
+    SubcompactionState* sub_compact, const CompactionOutputs::Output& output) {
+  ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+  // Verify that the table is usable
+  // We set for_compaction to false and don't
+  // OptimizeForCompactionTableRead here because this is a special case
+  // after we finish the table building No matter whether
+  // use_direct_io_for_flush_and_compaction is true, we will regard this
+  // verification as user reads since the goal is to cache it here for
+  // further user reads
+  ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
+  verify_table_read_options.rate_limiter_priority = GetRateLimiterPriority();
+  InternalIterator* iter = cfd->table_cache()->NewIterator(
+      verify_table_read_options, file_options_, cfd->internal_comparator(),
+      output.meta,
+      /*range_del_agg=*/nullptr, sub_compact->compaction->mutable_cf_options(),
+      /*table_reader_ptr=*/nullptr,
+      cfd->internal_stats()->GetFileReadHist(
+          sub_compact->compaction->output_level()),
+      TableReaderCaller::kCompactionRefill,
+      /*arena=*/nullptr,
+      /*skip_filters=*/false, sub_compact->compaction->output_level(),
+      MaxFileSizeForL0MetaPin(sub_compact->compaction->mutable_cf_options()),
+      /*smallest_compaction_key=*/nullptr,
+      /*largest_compaction_key=*/nullptr,
+      /*allow_unprepared_value=*/false);
 
-      if (s.ok() && paranoid_file_checks_) {
-        OutputValidator validator(cfd->internal_comparator(),
-                                  /*_enable_hash=*/true);
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-          s = validator.Add(iter->key(), iter->value());
-          if (!s.ok()) {
-            break;
-          }
-        }
-        if (s.ok()) {
-          s = iter->status();
-        }
-        if (s.ok() &&
-            !validator.CompareValidator(files_output[file_idx]->validator)) {
-          s = Status::Corruption("Paranoid checksums do not match");
-        }
-      }
+  Status s = iter->status();
 
-      delete iter;
+  // Perform paranoid file checks if enabled
+  if (s.ok() && paranoid_file_checks_) {
+    OutputValidator validator(cfd->internal_comparator(), /*enable_hash=*/true);
 
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      s = validator.Add(iter->key(), iter->value());
       if (!s.ok()) {
-        output_status = s;
         break;
       }
     }
-  };
-  for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
-    thread_pool.emplace_back(verify_table,
-                             std::ref(compact_->sub_compact_states[i].status));
-  }
-  verify_table(compact_->sub_compact_states[0].status);
-  for (auto& thread : thread_pool) {
-    thread.join();
-  }
 
-  for (const auto& state : compact_->sub_compact_states) {
-    if (!state.status.ok()) {
-      status = state.status;
-      break;
+    if (s.ok()) {
+      s = iter->status();
+    }
+
+    if (s.ok() && !validator.CompareValidator(output.validator)) {
+      s = Status::Corruption("Paranoid checksums do not match");
     }
   }
 
-  return status;
+  delete iter;
+
+  return s;
 }
 
 void CompactionJob::SetOutputTableProperties() {
@@ -975,10 +942,6 @@ Status CompactionJob::Run() {
 
   if (status.ok()) {
     status = SyncOutputDirectories();
-  }
-
-  if (status.ok()) {
-    status = VerifyOutputFiles();
   }
 
   if (status.ok()) {
@@ -1964,6 +1927,14 @@ Status CompactionJob::FinishCompactionOutputFile(
     // VersionEdit.
     outputs.RemoveLastOutput();
     meta = nullptr;
+  }
+
+  if (s.ok() && meta != nullptr) {
+    const auto& current_output = outputs.GetCurrentOutput();
+    Status verify_status = VerifyOutputFile(sub_compact, current_output);
+    if (!verify_status.ok()) {
+      s = verify_status;
+    }
   }
 
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
