@@ -52,7 +52,7 @@ Status CompactionOutputs::Finish(
     meta->user_defined_timestamps_persisted = static_cast<bool>(
         builder_->GetTableProperties().user_defined_timestamps_persisted);
   }
-  current_output().finished = true;
+  GetCurrentOutputRef().finished = true;
   stats_.bytes_written += current_bytes;
   stats_.bytes_written_pre_comp += builder_->PreCompressionSize();
   stats_.num_output_files = static_cast<int>(outputs_.size());
@@ -410,7 +410,7 @@ Status CompactionOutputs::AddToOutput(
 
   assert(builder_ != nullptr);
   const Slice& value = c_iter.value();
-  s = current_output().validator.Add(key, value);
+  s = GetCurrentOutputRef().validator.Add(key, value);
   if (!s.ok()) {
     return s;
   }
@@ -433,8 +433,8 @@ Status CompactionOutputs::AddToOutput(
     smallest_preferred_seqno_ =
         std::min(smallest_preferred_seqno_, preferred_seqno);
   }
-  s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
-                                             ikey.type);
+  s = GetCurrentOutputRef().meta.UpdateBoundaries(key, value, ikey.sequence,
+                                                  ikey.type);
 
   return s;
 }
@@ -477,7 +477,7 @@ Status CompactionOutputs::AddRangeDels(
   // and meta.largest will be set to comp_start_user_key@kMaxSequenceNumber
   // which violates the assumption that meta.smallest should be <= meta.largest.
   assert(!range_del_agg.IsEmpty());
-  FileMetaData& meta = current_output().meta;
+  FileMetaData& meta = GetCurrentOutputRef().meta;
   const Comparator* ucmp = icmp.user_comparator();
   InternalKey lower_bound_buf, upper_bound_buf;
   Slice lower_bound_guard, upper_bound_guard;

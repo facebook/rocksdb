@@ -115,12 +115,12 @@ class CompactionOutputs {
   // Update output table properties from already populated TableProperties.
   // Used for remote compaction
   void UpdateTableProperties(const TableProperties& table_properties) {
-    current_output().table_properties =
+    GetCurrentOutputRef().table_properties =
         std::make_shared<TableProperties>(table_properties);
   }
   // Update output table properties from table builder
   void UpdateTableProperties() {
-    current_output().table_properties =
+    GetCurrentOutputRef().table_properties =
         std::make_shared<TableProperties>(GetTableProperties());
   }
 
@@ -165,9 +165,20 @@ class CompactionOutputs {
 
   bool HasBuilder() const { return builder_ != nullptr; }
 
-  FileMetaData* GetMetaData() { return &current_output().meta; }
+  FileMetaData* GetMetaData() { return &GetCurrentOutputRef().meta; }
 
   bool HasOutput() const { return !outputs_.empty(); }
+
+  // This subcompaction's output could be empty if compaction was aborted before
+  // this subcompaction had a chance to generate any output files. When
+  // subcompactions are executed sequentially this is more likely and will be
+  // particularly likely for the later subcompactions to be empty. Once they are
+  // run in parallel however it should be much rarer.
+  // It's caller's responsibility to make sure it's not empty.
+  const Output& GetCurrentOutput() const {
+    assert(!outputs_.empty());
+    return outputs_.back();
+  }
 
   uint64_t NumEntries() const { return builder_->NumEntries(); }
 
@@ -292,13 +303,7 @@ class CompactionOutputs {
     return status;
   }
 
-  // This subcompaction's output could be empty if compaction was aborted before
-  // this subcompaction had a chance to generate any output files. When
-  // subcompactions are executed sequentially this is more likely and will be
-  // particularly likely for the later subcompactions to be empty. Once they are
-  // run in parallel however it should be much rarer.
-  // It's caller's responsibility to make sure it's not empty.
-  Output& current_output() {
+  Output& GetCurrentOutputRef() {
     assert(!outputs_.empty());
     return outputs_.back();
   }

@@ -301,7 +301,8 @@ class CompactionJob {
   bool HasNewBlobFiles() const;
   Status CollectSubcompactionErrors();
   Status SyncOutputDirectories();
-  Status VerifyOutputFiles();
+  Status VerifyOutputFile(SubcompactionState* sub_compact,
+                          const CompactionOutputs::Output& output);
   void SetOutputTableProperties();
   // Aggregates subcompaction output stats to internal stat, and aggregates
   // subcompaction's compaction job stats to the whole entire surrounding
