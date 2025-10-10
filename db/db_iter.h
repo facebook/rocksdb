@@ -241,6 +241,7 @@ class DBIter final : public Iterator {
   bool PrepareValue() override;
 
   void Prepare(const MultiScanArgs& scan_opts) override;
+  Status ValidateScanOptions(const MultiScanArgs& multiscan_opts) const;
 
  private:
   DBIter(Env* _env, const ReadOptions& read_options,

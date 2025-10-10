@@ -22,7 +22,6 @@
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
-#include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
@@ -1566,8 +1565,48 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   }
 }
 
+Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
+  if (multiscan_opts.empty()) {
+    return Status::InvalidArgument("Empty MultiScanArgs");
+  }
+
+  const std::vector<ScanOptions>& scan_opts = multiscan_opts.GetScanRanges();
+  const bool has_limit = scan_opts.front().range.limit.has_value();
+  if (!has_limit && scan_opts.size() > 1) {
+    return Status::InvalidArgument("Scan has no upper bound");
+  }
+
+  for (size_t i = 0; i < scan_opts.size(); ++i) {
+    const auto& scan_range = scan_opts[i].range;
+    if (!scan_range.start.has_value()) {
+      return Status::InvalidArgument("Scan has no start key");
+    }
+
+    if (scan_range.limit.has_value()) {
+      assert(user_comparator_.CompareWithoutTimestamp(
+                 scan_range.start.value(), /*a_has_ts=*/false,
+                 scan_range.limit.value(), /*b_has_ts=*/false) <= 0);
+    }
+
+    if (i > 0) {
+      if (!scan_range.limit.has_value()) {
+        // multiple scan without limit scan ranges
+        return Status::InvalidArgument("Scan has no upper bound");
+      }
+
+      const auto& last_end_key = scan_opts[i - 1].range.limit.value();
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
+              /*b_has_ts=*/false) < 0) {
+        return Status::InvalidArgument("Overlapping ranges");
+      }
+    }
+  }
+  return Status::OK();
+}
+
 void DBIter::Prepare(const MultiScanArgs& scan_opts) {
-  status_ = ValidateScanOptions(user_comparator_.user_comparator(), &scan_opts);
+  status_ = ValidateScanOptions(scan_opts);
   if (!status_.ok()) {
     return;
   }

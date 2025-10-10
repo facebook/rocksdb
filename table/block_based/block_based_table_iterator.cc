@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
 
-#include "options/options_helper.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
@@ -988,11 +986,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   if (multi_scan_) {
     multi_scan_.reset();
     multi_scan_status_ = Status::InvalidArgument("Prepare already called");
-    return;
-  }
-  multi_scan_status_ =
-      ValidateScanOptions(user_comparator_.user_comparator(), multiscan_opts);
-  if (!multi_scan_status_.ok()) {
     return;
   }
 

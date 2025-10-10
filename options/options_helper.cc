@@ -1585,46 +1585,4 @@ const OptionTypeInfo* OptionTypeInfo::Find(
   return nullptr;
 }
 
-Status ValidateScanOptions(const Comparator* user_comparator,
-                           const MultiScanArgs* multiscan_opts) {
-  assert(user_comparator != nullptr);
-  if (multiscan_opts == nullptr || multiscan_opts->empty()) {
-    return Status::InvalidArgument("Empty MultiScanArgs");
-  }
-
-  const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
-  const bool has_limit = scan_opts.front().range.limit.has_value();
-  if (!has_limit && scan_opts.size() > 1) {
-    return Status::InvalidArgument("Scan has no upper bound");
-  }
-
-  for (size_t i = 0; i < scan_opts.size(); ++i) {
-    const auto& scan_range = scan_opts[i].range;
-    if (!scan_range.start.has_value()) {
-      return Status::InvalidArgument("Scan has no start key");
-    }
-
-    if (scan_range.limit.has_value()) {
-      assert(user_comparator->CompareWithoutTimestamp(
-                 scan_range.start.value(), /*a_has_ts=*/false,
-                 scan_range.limit.value(), /*b_has_ts=*/false) <= 0);
-    }
-
-    if (i > 0) {
-      if (!scan_range.limit.has_value()) {
-        // multiple scan without limit scan ranges
-        return Status::InvalidArgument("Scan has no upper bound");
-      }
-
-      const auto& last_end_key = scan_opts[i - 1].range.limit.value();
-      if (user_comparator->CompareWithoutTimestamp(
-              scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
-              /*b_has_ts=*/false) < 0) {
-        return Status::InvalidArgument("Overlapping ranges");
-      }
-    }
-  }
-  return Status::OK();
-}
-
 }  // namespace ROCKSDB_NAMESPACE

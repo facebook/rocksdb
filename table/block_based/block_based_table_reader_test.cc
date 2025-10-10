@@ -1262,19 +1262,6 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
   iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
   ASSERT_OK(iter->status());
 
-  // 5. Check no seek key error
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanArgs(comparator_);
-  scan_options.use_async_io = use_async_io;
-  scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[31 * kEntriesPerBlock].first));
-  iter->Prepare(&scan_options);
-  iter->SeekToFirst();
-  ASSERT_EQ(iter->status(),
-            Status::InvalidArgument("No seek key for MultiScan"));
-
   // Check seek key going backward
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
@@ -1294,39 +1281,6 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
   iter->Seek(kv[30 * kEntriesPerBlock].first);
   ASSERT_EQ(iter->status(),
             Status::InvalidArgument("Unexpected seek key moving backward"));
-
-  // Check error validation on upper bound
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanArgs(comparator_);
-  scan_options.use_async_io = use_async_io;
-  // Single range scan is allowed to have no upper bound
-  scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first));
-  iter->Prepare(&scan_options);
-  ASSERT_OK(iter->status());
-
-  // Multi range scan must have upper bound
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  // Single range scan is allowed to have no upper bound
-  scan_options.insert(ExtractUserKey(kv[40 * kEntriesPerBlock].first));
-  iter->Prepare(&scan_options);
-  ASSERT_EQ(iter->status(), Status::InvalidArgument("Scan has no upper bound"));
-
-  // Error validation of overlap range
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options = MultiScanArgs(comparator_);
-  scan_options.use_async_io = use_async_io;
-  scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[32 * kEntriesPerBlock].first));
-  scan_options.insert(ExtractUserKey(kv[31 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[33 * kEntriesPerBlock].first));
-  iter->Prepare(&scan_options);
-  ASSERT_EQ(iter->status(), Status::InvalidArgument("Overlapping ranges"));
 
   // Test prefetch limit reached.
   iter.reset(table->NewIterator(

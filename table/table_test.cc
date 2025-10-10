@@ -8182,14 +8182,15 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   property_bag["count"] = std::to_string(25);
   scan_opts.insert(Slice("key50"), std::optional(property_bag));
   iter->Prepare(scan_opts);
-  // Test that we can read all the keys
+  // Test that UDI is used to help fetch the number of keys
   key_count = 0;
   for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
     key_count++;
   }
-  // upper bound is not set, so blocks will be prepared to the end of the file
-  ASSERT_EQ(key_count, is_reverse_comparator_ ? 51 : 50);
+  // Number of blocks prepared is based on UDI, it would be slightly higher than
+  // the limit
+  ASSERT_EQ(key_count, is_reverse_comparator_ ? 29 : 25);
   ASSERT_OK(iter->status());
   iter.reset();
 
@@ -8505,6 +8506,15 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   ASSERT_EQ(iter->status(), Status::Incomplete());
   iter.reset();
 
+  // Check no seek key error
+  iter.reset(db->NewIterator(ro, cfh));
+  scan_options = MultiScanArgs(comparator_);
+  scan_options.insert(key_ranges[0], key_ranges[2], property_bag);
+  iter->Prepare(scan_options);
+  iter->SeekToFirst();
+  ASSERT_EQ(iter->status(),
+            Status::InvalidArgument("No seek key for MultiScan"));
+
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   scan_options.max_prefetch_size = 0;
@@ -8654,14 +8664,15 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   property_bag["count"] = std::to_string(25);
   scan_opts.insert(Slice("key50"), std::optional(property_bag));
   iter->Prepare(scan_opts);
-  // Test that we can read all the keys
+  // Test that UDI is used to help fetch the number of keys
   int key_count = 0;
   for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
     key_count++;
   }
-  // upper bound is not set, so blocks will be prepared to the end of the file
-  ASSERT_EQ(key_count, is_reverse_comparator_ ? 51 : 50);
+  // Number of blocks prepared is based on UDI, it would be slightly higher than
+  // the limit
+  ASSERT_EQ(key_count, is_reverse_comparator_ ? 29 : 25);
   ASSERT_OK(iter->status());
   iter.reset();
 
