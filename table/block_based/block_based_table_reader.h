@@ -610,7 +610,9 @@ struct BlockBasedTable::Rep {
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
+        fs_prefetch_support(CheckFSFeatureSupport(
+            _ioptions.fs.get(), FSSupportedOps::kFSPrefetch)) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -698,6 +700,8 @@ struct BlockBasedTable::Rep {
   // partitioned filters), the `first_internal_key` in `IndexValue`, the
   // `end_key` for range deletion entries.
   const bool user_defined_timestamps_persisted;
+
+  const bool fs_prefetch_support;
 
   // Set to >0 when the file is known to be obsolete and should have its block
   // cache entries evicted on close. NOTE: when the file becomes obsolete,
