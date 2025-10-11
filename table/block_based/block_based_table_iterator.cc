@@ -1048,7 +1048,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   if (SeekMultiScanImpl(seek_target)) {
     is_out_of_bound_ = true;
-    ResetDataIter();
     assert(!Valid());
   }
 }
@@ -1109,14 +1108,17 @@ bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
   // delete range. This causes all of the cases above to be possible, when the
   // ranges are adjusted in the above examples.
 
-  // Avoid out of bound access
-  auto scan_idx = std::min(multi_scan_->next_scan_idx,
-                           multi_scan_->block_index_ranges_per_scan.size() - 1);
+  // Allow reseek on the start of the last prepared range due to too many
+  // tombstone
+  multi_scan_->next_scan_idx =
+      std::min(multi_scan_->next_scan_idx,
+               multi_scan_->block_index_ranges_per_scan.size() - 1);
 
   auto compare_next_scan_start_result =
       user_comparator_.CompareWithoutTimestamp(
           ExtractUserKey(*seek_target), /*a_has_ts=*/true,
-          multi_scan_->scan_opts->GetScanRanges()[scan_idx].range.start.value(),
+          multi_scan_->scan_opts->GetScanRanges()[multi_scan_->next_scan_idx]
+              .range.start.value(),
           /*b_has_ts=*/false);
 
   if (compare_next_scan_start_result != 0) {
@@ -1146,7 +1148,9 @@ bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
       // seek :                 3           4                      5
       MultiScanUnexpectedSeekTarget(
           seek_target,
-          std::get<0>(multi_scan_->block_index_ranges_per_scan[scan_idx]));
+          std::get<0>(
+              multi_scan_
+                  ->block_index_ranges_per_scan[multi_scan_->next_scan_idx]));
     }
   } else {
     if (multi_scan_->next_scan_idx >=

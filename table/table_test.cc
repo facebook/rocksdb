@@ -8006,24 +8006,29 @@ void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
   ASSERT_NOK(iter->status());
   user_defined_index_factory->next_error_count_ = 0;
 
-  ro.iterate_upper_bound = nullptr;
+  ro.iterate_upper_bound = &ub;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
   MultiScanArgs scan_opts(comparator_);
 
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert("key40", "key99", property_bag);
+  std::vector<std::string> boundaries = {"key10", "key50"};
+  if (is_reverse_comparator_) {
+    std::reverse(boundaries.begin(), boundaries.end());
+  }
+
+  scan_opts.insert(boundaries[0], boundaries[1], std::optional(property_bag));
   iter->Prepare(scan_opts);
-  // Test that we can read all the keys
+  // Test that UDI is used to help fetch the number of keys
   key_count = 0;
+  ub = boundaries[1];
   for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
     key_count++;
   }
-  ASSERT_GE(key_count, 25);
   // The index may undercount by 2 blocks
-  ASSERT_LE(key_count, 30);
+  ASSERT_EQ(key_count, 29);
   ASSERT_OK(iter->status());
 }
 
@@ -8168,25 +8173,6 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
     key_count++;
   }
   ASSERT_EQ(key_count, is_reverse_comparator_ ? 15 : 35);
-  ASSERT_OK(iter->status());
-
-  ro.iterate_upper_bound = nullptr;
-  iter.reset(db->NewIterator(ro, cfh));
-  ASSERT_NE(iter, nullptr);
-  MultiScanArgs scan_opts(options_.comparator);
-  std::unordered_map<std::string, std::string> property_bag;
-  property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key50"), Slice("key99"), std::optional(property_bag));
-  iter->Prepare(scan_opts);
-  // Test that UDI is used to help fetch the number of keys
-  key_count = 0;
-  for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
-       iter->Valid(); iter->Next()) {
-    key_count++;
-  }
-  // Number of blocks prepared is based on UDI, it would be slightly higher than
-  // the limit
-  ASSERT_EQ(key_count, is_reverse_comparator_ ? 29 : 25);
   ASSERT_OK(iter->status());
   iter.reset();
 
@@ -8670,15 +8656,24 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   ASSERT_OK(s);
 
   ReadOptions ro;
+  Slice ub;
+  ro.iterate_upper_bound = &ub;
   ro.table_index_factory = user_defined_index_factory.get();
   std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key50"), Slice("key99"), std::optional(property_bag));
+
+  std::vector<std::string> boundaries = {"key10", "key50"};
+  if (is_reverse_comparator_) {
+    std::reverse(boundaries.begin(), boundaries.end());
+  }
+
+  scan_opts.insert(boundaries[0], boundaries[1], std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that UDI is used to help fetch the number of keys
+  ub = boundaries[1];
   int key_count = 0;
   for (iter->Seek(scan_opts.GetScanRanges()[0].range.start.value());
        iter->Valid(); iter->Next()) {
@@ -8686,7 +8681,8 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   }
   // Number of blocks prepared is based on UDI, it would be slightly higher than
   // the limit
-  ASSERT_EQ(key_count, is_reverse_comparator_ ? 29 : 25);
+  // The index may undercount by 2 blocks
+  ASSERT_EQ(key_count, 29);
   ASSERT_OK(iter->status());
   iter.reset();
 
