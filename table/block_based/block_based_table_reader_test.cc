@@ -1607,7 +1607,7 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
 
     void SupportedOps(int64_t& supported_ops) override {
       target()->SupportedOps(supported_ops);
-      if (!support_prefetch_) { // Disable prefetch support if requested
+      if (!support_prefetch_) {  // Disable prefetch support if requested
         supported_ops &= ~(1 << FSSupportedOps::kFSPrefetch);
       }
     }
