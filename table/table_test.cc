@@ -7257,8 +7257,6 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
   } catch (MultiScanException& ex) {
     // Make sure exception contains the status
     ASSERT_NOK(ex.status());
-    std::cerr << "Iterator returned status " << ex.what();
-    abort();
   } catch (std::logic_error& ex) {
     std::cerr << "Iterator returned logic error " << ex.what();
     abort();
@@ -7287,8 +7285,6 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
   } catch (MultiScanException& ex) {
     // Make sure exception contains the status
     ASSERT_NOK(ex.status());
-    std::cerr << "Iterator returned status " << ex.what();
-    abort();
   } catch (std::logic_error& ex) {
     std::cerr << "Iterator returned logic error " << ex.what();
     abort();
@@ -7313,7 +7309,7 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
     }
   } catch (MultiScanException& ex) {
     // Make sure exception contains the status
-    ASSERT_EQ(ex.status(), Status::IOError());
+    ASSERT_NOK(ex.status());
   } catch (std::logic_error& ex) {
     std::cerr << "Iterator returned logic error " << ex.what();
     abort();
@@ -8017,7 +8013,7 @@ void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
 
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert("key40", property_bag);
+  scan_opts.insert("key40", "key99", property_bag);
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
@@ -8180,7 +8176,7 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key50"), std::optional(property_bag));
+  scan_opts.insert(Slice("key50"), Slice("key99"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that UDI is used to help fetch the number of keys
   key_count = 0;
@@ -8506,6 +8502,12 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   ASSERT_EQ(iter->status(), Status::Incomplete());
   iter.reset();
 
+  // Empty range multiscan error
+  iter.reset(db->NewIterator(ro, cfh));
+  scan_options = MultiScanArgs(comparator_);
+  iter->Prepare(scan_options);
+  ASSERT_EQ(iter->status(), Status::InvalidArgument("Empty MultiScanArgs"));
+
   // Check no seek key error
   iter.reset(db->NewIterator(ro, cfh));
   scan_options = MultiScanArgs(comparator_);
@@ -8515,13 +8517,13 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   ASSERT_EQ(iter->status(),
             Status::InvalidArgument("No seek key for MultiScan"));
 
+  // Seek is not allowed to seen a key that is not following the prepare order
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   scan_options.max_prefetch_size = 0;
   iter->Prepare(scan_options);
   ub = key_ranges[3];
   iter->Seek(key_ranges[2]);
-  // Seek is not allowed to seen a key that is not following the prepare order
   ASSERT_EQ(
       iter->status(),
       Status::InvalidArgument(
@@ -8530,14 +8532,26 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   ASSERT_FALSE(iter->Valid());
   iter.reset();
 
+  // limit is equal to start error
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  (*scan_options).clear();
+  scan_options.insert(key_ranges[0], key_ranges[0], property_bag);
+  iter->Prepare(scan_options);
+  ASSERT_EQ(iter->status(),
+            Status::InvalidArgument(
+                "Scan start key is large or equal than limit at index 0"));
+  iter.reset();
+
+  // overlapping ranges error
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   (*scan_options).clear();
   scan_options.insert(key_ranges[0], key_ranges[2], property_bag);
   scan_options.insert(key_ranges[1], key_ranges[3], property_bag);
   iter->Prepare(scan_options);
-  // Should fail due to overlapping ranges
-  ASSERT_EQ(iter->status(), Status::InvalidArgument("Overlapping ranges"));
+  ASSERT_EQ(iter->status(),
+            Status::InvalidArgument("Overlapping ranges at index 1"));
   iter.reset();
 
   // Validate an error is returned if upper bound is not set to the same value
@@ -8662,7 +8676,7 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
   property_bag["count"] = std::to_string(25);
-  scan_opts.insert(Slice("key50"), std::optional(property_bag));
+  scan_opts.insert(Slice("key50"), Slice("key99"), std::optional(property_bag));
   iter->Prepare(scan_opts);
   // Test that UDI is used to help fetch the number of keys
   int key_count = 0;

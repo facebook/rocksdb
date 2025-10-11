@@ -1052,6 +1052,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
     assert(!Valid());
   }
 }
+
 bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
   assert(multi_scan_ && multi_scan_status_.ok());
   // This is a MultiScan and Preapre() has been called.

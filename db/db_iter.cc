@@ -1579,26 +1579,33 @@ Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
   for (size_t i = 0; i < scan_opts.size(); ++i) {
     const auto& scan_range = scan_opts[i].range;
     if (!scan_range.start.has_value()) {
-      return Status::InvalidArgument("Scan has no start key");
+      return Status::InvalidArgument("Scan has no start key at index " +
+                                     std::to_string(i));
     }
 
     if (scan_range.limit.has_value()) {
-      assert(user_comparator_.CompareWithoutTimestamp(
-                 scan_range.start.value(), /*a_has_ts=*/false,
-                 scan_range.limit.value(), /*b_has_ts=*/false) <= 0);
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false,
+              scan_range.limit.value(), /*b_has_ts=*/false) >= 0) {
+        return Status::InvalidArgument(
+            "Scan start key is large or equal than limit at index " +
+            std::to_string(i));
+      }
     }
 
     if (i > 0) {
       if (!scan_range.limit.has_value()) {
         // multiple scan without limit scan ranges
-        return Status::InvalidArgument("Scan has no upper bound");
+        return Status::InvalidArgument("Scan has no upper bound at index " +
+                                       std::to_string(i));
       }
 
       const auto& last_end_key = scan_opts[i - 1].range.limit.value();
       if (user_comparator_.CompareWithoutTimestamp(
               scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
               /*b_has_ts=*/false) < 0) {
-        return Status::InvalidArgument("Overlapping ranges");
+        return Status::InvalidArgument("Overlapping ranges at index " +
+                                       std::to_string(i));
       }
     }
   }
