@@ -40,6 +40,11 @@ MultiScan::MultiScan(const ReadOptions& read_options,
 }
 
 MultiScanIterator& MultiScanIterator::operator++() {
+  status_ = db_iter_->status();
+  if (!status_.ok()) {
+    throw MultiScanException(status_);
+  }
+
   if (idx_ >= scan_opts_.size()) {
     throw std::logic_error("Index out of range");
   }

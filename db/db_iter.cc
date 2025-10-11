@@ -1565,10 +1565,114 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   }
 }
 
+Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
+  if (multiscan_opts.empty()) {
+    return Status::InvalidArgument("Empty MultiScanArgs");
+  }
+
+  const std::vector<ScanOptions>& scan_opts = multiscan_opts.GetScanRanges();
+  const bool has_limit = scan_opts.front().range.limit.has_value();
+  if (!has_limit && scan_opts.size() > 1) {
+    return Status::InvalidArgument("Scan has no upper bound");
+  }
+
+  for (size_t i = 0; i < scan_opts.size(); ++i) {
+    const auto& scan_range = scan_opts[i].range;
+    if (!scan_range.start.has_value()) {
+      return Status::InvalidArgument("Scan has no start key at index " +
+                                     std::to_string(i));
+    }
+
+    if (scan_range.limit.has_value()) {
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false,
+              scan_range.limit.value(), /*b_has_ts=*/false) >= 0) {
+        return Status::InvalidArgument(
+            "Scan start key is large or equal than limit at index " +
+            std::to_string(i));
+      }
+    }
+
+    if (i > 0) {
+      if (!scan_range.limit.has_value()) {
+        // multiple scan without limit scan ranges
+        return Status::InvalidArgument("Scan has no upper bound at index " +
+                                       std::to_string(i));
+      }
+
+      const auto& last_end_key = scan_opts[i - 1].range.limit.value();
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
+              /*b_has_ts=*/false) < 0) {
+        return Status::InvalidArgument("Overlapping ranges at index " +
+                                       std::to_string(i));
+      }
+    }
+  }
+  return Status::OK();
+}
+
+void DBIter::Prepare(const MultiScanArgs& scan_opts) {
+  status_ = ValidateScanOptions(scan_opts);
+  if (!status_.ok()) {
+    return;
+  }
+  std::optional<MultiScanArgs> new_scan_opts;
+  new_scan_opts.emplace(scan_opts);
+  scan_opts_.swap(new_scan_opts);
+  scan_index_ = 0;
+  if (!scan_opts.empty()) {
+    iter_.Prepare(&scan_opts_.value());
+  } else {
+    iter_.Prepare(nullptr);
+  }
+}
+
 void DBIter::Seek(const Slice& target) {
   PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
+
+  if (scan_opts_.has_value()) {
+    // Validate the seek target is as expected in the previously prepared range
+    auto const& scan_ranges = scan_opts_.value().GetScanRanges();
+    if (scan_index_ >= scan_ranges.size()) {
+      status_ = Status::InvalidArgument(
+          "Seek called after exhausting all of the scan ranges");
+      valid_ = false;
+      return;
+    }
+
+    // Validate start key of next prepare range matches the seek target
+    auto const& range = scan_ranges[scan_index_];
+    auto const& start = range.range.start;
+    assert(start.has_value());
+    if (user_comparator_.CompareWithoutTimestamp(target, *start) != 0) {
+      status_ = Status::InvalidArgument(
+          "Seek target does not match the start of the next prepared range at "
+          "index " +
+          std::to_string(scan_index_));
+      valid_ = false;
+      return;
+    }
+
+    // validate the upper bound is set to the same value of limit, if limit
+    // exists
+    auto const& limit = range.range.limit;
+    if (limit.has_value()) {
+      if (iterate_upper_bound_ == nullptr ||
+          user_comparator_.CompareWithoutTimestamp(
+              limit.value(), *iterate_upper_bound_) != 0) {
+        status_ = Status::InvalidArgument(
+            "Upper bound is not set to the same limit value of the next "
+            "prepared range at index " +
+            std::to_string(scan_index_));
+        valid_ = false;
+        return;
+      }
+    }
+    scan_index_++;
+  }
 
   if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?

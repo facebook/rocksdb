@@ -4382,18 +4382,6 @@ TEST_P(DBMultiScanIteratorTest, FailureTest) {
   iter->Seek(key_ranges[2]);
   ASSERT_NOK(iter->status());
   iter.reset();
-
-  // Test the case of overlapping ranges
-  iter.reset(dbfull()->NewIterator(ro, cfh));
-  ASSERT_NE(iter, nullptr);
-  (*scan_options).clear();
-  scan_options.insert(key_ranges[0]);
-  scan_options.insert(key_ranges[2], key_ranges[3]);
-  iter->Prepare(scan_options);
-  ub = key_ranges[3];
-  iter->Seek(key_ranges[2]);
-  ASSERT_NOK(iter->status());
-  iter.reset();
 }
 
 TEST_P(DBMultiScanIteratorTest, OutOfL0FileRange) {

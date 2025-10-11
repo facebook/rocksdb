@@ -191,6 +191,10 @@ class MultiScan {
       if (scan_opts_.empty()) {
         throw std::logic_error("Zero scans in multi-scan");
       }
+      status_ = db_iter_->status();
+      if (!status_.ok()) {
+        throw MultiScanException(status_);
+      }
       db_iter_->Seek(*scan_opts_[idx_].range.start);
       status_ = db_iter_->status();
       if (!status_.ok()) {
