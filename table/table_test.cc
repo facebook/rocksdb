@@ -9020,7 +9020,8 @@ class UserDefinedIndexStressTest
   uint32_t rand_seed_;
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory_;
 
-  std::string FormatKey(int i) {
+  template <typename T>
+  std::string FormatKey(T i) {
     std::stringstream ss;
     ss << std::setw(2) << std::setfill('0') << i;
     return "key" + ss.str();
@@ -9145,9 +9146,10 @@ class UserDefinedIndexStressTest
 
  public:
   void SetUp() override {
-    rand_seed_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                     std::chrono::system_clock::now().time_since_epoch())
-                     .count();
+    rand_seed_ = static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
 
     std::cout << "Random seed: " << rand_seed_ << std::endl;
 
