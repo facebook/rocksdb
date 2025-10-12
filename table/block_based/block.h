@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -426,7 +427,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Cache::Handle* cache_handle() { return cache_handle_; }
 
  protected:
-  std::unique_ptr<InternalKeyComparator> icmp_;
+  std::optional<InternalKeyComparator> icmp_;
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
@@ -529,7 +530,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
 
-    icmp_ = std::make_unique<InternalKeyComparator>(raw_ucmp);
+    if (raw_ucmp != nullptr) {
+      icmp_.emplace(raw_ucmp);
+    } else {
+      icmp_.reset();
+    }
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;
@@ -622,6 +627,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // comparator is used for the block contents, the LHS argument is the current
   // key with global seqno applied, and the RHS argument is `other`.
   int CompareCurrentKey(const Slice& other) {
+    assert(icmp_.has_value());
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
       return icmp_->user_comparator()->Compare(raw_key_.GetUserKey(), other);
