@@ -7427,9 +7427,7 @@ TEST_F(ExternalTableTest, IngestionTest) {
   ASSERT_OK(db->Close());
 }
 
-class UserDefinedIndexTest
-    : public BlockBasedTableTestBase,
-      public testing::WithParamInterface<const Comparator*> {
+class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
  public:
   class CustomFlushBlockPolicy : public FlushBlockPolicy {
    public:
@@ -7759,12 +7757,6 @@ class UserDefinedIndexTest
     };
   };
 
-  void SetUp() override {
-    comparator_ = GetParam();
-    options_.comparator = comparator_;
-    is_reverse_comparator_ = comparator_ == ReverseBytewiseComparator();
-  }
-
  protected:
   std::vector<std::pair<std::string, std::string>> generateKVWithValue(
       int key_count, const std::string& value) {
@@ -7873,7 +7865,17 @@ class UserDefinedIndexTest
   Random rnd{301};
 };
 
-void UserDefinedIndexTest::BasicTest(bool use_partitioned_index) {
+class UserDefinedIndexTest
+    : public UserDefinedIndexTestBase,
+      public testing::WithParamInterface<const Comparator*> {
+  void SetUp() override {
+    comparator_ = GetParam();
+    options_.comparator = comparator_;
+    is_reverse_comparator_ = comparator_ == ReverseBytewiseComparator();
+  }
+};
+
+void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
   std::string ingest_file = dbname + "test.sst";
@@ -8963,6 +8965,538 @@ INSTANTIATE_TEST_CASE_P(UserDefinedIndexTest, UserDefinedIndexTest,
                         ::testing::Values(BytewiseComparator(),
                                           ReverseBytewiseComparator()));
 
+struct UserDefinedIndexStressTestParam {
+  const Comparator* comparator;
+  bool enable_udi;
+  bool enable_compaction_with_sst_partitioner;
+
+  using UserDefinedIndexStressTestTuple =
+      std::tuple<const Comparator*, bool, bool>;
+
+  UserDefinedIndexStressTestParam(const UserDefinedIndexStressTestTuple& tuple)
+      : comparator(std::get<0>(tuple)),
+        enable_udi(std::get<1>(tuple)),
+        enable_compaction_with_sst_partitioner(std::get<2>(tuple)) {}
+};
+
+std::ostream& operator<<(std::ostream& os,
+                         const UserDefinedIndexStressTestParam& param) {
+  return os << "UserDefinedIndexStressTestParam{comparator="
+            << (param.comparator ? param.comparator->Name() : "nullptr")
+            << ", enable_udi=" << param.enable_udi
+            << ", enable_compaction_with_sst_partitioner="
+            << param.enable_compaction_with_sst_partitioner << "}";
+}
+
+constexpr auto kVerbose = false;
+
+struct DataRange {
+  size_t start;  // inclusive
+  size_t end;    // exclusive
+  std::string value;
+  bool is_range_delete;
+  bool skipped;
+  size_t scan_key_count_limit;
+  std::string start_key;
+  std::string end_key;
+
+  // print the range in human readable format
+  std::string ToString() const {
+    std::ostringstream oss;
+    oss << "[" << start << ", " << end << "), value: " << value
+        << ", is_range_delete: " << is_range_delete << ", skipped: " << skipped
+        << ", scan_key_count_limit: " << scan_key_count_limit
+        << ", start_key: " << start_key << ", end_key: " << end_key;
+    return oss.str();
+  }
+};
+class UserDefinedIndexStressTest
+    : public UserDefinedIndexTestBase,
+      public testing::WithParamInterface<
+          UserDefinedIndexStressTestParam::UserDefinedIndexStressTestTuple> {
+ protected:
+  bool enable_udi_;
+  bool enable_compaction_with_sst_partitioner_;
+  uint32_t rand_seed_;
+  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory_;
+
+  std::string FormatKey(int i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    return "key" + ss.str();
+  }
+
+  std::vector<DataRange> GenerateKeyRanges(size_t range_count, int key_range,
+                                           int skip_range_count,
+                                           std::string value) {
+    std::set<size_t> boundaries;
+    // generate n + 1 number of unique boundaries to form n contiguoes ranges
+    while (boundaries.size() < range_count + 1) {
+      boundaries.insert(rnd.Uniform(key_range));
+    }
+    std::vector<size_t> sorted_boundaries(boundaries.begin(), boundaries.end());
+    if (is_reverse_comparator_) {
+      std::reverse(sorted_boundaries.begin(), sorted_boundaries.end());
+    }
+    auto ranges = std::vector<DataRange>();
+    std::optional<size_t> prev_bound;
+    for (auto it = sorted_boundaries.begin(); it != sorted_boundaries.end();
+         it++) {
+      if (prev_bound.has_value()) {
+        ranges.push_back({.start = prev_bound.value(),
+                          .end = *it,
+                          .value = value,
+                          .is_range_delete = rnd.OneIn(6),
+                          .skipped = false,
+                          .scan_key_count_limit = rnd.Uniform(10) + 1,
+                          .start_key = FormatKey(prev_bound.value()),
+                          .end_key = FormatKey(*it)});
+      }
+      prev_bound = *it;
+    }
+    // skipped some of them
+    for (int j = 0; j < skip_range_count; j++) {
+      ranges[rnd.Uniform(range_count)].skipped = true;
+    }
+
+    if (kVerbose) {
+      for (auto const& range : ranges) {
+        std::cout << range.ToString() << std::endl;
+      }
+    }
+
+    return ranges;
+  }
+
+  void CreateSstFileWithRanges(const std::string& ingest_file,
+                               const DataRange& range) {
+    std::unique_ptr<SstFileWriter> writer =
+        std::make_unique<SstFileWriter>(EnvOptions(), options_);
+    ASSERT_OK(writer->Open(ingest_file));
+
+    assert(range.start != range.end);
+
+    if (range.is_range_delete) {
+      ASSERT_OK(writer->DeleteRange(range.start_key, range.end_key));
+    } else {
+      for (size_t i = range.start; i != range.end;) {
+        auto key = FormatKey(i);
+        range.start < range.end ? i++ : i--;
+        ASSERT_OK(writer->Put(key, range.value));
+      }
+    }
+    ASSERT_OK(writer->Finish()) << range.ToString();
+  }
+
+  void RangeScan(std::unique_ptr<Iterator>& iter,
+                 const std::vector<DataRange>& ranges, Slice& upper_bound,
+                 std::vector<std::pair<std::string, std::string>>& result,
+                 bool use_multi_scan) {
+    ASSERT_NE(iter, nullptr);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!ranges.empty());
+
+    MultiScanArgs scan_opts(options_.comparator);
+    std::unordered_map<std::string, std::string> property_bag;
+    if (use_multi_scan) {
+      for (auto const& range : ranges) {
+        if (range.skipped) {
+          continue;
+        }
+        property_bag["count"] = std::to_string(range.scan_key_count_limit);
+        scan_opts.insert(range.start_key, range.end_key, property_bag);
+        // print range start end key
+        if (kVerbose) {
+          std::cout << "range start " << range.start_key << " end "
+                    << range.end_key << std::endl;
+        }
+      }
+      iter->Prepare(scan_opts);
+      ASSERT_OK(iter->status());
+    }
+
+    for (auto const& range : ranges) {
+      if (range.skipped) {
+        continue;
+      }
+      size_t scan_key_count = 0;
+      if (kVerbose) {
+        std::cout << "seek key " << range.start_key << std::endl;
+      }
+      upper_bound = range.end_key;
+      for (iter->Seek(range.start_key);
+           iter->Valid() && scan_key_count < range.scan_key_count_limit;
+           iter->Next()) {
+        if (kVerbose) {
+          std::cout << "key " << iter->key().ToString() << " value "
+                    << iter->value().ToString() << std::endl;
+        }
+        result.emplace_back(
+            std::make_pair(iter->key().ToString(), iter->value().ToString()));
+        scan_key_count++;
+      }
+      ASSERT_OK(iter->status());
+    }
+  }
+
+  const Comparator* comparator_;
+  bool is_reverse_comparator_;
+  Random rnd{0};
+
+ public:
+  void SetUp() override {
+    rand_seed_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count();
+
+    std::cout << "Random seed: " << rand_seed_ << std::endl;
+
+    rnd = Random(rand_seed_);
+    UserDefinedIndexStressTestParam param = GetParam();
+    comparator_ = param.comparator;
+    enable_udi_ = param.enable_udi;
+    enable_compaction_with_sst_partitioner_ =
+        param.enable_compaction_with_sst_partitioner;
+    options_.comparator = comparator_;
+    is_reverse_comparator_ = comparator_ == ReverseBytewiseComparator();
+    options_.compaction_style = kCompactionStyleUniversal;
+
+    // Set up the user-defined index factory
+    BlockBasedTableOptions table_options;
+
+    // Set up custom flush block policy that flushes every 3 keys
+    table_options.flush_block_policy_factory =
+        std::make_shared<CustomFlushBlockPolicyFactory>();
+
+    if (enable_udi_) {
+      // Set up the user-defined index factory
+      user_defined_index_factory_ =
+          std::make_shared<TestUserDefinedIndexFactory>();
+      table_options.user_defined_index_factory = user_defined_index_factory_;
+    }
+
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+};
+
+// This case fails in this condition:
+// level n:   delete range 4-6
+// level n+1: data range 0-------10
+// query: 3-9, count=2.
+// Becuase query count == 2, level n+1 would only prepare 3-5. but since 4-6 got
+// deleted in the upper level, they are not returned, so only 3 is returned.
+// Meantime the query should have return [3, 6]
+TEST_P(UserDefinedIndexStressTest, DISABLED_PartialDeleteRange) {
+  // Create 2 column families. One use normal put/del, the other uses sst ingest
+  // Randomly generate multiple non overlapping range for multiple levels
+  // Range scan same range between the 2 CF and validate the result is same
+  SCOPED_TRACE("Start with random seed: " + std::to_string(rand_seed_));
+  // create db
+  std::string dbname =
+      test::PerThreadDBPath("UserDefinedIndexStressTest_PartialDeleteRange");
+  SCOPED_TRACE("dbname: " + dbname);
+  std::unique_ptr<DB> db;
+  options_.create_if_missing = true;
+  options_.disable_auto_compactions = true;
+  Status s = DB::Open(options_, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* ingest_cfh = nullptr;
+  ColumnFamilyHandle* regular_cfh = nullptr;
+
+  if (enable_compaction_with_sst_partitioner_) {
+    // Use a SST partitioner to create multiple files, use the first 4 bytes
+    // of key to partition the file, The key is formatted with 2 digit
+    // following "key" string, e.g. key01, key99
+    options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+  }
+
+  ASSERT_OK(db->CreateColumnFamily(options_, "ingest_cf", &ingest_cfh));
+  ASSERT_OK(db->CreateColumnFamily(options_, "regular_cf", &regular_cfh));
+
+  // generate number of levels
+  int key_range = 100;
+  std::vector<std::vector<DataRange>> ranges_in_levels;
+  // ingestion start from the bottom level
+
+  // Test 3 levels for now.
+  // We may also need to test more than 3 levels. E.g. if for some reason,
+  // compaction is disabled, but bulkload is not. We may have more than 3
+  // levels.
+  for (int i = 0; i < 5; i++) {
+    ranges_in_levels.push_back(
+        GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2,
+                          "L" + std::to_string(options_.num_levels - 1 - i)));
+  }
+
+  // Ingest data to ingest_cf
+  {
+    IngestExternalFileOptions ifo;
+    ifo.snapshot_consistency = false;
+    auto ingest_file_name_prefix = dbname + "ingest_file_";
+    size_t ingest_file_count = 0;
+    for (auto const& ranges_in_level : ranges_in_levels) {
+      std::vector<std::string> ingest_files;
+      // Generate SST file and bulk load them one level at a time
+      for (auto const& range : ranges_in_level) {
+        if (!range.skipped) {
+          ASSERT_NO_FATAL_FAILURE(CreateSstFileWithRanges(
+              ingest_file_name_prefix + std::to_string(ingest_file_count),
+              range));
+          ingest_files.push_back(ingest_file_name_prefix +
+                                 std::to_string(ingest_file_count));
+          ingest_file_count++;
+        }
+      }
+
+      s = db->IngestExternalFile(ingest_cfh, ingest_files, ifo);
+      ASSERT_OK(s);
+    }
+
+    ASSERT_GE(ingest_file_count, 0);
+  }
+
+  if (enable_compaction_with_sst_partitioner_) {
+    s = db->CompactRange(
+        {.exclusive_manual_compaction = true,
+         .bottommost_level_compaction = BottommostLevelCompaction::kForce},
+        ingest_cfh, nullptr, nullptr);
+    ASSERT_OK(s);
+  }
+
+  // Add data to regular_cf
+  {
+    for (auto const& ranges_in_level : ranges_in_levels) {
+      for (auto const& range : ranges_in_level) {
+        if (!range.skipped) {
+          for (auto i = range.start; i != range.end;
+               range.start < range.end ? i++ : i--) {
+            if (range.is_range_delete) {
+              db->Delete(WriteOptions(), regular_cfh, FormatKey(i));
+            } else {
+              db->Put(WriteOptions(), regular_cfh, FormatKey(i), range.value);
+            }
+          }
+        }
+      }
+    }
+    // Do a flush to accelerate lookup
+    db->Flush(FlushOptions(), regular_cfh);
+  }
+
+  // Query both CF with same range scan and validate result are same
+  for (auto i = 0; i < 200; i++) {
+    if (kVerbose) {
+      std::cout << "iteration " << i << std::endl;
+    }
+    // randomly generate 1 to 3 ranges
+    auto ranges = GenerateKeyRanges(rnd.Uniform(3) + 3, key_range, 2, "");
+
+    // Query regular CF
+    std::vector<std::pair<std::string, std::string>> expected_result;
+    Slice upper_bound("");
+    ReadOptions ro;
+    ro.iterate_upper_bound = &upper_bound;
+
+    std::unique_ptr<Iterator> iter(db->NewIterator(ro, regular_cfh));
+    ASSERT_NO_FATAL_FAILURE(
+        RangeScan(iter, ranges, upper_bound, expected_result, false));
+    ASSERT_OK(iter->status());
+
+    // Query ingest CF
+    iter.reset(db->NewIterator(ro, ingest_cfh));
+    std::vector<std::pair<std::string, std::string>> ingest_cf_result;
+    ASSERT_NO_FATAL_FAILURE(
+        RangeScan(iter, ranges, upper_bound, ingest_cf_result, false));
+
+    ASSERT_EQ(expected_result, ingest_cf_result);
+    ASSERT_OK(iter->status());
+
+    // Query ingest CF with MultiScan
+    if (enable_udi_) {
+      ro.table_index_factory = user_defined_index_factory_.get();
+    }
+
+    iter.reset(db->NewIterator(ro, ingest_cfh));
+    std::vector<std::pair<std::string, std::string>>
+        ingest_cf_multi_scan_result;
+    ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, upper_bound,
+                                      ingest_cf_multi_scan_result, true));
+    ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
+    ASSERT_OK(iter->status());
+  }
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(ingest_cfh));
+  ASSERT_OK(db->DestroyColumnFamilyHandle(regular_cfh));
+
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+
+TEST_P(UserDefinedIndexStressTest, DeleteRange) {
+  // Create 2 column families. One use normal put/del, the other uses sst ingest
+  // Randomly generate multiple non overlapping range for multiple levels
+  // Range scan same range between the 2 CF and validate the result is same
+  SCOPED_TRACE("Start with random seed: " + std::to_string(rand_seed_));
+  // create db
+  std::string dbname =
+      test::PerThreadDBPath("UserDefinedIndexStressTest_RandomDeleteRange");
+  SCOPED_TRACE("dbname: " + dbname);
+  std::unique_ptr<DB> db;
+  options_.create_if_missing = true;
+  options_.disable_auto_compactions = true;
+  Status s = DB::Open(options_, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* ingest_cfh = nullptr;
+  ColumnFamilyHandle* regular_cfh = nullptr;
+
+  if (enable_compaction_with_sst_partitioner_) {
+    // Use a SST partitioner to create multiple files, use the first 4 bytes
+    // of key to partition the file, The key is formatted with 2 digit
+    // following "key" string, e.g. key01, key99
+    options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+  }
+
+  ASSERT_OK(db->CreateColumnFamily(options_, "ingest_cf", &ingest_cfh));
+  ASSERT_OK(db->CreateColumnFamily(options_, "regular_cf", &regular_cfh));
+
+  // generate number of levels
+  int key_range = 100;
+  std::vector<std::vector<DataRange>> ranges_in_levels;
+  // ingestion start from the bottom level
+
+  // Test 3 levels for now.
+  ranges_in_levels.push_back(
+      GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2, "L6"));
+  // Add a delete range between each level
+  if (is_reverse_comparator_) {
+    ranges_in_levels.push_back({{.start = 100,
+                                 .end = 0,
+                                 .is_range_delete = true,
+                                 .skipped = false,
+                                 .start_key = "keyz",
+                                 .end_key = "key"}});
+
+  } else {
+    ranges_in_levels.push_back({{.start = 0,
+                                 .end = 100,
+                                 .is_range_delete = true,
+                                 .skipped = false,
+                                 .start_key = "key",
+                                 .end_key = "keyz"}});
+  }
+  ranges_in_levels.push_back(
+      GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2, "L4"));
+
+  // Ingest data to ingest_cf
+  {
+    IngestExternalFileOptions ifo;
+    ifo.snapshot_consistency = false;
+    // Generate SST file and bulk load them
+    auto ingest_file_name_prefix = dbname + "ingest_file_";
+    size_t ingest_file_count = 0;
+    for (auto const& ranges_in_level : ranges_in_levels) {
+      std::vector<std::string> ingest_files;
+      for (auto const& range : ranges_in_level) {
+        if (!range.skipped) {
+          ASSERT_NO_FATAL_FAILURE(CreateSstFileWithRanges(
+              ingest_file_name_prefix + std::to_string(ingest_file_count),
+              range));
+          ingest_files.push_back(ingest_file_name_prefix +
+                                 std::to_string(ingest_file_count));
+          ingest_file_count++;
+        }
+      }
+
+      s = db->IngestExternalFile(ingest_cfh, ingest_files, ifo);
+      ASSERT_OK(s);
+    }
+
+    ASSERT_GE(ingest_file_count, 0);
+  }
+
+  if (enable_compaction_with_sst_partitioner_) {
+    s = db->CompactRange(
+        {.exclusive_manual_compaction = true,
+         .bottommost_level_compaction = BottommostLevelCompaction::kForce},
+        ingest_cfh, nullptr, nullptr);
+    ASSERT_OK(s);
+  }
+
+  // Add data to regular_cf
+  {
+    for (auto const& ranges_in_level : ranges_in_levels) {
+      for (auto const& range : ranges_in_level) {
+        if (!range.skipped) {
+          for (auto i = range.start; i != range.end;
+               range.start < range.end ? i++ : i--) {
+            if (range.is_range_delete) {
+              db->Delete(WriteOptions(), regular_cfh, FormatKey(i));
+            } else {
+              db->Put(WriteOptions(), regular_cfh, FormatKey(i), range.value);
+            }
+          }
+        }
+      }
+    }
+    // Do a flush to accelerate lookup
+    db->Flush(FlushOptions(), regular_cfh);
+  }
+
+  // Query both CF with same range scan and validate result are same
+  for (auto i = 0; i < 200; i++) {
+    if (kVerbose) {
+      std::cout << "iteration " << i << std::endl;
+    }
+    // randomly generate 1 to 3 ranges
+    auto ranges = GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2, "");
+
+    // Query regular CF
+    std::vector<std::pair<std::string, std::string>> expected_result;
+    Slice upper_bound("");
+    ReadOptions ro;
+    ro.iterate_upper_bound = &upper_bound;
+
+    std::unique_ptr<Iterator> iter(db->NewIterator(ro, regular_cfh));
+    ASSERT_NO_FATAL_FAILURE(
+        RangeScan(iter, ranges, upper_bound, expected_result, false));
+    ASSERT_OK(iter->status());
+
+    // Query ingest CF
+    iter.reset(db->NewIterator(ro, ingest_cfh));
+    std::vector<std::pair<std::string, std::string>> ingest_cf_result;
+    ASSERT_NO_FATAL_FAILURE(
+        RangeScan(iter, ranges, upper_bound, ingest_cf_result, false));
+
+    ASSERT_EQ(expected_result, ingest_cf_result);
+    ASSERT_OK(iter->status());
+
+    // Query ingest CF with UDI
+    if (enable_udi_) {
+      ro.table_index_factory = user_defined_index_factory_.get();
+    }
+
+    iter.reset(db->NewIterator(ro, ingest_cfh));
+    std::vector<std::pair<std::string, std::string>>
+        ingest_cf_multi_scan_result;
+    ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, upper_bound,
+                                      ingest_cf_multi_scan_result, true));
+    ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
+    ASSERT_OK(iter->status());
+  }
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(ingest_cfh));
+  ASSERT_OK(db->DestroyColumnFamilyHandle(regular_cfh));
+
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+INSTANTIATE_TEST_CASE_P(
+    UserDefinedIndexStressTest, UserDefinedIndexStressTest,
+    testing::Combine(testing::Values(BytewiseComparator(),
+                                     ReverseBytewiseComparator()),
+                     testing::Bool(), testing::Bool()));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

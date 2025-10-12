@@ -1415,11 +1415,19 @@ Status BlockBasedTableIterator::CreateAndPinBlockFromBuffer(
       &pinned_block_entry.As<Block_kData>());
 }
 
+constexpr auto kVerbose = false;
+
 Status BlockBasedTableIterator::CollectBlockHandles(
     const std::vector<ScanOptions>& scan_opts, bool require_file_overlap,
     std::vector<BlockHandle>* scan_block_handles,
     std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan,
     std::vector<std::string>* data_block_separators) {
+  // print file name and level
+  if (kVerbose) {
+    auto file_name = table_->get_rep()->file->file_name();
+    auto level = table_->get_rep()->level;
+    printf("file name : %s, level %d\n", file_name.c_str(), level);
+  }
   for (const auto& scan_opt : scan_opts) {
     size_t num_blocks = 0;
     bool check_overlap = !scan_block_handles->empty();
@@ -1486,6 +1494,13 @@ Status BlockBasedTableIterator::CollectBlockHandles(
     }
     block_index_ranges_per_scan->emplace_back(
         scan_block_handles->size() - num_blocks, scan_block_handles->size());
+    if (kVerbose) {
+      printf("separators :");
+      for (const auto& separator : *data_block_separators) {
+        printf("%s, ", separator.c_str());
+      }
+      printf("\n");
+    }
   }
   return Status::OK();
 }
