@@ -9057,7 +9057,7 @@ class UserDefinedIndexStressTest
     }
     // skipped some of them
     for (int j = 0; j < skip_range_count; j++) {
-      ranges[rnd.Uniform(range_count)].skipped = true;
+      ranges[rnd.Uniform(static_cast<uint32_t>(range_count))].skipped = true;
     }
 
     if (kVerbose) {
