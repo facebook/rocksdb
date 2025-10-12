@@ -1439,10 +1439,12 @@ Status BlockBasedTableIterator::CollectBlockHandles(
     index_iter_->Seek(start_key.Encode());
     while (index_iter_->status().ok() && index_iter_->Valid() &&
            (!scan_opt.range.limit.has_value() ||
-            user_comparator_.CompareWithoutTimestamp(
-                index_iter_->user_key(),
-                /*a_has_ts*/ true, *scan_opt.range.limit,
-                /*b_has_ts=*/false) <= 0)) {
+            user_comparator_.CompareWithoutTimestamp(index_iter_->user_key(),
+                                                     /*a_has_ts*/ true,
+                                                     *scan_opt.range.limit,
+                                                     /*b_has_ts=*/false) < 0)) {
+      // Only add the block if the index separator is smaller than limit. When
+      // they are equal or larger, it will be handled later below.
       if (check_overlap &&
           scan_block_handles->back() == index_iter_->value().handle) {
         // Skip the current block since it's already in the list
@@ -1462,6 +1464,7 @@ Status BlockBasedTableIterator::CollectBlockHandles(
     }
 
     if (index_iter_->Valid()) {
+      // Handle the last block when its separator is equal or larger than limit
       if (check_overlap &&
           scan_block_handles->back() == index_iter_->value().handle) {
         // Skip adding the current block since it's already in the list
