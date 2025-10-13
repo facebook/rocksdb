@@ -337,7 +337,7 @@ class DBImplSecondary : public DBImpl {
       bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
-  Status PrepareCompactionProgressState(bool allow_resumption);
+  Status PrepareCompactionProgressState();
 
   Status ScanCompactionProgressFiles(CompactionProgressFilesScan* scan_result);
 
@@ -364,7 +364,6 @@ class DBImplSecondary : public DBImpl {
       const CompactionProgressFilesScan& scan_result);
 
   Status FinalizeCompactionProgressWriter(
-      bool allow_resumption,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
   Status CreateCompactionProgressWriter(
@@ -381,9 +380,6 @@ class DBImplSecondary : public DBImpl {
   Status HandleCompactionProgressWriterCreationFailure(
       const std::string& temp_file_path, const std::string& final_file_path,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
-
-  Status DeleteFileIfExists(const std::string& file_path,
-                            Env::IOActivity io_activity);
 
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery

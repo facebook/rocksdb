@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
+#include "file/file_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
@@ -26,7 +27,7 @@ class MyTestCompactionService : public CompactionService {
                     CompactionReason::kUnknown, false, false, false, -1, -1),
         wait_info_("na", "na", "na", 0, "na", 0, Env::TOTAL,
                    CompactionReason::kUnknown, false, false, false, -1, -1),
-        listeners_(listeners),
+        listeners_(std::move(listeners)),
         table_properties_collector_factories_(
             std::move(table_properties_collector_factories)) {}
 
@@ -79,7 +80,7 @@ class MyTestCompactionService : public CompactionService {
     options.canceled = &canceled_;
 
     Status s =
-        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+        DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
                            compaction_input, result, options_override);
     {
       InstrumentedMutexLock l(&mutex_);
@@ -173,6 +174,10 @@ class MyTestCompactionService : public CompactionService {
   std::map<std::string, std::string> jobs_;
   std::map<std::string, CompactionServiceJobInfo> infos_;
   std::string result_;
+
+  std::string GetOutputPath(const std::string& scheduled_job_id) {
+    return db_path_ + "/" + scheduled_job_id;
+  }
 
  private:
   std::atomic_int compaction_num_{0};
@@ -2015,13 +2020,40 @@ TEST_F(CompactionServiceTest, TablePropertiesCollector) {
 
 class ResumableCompactionService : public MyTestCompactionService {
  public:
+  enum class TestScenario {
+    // Test scenario 1: Two-phase compaction with resumption
+    // - Phase 1: Cancel the compaction running with resumption enabled (saves
+    // progress)
+    // - Phase 2: Resume from saved progress and complete
+    // Validates: Resumption reduces redundant work
+    kCancelThenResume,
+
+    // Test scenario 2: Two-phase compaction without resumption
+    // - Phase 1: Cancel the compaction running with resumption enabled (saves
+    // progress)
+    // - Phase 2: Start fresh without resumption (ignores saved progress) and
+    // complete
+    // Validates: Disabling resumption causes full reprocessing
+    kCancelThenFreshStart,
+
+    // Test scenario 3: Three-phase compaction toggling resumption on/off/on
+    // - Phase 1: Cancel the compaction running with resumption enabled (saves
+    // progress)
+    // - Phase 2: Start fresh wtihout resumption (ignores saved progress) and
+    // cancel agains
+    // - Phase 3: Resume with resumption support (loads Phase 1's progress) and
+    // complete
+    // Validates: Resumption state can be toggled;
+    kMultipleCancelToggleResumption
+  };
+
   ResumableCompactionService(const std::string& db_path, Options& options,
                              std::shared_ptr<Statistics> statistics,
-                             bool ignore_existing_progress)
+                             TestScenario scenario)
       : MyTestCompactionService(db_path, options, statistics,
                                 {} /* listeners */,
                                 {} /* table_properties_collector_factories */),
-        ignore_existing_progress_(ignore_existing_progress) {}
+        scenario_(scenario) {}
 
   CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
                                   std::string* result) override {
@@ -2029,16 +2061,19 @@ class ResumableCompactionService : public MyTestCompactionService {
     EXPECT_FALSE(compaction_input.empty());
 
     OpenAndCompactOptions open_and_compaction_options;
-    open_and_compaction_options.allow_resumption = true;
     auto override_options = GetOptionsOverride();
 
     // Force creation of one key per output file for test simplicity.
+    // ASSUMPTION: This makes stats.count directly proportional to keys
+    // processed.
     SyncPoint::GetInstance()->SetCallBack(
         "CompactionOutputs::ShouldStopBefore::manual_decision", [](void* p) {
           auto* pair = static_cast<std::pair<bool*, const Slice>*>(p);
           *(pair->first) = true;
         });
-    // Simulate cancelled compaction
+    // Simulate cancelled compaction by overriding status at completion. So
+    // compaction processes all keys before this point to make stats.count
+    // comparison straightforward.
     SyncPoint::GetInstance()->SetCallBack(
         "DBImplSecondary::CompactWithoutInstallation::End", [&](void* status) {
           auto s = static_cast<Status*>(status);
@@ -2046,30 +2081,100 @@ class ResumableCompactionService : public MyTestCompactionService {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
-    auto cancelled_compaction_write_stats =
+    // Phase 1: Run compaction with resumption enabled and cancel it
+    // - Processes all input keys
+    // - Creates output files and saves progress
+    // - Status overridden to "paused"
+    open_and_compaction_options.allow_resumption = true;
+    auto phase1_stats =
         RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
                                compaction_input, override_options);
+
+    HistogramData phase2_stats;
+
+    if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
+      // Phase 2: Run compaction WITHOUT resumption (fresh start) and cancel it
+      // - Delete all files left behind Phase 1 before calling OpenAndCompact()
+      // - Processes all input keys again from scratch
+      // - Creates output files but does NOT save progress
+      // - Status overridden to "paused"
+      open_and_compaction_options.allow_resumption = false;
+
+      // Clean up output folder for fresh start
+      std::string output_dir = GetOutputPath(scheduled_job_id);
+      Status cleanup_status = DestroyDir(override_options.env, output_dir);
+      EXPECT_TRUE(cleanup_status.ok());
+      EXPECT_OK(override_options.env->CreateDir(output_dir));
+
+      phase2_stats =
+          RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
+                                 compaction_input, override_options);
+
+      // Validation: Phase 2 starts from scratch, so it processes the same
+      // input keys as Phase 1.
+      // ASSUMPTION: With fixed input (10 keys) and deterministic cancellation
+      // (after processing), both phases create the same number of output files.
+      EXPECT_EQ(phase2_stats.count, phase1_stats.count);
+    }
 
     SyncPoint::GetInstance()->ClearCallBack(
         "DBImplSecondary::CompactWithoutInstallation::End");
 
-    if (ignore_existing_progress_) {
+    // Final phase: Run compaction to completion (no cancellation)
+    if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
+      // Attempt to resume but it ends up starting fresh
+      open_and_compaction_options.allow_resumption = true;
+    } else if (scenario_ == TestScenario::kCancelThenResume) {
+      // Resume from Phase 1's saved progress
+      open_and_compaction_options.allow_resumption = true;
+    } else {  // kCancelThenFreshStart
+      // Start fresh without resumption
       open_and_compaction_options.allow_resumption = false;
+
+      // Clean up output folder for fresh start
+      std::string output_dir = GetOutputPath(scheduled_job_id);
+      Status cleanup_status = DestroyDir(override_options.env, output_dir);
+      EXPECT_TRUE(cleanup_status.ok());
+      EXPECT_OK(override_options.env->CreateDir(output_dir));
     }
 
-    auto second_compaction_write_stats =
+    auto final_phase_stats =
         RunCompaction(open_and_compaction_options, scheduled_job_id,
                       compaction_input, override_options, result);
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
 
-    if (ignore_existing_progress_) {
-      EXPECT_GE(second_compaction_write_stats.count,
-                cancelled_compaction_write_stats.count);
-    } else {
-      EXPECT_LT(second_compaction_write_stats.count,
-                cancelled_compaction_write_stats.count);
+    // Validate statistics based on scenario
+    if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
+      // ASSUMPTION: Phase 1 processes all keys before cancellation
+      EXPECT_GT(phase1_stats.count, 0);
+
+      // ASSUMPTION: Phase 2 runs with allow_resumption=false and an empty
+      // folder. Phase 2 then creates its own output files (but doesn't save
+      // progress). When Phase 3 starts with allow_resumption=true, it finds no
+      // progress file exists, so it cannot resume and must start from scratch,
+      // processing all input keys again.
+      // Result: Phase 3 does the same amount of work as Phase 1.
+      EXPECT_EQ(final_phase_stats.count, phase1_stats.count);
+
+    } else if (scenario_ == TestScenario::kCancelThenResume) {
+      // ASSUMPTION: Phase 1 processes all keys before cancellation
+      EXPECT_GT(phase1_stats.count, 0);
+
+      // ASSUMPTION: Phase 1 processes all keys and saves progress before
+      // cancellation. Final phase resumes from Phase 1's saved progress.
+      // Since Phase 1 completed all processing before being cancelled, the
+      // final phase should do less work than Phase 1.
+      EXPECT_LT(final_phase_stats.count, phase1_stats.count);
+
+    } else {  // kCancelThenFreshStart
+      // ASSUMPTION: Phase 1 processes all keys before cancellation
+      EXPECT_GT(phase1_stats.count, 0);
+
+      // ASSUMPTION: Final phase starts fresh without resumption, so it
+      // processes all input keys again and creates the same number of files
+      EXPECT_EQ(final_phase_stats.count, phase1_stats.count);
     }
 
     StoreResult(*result);
@@ -2105,7 +2210,7 @@ class ResumableCompactionService : public MyTestCompactionService {
     EXPECT_OK(statistics_->Reset());
 
     Status s =
-        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+        DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
                            compaction_input, &temp_result, override_options);
 
     EXPECT_TRUE(s.IsManualCompactionPaused());
@@ -2123,7 +2228,7 @@ class ResumableCompactionService : public MyTestCompactionService {
     EXPECT_OK(statistics_->Reset());
 
     Status s =
-        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+        DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
                            compaction_input, result, override_options);
 
     EXPECT_TRUE(s.ok());
@@ -2138,14 +2243,15 @@ class ResumableCompactionService : public MyTestCompactionService {
     result_ = result;
   }
 
-  bool ignore_existing_progress_;
+  TestScenario scenario_;
 };
 
 class ResumableCompactionServiceTest : public CompactionServiceTest {
  public:
   explicit ResumableCompactionServiceTest() : CompactionServiceTest() {}
 
-  void RunCompactionCancelTest(bool ignore_existing_progress) {
+  void RunCompactionCancelTest(
+      ResumableCompactionService::TestScenario scenario) {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
     std::shared_ptr<Statistics> statistics = CreateDBStatistics();
@@ -2156,7 +2262,7 @@ class ResumableCompactionServiceTest : public CompactionServiceTest {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     auto resume_cs = std::make_shared<ResumableCompactionService>(
-        dbname_, options, statistics, ignore_existing_progress);
+        dbname_, options, statistics, scenario);
     options.compaction_service = resume_cs;
 
     DestroyAndReopen(options);
@@ -2209,12 +2315,20 @@ class ResumableCompactionServiceTest : public CompactionServiceTest {
   static constexpr int kNumKeys = 10;
 };
 
-TEST_F(ResumableCompactionServiceTest, CompactionCancelAndResume) {
-  RunCompactionCancelTest(false /* ignore_existing_progress */);
+TEST_F(ResumableCompactionServiceTest, CompactionCancelThenResume) {
+  RunCompactionCancelTest(
+      ResumableCompactionService::TestScenario::kCancelThenResume);
 }
 
-TEST_F(ResumableCompactionServiceTest, CompactionCancelAndDisableResume) {
-  RunCompactionCancelTest(true /* ignore_existing_progress */);
+TEST_F(ResumableCompactionServiceTest, CompactionCancelThenFreshStart) {
+  RunCompactionCancelTest(
+      ResumableCompactionService::TestScenario::kCancelThenFreshStart);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       CompactionMultipleCancelToggleResumption) {
+  RunCompactionCancelTest(ResumableCompactionService::TestScenario::
+                              kMultipleCancelToggleResumption);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

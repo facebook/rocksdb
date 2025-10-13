@@ -2811,29 +2811,39 @@ struct OpenAndCompactOptions {
 
   // EXPERIMENTAL
   //
-  // When enabled, OpenAndCompact() attempts to resume from previously persisted
-  // compaction progress stored in `output_directory`. During execution, it
-  // periodically persists new progress to the same directory, allowing future
-  // calls to continue from where the previous compaction left off.
+  // Controls whether OpenAndCompact() should attempt to resume from previously
+  // persisted compaction progress or start fresh.
   //
-  // Fallback behavior: If resumption cannot be fulfilled (e.g., due to
-  // corrupted or missing resume state), the system will attempt to start a
-  // fresh compaction as a best-effort fallback. If even the fresh compaction
-  // cannot be started, a non-OK status will be returned.
+  // When `allow_resumption = true`:
+  // - OpenAndCompact() attempts to resume from previously persisted compaction
+  //   progress stored in `output_directory`
+  // - During execution, it periodically persists new progress to the same
+  //   directory, allowing future calls to continue from where the previous
+  //   compaction left off.
+  // - Fallback behavior: If resumption cannot be fulfilled (e.g., due to
+  //   corrupted or missing resume state), the system will attempt to start a
+  //   fresh compaction as a best-effort fallback by cleaning related files in
+  //   the `output_directory` to achieve a clean state. If even the fresh
+  //   compaction cannot be started, a non-OK status will be returned.
+  // - Important: Resume attempts will be ineffective if the underlying
+  //   conditions that caused the previous OpenAndCompact() failure still
+  //   persist. The same non-OK status will likely be returned unless the root
+  //   cause has been resolved.
+  // - Progress persistence is sequential and best-effort, triggered upon
+  //   completion of each new output file. If compaction is interrupted while
+  //   creating an output file (before its completion), that partial work will
+  //   need to be redone upon resumption.
   //
-  // Important: Resume attempts will be ineffective if the underlying conditions
-  // that caused the previous OpenAndCompact() failure still persist. The same
-  // non-OK status will likely be returned unless the root cause has been
-  // resolved.
-  //
-  // Progress persistence is sequential and best-effort, triggered upon
-  // completion of each new output file. If compaction is interrupted while
-  // creating an output file (before its completion), that partial work will
-  // need to be redone upon resumption.
+  // When `allow_resumption = false`:
+  // - OpenAndCompact() starts a fresh compaction from scratch.
+  // - No progress will be saved during execution, so interruptions require
+  //   starting over completely.
+  // - CRITICAL REQUIREMENT: The `output_directory` associated MUST be empty
+  //   before calling OpenAndCompact(). Any existing files (including resume
+  //   state or output files from previous runs) may cause correctness errors.
   //
   // Limitation: Currently incompatible with paranoid_file_checks=true. The
-  // option is effectively disabled when `paranoid_file_checks` is enabled
-  // (which is disabled by default).
+  // option is effectively disabled when `paranoid_file_checks` is enabled.
   bool allow_resumption = false;
 };
 

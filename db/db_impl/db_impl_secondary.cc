@@ -1086,17 +1086,17 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
   // Create output directory if it doest exist yet
   Status s = CreateAndNewDirectory(fs_.get(), secondary_path_, output_dir);
+  if (!s.ok() || !allow_resumption) {
+    return s;
+  }
+
+  s = PrepareCompactionProgressState();
+
   if (!s.ok()) {
     return s;
   }
 
-  s = PrepareCompactionProgressState(allow_resumption);
-  if (!s.ok()) {
-    return s;
-  }
-
-  s = FinalizeCompactionProgressWriter(allow_resumption,
-                                       compaction_progress_writer);
+  s = FinalizeCompactionProgressWriter(compaction_progress_writer);
 
   if (!s.ok()) {
     return s;
@@ -1106,6 +1106,7 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
                  "Initialized compaction workspace with %zu subcompaction "
                  "progress to resume",
                  compaction_progress_.size());
+
   return Status::OK();
 }
 
@@ -1113,36 +1114,45 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
 // files to ensure a clean, consistent state for resuming or starting fresh
 // compaction.
 //
-// PRECONDITIONS (before entering this function):
-// - 0 or more compaction progress files exist in `secondary_path_`, which may
-// include:
-//   * Latest progress file (from most recent compaction attempt)
-//   * Older progress files (left by crashing during
-//   last `InitializeCompactionWorkspace()` call
-//   * Temporary progress files (left by crashing during
-//   last `InitializeCompactionWorkspace()`) call
-// - 0 or more compaction output files exist in `secondary_path_`
+// PRECONDITION:
+// - This function is ONLY called when allow_resumption = true
+// - The caller wants resumption support for this compaction attempt
+//
+// FILE SYSTEM STATE (before entering this function):
+// - 0 or more compaction progress files may exist in `secondary_path_`:
+//   * Latest progress file (from the most recent compaction attempt)
+//   * Older progress files (left by crashing during a previous
+//     InitializeCompactionWorkspace() call)
+//   * Temporary progress files (left by crashing during a previous
+//     InitializeCompactionWorkspace() call)
+// - 0 or more compaction output files may exist in `secondary_path_`
 //
 // POSTCONDITIONS (after this function):
-// - IF allow_resumption = true AND the latest progress file exists AND
-//   it parses successfully AND actually contains valid compaction progress:
+// - IF the latest progress file exists AND it parses successfully AND
+//   actually contains valid compaction progress:
 //   * Exactly one latest progress file remains
 //   * All older and temporary compaction progress files are deleted
 //   * All corresponding compaction output files are preserved
-//   * All extra compaction output files are deleted (left by compaction
-//   crashing before persisting the progress for the new output files)
-//   * So that we can start resuming compaction
-// - OTHERWISE (any of the above conditions in IF doesn't hold):
-//   * ALL compaction progress files are deleted (latest + older + temporary)
+//   * All extra compaction output files are deleted (files left by
+//   compaction
+//     crashing before persisting the progress)
+//   * Result: Ready to resume compaction from the saved progress
+// - OTHERWISE (no latest progress file OR it fails to parse OR it's
+// invalid):
+//   * ALL compaction progress files are deleted (latest + older +
+//   temporary)
 //   * ALL compaction output files are deleted
-//   * So that we can start fresh compaction
+//   * Result: Ready to start fresh compaction (despite allow_resumption =
+//   true, we cannot resume because there's no valid progress to resume from)
+//
+// ERROR HANDLING:
 // - ON ERROR (if any of the postconditions cannot be achieved):
 //   * Function returns error status
-//   * File system may be left in partially modified state
+//   * File system may be left in a partially modified state
 //   * Caller should manually clean up secondary_path_ before retrying
-//   * Subsequent `OpenAndCompact()` calls to this clean `secondary_path_` will
-//   effectively start fresh compaction
-Status DBImplSecondary::PrepareCompactionProgressState(bool allow_resumption) {
+//   * Subsequent OpenAndCompact() calls to this clean secondary_path_ will
+//     effectively start fresh compaction
+Status DBImplSecondary::PrepareCompactionProgressState() {
   Status s;
 
   // STEP 1: Scan directory ONCE (includes progress files + table files)
@@ -1161,20 +1171,12 @@ Status DBImplSecondary::PrepareCompactionProgressState(bool allow_resumption) {
 
   // STEP 2: Determine if we should resume
   bool should_resume = false;
-  if (allow_resumption) {
-    if (latest_progress_file.has_value()) {
-      should_resume = true;
-    } else {
-      // CASE 1: Resume requested but no progress file found
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Did not find any latest compaction progress file. "
-                     "Will perform clean up to start fresh compaction");
-    }
+  if (latest_progress_file.has_value()) {
+    should_resume = true;
   } else {
-    // CASE 2: Resume not requested
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Resuming compaction is not enabled. Will perform clean up "
-                   "to start fresh compaction");
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Did not find any latest compaction progress file. "
+                   "Will perform clean up to start fresh compaction");
   }
 
   // STEP 3: Cleanup using pre-scanned results
@@ -1207,9 +1209,8 @@ Status DBImplSecondary::PrepareCompactionProgressState(bool allow_resumption) {
     s = LoadCompactionProgressAndCleanupExtraOutputFiles(
         compaction_progress_file_path, scan_result);
 
-    // CASE 3: Progress file exists but failed to load
     if (!s.ok()) {
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "Failed to load the latest compaction "
                      "progress from %s: %s. Will perform clean up "
                      "to start fresh compaction",
@@ -1220,36 +1221,9 @@ Status DBImplSecondary::PrepareCompactionProgressState(bool allow_resumption) {
     }
     return s;
   } else {
-    // CASE 1 & 2: No valid progress to resume from
-    return HandleInvalidOrNoCompactionProgress(std::nullopt, scan_result);
+    return HandleInvalidOrNoCompactionProgress(
+        std::nullopt /* compaction_progress_file_path */, scan_result);
   }
-}
-
-Status DBImplSecondary::DeleteFileIfExists(const std::string& file_path,
-                                           Env::IOActivity io_activity) {
-  if (file_path.empty()) {
-    return Status::OK();
-  }
-
-  WriteOptions write_options(io_activity);
-  IOOptions opts;
-  Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
-  if (!s.ok()) {
-    return s;
-  }
-
-  s = fs_->FileExists(file_path, opts, nullptr /* dbg */);
-
-  if (s.IsNotFound()) {
-    return Status::OK();
-  }
-
-  if (!s.ok()) {
-    return s;
-  }
-
-  s = fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
-  return s;
 }
 
 Status DBImplSecondary::HandleInvalidOrNoCompactionProgress(
@@ -1259,8 +1233,13 @@ Status DBImplSecondary::HandleInvalidOrNoCompactionProgress(
 
   Status s;
   if (compaction_progress_file_path.has_value()) {
-    s = DeleteFileIfExists(compaction_progress_file_path.value(),
-                           Env::IOActivity::kCompaction);
+    WriteOptions write_options(Env::IOActivity::kCompaction);
+    IOOptions opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+    if (s.ok()) {
+      s = fs_->DeleteFile(compaction_progress_file_path.value(), opts,
+                          nullptr /* dbg */);
+    }
     if (!s.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Failed to remove invalid progress file: %s",
@@ -1315,7 +1294,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   if (options.allow_resumption &&
       cfd->GetLatestMutableCFOptions().paranoid_file_checks) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Resume compaction configured but disabled due to "
                    "incompatible with paranoid_file_checks=true");
   }
@@ -1324,6 +1303,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   s = InitializeCompactionWorkspace(allow_resumption, &output_dir,
                                     &compaction_progress_writer);
+
   mutex_.Lock();
 
   if (!s.ok()) {
@@ -1641,7 +1621,12 @@ Status DBImplSecondary::HandleCompactionProgressWriterCreationFailure(
 
   Status s;
   for (const auto& file_path : paths_to_delete) {
-    s = DeleteFileIfExists(file_path, Env::IOActivity::kCompaction);
+    WriteOptions write_options(Env::IOActivity::kCompaction);
+    IOOptions opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+    if (s.ok()) {
+      s = fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
+    }
 
     if (!s.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
@@ -1656,13 +1641,7 @@ Status DBImplSecondary::HandleCompactionProgressWriterCreationFailure(
 }
 
 Status DBImplSecondary::FinalizeCompactionProgressWriter(
-    bool allow_resumption,
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
-  if (!allow_resumption) {
-    compaction_progress_writer->reset();
-    return Status::OK();
-  }
-
   uint64_t timestamp = env_->NowMicros();
   const std::string temp_file_path =
       TempCompactionProgressFileName(secondary_path_, timestamp);
@@ -1670,7 +1649,7 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
   Status s = CreateCompactionProgressWriter(temp_file_path,
                                             compaction_progress_writer);
   if (!s.ok()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Failed to create compaction progress writer at "
                    "temp path %s: %s. Will perform clean up "
                    "to start compaction without progress persistence",
@@ -1683,7 +1662,7 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
     s = PersistInitialCompactionProgress(compaction_progress_writer->get(),
                                          compaction_progress_);
     if (!s.ok()) {
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "Failed to persist the initial copmaction "
                      "progress: %s. Will perform clean up "
                      "to start compaction without progress persistence",
@@ -1699,7 +1678,7 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
   s = RenameCompactionProgressFile(temp_file_path, &final_file_path);
 
   if (!s.ok()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Failed to rename temporary compaction progress "
                    "file from %s to %s: %s.  Will perform clean up "
                    "to start compaction without progress persistence",
@@ -1712,7 +1691,7 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
   s = CreateCompactionProgressWriter(final_file_path,
                                      compaction_progress_writer);
   if (!s.ok()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Failed to create the final compaction progress "
                    "writer: %s. Will attempt clean to start the compaction "
                    "without progress persistence",

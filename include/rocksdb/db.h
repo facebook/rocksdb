@@ -366,6 +366,10 @@ class DB {
   //
   // Parameters:
   // - `options`: Additional controls
+  //   * When `allow_resumption = false`: The `output_directory` MUST be empty
+  //     before calling this function. Any existing files (including resume
+  //     state or output files from previous runs) in the directory may
+  //     cause correctness errors as the compaction will start from scratch.
   // - `name`: Source database path
   // - `output_directory`: Where compaction output files are written
   // - `input`: Serialized compaction input information
