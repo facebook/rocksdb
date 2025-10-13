@@ -9274,26 +9274,34 @@ class UserDefinedIndexStressTest
     }
   }
 
+  void IngestFilesInOneLevel(const std::vector<DataRange>& ranges_in_level,
+                             const std::string& ingest_file_name_prefix,
+                             size_t& ingest_file_count,
+                             const IngestExternalFileOptions& ifo) {
+    std::vector<std::string> ingest_files;
+    // Generate SST file and bulk load them one level at a time
+    for (auto const& range : ranges_in_level) {
+      if (!range.skipped) {
+        ASSERT_NO_FATAL_FAILURE(CreateSstFileWithRanges(
+            ingest_file_name_prefix + std::to_string(ingest_file_count),
+            range));
+        ingest_files.push_back(ingest_file_name_prefix +
+                               std::to_string(ingest_file_count));
+        ingest_file_count++;
+      }
+    }
+
+    ASSERT_OK(db_->IngestExternalFile(ingest_cfh_, ingest_files, ifo));
+  }
+
   void IngestDataToCF() {
     IngestExternalFileOptions ifo;
     ifo.snapshot_consistency = false;
     auto ingest_file_name_prefix = dbname_ + "ingest_file_";
     size_t ingest_file_count = 0;
     for (auto const& ranges_in_level : ranges_in_levels_) {
-      std::vector<std::string> ingest_files;
-      // Generate SST file and bulk load them one level at a time
-      for (auto const& range : ranges_in_level) {
-        if (!range.skipped) {
-          ASSERT_NO_FATAL_FAILURE(CreateSstFileWithRanges(
-              ingest_file_name_prefix + std::to_string(ingest_file_count),
-              range));
-          ingest_files.push_back(ingest_file_name_prefix +
-                                 std::to_string(ingest_file_count));
-          ingest_file_count++;
-        }
-      }
-
-      ASSERT_OK(db_->IngestExternalFile(ingest_cfh_, ingest_files, ifo));
+      ASSERT_NO_FATAL_FAILURE(IngestFilesInOneLevel(
+          ranges_in_level, ingest_file_name_prefix, ingest_file_count, ifo));
     }
 
     ASSERT_GE(ingest_file_count, 0);
@@ -9365,7 +9373,6 @@ TEST_P(UserDefinedIndexStressTest, DeleteRange) {
                                   .skipped = false,
                                   .start_key = "keyz",
                                   .end_key = "key"}});
-
   } else {
     ranges_in_levels_.push_back({{.start = 0,
                                   .end = 100,
@@ -9377,10 +9384,21 @@ TEST_P(UserDefinedIndexStressTest, DeleteRange) {
   // Top level is normal data files
   ranges_in_levels_.push_back(GenerateKeyRanges(rnd.Uniform(3) + 4, 2, "L4"));
 
-  ASSERT_NO_FATAL_FAILURE(IngestDataToCF());
-
-  if (enable_compaction_with_sst_partitioner_) {
-    ASSERT_NO_FATAL_FAILURE(CompactIngestedCF());
+  IngestExternalFileOptions ifo;
+  ifo.snapshot_consistency = false;
+  auto ingest_file_name_prefix = dbname_ + "ingest_file_";
+  size_t ingest_file_count = 0;
+  auto first_level = true;
+  for (auto const& ranges_in_level : ranges_in_levels_) {
+    ASSERT_NO_FATAL_FAILURE(IngestFilesInOneLevel(
+        ranges_in_level, ingest_file_name_prefix, ingest_file_count, ifo));
+    if (first_level) {
+      first_level = false;
+      if (enable_compaction_with_sst_partitioner_) {
+        // When compaction is enabled, do a compaction at the first level
+        ASSERT_NO_FATAL_FAILURE(CompactIngestedCF());
+      }
+    }
   }
 
   ASSERT_NO_FATAL_FAILURE(AddDataToRegularCF());
