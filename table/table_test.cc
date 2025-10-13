@@ -9050,13 +9050,13 @@ class UserDefinedIndexStressTest
 
  protected:
   static constexpr auto kKeyRange = 100;
-  bool enable_udi_;
-  bool enable_compaction_with_sst_partitioner_;
-  uint32_t rand_seed_;
+  bool enable_udi_{};
+  bool enable_compaction_with_sst_partitioner_{};
+  uint32_t rand_seed_{};
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory_;
   BlockBasedTableOptions table_options_;
-  const Comparator* comparator_;
-  bool is_reverse_comparator_;
+  const Comparator* comparator_{};
+  bool is_reverse_comparator_{};
   Random rnd{0};
   ColumnFamilyHandle* ingest_cfh_ = nullptr;
   ColumnFamilyHandle* regular_cfh_ = nullptr;
@@ -9099,7 +9099,7 @@ class UserDefinedIndexStressTest
 
   std::vector<DataRange> GenerateKeyRanges(size_t range_count,
                                            int skip_range_count,
-                                           std::string value) {
+                                           const std::string& value) {
     std::set<size_t> boundaries;
     // generate n + 1 number of unique boundaries to form n contiguoes ranges
     while (boundaries.size() < range_count + 1) {
@@ -9202,8 +9202,7 @@ class UserDefinedIndexStressTest
           std::cout << "key " << iter->key().ToString() << " value "
                     << iter->value().ToString() << std::endl;
         }
-        result.emplace_back(
-            std::make_pair(iter->key().ToString(), iter->value().ToString()));
+        result.emplace_back(iter->key().ToString(), iter->value().ToString());
         scan_key_count++;
       }
       ASSERT_OK(iter->status());
@@ -9316,6 +9315,7 @@ class UserDefinedIndexStressTest
   }
 };
 
+// TODO(xingbo)
 // This test is disabled due to following test case condition:
 // level n:   delete range 4-6
 // level n+1: data range 0-------10
@@ -9323,6 +9323,13 @@ class UserDefinedIndexStressTest
 // Becuase query count == 2, level n+1 would only prepare 3-5. but since 4-6
 // got deleted in the upper level, they are not returned, so only 3 is
 // returned. Meantime the query should have return [3, 6]
+// One way to fix this is by preparing more data blocks once prepared blocks are
+// exhausted, but upper bound is not reached yet.
+// This requires following changes:
+// 1. Fix out of bound flag in block table iterator. Only set it if the key is
+// larger than the upper bound.
+// 2. Refactor the prepared block single dimension vector into 2 dimension of
+// vectors, so that more blocks could be prepared if needed.
 TEST_P(UserDefinedIndexStressTest, DISABLED_PartialDeleteRange) {
   // Create 2 column families. One use normal put/del, the other uses sst
   // ingest Randomly generate multiple non overlapping range for multiple
