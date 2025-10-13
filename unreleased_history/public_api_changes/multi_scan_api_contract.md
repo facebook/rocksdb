@@ -1,0 +1,1 @@
+The MultiScan API contract is updated. After a multi scan range got prepared with Prepare API call, the following seeks must seek the start of each prepared scan range in order. In addition, when limit is set, upper bound must be set to the same value of limit before each seek
