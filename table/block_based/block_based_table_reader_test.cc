@@ -1635,7 +1635,9 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
   {
     auto fs_with_prefetch = std::make_shared<ConfigurablePrefetchFS>(
         env_->GetFileSystem(), true /* support_prefetch */);
-    options.env = new CompositeEnvWrapper(env_, fs_with_prefetch);
+    std::unique_ptr<Env> env_wrapper(
+        new CompositeEnvWrapper(env_, fs_with_prefetch));
+    options.env = env_wrapper.get();
 
     FileOptions fopts;
     fopts.use_direct_reads = use_direct_reads_;
@@ -1657,7 +1659,9 @@ TEST_P(BlockBasedTableReaderTest, FSPrefetchSupportInitializedCorrectly) {
   {
     auto fs_without_prefetch = std::make_shared<ConfigurablePrefetchFS>(
         env_->GetFileSystem(), false /* support_prefetch */);
-    options.env = new CompositeEnvWrapper(env_, fs_without_prefetch);
+    std::unique_ptr<Env> env_wrapper(
+        new CompositeEnvWrapper(env_, fs_without_prefetch));
+    options.env = env_wrapper.get();
 
     FileOptions fopts;
     fopts.use_direct_reads = use_direct_reads_;
