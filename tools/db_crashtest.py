@@ -402,7 +402,8 @@ default_params = {
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
-    "allow_resumption": lambda: random.choice([0, 1]),
+    "allow_resumption": lambda: random.choice([0, 0, 1]),
+    "randomize_allow_resumption": lambda: random.choice([0, 1]),
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
     "remote_compaction_failure_fall_back_to_local": 1,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
@@ -862,6 +863,7 @@ def finalize_and_sanitize(src_params):
         dest_params["sync_fault_injection"] = 0
     else:
         dest_params["allow_resumption"] = 0
+        dest_params["randomize_allow_resumption"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
