@@ -9014,11 +9014,81 @@ class UserDefinedIndexStressTest
     : public UserDefinedIndexTestBase,
       public testing::WithParamInterface<
           UserDefinedIndexStressTestParam::UserDefinedIndexStressTestTuple> {
+ public:
+  void SetUp() override {
+    rand_seed_ = static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+
+    std::cout << "Random seed: " << rand_seed_ << std::endl;
+
+    rnd = Random(rand_seed_);
+    UserDefinedIndexStressTestParam param = GetParam();
+    comparator_ = param.comparator;
+    enable_udi_ = param.enable_udi;
+    enable_compaction_with_sst_partitioner_ =
+        param.enable_compaction_with_sst_partitioner;
+    options_.comparator = comparator_;
+    is_reverse_comparator_ = comparator_ == ReverseBytewiseComparator();
+    options_.compaction_style = kCompactionStyleUniversal;
+
+    // Set up custom flush block policy that flushes every 3 keys
+    table_options_.flush_block_policy_factory =
+        std::make_shared<CustomFlushBlockPolicyFactory>();
+
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options_));
+  }
+
+  void TearDown() override {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(ingest_cfh_));
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(regular_cfh_));
+
+    ASSERT_OK(db_->Close());
+    ASSERT_OK(DestroyDB(dbname_, options_));
+  }
+
  protected:
+  static constexpr auto kKeyRange = 100;
   bool enable_udi_;
   bool enable_compaction_with_sst_partitioner_;
   uint32_t rand_seed_;
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory_;
+  BlockBasedTableOptions table_options_;
+  const Comparator* comparator_;
+  bool is_reverse_comparator_;
+  Random rnd{0};
+  ColumnFamilyHandle* ingest_cfh_ = nullptr;
+  ColumnFamilyHandle* regular_cfh_ = nullptr;
+  std::unique_ptr<DB> db_;
+  std::vector<std::vector<DataRange>> ranges_in_levels_;
+  std::string dbname_;
+
+  void SetupDB(const std::string& dbname) {
+    options_.create_if_missing = true;
+    options_.disable_auto_compactions = true;
+    Status s = DB::Open(options_, dbname, &db_);
+    ASSERT_OK(s);
+    ASSERT_TRUE(db_ != nullptr);
+    if (enable_compaction_with_sst_partitioner_) {
+      // Use a SST partitioner to create multiple files, use the first 4 bytes
+      // of key to partition the file, The key is formatted with 2 digit
+      // following "key" string, e.g. key01, key99
+      options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+    }
+
+    ASSERT_OK(db_->CreateColumnFamily(options_, "regular_cf", &regular_cfh_));
+
+    if (enable_udi_) {
+      // Set up the user-defined index factory
+      user_defined_index_factory_ =
+          std::make_shared<TestUserDefinedIndexFactory>();
+      table_options_.user_defined_index_factory = user_defined_index_factory_;
+    }
+
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options_));
+    ASSERT_OK(db_->CreateColumnFamily(options_, "ingest_cf", &ingest_cfh_));
+  }
 
   template <typename T>
   std::string FormatKey(T i) {
@@ -9027,13 +9097,13 @@ class UserDefinedIndexStressTest
     return "key" + ss.str();
   }
 
-  std::vector<DataRange> GenerateKeyRanges(size_t range_count, int key_range,
+  std::vector<DataRange> GenerateKeyRanges(size_t range_count,
                                            int skip_range_count,
                                            std::string value) {
     std::set<size_t> boundaries;
     // generate n + 1 number of unique boundaries to form n contiguoes ranges
     while (boundaries.size() < range_count + 1) {
-      boundaries.insert(rnd.Uniform(key_range));
+      boundaries.insert(rnd.Uniform(kKeyRange));
     }
     std::vector<size_t> sorted_boundaries(boundaries.begin(), boundaries.end());
     if (is_reverse_comparator_) {
@@ -9140,104 +9210,76 @@ class UserDefinedIndexStressTest
     }
   }
 
-  const Comparator* comparator_;
-  bool is_reverse_comparator_;
-  Random rnd{0};
-
- public:
-  void SetUp() override {
-    rand_seed_ = static_cast<uint32_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
-
-    std::cout << "Random seed: " << rand_seed_ << std::endl;
-
-    rnd = Random(rand_seed_);
-    UserDefinedIndexStressTestParam param = GetParam();
-    comparator_ = param.comparator;
-    enable_udi_ = param.enable_udi;
-    enable_compaction_with_sst_partitioner_ =
-        param.enable_compaction_with_sst_partitioner;
-    options_.comparator = comparator_;
-    is_reverse_comparator_ = comparator_ == ReverseBytewiseComparator();
-    options_.compaction_style = kCompactionStyleUniversal;
-
-    // Set up the user-defined index factory
-    BlockBasedTableOptions table_options;
-
-    // Set up custom flush block policy that flushes every 3 keys
-    table_options.flush_block_policy_factory =
-        std::make_shared<CustomFlushBlockPolicyFactory>();
-
-    if (enable_udi_) {
-      // Set up the user-defined index factory
-      user_defined_index_factory_ =
-          std::make_shared<TestUserDefinedIndexFactory>();
-      table_options.user_defined_index_factory = user_defined_index_factory_;
+  void AddDataToRegularCF() {
+    for (auto const& ranges_in_level : ranges_in_levels_) {
+      for (auto const& range : ranges_in_level) {
+        if (!range.skipped) {
+          for (auto i = range.start; i != range.end;
+               range.start < range.end ? i++ : i--) {
+            if (range.is_range_delete) {
+              ASSERT_OK(
+                  db_->Delete(WriteOptions(), regular_cfh_, FormatKey(i)));
+            } else {
+              ASSERT_OK(db_->Put(WriteOptions(), regular_cfh_, FormatKey(i),
+                                 range.value));
+            }
+          }
+        }
+      }
     }
-
-    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  }
-};
-
-// This case fails in this condition:
-// level n:   delete range 4-6
-// level n+1: data range 0-------10
-// query: 3-9, count=2.
-// Becuase query count == 2, level n+1 would only prepare 3-5. but since 4-6 got
-// deleted in the upper level, they are not returned, so only 3 is returned.
-// Meantime the query should have return [3, 6]
-TEST_P(UserDefinedIndexStressTest, DISABLED_PartialDeleteRange) {
-  // Create 2 column families. One use normal put/del, the other uses sst ingest
-  // Randomly generate multiple non overlapping range for multiple levels
-  // Range scan same range between the 2 CF and validate the result is same
-  SCOPED_TRACE("Start with random seed: " + std::to_string(rand_seed_));
-  // create db
-  std::string dbname =
-      test::PerThreadDBPath("UserDefinedIndexStressTest_PartialDeleteRange");
-  SCOPED_TRACE("dbname: " + dbname);
-  std::unique_ptr<DB> db;
-  options_.create_if_missing = true;
-  options_.disable_auto_compactions = true;
-  Status s = DB::Open(options_, dbname, &db);
-  ASSERT_OK(s);
-  ASSERT_TRUE(db != nullptr);
-  ColumnFamilyHandle* ingest_cfh = nullptr;
-  ColumnFamilyHandle* regular_cfh = nullptr;
-
-  if (enable_compaction_with_sst_partitioner_) {
-    // Use a SST partitioner to create multiple files, use the first 4 bytes
-    // of key to partition the file, The key is formatted with 2 digit
-    // following "key" string, e.g. key01, key99
-    options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+    ASSERT_OK(db_->Flush(FlushOptions(), regular_cfh_));
   }
 
-  ASSERT_OK(db->CreateColumnFamily(options_, "ingest_cf", &ingest_cfh));
-  ASSERT_OK(db->CreateColumnFamily(options_, "regular_cf", &regular_cfh));
+  void ValidateQueryResult() {
+    // Query both CF with same range scan and validate result are same
+    for (auto i = 0; i < 200; i++) {
+      if (kVerbose) {
+        std::cout << "iteration " << i << std::endl;
+      }
+      // randomly generate 1 to 3 ranges
+      auto ranges = GenerateKeyRanges(rnd.Uniform(3) + 4, 2, "");
 
-  // generate number of levels
-  int key_range = 100;
-  std::vector<std::vector<DataRange>> ranges_in_levels;
-  // ingestion start from the bottom level
+      // Query regular CF
+      std::vector<std::pair<std::string, std::string>> expected_result;
+      Slice upper_bound("");
+      ReadOptions ro;
+      ro.iterate_upper_bound = &upper_bound;
 
-  // Test 3 levels for now.
-  // We may also need to test more than 3 levels. E.g. if for some reason,
-  // compaction is disabled, but bulkload is not. We may have more than 3
-  // levels.
-  for (int i = 0; i < 5; i++) {
-    ranges_in_levels.push_back(
-        GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2,
-                          "L" + std::to_string(options_.num_levels - 1 - i)));
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro, regular_cfh_));
+      ASSERT_NO_FATAL_FAILURE(
+          RangeScan(iter, ranges, upper_bound, expected_result, false));
+      ASSERT_OK(iter->status());
+
+      // Query ingest CF
+      iter.reset(db_->NewIterator(ro, ingest_cfh_));
+      std::vector<std::pair<std::string, std::string>> ingest_cf_result;
+      ASSERT_NO_FATAL_FAILURE(
+          RangeScan(iter, ranges, upper_bound, ingest_cf_result, false));
+
+      ASSERT_EQ(expected_result, ingest_cf_result);
+      ASSERT_OK(iter->status());
+
+      // Query ingest CF with UDI if it is enabled
+      if (enable_udi_) {
+        ro.table_index_factory = user_defined_index_factory_.get();
+      }
+
+      iter.reset(db_->NewIterator(ro, ingest_cfh_));
+      std::vector<std::pair<std::string, std::string>>
+          ingest_cf_multi_scan_result;
+      ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, upper_bound,
+                                        ingest_cf_multi_scan_result, true));
+      ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
+      ASSERT_OK(iter->status());
+    }
   }
 
-  // Ingest data to ingest_cf
-  {
+  void IngestDataToCF() {
     IngestExternalFileOptions ifo;
     ifo.snapshot_consistency = false;
-    auto ingest_file_name_prefix = dbname + "ingest_file_";
+    auto ingest_file_name_prefix = dbname_ + "ingest_file_";
     size_t ingest_file_count = 0;
-    for (auto const& ranges_in_level : ranges_in_levels) {
+    for (auto const& ranges_in_level : ranges_in_levels_) {
       std::vector<std::string> ingest_files;
       // Generate SST file and bulk load them one level at a time
       for (auto const& range : ranges_in_level) {
@@ -9251,249 +9293,101 @@ TEST_P(UserDefinedIndexStressTest, DISABLED_PartialDeleteRange) {
         }
       }
 
-      s = db->IngestExternalFile(ingest_cfh, ingest_files, ifo);
-      ASSERT_OK(s);
+      ASSERT_OK(db_->IngestExternalFile(ingest_cfh_, ingest_files, ifo));
     }
 
     ASSERT_GE(ingest_file_count, 0);
   }
 
-  if (enable_compaction_with_sst_partitioner_) {
-    s = db->CompactRange(
+  void CompactIngestedCF() {
+    auto s = db_->CompactRange(
         {.exclusive_manual_compaction = true,
          .bottommost_level_compaction = BottommostLevelCompaction::kForce},
-        ingest_cfh, nullptr, nullptr);
+        ingest_cfh_, nullptr, nullptr);
     ASSERT_OK(s);
   }
+};
 
-  // Add data to regular_cf
-  {
-    for (auto const& ranges_in_level : ranges_in_levels) {
-      for (auto const& range : ranges_in_level) {
-        if (!range.skipped) {
-          for (auto i = range.start; i != range.end;
-               range.start < range.end ? i++ : i--) {
-            if (range.is_range_delete) {
-              db->Delete(WriteOptions(), regular_cfh, FormatKey(i));
-            } else {
-              db->Put(WriteOptions(), regular_cfh, FormatKey(i), range.value);
-            }
-          }
-        }
-      }
-    }
-    // Do a flush to accelerate lookup
-    db->Flush(FlushOptions(), regular_cfh);
+// This test is disabled due to following test case condition:
+// level n:   delete range 4-6
+// level n+1: data range 0-------10
+// query: 3-9, count=2.
+// Becuase query count == 2, level n+1 would only prepare 3-5. but since 4-6
+// got deleted in the upper level, they are not returned, so only 3 is
+// returned. Meantime the query should have return [3, 6]
+TEST_P(UserDefinedIndexStressTest, DISABLED_PartialDeleteRange) {
+  // Create 2 column families. One use normal put/del, the other uses sst
+  // ingest Randomly generate multiple non overlapping range for multiple
+  // levels Range scan same range between the 2 CF and validate the result is
+  // same
+  SCOPED_TRACE("Start with random seed: " + std::to_string(rand_seed_));
+  dbname_ =
+      test::PerThreadDBPath("UserDefinedIndexStressTest_PartialDeleteRange");
+  SCOPED_TRACE("dbname: " + dbname_);
+  ASSERT_NO_FATAL_FAILURE(SetupDB(dbname_));
+
+  for (int i = 0; i < 5; i++) {
+    ranges_in_levels_.push_back(
+        GenerateKeyRanges(rnd.Uniform(3) + 4, 2,
+                          "L" + std::to_string(options_.num_levels - 1 - i)));
   }
 
-  // Query both CF with same range scan and validate result are same
-  for (auto i = 0; i < 200; i++) {
-    if (kVerbose) {
-      std::cout << "iteration " << i << std::endl;
-    }
-    // randomly generate 1 to 3 ranges
-    auto ranges = GenerateKeyRanges(rnd.Uniform(3) + 3, key_range, 2, "");
+  ASSERT_NO_FATAL_FAILURE(IngestDataToCF());
 
-    // Query regular CF
-    std::vector<std::pair<std::string, std::string>> expected_result;
-    Slice upper_bound("");
-    ReadOptions ro;
-    ro.iterate_upper_bound = &upper_bound;
-
-    std::unique_ptr<Iterator> iter(db->NewIterator(ro, regular_cfh));
-    ASSERT_NO_FATAL_FAILURE(
-        RangeScan(iter, ranges, upper_bound, expected_result, false));
-    ASSERT_OK(iter->status());
-
-    // Query ingest CF
-    iter.reset(db->NewIterator(ro, ingest_cfh));
-    std::vector<std::pair<std::string, std::string>> ingest_cf_result;
-    ASSERT_NO_FATAL_FAILURE(
-        RangeScan(iter, ranges, upper_bound, ingest_cf_result, false));
-
-    ASSERT_EQ(expected_result, ingest_cf_result);
-    ASSERT_OK(iter->status());
-
-    // Query ingest CF with MultiScan
-    if (enable_udi_) {
-      ro.table_index_factory = user_defined_index_factory_.get();
-    }
-
-    iter.reset(db->NewIterator(ro, ingest_cfh));
-    std::vector<std::pair<std::string, std::string>>
-        ingest_cf_multi_scan_result;
-    ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, upper_bound,
-                                      ingest_cf_multi_scan_result, true));
-    ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
-    ASSERT_OK(iter->status());
+  if (enable_compaction_with_sst_partitioner_) {
+    ASSERT_NO_FATAL_FAILURE(CompactIngestedCF());
   }
 
-  ASSERT_OK(db->DestroyColumnFamilyHandle(ingest_cfh));
-  ASSERT_OK(db->DestroyColumnFamilyHandle(regular_cfh));
+  ASSERT_NO_FATAL_FAILURE(AddDataToRegularCF());
 
-  ASSERT_OK(db->Close());
-  ASSERT_OK(DestroyDB(dbname, options_));
+  ASSERT_NO_FATAL_FAILURE(ValidateQueryResult());
 }
 
 TEST_P(UserDefinedIndexStressTest, DeleteRange) {
-  // Create 2 column families. One use normal put/del, the other uses sst ingest
-  // Randomly generate multiple non overlapping range for multiple levels
+  // Create 2 column families. One use normal put/del, the other uses sst
+  // ingest.
+  // Test the case where there are 3 levels, the middle level is a delete range
+  // file that span across the entire key space.
   // Range scan same range between the 2 CF and validate the result is same
   SCOPED_TRACE("Start with random seed: " + std::to_string(rand_seed_));
-  // create db
-  std::string dbname =
-      test::PerThreadDBPath("UserDefinedIndexStressTest_RandomDeleteRange");
-  SCOPED_TRACE("dbname: " + dbname);
-  std::unique_ptr<DB> db;
-  options_.create_if_missing = true;
-  options_.disable_auto_compactions = true;
-  Status s = DB::Open(options_, dbname, &db);
-  ASSERT_OK(s);
-  ASSERT_TRUE(db != nullptr);
-  ColumnFamilyHandle* ingest_cfh = nullptr;
-  ColumnFamilyHandle* regular_cfh = nullptr;
+  dbname_ = test::PerThreadDBPath("UserDefinedIndexStressTest_DeleteRange");
+  SCOPED_TRACE("dbname: " + dbname_);
+  ASSERT_NO_FATAL_FAILURE(SetupDB(dbname_));
 
-  if (enable_compaction_with_sst_partitioner_) {
-    // Use a SST partitioner to create multiple files, use the first 4 bytes
-    // of key to partition the file, The key is formatted with 2 digit
-    // following "key" string, e.g. key01, key99
-    options_.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
-  }
-
-  ASSERT_OK(db->CreateColumnFamily(options_, "ingest_cf", &ingest_cfh));
-  ASSERT_OK(db->CreateColumnFamily(options_, "regular_cf", &regular_cfh));
-
-  // generate number of levels
-  int key_range = 100;
-  std::vector<std::vector<DataRange>> ranges_in_levels;
-  // ingestion start from the bottom level
-
-  // Test 3 levels for now.
-  ranges_in_levels.push_back(
-      GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2, "L6"));
-  // Add a delete range between each level
+  // Test 3 levels.
+  // bottom level is normal data files.
+  ranges_in_levels_.push_back(GenerateKeyRanges(rnd.Uniform(3) + 4, 2, "L6"));
+  // middle level delete range between each level
   if (is_reverse_comparator_) {
-    ranges_in_levels.push_back({{.start = 100,
-                                 .end = 0,
-                                 .is_range_delete = true,
-                                 .skipped = false,
-                                 .start_key = "keyz",
-                                 .end_key = "key"}});
+    ranges_in_levels_.push_back({{.start = 100,
+                                  .end = 0,
+                                  .is_range_delete = true,
+                                  .skipped = false,
+                                  .start_key = "keyz",
+                                  .end_key = "key"}});
 
   } else {
-    ranges_in_levels.push_back({{.start = 0,
-                                 .end = 100,
-                                 .is_range_delete = true,
-                                 .skipped = false,
-                                 .start_key = "key",
-                                 .end_key = "keyz"}});
+    ranges_in_levels_.push_back({{.start = 0,
+                                  .end = 100,
+                                  .is_range_delete = true,
+                                  .skipped = false,
+                                  .start_key = "key",
+                                  .end_key = "keyz"}});
   }
-  ranges_in_levels.push_back(
-      GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2, "L4"));
+  // Top level is normal data files
+  ranges_in_levels_.push_back(GenerateKeyRanges(rnd.Uniform(3) + 4, 2, "L4"));
 
-  // Ingest data to ingest_cf
-  {
-    IngestExternalFileOptions ifo;
-    ifo.snapshot_consistency = false;
-    // Generate SST file and bulk load them
-    auto ingest_file_name_prefix = dbname + "ingest_file_";
-    size_t ingest_file_count = 0;
-    for (auto const& ranges_in_level : ranges_in_levels) {
-      std::vector<std::string> ingest_files;
-      for (auto const& range : ranges_in_level) {
-        if (!range.skipped) {
-          ASSERT_NO_FATAL_FAILURE(CreateSstFileWithRanges(
-              ingest_file_name_prefix + std::to_string(ingest_file_count),
-              range));
-          ingest_files.push_back(ingest_file_name_prefix +
-                                 std::to_string(ingest_file_count));
-          ingest_file_count++;
-        }
-      }
-
-      s = db->IngestExternalFile(ingest_cfh, ingest_files, ifo);
-      ASSERT_OK(s);
-    }
-
-    ASSERT_GE(ingest_file_count, 0);
-  }
+  ASSERT_NO_FATAL_FAILURE(IngestDataToCF());
 
   if (enable_compaction_with_sst_partitioner_) {
-    s = db->CompactRange(
-        {.exclusive_manual_compaction = true,
-         .bottommost_level_compaction = BottommostLevelCompaction::kForce},
-        ingest_cfh, nullptr, nullptr);
-    ASSERT_OK(s);
+    ASSERT_NO_FATAL_FAILURE(CompactIngestedCF());
   }
 
-  // Add data to regular_cf
-  {
-    for (auto const& ranges_in_level : ranges_in_levels) {
-      for (auto const& range : ranges_in_level) {
-        if (!range.skipped) {
-          for (auto i = range.start; i != range.end;
-               range.start < range.end ? i++ : i--) {
-            if (range.is_range_delete) {
-              db->Delete(WriteOptions(), regular_cfh, FormatKey(i));
-            } else {
-              db->Put(WriteOptions(), regular_cfh, FormatKey(i), range.value);
-            }
-          }
-        }
-      }
-    }
-    // Do a flush to accelerate lookup
-    db->Flush(FlushOptions(), regular_cfh);
-  }
+  ASSERT_NO_FATAL_FAILURE(AddDataToRegularCF());
 
-  // Query both CF with same range scan and validate result are same
-  for (auto i = 0; i < 200; i++) {
-    if (kVerbose) {
-      std::cout << "iteration " << i << std::endl;
-    }
-    // randomly generate 1 to 3 ranges
-    auto ranges = GenerateKeyRanges(rnd.Uniform(3) + 4, key_range, 2, "");
-
-    // Query regular CF
-    std::vector<std::pair<std::string, std::string>> expected_result;
-    Slice upper_bound("");
-    ReadOptions ro;
-    ro.iterate_upper_bound = &upper_bound;
-
-    std::unique_ptr<Iterator> iter(db->NewIterator(ro, regular_cfh));
-    ASSERT_NO_FATAL_FAILURE(
-        RangeScan(iter, ranges, upper_bound, expected_result, false));
-    ASSERT_OK(iter->status());
-
-    // Query ingest CF
-    iter.reset(db->NewIterator(ro, ingest_cfh));
-    std::vector<std::pair<std::string, std::string>> ingest_cf_result;
-    ASSERT_NO_FATAL_FAILURE(
-        RangeScan(iter, ranges, upper_bound, ingest_cf_result, false));
-
-    ASSERT_EQ(expected_result, ingest_cf_result);
-    ASSERT_OK(iter->status());
-
-    // Query ingest CF with UDI
-    if (enable_udi_) {
-      ro.table_index_factory = user_defined_index_factory_.get();
-    }
-
-    iter.reset(db->NewIterator(ro, ingest_cfh));
-    std::vector<std::pair<std::string, std::string>>
-        ingest_cf_multi_scan_result;
-    ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, upper_bound,
-                                      ingest_cf_multi_scan_result, true));
-    ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
-    ASSERT_OK(iter->status());
-  }
-
-  ASSERT_OK(db->DestroyColumnFamilyHandle(ingest_cfh));
-  ASSERT_OK(db->DestroyColumnFamilyHandle(regular_cfh));
-
-  ASSERT_OK(db->Close());
-  ASSERT_OK(DestroyDB(dbname, options_));
+  ASSERT_NO_FATAL_FAILURE(ValidateQueryResult());
 }
+
 INSTANTIATE_TEST_CASE_P(
     UserDefinedIndexStressTest, UserDefinedIndexStressTest,
     testing::Combine(testing::Values(BytewiseComparator(),
