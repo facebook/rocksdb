@@ -1202,6 +1202,9 @@ def finalize_and_sanitize(src_params):
         # existing key range, which will cause a reseek that's currently not
         # supported by multiscan
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
+        # which are not updated if skip_stats_update_on_db_open is true
+        dest_params["skip_stats_update_on_db_open"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek

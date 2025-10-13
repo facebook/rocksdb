@@ -49,6 +49,7 @@ struct CompactRangeOptions;
 struct DBOptions;
 struct ExternalSstFileInfo;
 struct FlushOptions;
+struct FlushWALOptions;
 struct Options;
 struct ReadOptions;
 struct TableProperties;
@@ -1774,6 +1775,10 @@ class DB {
   // included in a Checkpoint or Backup. Without manual_wal_flush, there is no
   // such internal buffer. If sync is true, it calls SyncWAL() afterwards.
   virtual Status FlushWAL(bool /*sync*/) {
+    return Status::NotSupported("FlushWAL not implemented");
+  }
+
+  virtual Status FlushWAL(const FlushWALOptions& /*options*/) {
     return Status::NotSupported("FlushWAL not implemented");
   }
 

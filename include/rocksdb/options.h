@@ -2335,6 +2335,23 @@ struct FlushOptions {
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
+struct FlushWALOptions {
+  // If true, it calls `SyncWAL()` afterwards.
+  // Default: false
+  bool sync;
+
+  // For IO operations associated with flushing the WAL, charge the internal
+  // rate limiter (see `DBOptions::rate_limiter`) at the specified priority and
+  // pass the priority down to the file system through
+  // `IOOptions::rate_limiter_priority`. The special value `Env::IO_TOTAL`
+  // disables charging the rate limiter.
+  //
+  // Default: `Env::IO_TOTAL`
+  Env::IOPriority rate_limiter_priority;
+
+  FlushWALOptions() : sync(false), rate_limiter_priority(Env::IO_TOTAL) {}
+};
+
 // Create a Logger from provided DBOptions
 Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
