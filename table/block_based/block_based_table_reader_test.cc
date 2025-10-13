@@ -1173,44 +1173,6 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       } else {
         ASSERT_EQ(read_count_before + 3, read_count_after);
       }
-
-      // 4. Check cases when Seek key does not match start key in ScanOptions
-      iter.reset(table->NewIterator(
-          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-      scan_options = MultiScanArgs(comparator_);
-      scan_options.use_async_io = use_async_io;
-      scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
-                          ExtractUserKey(kv[20 * kEntriesPerBlock].first));
-      scan_options.insert(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
-                          ExtractUserKey(kv[40 * kEntriesPerBlock].first));
-      iter->Prepare(&scan_options);
-      // Match start key
-      iter->Seek(kv[10 * kEntriesPerBlock].first);
-      for (size_t i = 10 * kEntriesPerBlock; i < 20 * kEntriesPerBlock; ++i) {
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(iter->key().ToString(), kv[i].first);
-        iter->Next();
-      }
-      ASSERT_OK(iter->status());
-
-      // Does not match start key of the second ScanOptions.
-      iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
-      ASSERT_NOK(iter->status());
-
-      iter.reset(table->NewIterator(
-          read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-      scan_options = MultiScanArgs(comparator_);
-      scan_options.use_async_io = use_async_io;
-      scan_options.insert(ExtractUserKey(kv[10 * kEntriesPerBlock].first));
-      scan_options.insert(ExtractUserKey(kv[11 * kEntriesPerBlock].first));
-      iter->Prepare(&scan_options);
-      // Does not match the first ScanOptions.
-      iter->SeekToFirst();
-      ASSERT_NOK(iter->status());
-      iter->Seek(kv[10 * kEntriesPerBlock].first);
-      ASSERT_NOK(iter->status());
     }
   }
 }

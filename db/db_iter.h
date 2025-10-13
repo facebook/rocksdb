@@ -240,16 +240,8 @@ class DBIter final : public Iterator {
 
   bool PrepareValue() override;
 
-  void Prepare(const MultiScanArgs& scan_opts) override {
-    std::optional<MultiScanArgs> new_scan_opts;
-    new_scan_opts.emplace(scan_opts);
-    scan_opts_.swap(new_scan_opts);
-    if (!scan_opts.empty()) {
-      iter_.Prepare(&scan_opts_.value());
-    } else {
-      iter_.Prepare(nullptr);
-    }
-  }
+  void Prepare(const MultiScanArgs& scan_opts) override;
+  Status ValidateScanOptions(const MultiScanArgs& multiscan_opts) const;
 
  private:
   DBIter(Env* _env, const ReadOptions& read_options,
@@ -506,6 +498,7 @@ class DBIter final : public Iterator {
   const size_t timestamp_size_;
   std::string saved_timestamp_;
   std::optional<MultiScanArgs> scan_opts_;
+  size_t scan_index_{0};
   ReadOnlyMemTable* const active_mem_;
   SequenceNumber memtable_seqno_lb_;
   uint32_t memtable_op_scan_flush_trigger_;
