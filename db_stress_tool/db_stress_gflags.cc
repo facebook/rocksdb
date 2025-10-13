@@ -866,6 +866,13 @@ DEFINE_bool(allow_resumption, false,
             "resumed automatically. Requires "
             "remote_compaction_worker_threads > 0");
 
+DEFINE_bool(randomize_allow_resumption, false,
+            "If true, randomly vary the allow_resumption option across "
+            "OpenAndCompact calls. This allows "
+            "testing both resumable and non-resumable compaction behavior in "
+            "on db session. When false, uses the static FLAGS_allow_resumption "
+            "value for all calls.");
+
 DEFINE_uint32(ingest_wbwi_one_in, 0,
               "If set, will call"
               "IngestWriteBatchWithIndex() instead of regular write operations "

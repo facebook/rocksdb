@@ -13,6 +13,7 @@
 
 #include <cmath>
 
+#include "file/file_util.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
@@ -338,11 +339,52 @@ void RemoteCompactionWorkerThread(void* v) {
       }
 
       OpenAndCompactOptions open_compact_options;
-      open_compact_options.allow_resumption = FLAGS_allow_resumption;
+      if (FLAGS_randomize_allow_resumption) {
+        open_compact_options.allow_resumption = rand.OneIn(2);
+      } else {
+        open_compact_options.allow_resumption = FLAGS_allow_resumption;
+      }
+
+      // Clean output directory when allow_resumption is false
+      if (!open_compact_options.allow_resumption) {
+#ifndef NDEBUG
+        // Temporarily disable fault injection to ensure deletion always
+        // succeeds
+        if (fault_fs_guard) {
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+        }
+#endif  // NDEBUG
+
+        Status s = DestroyDir(db_stress_env, output_directory);
+        if (!s.ok()) {
+          fprintf(
+              stderr,
+              "Failed to destroy output directory %s when allow_resumption is "
+              "false: %s\n",
+              output_directory.c_str(), s.ToString().c_str());
+        }
+        if (s.ok()) {
+          s = db_stress_env->CreateDir(output_directory);
+          if (!s.ok()) {
+            fprintf(stderr,
+                    "Failed to recreate output directory %s when "
+                    "allow_resumption is "
+                    "false: %s\n",
+                    output_directory.c_str(), s.ToString().c_str());
+          }
+        }
+
+#ifndef NDEBUG
+        // Re-enable fault injection after deletion
+        if (fault_fs_guard) {
+          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+        }
+#endif  // NDEBUG
+      }
 
       std::shared_ptr<std::atomic<bool>> canceled = nullptr;
 
-      if (FLAGS_allow_resumption) {
+      if (IsResumptionEnabled()) {
         canceled = std::make_shared<std::atomic<bool>>(false);
         open_compact_options.canceled = canceled.get();
 
@@ -369,7 +411,7 @@ void RemoteCompactionWorkerThread(void* v) {
                                     output_directory, serialized_input,
                                     &serialized_output, override_options);
 
-      if (s.IsManualCompactionPaused() && FLAGS_allow_resumption) {
+      if (s.IsManualCompactionPaused() && IsResumptionEnabled()) {
         shared->EnqueueRemoteCompaction(job_id, job_info, serialized_input,
                                         output_directory,
                                         true /* was_cancelled */);
