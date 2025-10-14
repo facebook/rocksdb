@@ -4536,7 +4536,10 @@ TEST_P(DBMultiScanIteratorTest, RangeBetweenFiles) {
 // tombstones in the LSM.
 TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
   auto options = CurrentOptions();
-  options.target_file_size_base = 50 << 10;  // 100KB
+  // Compaction may create files 2x the target_file_size_base,
+  // so set this to 50KB so we atleast end up with 2 files of
+  // 100KB
+  options.target_file_size_base = 50 << 10;  // 50KB
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 50;
   options.compression = kNoCompression;
@@ -4546,38 +4549,37 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
   // 1. Ingest a file with 100 keys
   // 2. Ingest a file with one overlapping key
   // 3. Do a Put and flush a file to L0 with one overlapping key
-  // 4. Ingest a standalone delete range file and a file with the same 100
-  //    keys with new values. This will ingest into L0 due to the presence
-  //    of an existing file in L0
+  // 4. Ingest a standalone delete range file that covers the full key space
+  //    and a file with the same 100 keys with new values. This will ingest
+  //    into L0 due to the presence of an existing file in L0
   // The final LSM will have an SST in Lmax with 100 keys, and 2 SST files
   // in Lmax-1 with half the keys each and completely overlapping delete ranges
   std::unordered_map<std::string, std::string> kvs;
   auto rnd = Random::GetTLSInstance();
-  auto create_ingestion_data_file = [&](const std::string& filename,
-                                        int start_key, int end_key) {
-    std::unique_ptr<SstFileWriter> writer;
-    writer.reset(new SstFileWriter(EnvOptions(), options));
-    ASSERT_OK(writer->Open(filename));
-    // Write ~200KB data
-    for (int i = start_key; i < end_key; ++i) {
-      auto kiter = kvs.find(Key(i));
-      if (kiter != kvs.end()) {
-        kvs.erase(kiter);
-      }
-      auto res =
-          kvs.emplace(std::make_pair(Key(i), rnd->RandomString(2 << 10)));
-      ASSERT_OK(writer->Put(res.first->first, res.first->second));
-    }
-    ASSERT_OK(writer->Finish());
-    writer.reset();
-  };
+  auto create_ingestion_data_file_and_update_key_value =
+      [&](const std::string& filename, int start_key, int end_key) {
+        std::unique_ptr<SstFileWriter> writer;
+        writer.reset(new SstFileWriter(EnvOptions(), options));
+        ASSERT_OK(writer->Open(filename));
+        for (int i = start_key; i < end_key; ++i) {
+          auto kiter = kvs.find(Key(i));
+          if (kiter != kvs.end()) {
+            kvs.erase(kiter);
+          }
+          auto res =
+              kvs.emplace(std::make_pair(Key(i), rnd->RandomString(2 << 10)));
+          ASSERT_OK(writer->Put(res.first->first, res.first->second));
+        }
+        ASSERT_OK(writer->Finish());
+        writer.reset();
+      };
 
   CreateColumnFamilies({"new_cf"}, options);
   std::string ingest_file = dbname_ + "test.sst";
-  create_ingestion_data_file(ingest_file + "_0", 0, 100);
-  create_ingestion_data_file(ingest_file + "_1", 50, 51);
+  // Write ~200KB data
+  create_ingestion_data_file_and_update_key_value(ingest_file + "_0", 0, 100);
+  create_ingestion_data_file_and_update_key_value(ingest_file + "_1", 50, 51);
   ColumnFamilyHandle* cfh = handles_[0];
-  ;
   IngestExternalFileOptions ifo;
   Status s = dbfull()->IngestExternalFile(
       cfh, {ingest_file + "_0", ingest_file + "_1"}, ifo);
@@ -4594,7 +4596,7 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
     ASSERT_OK(writer->Finish());
     writer.reset();
   }
-  create_ingestion_data_file(ingest_file + "_3", 0, 100);
+  create_ingestion_data_file_and_update_key_value(ingest_file + "_3", 0, 100);
   s = dbfull()->IngestExternalFile(
       cfh, {ingest_file + "_2", ingest_file + "_3"}, ifo);
   ASSERT_OK(s);
@@ -4625,6 +4627,7 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
       }
       i += 2;
     }
+    ASSERT_EQ(i, 4);
     ASSERT_EQ(count, 5);
   } catch (MultiScanException& ex) {
     ASSERT_OK(ex.status());
@@ -4655,6 +4658,7 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
       }
       i += 2;
     }
+    ASSERT_EQ(i, 4);
     ASSERT_EQ(count, 19);
   } catch (MultiScanException& ex) {
     ASSERT_OK(ex.status());

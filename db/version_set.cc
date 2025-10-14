@@ -1275,7 +1275,9 @@ class LevelIterator final : public InternalIterator {
     }
   }
 
-  bool InRange(const ScanOptions& opts);
+#ifndef NDEBUG
+  bool OverlapRange(const ScanOptions& opts);
+#endif
 
   TableCache* table_cache_;
   const ReadOptions& read_options_;
@@ -1659,7 +1661,8 @@ void LevelIterator::SkipEmptyFileBackward() {
   }
 }
 
-bool LevelIterator::InRange(const ScanOptions& opts) {
+#ifndef NDEBUG
+bool LevelIterator::OverlapRange(const ScanOptions& opts) {
   return (user_comparator_.CompareWithoutTimestamp(
               opts.range.start.value(), /*a_has_ts=*/false,
               ExtractUserKey(flevel_->files[file_index_].largest_key),
@@ -1669,6 +1672,7 @@ bool LevelIterator::InRange(const ScanOptions& opts) {
               ExtractUserKey(flevel_->files[file_index_].smallest_key),
               /*b_has_ts=*/true) > 0);
 }
+#endif
 
 void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (pinned_iters_mgr_ && iter) {
@@ -1679,8 +1683,8 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (iter && scan_opts_) {
     if (FileHasMultiScanArg(file_index_)) {
       const MultiScanArgs& new_opts = GetMultiScanArgForFile(file_index_);
-      assert(InRange(*new_opts.GetScanRanges().begin()) &&
-             InRange(*new_opts.GetScanRanges().rbegin()));
+      assert(OverlapRange(*new_opts.GetScanRanges().begin()) &&
+             OverlapRange(*new_opts.GetScanRanges().rbegin()));
       file_iter_.Prepare(&new_opts);
     }
   }
