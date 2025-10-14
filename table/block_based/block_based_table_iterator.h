@@ -698,7 +698,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                      CachableEntry<Block>& pinned_block_entry);
 
   Status CollectBlockHandles(
-      const std::vector<ScanOptions>& scan_opts, bool require_file_overlap,
+      const std::vector<ScanOptions>& scan_opts,
       std::vector<BlockHandle>* scan_block_handles,
       std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan,
       std::vector<std::string>* data_block_boundary_keys);
