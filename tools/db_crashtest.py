@@ -1190,8 +1190,8 @@ def finalize_and_sanitize(src_params):
         dest_params["continuous_verification_interval"] = 0
     if dest_params.get("use_multiscan") == 1:
         dest_params["async_io"] = 0
-        #dest_params["delpercent"] += dest_params["delrangepercent"]
-        #dest_params["delrangepercent"] = 0
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
         dest_params["prefix_size"] = -1
         dest_params["iterpercent"] += dest_params["prefixpercent"]
         dest_params["prefixpercent"] = 0
@@ -1201,7 +1201,7 @@ def finalize_and_sanitize(src_params):
         # This option ingests a delete range that might partially overlap with
         # existing key range, which will cause a reseek that's currently not
         # supported by multiscan
-        # dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
