@@ -1857,12 +1857,6 @@ class MultiScanArgs {
 
   const Comparator* GetComparator() const { return comp_; }
 
-  void SetRequireFileOverlap(bool require_overlap) {
-    require_file_overlap_ = require_overlap;
-  }
-
-  bool RequireFileOverlap() const { return require_file_overlap_; }
-
   // Copies the configurations (excluding actual scan ranges) from another
   // MultiScanArgs.
   void CopyConfigFrom(const MultiScanArgs& other) {
@@ -1894,11 +1888,6 @@ class MultiScanArgs {
   // The comparator used for ordering ranges
   const Comparator* comp_;
   std::vector<ScanOptions> original_ranges_;
-
-  // Internal use only.
-  // Fail the Prepare() on a file if a scan range does not overlap
-  // with the file.
-  bool require_file_overlap_{false};
 };
 
 // Options that control read operations

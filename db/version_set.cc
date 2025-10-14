@@ -1200,7 +1200,6 @@ class LevelIterator final : public InternalIterator {
     // Propagate multiscan configs
     for (auto& file_to_arg : *file_to_scan_opts_) {
       file_to_arg.second.CopyConfigFrom(*so);
-      file_to_arg.second.SetRequireFileOverlap(true);
     }
   }
 
@@ -1275,6 +1274,8 @@ class LevelIterator final : public InternalIterator {
               *read_options_.iterate_lower_bound, /*b_has_ts=*/false) < 0;
     }
   }
+
+  bool InRange(const ScanOptions& opts);
 
   TableCache* table_cache_;
   const ReadOptions& read_options_;
@@ -1658,6 +1659,17 @@ void LevelIterator::SkipEmptyFileBackward() {
   }
 }
 
+bool LevelIterator::InRange(const ScanOptions& opts) {
+  return (user_comparator_.CompareWithoutTimestamp(
+              opts.range.start.value(), /*a_has_ts=*/false,
+              ExtractUserKey(flevel_->files[file_index_].largest_key),
+              /*b_has_ts=*/true) <= 0 &&
+          user_comparator_.CompareWithoutTimestamp(
+              opts.range.limit.value(), /*a_has_ts=*/false,
+              ExtractUserKey(flevel_->files[file_index_].smallest_key),
+              /*b_has_ts=*/true) > 0);
+}
+
 void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (pinned_iters_mgr_ && iter) {
     iter->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -1667,6 +1679,8 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (iter && scan_opts_) {
     if (FileHasMultiScanArg(file_index_)) {
       const MultiScanArgs& new_opts = GetMultiScanArgForFile(file_index_);
+      assert(InRange(*new_opts.GetScanRanges().begin()) &&
+             InRange(*new_opts.GetScanRanges().rbegin()));
       file_iter_.Prepare(&new_opts);
     }
   }

@@ -1623,53 +1623,6 @@ TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanUnpinPreviousBlocks) {
   }
 }
 
-TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanOptFileOverlapChecking) {
-  std::vector<std::pair<std::string, std::string>> kv =
-      BlockBasedTableReaderBaseTest::GenerateKVMap(
-          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
-          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
-  std::vector<std::pair<std::string, std::string>> actual_kv(
-      kv.begin(), kv.begin() + 15 * kEntriesPerBlock);
-
-  std::string table_name =
-      "BlockBasedTableReaderMultiScanTest_UnpinPreviousBlocks" +
-      CompressionTypeToString(compression_type_);
-  ImmutableOptions ioptions(options_);
-  CreateTable(table_name, ioptions, compression_type_, actual_kv,
-              compression_parallel_threads_, compression_dict_bytes_);
-
-  std::unique_ptr<BlockBasedTable> table;
-  FileOptions foptions;
-  foptions.use_direct_reads = use_direct_reads_;
-  InternalKeyComparator comparator(options_.comparator);
-  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
-                           true /* bool prefetch_index_and_filter_in_cache */,
-                           nullptr /* status */, persist_udt_);
-
-  ReadOptions read_opts;
-  std::unique_ptr<InternalIterator> iter;
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-
-  MultiScanArgs scan_options(BytewiseComparator());
-  scan_options.SetRequireFileOverlap(false);
-  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[6 * kEntriesPerBlock].first));
-  scan_options.insert(ExtractUserKey(kv[16 * kEntriesPerBlock].first),
-                      ExtractUserKey(kv[17 * kEntriesPerBlock].first));
-
-  iter->Prepare(&scan_options);
-  ASSERT_OK(iter->status());
-
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options.SetRequireFileOverlap(true);
-  iter->Prepare(&scan_options);
-  ASSERT_TRUE(iter->status().IsInvalidArgument());
-}
-
 std::vector<BlockBasedTableReaderTestParam> GenerateCombinedParameters(
     const std::vector<CompressionType>& compression_types,
     const std::vector<bool>& use_direct_read_flags,
