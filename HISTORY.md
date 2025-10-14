@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.7.4 (10/14/2025)
+### Public API Changes
+* The MultiScan API contract is updated. After a multi scan range got prepared with Prepare API call, the following seeks must seek the start of each prepared scan range in order. In addition, when limit is set, upper bound must be set to the same value of limit before each seek
+
 ## 10.7.3 (10/06/2025)
 ### Bug Fixes
 * Fix a few bugs in MultiScan
