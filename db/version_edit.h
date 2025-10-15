@@ -73,6 +73,7 @@ enum Tag : uint32_t {
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
+  kIsTransientColumnFamily,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -669,6 +670,13 @@ class VersionEdit {
     return persist_user_defined_timestamps_;
   }
 
+  void SetIsTransientColumnFamily(bool is_transient) {
+    has_transient_column_family_ = true;
+    transient_column_family_ = is_transient;
+  }
+  bool HasTransientColumnFamily() const { return has_transient_column_family_; }
+  bool GetTransientColumnFamily() const { return transient_column_family_; }
+
   void SetLogNumber(uint64_t num) {
     has_log_number_ = true;
     log_number_ = num;
@@ -1032,6 +1040,8 @@ class VersionEdit {
 
   std::string full_history_ts_low_;
   bool persist_user_defined_timestamps_ = true;
+  bool has_transient_column_family_ = false;
+  bool transient_column_family_ = false;
 
   bool has_subcompaction_progress_ = false;
   SubcompactionProgress subcompaction_progress_;
