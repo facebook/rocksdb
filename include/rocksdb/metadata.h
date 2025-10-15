@@ -224,6 +224,26 @@ struct LevelMetaData {
   const std::vector<SstFileMetaData> files;
 };
 
+// Options for filtering column family metadata by key range.
+struct GetColumnFamilyMetaDataOptions {
+  // The start key of the key range filter.
+  // If empty, no lower bound is applied.
+  Slice start_key;
+
+  // The end key of the key range filter.
+  // If empty, no upper bound is applied.
+  Slice end_key;
+
+  // The level to filter on. If -1, all levels are included.
+  int level = -1;
+
+  GetColumnFamilyMetaDataOptions() = default;
+
+  GetColumnFamilyMetaDataOptions(const Slice& _start_key, const Slice& _end_key,
+                                 int _level = -1)
+      : start_key(_start_key), end_key(_end_key), level(_level) {}
+};
+
 // The metadata that describes a column family.
 struct ColumnFamilyMetaData {
   ColumnFamilyMetaData() : size(0), file_count(0), name("") {}

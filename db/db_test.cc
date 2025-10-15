@@ -1492,6 +1492,68 @@ TEST_F(DBTest, MetaDataTest) {
   CheckLiveFilesMeta(live_file_meta, files_by_level);
 }
 
+TEST_F(DBTest, GetColumnFamilyMetaDataWithKeyRangeAndLevel) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  int64_t temp_time = 0;
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_index = 0;
+  for (int i = 0; i < 100; ++i) {
+    // Add a single blob reference to each file
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
+                          /* offset */ 1234, /* size */ 5678, kNoCompression);
+
+    WriteBatch batch;
+    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, Key(key_index),
+                                               blob_index));
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
+    ++key_index;
+
+    // Fill up the rest of the file with random values.
+    GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+
+    ASSERT_OK(Flush());
+  }
+
+  std::vector<std::vector<FileMetaData>> files_by_level;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
+
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
+
+  ColumnFamilyMetaData cf_meta;
+  // Keys in the SST files are distributed
+  // (key000000, key000100) ->File 1
+  // (key000101, key000201) -> File 2
+  // (key000202, key000302) -> File 3
+  // (key009999, key010099) -> File 100
+
+  // With keySlice (key000050, key000150) => should only pick 2 files(instead of
+  // default 100 that is in the level)
+  auto startKey = Slice("key000050");
+  auto endKey = Slice("key000150");
+  GetColumnFamilyMetaDataOptions cf_options(startKey, endKey, 0);
+  db_->GetColumnFamilyMetaData(cf_options, &cf_meta);
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  const auto& level_meta_from_cf = cf_meta.levels[0];
+  ASSERT_EQ(level_meta_from_cf.files.size(), 2);
+  ASSERT_LT(level_meta_from_cf.files[1].smallestkey,
+            std::string(startKey.data()));
+  ASSERT_GT(level_meta_from_cf.files[0].largestkey, std::string(endKey.data()));
+
+  GetColumnFamilyMetaDataOptions cf_option_default;
+  db_->GetColumnFamilyMetaData(cf_option_default, &cf_meta);
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  ASSERT_EQ(cf_meta.levels[0].files.size(), 100);
+}
+
 TEST_F(DBTest, AllMetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -3534,6 +3596,11 @@ class ModelDB : public DB {
 
   void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                ColumnFamilyMetaData* /*metadata*/) override {}
+
+  void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* /*column_family*/,
+      const GetColumnFamilyMetaDataOptions& /*options*/,
+      ColumnFamilyMetaData* /*metadata*/) override {}
 
   Status GetDbIdentity(std::string& /*identity*/) const override {
     return Status::OK();
