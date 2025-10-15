@@ -2410,15 +2410,16 @@ TEST_F(CompactionJobIOPriorityTest, GetRateLimiterPriority) {
                 Env::IO_LOW, Env::IO_LOW);
 }
 
-class ResumeCompactionJobTest : public CompactionJobTestBase {
+class ResumableCompactionJobTest : public CompactionJobTestBase {
  public:
-  ResumeCompactionJobTest()
+  ResumableCompactionJobTest()
       : CompactionJobTestBase(
-            test::PerThreadDBPath("resume_compaction_job_test"),
+            test::PerThreadDBPath("allow_resumption_job_test"),
             BytewiseComparator(), [](uint64_t /*ts*/) { return ""; },
             /*test_io_priority=*/false, TableTypeForTest::kBlockBasedTable) {}
 
  protected:
+  static constexpr const char* kCancelBeforeThisKey = "cancel_before_this_key";
   std::string progress_dir_ = "";
   bool enable_cancel_ = false;
   std::atomic<int> stop_count_{0};
@@ -2431,8 +2432,15 @@ class ResumeCompactionJobTest : public CompactionJobTestBase {
         [this](void* p) {
           auto* pair = static_cast<std::pair<bool*, const Slice>*>(p);
           *(pair->first) = true;
-          if (enable_cancel_ && stop_count_.fetch_add(1) == 3) {
-            cancel_.store(true);
+
+          // Cancel after outputting a specific key
+          if (enable_cancel_) {
+            ParsedInternalKey parsed_key;
+            if (ParseInternalKey(pair->second, &parsed_key, true).ok()) {
+              if (parsed_key.user_key == kCancelBeforeThisKey) {
+                cancel_.store(true);
+              }
+            }
           }
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -2649,9 +2657,77 @@ class ResumeCompactionJobTest : public CompactionJobTestBase {
                 ordered_intput_keys[i]);
     }
   }
+
+  void RunCancelAndResumeTest(
+      const std::initializer_list<mock::KVPair>& input_file_1,
+      const std::initializer_list<mock::KVPair>& input_file_2,
+      uint64_t last_sequence, const std::vector<uint64_t>& snapshots,
+      const std::string& expected_next_key_to_compact,
+      const std::vector<std::string>& expected_input_keys, bool exists_progress,
+      bool cancelled_past_mid_point = false) {
+    std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+    auto file1 = mock::MakeMockFile(input_file_1);
+    AddMockFile(file1);
+    auto file2 = mock::MakeMockFile(input_file_2);
+    AddMockFile(file2);
+    SetLastSequence(last_sequence);
+
+    // First compaction (will be cancelled)
+    std::string compaction_progress_file =
+        CompactionProgressFileName(progress_dir_, 123);
+    std::unique_ptr<log::Writer> compaction_progress_writer =
+        CreateCompactionProgressWriter(compaction_progress_file);
+
+    ASSERT_OK(stats->Reset());
+    EnableCompactionCancel();
+
+    Status status = RunCompactionWithProgressTracking(
+        CompactionProgress{}, compaction_progress_writer.get(), snapshots,
+        stats);
+
+    ASSERT_TRUE(status.IsManualCompactionPaused());
+    DisableCompactionCancel();
+
+    HistogramData cancelled_compaction_stats;
+    stats->histogramData(FILE_WRITE_COMPACTION_MICROS,
+                         &cancelled_compaction_stats);
+
+    VerifyCompactionProgressPersisted(compaction_progress_file,
+                                      expected_next_key_to_compact,
+                                      expected_input_keys);
+
+    // Resume compaction
+    CompactionProgress compaction_progress;
+    if (exists_progress) {
+      compaction_progress.push_back(
+          ReadAndParseProgress(compaction_progress_file));
+    }
+
+    std::string compaction_progress_file_2 =
+        CompactionProgressFileName(progress_dir_, 234);
+    std::unique_ptr<log::Writer> compaction_progress_writer_2 =
+        CreateCompactionProgressWriter(compaction_progress_file_2);
+
+    ASSERT_OK(stats->Reset());
+
+    status = RunCompactionWithProgressTracking(
+        compaction_progress, compaction_progress_writer_2.get(),
+        {} /* snapshots */, stats);
+
+    ASSERT_OK(status);
+
+    if (cancelled_past_mid_point) {
+      HistogramData resumed_compaction_stats;
+      stats->histogramData(FILE_WRITE_COMPACTION_MICROS,
+                           &resumed_compaction_stats);
+      ASSERT_GT(cancelled_compaction_stats.count,
+                resumed_compaction_stats.count);
+    }
+  }
 };
 
-TEST_F(ResumeCompactionJobTest, BasicProgressPersistence) {
+TEST_F(ResumableCompactionJobTest, BasicProgressPersistence) {
   NewDB();
 
   auto file1 = mock::MakeMockFile({
@@ -2684,103 +2760,97 @@ TEST_F(ResumeCompactionJobTest, BasicProgressPersistence) {
       {"a", "b", "c", "d"} /* ordered_intput_keys */);
 }
 
-TEST_F(ResumeCompactionJobTest, CondtionallySkipProgressPersistence) {
-  for (auto type : {kTypeValue, kTypeRangeDeletion}) {
-    NewDB();
-
-    auto file1 = mock::MakeMockFile({
-        {KeyStr("a", 1U, kTypeValue), "val1"},
-    });
-    AddMockFile(file1);
-
-    auto file2 =
-        (type == kTypeValue ? mock::MakeMockFile({
-                                  {KeyStr("a", 2U, kTypeValue), "val2"},
-                              }) /* same user keys spanning the file boundary */
-                            : mock::MakeMockFile({
-                                  {KeyStr("b", 2U, kTypeRangeDeletion), "val2"},
-                              })); /* deletion range in the file boundary */
-    AddMockFile(file2);
-    SetLastSequence(2U);
-
-    std::string compaction_progress_file =
-        CompactionProgressFileName(progress_dir_, 123);
-    std::unique_ptr<log::Writer> compaction_progress_writer =
-        CreateCompactionProgressWriter(compaction_progress_file);
-
-    Status status = RunCompactionWithProgressTracking(
-        CompactionProgress{}, compaction_progress_writer.get(),
-        {1U} /* snapshots */);
-
-    ASSERT_OK(status);
-
-    VerifyCompactionProgressPersisted(compaction_progress_file,
-                                      "" /* next_user_key_to_compact */,
-                                      {"a", "b"} /* ordered_intput_keys */);
-  }
-}
-
-TEST_F(ResumeCompactionJobTest, BasicProgressResume) {
-  std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
+TEST_F(ResumableCompactionJobTest, BasicProgressResume) {
   NewDB();
 
-  auto file1 = mock::MakeMockFile({
-      {KeyStr("a", 1U, kTypeValue), "val1"},
-      {KeyStr("b", 2U, kTypeValue), "val2"},
-  });
-  AddMockFile(file1);
+  RunCancelAndResumeTest(
+      {{KeyStr("a", 1U, kTypeValue), "val1"},
+       {KeyStr("b", 2U, kTypeValue), "val2"}} /* input_file_1 */,
+      {{KeyStr("bb", 3U, kTypeValue), "val3"},
+       {KeyStr(kCancelBeforeThisKey, 4U, kTypeValue),
+        "val4"}} /* input_file_2 */,
+      4U /* last_sequence */, {} /* snapshots */,
+      kCancelBeforeThisKey /* expected_next_key_to_compact */,
+      {"a", "b", "bb", kCancelBeforeThisKey} /* expected_input_keys */,
+      true /* exists_progress */, true /* cancelled_past_mid_point*/);
+}
 
-  auto file2 = mock::MakeMockFile({
-      {KeyStr("c", 3U, kTypeValue), "val3"},
-      {KeyStr("d", 4U, kTypeValue), "val4"},
-  });
-  AddMockFile(file2);
-  SetLastSequence(4U);
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSameKey) {
+  NewDB();
 
-  std::string compaction_progress_file =
-      CompactionProgressFileName(progress_dir_, 123);
-  std::unique_ptr<log::Writer> compaction_progress_writer =
-      CreateCompactionProgressWriter(compaction_progress_file);
+  RunCancelAndResumeTest(
+      {{KeyStr(kCancelBeforeThisKey, 1U, kTypeValue),
+        "val1"}} /* input_file_1 */,
+      {{KeyStr(kCancelBeforeThisKey, 2U, kTypeValue),
+        "val2"}} /* input_file_2 */,
+      2U /* last_sequence */, {1U} /* snapshots */,
+      "" /* expected_next_key_to_compact */,
+      {kCancelBeforeThisKey, kCancelBeforeThisKey} /* expected_input_keys */,
+      false /* exists_progress */);
+}
 
-  ASSERT_OK(stats->Reset());
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeleteRange) {
+  NewDB();
 
-  EnableCompactionCancel();
+  RunCancelAndResumeTest(
+      {{KeyStr(kCancelBeforeThisKey, 1U, kTypeValue),
+        "val1"}} /* input_file_1 */,
+      {{KeyStr(kCancelBeforeThisKey, 2U, kTypeRangeDeletion),
+        "val2"}} /* input_file_2 */,
+      2U /* last_sequence */, {1U} /* snapshots */,
+      "" /* expected_next_key_to_compact */,
+      {kCancelBeforeThisKey, kCancelBeforeThisKey} /* expected_input_keys */,
+      false /* exists_progress */);
+}
 
-  Status status = RunCompactionWithProgressTracking(
-      CompactionProgress{}, compaction_progress_writer.get(), {} /* snapshots*/,
-      stats);
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnMerge) {
+  merge_op_ = MergeOperators::CreateStringAppendOperator();
+  NewDB();
 
-  ASSERT_TRUE(status.IsManualCompactionPaused());
+  RunCancelAndResumeTest(
+      {{KeyStr("a", 1U, kTypeValue), "val1"},
+       {KeyStr("b", 2U, kTypeValue), "val2"}} /* input_file_1 */,
+      {{KeyStr("bb", 3U, kTypeValue), "val3"},
+       {KeyStr(kCancelBeforeThisKey, 4U, kTypeMerge),
+        "val4"}} /* input_file_2 */,
+      4U /* last_sequence */, {} /* snapshots */,
+      "bb" /* expected_next_key_to_compact */,
+      {"a", "b", "bb", kCancelBeforeThisKey} /* expected_input_keys */,
+      true /* exists_progress */);
+}
 
-  DisableCompactionCancel();
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSingleDelete) {
+  NewDB();
 
-  HistogramData cancelled_compaction_stats;
-  stats->histogramData(FILE_WRITE_COMPACTION_MICROS,
-                       &cancelled_compaction_stats);
+  RunCancelAndResumeTest(
+      {{KeyStr("a", 1U, kTypeValue), "val1"},
+       {KeyStr("b", 2U, kTypeValue), "val2"},
+       {KeyStr(kCancelBeforeThisKey, 3U, kTypeValue),
+        "val3"}} /* input_file_1 */,
+      {{KeyStr(kCancelBeforeThisKey, 4U, kTypeSingleDeletion), ""},
+       {KeyStr("d", 5U, kTypeValue), "val4"}} /* input_file_2 */,
+      5U /* last_sequence */, {3U} /* snapshots */,
+      "b" /* expected_next_key_to_compact */,
+      {"a", "b", kCancelBeforeThisKey, kCancelBeforeThisKey,
+       "d"} /* expected_input_keys */,
+      true /* exists_progress */);
+}
 
-  VerifyCompactionProgressPersisted(
-      compaction_progress_file, "d" /* next_user_key_to_compact */,
-      {"a", "b", "c", "d"} /* ordered_intput_keys */);
+TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeletionAtBottom) {
+  NewDB();
 
-  CompactionProgress compaction_progress;
-  compaction_progress.push_back(ReadAndParseProgress(compaction_progress_file));
-
-  std::string compaction_progress_file_2 =
-      CompactionProgressFileName(progress_dir_, 234);
-  std::unique_ptr<log::Writer> compaction_progress_writer_2 =
-      CreateCompactionProgressWriter(compaction_progress_file_2);
-
-  ASSERT_OK(stats->Reset());
-
-  status = RunCompactionWithProgressTracking(compaction_progress,
-                                             compaction_progress_writer_2.get(),
-                                             {} /* snapshots */, stats);
-
-  HistogramData resumed_compaction_stats;
-  stats->histogramData(FILE_WRITE_COMPACTION_MICROS, &resumed_compaction_stats);
-
-  ASSERT_OK(status);
-  ASSERT_LT(resumed_compaction_stats.count, cancelled_compaction_stats.count);
+  RunCancelAndResumeTest(
+      {{KeyStr("a", 1U, kTypeValue), "val1"},
+       {KeyStr("b", 2U, kTypeValue), "val2"},
+       {KeyStr(kCancelBeforeThisKey, 3U, kTypeValue),
+        "val3"}} /* input_file_1 */,
+      {{KeyStr(kCancelBeforeThisKey, 4U, kTypeDeletion), ""},
+       {KeyStr("d", 5U, kTypeValue), "val4"}} /* input_file_2 */,
+      5U /* last_sequence */, {3U} /* snapshots */,
+      "b" /* expected_next_key_to_compact */,
+      {"a", "b", kCancelBeforeThisKey, kCancelBeforeThisKey,
+       "d"} /* expected_input_keys */,
+      true /* exists_progress */);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
