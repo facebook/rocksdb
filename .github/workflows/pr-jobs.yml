@@ -328,7 +328,7 @@ jobs:
   # ========================= MacOS build only ======================== #
   build-macos:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
     steps:
@@ -345,7 +345,7 @@ jobs:
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     strategy:
       matrix:
         run_sharded_tests: [0, 1, 2, 3, 4, 5]
