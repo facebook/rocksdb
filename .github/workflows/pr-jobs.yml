@@ -348,7 +348,7 @@ jobs:
     runs-on: macos-13
     strategy:
       matrix:
-        run_even_tests: [true, false]
+        run_sharded_tests: [0, 1, 2, 3, 4, 5]
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: maxim-lobanov/setup-xcode@v1.6.0
@@ -361,12 +361,24 @@ jobs:
       run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
     - name: Build tests
       run: cd build && make V=1 -j16
-    - name: Run even tests
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,2
+    - name: Run shard 0 out of 6 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,6
       if: ${{ matrix.run_even_tests }}
-    - name: Run odd tests
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,2
-      if: ${{ ! matrix.run_even_tests  }}
+    - name: Run shard 1 out of 6 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,6
+      if: ${{ matrix.run_even_tests }}
+    - name: Run shard 2 out of 6 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 2,,6
+      if: ${{ matrix.run_even_tests }}
+    - name: Run shard 3 out of 6 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 3,,6
+      if: ${{ matrix.run_even_tests }}
+    - name: Run shard 4 out of 6 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 4,,6
+      if: ${{ matrix.run_even_tests }}
+    - name: Run shard 5 out of 6 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 5,,6
+      if: ${{ matrix.run_even_tests }}
     - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
