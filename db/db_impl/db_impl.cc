@@ -3642,6 +3642,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     edit.SetComparatorName(cf_options.comparator->Name());
     edit.SetPersistUserDefinedTimestamps(
         cf_options.persist_user_defined_timestamps);
+    edit.SetIsTransientColumnFamily(cf_options.is_transient);
 
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object

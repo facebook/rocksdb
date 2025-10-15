@@ -261,7 +261,19 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         cf_name.compare(kPersistentStatsColumnFamilyName) == 0;
     if (cf_options == name_to_options_.end() &&
         !is_persistent_stats_column_family) {
-      do_not_open_column_families_.emplace(edit.GetColumnFamily(), cf_name);
+      if (edit.GetTransientColumnFamily()) {
+        ROCKS_LOG_INFO(
+            version_set_->db_options()->info_log,
+            "Transient column family being skipped in VersionEditHandler: %s "
+            "(is_transient=%d)",
+            cf_name.c_str(), edit.GetTransientColumnFamily());
+      } else {
+        ROCKS_LOG_INFO(version_set_->db_options()->info_log,
+                       "column family being marked as do not open in "
+                       "VersionEditHandler: %s (is_transient=%d)",
+                       cf_name.c_str(), edit.GetTransientColumnFamily());
+        do_not_open_column_families_.emplace(edit.GetColumnFamily(), cf_name);
+      }
     } else {
       if (is_persistent_stats_column_family) {
         ColumnFamilyOptions cfo;
@@ -390,6 +402,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     msg.append(" entry in MANIFEST");
     *s = Status::Corruption(msg);
   }
+
   // There were some column families in the MANIFEST that weren't specified
   // in the argument. This is OK in read_only mode
   if (s->ok() && MustOpenAllColumnFamilies() &&
