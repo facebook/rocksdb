@@ -258,12 +258,13 @@ void RemoteCompactionWorkerThread(void* v) {
           .compaction_filter = options.compaction_filter,
           .compaction_filter_factory = options.compaction_filter_factory,
           .prefix_extractor = options.prefix_extractor,
-          .table_factory = options.table_factory,
           .sst_partitioner_factory = options.sst_partitioner_factory,
           .listeners = {},
           .statistics = options.statistics,
           .table_properties_collector_factories =
               options.table_properties_collector_factories};
+      override_options.table_factory.reset(
+          NewBlockBasedTableFactory(BlockBasedTableOptions()));
       std::string tmp_output_dir = job_info.db_name + "/" + "tmp_output_" +
                                    db_stress_env->GenerateUniqueId();
       std::string serialized_output;
