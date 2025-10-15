@@ -357,9 +357,6 @@ jobs:
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
-    - name: test if statement
-      run: echo "hello"
-      if: ${{ matrix.run_sharded_tests == 0 }}
     - name: cmake generate project file
       run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
     - name: Build tests
