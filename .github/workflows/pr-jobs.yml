@@ -357,28 +357,31 @@ jobs:
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
+    - name: test if statement
+      run: echo "hello"
+      if: ${{ matrix.run_sharded_tests == 0 }}
     - name: cmake generate project file
       run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
     - name: Build tests
       run: cd build && make V=1 -j16
     - name: Run shard 0 out of 6 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,6
-      if: ${{ matrix.run_even_tests }}
+      if: ${{ matrix.run_sharded_tests == 0 }}
     - name: Run shard 1 out of 6 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,6
-      if: ${{ matrix.run_even_tests }}
+      if: ${{ matrix.run_sharded_tests == 1 }}
     - name: Run shard 2 out of 6 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 2,,6
-      if: ${{ matrix.run_even_tests }}
+      if: ${{ matrix.run_sharded_tests == 2 }}
     - name: Run shard 3 out of 6 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 3,,6
-      if: ${{ matrix.run_even_tests }}
+      if: ${{ matrix.run_sharded_tests == 3 }}
     - name: Run shard 4 out of 6 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 4,,6
-      if: ${{ matrix.run_even_tests }}
+      if: ${{ matrix.run_sharded_tests == 4 }}
     - name: Run shard 5 out of 6 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 5,,6
-      if: ${{ matrix.run_even_tests }}
+      if: ${{ matrix.run_sharded_tests == 5 }}
     - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
