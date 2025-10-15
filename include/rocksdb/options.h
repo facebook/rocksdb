@@ -410,6 +410,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Create ColumnFamilyOptions from Options
   explicit ColumnFamilyOptions(const Options& options);
 
+  bool is_transient = false;
+
   void Dump(Logger* log) const;
 };
 
