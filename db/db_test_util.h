@@ -1149,6 +1149,8 @@ class DBTestBase : public testing::Test {
 
   Options GetDefaultOptions() const;
 
+  Options GetTransientCFOptions() const;
+
   Options GetOptions(int option_config) const {
     return GetOptions(option_config, GetDefaultOptions());
   }

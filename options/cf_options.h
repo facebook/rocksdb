@@ -83,6 +83,8 @@ struct ImmutableCFOptions {
 
   bool persist_user_defined_timestamps;
 
+  bool is_transient;
+
   bool cf_allow_ingest_behind;
 };
 
@@ -184,7 +186,8 @@ struct MutableCFOptions {
         uncache_aggressiveness(options.uncache_aggressiveness),
         memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
         memtable_avg_op_scan_flush_trigger(
-            options.memtable_avg_op_scan_flush_trigger) {
+            options.memtable_avg_op_scan_flush_trigger),
+        is_transient(options.is_transient) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -244,7 +247,8 @@ struct MutableCFOptions {
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
         memtable_op_scan_flush_trigger(0),
-        memtable_avg_op_scan_flush_trigger(0) {}
+        memtable_avg_op_scan_flush_trigger(0),
+        is_transient(false) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -285,16 +289,16 @@ struct MutableCFOptions {
   // Used to activate or deactive the Mempurge feature (memtable garbage
   // collection). (deactivated by default). At every flush, the total useful
   // payload (total entries minus garbage entries) is estimated as a ratio
-  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
-  // compared to this `threshold` value:
+  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is
+  // then compared to this `threshold` value:
   //     - if ratio<threshold: the flush is replaced by a mempurge operation
   //     - else: a regular flush operation takes place.
   // Threshold values:
   //   0.0: mempurge deactivated (default).
   //   1.0: recommended threshold value.
   //   >1.0 : aggressive mempurge.
-  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
-  //   ratios.
+  //   0 < threshold < 1.0: mempurge triggered only for very low useful
+  //   payload ratios.
   // [experimental]
   double experimental_mempurge_threshold;
 
@@ -356,6 +360,8 @@ struct MutableCFOptions {
   uint32_t uncache_aggressiveness;
   uint32_t memtable_op_scan_flush_trigger;
   uint32_t memtable_avg_op_scan_flush_trigger;
+
+  bool is_transient;
 
   // Derived options
   // Per-level target file size.

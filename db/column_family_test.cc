@@ -799,6 +799,54 @@ TEST_P(ColumnFamilyTest, DropTest) {
   }
 }
 
+TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
+  Open();
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions cf_transient_opts;
+  cf_transient_opts.is_transient = true;
+  // create column family options for transient column families
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, cf_transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);
+
+  ASSERT_OK(Put(0, "foo", "v1"));
+  ASSERT_OK(Put(1, "mirko", "v3"));
+  ASSERT_OK(Put(3, "temp", "temp"));
+  ASSERT_OK(Put(4, "mew", "two"));
+
+  // Verify we have all 5 CFs initially (default, one, two, threeTemp, four)
+  ASSERT_EQ(handles_.size(), 5);
+
+  // Close the database
+  Close();
+
+  // Now test the new behavior: even when explicitly requesting transient CFs,
+  // they should be filtered out and not returned
+  ASSERT_NOK(
+      TryOpen({"default", "one", "two", "threeTemp"},
+              {column_family_options_, cf_opts, cf_opts, cf_transient_opts}));
+
+  ASSERT_OK(TryOpen({"default", "one", "two", "four"},
+                    {column_family_options_, cf_opts, cf_opts, cf_opts}));
+
+  ASSERT_EQ(Get(0, "foo"), "v1");
+  ASSERT_EQ(Get(1, "mirko"), "v3");
+  ASSERT_EQ(Get(3, "mew"), "two");
+
+  // // The transient CF should have been filtered out even though explicitly
+  // // requested
+  ASSERT_EQ(handles_.size(),
+            4);  // only default, one, two (threeTemp filtered out)
+
+  // // Test that regular reopen also works correctly
+  Close();
+  Open({"default", "one", "two", "four"},
+       {column_family_options_, cf_opts, cf_opts, cf_opts});
+  ASSERT_EQ(Get(0, "foo"), "v1");
+  ASSERT_EQ(Get(1, "mirko"), "v3");
+  ASSERT_EQ(Get(3, "mew"), "two");
+}
+
 TEST_P(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
