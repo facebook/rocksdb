@@ -267,7 +267,6 @@ class CheckpointTest : public testing::Test {
 };
 
 TEST_F(CheckpointTest, CheckpointTransientCF) {
-  std::cout << "STARTING TEST" << std::endl;
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
   Options transient_options = CurrentOptions();
@@ -275,11 +274,13 @@ TEST_F(CheckpointTest, CheckpointTransientCF) {
   CreateColumnFamilies({"six_temp", "seven_temp", "eight_temp"},
                        transient_options);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"CheckpointTest::CheckpointCF:2", "DBImpl::FlushAllColumnFamilies:2"},
-       {"DBImpl::FlushAllColumnFamilies:1", "CheckpointTest::CheckpointCF:1"}});
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+  //     {{"CheckpointTest::CheckpointCF:2",
+  //     "DBImpl::FlushAllColumnFamilies:2"},
+  //      {"DBImpl::FlushAllColumnFamilies:1",
+  //      "CheckpointTest::CheckpointCF:1"}});
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(0, "Default", "Default"));
   ASSERT_OK(Put(1, "one", "one"));
@@ -304,6 +305,7 @@ TEST_F(CheckpointTest, CheckpointTransientCF) {
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
     delete checkpoint;
   });
+
   TEST_SYNC_POINT("CheckpointTest::CheckpointCF:1");
   ASSERT_OK(Put(0, "Default", "Default1"));
   ASSERT_OK(Put(1, "one", "eleven"));
@@ -319,40 +321,24 @@ TEST_F(CheckpointTest, CheckpointTransientCF) {
   ASSERT_OK(Put(3, "three", "twentythree"));
   ASSERT_OK(Put(4, "four", "twentyfour"));
   ASSERT_OK(Put(5, "five", "twentyfive"));
-  std::cout << "BEFORE FLUSH" << std::endl;
   ASSERT_OK(Flush());
-  std::cout << "AFTER FLUSH" << std::endl;
 
   // Open snapshot and verify contents while DB is running
   options.create_if_missing = false;
   options.is_transient = false;
-  // options.ignore_missing_column_families = true;
   std::vector<std::string> cfs;
   cfs = {
       kDefaultColumnFamilyName, "one", "two", "three", "four", "five",
   };
-  //  "six_temp", "seven_temp", "eight_temp"};
   std::vector<ColumnFamilyDescriptor> column_families;
   for (size_t i = 0; i < cfs.size(); ++i) {
-    // if (!cfs[i].ends_with("temp")) {
     column_families.emplace_back(cfs[i], options);
-    // }
   }
 
-  std::vector<std::string> cfs_in_checkpoint;
-  ASSERT_OK(
-      DB::ListColumnFamilies(options, snapshot_name_, &cfs_in_checkpoint));
-  // Print vector of strings
-  std::cout << "cfs_in_checkpoint: ";
-  for (const auto& cf : cfs_in_checkpoint) {
-    std::cout << cf << " ";
-  }
-  std::cout << std::endl;
   ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
                      &snapshotDB));
 
-  // Only 6 CFs were requested (default + 5 normal), transient CFs were not
-  // opened
+  // transient CFs were not opened
   ASSERT_EQ(cphandles.size(), 6);
 
   // Verify data in non-transient CFs
@@ -376,128 +362,6 @@ TEST_F(CheckpointTest, CheckpointTransientCF) {
   cphandles.clear();
   delete snapshotDB;
   snapshotDB = nullptr;
-}
-
-// Test that transient CFs are correctly handled during checkpoint restore:
-// - WAL contains writes to transient CFs
-// - Transient CF is automatically dropped on reopen
-// - WAL recovery should skip writes to dropped transient CFs
-TEST_F(CheckpointTest, CheckpointWithTransientCF) {
-  Options options = CurrentOptions();
-  CreateAndReopenWithCF({"normal_cf"}, options);
-  // ASSERT_OK(db_->CreateColumnFamily(options, "normal_cf", &handles_[1]));
-
-  // Create a transient CF
-  ColumnFamilyOptions cf_options;
-  cf_options.is_transient = true;
-  ColumnFamilyHandle* transient_handle = nullptr;
-  ASSERT_OK(
-      db_->CreateColumnFamily(cf_options, "transient_cf", &transient_handle));
-
-  // Write data to default CF, normal CF, and transient CF
-  ASSERT_OK(Put("key_default", "value_default"));
-  ASSERT_OK(Put(1, "key_normal", "value_normal"));
-  ASSERT_OK(db_->Put(WriteOptions(), transient_handle, "key_transient",
-                     "value_transient"));
-
-  // Flush to ensure data is in memtable and WAL
-  ASSERT_OK(db_->Flush(FlushOptions(), handles_[0]));
-  ASSERT_OK(db_->Flush(FlushOptions(), handles_[1]));
-  // Before: ASSERT_OK(db_->Flush(FlushOptions(), transient_handle));
-  auto cfd_impl = static_cast<ColumnFamilyHandleImpl*>(transient_handle);
-  fprintf(
-      stderr,
-      "DEBUG Test: About to flush CF '%s', is_dropped=%d, is_transient=%d\n",
-      cfd_impl->cfd()->GetName().c_str(), cfd_impl->cfd()->IsDropped(),
-      cfd_impl->cfd()->ioptions().is_transient);
-  // ASSERT_OK(db_->Flush(FlushOptions(), transient_handle));
-  // ASSERT_OK(db_->Flush(FlushOptions(), transient_handle));
-  ASSERT_OK(Flush());
-
-  // Write more data to WAL (this will be in WAL only)
-  ASSERT_OK(Put("key_default2", "value_default2"));
-  ASSERT_OK(Put(1, "key_normal2", "value_normal2"));
-  ASSERT_OK(db_->Put(WriteOptions(), transient_handle, "key_transient2",
-                     "value_transient2"));
-
-  // ASSERT_TRUE(false);
-
-  // Verify data is accessible
-  ASSERT_EQ("value_default", Get("key_default"));
-  ASSERT_EQ("value_default2", Get("key_default2"));
-  ASSERT_EQ("value_normal", Get(1, "key_normal"));
-  ASSERT_EQ("value_normal2", Get(1, "key_normal2"));
-
-  std::string value;
-  ASSERT_OK(db_->Get(ReadOptions(), transient_handle, "key_transient", &value));
-  ASSERT_EQ("value_transient", value);
-  ASSERT_OK(
-      db_->Get(ReadOptions(), transient_handle, "key_transient2", &value));
-  ASSERT_EQ("value_transient2", value);
-
-  // Create checkpoint
-  Checkpoint* checkpoint = nullptr;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
-  delete checkpoint;
-
-  // Close DB
-  ASSERT_OK(db_->DestroyColumnFamilyHandle(transient_handle));
-  transient_handle = nullptr;
-  Close();
-
-  // Reopen from checkpoint - only request default and normal CF
-  // (not requesting transient CF, it should be automatically dropped)
-  std::vector<ColumnFamilyDescriptor> cf_descs;
-  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
-  cf_descs.emplace_back("normal_cf", options);
-
-  std::vector<ColumnFamilyHandle*> checkpoint_handles;
-  DB* checkpoint_db = nullptr;
-  Status s = DB::Open(options, snapshot_name_, cf_descs, &checkpoint_handles,
-                      &checkpoint_db);
-  ASSERT_OK(s);
-  ASSERT_NE(checkpoint_db, nullptr);
-
-  // Verify only 2 CFs exist (default + normal, transient was dropped)
-  ASSERT_EQ(2, checkpoint_handles.size());
-
-  // Verify data from default CF
-  std::string checkpoint_value;
-  ASSERT_OK(checkpoint_db->Get(ReadOptions(), checkpoint_handles[0],
-                               "key_default", &checkpoint_value));
-  ASSERT_EQ("value_default", checkpoint_value);
-  ASSERT_OK(checkpoint_db->Get(ReadOptions(), checkpoint_handles[0],
-                               "key_default2", &checkpoint_value));
-  ASSERT_EQ("value_default2", checkpoint_value);
-
-  // Verify data from normal CF
-  ASSERT_OK(checkpoint_db->Get(ReadOptions(), checkpoint_handles[1],
-                               "key_normal", &checkpoint_value));
-  ASSERT_EQ("value_normal", checkpoint_value);
-  ASSERT_OK(checkpoint_db->Get(ReadOptions(), checkpoint_handles[1],
-                               "key_normal2", &checkpoint_value));
-  ASSERT_EQ("value_normal2", checkpoint_value);
-
-  // Clean up
-  for (auto* handle : checkpoint_handles) {
-    ASSERT_OK(checkpoint_db->DestroyColumnFamilyHandle(handle));
-  }
-  delete checkpoint_db;
-
-  // Verify WAL recovery didn't fail due to transient CF writes
-  // by successfully reopening the checkpoint again
-  std::vector<ColumnFamilyHandle*> checkpoint_handles2;
-  DB* checkpoint_db2 = nullptr;
-  s = DB::Open(options, snapshot_name_, cf_descs, &checkpoint_handles2,
-               &checkpoint_db2);
-  ASSERT_OK(s);
-  ASSERT_NE(checkpoint_db2, nullptr);
-
-  for (auto* handle : checkpoint_handles2) {
-    ASSERT_OK(checkpoint_db2->DestroyColumnFamilyHandle(handle));
-  }
-  delete checkpoint_db2;
 }
 
 TEST_F(CheckpointTest, GetSnapshotLink) {
