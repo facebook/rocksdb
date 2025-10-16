@@ -236,8 +236,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
   // families. In non read only mode, if those column families are not dropped
   // by subsequent manifest records, Recover() will return failure status.
   std::unordered_map<uint32_t, std::string> do_not_open_column_families_;
-  // Keeps track of transient column families that were intentionally not opened.
-  // These should not cause errors during the final check in CheckIterationResult.
+  // Keeps track of transient column families that were intentionally not
+  // opened. These should not cause errors during the final check in
+  // CheckIterationResult.
   std::unordered_set<uint32_t> transient_column_families_;
   VersionEditParams version_edit_params_;
   bool no_error_if_files_missing_;
