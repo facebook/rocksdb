@@ -328,45 +328,51 @@ jobs:
   # ========================= MacOS build only ======================== #
   build-macos:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
-        xcode-version: 14.3.1
+        xcode-version: 16.4.0
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: Build
-      run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j16 all
+      run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j8 all
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     strategy:
       matrix:
-        run_even_tests: [true, false]
+        run_sharded_tests: [0, 1, 2, 3]
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
-        xcode-version: 14.3.1
+        xcode-version: 16.4.0
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: cmake generate project file
       run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
     - name: Build tests
-      run: cd build && make V=1 -j16
-    - name: Run even tests
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,2
-      if: ${{ matrix.run_even_tests }}
-    - name: Run odd tests
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,2
-      if: ${{ ! matrix.run_even_tests  }}
+      run: cd build && make V=1 -j8
+    - name: Run shard 0 out of 4 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 0,,4
+      if: ${{ matrix.run_sharded_tests == 0 }}
+    - name: Run shard 1 out of 4 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 1,,4
+      if: ${{ matrix.run_sharded_tests == 1 }}
+    - name: Run shard 2 out of 4 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 2,,4
+      if: ${{ matrix.run_sharded_tests == 2 }}
+    - name: Run shard 3 out of 4 test shards
+      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 3,,4
+      if: ${{ matrix.run_sharded_tests == 3 }}
     - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
