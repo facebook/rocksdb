@@ -9139,9 +9139,7 @@ class UserDefinedIndexStressTest
   void CreateSstFileWithRanges(const std::string& ingest_file,
                                const std::vector<DataRange>& ranges,
                                bool& data_added) {
-    std::unique_ptr<SstFileWriter> writer =
-        std::make_unique<SstFileWriter>(EnvOptions(), options_);
-    ASSERT_OK(writer->Open(ingest_file));
+    std::unique_ptr<SstFileWriter> writer;
 
     data_added = false;
 
@@ -9151,6 +9149,13 @@ class UserDefinedIndexStressTest
       assert(range.start != range.end);
       if (range.skipped) {
         continue;
+      }
+
+      if (writer == nullptr) {
+        // lazy create writer until there is data to be written to avoid
+        // unchecked status error
+        writer = std::make_unique<SstFileWriter>(EnvOptions(), options_);
+        ASSERT_OK(writer->Open(ingest_file));
       }
 
       ranges_in_file.push_back(range);
