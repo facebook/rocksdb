@@ -814,4 +814,25 @@ class UnsafeRemoveSstFileCommand : public LDBCommand {
   uint64_t sst_file_number_;
 };
 
+class CompactionProgressDumpCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "compaction_progress_dump"; }
+
+  CompactionProgressDumpCommand(
+      const std::vector<std::string>& params,
+      const std::map<std::string, std::string>& options,
+      const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+
+  void DoCommand() override;
+
+  bool NoDBOpen() override { return true; }
+
+ private:
+  std::string path_;
+
+  static const std::string ARG_PATH;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
