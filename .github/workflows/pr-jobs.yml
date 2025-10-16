@@ -462,7 +462,7 @@ jobs:
     # post-steps skipped because of compatibility issues with docker image
   build-macos-java:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
       ROCKSDB_DISABLE_JEMALLOC: 1
@@ -485,7 +485,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
     steps:
@@ -507,7 +507,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: macos-13
+    runs-on: macos-15-xlarge
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
     steps:
