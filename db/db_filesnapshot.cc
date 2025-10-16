@@ -53,7 +53,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   std::vector<uint64_t> live_table_files;
   std::vector<uint64_t> live_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->IsDropped()) {
+    if (cfd->IsDropped() || cfd->ioptions().is_transient) {
       continue;
     }
     cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
@@ -260,7 +260,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
 
   // Make a set of all of the live table and blob files
   for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->IsDropped()) {
+    if (cfd->IsDropped() || cfd->ioptions().is_transient) {
       continue;
     }
     VersionStorageInfo& vsi = *cfd->current()->storage_info();

@@ -261,18 +261,17 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         cf_name.compare(kPersistentStatsColumnFamilyName) == 0;
     if (cf_options == name_to_options_.end() &&
         !is_persistent_stats_column_family) {
+      // CF was not requested to be opened. Add it to
+      // do_not_open_column_families_ so that operations on it will be skipped
+      // during MANIFEST replay. This includes transient CFs and any CFs not
+      // specified by the user.
+      ROCKS_LOG_INFO(version_set_->db_options()->info_log,
+                     "Column family being marked as do not open in "
+                     "VersionEditHandler: %s (is_transient=%d)",
+                     cf_name.c_str(), edit.GetTransientColumnFamily());
+      do_not_open_column_families_.emplace(edit.GetColumnFamily(), cf_name);
       if (edit.GetTransientColumnFamily()) {
-        ROCKS_LOG_INFO(
-            version_set_->db_options()->info_log,
-            "Transient column family being skipped in VersionEditHandler: %s "
-            "(is_transient=%d)",
-            cf_name.c_str(), edit.GetTransientColumnFamily());
-      } else {
-        ROCKS_LOG_INFO(version_set_->db_options()->info_log,
-                       "column family being marked as do not open in "
-                       "VersionEditHandler: %s (is_transient=%d)",
-                       cf_name.c_str(), edit.GetTransientColumnFamily());
-        do_not_open_column_families_.emplace(edit.GetColumnFamily(), cf_name);
+        transient_column_families_.insert(edit.GetColumnFamily());
       }
     } else {
       if (is_persistent_stats_column_family) {
@@ -324,6 +323,7 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
   bool do_not_open_cf = false;
   bool cf_in_builders = false;
+
   CheckColumnFamilyId(edit, &do_not_open_cf, &cf_in_builders);
 
   assert(cfd != nullptr);
@@ -354,6 +354,10 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             /*force_create_version=*/false);
     }
     *cfd = tmp_cfd;
+  } else {
+    // CF is in do_not_open_column_families_, which means it was encountered
+    // in the MANIFEST but not requested to be opened. This is OK - we just
+    // skip processing this edit. Transient CFs fall into this category.
   }
   return s;
 }
@@ -404,16 +408,24 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   }
 
   // There were some column families in the MANIFEST that weren't specified
-  // in the argument. This is OK in read_only mode
+  // in the argument. This is OK in read_only mode. Transient CFs are also
+  // intentionally not opened and should not cause errors.
   if (s->ok() && MustOpenAllColumnFamilies() &&
       !do_not_open_column_families_.empty()) {
     std::string msg;
     for (const auto& cf : do_not_open_column_families_) {
+      // Skip transient CFs - they are intentionally not opened
+      if (transient_column_families_.find(cf.first) !=
+          transient_column_families_.end()) {
+        continue;
+      }
       msg.append(", ");
       msg.append(cf.second);
     }
-    msg = msg.substr(2);
-    *s = Status::InvalidArgument("Column families not opened: " + msg);
+    if (!msg.empty()) {
+      msg = msg.substr(2);
+      *s = Status::InvalidArgument("Column families not opened: " + msg);
+    }
   }
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
