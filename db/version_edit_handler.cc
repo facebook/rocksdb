@@ -261,10 +261,8 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         cf_name.compare(kPersistentStatsColumnFamilyName) == 0;
     if (cf_options == name_to_options_.end() &&
         !is_persistent_stats_column_family) {
-      // CF was not requested to be opened. Add it to
-      // do_not_open_column_families_ so that operations on it will be skipped
-      // during MANIFEST replay. This includes transient CFs and any CFs not
-      // specified by the user.
+      // distinguish between transient cfs (should not open) & cfs not passed in
+      // by user (error)
       ROCKS_LOG_INFO(version_set_->db_options()->info_log,
                      "Column family being marked as do not open in "
                      "VersionEditHandler: %s (is_transient=%d)",
@@ -354,10 +352,6 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             /*force_create_version=*/false);
     }
     *cfd = tmp_cfd;
-  } else {
-    // CF is in do_not_open_column_families_, which means it was encountered
-    // in the MANIFEST but not requested to be opened. This is OK - we just
-    // skip processing this edit. Transient CFs fall into this category.
   }
   return s;
 }
