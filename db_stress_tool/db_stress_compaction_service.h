@@ -5,8 +5,8 @@
 
 #pragma once
 
+#include "db/compaction/compaction_job.h"
 #include "db_stress_shared_state.h"
-#include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/options.h"
 #include "utilities/fault_injection_fs.h"
 
