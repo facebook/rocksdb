@@ -313,7 +313,7 @@ if(NOT MSVC)
 endif()
 
 # Check if -latomic is required or not
-if (NOT MSVC)
+if (NOT MSVC AND NOT APPLE)
   CHECK_CXX_SOURCE_COMPILES("
 #include <atomic>
 std::atomic<uint64_t> x(0);
