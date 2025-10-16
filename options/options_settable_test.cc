@@ -508,7 +508,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsExcluded = {
       {offsetof(struct ColumnFamilyOptions, inplace_callback),
-       sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
+       sizeof(UpdateStatus (*)(char*, uint32_t*, Slice, std::string*))},
       {offsetof(struct ColumnFamilyOptions,
                 memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
@@ -690,7 +690,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_op_scan_flush_trigger=123;"
       "memtable_avg_op_scan_flush_trigger=12;"
       "cf_allow_ingest_behind=1;"
-      "verify_output_flags=2049;",
+      "verify_output_flags=2049;"
+      "is_transient=false;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
