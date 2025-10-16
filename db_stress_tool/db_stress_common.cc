@@ -258,27 +258,57 @@ void RemoteCompactionWorkerThread(void* v) {
           .compaction_filter = options.compaction_filter,
           .compaction_filter_factory = options.compaction_filter_factory,
           .prefix_extractor = options.prefix_extractor,
-          .table_factory = options.table_factory,
           .sst_partitioner_factory = options.sst_partitioner_factory,
           .listeners = {},
           .statistics = options.statistics,
           .table_properties_collector_factories =
               options.table_properties_collector_factories};
+      std::string serialized_output;
       std::string tmp_output_dir = job_info.db_name + "/" + "tmp_output_" +
                                    db_stress_env->GenerateUniqueId();
-      std::string serialized_output;
-      Status s = DB::OpenAndCompact(OpenAndCompactOptions{}, job_info.db_name,
-                                    tmp_output_dir, serialized_input,
-                                    &serialized_output, override_options);
-      if (!s.ok()) {
-        // Print in stdout instead of stderr to avoid stress test failure,
-        // because OpenAndCompact() failure doesn't necessarily mean
-        // primary db instance failure.
-        fprintf(stdout, "Failed to run OpenAndCompact(%s): %s\n",
-                job_info.db_name.c_str(), s.ToString().c_str());
+
+      // Set up Table Factory
+      ConfigOptions config_options;
+      config_options.ignore_unknown_options = false;
+      config_options.ignore_unsupported_options = false;
+
+      Status s = TableFactory::CreateFromString(
+          config_options, options.table_factory->Name(),
+          &override_options.table_factory);
+      if (s.ok()) {
+        std::string optionsStr;
+        s = options.table_factory->GetOptionString(config_options, &optionsStr);
+        if (s.ok()) {
+          s = override_options.table_factory->ConfigureFromString(
+              config_options, optionsStr);
+        }
       }
-      // Add the output regardless of status, so that primary DB doesn't rely on
-      // the timeout to finish waiting. The actual failure from the
+      if (!s.ok()) {
+        fprintf(
+            stdout,
+            "Failed to set up TableFactory for remote compaction - (%s): %s\n",
+            job_info.db_name.c_str(), s.ToString().c_str());
+      }
+
+      // TODO(jaykorean) - create a new compaction filter / merge operator and
+      // others for remote compactions
+
+      // Run Remote Compaction
+      if (s.ok()) {
+        s = DB::OpenAndCompact(OpenAndCompactOptions{}, job_info.db_name,
+                               tmp_output_dir, serialized_input,
+                               &serialized_output, override_options);
+        if (!s.ok()) {
+          // Print in stdout instead of stderr to avoid stress test failure,
+          // because OpenAndCompact() failure doesn't necessarily mean
+          // primary db instance failure.
+          fprintf(stdout, "Failed to run OpenAndCompact(%s): %s\n",
+                  job_info.db_name.c_str(), s.ToString().c_str());
+        }
+      }
+
+      // Add the output regardless of status, so that primary DB doesn't rely
+      // on the timeout to finish waiting. The actual failure from the
       // deserialization can fail the compaction properly
       shared->AddRemoteCompactionResult(job_id, s, serialized_output);
     }
