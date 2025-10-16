@@ -429,8 +429,7 @@ DECLARE_bool(track_and_verify_wals);
 DECLARE_int32(remote_compaction_worker_threads);
 DECLARE_int32(remote_compaction_worker_interval);
 DECLARE_bool(remote_compaction_failure_fall_back_to_local);
-DECLARE_bool(allow_resumption);
-DECLARE_bool(randomize_allow_resumption);
+DECLARE_int32(allow_resumption_one_in);
 DECLARE_bool(auto_refresh_iterator_with_snapshot);
 DECLARE_uint32(memtable_op_scan_flush_trigger);
 DECLARE_uint32(memtable_avg_op_scan_flush_trigger);
@@ -450,12 +449,6 @@ constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
 constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
-
-// Helper function to check if resumption is enabled (either statically or via
-// randomization)
-inline bool IsResumptionEnabled() {
-  return FLAGS_allow_resumption || FLAGS_randomize_allow_resumption;
-}
 
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;

@@ -26,6 +26,13 @@ using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
+  static bool IsErrorInjectedAndRetryable(const Status& error_s) {
+    assert(!error_s.ok());
+    return error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s) &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
+  }
+
   StressTest();
 
   virtual ~StressTest() {}
@@ -56,12 +63,6 @@ class StressTest {
   }
   Options GetOptions(int cf_id);
   void CleanUp();
-  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
-    assert(!error_s.ok());
-    return error_s.getState() &&
-           FaultInjectionTestFS::IsInjectedError(error_s) &&
-           !status_to_io_status(Status(error_s)).GetDataLoss();
-  }
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {

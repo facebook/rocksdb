@@ -22,7 +22,6 @@
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
-
 DECLARE_int32(compact_files_one_in);
 
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;

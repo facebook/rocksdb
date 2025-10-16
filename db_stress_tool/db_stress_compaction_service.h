@@ -3,10 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifdef GFLAGS
 #pragma once
 
+#include "db/compaction/compaction_job.h"
 #include "db_stress_shared_state.h"
-#include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/options.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -52,47 +53,7 @@ class DbStressCompactionService : public CompactionService {
   }
 
   CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
-                                  std::string* result) override {
-    while (true) {
-      if (aborted_.load()) {
-        return CompactionServiceJobStatus::kAborted;
-      }
-      const auto& maybeResultStatus =
-          shared_->GetRemoteCompactionResult(scheduled_job_id, result);
-      if (maybeResultStatus.has_value()) {
-        auto s = maybeResultStatus.value();
-        if (s.ok()) {
-          assert(result);
-          assert(!result->empty());
-          return CompactionServiceJobStatus::kSuccess;
-        } else {
-          // Remote Compaction failed
-          if (failure_should_fall_back_to_local_) {
-            return CompactionServiceJobStatus::kUseLocal;
-          }
-          if (s.getState() && FaultInjectionTestFS::IsInjectedError(s) &&
-              !status_to_io_status(Status(s)).GetDataLoss()) {
-            return CompactionServiceJobStatus::kUseLocal;
-          }
-          if (result && result->empty()) {
-            // If result is empty, set the compaction status in the result so
-            // that it can be bubbled up to main thread
-            CompactionServiceResult compaction_result;
-            compaction_result.status = s;
-            if (compaction_result.Write(result).ok()) {
-              assert(result);
-              assert(!result->empty());
-            }
-          }
-          return CompactionServiceJobStatus::kFailure;
-        }
-      } else {
-        // Remote Compaction is still running
-        Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
-      }
-    }
-    return CompactionServiceJobStatus::kFailure;
-  }
+                                  std::string* result) override;
 
   void OnInstallation(const std::string& scheduled_job_id,
                       CompactionServiceJobStatus /*status*/) override {
@@ -128,3 +89,5 @@ class DbStressCompactionService : public CompactionService {
   bool failure_should_fall_back_to_local_;
 };
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif  // GFLAGS

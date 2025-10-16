@@ -3683,7 +3683,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     options_.compaction_service = compaction_service;
   }
 
-  if (IsResumptionEnabled()) {
+  if (FLAGS_allow_resumption_one_in > 0) {
     if (FLAGS_remote_compaction_worker_threads == 0) {
       fprintf(stderr,
               "allow_resumption or randomize_allow_resumption requires "
