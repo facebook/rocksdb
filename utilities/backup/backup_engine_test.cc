@@ -2999,15 +2999,18 @@ TEST_F(BackupEngineTest, BackupWithTransientCF) {
   ASSERT_TRUE(std::find(cf_names.begin(), cf_names.end(), "transient_cf") ==
               cf_names.end());
 
-  // check that restore from backup fails if we attempt it with transient cfs
-  column_families.emplace_back("transient_cf", transient_cf_options);
-  ASSERT_NOK(
-      DB::Open(options_, dbname_, column_families, &handles, &restored_db));
-
+  // Clean up the first DB open
   for (auto* handle : handles) {
     ASSERT_OK(restored_db->DestroyColumnFamilyHandle(handle));
   }
   delete restored_db;
+  restored_db = nullptr;
+  handles.clear();
+
+  // check that restore from backup fails if we attempt it with transient cfs
+  column_families.emplace_back("transient_cf", transient_cf_options);
+  ASSERT_NOK(
+      DB::Open(options_, dbname_, column_families, &handles, &restored_db));
 
   DestroyDBWithoutCheck(dbname_, options_);
 }
