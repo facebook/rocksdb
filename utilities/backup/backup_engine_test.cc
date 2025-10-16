@@ -2912,6 +2912,106 @@ TEST_F(BackupEngineTest, KeepLogFiles) {
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
+TEST_F(BackupEngineTest, BackupWithTransientCF) {
+  const int keys_iteration = 100;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+
+  // Create regular & transient cfs
+  ColumnFamilyHandle* normal_cf_handle = nullptr;
+  ColumnFamilyOptions normal_cf_options;
+  ASSERT_OK(db_->CreateColumnFamily(normal_cf_options, "normal_cf",
+                                    &normal_cf_handle));
+
+  ColumnFamilyHandle* transient_cf_handle = nullptr;
+  ColumnFamilyOptions transient_cf_options;
+  transient_cf_options.is_transient = true;
+  ASSERT_OK(db_->CreateColumnFamily(transient_cf_options, "transient_cf",
+                                    &transient_cf_handle));
+
+  // Write data to normal CFs
+  FillDB(db_.get(), 0, keys_iteration, kFlushAll);
+
+  for (int i = 0; i < keys_iteration; i++) {
+    std::string key = "key" + std::to_string(i);
+    std::string value = "normal_value" + std::to_string(i);
+    ASSERT_OK(db_->Put(WriteOptions(), normal_cf_handle, key, value));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions(), normal_cf_handle));
+
+  // Write data to transient cf
+  for (int i = 0; i < keys_iteration; i++) {
+    std::string key = "key" + std::to_string(i);
+    std::string value = "transient_value" + std::to_string(i);
+    ASSERT_OK(db_->Put(WriteOptions(), transient_cf_handle, key, value));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions(), transient_cf_handle));
+
+  // data is accessible before backup
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), normal_cf_handle, "key0", &value));
+  ASSERT_EQ("normal_value0", value);
+  ASSERT_OK(db_->Get(ReadOptions(), transient_cf_handle, "key0", &value));
+  ASSERT_EQ("transient_value0", value);
+
+  // Create backup
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(normal_cf_handle));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(transient_cf_handle));
+  normal_cf_handle = nullptr;
+  transient_cf_handle = nullptr;
+  CloseDBAndBackupEngine();
+  DestroyDBWithoutCheck(dbname_, options_);
+
+  // Restore from backup without transient cf
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
+  column_families.emplace_back("normal_cf", ColumnFamilyOptions());
+
+  OpenBackupEngine(false);
+  ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  CloseBackupEngine();
+
+  // Open restored DB
+  std::vector<ColumnFamilyHandle*> handles;
+  DB* restored_db = nullptr;
+  ASSERT_OK(
+      DB::Open(options_, dbname_, column_families, &handles, &restored_db));
+
+  // check for regular cf data
+  ASSERT_EQ(2, handles.size());
+  AssertExists(restored_db, 0, keys_iteration);
+  for (int i = 0; i < keys_iteration; i++) {
+    std::string key = "key" + std::to_string(i);
+    std::string expected_value = "normal_value" + std::to_string(i);
+    ASSERT_OK(restored_db->Get(ReadOptions(), handles[1], key, &value));
+    ASSERT_EQ(expected_value, value);
+  }
+
+  // confirm theres no transient cf data
+  std::vector<std::string> cf_names;
+  ASSERT_OK(DB::ListColumnFamilies(options_, dbname_, &cf_names));
+  ASSERT_EQ(2, cf_names.size());
+  ASSERT_TRUE(std::find(cf_names.begin(), cf_names.end(),
+                        kDefaultColumnFamilyName) != cf_names.end());
+  ASSERT_TRUE(std::find(cf_names.begin(), cf_names.end(), "normal_cf") !=
+              cf_names.end());
+  ASSERT_TRUE(std::find(cf_names.begin(), cf_names.end(), "transient_cf") ==
+              cf_names.end());
+
+  // check that restore from backup fails if we attempt it with transient cfs
+  column_families.emplace_back("transient_cf", transient_cf_options);
+  ASSERT_NOK(
+      DB::Open(options_, dbname_, column_families, &handles, &restored_db));
+
+  for (auto* handle : handles) {
+    ASSERT_OK(restored_db->DestroyColumnFamilyHandle(handle));
+  }
+  delete restored_db;
+
+  DestroyDBWithoutCheck(dbname_, options_);
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class BackupEngineRateLimitingTestWithParam
     : public BackupEngineTest,
