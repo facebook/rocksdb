@@ -1,0 +1,26 @@
+name: cache-folly
+description: Cache folly build to speed up CI
+outputs:
+  cache-hit:
+    description: Whether the cache was hit
+    value: ${{ steps.cache-folly-build.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+  - name: Extract FOLLY_COMMIT_HASH from Makefile
+    id: extract-folly-hash
+    shell: bash
+    run: |
+      FOLLY_COMMIT_HASH=$(grep '^FOLLY_COMMIT_HASH' Makefile | awk '{print $3}')
+      echo "hash=$FOLLY_COMMIT_HASH" >> $GITHUB_OUTPUT
+  - name: Cache folly build
+    id: cache-folly-build
+    uses: actions/cache@v4
+    with:
+      # Cache the folly build directory
+      path: /tmp/fbcode_builder_getdeps-Z__wZrocksdbZrocksdbZthird-partyZfollyZbuildZfbcode_builder-root/installed
+      # Key is based on:
+      # - OS and architecture
+      # - The specific folly commit hash from Makefile
+      # - The container image version to account for different compiler/library versions
+      key: folly-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.extract-folly-hash.outputs.hash }}-ubuntu22.1-v1
