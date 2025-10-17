@@ -799,6 +799,23 @@ TEST_P(ColumnFamilyTest, DropTest) {
   }
 }
 
+TEST_P(ColumnFamilyTest, OpenFailsWithTransientCF) {
+  Open();
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions transient_opts;
+  transient_opts.is_transient = true;
+
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);
+
+  Close();
+
+  ASSERT_NOK(TryOpen(
+      {"default", "one", "two", "threeTemp", "four"},
+      {column_family_options_, cf_opts, cf_opts, transient_opts, cf_opts}));
+}
+
 TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
   Open();
   ColumnFamilyOptions cf_opts;
@@ -817,17 +834,7 @@ TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
 
   // Verify we have all 5 CFs initially (default, one, two, threeTemp, four)
   ASSERT_EQ(handles_.size(), 5);
-
-  // Close the database
   Close();
-
-  // // Now test the new behavior: even when explicitly requesting transient
-  // CFs,
-  // // they should be filtered out and not returned
-  // ASSERT_OK(TryOpen(
-  //     {"default", "one", "two", "threeTemp", "four"},
-  //     {column_family_options_, cf_opts, cf_opts, cf_transient_opts,
-  //     cf_opts}));
 
   ASSERT_OK(TryOpen({"default", "one", "two", "four"},
                     {column_family_options_, cf_opts, cf_opts, cf_opts}));
