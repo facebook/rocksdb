@@ -4533,9 +4533,8 @@ void VersionStorageInfo::GetOverlappingInputs(
         break;
       }
     }
-    // starting_l0_file should always be found in level_files_brief_[level] when
-    // provided
     assert(found);
+    (void)found;
   }
   for (size_t i = start_index; i < level_files_brief_[level].num_files; i++) {
     index.emplace_back(i);
