@@ -2610,6 +2610,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
       log::Writer* cur_log_writer = logs_.back().writer;
       if (error_handler_.IsRecoveryInProgress()) {
         // In recovery path, we force another try of writing WAL buffer.
+        // Note: For no-space recovery, we switch to a new WAL in ResumeImpl(),
+        // so it's safe to reset the error here for the old WAL's final flush.
         cur_log_writer->file()->reset_seen_error();
       }
       io_s = cur_log_writer->WriteBuffer(write_options);
@@ -2952,6 +2954,105 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     return s;
   }
   return Write(opt, &batch);
+}
+
+Status DBImpl::SwitchWALForNoSpaceRecovery(WriteContext* write_context) {
+  mutex_.AssertHeld();
+  assert(write_context != nullptr);
+
+  ROCKS_LOG_INFO(
+      immutable_db_options_.info_log,
+      "Switching WAL during no-space error recovery to avoid WAL corruption");
+
+  // During no-space recovery, we need to switch to a new WAL to avoid
+  // writing to a potentially corrupted WAL that had disk full errors.
+  // We also need to force flush even empty memtables to make the old WAL
+  // unnecessary.
+
+  autovector<ColumnFamilyData*> cfds_to_force_flush;
+
+  // Collect all column families for forced flush
+  if (immutable_db_options_.atomic_flush) {
+    SelectColumnFamiliesForAtomicFlush(&cfds_to_force_flush);
+  } else {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      cfds_to_force_flush.push_back(cfd);
+    }
+    MaybeFlushStatsCF(&cfds_to_force_flush);
+  }
+
+  WriteThread::Writer nonmem_w;
+  if (two_write_queues_) {
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+  }
+
+  Status s;
+
+  // Force WAL switching by ensuring wal_empty_ is false during recovery
+  // This guarantees a new WAL is created even if memtables are empty
+  bool original_wal_empty = wal_empty_;
+  wal_empty_ = false;  // Force new WAL creation during no-space recovery
+
+  // Switch memtables for all column families - this will create a new WAL
+  // and make the old (potentially corrupted) WAL unnecessary
+  for (auto cfd : cfds_to_force_flush) {
+    cfd->Ref();
+
+    // Switch the memtable (this will create a new WAL due to wal_empty_ =
+    // false)
+    s = SwitchMemtable(cfd, write_context);
+    cfd->UnrefAndTryDelete();
+
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(
+          immutable_db_options_.info_log,
+          "[%s] Failed to switch memtable during no-space recovery: %s",
+          cfd->GetName().c_str(), s.ToString().c_str());
+      break;
+    }
+  }
+
+  // Restore original wal_empty_ state
+  wal_empty_ = original_wal_empty;
+
+  if (two_write_queues_) {
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+  }
+
+  if (s.ok()) {
+    // Schedule flush for all switched memtables
+    if (immutable_db_options_.atomic_flush) {
+      AssignAtomicFlushSeq(cfds_to_force_flush);
+    }
+
+    for (auto cfd : cfds_to_force_flush) {
+      cfd->imm()->FlushRequested();
+      if (!immutable_db_options_.atomic_flush) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, FlushReason::kErrorRecovery, &flush_req);
+        EnqueuePendingFlush(flush_req);
+      }
+    }
+
+    if (immutable_db_options_.atomic_flush) {
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds_to_force_flush, FlushReason::kErrorRecovery,
+                           &flush_req);
+      EnqueuePendingFlush(flush_req);
+    }
+
+    MaybeScheduleFlushOrCompaction();
+
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Successfully switched WAL and scheduled flush for %zu "
+                   "column families during no-space recovery",
+                   cfds_to_force_flush.size());
+  }
+
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
