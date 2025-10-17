@@ -203,13 +203,16 @@ class CompactionPicker {
       const std::vector<CompactionInputFiles>& inputs, int level,
       int proximal_level) const;
 
+  // @param starting_l0_file If not null, restricts L0 file selection to only
+  //                         include files at or older than starting_l0_file.
   bool SetupOtherInputs(const std::string& cf_name,
                         const MutableCFOptions& mutable_cf_options,
                         VersionStorageInfo* vstorage,
                         CompactionInputFiles* inputs,
                         CompactionInputFiles* output_level_inputs,
                         int* parent_index, int base_index,
-                        bool only_expand_towards_right = false);
+                        bool only_expand_towards_right = false,
+                        const FileMetaData* starting_l0_file = nullptr);
 
   void GetGrandparents(VersionStorageInfo* vstorage,
                        const CompactionInputFiles& inputs,
@@ -222,9 +225,12 @@ class CompactionPicker {
       CompactionInputFiles* start_level_inputs,
       std::function<bool(const FileMetaData*)> skip_marked_file);
 
+  // @param starting_l0_file If not null, restricts L0 file selection to only
+  //                         include files at or older than starting_l0_file.
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,
-                             int output_level, int* parent_index);
+                             int output_level, int* parent_index,
+                             const FileMetaData* starting_l0_file = nullptr);
 
   // Register this compaction in the set of running compactions
   void RegisterCompaction(Compaction* c);

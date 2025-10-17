@@ -180,6 +180,10 @@ class Compaction {
   const std::vector<CompactionInputFiles>* inputs() { return &inputs_; }
 
   // Returns the LevelFilesBrief of the specified compaction input level.
+  // Note that if the compaction includes standalone range deletion file,
+  // this function returns the result after filtering out input files covered
+  // by the range deletion file.
+  // Use inputs() if you want to get the original input files.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
     return &input_levels_[compaction_input_level];
   }

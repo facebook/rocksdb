@@ -4602,6 +4602,11 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
   ASSERT_OK(s);
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(cfh, &cf_meta);
+  // Only the L0 with range deletion is compacted.
+  ASSERT_EQ(1, cf_meta.levels[0].files.size());
+  ASSERT_EQ(0, cf_meta.levels[0].files[0].num_deletions);
 
   // The first scan range overlaps the DB key range, while the second extends
   // beyond but overlaps the delete range
