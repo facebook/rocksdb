@@ -549,8 +549,28 @@ struct SubcompactionProgress {
   std::string ToString() const {
     std::ostringstream oss;
     oss << "SubcompactionProgress{";
-    oss << " next_internal_key_to_compact"
-        << (next_internal_key_to_compact.empty() ? " empty" : " non-empty");
+    oss << " next_internal_key_to_compact=";
+    if (next_internal_key_to_compact.empty()) {
+      oss << "";
+    } else {
+      ParsedInternalKey parsed_key;
+      Slice key_slice(next_internal_key_to_compact);
+      if (ParseInternalKey(key_slice, &parsed_key, false /* log_err_key */)
+              .ok()) {
+        oss << "user_key=\"" << parsed_key.user_key.ToString(false /* hex */)
+            << "\" (hex:" << parsed_key.user_key.ToString(true /* hex */)
+            << ")";
+        oss << ", seq=";
+        if (parsed_key.sequence == kMaxSequenceNumber) {
+          oss << "kMaxSequenceNumber";
+        } else {
+          oss << parsed_key.sequence;
+        }
+        oss << ", type=" << static_cast<int>(parsed_key.type);
+      } else {
+        oss << "raw=" << key_slice.ToString(true /* hex */);
+      }
+    }
     oss << ", num_processed_input_records=" << num_processed_input_records;
     oss << ", output_level_progress=" << output_level_progress.ToString();
     oss << ", proximal_output_level_progress="
