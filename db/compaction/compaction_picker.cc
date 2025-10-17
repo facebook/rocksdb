@@ -242,7 +242,7 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
     GetRange(*inputs, &smallest, &largest);
     inputs->clear();
     vstorage->GetOverlappingInputs(level, &smallest, &largest, &inputs->files,
-                                   hint_index, &hint_index, true,
+                                   hint_index, &hint_index, true, nullptr,
                                    next_smallest);
   } while (inputs->size() > old_size);
 
@@ -522,11 +522,11 @@ bool CompactionPicker::SetupOtherInputs(
       // Round-robin compaction only allows expansion towards the larger side.
       vstorage->GetOverlappingInputs(input_level, &smallest, &all_limit,
                                      &expanded_inputs.files, base_index,
-                                     nullptr, true, nullptr, starting_l0_file);
+                                     nullptr, true, starting_l0_file);
     } else {
       vstorage->GetOverlappingInputs(input_level, &all_start, &all_limit,
                                      &expanded_inputs.files, base_index,
-                                     nullptr, true, nullptr, starting_l0_file);
+                                     nullptr, true, starting_l0_file);
     }
     uint64_t expanded_inputs_size = TotalFileSize(expanded_inputs.files);
     if (!ExpandInputsToCleanCut(cf_name, vstorage, &expanded_inputs)) {
@@ -1247,7 +1247,6 @@ bool CompactionPicker::GetOverlappingL0Files(
                                  /*hint_index=*/-1,
                                  /*file_index=*/nullptr,
                                  /*expand_range=*/true,
-                                 /*next_smallest=*/nullptr,
                                  /*starting_l0_file=*/starting_l0_file);
 
   // If we include more L0 files in the same compaction run it can

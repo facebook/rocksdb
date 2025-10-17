@@ -4487,8 +4487,8 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range, InternalKey** next_smallest,
-    const FileMetaData* starting_l0_file) const {
+    bool expand_range, const FileMetaData* starting_l0_file,
+    InternalKey** next_smallest) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
