@@ -1752,26 +1752,6 @@ inline void GetHomeIndexAndShift(uint64_t length_info, uint64_t hash,
   assert(*home < LengthInfoToUsedLength(length_info));
 }
 
-inline int GetShiftFromNextWithShift(uint64_t next_with_shift) {
-  return BitwiseAnd(next_with_shift,
-                    AutoHyperClockTable::HandleImpl::kShiftMask);
-}
-
-inline size_t GetNextFromNextWithShift(uint64_t next_with_shift) {
-  return static_cast<size_t>(next_with_shift >>
-                             AutoHyperClockTable::HandleImpl::kNextShift);
-}
-
-inline uint64_t MakeNextWithShift(size_t next, int shift) {
-  return (uint64_t{next} << AutoHyperClockTable::HandleImpl::kNextShift) |
-         static_cast<uint64_t>(shift);
-}
-
-inline uint64_t MakeNextWithShiftEnd(size_t head, int shift) {
-  return AutoHyperClockTable::HandleImpl::kNextEndFlags |
-         MakeNextWithShift(head, shift);
-}
-
 // Helper function for Lookup
 inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
                         int shift = 0, size_t home = 0,
@@ -1821,36 +1801,39 @@ inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
   }
 }
 
+using NextWithShift = AutoHyperClockTable::HandleImpl::NextWithShift;
+
 // Assumes a chain rewrite lock prevents concurrent modification of
 // these chain pointers
 void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
-                          size_t& frontier, uint64_t stop_before_or_new_tail,
-                          int old_shift, int new_shift) {
+                          size_t& frontier,
+                          NextWithShift stop_before_or_new_tail, int old_shift,
+                          int new_shift) {
   assert(frontier != SIZE_MAX);
   assert(new_shift == old_shift + 1);
   (void)old_shift;
   (void)new_shift;
-  using HandleImpl = AutoHyperClockTable::HandleImpl;
   for (;;) {
-    uint64_t next_with_shift = arr[frontier].chain_next_with_shift.Load();
-    assert(GetShiftFromNextWithShift(next_with_shift) == old_shift);
+    NextWithShift next_with_shift = arr[frontier].chain_next_with_shift.Load();
+    assert(next_with_shift.GetShift() == old_shift);
     if (next_with_shift == stop_before_or_new_tail) {
       // Stopping at entry with pointer matching "stop before"
-      assert(!HandleImpl::IsEnd(next_with_shift));
+      assert(!next_with_shift.IsEnd());
       return;
     }
-    if (HandleImpl::IsEnd(next_with_shift)) {
+    if (next_with_shift.IsEnd()) {
       // Also update tail to new tail
-      assert(HandleImpl::IsEnd(stop_before_or_new_tail));
+      assert(stop_before_or_new_tail.IsEnd());
       arr[frontier].chain_next_with_shift.Store(stop_before_or_new_tail);
       // Mark nothing left to upgrade
       frontier = SIZE_MAX;
       return;
     }
     // Next is another entry to process, so upgrade and advance frontier
-    arr[frontier].chain_next_with_shift.FetchAdd(1U);
-    assert(GetShiftFromNextWithShift(next_with_shift + 1) == new_shift);
-    frontier = GetNextFromNextWithShift(next_with_shift);
+    arr[frontier].chain_next_with_shift.Apply(
+        NextWithShift::Shift::PlusTransformPromiseNoOverflow(1U));
+    assert(next_with_shift.GetShift() + 1 == new_shift);
+    frontier = next_with_shift.GetNext();
   }
 }
 
@@ -1888,19 +1871,19 @@ class AutoHyperClockTable::ChainRewriteLock {
   // RAII wrap existing lock held (or end)
   explicit ChainRewriteLock(HandleImpl* h,
                             RelaxedAtomic<uint64_t>& /*yield_count*/,
-                            uint64_t already_locked_or_end)
+                            NextWithShift already_locked_or_end)
       : head_ptr_(&h->head_next_with_shift) {
     saved_head_ = already_locked_or_end;
     // already locked or end
-    assert(saved_head_ & HandleImpl::kHeadLocked);
+    assert(saved_head_.IsLocked());
   }
 
   ~ChainRewriteLock() {
     if (!IsEnd()) {
       // Release lock
-      uint64_t old = head_ptr_->FetchAnd(~HandleImpl::kHeadLocked);
-      (void)old;
-      assert((old & HandleImpl::kNextEndFlags) == HandleImpl::kHeadLocked);
+      NextWithShift old;
+      head_ptr_->Apply(NextWithShift::LockedFlag::ClearTransform(), &old);
+      assert(old.IsLockedNotEnd());
     }
   }
 
@@ -1910,12 +1893,13 @@ class AutoHyperClockTable::ChainRewriteLock {
   }
 
   // Expected current state, assuming no parallel updates.
-  uint64_t GetSavedHead() const { return saved_head_; }
+  NextWithShift GetSavedHead() const { return saved_head_; }
 
-  bool CasUpdate(uint64_t next_with_shift,
+  bool CasUpdate(NextWithShift next_with_shift,
                  RelaxedAtomic<uint64_t>& yield_count) {
-    uint64_t new_head = next_with_shift | HandleImpl::kHeadLocked;
-    uint64_t expected = GetSavedHead();
+    NextWithShift new_head =
+        next_with_shift.With<NextWithShift::LockedFlag>(true);
+    NextWithShift expected = GetSavedHead();
     bool success = head_ptr_->CasStrong(expected, new_head);
     if (success) {
       // Ensure IsEnd() is kept up-to-date, including for dtor
@@ -1924,7 +1908,7 @@ class AutoHyperClockTable::ChainRewriteLock {
       // Parallel update to head, such as Insert()
       if (IsEnd()) {
         // Didn't previously hold a lock
-        if (HandleImpl::IsEnd(expected)) {
+        if (expected.IsEnd()) {
           // Still don't need to
           saved_head_ = expected;
         } else {
@@ -1933,28 +1917,25 @@ class AutoHyperClockTable::ChainRewriteLock {
         }
       } else {
         // Parallel update must preserve our lock
-        assert((expected & HandleImpl::kNextEndFlags) ==
-               HandleImpl::kHeadLocked);
+        assert(expected.IsLockedNotEnd());
         saved_head_ = expected;
       }
     }
     return success;
   }
 
-  bool IsEnd() const { return HandleImpl::IsEnd(saved_head_); }
+  bool IsEnd() const { return saved_head_.IsEnd(); }
 
  private:
   void Acquire(RelaxedAtomic<uint64_t>& yield_count) {
     for (;;) {
       // Acquire removal lock on the chain
-      uint64_t old_head = head_ptr_->FetchOr(HandleImpl::kHeadLocked);
-      if ((old_head & HandleImpl::kNextEndFlags) != HandleImpl::kHeadLocked) {
+      NextWithShift old_head;
+      head_ptr_->Apply(NextWithShift::LockedFlag::SetTransform(), &old_head,
+                       &saved_head_);
+      if (!old_head.IsLockedNotEnd()) {
         // Either acquired the lock or lock not needed (end)
-        assert((old_head & HandleImpl::kNextEndFlags) == 0 ||
-               (old_head & HandleImpl::kNextEndFlags) ==
-                   HandleImpl::kNextEndFlags);
-
-        saved_head_ = old_head | HandleImpl::kHeadLocked;
+        assert(old_head.IsEnd() == old_head.IsLocked());
         break;
       }
       // NOTE: one of the few yield-wait loops, which is rare enough in practice
@@ -1965,8 +1946,8 @@ class AutoHyperClockTable::ChainRewriteLock {
     }
   }
 
-  AcqRelAtomic<uint64_t>* head_ptr_;
-  uint64_t saved_head_;
+  AcqRelBitFieldsAtomic<NextWithShift>* head_ptr_;
+  NextWithShift saved_head_;
 };
 
 AutoHyperClockTable::AutoHyperClockTable(
@@ -2021,9 +2002,9 @@ AutoHyperClockTable::AutoHyperClockTable(
 #endif
     if (major + i < used_length) {
       array_[i].head_next_with_shift.StoreRelaxed(
-          MakeNextWithShiftEnd(i, max_shift));
+          NextWithShift::MakeEnd(i, max_shift));
       array_[major + i].head_next_with_shift.StoreRelaxed(
-          MakeNextWithShiftEnd(major + i, max_shift));
+          NextWithShift::MakeEnd(major + i, max_shift));
 #ifndef NDEBUG  // Extra invariant checking
       GetHomeIndexAndShift(length_info, i, &home, &shift);
       assert(home == i);
@@ -2034,7 +2015,7 @@ AutoHyperClockTable::AutoHyperClockTable(
 #endif
     } else {
       array_[i].head_next_with_shift.StoreRelaxed(
-          MakeNextWithShiftEnd(i, min_shift));
+          NextWithShift::MakeEnd(i, min_shift));
 #ifndef NDEBUG  // Extra invariant checking
       GetHomeIndexAndShift(length_info, i, &home, &shift);
       assert(home == i);
@@ -2066,8 +2047,10 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   // just a reasonable frontier past what we expect to have written.
 #ifdef MUST_FREE_HEAP_ALLOCATIONS
   for (size_t i = used_end; i < array_.Count() && i < used_end + 64U; i++) {
-    assert(array_[i].head_next_with_shift.LoadRelaxed() == 0);
-    assert(array_[i].chain_next_with_shift.LoadRelaxed() == 0);
+    assert(array_[i].head_next_with_shift.LoadRelaxed() ==
+           HandleImpl::kUnusedMarker);
+    assert(array_[i].chain_next_with_shift.LoadRelaxed() ==
+           HandleImpl::kUnusedMarker);
     assert(array_[i].meta.LoadRelaxed() == 0);
   }
 #endif          // MUST_FREE_HEAP_ALLOCATIONS
@@ -2089,11 +2072,9 @@ AutoHyperClockTable::~AutoHyperClockTable() {
         usage_.FetchSubRelaxed(h.total_charge);
         occupancy_.FetchSubRelaxed(1U);
         was_populated[i] = true;
-        if (!HandleImpl::IsEnd(h.chain_next_with_shift.LoadRelaxed())) {
-          assert((h.chain_next_with_shift.LoadRelaxed() &
-                  HandleImpl::kHeadLocked) == 0);
-          size_t next =
-              GetNextFromNextWithShift(h.chain_next_with_shift.LoadRelaxed());
+        if (!h.chain_next_with_shift.LoadRelaxed().IsEnd()) {
+          assert(!h.chain_next_with_shift.LoadRelaxed().IsLocked());
+          size_t next = h.chain_next_with_shift.LoadRelaxed().GetNext();
           assert(!was_pointed_to[next]);
           was_pointed_to[next] = true;
         }
@@ -2105,9 +2086,8 @@ AutoHyperClockTable::~AutoHyperClockTable() {
         break;
     }
 #ifndef NDEBUG  // Extra invariant checking
-    if (!HandleImpl::IsEnd(h.head_next_with_shift.LoadRelaxed())) {
-      size_t next =
-          GetNextFromNextWithShift(h.head_next_with_shift.LoadRelaxed());
+    if (!h.head_next_with_shift.LoadRelaxed().IsEnd()) {
+      size_t next = h.head_next_with_shift.LoadRelaxed().GetNext();
       assert(!was_pointed_to[next]);
       was_pointed_to[next] = true;
     }
@@ -2222,10 +2202,10 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
   // chain rewrite lock has been released.
   size_t old_old_home = BottomNBits(grow_home, old_shift - 1);
   for (;;) {
-    uint64_t old_old_head = array_[old_old_home].head_next_with_shift.Load();
-    if (GetShiftFromNextWithShift(old_old_head) >= old_shift) {
-      if ((old_old_head & HandleImpl::kNextEndFlags) !=
-          HandleImpl::kHeadLocked) {
+    NextWithShift old_old_head =
+        array_[old_old_home].head_next_with_shift.Load();
+    if (old_old_head.GetShift() >= old_shift) {
+      if (!old_old_head.IsLockedNotEnd()) {
         break;
       }
     }
@@ -2285,8 +2265,7 @@ void AutoHyperClockTable::CatchUpLengthInfoNoWait(
     if (published_usable_size < known_usable_grow_home) {
       int old_shift = FloorLog2(next_usable_size - 1);
       size_t old_home = BottomNBits(published_usable_size, old_shift);
-      int shift = GetShiftFromNextWithShift(
-          array_[old_home].head_next_with_shift.Load());
+      int shift = array_[old_home].head_next_with_shift.Load().GetShift();
       if (shift <= old_shift) {
         // Not ready
         break;
@@ -2437,9 +2416,10 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
   ChainRewriteLock zero_head_lock(&arr[old_home], yield_count_);
 
   // Used for locking the one chain below
-  uint64_t saved_one_head;
+  NextWithShift saved_one_head;
   // One head has not been written to
-  assert(arr[grow_home].head_next_with_shift.Load() == 0);
+  assert(arr[grow_home].head_next_with_shift.Load() ==
+         HandleImpl::kUnusedMarker);
 
   // old_home will also the head of the new "zero chain" -- all entries in the
   // "from" chain whose next hash bit is 0. grow_home will be head of the new
@@ -2461,7 +2441,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     assert(cur == SIZE_MAX);
     assert(chain_frontier_first == -1);
 
-    uint64_t next_with_shift = zero_head_lock.GetSavedHead();
+    NextWithShift next_with_shift = zero_head_lock.GetSavedHead();
 
     // Find a single representative for each target chain, or scan the whole
     // chain if some target chain has no representative.
@@ -2474,16 +2454,16 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       assert((cur == SIZE_MAX) == (zero_chain_frontier == SIZE_MAX &&
                                    one_chain_frontier == SIZE_MAX));
 
-      assert(GetShiftFromNextWithShift(next_with_shift) == old_shift);
+      assert(next_with_shift.GetShift() == old_shift);
 
       // Check for end of original chain
-      if (HandleImpl::IsEnd(next_with_shift)) {
+      if (next_with_shift.IsEnd()) {
         cur = SIZE_MAX;
         break;
       }
 
       // next_with_shift is not End
-      cur = GetNextFromNextWithShift(next_with_shift);
+      cur = next_with_shift.GetNext();
 
       if (BottomNBits(arr[cur].hashed_key[1], new_shift) == old_home) {
         // Entry for zero chain
@@ -2522,10 +2502,10 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
            (zero_chain_frontier == SIZE_MAX && one_chain_frontier == SIZE_MAX));
 
     // Always update one chain's head first (safe), and mark it as locked
-    saved_one_head = HandleImpl::kHeadLocked |
-                     (one_chain_frontier != SIZE_MAX
-                          ? MakeNextWithShift(one_chain_frontier, new_shift)
-                          : MakeNextWithShiftEnd(grow_home, new_shift));
+    saved_one_head = one_chain_frontier != SIZE_MAX
+                         ? NextWithShift::Make(one_chain_frontier, new_shift)
+                         : NextWithShift::MakeEnd(grow_home, new_shift);
+    saved_one_head.Set<NextWithShift::LockedFlag>(true);
     arr[grow_home].head_next_with_shift.Store(saved_one_head);
 
     // Make sure length_info_ hasn't been updated too early, as we're about
@@ -2535,8 +2515,8 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     // Try to set zero's head.
     if (zero_head_lock.CasUpdate(
             zero_chain_frontier != SIZE_MAX
-                ? MakeNextWithShift(zero_chain_frontier, new_shift)
-                : MakeNextWithShiftEnd(old_home, new_shift),
+                ? NextWithShift::Make(zero_chain_frontier, new_shift)
+                : NextWithShift::MakeEnd(old_home, new_shift),
             yield_count_)) {
       // Both heads successfully updated to new shift
       break;
@@ -2570,10 +2550,10 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     size_t& other_frontier = chain_frontier_first != 0
                                  ? /*&*/ zero_chain_frontier
                                  : /*&*/ one_chain_frontier;
-    uint64_t stop_before_or_new_tail =
+    NextWithShift stop_before_or_new_tail =
         other_frontier != SIZE_MAX
-            ? /*stop before*/ MakeNextWithShift(other_frontier, old_shift)
-            : /*new tail*/ MakeNextWithShiftEnd(
+            ? /*stop before*/ NextWithShift::Make(other_frontier, old_shift)
+            : /*new tail*/ NextWithShift::MakeEnd(
                   chain_frontier_first == 0 ? old_home : grow_home, new_shift);
     UpgradeShiftsOnRange(arr, first_frontier, stop_before_or_new_tail,
                          old_shift, new_shift);
@@ -2599,20 +2579,19 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
                                    ? /*&*/ zero_chain_frontier
                                    : /*&*/ one_chain_frontier;
       assert(cur != first_frontier);
-      assert(GetNextFromNextWithShift(
-                 arr[first_frontier].chain_next_with_shift.Load()) ==
+      assert(arr[first_frontier].chain_next_with_shift.Load().GetNext() ==
              other_frontier);
 
-      uint64_t next_with_shift = arr[cur].chain_next_with_shift.Load();
+      NextWithShift next_with_shift = arr[cur].chain_next_with_shift.Load();
 
       // Check for end of original chain
-      if (HandleImpl::IsEnd(next_with_shift)) {
+      if (next_with_shift.IsEnd()) {
         // Can set upgraded tail on first chain
-        uint64_t first_new_tail = MakeNextWithShiftEnd(
+        NextWithShift first_new_tail = NextWithShift::MakeEnd(
             chain_frontier_first == 0 ? old_home : grow_home, new_shift);
         arr[first_frontier].chain_next_with_shift.Store(first_new_tail);
         // And upgrade remainder of other chain
-        uint64_t other_new_tail = MakeNextWithShiftEnd(
+        NextWithShift other_new_tail = NextWithShift::MakeEnd(
             chain_frontier_first != 0 ? old_home : grow_home, new_shift);
         UpgradeShiftsOnRange(arr, other_frontier, other_new_tail, old_shift,
                              new_shift);
@@ -2621,7 +2600,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       }
 
       // next_with_shift is not End
-      cur = GetNextFromNextWithShift(next_with_shift);
+      cur = next_with_shift.GetNext();
 
       int target_chain;
       if (BottomNBits(arr[cur].hashed_key[1], new_shift) == old_home) {
@@ -2634,7 +2613,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       }
       if (target_chain == chain_frontier_first) {
         // Found next entry to skip to on the first chain
-        uint64_t skip_to = MakeNextWithShift(cur, new_shift);
+        NextWithShift skip_to = NextWithShift::Make(cur, new_shift);
         arr[first_frontier].chain_next_with_shift.Store(skip_to);
         first_frontier = cur;
         // Upgrade other chain up to entry before that one
@@ -2675,17 +2654,17 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
 
   HandleImpl* const arr = array_.Get();
 
-  uint64_t next_with_shift = rewrite_lock.GetSavedHead();
-  assert(!HandleImpl::IsEnd(next_with_shift));
-  int home_shift = GetShiftFromNextWithShift(next_with_shift);
+  NextWithShift next_with_shift = rewrite_lock.GetSavedHead();
+  assert(!next_with_shift.IsEnd());
+  int home_shift = next_with_shift.GetShift();
   (void)home;
   (void)home_shift;
-  size_t next = GetNextFromNextWithShift(next_with_shift);
+  size_t next = next_with_shift.GetNext();
   assert(next < array_.Count());
   HandleImpl* h = &arr[next];
   HandleImpl* prev_to_keep = nullptr;
 #ifndef NDEBUG
-  uint64_t prev_to_keep_next_with_shift = 0;
+  NextWithShift prev_to_keep_next_with_shift{};
 #endif
   // Whether there are entries between h and prev_to_keep that should be
   // purged from the chain.
@@ -2743,13 +2722,13 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
         // update any new entries just inserted in parallel.
         // Can simply restart (GetSavedHead() already updated from CAS failure).
         next_with_shift = rewrite_lock.GetSavedHead();
-        assert(!HandleImpl::IsEnd(next_with_shift));
-        next = GetNextFromNextWithShift(next_with_shift);
+        assert(!next_with_shift.IsEnd());
+        next = next_with_shift.GetNext();
         assert(next < array_.Count());
         h = &arr[next];
         pending_purge = false;
         assert(prev_to_keep == nullptr);
-        assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
+        assert(next_with_shift.GetShift() == home_shift);
         continue;
       }
       pending_purge = false;
@@ -2771,13 +2750,13 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
     }
 #endif
 
-    assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
+    assert(next_with_shift.GetShift() == home_shift);
 
     // Check for end marker
-    if (HandleImpl::IsEnd(next_with_shift)) {
+    if (next_with_shift.IsEnd()) {
       h = nullptr;
     } else {
-      next = GetNextFromNextWithShift(next_with_shift);
+      next = next_with_shift.GetNext();
       assert(next < array_.Count());
       h = &arr[next];
       assert(h != prev_to_keep);
@@ -2849,7 +2828,7 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home,
     // Ensure we are at the correct home for the shift in effect for the
     // chain head.
     for (;;) {
-      int shift = GetShiftFromNextWithShift(rewrite_lock.GetSavedHead());
+      int shift = rewrite_lock.GetSavedHead().GetShift();
 
       if (shift > home_shift) {
         // Found a newer shift at candidate head, which must apply to us.
@@ -3045,14 +3024,14 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
   }
 
   // Now insert into chain using head pointer
-  uint64_t next_with_shift;
+  NextWithShift next_with_shift;
   int home_shift = orig_home_shift;
 
   // Might need to retry
   for (int i = 0;; ++i) {
     CHECK_TOO_MANY_ITERATIONS(i);
     next_with_shift = arr[home].head_next_with_shift.Load();
-    int shift = GetShiftFromNextWithShift(next_with_shift);
+    int shift = next_with_shift.GetShift();
 
     if (UNLIKELY(shift != home_shift)) {
       // NOTE: shift increases with table growth
@@ -3079,15 +3058,14 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     }
 
     // Values to update to
-    uint64_t head_next_with_shift = MakeNextWithShift(idx, home_shift);
-    uint64_t chain_next_with_shift = next_with_shift;
+    NextWithShift head_next_with_shift = NextWithShift::Make(idx, home_shift);
+    NextWithShift chain_next_with_shift = next_with_shift;
 
     // Preserve the locked state in head, without propagating to chain next
     // where it is meaningless (and not allowed)
-    if (UNLIKELY((next_with_shift & HandleImpl::kNextEndFlags) ==
-                 HandleImpl::kHeadLocked)) {
-      head_next_with_shift |= HandleImpl::kHeadLocked;
-      chain_next_with_shift &= ~HandleImpl::kHeadLocked;
+    if (UNLIKELY(next_with_shift.IsLockedNotEnd())) {
+      head_next_with_shift.Set<NextWithShift::LockedFlag>(true);
+      chain_next_with_shift.Set<NextWithShift::LockedFlag>(false);
     }
 
     arr[idx].chain_next_with_shift.Store(chain_next_with_shift);
@@ -3156,9 +3134,9 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
   // of a loop as possible.
 
   HandleImpl* const arr = array_.Get();
-  uint64_t next_with_shift = arr[home].head_next_with_shift.LoadRelaxed();
-  for (size_t i = 0; !HandleImpl::IsEnd(next_with_shift) && i < 10; ++i) {
-    HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+  NextWithShift next_with_shift = arr[home].head_next_with_shift.LoadRelaxed();
+  for (size_t i = 0; !next_with_shift.IsEnd() && i < 10; ++i) {
+    HandleImpl* h = &arr[next_with_shift.IsEnd()];
     // Attempt cheap key match without acquiring a read ref. This could give a
     // false positive, which is re-checked after acquiring read ref, or false
     // negative, which is re-checked in the full Lookup. Also, this is a
@@ -3203,7 +3181,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     // Read head or chain pointer
     next_with_shift = h ? h->chain_next_with_shift.Load()
                         : arr[home].head_next_with_shift.Load();
-    int shift = GetShiftFromNextWithShift(next_with_shift);
+    int shift = next_with_shift.GetShift();
 
     // Make sure it's usable
     size_t effective_home = home;
@@ -3257,10 +3235,10 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     }
 
     // Check for end marker
-    if (HandleImpl::IsEnd(next_with_shift)) {
+    if (next_with_shift.IsEnd()) {
       // To ensure we didn't miss anything in the chain, the end marker must
       // point back to the correct home.
-      if (LIKELY(GetNextFromNextWithShift(next_with_shift) == effective_home)) {
+      if (LIKELY(next_with_shift.GetNext() == effective_home)) {
         // Complete, clean iteration of the chain, not found.
         // Clean up.
         if (read_ref_on_chain) {
@@ -3276,7 +3254,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     }
 
     // Follow the next and check for full key match, home match, or neither
-    h = &arr[GetNextFromNextWithShift(next_with_shift)];
+    h = &arr[next_with_shift.GetNext()];
     bool full_match_or_unknown = false;
     if (MatchAndRef(&hashed_key, *h, shift, effective_home,
                     &full_match_or_unknown)) {
@@ -3600,8 +3578,7 @@ size_t AutoHyperClockTable::CalcMaxUsableLength(
 
 namespace {
 bool IsHeadNonempty(const AutoHyperClockTable::HandleImpl& h) {
-  return !AutoHyperClockTable::HandleImpl::IsEnd(
-      h.head_next_with_shift.LoadRelaxed());
+  return !h.head_next_with_shift.LoadRelaxed().IsEnd();
 }
 bool IsEntryAtHome(const AutoHyperClockTable::HandleImpl& h, int shift,
                    size_t home) {
