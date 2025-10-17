@@ -2495,6 +2495,8 @@ commit_prereq:
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
+FOLLY_COMMIT_HASH = e95383b7c8b5b1e46cf47acf2f317d54f93c8268
+
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
 # integration.
@@ -2506,7 +2508,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard e95383b7c8b5b1e46cf47acf2f317d54f93c8268
+	cd third-party/folly && git reset --hard $(FOLLY_COMMIT_HASH)
 	@# Apparently missing include
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# Warning-as-error on memcpy
