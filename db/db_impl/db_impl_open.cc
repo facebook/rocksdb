@@ -2395,6 +2395,16 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   assert(handles);
   handles->clear();
 
+  // Validate that no transient CFs are requested
+  for (const auto& cf : column_families) {
+    if (cf.options.is_transient) {
+      return Status::InvalidArgument(
+          "Cannot open DB with transient column families. "
+          "Transient column family: " +
+          cf.name);
+    }
+  }
+
   size_t max_write_buffer_size = 0;
   MinAndMaxPreserveSeconds preserve_info;
   for (const auto& cf : column_families) {
