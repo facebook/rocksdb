@@ -4,6 +4,17 @@ runs:
   steps:
   - name: Add msbuild to PATH
     uses: microsoft/setup-msbuild@v1.3.1
+  - name: Setup sccache
+    uses: mozilla-actions/sccache-action@v0.0.8
+    with:
+      version: "v0.8.2"
+  - name: Configure sccache
+    shell: pwsh
+    run: |
+      echo "$SCCACHE_DIR"
+      echo "$SCCACHE_CACHE_SIZE"
+      echo "CMAKE_C_COMPILER_LAUNCHER=sccache" >> $env:GITHUB_ENV
+      echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> $env:GITHUB_ENV
   - name: Custom steps
     env:
       THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
@@ -14,6 +25,7 @@ runs:
       SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.2.2
       SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.2.2;${{ github.workspace }}/thirdparty/snappy-1.2.2/build
       SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.2.2/build/Debug/snappy.lib
+      SCCACHE_GHA_ENABLED: "true"
     run: |-
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
@@ -42,7 +54,7 @@ runs:
       if(!$?) { Exit $LASTEXITCODE }
       cd ..
       echo "Building with VS version: $Env:CMAKE_GENERATOR"
-      msbuild build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      msbuild build/rocksdb.sln -maxCpuCount /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
       echo ========================= Test RocksDB =========================
       build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
@@ -52,3 +64,7 @@ runs:
       & ctest -C Debug -j 16
       if(!$?) { Exit $LASTEXITCODE }
     shell: pwsh
+  - name: Show sccache stats
+    shell: pwsh
+    run: |
+      sccache --show-stats
