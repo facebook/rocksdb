@@ -620,9 +620,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void FindBlockForwardInMultiScan();
 
-  // Unpins blocks from the immediately previous scan range.
-  void UnpinPreviousScanBlocks(size_t current_scan_idx);
-
   void PrepareReadAsyncCallBack(FSReadRequest& req, void* cb_arg) {
     // Record status, result and sanity check offset from `req`.
     AsyncReadState* async_state = static_cast<AsyncReadState*>(cb_arg);
