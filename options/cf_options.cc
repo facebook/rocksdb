@@ -898,6 +898,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareLoose}},
+        {"is_transient",
+         {offsetof(struct ImmutableCFOptions, is_transient),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"cf_allow_ingest_behind",
          {offsetof(struct ImmutableCFOptions, cf_allow_ingest_behind),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -1042,6 +1046,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       blob_cache(cf_options.blob_cache),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
+      is_transient(cf_options.is_transient),
       cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}

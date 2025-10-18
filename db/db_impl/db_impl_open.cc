@@ -2395,6 +2395,16 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   assert(handles);
   handles->clear();
 
+  // Validate that no transient CFs are requested
+  for (const auto& cf : column_families) {
+    if (cf.options.is_transient) {
+      return Status::InvalidArgument(
+          "Cannot open DB with transient column families. "
+          "Transient column family: " +
+          cf.name);
+    }
+  }
+
   size_t max_write_buffer_size = 0;
   MinAndMaxPreserveSeconds preserve_info;
   for (const auto& cf : column_families) {
@@ -2539,6 +2549,27 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->PrepopulateSeqnoToTimeMapping(preserve_info);
   }
 
+  // drop transient CFs before we create handles
+  if (s.ok()) {
+    impl->mutex_.AssertHeld();
+
+    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+      if (cfd->ioptions().is_transient) {
+        ROCKS_LOG_INFO(impl->immutable_db_options().info_log,
+                       "Dropping transient CF: %s", cfd->GetName().c_str());
+        ColumnFamilyHandle* cf_handle =
+            new ColumnFamilyHandleImpl(cfd, impl.get(), &impl->mutex_);
+
+        Status drop_status = impl->DropColumnFamily(cf_handle);
+        if (!drop_status.ok()) {
+          s = drop_status;
+          break;
+        }
+        delete cf_handle;
+      }
+    }
+  }
+
   if (s.ok()) {
     // set column family handles
     for (const auto& cf : column_families) {
@@ -2615,6 +2646,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   } else {
     persist_options_status.PermitUncheckedError();
   }
+
   impl->mutex_.Unlock();
 
   auto sfm = static_cast<SstFileManagerImpl*>(
