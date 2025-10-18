@@ -1544,9 +1544,18 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     }
 
     if (output_level != 0) {
+      // For standalone range deletion, we don't want to compact it with newer
+      // L0 files that it doesn't cover.
+      const FileMetaData* starting_l0_file =
+          (start_level == 0 && start_level_inputs.size() == 1 &&
+           start_level_inputs.files[0]->FileIsStandAloneRangeTombstone())
+              ? start_level_inputs.files[0]
+              : nullptr;
+
       if (start_level == 0) {
         if (!picker_->GetOverlappingL0Files(vstorage_, &start_level_inputs,
-                                            output_level, nullptr)) {
+                                            output_level, nullptr,
+                                            starting_l0_file)) {
           return nullptr;
         }
       }
@@ -1557,7 +1566,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       output_level_inputs.level = output_level;
       if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
                                      &start_level_inputs, &output_level_inputs,
-                                     &parent_index, -1)) {
+                                     &parent_index, -1, false,
+                                     starting_l0_file)) {
         return nullptr;
       }
       inputs.push_back(start_level_inputs);
