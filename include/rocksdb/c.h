@@ -148,6 +148,14 @@ typedef struct rocksdb_statistics_histogram_data_t
     rocksdb_statistics_histogram_data_t;
 typedef struct rocksdb_wait_for_compact_options_t
     rocksdb_wait_for_compact_options_t;
+
+/* rocksdb_slice_t: Optimized slice type for high-performance C API operations
+ * This struct is ABI-compatible with rocksdb::Slice for zero-copy interop.
+ * Used by slice iterator functions and batched operations. */
+typedef struct rocksdb_slice_t {
+  const char* data;
+  size_t size;
+} rocksdb_slice_t;
 typedef struct rocksdb_flushjobinfo_t rocksdb_flushjobinfo_t;
 typedef struct rocksdb_compactionjobinfo_t rocksdb_compactionjobinfo_t;
 typedef struct rocksdb_subcompactionjobinfo_t rocksdb_subcompactionjobinfo_t;
@@ -610,6 +618,16 @@ extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf(
     const char* const* keys_list, const size_t* keys_list_sizes,
     rocksdb_pinnableslice_t** values, char** errs, const bool sorted_input);
 
+/* Batched MultiGet with slice array: Takes rocksdb_slice_t array directly,
+ * avoiding key conversion. faster than rocksdb_batched_multi_get_cf for
+ * operations with many keys. Eliminates overhead of converting keys from
+ * separate pointer+size arrays to Slice objects. */
+extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf_slice(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const rocksdb_slice_t* keys_list, rocksdb_pinnableslice_t** values,
+    char** errs, const bool sorted_input);
+
 // The value is only allocated (using malloc) and returned if it is found and
 // value_found isn't NULL. In that case the user is responsible for freeing it.
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_key_may_exist(
@@ -776,6 +794,18 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
     const rocksdb_iterator_t*, size_t* tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
     const rocksdb_iterator_t*, char** errptr);
+
+/* Slice iterator functions: Return rocksdb_slice_t directly for better
+ * performance. These functions avoid the overhead of passing output parameters
+ * and provide zero-copy access to key/value/timestamp data. faster than
+ * traditional rocksdb_iter_key/value/timestamp functions. */
+extern ROCKSDB_LIBRARY_API rocksdb_slice_t
+rocksdb_iter_key_slice(const rocksdb_iterator_t* iter);
+extern ROCKSDB_LIBRARY_API rocksdb_slice_t
+rocksdb_iter_value_slice(const rocksdb_iterator_t* iter);
+extern ROCKSDB_LIBRARY_API rocksdb_slice_t
+rocksdb_iter_timestamp_slice(const rocksdb_iterator_t* iter);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_refresh(
     const rocksdb_iterator_t* iter, char** errptr);
 
@@ -3439,6 +3469,48 @@ extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_timeout(
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_wait_for_compact_options_get_timeout(
     rocksdb_wait_for_compact_options_t* opt);
+
+/* High-performance zero-copy Get variants
+   These functions avoid unnecessary memory allocations and copies.
+   The returned buffer is valid until the handle is destroyed.
+   Bindings should migrate to these for better performance. */
+
+/* Zero-copy get that returns a handle to pinned data.
+   The data remains valid until rocksdb_pinnable_handle_destroy is called.
+   Returns NULL on error or not found. Check errptr to distinguish. */
+typedef struct rocksdb_pinnable_handle_t rocksdb_pinnable_handle_t;
+
+extern ROCKSDB_LIBRARY_API rocksdb_pinnable_handle_t* rocksdb_get_pinned_v2(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_pinnable_handle_t* rocksdb_get_pinned_cf_v2(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr);
+
+/* Get the data pointer and size from a pinnable handle.
+   The data pointer is valid until the handle is destroyed. */
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnable_handle_get_value(
+    const rocksdb_pinnable_handle_t* handle, size_t* vallen);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_pinnable_handle_destroy(
+    rocksdb_pinnable_handle_t* handle);
+
+/* Direct get into caller-provided buffer.
+   Returns 1 if value fits in buffer, 0 if buffer too small.
+   Sets *vallen to actual value size.
+   If buffer is too small, no data is copied but *vallen is set. */
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char* buffer, size_t buffer_size, size_t* vallen,
+    unsigned char* found, char** errptr);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char* buffer, size_t buffer_size, size_t* vallen,
+    unsigned char* found, char** errptr);
 
 #ifdef __cplusplus
 } /* end extern "C" */
