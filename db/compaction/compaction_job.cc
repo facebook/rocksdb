@@ -950,7 +950,8 @@ void CompactionJob::FinalizeCompactionRun(
     UpdateCompactionJobInputStatsFromInternalStats(internal_stats_,
                                                    num_input_range_del);
   }
-  UpdateCompactionJobOutputStatsFromInternalStats(internal_stats_);
+  UpdateCompactionJobOutputStatsFromInternalStats(input_status,
+                                                  internal_stats_);
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
@@ -2527,6 +2528,7 @@ void CompactionJob::UpdateCompactionJobInputStatsFromInternalStats(
 }
 
 void CompactionJob::UpdateCompactionJobOutputStatsFromInternalStats(
+    const Status& status,
     const InternalStats::CompactionStatsFull& internal_stats) const {
   assert(job_stats_);
   job_stats_->elapsed_micros = internal_stats.output_level_stats.micros;
@@ -2557,7 +2559,7 @@ void CompactionJob::UpdateCompactionJobOutputStatsFromInternalStats(
         internal_stats.proximal_level_stats.num_output_files_blob;
   }
 
-  if (job_stats_->num_output_files > 0) {
+  if (status.ok() && job_stats_->num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),
                CompactionJobStats::kMaxPrefixLength,
                &job_stats_->smallest_output_key_prefix);

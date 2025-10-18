@@ -208,6 +208,7 @@ class CompactionJob {
 
  protected:
   void UpdateCompactionJobOutputStatsFromInternalStats(
+      const Status& status,
       const InternalStats::CompactionStatsFull& internal_stats) const;
 
   void LogCompaction();

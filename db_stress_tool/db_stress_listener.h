@@ -9,6 +9,7 @@
 #include <mutex>
 #include <unordered_set>
 
+#include "db_stress_tool/db_stress_compaction_service.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
@@ -21,7 +22,6 @@
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
-
 DECLARE_int32(compact_files_one_in);
 
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
@@ -309,6 +309,11 @@ class DbStressListener : public EventListener {
           return;
         }
       }
+    }
+    // We can't do exact matching since remote workers use dynamic temp paths
+    if (file_dir.find(DbStressCompactionService::kTempOutputDirectoryPrefix) !=
+        std::string::npos) {
+      return;
     }
     assert(false);
 #else
