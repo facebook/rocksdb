@@ -2,7 +2,7 @@
 <Project>
     <PropertyGroup>
         <CLToolExe>ccache_msvc_compiler.bat</CLToolExe>
-        <CLToolPath>.</CLToolPath>
+        <CLToolPath>$(MSBuildThisFileDirectory)</CLToolPath>
         <UseMultiToolTask>true</UseMultiToolTask>
         <EnforceProcessCountAcrossBuilds>true</EnforceProcessCountAcrossBuilds>
     </PropertyGroup>

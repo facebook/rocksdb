@@ -21,6 +21,8 @@ runs:
     run: |-
       # Debug : Print ccache config
       ccache -p
+      where msbuild
+      which msbuild
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
       choco install liberica8jdk -y
