@@ -9018,8 +9018,6 @@ class UserDefinedIndexStressTest
             std::chrono::system_clock::now().time_since_epoch())
             .count());
 
-    // 304010984;
-
     std::cout << "Random seed: " << rand_seed_ << std::endl;
 
     rnd = Random(rand_seed_);
