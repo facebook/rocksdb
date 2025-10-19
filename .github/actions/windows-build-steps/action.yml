@@ -25,9 +25,6 @@ runs:
       SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.2.2;${{ github.workspace }}/thirdparty/snappy-1.2.2/build
       SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.2.2/build/Debug/snappy.lib
     run: |-
-      # Debug : Print ccache config
-      ccache -p
-      which cl.exe
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
       choco install liberica8jdk -y
