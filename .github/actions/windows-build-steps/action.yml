@@ -4,9 +4,6 @@ runs:
   steps:
   - name: Add msbuild to PATH
     uses: microsoft/setup-msbuild@v1.3.1
-  - name: Find and run vcvarsall.bat
-      # The environment is only set for this step
-      run: & 'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat' x64
   - name: ccache
     uses: hendrikmuhs/ccache-action@v1.2
     with:
