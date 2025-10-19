@@ -55,7 +55,8 @@ runs:
       if(!$?) { Exit $LASTEXITCODE }
       cd ..
       echo "Building with VS version: $Env:CMAKE_GENERATOR"
-      msbuild build/rocksdb.sln -maxCpuCount /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
+      # use more parallel processes than the number of processes available, as most of the compile command would be cache hit
+      msbuild build/rocksdb.sln /m:32 /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
       echo ========================= Test RocksDB =========================
       build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
