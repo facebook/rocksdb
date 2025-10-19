@@ -4,6 +4,9 @@ runs:
   steps:
   - name: Add msbuild to PATH
     uses: microsoft/setup-msbuild@v1.3.1
+  - name: Find and run vcvarsall.bat
+      # The environment is only set for this step
+      run: & 'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat' x64
   - name: ccache
     uses: hendrikmuhs/ccache-action@v1.2
     with:
@@ -21,8 +24,7 @@ runs:
     run: |-
       # Debug : Print ccache config
       ccache -p
-      where msbuild
-      which msbuild
+      which cl.exe
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
       choco install liberica8jdk -y
