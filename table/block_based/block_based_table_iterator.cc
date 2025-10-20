@@ -1051,7 +1051,6 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   // Reset out of bound on seek, if it is out of bound again, it will be set
   // properly later in the code path
   is_out_of_bound_ = false;
-  multi_scan_prepared_blocks_exhausted_ = false;
 
   // Validate seek key with scan options
   if (!seek_target) {
@@ -1063,22 +1062,30 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   // Check the case where there is no range prepared on this table
   if (multi_scan_->scan_opts->size() == 0) {
     // out of bound
+    MarkPreparedRangeExhausted();
     return;
   }
 
   // Check whether seek key is moving forward.
-  if (!multi_scan_->prev_seek_key_.empty()) {
-    if (user_comparator_.CompareWithoutTimestamp(ExtractUserKey(*seek_target),
-                                                 /*a_has_ts=*/true,
-                                                 multi_scan_->prev_seek_key_,
-                                                 /*b_has_ts=*/false) < 0) {
-      // The seek target moved backward
-      multi_scan_status_ =
-          Status::InvalidArgument("Unexpected seek key moving backward");
-      return;
-    }
+  if (multi_scan_->prev_seek_key_.empty() ||
+      user_comparator_.CompareWithoutTimestamp(
+          ExtractUserKey(*seek_target),
+          /*a_has_ts=*/true, ExtractUserKey(multi_scan_->prev_seek_key_),
+          /*b_has_ts=*/false) > 0) {
+    // If seek key is empty or is larger than previous seek key, update the
+    // previous seek key. Otherwise use the previous seek key as the adjusted
+    // seek target moving forward. This prevents seek target going backward,
+    // which would visit pages that have been unpinned.
+    // This issue is caused by sub-optimal range delete handling inside merge
+    // iterator.
+    // TODO xingbo issues:14068 : Optimize the handling of range delete iterator
+    // inside merge iterator, so that it doesn't move seek key backward. After
+    // that we could return error if the key moves backward here.
+    multi_scan_->prev_seek_key_ = seek_target->ToString();
   }
-  multi_scan_->prev_seek_key_ = ExtractUserKey(*seek_target).ToString();
+
+  Slice adjusted_seek_target = multi_scan_->prev_seek_key_;
+  auto const user_seek_target = ExtractUserKey(adjusted_seek_target);
 
   // There are 3 different Cases we need to handle:
   // The following diagram explain different seek targets seeking at various
@@ -1094,8 +1101,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   //
   // Case 1: seek before the start of next prepared ranges. This could happen
   //    due to too many delete tomestone triggered reseek.
-  // Case 2: seek at the beginning of a prepared range (expected case)
-  // Case 3: seek after the start of next prepared range.
+  // Case 2: seek after the start of next prepared range.
   //    This could happen due to seek key adjustment from delete range file.
   //    E.g. LSM has 3 levels, each level has only 1 file:
   //    L1 : key :              0---10
@@ -1105,6 +1111,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   //    but the seek key would be 5, as the seek key was updated by the largest
   //    key of delete range. This causes all of the cases above to be possible,
   //    when the ranges are adjusted in the above examples.
+  // Case 3: seek at the beginning of a prepared range (expected case)
 
   // Allow reseek on the start of the last prepared range due to too many
   // tombstone
@@ -1114,7 +1121,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
 
   auto compare_next_scan_start_result =
       user_comparator_.CompareWithoutTimestamp(
-          multi_scan_->prev_seek_key_, /*a_has_ts=*/true,
+          user_seek_target, /*a_has_ts=*/true,
           multi_scan_->scan_opts->GetScanRanges()[multi_scan_->next_scan_idx]
               .range.start.value(),
           /*b_has_ts=*/false);
@@ -1136,12 +1143,12 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
         // seeked become 6, which is before the first range [8-9) prepared. In
         // this case simply mark the prepared blocks for this range is
         // exhausted.
-        multi_scan_prepared_blocks_exhausted_ = true;
+        MarkPreparedRangeExhausted();
         return;
       }
       auto seek_target_before_previous_prepared_range =
           user_comparator_.CompareWithoutTimestamp(
-              multi_scan_->prev_seek_key_, /*a_has_ts=*/true,
+              user_seek_target, /*a_has_ts=*/true,
               multi_scan_->scan_opts
                   ->GetScanRanges()[multi_scan_->next_scan_idx - 1]
                   .range.start.value(),
@@ -1163,24 +1170,21 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
       // It should only be possible to seek a key between the start of current
       // prepared scan and start of next prepared range.
       MultiScanUnexpectedSeekTarget(
-          seek_target, std::get<0>(multi_scan_->block_index_ranges_per_scan
-                                       [multi_scan_->next_scan_idx - 1]));
+          &adjusted_seek_target, &user_seek_target,
+          std::get<0>(multi_scan_->block_index_ranges_per_scan
+                          [multi_scan_->next_scan_idx - 1]));
     } else {
-      // Case 3:
+      // Case 2:
       MultiScanUnexpectedSeekTarget(
-          seek_target,
+          &adjusted_seek_target, &user_seek_target,
           std::get<0>(
               multi_scan_
                   ->block_index_ranges_per_scan[multi_scan_->next_scan_idx]));
     }
   } else {
     // Case 2:
-    if (multi_scan_->next_scan_idx >=
-        multi_scan_->block_index_ranges_per_scan.size()) {
-      // Seeking a range that is out side of prepared ranges.
-      multi_scan_prepared_blocks_exhausted_ = true;
-      return;
-    }
+    assert(multi_scan_->next_scan_idx <
+           multi_scan_->block_index_ranges_per_scan.size());
 
     auto [cur_scan_start_idx, cur_scan_end_idx] =
         multi_scan_->block_index_ranges_per_scan[multi_scan_->next_scan_idx];
@@ -1188,16 +1192,16 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
     ++multi_scan_->next_scan_idx;
     if (cur_scan_start_idx >= cur_scan_end_idx) {
       // No blocks are prepared for this range at current file.
-      multi_scan_prepared_blocks_exhausted_ = true;
+      MarkPreparedRangeExhausted();
       return;
     }
 
-    MultiScanSeekTargetFromBlock(seek_target, cur_scan_start_idx);
+    MultiScanSeekTargetFromBlock(&adjusted_seek_target, cur_scan_start_idx);
   }
 }
 
 void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
-    const Slice* seek_target, size_t block_idx) {
+    const Slice* seek_target, const Slice* user_seek_target, size_t block_idx) {
   // linear search the block that contains the seek target, and unpin blocks
   // that are before it.
 
@@ -1215,14 +1219,13 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
   // not be unpinned, as next scan would need it. But Seek(5) implies that these
   // keys are all covered by some range deletion, so the next Seek(3) will also
   // do Seek(5) internally, so the blocks from 3-4 could be safely unpinned.
-  auto const user_seek_key = ExtractUserKey(*seek_target);
 
   // advance to the right prepared range
   while (
       multi_scan_->next_scan_idx <
           multi_scan_->block_index_ranges_per_scan.size() &&
       (user_comparator_.CompareWithoutTimestamp(
-           user_seek_key, /*a_has_ts=*/true,
+           *user_seek_target, /*a_has_ts=*/true,
            multi_scan_->scan_opts->GetScanRanges()[multi_scan_->next_scan_idx]
                .range.start.value(),
            /*b_has_ts=*/false) >= 0)) {
@@ -1237,7 +1240,7 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
 
   if (cur_scan_start_idx >= cur_scan_end_idx) {
     // No blocks are prepared for this range at current file.
-    multi_scan_prepared_blocks_exhausted_ = true;
+    MarkPreparedRangeExhausted();
     return;
   }
 
@@ -1253,11 +1256,11 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
   // Find the right block_idx;
   block_idx = cur_scan_start_idx;
   auto const& data_block_separators = multi_scan_->data_block_separators;
-  while (
-      block_idx < data_block_separators.size() &&
-      (user_comparator_.CompareWithoutTimestamp(
-           user_seek_key, /*a_has_ts=*/true, data_block_separators[block_idx],
-           /*b_has_ts=*/false) > 0)) {
+  while (block_idx < data_block_separators.size() &&
+         (user_comparator_.CompareWithoutTimestamp(
+              *user_seek_target, /*a_has_ts=*/true,
+              data_block_separators[block_idx],
+              /*b_has_ts=*/false) > 0)) {
     // Unpin the blocks that are passed
     if (!multi_scan_->pinned_data_blocks[block_idx].IsEmpty()) {
       multi_scan_->pinned_data_blocks[block_idx].Reset();
@@ -1267,7 +1270,7 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
 
   if (block_idx >= data_block_separators.size()) {
     // All of the prepared blocks for this file is exhausted.
-    multi_scan_prepared_blocks_exhausted_ = true;
+    MarkPreparedRangeExhausted();
     return;
   }
 
@@ -1307,6 +1310,7 @@ void BlockBasedTableIterator::MultiScanSeekTargetFromBlock(
   block_iter_points_to_real_block_ = true;
   block_iter_.Seek(*seek_target);
   FindKeyForward();
+  CheckOutOfBound();
 }
 
 void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
@@ -1325,22 +1329,7 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     // for this file, it may need to continue to scan into the next file, so
     // we do not set is_out_of_bound_ in this case.
     if (multi_scan_->cur_data_block_idx + 1 >= cur_scan_end_idx) {
-      if (multi_scan_->next_scan_idx >=
-          multi_scan_->block_index_ranges_per_scan.size()) {
-        // We are done with this file, should let LevelIter advance to the
-        // next file instead of ending the scan
-        multi_scan_prepared_blocks_exhausted_ = true;
-        ResetDataIter();
-        assert(!is_out_of_bound_);
-        assert(!Valid());
-        return;
-      }
-      // We don't ResetDataIter() here since next scan might be reading from
-      // the same block. ResetDataIter() will free the underlying block cache
-      // handle and we don't want the block to be unpinned.
-      is_out_of_bound_ = true;
-      assert(!Valid());
-      return;
+      MarkPreparedRangeExhausted();
     }
     // Move to the next pinned data block
     ResetDataIter();

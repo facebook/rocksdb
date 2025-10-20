@@ -60,7 +60,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && multi_scan_status_.ok() &&
-           !multi_scan_prepared_blocks_exhausted_ &&
            (is_at_first_key_from_index_ ||
             (block_iter_points_to_real_block_ && block_iter_.Valid()));
   }
@@ -383,11 +382,26 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // See InternalIteratorBase::IsOutOfBound().
   bool is_out_of_bound_ = false;
 
-  // flag to indicate whether the prepared blocks for current multi scan range
-  // is exhausted. It is used to flag the iterator as invalid, so that Level
-  // iterator could advance to next file in case there are more data in next
-  // file.
-  bool multi_scan_prepared_blocks_exhausted_{false};
+  // Mark prepared ranges as exhausted for multiscan.
+  void MarkPreparedRangeExhausted() {
+    assert(multi_scan_ != nullptr);
+    if (multi_scan_->next_scan_idx <
+        multi_scan_->block_index_ranges_per_scan.size()) {
+      // If there are more prepared ranges, we don't ResetDataIter() here,
+      // because next scan might be reading from the same block. ResetDataIter()
+      // will free the underlying block cache handle and we don't want the
+      // block to be unpinned.
+      // Set out of bound to mark the current prepared range as exhausted.
+      is_out_of_bound_ = true;
+    } else {
+      // This is the last prepared range of this file, there might be more
+      // data on next file. Reset data iterator to indicate the iterator is
+      // no longer valid on this file. Let LevelIter advance to the next file
+      // instead of ending the scan.
+      ResetDataIter();
+    }
+  }
+
   // During cache lookup to find readahead size, index_iter_ is iterated and it
   // can point to a different block.
   // If Prepare() is called, index_iter_ is used to prefetch data blocks for the
@@ -645,6 +659,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void MultiScanSeekTargetFromBlock(const Slice* seek_target, size_t block_idx);
   void MultiScanUnexpectedSeekTarget(const Slice* seek_target,
+                                     const Slice* user_seek_target,
                                      size_t block_idx);
 
   // Return true, if there is an error, or end of file

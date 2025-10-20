@@ -1188,8 +1188,8 @@ class LevelIterator final : public InternalIterator {
             continue;
           }
           auto const metadata = flevel_->files[i].file_metadata;
-          if (metadata->num_entries == metadata->num_range_deletions) {
-            // Skip range deletion only files.
+          if (metadata->FileIsStandAloneRangeTombstone()) {
+            // Skip stand alone range deletion files.
             continue;
           }
           auto& args = GetMultiScanArgForFile(i);
