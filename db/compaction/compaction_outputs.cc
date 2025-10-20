@@ -278,7 +278,12 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   }
 
   // reach the max file size
-  if (current_output_file_size_ >= compaction_->max_output_file_size()) {
+  uint64_t estimated_file_size = current_output_file_size_;
+  // TODO (@nmk70): Store the cf option during init to avoid accessing the option repeatedly
+  if (compaction_->mutable_cf_options().compaction_use_tail_size_estimation) {
+    estimated_file_size += builder_->EstimatedTailSize();
+  }
+  if (estimated_file_size >= compaction_->max_output_file_size()) {
     return true;
   }
 

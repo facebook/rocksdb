@@ -11541,6 +11541,55 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 }
 
+// Tests that the tail size estimation feature prevents compaction output files from
+// significantly exceeding their target size when using partitioned filters.
+TEST_F(DBCompactionTest, TailSizeEstimationWithPartitionedFilter) {
+  Options options = CurrentOptions();
+  options.target_file_size_base = 64 * 1024;
+  options.write_buffer_size = 2 * 1024 * 1024;
+  options.level0_file_num_compaction_trigger = 2;
+  options.compaction_use_tail_size_estimation = true;
+  options.compression = kNoCompression;
+
+  BlockBasedTableOptions table_options;
+  table_options.partition_filters = true;
+  table_options.metadata_block_size = 4096;
+  table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  // Generate 2 L0 files
+  // Each file with 10k keys (each ~100 bytes) approx 1.2MB total
+  Random rnd(301);
+  for (int i = 0; i < 10000; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 10000; i < 20000; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  std::vector<LiveFileMetaData> files;
+  db_->GetLiveFilesMetaData(&files);
+
+  // Verify that compacted output files stay within 10% margin of target size
+  uint64_t target_with_margin = options.target_file_size_base * 1.1;
+  for (const auto& file : files) {
+    if (file.level > 0) {
+      EXPECT_LE(file.size, target_with_margin)
+          << "Output file size " << file.size
+          << " exceeds target size with margin " << target_with_margin
+          << " for file " << file.name << " at level " << file.level;
+    }
+  }
+}
+
 class PeriodicCompactionListener : public EventListener {
  public:
   explicit PeriodicCompactionListener() {}
