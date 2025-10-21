@@ -117,7 +117,7 @@ Slice ShortenedIndexBuilder::FindShortInternalKeySuccessor(
   }
 }
 
-void ShortenedIndexBuilder::UpdateIndexSizeEstimate() const {
+void ShortenedIndexBuilder::UpdateIndexSizeEstimate() {
   uint64_t current_size =
       must_use_separator_with_seq_
           ? index_block_builder_.CurrentSizeEstimate()
@@ -356,7 +356,7 @@ Status PartitionedIndexBuilder::Finish(
 
 size_t PartitionedIndexBuilder::NumPartitions() const { return partition_cnt_; }
 
-void PartitionedIndexBuilder::UpdateIndexSizeEstimate() const {
+void PartitionedIndexBuilder::UpdateIndexSizeEstimate() {
   uint64_t total_size = 0;
 
   // Ignore last entry which is a placeholder for the partition being built

@@ -193,7 +193,7 @@ class IndexBuilder {
   // Subclasses that keep a cached estimate should override this method
   // and call it whenever their internal state changes (such as when index
   // entries are added).
-  virtual void UpdateIndexSizeEstimate() const {}
+  virtual void UpdateIndexSizeEstimate() {}
 
   const InternalKeyComparator* comparator_;
   // Size of user-defined timestamp in bytes.
@@ -439,7 +439,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   // Updates the cached size estimate to minimize CPU usage in hot path
-  void UpdateIndexSizeEstimate() const override;
+  void UpdateIndexSizeEstimate() override;
 
   bool separator_is_key_plus_seq() override {
     return must_use_separator_with_seq_;
@@ -473,7 +473,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   std::string current_block_first_internal_key_;
   uint64_t num_index_entries_ = 0;
   // Cache for index size estimate to avoid recalculating in hot path
-  mutable RelaxedAtomic<uint64_t> estimated_index_size_{0};
+  RelaxedAtomic<uint64_t> estimated_index_size_{0};
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -717,7 +717,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t partition_cnt_ = 0;
 
   void MakeNewSubIndexBuilder();
-  void UpdateIndexSizeEstimate() const override;
+  void UpdateIndexSizeEstimate() override;
 
   struct Entry {
     std::string key;
@@ -746,8 +746,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
   // Cached estimate of current index size, updated when data blocks are added
-  mutable RelaxedAtomic<uint64_t> estimated_index_size_{0};
+  RelaxedAtomic<uint64_t> estimated_index_size_{0};
   // Running estimate of completed partitions total size
-  mutable RelaxedAtomic<uint64_t> estimated_completed_partitions_size_{0};
+  RelaxedAtomic<uint64_t> estimated_completed_partitions_size_{0};
 };
 }  // namespace ROCKSDB_NAMESPACE
