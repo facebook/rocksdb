@@ -402,6 +402,7 @@ default_params = {
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
+    "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
     "remote_compaction_failure_fall_back_to_local": 1,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
@@ -845,6 +846,22 @@ def finalize_and_sanitize(src_params):
         dest_params["checkpoint_one_in"] = 0
         dest_params["use_timed_put_one_in"] = 0
         dest_params["test_secondary"] = 0
+        # Disable database open fault injection to prevent test inefficiency described below.
+        # When fault injection occurs during DB open, the db will wait for compaction
+        # to finish to clean up the database before retrying without injected error.
+        # However remote compaction threads are not yet created at that point
+        # so the db has to wait for the timeout (currently 30 seconds) to fall back to
+        # local compaction in order for the compaction to finish.
+        #
+        # TODO: Consider moving compaction thread creation earlier in the startup sequence
+        # to allow db open fault injection testing without this performance penalty
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        dest_params["sync_fault_injection"] = 0
+    else:
+        dest_params["allow_resumption_one_in"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
