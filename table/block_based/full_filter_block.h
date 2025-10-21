@@ -85,7 +85,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   const bool whole_key_filtering_;
   std::unique_ptr<const char[]> filter_data_;
 
-  mutable size_t estimated_filter_size_ = 0;
+  size_t estimated_filter_size_ = 0;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

@@ -114,7 +114,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   // Cached filter size estimate for hot path performance - updated only when data
   // blocks are written for meaningful estimate updates
-  mutable size_t estimated_filter_size_ = 0;
+  size_t estimated_filter_size_ = 0;
 
 #ifndef NDEBUG
   // For verifying accurate previous keys are provided by the caller, so that
