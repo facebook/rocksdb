@@ -910,6 +910,11 @@ struct BlockBasedTableBuilder::Rep {
   // all blocks after data blocks till the end of the SST file.
   uint64_t tail_size;
 
+  // The last estimated tail size before the file was finalized.
+  // Captured in Finish() right before writing the tail blocks.
+  // Used for assertions to verify that the estimate is an overestimation.
+  uint64_t last_estimated_tail_size = 0;
+
   // The total size of all blocks in this file before they are compressed.
   // This is used for logging compaction stats.
   uint64_t pre_compression_size = 0;
@@ -2712,6 +2717,8 @@ Status BlockBasedTableBuilder::Finish() {
 
   r->props.tail_start_offset = r->offset.LoadRelaxed();
 
+  r->last_estimated_tail_size = EstimatedTailSize();
+
   // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
   //    2. [meta block: index]
@@ -2737,6 +2744,9 @@ Status BlockBasedTableBuilder::Finish() {
   }
   r->state = Rep::State::kClosed;
   r->tail_size = r->offset.LoadRelaxed() - r->props.tail_start_offset;
+
+  // Assert the estimated tail size is an overestimation
+  assert(r->tail_size <= r->last_estimated_tail_size);
 
   return r->GetStatus();
 }
