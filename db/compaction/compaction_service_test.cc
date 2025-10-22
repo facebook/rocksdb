@@ -2269,6 +2269,8 @@ class ResumableCompactionServiceTest : public CompactionServiceTest {
 
     GenerateTestData();
 
+    ASSERT_OK(statistics->Reset());
+
     CompactRangeOptions cro;
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
     Status s = db_->CompactRange(cro, nullptr, nullptr);
@@ -2288,6 +2290,24 @@ class ResumableCompactionServiceTest : public CompactionServiceTest {
     ASSERT_TRUE(result.stats.is_manual_compaction);
     ASSERT_TRUE(result.stats.is_remote_compaction);
     ASSERT_GT(result.output_files.size(), 0);
+
+    uint64_t resumed_bytes =
+        statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES);
+    if (scenario ==
+        ResumableCompactionService::TestScenario::kCancelThenResume) {
+      // When resuming compaction, some bytes should be resumed from previous
+      // progress
+      ASSERT_GT(resumed_bytes, 0);
+    } else if (scenario == ResumableCompactionService::TestScenario::
+                               kCancelThenFreshStart) {
+      // When starting fresh (ignoring existing progress), no bytes should be
+      // resumed
+      ASSERT_EQ(resumed_bytes, 0);
+    } else {  // kMultipleCancelToggleResumption
+      // Phase 2 ran without resumption (fresh start), so Phase 3 has no
+      // progress to resume from. It processes all keys again from scratch.
+      ASSERT_EQ(resumed_bytes, 0);
+    }
   }
 
   void GenerateTestData() {

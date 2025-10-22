@@ -425,6 +425,7 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/batched_ops_stress.cc",
         "db_stress_tool/cf_consistency_stress.cc",
         "db_stress_tool/db_stress_common.cc",
+        "db_stress_tool/db_stress_compaction_service.cc",
         "db_stress_tool/db_stress_compression_manager.cc",
         "db_stress_tool/db_stress_driver.cc",
         "db_stress_tool/db_stress_filters.cc",

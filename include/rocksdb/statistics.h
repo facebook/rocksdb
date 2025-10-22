@@ -440,6 +440,9 @@ enum Tickers : uint32_t {
   REMOTE_COMPACT_READ_BYTES,
   REMOTE_COMPACT_WRITE_BYTES,
 
+  // Bytes of output files successfully resumed during compaction
+  REMOTE_COMPACT_RESUMED_BYTES,
+
   // Tiered storage related statistics
   HOT_FILE_READ_BYTES,
   WARM_FILE_READ_BYTES,
