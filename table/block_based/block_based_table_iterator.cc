@@ -1330,6 +1330,7 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     // we do not set is_out_of_bound_ in this case.
     if (multi_scan_->cur_data_block_idx + 1 >= cur_scan_end_idx) {
       MarkPreparedRangeExhausted();
+      return;
     }
     // Move to the next pinned data block
     ResetDataIter();

@@ -1274,13 +1274,13 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
                       ExtractUserKey(kv[33 * kEntriesPerBlock].first));
   iter->Prepare(&scan_options);
   iter->Seek(kv[32 * kEntriesPerBlock].first);
+  auto key = iter->key();
   ASSERT_OK(iter->status());
-  iter->Seek(kv[34 * kEntriesPerBlock].first);
-  ASSERT_OK(iter->status());
-  // Seek key could not going backward
   iter->Seek(kv[30 * kEntriesPerBlock].first);
-  ASSERT_EQ(iter->status(),
-            Status::InvalidArgument("Unexpected seek key moving backward"));
+  // When seek key goes backward, it is adjusted to the last seeked position.
+  // Assert the key read is same as before.
+  ASSERT_EQ(key, iter->key());
+  ASSERT_OK(iter->status());
 
   // Test prefetch limit reached.
   iter.reset(table->NewIterator(
