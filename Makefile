@@ -2506,7 +2506,7 @@ commit_prereq:
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
-FOLLY_COMMIT_HASH = 5a50f6c5565cd6ec41c8677a7f3cf3097fcc03a6
+FOLLY_COMMIT_HASH = 3134f74d3d29f156ffad4b8747442189fcaaabc0
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
@@ -2524,8 +2524,8 @@ checkout_folly:
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# const mismatch
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
-	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
-	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost
+	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
+	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 
