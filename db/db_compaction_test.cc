@@ -11541,19 +11541,23 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 }
 
-// Tests that the tail size estimation feature prevents compaction output files from
-// significantly exceeding their target size when using partitioned filters.
+// Tests that the tail size estimation feature prevents compaction output files
+// from exceeding their target size when using partitioned filters.
 TEST_F(DBCompactionTest, TailSizeEstimationWithPartitionedFilter) {
+  const int kInitialKeyCount = 10000;  // 10k keys
+  const int kValueSize = 100;          // 100 bytes per key
+  const int kSeed = 301;
+
   Options options = CurrentOptions();
-  options.target_file_size_base = 64 * 1024;
-  options.write_buffer_size = 2 * 1024 * 1024;
-  options.level0_file_num_compaction_trigger = 2;
+  options.target_file_size_base = 256 * 1024;   // 256KB
+  options.write_buffer_size = 2 * 1024 * 1024;  // 2MB
   options.compaction_use_tail_size_estimation = true;
+  options.level0_file_num_compaction_trigger = 100;  // Never trigger L0->L1
   options.compression = kNoCompression;
 
   BlockBasedTableOptions table_options;
   table_options.partition_filters = true;
-  table_options.metadata_block_size = 4096;
+  table_options.metadata_block_size = 4 * 1024;  // 4KB
   table_options.index_type = BlockBasedTableOptions::kBinarySearch;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -11561,31 +11565,43 @@ TEST_F(DBCompactionTest, TailSizeEstimationWithPartitionedFilter) {
   DestroyAndReopen(options);
 
   // Generate 2 L0 files
-  // Each file with 10k keys (each ~100 bytes) approx 1.2MB total
-  Random rnd(301);
-  for (int i = 0; i < 10000; i++) {
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  // Generate first file with 10k keys (each ~100 bytes) approx 1.2MB total
+  Random rnd(kSeed);
+  for (int i = 0; i < kInitialKeyCount; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
   }
   ASSERT_OK(Flush());
 
-  for (int i = 10000; i < 20000; i++) {
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  // Generate second file with overlapping keys to force compaction (prevent
+  // trivial move)
+  for (int i = kInitialKeyCount / 2; i < kInitialKeyCount * 1.5; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
   }
   ASSERT_OK(Flush());
+
+  // Capture file metadata and assert two L0 files
+  std::vector<LiveFileMetaData> file_metadata;
+  db_->GetLiveFilesMetaData(&file_metadata);
+  ASSERT_EQ(file_metadata.size(), 2);
+  for (const auto& file : file_metadata) {
+    ASSERT_EQ(file.level, 0);
+  };
+
+  // Manually compact LO files to L1
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 1;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  std::vector<LiveFileMetaData> files;
-  db_->GetLiveFilesMetaData(&files);
-
-  // Verify that compacted output files stay within 10% margin of target size
-  uint64_t target_with_margin = options.target_file_size_base * 1.1;
-  for (const auto& file : files) {
+  // Verify that compacted output files are under target file size
+  for (const auto& file : file_metadata) {
     if (file.level > 0) {
-      EXPECT_LE(file.size, target_with_margin)
-          << "Output file size " << file.size
-          << " exceeds target size with margin " << target_with_margin
-          << " for file " << file.name << " at level " << file.level;
+      EXPECT_LE(file.size, options.target_file_size_base)
+          << "Output file size exceeds target size: " << " File: " << file.name
+          << " level: " << file.level << " File size: " << file.size
+          << " Target size: " << options.target_file_size_base;
     }
   }
 }
