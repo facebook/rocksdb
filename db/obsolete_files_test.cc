@@ -318,12 +318,14 @@ TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {
   // `FindObsoleteFiles()` releases the mutex but before its corresponding purge
   // completes.
   SyncPoint::GetInstance()->SetCallBack(
-    "FindObsoleteFiles::PostMutexUnlock", [&](void* /* arg */) {
-      TEST_SYNC_POINT(
-        "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:1");
-      TEST_SYNC_POINT(
-        "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:2");
-    });
+      "FindObsoleteFiles::PostMutexUnlock", [&](void* /* arg */) {
+        TEST_SYNC_POINT(
+            "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:"
+            "InCallback:1");
+        TEST_SYNC_POINT(
+            "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:"
+            "InCallback:2");
+      });
   SyncPoint::GetInstance()->LoadDependency({
       {"ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:1",
        "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin"},
@@ -334,7 +336,7 @@ TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {
 
   port::Thread get_sorted_wal_files_thread([db]() {
     TEST_SYNC_POINT(
-      "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin");
+        "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin");
     VectorWalPtr files;
     ASSERT_OK(db->GetSortedWalFiles(files));
   });
