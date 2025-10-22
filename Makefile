@@ -510,6 +510,17 @@ ifneq ($(strip $(BOOST_SOURCE_PATH)),)
 		PLATFORM_CXXFLAGS += -isystem $(BOOST_INCLUDE)
 	endif
 endif  # BOOST_SOURCE_PATH
+ifneq ($(strip $(FMT_SOURCE_PATH)),)
+	FMT_INCLUDE = $(shell (ls -d $(FMT_SOURCE_PATH)/fmt*/include/))
+	# AIX: pre-defined system headers are surrounded by an extern "C" block
+	ifeq ($(PLATFORM), OS_AIX)
+		PLATFORM_CCFLAGS += -I$(FMT_INCLUDE)
+		PLATFORM_CXXFLAGS += -I$(FMT_INCLUDE)
+	else
+		PLATFORM_CCFLAGS += -isystem $(FMT_INCLUDE)
+		PLATFORM_CXXFLAGS += -isystem $(FMT_INCLUDE)
+	endif
+endif  # FMT_SOURCE_PATH
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)
 		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
@@ -2495,7 +2506,7 @@ commit_prereq:
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
-FOLLY_COMMIT_HASH = e95383b7c8b5b1e46cf47acf2f317d54f93c8268
+FOLLY_COMMIT_HASH = 5a50f6c5565cd6ec41c8677a7f3cf3097fcc03a6
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
@@ -2511,8 +2522,6 @@ checkout_folly:
 	cd third-party/folly && git reset --hard $(FOLLY_COMMIT_HASH)
 	@# Apparently missing include
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
-	@# Warning-as-error on memcpy
-	perl -pi -e 's/memcpy.&ptr/memcpy((void*)&ptr/' third-party/folly/folly/lang/Exception.cpp
 	@# const mismatch
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
 	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
