@@ -314,8 +314,9 @@ TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {
   std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
   ASSERT_OK(db->Flush(FlushOptions()));
 
-  // Sync points ensure `GetSortedWalFiles()` waits on a purge after
-  // `FindObsoleteFiles()` releases the mutex but before that purge completes.
+  // Sync points ensure `GetSortedWalFiles()` waits for a purge after
+  // `FindObsoleteFiles()` releases the mutex but before its corresponding purge
+  // completes.
   SyncPoint::GetInstance()->SetCallBack(
     "FindObsoleteFiles::PostMutexUnlock", [&](void* /* arg */) {
       TEST_SYNC_POINT(
