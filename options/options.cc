@@ -63,6 +63,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
       target_file_size_base(options.target_file_size_base),
       target_file_size_multiplier(options.target_file_size_multiplier),
+      compaction_use_tail_size_estimation(
+          options.compaction_use_tail_size_estimation),
       level_compaction_dynamic_level_bytes(
           options.level_compaction_dynamic_level_bytes),
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
@@ -269,6 +271,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    target_file_size_base);
   ROCKS_LOG_HEADER(log, "            Options.target_file_size_multiplier: %d",
                    target_file_size_multiplier);
+  ROCKS_LOG_HEADER(log, "        Options.compaction_use_tail_size_estimation: %d",
+                   compaction_use_tail_size_estimation);
   ROCKS_LOG_HEADER(log,
                    "               Options.max_bytes_for_level_base: %" PRIu64,
                    max_bytes_for_level_base);
