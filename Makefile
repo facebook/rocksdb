@@ -287,6 +287,11 @@ ARMCRC_SOURCE=1
 endif
 endif
 
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve -xc /dev/null 2>&1))
+CXXFLAGS += -march=armv8.2-a+sve -DXXH_VECTOR=XXH_SVE
+CFLAGS  += -march=armv8.2-a+sve -DXXH_VECTOR=XXH_SVE
+endif
+
 export JAVAC_ARGS
 CLEAN_FILES += make_config.mk rocksdb.pc
 
