@@ -19,9 +19,9 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "test_util/mock_time_env.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
