@@ -2745,8 +2745,12 @@ Status BlockBasedTableBuilder::Finish() {
   r->state = Rep::State::kClosed;
   r->tail_size = r->offset.LoadRelaxed() - r->props.tail_start_offset;
 
-  // Assert the estimated tail size is an overestimation
-  assert(r->tail_size <= r->last_estimated_tail_size);
+  // Only for compaction tables, assert tail size estimation is an overestimate
+  // Tail size estimation is designed for compaction output files only
+  if (r->reason == TableFileCreationReason::kCompaction) {
+    fprintf(stderr, "Estimated tail size %" PRIu64 "\n vs actual tail size %" PRIu64, r->last_estimated_tail_size, r->tail_size);
+    assert(r->tail_size <= r->last_estimated_tail_size);
+  }
 
   return r->GetStatus();
 }
