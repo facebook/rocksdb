@@ -112,8 +112,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // For Add without prev key
   std::string prev_key_without_ts_;
 
-  // Cached filter size estimate for hot path performance - updated only when data
-  // blocks are written for meaningful estimate updates
+  // Cached filter size estimate for hot path performance - updated only when
+  // data blocks are written for meaningful estimate updates
   size_t estimated_filter_size_ = 0;
 
 #ifndef NDEBUG

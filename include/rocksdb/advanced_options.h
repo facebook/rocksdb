@@ -473,11 +473,11 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int target_file_size_multiplier = 1;
 
-  // If true, RocksDB will consider the estimated tail size (filter + index + meta
-  // blocks) when deciding whether to cut a compaction output file. This helps
-  // prevent output files from exceeding the target_file_size_base
-  // due to large tail blocks. When disabled, only the data block size is
-  // considered, which may result in SST files exceeding the target_file_size_base.
+  // If true, RocksDB will consider the estimated tail size (filter + index +
+  // meta blocks) when deciding whether to cut a compaction output file. This
+  // helps prevent output files from exceeding the target_file_size_base due to
+  // large tail blocks. When disabled, only the data block size is considered,
+  // which may result in SST files exceeding the target_file_size_base.
   //
   // Default: true
   //

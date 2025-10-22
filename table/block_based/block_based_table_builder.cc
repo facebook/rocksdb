@@ -2748,7 +2748,9 @@ Status BlockBasedTableBuilder::Finish() {
   // Only for compaction tables, assert tail size estimation is an overestimate
   // Tail size estimation is designed for compaction output files only
   if (r->reason == TableFileCreationReason::kCompaction) {
-    fprintf(stderr, "Estimated tail size %" PRIu64 "\n vs actual tail size %" PRIu64, r->last_estimated_tail_size, r->tail_size);
+    fprintf(stderr,
+            "Estimated tail size %" PRIu64 "\n vs actual tail size %" PRIu64,
+            r->last_estimated_tail_size, r->tail_size);
     assert(r->tail_size <= r->last_estimated_tail_size);
   }
 
@@ -2796,8 +2798,7 @@ uint64_t BlockBasedTableBuilder::EstimatedTailSize() const {
   if (rep_->table_options.index_type ==
       BlockBasedTableOptions::kTwoLevelIndexSearch) {
     assert(rep_->p_index_builder_);
-    estimated_tail_size +=
-    rep_->p_index_builder_->CurrentIndexSizeEstimate();
+    estimated_tail_size += rep_->p_index_builder_->CurrentIndexSizeEstimate();
   } else {
     assert(rep_->index_builder);
     estimated_tail_size += rep_->index_builder->CurrentIndexSizeEstimate();

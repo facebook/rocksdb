@@ -677,10 +677,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // estimate is updated when data blocks are added.
   uint64_t CurrentIndexSizeEstimate() const override {
     uint64_t estimate = estimated_index_size_.LoadRelaxed();
-    printf(
-        "[PartitionedIndexBuilder] CurrentIndexSizeEstimate: returning "
-        "estimated_index_size_=%lu\n",
-        (unsigned long)estimate);
+    fprintf(stderr,
+            "[PartitionedIndexBuilder] CurrentIndexSizeEstimate: returning "
+            "estimated_index_size_=%lu\n",
+            (unsigned long)estimate);
     return estimate;
   }
 

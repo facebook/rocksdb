@@ -364,7 +364,8 @@ void PartitionedIndexBuilder::UpdateIndexSizeEstimate() {
 
   // Use running estimate of completed partitions instead of IndexSize() which
   // is only available after calling Finish().
-  uint64_t completed_partitions_size = estimated_completed_partitions_size_.LoadRelaxed();
+  uint64_t completed_partitions_size =
+      +estimated_completed_partitions_size_.LoadRelaxed();
   total_size += completed_partitions_size;
 
   // Add current active partition size if it exists
@@ -383,15 +384,17 @@ void PartitionedIndexBuilder::UpdateIndexSizeEstimate() {
     total_size += completed_partitions * 70;
 
     // Buffer for next partition + next top-level entry
-    uint64_t avg_partition_size = completed_partitions_size / completed_partitions;
-    uint64_t avg_top_level_entry_size = estimated_top_level_size / completed_partitions;
+    uint64_t avg_partition_size =
+        completed_partitions_size / completed_partitions;
+    uint64_t avg_top_level_entry_size =
+        estimated_top_level_size / completed_partitions;
 
     uint64_t buffer_size = 2 * (avg_partition_size + avg_top_level_entry_size);
     total_size += buffer_size;
   } else if (sub_index_builder_ != nullptr) {
     // For the first partition, estimate using the current partition's state
-      uint64_t buffer_size = 2 * current_sub_index_size;
-      total_size += buffer_size;
+    uint64_t buffer_size = 2 * current_sub_index_size;
+    total_size += buffer_size;
   }
   estimated_index_size_.StoreRelaxed(total_size);
 }

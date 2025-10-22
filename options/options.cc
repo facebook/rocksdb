@@ -271,7 +271,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    target_file_size_base);
   ROCKS_LOG_HEADER(log, "            Options.target_file_size_multiplier: %d",
                    target_file_size_multiplier);
-  ROCKS_LOG_HEADER(log, "        Options.compaction_use_tail_size_estimation: %d",
+  ROCKS_LOG_HEADER(log,
+                   "           Options.compaction_use_tail_size_estimation: %d",
                    compaction_use_tail_size_estimation);
   ROCKS_LOG_HEADER(log,
                    "               Options.max_bytes_for_level_base: %" PRIu64,
