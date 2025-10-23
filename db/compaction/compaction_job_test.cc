@@ -216,7 +216,7 @@ class CompactionJobTestBase : public testing::Test {
             /*block_cache_tracer=*/nullptr,
             /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
             /*daily_offpeak_time_utc=*/"",
-            /*error_handler=*/nullptr, /*read_only=*/false)),
+            /*error_handler=*/nullptr, /*unchanging=*/false)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
@@ -552,7 +552,7 @@ class CompactionJobTestBase : public testing::Test {
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                        test::kUnitTestDbId, /*db_session_id=*/"",
                        /*daily_offpeak_time_utc=*/"",
-                       /*error_handler=*/nullptr, /*read_only=*/false));
+                       /*error_handler=*/nullptr, /*unchanging=*/false));
     compaction_job_stats_.Reset();
 
     VersionEdit new_db;
@@ -2420,7 +2420,7 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
 
  protected:
   static constexpr const char* kCancelBeforeThisKey = "cancel_before_this_key";
-  std::string progress_dir_ = "";
+  std::string progress_dir_;
   bool enable_cancel_ = false;
   std::atomic<int> stop_count_{0};
   std::atomic<bool> cancel_{false};
@@ -2580,7 +2580,9 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
 
     while (reader.ReadRecord(&slice, &record)) {
       VersionEdit edit;
-      if (!edit.DecodeFrom(slice).ok()) continue;
+      if (!edit.DecodeFrom(slice).ok()) {
+        continue;
+      }
       builder.ProcessVersionEdit(edit);
     }
 

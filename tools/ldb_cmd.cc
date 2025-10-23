@@ -1614,7 +1614,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1809,7 +1809,7 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
