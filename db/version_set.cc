@@ -4524,17 +4524,14 @@ void VersionStorageInfo::GetOverlappingInputs(
   size_t start_index = 0;
   if (starting_l0_file != nullptr) {
     uint64_t starting_file_number = starting_l0_file->fd.GetNumber();
-    bool found = false;
     for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
       if (level_files_brief_[level].files[i].fd.GetNumber() ==
           starting_file_number) {
         start_index = i;
-        found = true;
         break;
       }
     }
-    assert(found);
-    (void)found;
+    assert(start_index < level_files_brief_[level].num_files);
   }
   for (size_t i = start_index; i < level_files_brief_[level].num_files; i++) {
     index.emplace_back(i);
