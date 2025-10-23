@@ -1068,7 +1068,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
 
   // Check whether seek key is moving forward.
   if (multi_scan_->prev_seek_key_.empty() ||
-      user_comparator_.Compare(*seek_target, multi_scan_->prev_seek_key_) > 0) {
+      icomp_.Compare(*seek_target, multi_scan_->prev_seek_key_) > 0) {
     // If seek key is empty or is larger than previous seek key, update the
     // previous seek key. Otherwise use the previous seek key as the adjusted
     // seek target moving forward. This prevents seek target going backward,
