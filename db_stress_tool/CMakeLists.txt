@@ -2,6 +2,7 @@ add_executable(db_stress${ARTIFACT_SUFFIX}
   batched_ops_stress.cc
   cf_consistency_stress.cc
   db_stress.cc
+  db_stress_compaction_service.cc
   db_stress_compression_manager.cc
   db_stress_common.cc
   db_stress_driver.cc

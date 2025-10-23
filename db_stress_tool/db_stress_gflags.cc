@@ -861,6 +861,11 @@ DEFINE_bool(remote_compaction_failure_fall_back_to_local, true,
             "If true, remote compaction failures will be ignored and "
             "compactions will fall back to local and retried");
 
+DEFINE_int32(allow_resumption_one_in, 0,
+             "If non-zero, enable resumable compaction with 1/N probability "
+             "for each OpenAndCompact call.Requires "
+             "remote_compaction_worker_threads > 0");
+
 DEFINE_uint32(ingest_wbwi_one_in, 0,
               "If set, will call"
               "IngestWriteBatchWithIndex() instead of regular write operations "

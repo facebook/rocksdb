@@ -975,6 +975,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n FullHistoryTsLow: ");
     r.append(Slice(full_history_ts_low_).ToString(hex_key));
   }
+  if (HasSubcompactionProgress()) {
+    r.append("\n SubcompactionProgress: ");
+    r.append(subcompaction_progress_.ToString());
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1122,6 +1126,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (HasFullHistoryTsLow()) {
     jw << "FullHistoryTsLow" << Slice(full_history_ts_low_).ToString(hex_key);
+  }
+
+  if (HasSubcompactionProgress()) {
+    jw << "SubcompactionProgress" << subcompaction_progress_.ToString();
   }
 
   jw.EndObject();
