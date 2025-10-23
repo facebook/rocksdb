@@ -1333,9 +1333,10 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     std::cout << random_seed << std::endl;
     SCOPED_TRACE("Random seed " + std::to_string(random_seed));
 
-    int last_read_key_index = rnd.Uniform(100);
-    while (last_read_key_index < 100) {
-      iter->Seek(kv[last_read_key_index * kEntriesPerBlock].first);
+    // Search key always start from the start key of first prepared range.
+    int last_read_key_index = rnd.Uniform(100) + 5 * kEntriesPerBlock;
+    while (last_read_key_index < 100 * kEntriesPerBlock) {
+      iter->Seek(kv[last_read_key_index].first);
       EXPECT_OK(iter->status());
       // iterate for a few keys
       while (iter->Valid()) {
