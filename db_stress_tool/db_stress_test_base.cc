@@ -25,6 +25,7 @@
 #include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
+#include "file/file_util.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
@@ -1695,7 +1696,10 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   std::vector<std::string> end_key_strs;
   // TODO support reverse BytewiseComparator in the stress test
   MultiScanArgs scan_opts(options_.comparator);
-  scan_opts.use_async_io = FLAGS_multiscan_use_async_io;
+  scan_opts.use_async_io =
+      FLAGS_multiscan_use_async_io &&
+      CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
+                            FSSupportedOps::kAsyncIO);
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
