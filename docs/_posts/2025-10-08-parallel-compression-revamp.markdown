@@ -1,7 +1,7 @@
 ---
 title: "Parallel Compression Revamp: Dramatically Reduced CPU Overhead"
 layout: post
-author: peterd
+author: pdillinger
 category: blog
 ---
 
