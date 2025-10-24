@@ -99,13 +99,15 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
   options.keep_log_file_num = immutable_db_options.keep_log_file_num;
   options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
-  options.max_manifest_file_size = immutable_db_options.max_manifest_file_size;
+  options.max_manifest_file_size = mutable_db_options.max_manifest_file_size;
+  options.max_manifest_space_amp_pct =
+      mutable_db_options.max_manifest_space_amp_pct;
   options.table_cache_numshardbits =
       immutable_db_options.table_cache_numshardbits;
   options.WAL_ttl_seconds = immutable_db_options.WAL_ttl_seconds;
   options.WAL_size_limit_MB = immutable_db_options.WAL_size_limit_MB;
   options.manifest_preallocation_size =
-      immutable_db_options.manifest_preallocation_size;
+      mutable_db_options.manifest_preallocation_size;
   options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
   options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
   options.use_direct_reads = immutable_db_options.use_direct_reads;

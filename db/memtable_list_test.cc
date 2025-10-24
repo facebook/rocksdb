@@ -112,7 +112,8 @@ class MemTableListTest : public testing::Test {
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
     WriteController write_controller(10000000u);
 
-    VersionSet versions(dbname, &immutable_db_options, env_options,
+    VersionSet versions(dbname, &immutable_db_options,
+                        MutableDBOptions{db_options}, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
                         /*io_tracer=*/nullptr, /*db_id=*/"",
@@ -163,7 +164,8 @@ class MemTableListTest : public testing::Test {
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
     WriteController write_controller(10000000u);
 
-    VersionSet versions(dbname, &immutable_db_options, env_options,
+    VersionSet versions(dbname, &immutable_db_options,
+                        MutableDBOptions{db_options}, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
                         /*io_tracer=*/nullptr, /*db_id=*/"",

@@ -50,8 +50,8 @@ class WalManagerTest : public testing::Test {
     db_options_.clock = env_->GetSystemClock().get();
 
     versions_.reset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &db_options_, MutableDBOptions{}, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*read_only=*/false));

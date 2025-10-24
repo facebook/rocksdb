@@ -258,10 +258,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       [this]() { this->TriggerPeriodicCompaction(); });
 
   versions_.reset(new VersionSet(
-      dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
-      write_buffer_manager_, &write_controller_, &block_cache_tracer_,
-      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc,
-      &error_handler_, read_only));
+      dbname_, &immutable_db_options_, mutable_db_options_, file_options_,
+      table_cache_.get(), write_buffer_manager_, &write_controller_,
+      &block_cache_tracer_, io_tracer_, db_id_, db_session_id_,
+      options.daily_offpeak_time_utc, &error_handler_, read_only));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -1412,7 +1412,7 @@ Status DBImpl::SetDBOptions(
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
-      versions_->ChangeFileOptions(mutable_db_options_);
+      versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
       // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
