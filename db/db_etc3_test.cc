@@ -48,21 +48,28 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   // Use large column family names to essentially control the amount of payload
   // data needed for the manifest file. Drop manifest entries don't include the
   // CF name so are small.
+  uint64_t prev_manifest_num = 0, cur_manifest_num = 0;
   std::deque<ColumnFamilyHandle*> handles;
   int counter = 5;
   auto AddCfFn = [&]() {
     std::string name = "cf" + std::to_string(counter++);
     name.resize(1000, 'a');
     ASSERT_OK(db_->CreateColumnFamily(options, name, &handles.emplace_back()));
+    prev_manifest_num = cur_manifest_num;
+    cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   };
   auto DropCfFn = [&]() {
     ASSERT_OK(db_->DropColumnFamily(handles.front()));
     ASSERT_OK(db_->DestroyColumnFamilyHandle(handles.front()));
     handles.pop_front();
+    prev_manifest_num = cur_manifest_num;
+    cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   };
   auto TrivialManifestWriteFn = [&]() {
-    Put("x", std::to_string(counter++));
-    Flush();
+    ASSERT_OK(Put("x", std::to_string(counter++)));
+    ASSERT_OK(Flush());
+    prev_manifest_num = cur_manifest_num;
+    cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   };
 
   options.max_manifest_file_size = 1000000;
@@ -70,11 +77,9 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   DestroyAndReopen(options);
 
   // With the generous (minimum) maximum manifest size, should not be rotated
-  uint64_t prev_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   AddCfFn();
   AddCfFn();
   AddCfFn();
-  uint64_t cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_EQ(prev_manifest_num, cur_manifest_num);
 
   // Change options for small max and (still) no auto-tuning
@@ -82,28 +87,18 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
 
   // Takes effect on the next manifest write
   TrivialManifestWriteFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
 
   // Now we have to rewrite the whole manifest on each write because the
   // compacted size exceeds the "max" size.
   AddCfFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
   DropCfFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
   AddCfFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
   TrivialManifestWriteFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
 
   // Enabling auto-tuning should fix this, immediately for next manifest writes.
   // This will allow up to double-ish the size of the compacted manifest,
@@ -117,13 +112,10 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
       DropCfFn();
     }
     AddCfFn();
-    cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
     ASSERT_EQ(prev_manifest_num, cur_manifest_num);
   }
   TrivialManifestWriteFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
 
   // We now have a different last compacted manifest size, should be
   // able to go beyond 9 CFs named in manifest this time.
@@ -134,7 +126,6 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   for (int i = 1; i <= 4; ++i) {
     DropCfFn();
     AddCfFn();
-    cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
     ASSERT_EQ(prev_manifest_num, cur_manifest_num);
   }
   // We've written 10 named CFs to the manifest. We should be able to
@@ -142,20 +133,17 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   // manifest size of 7000 + some bytes.
   ASSERT_OK(db_->SetDBOptions({{"max_manifest_space_amp_pct", "51"}}));
   TrivialManifestWriteFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
-  // And the "compacted" manifest size has reset again
+  // And the "compacted" manifest size has reset again, so should be changed
+  // again sooner.
   ASSERT_EQ(handles.size(), 4U);
   for (int i = 1; i <= 2; ++i) {
     AddCfFn();
-    cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
     ASSERT_EQ(prev_manifest_num, cur_manifest_num);
   }
+  // Enough for manifest change
   AddCfFn();
-  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
-  prev_manifest_num = cur_manifest_num;
 
   // Wrap up
   while (!handles.empty()) {
