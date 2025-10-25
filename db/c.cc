@@ -636,7 +636,7 @@ static bool SaveError(char** errptr, const Status& s) {
 }
 
 // Copies str to a new malloc()-ed buffer. The buffer is not NUL terminated.
-static char* CopyString(const std::string& str) {
+static char* CopyString(Slice str) {
   char* result = reinterpret_cast<char*>(malloc(sizeof(char) * str.size()));
   memcpy(result, str.data(), sizeof(char) * str.size());
   return result;
@@ -1440,8 +1440,9 @@ char* rocksdb_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
                   const char* key, size_t keylen, size_t* vallen,
                   char** errptr) {
   char* result = nullptr;
-  std::string tmp;
-  Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp);
+  PinnableSlice tmp;
+  auto cfh = db->rep->DefaultColumnFamily();
+  Status s = db->rep->Get(options->rep, cfh, Slice(key, keylen), &tmp);
   if (s.ok()) {
     *vallen = tmp.size();
     result = CopyString(tmp);
@@ -1459,7 +1460,7 @@ char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
                      const char* key, size_t keylen, size_t* vallen,
                      char** errptr) {
   char* result = nullptr;
-  std::string tmp;
+  PinnableSlice tmp;
   Status s =
       db->rep->Get(options->rep, column_family->rep, Slice(key, keylen), &tmp);
   if (s.ok()) {
@@ -1478,9 +1479,11 @@ char* rocksdb_get_with_ts(rocksdb_t* db, const rocksdb_readoptions_t* options,
                           const char* key, size_t keylen, size_t* vallen,
                           char** ts, size_t* tslen, char** errptr) {
   char* result = nullptr;
-  std::string tmp_val;
+  PinnableSlice tmp_val;
   std::string tmp_ts;
-  Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp_val, &tmp_ts);
+  Slice key_slice(key, keylen);
+  auto cfh = db->rep->DefaultColumnFamily();
+  Status s = db->rep->Get(options->rep, cfh, key_slice, &tmp_val, &tmp_ts);
   if (s.ok()) {
     *vallen = tmp_val.size();
     result = CopyString(tmp_val);
@@ -1502,7 +1505,7 @@ char* rocksdb_get_cf_with_ts(rocksdb_t* db,
                              const char* key, size_t keylen, size_t* vallen,
                              char** ts, size_t* tslen, char** errptr) {
   char* result = nullptr;
-  std::string tmp;
+  PinnableSlice tmp;
   std::string tmp_ts;
   Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen),
                           &tmp, &tmp_ts);
@@ -1537,12 +1540,15 @@ void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
                        size_t num_keys, const char* const* keys_list,
                        const size_t* keys_list_sizes, char** values_list,
                        size_t* values_list_sizes, char** errs) {
-  std::vector<Slice> keys(num_keys);
+  std::unique_ptr<Slice[]> keys(new Slice[num_keys]);
   for (size_t i = 0; i < num_keys; i++) {
     keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
   }
-  std::vector<std::string> values(num_keys);
-  std::vector<Status> statuses = db->rep->MultiGet(options->rep, keys, &values);
+  auto cfh = db->rep->DefaultColumnFamily();
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  db->rep->MultiGet(options->rep, cfh, num_keys,
+                    keys.get(), values.data(), statuses.data());
   for (size_t i = 0; i < num_keys; i++) {
     if (statuses[i].ok()) {
       values_list[i] = CopyString(values[i]);
