@@ -11551,7 +11551,6 @@ TEST_F(DBCompactionTest, TailSizeEstimationWithPartitionedFilter) {
   Options options = CurrentOptions();
   options.target_file_size_base = 256 * 1024;   // 256KB
   options.write_buffer_size = 2 * 1024 * 1024;  // 2MB
-  options.compaction_use_tail_size_estimation = true;
   options.level0_file_num_compaction_trigger = 100;  // Never trigger L0->L1
   options.compression = kNoCompression;
 

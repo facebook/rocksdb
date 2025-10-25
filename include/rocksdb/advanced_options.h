@@ -482,8 +482,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: true
   //
   // Dynamically changeable through SetOptions() API
-  // TODO(nmk70): set this to true by default
-  bool compaction_use_tail_size_estimation = false;
+  bool compaction_use_tail_size_estimation = true;
 
   // If true, RocksDB will pick target size of each level dynamically.
   // We will pick a base level b >= 1. L0 will be directly merged into level b,
