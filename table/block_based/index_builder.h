@@ -676,12 +676,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // Returns a cached estimate of the current index size. This
   // estimate is updated when data blocks are added.
   uint64_t CurrentIndexSizeEstimate() const override {
-    uint64_t estimate = estimated_index_size_.LoadRelaxed();
-    fprintf(stderr,
-            "[PartitionedIndexBuilder] CurrentIndexSizeEstimate: returning "
-            "estimated_index_size_=%lu\n",
-            (unsigned long)estimate);
-    return estimate;
+    return estimated_index_size_.LoadRelaxed();
   }
 
   inline bool ShouldCutFilterBlock() {
