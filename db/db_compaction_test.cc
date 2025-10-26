@@ -11549,14 +11549,14 @@ TEST_F(DBCompactionTest, TailSizeEstimationWithPartitionedFilter) {
   const int kSeed = 301;
 
   Options options = CurrentOptions();
-  options.target_file_size_base = 256 * 1024;   // 256KB
-  options.write_buffer_size = 2 * 1024 * 1024;  // 2MB
+  options.target_file_size_base = 256 * 1024;
+  options.write_buffer_size = 2 * 1024 * 1024;
   options.level0_file_num_compaction_trigger = 100;  // Never trigger L0->L1
   options.compression = kNoCompression;
 
   BlockBasedTableOptions table_options;
   table_options.partition_filters = true;
-  table_options.metadata_block_size = 4 * 1024;  // 4KB
+  table_options.metadata_block_size = 4 * 1024;
   table_options.index_type = BlockBasedTableOptions::kBinarySearch;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));

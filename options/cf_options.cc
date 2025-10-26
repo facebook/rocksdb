@@ -453,7 +453,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_use_tail_size_estimation",
          {offsetof(struct MutableCFOptions,
                    compaction_use_tail_size_estimation),
-           OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"arena_block_size",
          {offsetof(struct MutableCFOptions, arena_block_size),
@@ -1120,7 +1120,6 @@ void MutableCFOptions::RefreshDerivedOptions(int num_levels,
     } else if (i > 1) {
       max_file_size[i] = MultiplyCheckOverflow(max_file_size[i - 1],
                                                target_file_size_multiplier);
-    } else {
       max_file_size[i] = target_file_size_base;
     }
   }

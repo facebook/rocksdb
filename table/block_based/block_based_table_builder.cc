@@ -2740,12 +2740,12 @@ Status BlockBasedTableBuilder::Finish() {
   r->state = Rep::State::kClosed;
   r->tail_size = r->offset.LoadRelaxed() - r->props.tail_start_offset;
 
-// Assert tail size estimation is an overestimate only for compaction files
-// with supported index/filter types:
-// - Shortened indexes (kBinarySearch, kBinarySearchWithFirstKey)
-// - Partitioned indexes (kTwoLevelIndexSearch)
-// - Full filters
-// - Partitioned filters
+  // Assert tail size estimation is an overestimate only for compaction files
+  // with supported index/filter types:
+  // - Shortened indexes (kBinarySearch, kBinarySearchWithFirstKey)
+  // - Partitioned indexes (kTwoLevelIndexSearch)
+  // - Full filters
+  // - Partitioned filters
   if (r->reason == TableFileCreationReason::kCompaction &&
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
     ROCKS_LOG_DEBUG(r->ioptions.info_log,
