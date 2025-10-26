@@ -2746,15 +2746,17 @@ Status BlockBasedTableBuilder::Finish() {
 // - Partitioned indexes (kTwoLevelIndexSearch)
 // - Full filters
 // - Partitioned filters
-#ifndef NDEBUG
   if (r->reason == TableFileCreationReason::kCompaction &&
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
+    ROCKS_LOG_DEBUG(r->ioptions.info_log,
+                    "Estimated tail size %" PRIu64
+                    " vs actual tail size %" PRIu64,
+                    last_estimated_tail_size, r->tail_size);
     fprintf(stderr,
             "Estimated tail size %" PRIu64 " vs actual tail size %" PRIu64 "\n",
             last_estimated_tail_size, r->tail_size);
     assert(r->tail_size <= last_estimated_tail_size);
   }
-#endif
 
   return r->GetStatus();
 }
