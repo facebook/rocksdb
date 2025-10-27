@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.7.6 (10/23/2025)
+* Fix a bug when del range and data are in same file for multi-scan
+
 ## 10.7.5 (10/20/2025)
 ### Bug Fixes
 * Fix a bug in Page unpinning in MultiScan
