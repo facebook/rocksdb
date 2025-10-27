@@ -610,7 +610,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
-      "compaction_use_tail_size_estimation=true;"
+      "compaction_use_tail_size_estimation=false;"
       "min_write_buffer_number_to_merge=9;"
       "max_write_buffer_number=84;"
       "write_buffer_size=1653;"

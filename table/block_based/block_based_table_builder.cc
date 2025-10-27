@@ -2752,9 +2752,6 @@ Status BlockBasedTableBuilder::Finish() {
                     "Estimated tail size %" PRIu64
                     " vs actual tail size %" PRIu64,
                     last_estimated_tail_size, r->tail_size);
-    fprintf(stderr,
-            "Estimated tail size %" PRIu64 " vs actual tail size %" PRIu64 "\n",
-            last_estimated_tail_size, r->tail_size);
     assert(r->tail_size <= last_estimated_tail_size);
   }
 

@@ -11541,14 +11541,15 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 }
 
-// Tests that the tail size estimation feature prevents compaction output files
-// from exceeding their target size when using partitioned filters.
-TEST_F(DBCompactionTest, TailSizeEstimationWithPartitionedFilter) {
+// Test verifies compaction file cutting logic when using tail size estimation
+// maintains output files at or below the target file size.
+TEST_F(DBCompactionTest, CompactionRespectsTargetSizeWithTailEstimation) {
   const int kInitialKeyCount = 10000;  // 10k keys
   const int kValueSize = 100;          // 100 bytes per key
   const int kSeed = 301;
 
   Options options = CurrentOptions();
+  options.compaction_use_tail_size_estimation = true;
   options.target_file_size_base = 256 * 1024;
   options.write_buffer_size = 2 * 1024 * 1024;
   options.level0_file_num_compaction_trigger = 100;  // Never trigger L0->L1
