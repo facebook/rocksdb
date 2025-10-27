@@ -635,10 +635,11 @@ static bool SaveError(char** errptr, const Status& s) {
   return true;
 }
 
-// Copies str to a new malloc()-ed buffer. The buffer is not NUL terminated.
-static char* CopyString(const std::string& str) {
-  char* result = reinterpret_cast<char*>(malloc(sizeof(char) * str.size()));
-  memcpy(result, str.data(), sizeof(char) * str.size());
+// Helper function to copy string data to a malloc'd buffer
+// Works with std::string, Slice, and PinnableSlice through implicit conversion
+static inline char* CopyString(const Slice& slice) {
+  char* result = reinterpret_cast<char*>(malloc(slice.size()));
+  memcpy(result, slice.data(), slice.size());
   return result;
 }
 
@@ -1440,11 +1441,14 @@ char* rocksdb_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
                   const char* key, size_t keylen, size_t* vallen,
                   char** errptr) {
   char* result = nullptr;
-  std::string tmp;
-  Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp);
+  // Use PinnableSlice to avoid unnecessary copy
+  PinnableSlice pinnable_val;
+  Status s = db->rep->Get(options->rep, db->rep->DefaultColumnFamily(),
+                          Slice(key, keylen), &pinnable_val);
   if (s.ok()) {
-    *vallen = tmp.size();
-    result = CopyString(tmp);
+    *vallen = pinnable_val.size();
+    // Only one copy: from PinnableSlice to malloc'd buffer
+    result = CopyString(pinnable_val);
   } else {
     *vallen = 0;
     if (!s.IsNotFound()) {
@@ -1459,12 +1463,14 @@ char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
                      const char* key, size_t keylen, size_t* vallen,
                      char** errptr) {
   char* result = nullptr;
-  std::string tmp;
-  Status s =
-      db->rep->Get(options->rep, column_family->rep, Slice(key, keylen), &tmp);
+  // Use PinnableSlice to avoid unnecessary copy
+  PinnableSlice pinnable_val;
+  Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen),
+                          &pinnable_val);
   if (s.ok()) {
-    *vallen = tmp.size();
-    result = CopyString(tmp);
+    *vallen = pinnable_val.size();
+    // Only one copy: from PinnableSlice to malloc'd buffer
+    result = CopyString(pinnable_val);
   } else {
     *vallen = 0;
     if (!s.IsNotFound()) {
@@ -7898,6 +7904,112 @@ void rocksdb_wait_for_compact_options_set_timeout(
 uint64_t rocksdb_wait_for_compact_options_get_timeout(
     rocksdb_wait_for_compact_options_t* opt) {
   return opt->rep.timeout.count();
+}
+
+/* High-performance zero-copy Get implementations */
+
+struct rocksdb_pinnable_handle_t {
+  PinnableSlice rep;
+};
+
+rocksdb_pinnable_handle_t* rocksdb_get_pinned_v2(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnable_handle_t* handle = new rocksdb_pinnable_handle_t;
+  Status s = db->rep->Get(options->rep, db->rep->DefaultColumnFamily(),
+                          Slice(key, keylen), &handle->rep);
+  if (!s.ok()) {
+    delete handle;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return nullptr;
+  }
+  return handle;
+}
+
+rocksdb_pinnable_handle_t* rocksdb_get_pinned_cf_v2(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnable_handle_t* handle = new rocksdb_pinnable_handle_t;
+  Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen),
+                          &handle->rep);
+  if (!s.ok()) {
+    delete handle;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return nullptr;
+  }
+  return handle;
+}
+
+const char* rocksdb_pinnable_handle_get_value(
+    const rocksdb_pinnable_handle_t* handle, size_t* vallen) {
+  if (!handle) {
+    *vallen = 0;
+    return nullptr;
+  }
+  *vallen = handle->rep.size();
+  return handle->rep.data();
+}
+
+void rocksdb_pinnable_handle_destroy(rocksdb_pinnable_handle_t* handle) {
+  delete handle;
+}
+
+unsigned char rocksdb_get_into_buffer(rocksdb_t* db,
+                                      const rocksdb_readoptions_t* options,
+                                      const char* key, size_t keylen,
+                                      char* buffer, size_t buffer_size,
+                                      size_t* vallen, unsigned char* found,
+                                      char** errptr) {
+  PinnableSlice pinnable_val;
+  Status s = db->rep->Get(options->rep, db->rep->DefaultColumnFamily(),
+                          Slice(key, keylen), &pinnable_val);
+  if (s.ok()) {
+    *found = 1;
+    *vallen = pinnable_val.size();
+    if (buffer_size >= pinnable_val.size()) {
+      memcpy(buffer, pinnable_val.data(), pinnable_val.size());
+      return 1;  // Success - data copied
+    }
+    return 0;  // Buffer too small
+  } else {
+    *found = 0;
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return 0;
+  }
+}
+
+unsigned char rocksdb_get_into_buffer_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char* buffer, size_t buffer_size, size_t* vallen,
+    unsigned char* found, char** errptr) {
+  PinnableSlice pinnable_val;
+  Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen),
+                          &pinnable_val);
+  if (s.ok()) {
+    *found = 1;
+    *vallen = pinnable_val.size();
+    if (buffer_size >= pinnable_val.size()) {
+      memcpy(buffer, pinnable_val.data(), pinnable_val.size());
+      return 1;  // Success - data copied
+    }
+    return 0;  // Buffer too small
+  } else {
+    *found = 0;
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return 0;
+  }
 }
 
 }  // end extern "C"
