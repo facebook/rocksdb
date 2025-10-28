@@ -226,8 +226,8 @@ void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
   size_t filter_size = 0;
 
   // Estimate filter size for completed partitions
-  // TODO: Keep a running estimate of filter size for completed partitions to
-  // avoid recaluclating it when a data block is finalized
+  // TODO (nmk70): Keep a running estimate of filter size for completed
+  // partitions to avoid recaluclating it when a data block is finalized
   for (const auto& filter_entry : filters_) {
     filter_size += filter_entry.filter.size();
   }
@@ -245,13 +245,15 @@ void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
   if (filters_.empty()) {
     size_t avg_bytes_per_entry =
         2;  // 2 bytes per entry, approx 15 bits per key
-    active_filter_estimate = EstimateEntriesAdded() * avg_bytes_per_entry;
+
+    // Estimate using keys_per_partition_ since we expect to cut the first
+    // partition once it reaches approx. this many entries.
+    active_filter_estimate = keys_per_partition_ * avg_bytes_per_entry;
 
     // Add a 2x buffer (for top-level index, etc.)
     active_filter_estimate = active_filter_estimate * 2;
   }
 
-  // Use the larger estimate
   size_t base_estimate = std::max(filter_size, active_filter_estimate);
 
   // Reserve filter space for the next data block

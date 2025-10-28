@@ -126,8 +126,11 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     }
   }
 
+  // Returns an estimate of the number of entries added to the
+  // filter. This method is thread-safe and can be safely called
+  // from background threads during parallel compression.
   size_t EstimateEntriesAdded() override {
-    return hash_entries_info_.entries.size();
+    return hash_entries_info_.entries_count.load(std::memory_order_relaxed);
   }
 
   Status MaybePostVerify(const Slice& filter_content) override;
@@ -147,6 +150,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       hash_entries_info_.xor_checksum ^= hash;
     }
     hash_entries_info_.entries.push_back(hash);
+    hash_entries_info_.entries_count.fetch_add(1, std::memory_order_relaxed);
     if (cache_res_mgr_ &&
         // Traditional rounding to whole bucket size
         ((hash_entries_info_.entries.size() %
@@ -314,6 +318,10 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // and has near-minimal peak memory use.
     std::deque<uint64_t> entries;
 
+    // Tracks the number of entries added for thread-safe
+    // size estimation.
+    std::atomic<size_t> entries_count{0};
+
     // If cache_res_mgr_ != nullptr,
     // it manages cache charge for buckets of hash entries in (new) Bloom
     // or Ribbon Filter construction.
@@ -332,6 +340,9 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     void Swap(HashEntriesInfo* other) {
       assert(other != nullptr);
       std::swap(entries, other->entries);
+      entries_count.store(other->entries_count.exchange(
+          entries_count.load(std::memory_order_relaxed),
+          std::memory_order_relaxed), std::memory_order_relaxed);
       std::swap(cache_res_bucket_handles, other->cache_res_bucket_handles);
       std::swap(xor_checksum, other->xor_checksum);
       std::swap(prev_alt_hash, other->prev_alt_hash);
@@ -339,6 +350,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
     void Reset() {
       entries.clear();
+      entries_count.store(0, std::memory_order_relaxed);
       cache_res_bucket_handles.clear();
       xor_checksum = 0;
       prev_alt_hash = {};
