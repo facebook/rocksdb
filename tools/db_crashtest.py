@@ -846,6 +846,8 @@ def finalize_and_sanitize(src_params):
         dest_params["checkpoint_one_in"] = 0
         dest_params["use_timed_put_one_in"] = 0
         dest_params["test_secondary"] = 0
+        dest_params["mmap_read"] = 0
+
         # Disable database open fault injection to prevent test inefficiency described below.
         # When fault injection occurs during DB open, the db will wait for compaction
         # to finish to clean up the database before retrying without injected error.
