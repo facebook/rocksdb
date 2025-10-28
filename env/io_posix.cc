@@ -1406,6 +1406,7 @@ IOStatus PosixWritableFile::Truncate(uint64_t size, const IOOptions& /*opts*/,
                 filename_, errno);
   } else {
     filesize_ = size;
+    lseek(fd_, filesize_, SEEK_SET);
   }
   return s;
 }
