@@ -279,17 +279,17 @@ endif
 
 CXXFLAGS += $(ARCHFLAG)
 
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
-ifneq ($(PLATFORM),OS_MACOSX)
-CXXFLAGS += -march=armv8-a+crc+crypto
-CFLAGS += -march=armv8-a+crc+crypto
-ARMCRC_SOURCE=1
-endif
-endif
-
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve -xc /dev/null 2>&1))
-CXXFLAGS += -march=armv8.2-a+sve -DXXH_VECTOR=XXH_SVE
-CFLAGS  += -march=armv8.2-a+sve -DXXH_VECTOR=XXH_SVE
+ifneq (,$(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve+crc+crypto -xc /dev/null 2>&1))
+  CXXFLAGS += -march=armv8.2-a+sve+crc+crypto -DXXH_VECTOR=XXH_SVE
+  CFLAGS  += -march=armv8.2-a+sve+crc+crypto -DXXH_VECTOR=XXH_SVE
+  ARMCRC_SOURCE=1
+else ifneq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
+  CXXFLAGS += -march=armv8-a+crc+crypto
+  CFLAGS  += -march=armv8-a+crc+crypto
+  ARMCRC_SOURCE=1
+else
+  CXXFLAGS += -march=armv8-a
+  CFLAGS  += -march=armv8-a
 endif
 
 export JAVAC_ARGS
