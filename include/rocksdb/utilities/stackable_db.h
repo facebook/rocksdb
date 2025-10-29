@@ -456,6 +456,12 @@ class StackableDB : public DB {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
   }
 
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               const GetColumnFamilyMetaDataOptions& options,
+                               ColumnFamilyMetaData* metadata) override {
+    db_->GetColumnFamilyMetaData(column_family, options, metadata);
+  }
+
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
       const TraceOptions& trace_options,
