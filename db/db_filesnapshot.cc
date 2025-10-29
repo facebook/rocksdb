@@ -109,6 +109,7 @@ Status DBImpl::GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos) {
   {
     InstrumentedMutexLock l(&mutex_);
     while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
+      TEST_SYNC_POINT("DBImpl::GetSortedWalFilesImpl:WaitPurge");
       bg_cv_.Wait();
     }
 

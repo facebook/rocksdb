@@ -1188,8 +1188,8 @@ class LevelIterator final : public InternalIterator {
             continue;
           }
           auto const metadata = flevel_->files[i].file_metadata;
-          if (metadata->num_entries == metadata->num_range_deletions) {
-            // Skip range deletion only files.
+          if (metadata->FileIsStandAloneRangeTombstone()) {
+            // Skip stand alone range deletion files.
             continue;
           }
           auto& args = GetMultiScanArgForFile(i);
@@ -1613,8 +1613,19 @@ bool LevelIterator::SkipEmptyFileForward() {
         const ScanOptions& opts =
             GetMultiScanArgForFile(file_index_).GetScanRanges().front();
         if (opts.range.start.has_value()) {
-          InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
-                             kValueTypeForSeek);
+          InternalKey target;
+          const size_t ts_size =
+              user_comparator_.user_comparator()->timestamp_size();
+          if (ts_size == 0) {
+            target = InternalKey(opts.range.start.value(), kMaxSequenceNumber,
+                                 kValueTypeForSeek);
+          } else {
+            std::string seek_key;
+            AppendKeyWithMaxTimestamp(&seek_key, opts.range.start.value(),
+                                      ts_size);
+            target =
+                InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
+          }
           file_iter_.Seek(target.Encode());
         }
       } else {
@@ -4487,7 +4498,8 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range, InternalKey** next_smallest) const {
+    bool expand_range, const FileMetaData* starting_l0_file,
+    InternalKey** next_smallest) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
@@ -4520,7 +4532,19 @@ void VersionStorageInfo::GetOverlappingInputs(
 
   // index stores the file index need to check.
   std::list<size_t> index;
-  for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
+  size_t start_index = 0;
+  if (starting_l0_file != nullptr) {
+    uint64_t starting_file_number = starting_l0_file->fd.GetNumber();
+    for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
+      if (level_files_brief_[level].files[i].fd.GetNumber() ==
+          starting_file_number) {
+        start_index = i;
+        break;
+      }
+    }
+    assert(start_index < level_files_brief_[level].num_files);
+  }
+  for (size_t i = start_index; i < level_files_brief_[level].num_files; i++) {
     index.emplace_back(i);
   }
 

@@ -127,17 +127,15 @@ function main {
 
   setup_test_directory
   if [ $TEST_MODE -le 1 ]; then
-      test_remote "test -d $ORIGIN_PATH"
-      if [[ $? -ne 0 ]]; then
-          echo "Building DB..."
-          # compactall alone will not print ops or threads, which will fail update_report
-          run_db_bench "fillseq,compactall" $NUM_KEYS 1 0 0
-          # only save for future use on success
-          test_remote "mv $DB_PATH $ORIGIN_PATH"
-      fi
+      echo "Building DB..."
+      # compactall alone will not print ops or threads, which will fail update_report
+     run_db_bench "fillseq,compactall" $NUM_KEYS 1 0 0
+     # only save for future use on success
+     test_remote "mv $DB_PATH $ORIGIN_PATH"
   fi
   if [ $TEST_MODE -ge 1 ]; then
       build_checkpoint
+
       # run_db_bench benchmark_name NUM_OPS NUM_THREADS USED_EXISTING_DB UPDATE_REPORT ASYNC_IO
       run_db_bench "seekrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
       run_db_bench "multireadrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
@@ -332,25 +330,22 @@ function set_async_io_parameters {
 }
 
 function build_checkpoint {
-    cmd_prefix=""
-    if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-        cmd_prefix="$SSH $REMOTE_USER_AT_HOST "
-    fi
+    echo "NUM_MULTI_DB=$NUM_MULTI_DB"
     if [ $NUM_MULTI_DB -gt 1 ]; then
-        dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
+        run_remote "mkdir -p $DB_PATH"
+        run_remote "find $ORIGIN_PATH -type d -links 2"
+        dirs=$?
         for dir in $dirs; do
             db_index=$(basename $dir)
             echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
-            $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
-                        --db=$ORIGIN_PATH/$db_index --try_load_options 2>&1
+            run_remote "$DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index --db=$ORIGIN_PATH/$db_index --try_load_options 2>&1"
             exit_on_error $?
         done
     else
         # checkpoint cannot build in directory already exists
-        $cmd_prefix rm -rf $DB_PATH
+        run_remote "rm -rf $DB_PATH"
         echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
-        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
-                    --db=$ORIGIN_PATH --try_load_options 2>&1
+        run_remote "$DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH --db=$ORIGIN_PATH --try_load_options 2>&1"
         exit_on_error $?
     fi
 }
@@ -453,7 +448,7 @@ function setup_options_file {
  if ! [ -z "$OPTIONS_FILE" ]; then
     if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
       options_file="$DB_BENCH_DIR/OPTIONS_FILE"
-      run_local "$SCP $OPTIONS_FILE $REMOTE_USER_AT_HOST:$options_file"
+      $SCP $OPTIONS_FILE $REMOTE_USER_AT_HOST:$options_file
     else
       options_file="$OPTIONS_FILE"
     fi
@@ -486,9 +481,8 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-      shopt -s nullglob # allow missing librocksdb*.so* for static lib build
-      run_local "tar cz db_bench ldb librocksdb*.so* | $SSH $REMOTE_USER_AT_HOST 'cd $DB_BENCH_DIR/ && tar xzv'"
-      shopt -u nullglob
+    run_local "$SCP db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/."
+    run_local "$SCP ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/."
   fi
 
   run_local "mkdir -p $RESULT_PATH"

@@ -1045,13 +1045,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 }
 
 void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
-  if (SeekMultiScanImpl(seek_target)) {
-    is_out_of_bound_ = true;
-    assert(!Valid());
-  }
-}
-
-bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
   assert(multi_scan_ && multi_scan_status_.ok());
   // This is a MultiScan and Preapre() has been called.
 
@@ -1063,49 +1056,59 @@ bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
   if (!seek_target) {
     // start key must be set for multi-scan
     multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
-    return false;
+    return;
   }
-
-  constexpr auto out_of_bound = true;
 
   // Check the case where there is no range prepared on this table
   if (multi_scan_->scan_opts->size() == 0) {
     // out of bound
-    return out_of_bound;
+    MarkPreparedRangeExhausted();
+    return;
   }
 
   // Check whether seek key is moving forward.
-  if (!multi_scan_->prev_seek_key_.empty()) {
-    if (user_comparator_.CompareWithoutTimestamp(ExtractUserKey(*seek_target),
-                                                 /*a_has_ts=*/true,
-                                                 multi_scan_->prev_seek_key_,
-                                                 /*b_has_ts=*/false) < 0) {
-      // The seek target moved backward
-      multi_scan_status_ =
-          Status::InvalidArgument("Unexpected seek key moving backward");
-      return false;
-    }
+  if (multi_scan_->prev_seek_key_.empty() ||
+      icomp_.Compare(*seek_target, multi_scan_->prev_seek_key_) > 0) {
+    // If seek key is empty or is larger than previous seek key, update the
+    // previous seek key. Otherwise use the previous seek key as the adjusted
+    // seek target moving forward. This prevents seek target going backward,
+    // which would visit pages that have been unpinned.
+    // This issue is caused by sub-optimal range delete handling inside merge
+    // iterator.
+    // TODO xingbo issues:14068 : Optimize the handling of range delete iterator
+    // inside merge iterator, so that it doesn't move seek key backward. After
+    // that we could return error if the key moves backward here.
+    multi_scan_->prev_seek_key_ = seek_target->ToString();
+  } else {
+    // Seek key is adjusted to previous one, we can return here directly.
+    return;
   }
-  multi_scan_->prev_seek_key_ = ExtractUserKey(*seek_target).ToString();
 
-  // There are still a few cases we need to handle
-  // table: _____[prepared range 1]_____[prepared range 2]_____
-  // seek :   1  2        3          4                      5
-  // Case 1: seek before the first prepared ranges, return out of bound
-  // Case 2: seek at the beginning of a prepared range (expected case)
-  // Case 3: seek within a prepared range (unexpected, but supported)
-  // Case 4: seek between 2 of the prepared ranges, return out of bound
-  // Case 5: seek after all of the prepared ranges, should move on to next file
-  // The reason this could happen is due to seek key adjustment due to delete
-  // range file.
-  // E.g. LSM has 3 levels, each level has only 1 file:
-  // L1 : key :              0---10
-  // L2 : Delete range key : 0-5
-  // L3 : key :              0---10
-  // When a range 2-8 was prepared, the prepared key would be 2 on L3 file, but
-  // the seek key would be 5, as the seek key was updated by the largest key of
-  // delete range. This causes all of the cases above to be possible, when the
-  // ranges are adjusted in the above examples.
+  // There are 3 different Cases we need to handle:
+  // The following diagram explain different seek targets seeking at various
+  // position on the table, while the next_scan_idx points to the PreparedRange
+  // 2.
+  //
+  // next_scan_idx: -------------------┐
+  //                                   ▼
+  // table:     : __[PreparedRange 1]__[PreparedRange 2]__[PreparedRange 3]__
+  // Seek target: <----- Case 1 ------>▲<------------- Case 2 -------------->
+  //                                   │
+  //                                 Case 3
+  //
+  // Case 1: seek before the start of next prepared ranges. This could happen
+  //    due to too many delete tomestone triggered reseek or delete range.
+  // Case 2: seek after the start of next prepared range.
+  //    This could happen due to seek key adjustment from delete range file.
+  //    E.g. LSM has 3 levels, each level has only 1 file:
+  //    L1 : key :              0---10
+  //    L2 : Delete range key : 0-5
+  //    L3 : key :              0---10
+  //    When a range 2-8 was prepared, the prepared key would be 2 on L3 file,
+  //    but the seek key would be 5, as the seek key was updated by the largest
+  //    key of delete range. This causes all of the cases above to be possible,
+  //    when the ranges are adjusted in the above examples.
+  // Case 3: seek at the beginning of a prepared range (expected case)
 
   // Allow reseek on the start of the last prepared range due to too many
   // tombstone
@@ -1113,83 +1116,152 @@ bool BlockBasedTableIterator::SeekMultiScanImpl(const Slice* seek_target) {
       std::min(multi_scan_->next_scan_idx,
                multi_scan_->block_index_ranges_per_scan.size() - 1);
 
+  auto user_seek_target = ExtractUserKey(*seek_target);
+
   auto compare_next_scan_start_result =
       user_comparator_.CompareWithoutTimestamp(
-          ExtractUserKey(*seek_target), /*a_has_ts=*/true,
+          user_seek_target, /*a_has_ts=*/true,
           multi_scan_->scan_opts->GetScanRanges()[multi_scan_->next_scan_idx]
               .range.start.value(),
           /*b_has_ts=*/false);
 
   if (compare_next_scan_start_result != 0) {
-    // The seek key is not exactly same as what was prepared.
+    // The seek target is not exactly same as what was prepared.
     if (compare_next_scan_start_result < 0) {
-      // Needs to handle Cases: 1, 3, 4
-      //
-      // next_scan_idx :                    |
-      //                                    V
-      // table: _____[prepared range 1]_____[prepared range 2]_____
-      // seek :   1           3          4
-
-      // Case 1: Seek key is before the start key of the first range
+      // Case 1:
       if (multi_scan_->next_scan_idx == 0) {
-        return out_of_bound;
+        // This should not happen, even when seek target is adjusted by delete
+        // range. The reason is that if the seek target is before the start key
+        // of the first prepared range, its end key needs to be >= the smallest
+        // key of this file, otherwise it is skipped in level iterator. If its
+        // end key is >= the smallest key of this file, then this range will be
+        // prepared for this file. As delete range could only adjust seek
+        // target forward, so it would never be before the start key of the
+        // first prepared range.
+        assert(false && "Seek target before the first prepared range");
+        MarkPreparedRangeExhausted();
+        return;
       }
-      // Case: 3, 4
+      auto seek_target_before_previous_prepared_range =
+          user_comparator_.CompareWithoutTimestamp(
+              user_seek_target, /*a_has_ts=*/true,
+              multi_scan_->scan_opts
+                  ->GetScanRanges()[multi_scan_->next_scan_idx - 1]
+                  .range.start.value(),
+              /*b_has_ts=*/false) < 0;
+      // Not expected to happen
+      // This should never happen, the reason is that the
+      // multi_scan_->next_scan_idx is set to a non zero value is due to a seek
+      // target larger or equal to the start key of multi_scan_->next_scan_idx-1
+      // happended earlier. If a seek happens before the start key of
+      // multi_scan_->next_scan_idx-1, it would seek a key that is less than
+      // what was seeked before.
+      assert(!seek_target_before_previous_prepared_range);
+      if (seek_target_before_previous_prepared_range) {
+        multi_scan_status_ = Status::InvalidArgument(
+            "Seek target is before the previous prepared range at index " +
+            std::to_string(multi_scan_->next_scan_idx));
+        return;
+      }
+      // It should only be possible to seek a key between the start of current
+      // prepared scan and start of next prepared range.
       MultiScanUnexpectedSeekTarget(
-          seek_target, std::get<0>(multi_scan_->block_index_ranges_per_scan
-                                       [multi_scan_->next_scan_idx - 1]));
-
+          seek_target, &user_seek_target,
+          std::get<0>(multi_scan_->block_index_ranges_per_scan
+                          [multi_scan_->next_scan_idx - 1]));
     } else {
-      // Needs to handle Cases: 3, 4, 5
-      // next_scan_idx :|
-      //                V
-      // table:     ____[prepared range 1]_____[prepared range 2]_____
-      // seek :                 3           4                      5
+      // Case 2:
       MultiScanUnexpectedSeekTarget(
-          seek_target,
+          seek_target, &user_seek_target,
           std::get<0>(
               multi_scan_
                   ->block_index_ranges_per_scan[multi_scan_->next_scan_idx]));
     }
   } else {
-    if (multi_scan_->next_scan_idx >=
-        multi_scan_->block_index_ranges_per_scan.size()) {
-      // Seeking a range that is out side of prepared ranges.
-      return out_of_bound;
-    }
+    // Case 2:
+    assert(multi_scan_->next_scan_idx <
+           multi_scan_->block_index_ranges_per_scan.size());
 
     auto [cur_scan_start_idx, cur_scan_end_idx] =
         multi_scan_->block_index_ranges_per_scan[multi_scan_->next_scan_idx];
     // We should have the data block already loaded
     ++multi_scan_->next_scan_idx;
     if (cur_scan_start_idx >= cur_scan_end_idx) {
-      if (multi_scan_->next_scan_idx <
-          multi_scan_->block_index_ranges_per_scan.size()) {
-        return out_of_bound;
-      } else {
-        ResetDataIter();
-        return false;
-      }
-    } else {
-      is_out_of_bound_ = false;
+      // No blocks are prepared for this range at current file.
+      MarkPreparedRangeExhausted();
+      return;
     }
 
     MultiScanSeekTargetFromBlock(seek_target, cur_scan_start_idx);
   }
-
-  return false;
 }
 
 void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
-    const Slice* seek_target, size_t block_idx) {
+    const Slice* seek_target, const Slice* user_seek_target, size_t block_idx) {
   // linear search the block that contains the seek target, and unpin blocks
   // that are before it.
+
+  // The logic here could be confusing when there is a delete range involved.
+  // E.g. we have an LSM with 3 levels, each level has only 1 file:
+  // L1: data file :    0---10
+  // L2: Delete range : 0-5
+  // L3: data file :    0---10
+  //
+  // MultiScan on ranges 1-2, 3-4, and 5-6.
+  // When user first do Seek(1), on level 2, due to delete range 0-5, the seek
+  // key is adjusted to 5 at level 3. Therefore, we will internally do Seek(5)
+  // and unpins all blocks until 5 at level 3. Then the next scan's blocks from
+  // 3-4 are unpinned at level 3. It is confusing that maybe block 3-4 should
+  // not be unpinned, as next scan would need it. But Seek(5) implies that these
+  // keys are all covered by some range deletion, so the next Seek(3) will also
+  // do Seek(5) internally, so the blocks from 3-4 could be safely unpinned.
+
+  // advance to the right prepared range
+  while (
+      multi_scan_->next_scan_idx <
+          multi_scan_->block_index_ranges_per_scan.size() &&
+      (user_comparator_.CompareWithoutTimestamp(
+           *user_seek_target, /*a_has_ts=*/true,
+           multi_scan_->scan_opts->GetScanRanges()[multi_scan_->next_scan_idx]
+               .range.start.value(),
+           /*b_has_ts=*/false) >= 0)) {
+    multi_scan_->next_scan_idx++;
+  }
+
+  // next_scan_idx is guaranteed to be higher than 0. If the seek key is before
+  // the start key of first prepared range, it is already handled by caller
+  // SeekMultiScan. It is equal, it would not call this funciton. If it is
+  // after, next_scan_idx would be advanced by the loop above.
+  assert(multi_scan_->next_scan_idx > 0);
+  // Get the current range
+  auto cur_scan_idx = multi_scan_->next_scan_idx - 1;
+  auto [cur_scan_start_idx, cur_scan_end_idx] =
+      multi_scan_->block_index_ranges_per_scan[cur_scan_idx];
+
+  if (cur_scan_start_idx >= cur_scan_end_idx) {
+    // No blocks are prepared for this range at current file.
+    MarkPreparedRangeExhausted();
+    return;
+  }
+
+  // Unpin all the blocks from multi_scan_->cur_data_block_idx to
+  // cur_scan_start_idx
+  for (auto unpin_block_idx = multi_scan_->cur_data_block_idx;
+       unpin_block_idx < cur_scan_start_idx; unpin_block_idx++) {
+    if (!multi_scan_->pinned_data_blocks[unpin_block_idx].IsEmpty()) {
+      multi_scan_->pinned_data_blocks[unpin_block_idx].Reset();
+    }
+  }
+
+  // Find the right block_idx;
+  block_idx = cur_scan_start_idx;
   auto const& data_block_separators = multi_scan_->data_block_separators;
   while (block_idx < data_block_separators.size() &&
          (user_comparator_.CompareWithoutTimestamp(
-              ExtractUserKey(*seek_target), /*a_has_ts=*/true,
+              *user_seek_target, /*a_has_ts=*/true,
               data_block_separators[block_idx],
               /*b_has_ts=*/false) > 0)) {
+    // Unpin the blocks that are passed
     if (!multi_scan_->pinned_data_blocks[block_idx].IsEmpty()) {
       multi_scan_->pinned_data_blocks[block_idx].Reset();
     }
@@ -1197,28 +1269,9 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
   }
 
   if (block_idx >= data_block_separators.size()) {
-    // Handle case 5, when seek key is larger than the last block in the last
-    // prepared range.
-    ResetDataIter();
-    assert(!Valid());
+    // All of the prepared blocks for this file is exhausted.
+    MarkPreparedRangeExhausted();
     return;
-  }
-
-  // // The iterator from previous seek may have moved forward a few blocks,
-  // // In that case, have block_idx catch up the cur_data_block_idx
-  // // Note no need to handle block unpin, as it has been handled during
-  // iterating block_idx = std::max(block_idx, multi_scan_->cur_data_block_idx);
-
-  // advance to the right prepared range
-  while (
-      multi_scan_->next_scan_idx <
-          multi_scan_->block_index_ranges_per_scan.size() &&
-      (user_comparator_.CompareWithoutTimestamp(
-           ExtractUserKey(*seek_target), /*a_has_ts=*/true,
-           multi_scan_->scan_opts->GetScanRanges()[multi_scan_->next_scan_idx]
-               .range.start.value(),
-           /*b_has_ts=*/false) >= 0)) {
-    multi_scan_->next_scan_idx++;
   }
 
   // The current block may contain the data for the target key
@@ -1257,6 +1310,7 @@ void BlockBasedTableIterator::MultiScanSeekTargetFromBlock(
   block_iter_points_to_real_block_ = true;
   block_iter_.Seek(*seek_target);
   FindKeyForward();
+  CheckOutOfBound();
 }
 
 void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
@@ -1275,20 +1329,7 @@ void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
     // for this file, it may need to continue to scan into the next file, so
     // we do not set is_out_of_bound_ in this case.
     if (multi_scan_->cur_data_block_idx + 1 >= cur_scan_end_idx) {
-      if (multi_scan_->next_scan_idx >=
-          multi_scan_->block_index_ranges_per_scan.size()) {
-        // We are done with this file, should let LevelIter advance to the
-        // next file instead of ending the scan
-        ResetDataIter();
-        assert(!is_out_of_bound_);
-        assert(!Valid());
-        return;
-      }
-      // We don't ResetDataIter() here since next scan might be reading from
-      // the same block. ResetDataIter() will free the underlying block cache
-      // handle and we don't want the block to be unpinned.
-      is_out_of_bound_ = true;
-      assert(!Valid());
+      MarkPreparedRangeExhausted();
       return;
     }
     // Move to the next pinned data block
@@ -1419,7 +1460,7 @@ Status BlockBasedTableIterator::CollectBlockHandles(
     std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan,
     std::vector<std::string>* data_block_separators) {
   // print file name and level
-  if (kVerbose) {
+  if (UNLIKELY(kVerbose)) {
     auto file_name = table_->get_rep()->file->file_name();
     auto level = table_->get_rep()->level;
     printf("file name : %s, level %d\n", file_name.c_str(), level);
@@ -1480,10 +1521,15 @@ Status BlockBasedTableIterator::CollectBlockHandles(
     }
     block_index_ranges_per_scan->emplace_back(
         scan_block_handles->size() - num_blocks, scan_block_handles->size());
-    if (kVerbose) {
+    if (UNLIKELY(kVerbose)) {
       printf("separators :");
       for (const auto& separator : *data_block_separators) {
         printf("%s, ", separator.c_str());
+      }
+      printf("\nblock_index_ranges_per_scan :");
+      for (auto const& block_index_range : *block_index_ranges_per_scan) {
+        printf("[%zu, %zu], ", std::get<0>(block_index_range),
+               std::get<1>(block_index_range));
       }
       printf("\n");
     }
