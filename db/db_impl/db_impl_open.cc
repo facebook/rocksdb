@@ -329,7 +329,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
     file->SetPreallocationBlockSize(
-        immutable_db_options_.manifest_preallocation_size);
+        mutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, immutable_db_options_.clock,
         io_tracer_, nullptr /* stats */,

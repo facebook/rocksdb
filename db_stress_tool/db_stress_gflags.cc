@@ -978,7 +978,11 @@ DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
-DEFINE_uint64(max_manifest_file_size, 16384, "Maximum size of a MANIFEST file");
+DEFINE_uint64(max_manifest_file_size, 16384,
+              "Maximum size of a MANIFEST file (without auto-tuning)");
+
+DEFINE_int32(max_manifest_space_amp_pct, 500,
+             "Max manifest space amp percentage for auto-tuning");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 

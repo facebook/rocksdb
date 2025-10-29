@@ -4844,6 +4844,12 @@ cpp_unittest_wrapper(name="db_encryption_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_etc3_test",
+            srcs=["db/db_etc3_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_flush_test",
             srcs=["db/db_flush_test.cc"],
             deps=[":rocksdb_test_lib"],

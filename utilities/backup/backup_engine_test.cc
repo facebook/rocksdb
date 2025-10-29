@@ -3541,6 +3541,7 @@ TEST_F(BackupEngineTest, EnvFailures) {
 TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   DestroyDBWithoutCheck(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
+  options_.max_manifest_space_amp_pct = 0;
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
 

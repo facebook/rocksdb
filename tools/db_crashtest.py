@@ -245,8 +245,9 @@ default_params = {
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size": lambda: random.choice(
-        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]
+        [t * 2048 if t < 5 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
+    "max_manifest_space_amp_pct": lambda: random.choice([0, 10, 100, 1000]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),

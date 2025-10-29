@@ -446,6 +446,14 @@ DEFINE_int64(db_write_buffer_size,
              ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
              "Number of bytes to buffer in all memtables before compacting");
 
+DEFINE_int64(max_manifest_file_size,
+             ROCKSDB_NAMESPACE::Options().max_manifest_file_size,
+             "Max manifest file size (or minimum max with auto-tuning)");
+
+DEFINE_int32(max_manifest_space_amp_pct,
+             ROCKSDB_NAMESPACE::Options().max_manifest_space_amp_pct,
+             "Max manifest space amp percentage for auto-tuning");
+
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
 
@@ -4368,6 +4376,8 @@ class Benchmark {
       options.write_buffer_manager.reset(
           new WriteBufferManager(FLAGS_db_write_buffer_size, cache_));
     }
+    options.max_manifest_file_size = FLAGS_max_manifest_file_size;
+    options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
     options.arena_block_size = FLAGS_arena_block_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;

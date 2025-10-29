@@ -5205,6 +5205,7 @@ TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
   options.max_manifest_file_size = 10;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_EQ(2, handles_.size());
@@ -5896,6 +5897,7 @@ TEST_P(RenameCurrentTest, Flush) {
   Destroy(last_options_);
   Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("key", "value"));
@@ -5915,6 +5917,7 @@ TEST_P(RenameCurrentTest, Compaction) {
   Destroy(last_options_);
   Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("a", "a_value"));

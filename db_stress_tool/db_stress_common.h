@@ -248,6 +248,7 @@ DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);
+DECLARE_int32(max_manifest_space_amp_pct);
 DECLARE_bool(in_place_update);
 DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
