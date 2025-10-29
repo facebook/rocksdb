@@ -350,7 +350,6 @@ bool StressTest::BuildOptionsTable() {
            "1",
            "2",
        }},
-      {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
       {"block_based_table_factory",
        {
            keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:2.35}"
@@ -363,6 +362,13 @@ bool StressTest::BuildOptionsTable() {
                std::to_string(FLAGS_block_size + (FLAGS_seed & 0xFFFU)) + "}",
        }},
   };
+  if (FLAGS_use_multiscan == 0) {
+    // TODO: this can fail MultiScan when consecutive data blocks share the
+    // same user at boundary. MultiScan uses user key to locate the block to
+    // reach which can move the scan earlier than its current block.
+    options_tbl.emplace("max_sequential_skip_in_iterations",
+                        std::vector<std::string>{"4", "8", "12"});
+  }
   if (FLAGS_compaction_style == kCompactionStyleUniversal &&
       FLAGS_universal_max_read_amp > 0) {
     // level0_file_num_compaction_trigger needs to be at most max_read_amp
