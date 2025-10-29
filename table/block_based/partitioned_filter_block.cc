@@ -143,6 +143,7 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
     ikey = p_index_builder_->GetPartitionKey();
   }
   filters_.push_back({std::move(ikey), std::move(filter_data), filter});
+  completed_filters_size_.FetchAddRelaxed(filter.size());
   partitioned_filters_construction_status_.UpdateIfOk(
       filter_construction_status);
 
@@ -213,7 +214,7 @@ size_t PartitionedFilterBlockBuilder::CurrentFilterSizeEstimate() {
   size_t active_partition_size =
       filter_bits_builder_->EstimateEntriesAdded() * 2;  // 2 bytes per key
 
-  return estimated_filter_size_ + active_partition_size;
+  return estimated_filter_size_.LoadRelaxed() + active_partition_size;
 }
 
 void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
@@ -223,14 +224,7 @@ void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
 
 void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
     uint64_t num_data_blocks) {
-  size_t filter_size = 0;
-
-  // Estimate filter size for completed partitions
-  // TODO (nmk70): Keep a running estimate of filter size for completed
-  // partitions to avoid recaluclating it when a data block is finalized
-  for (const auto& filter_entry : filters_) {
-    filter_size += filter_entry.filter.size();
-  }
+  size_t filter_size = completed_filters_size_.LoadRelaxed();
 
   // Estimate top-level partition index size
   if (p_index_builder_->separator_is_key_plus_seq()) {
@@ -261,9 +255,9 @@ void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
   if (num_data_blocks > 0) {
     reserved = (base_estimate / num_data_blocks) *
                2;  // 2x average size per data block
-    estimated_filter_size_ = base_estimate + reserved;
+    estimated_filter_size_.StoreRelaxed(base_estimate + reserved);
   } else {
-    estimated_filter_size_ = base_estimate;
+    estimated_filter_size_.StoreRelaxed(base_estimate);
   }
 }
 
