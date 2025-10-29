@@ -124,6 +124,7 @@ void ShortenedIndexBuilder::UpdateIndexSizeEstimate() {
           : index_block_builder_without_seq_.CurrentSizeEstimate();
 
   uint64_t final_estimate = current_size;
+  fprintf(stderr, "[Active Partition] Current size: %zu, num index entries: %zu\n", current_size, num_index_entries_);
   if (num_index_entries_ > 0) {
     // Add buffer to generously account (in most cases) for the next index entry
     final_estimate += (2 * (current_size / num_index_entries_));
@@ -257,6 +258,12 @@ void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
                                        skip_delta_encoding);
   std::swap(entries_.back().key, entry->separator_with_seq);
 
+  // Update cached size estimate when data blocks are finalized for more
+  // accurate tail size estimation. This is needed for parallel compression
+  // which uses FinishIndexEntry() instead of AddIndexEntry().
+  fprintf(stderr, "Parallel compression: About to update index size estimate: %zu\n", sub_index_builder_->CurrentIndexSizeEstimate());
+  UpdateIndexSizeEstimate();
+
   if (!must_use_separator_with_seq_ && entry->must_use_separator_with_seq) {
     // We need to apply !must_use_separator_with_seq to all sub-index builders
     must_use_separator_with_seq_ = true;
@@ -284,6 +291,7 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
   // Update cached size estimate when data blocks are finalized for more
   // accurate tail size estimation. This ensures the estimate reflects current
   // state after each data block is added.
+  fprintf(stderr, "About to update index size estimate: %zu\n", sub_index_builder_->CurrentIndexSizeEstimate());
   UpdateIndexSizeEstimate();
 
   if (!must_use_separator_with_seq_ &&
@@ -376,7 +384,9 @@ void PartitionedIndexBuilder::UpdateIndexSizeEstimate() {
   }
 
   // Add buffer for top-level index and next partition
+  uint64_t buffer_size = 0;
   if (completed_partitions > 0) {
+    fprintf(stderr, "Completed partitions: %zu, entries size: %zu\n", completed_partitions,  entries_.size());
     // Calculate top-level index size. Each top-level entry consists of:
     // separator key (~20-50 bytes) + BlockHandle (~20 bytes) + overhead
     // Estimate ~70 bytes per top-level entry as a reasonable average
@@ -389,14 +399,21 @@ void PartitionedIndexBuilder::UpdateIndexSizeEstimate() {
     uint64_t avg_top_level_entry_size =
         estimated_top_level_size / completed_partitions;
 
-    uint64_t buffer_size = 2 * (avg_partition_size + avg_top_level_entry_size);
+    buffer_size = 2 * (avg_partition_size + avg_top_level_entry_size);
     total_size += buffer_size;
   } else if (sub_index_builder_ != nullptr) {
     // For the first partition, estimate using the current partition's state
-    uint64_t buffer_size = 2 * current_sub_index_size;
+    fprintf(stderr, "Building first partition, current sub index size: %zu\n", current_sub_index_size);
+    buffer_size = 2 * current_sub_index_size;
     total_size += buffer_size;
   }
   estimated_index_size_.StoreRelaxed(total_size);
+
+  // Debug output to observe index growth
+  fprintf(stderr, "[INDEX ESTIMATE] partitions=%zu partitions_size=%zu numPartitions=%zu"
+          " active_partition_size=%zu buffer=%zu total=%zu\n",
+          completed_partitions, completed_partitions_size, NumPartitions(),
+          current_sub_index_size, buffer_size, total_size);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

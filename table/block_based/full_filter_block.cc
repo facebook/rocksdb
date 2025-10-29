@@ -52,12 +52,19 @@ void FullFilterBlockBuilder::UpdateFilterSizeEstimate(
   size_t filter_size = ((entries_added * 15) + 7) / 8;
 
   // Reserve filter space for next data block ~2x the average.
+  size_t buffer_size = 0;
   if (num_data_blocks > 0) {
-    estimated_filter_size_ =
-        filter_size + ((filter_size / num_data_blocks) * 2);
+    buffer_size = (filter_size / num_data_blocks) * 2;
+    estimated_filter_size_ = filter_size + buffer_size;
   } else {
     estimated_filter_size_ = filter_size;
   }
+
+  // Debug output to observe filter growth
+  // fprintf(stderr, "[FILTER ESTIMATE] entries=%" PRIu64 " data_blocks=%" PRIu64
+  //         " base_size=%zu buffer=%zu total=%zu\n",
+  //         (uint64_t)entries_added, num_data_blocks,
+  //         filter_size, buffer_size, estimated_filter_size_);
 }
 
 void FullFilterBlockBuilder::AddWithPrevKey(

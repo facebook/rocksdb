@@ -1791,6 +1791,8 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
         ++rep_->props.num_data_blocks;
+        fprintf(stderr, "[BGWorker] File %" PRIu64 " Wrote block: %zu\n",
+                rep_->props.orig_file_number, rep_->props.num_data_blocks);
 
         if (rep_->filter_builder) {
           rep_->filter_builder->OnDataBlockFinalized(
@@ -2748,15 +2750,35 @@ Status BlockBasedTableBuilder::Finish() {
   // - Partitioned filters
   if (r->reason == TableFileCreationReason::kCompaction &&
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
+    // Calculate individual component sizes for debugging
+    uint64_t filter_size = r->props.filter_size;
+    uint64_t index_size = r->props.index_size;
+    uint64_t index_partitions = r->props.index_partitions;
+    uint64_t top_level_index_size = r->props.top_level_index_size;
+    uint64_t other_tail_size = r->tail_size - filter_size - index_size;
+
     ROCKS_LOG_DEBUG(r->ioptions.info_log,
-                    "Estimated tail size %" PRIu64
-                    " vs actual tail size %" PRIu64,
+                    "[File %zu] Tail size components: filter=%zu index=%zu "
+                    " (num_partitions=%zu top_level=%zu) other=%zu "
+                    " | Estimated=%zu Actual=%zu",
+                    r->props.orig_file_number, filter_size, index_size, index_partitions,
+                    top_level_index_size, other_tail_size,
                     last_estimated_tail_size, r->tail_size);
+    fprintf(stderr, "\n=== Tail Size Debug Info ===\n");
+    fprintf(stderr,
+                "[File %zu] Tail size components: filter=%zu index=%zu "
+                " (num_partitions=%zu top_level=%zu) other=%zu "
+                " | Estimated=%zu Actual=%zu",
+                r->props.orig_file_number, filter_size, index_size, index_partitions,
+                top_level_index_size, other_tail_size,
+                last_estimated_tail_size, r->tail_size);
+    fprintf(stderr, "============================\n\n");
     assert(r->tail_size <= last_estimated_tail_size);
   }
 
   return r->GetStatus();
 }
+
 
 void BlockBasedTableBuilder::Abandon() {
   assert(rep_->state != Rep::State::kClosed);
