@@ -2506,7 +2506,7 @@ commit_prereq:
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
-FOLLY_COMMIT_HASH = 3134f74d3d29f156ffad4b8747442189fcaaabc0
+FOLLY_COMMIT_HASH = b5543d6706270cd41f1140421cc13c0d7e695ae2
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
