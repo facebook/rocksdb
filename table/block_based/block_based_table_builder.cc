@@ -2748,17 +2748,11 @@ Status BlockBasedTableBuilder::Finish() {
   // - Partitioned filters
   if (r->reason == TableFileCreationReason::kCompaction &&
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
-    ROCKS_LOG_DEBUG(
-        r->ioptions.info_log,
-        "File number: %" PRIu64 ", Estimated tail size = %" PRIu64
-        " bytes, Actual tail size = "
-        "%" PRIu64 " bytes (Index size: %" PRIu64
-        " bytes, Filter size: %zu bytes)",
-        r->props.orig_file_number, last_estimated_tail_size, r->tail_size,
-        rep_->index_builder ? rep_->index_builder->CurrentIndexSizeEstimate()
-                            : 0,
-        rep_->filter_builder ? rep_->filter_builder->CurrentFilterSizeEstimate()
-                             : 0);
+    ROCKS_LOG_DEBUG(r->ioptions.info_log,
+                    "File number: %" PRIu64 ", Estimated tail size = %" PRIu64
+                    " bytes, Actual tail size = %" PRIu64 " bytes",
+                    r->props.orig_file_number, last_estimated_tail_size,
+                    r->tail_size);
     assert(r->tail_size <= last_estimated_tail_size);
   }
 
