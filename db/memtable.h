@@ -27,6 +27,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
 #include "util/atomic.h"
