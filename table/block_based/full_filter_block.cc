@@ -59,12 +59,6 @@ void FullFilterBlockBuilder::UpdateFilterSizeEstimate(
   } else {
     estimated_filter_size_ = filter_size;
   }
-
-  // Debug output to observe filter growth
-  // fprintf(stderr, "[FILTER ESTIMATE] entries=%" PRIu64 " data_blocks=%" PRIu64
-  //         " base_size=%zu buffer=%zu total=%zu\n",
-  //         (uint64_t)entries_added, num_data_blocks,
-  //         filter_size, buffer_size, estimated_filter_size_);
 }
 
 void FullFilterBlockBuilder::AddWithPrevKey(
