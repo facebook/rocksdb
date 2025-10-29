@@ -2750,8 +2750,10 @@ Status BlockBasedTableBuilder::Finish() {
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
     ROCKS_LOG_DEBUG(
         r->ioptions.info_log,
-        "File number: %zu, Estimated tail size = %zu bytes, Actual tail size = "
-        "%zu bytes (Index size: %zu bytes, Filter size: %zu bytes)",
+        "File number: %" PRIu64 ", Estimated tail size = %" PRIu64
+        " bytes, Actual tail size = "
+        "%" PRIu64 " bytes (Index size: %" PRIu64
+        " bytes, Filter size: %zu bytes)",
         r->props.orig_file_number, last_estimated_tail_size, r->tail_size,
         rep_->index_builder ? rep_->index_builder->CurrentIndexSizeEstimate()
                             : 0,
@@ -2762,7 +2764,6 @@ Status BlockBasedTableBuilder::Finish() {
 
   return r->GetStatus();
 }
-
 
 void BlockBasedTableBuilder::Abandon() {
   assert(rep_->state != Rep::State::kClosed);

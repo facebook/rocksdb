@@ -341,8 +341,9 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       assert(other != nullptr);
       std::swap(entries, other->entries);
       entries_count.store(other->entries_count.exchange(
-          entries_count.load(std::memory_order_relaxed),
-          std::memory_order_relaxed), std::memory_order_relaxed);
+                              entries_count.load(std::memory_order_relaxed),
+                              std::memory_order_relaxed),
+                          std::memory_order_relaxed);
       std::swap(cache_res_bucket_handles, other->cache_res_bucket_handles);
       std::swap(xor_checksum, other->xor_checksum);
       std::swap(prev_alt_hash, other->prev_alt_hash);
