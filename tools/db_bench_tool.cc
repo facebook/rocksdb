@@ -2259,7 +2259,7 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
     OperationTypeString = {{kRead, "read"},         {kWrite, "write"},
                            {kDelete, "delete"},     {kSeek, "seek"},
                            {kMerge, "merge"},       {kUpdate, "update"},
-                           {kCompress, "compress"}, {kCompress, "uncompress"},
+                           {kCompress, "compress"}, {kUncompress, "uncompress"},
                            {kCrc, "crc"},           {kHash, "hash"},
                            {kOthers, "op"},         {kMultiScan, "multiscan"}};
 
