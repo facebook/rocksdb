@@ -1633,6 +1633,9 @@ perf_context_test: $(OBJ_DIR)/db/perf_context_test.o $(TEST_LIBRARY) $(LIBRARY)
 prefix_test: $(OBJ_DIR)/db/prefix_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+prefix_exists_test: $(OBJ_DIR)/db/prefix_exists_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

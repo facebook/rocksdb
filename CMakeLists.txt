@@ -711,6 +711,7 @@ set(SOURCES
         db/db_impl/db_impl_debug.cc
         db/db_impl/db_impl_experimental.cc
         db/db_impl/db_impl_readonly.cc
+        db/db_impl/db_impl_prefix_exists.cc
         db/db_impl/db_impl_secondary.cc
         db/db_info_dumper.cc
         db/db_iter.cc
@@ -1412,6 +1413,7 @@ if(WITH_TESTS)
         db/plain_table_db_test.cc
         db/seqno_time_test.cc
         db/prefix_test.cc
+        db/prefix_exists_test.cc
         db/range_del_aggregator_test.cc
         db/range_tombstone_fragmenter_test.cc
         db/repair_test.cc

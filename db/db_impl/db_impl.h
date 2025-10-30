@@ -376,6 +376,18 @@ class DBImpl : public DB {
                    std::string* value, std::string* timestamp,
                    bool* value_found = nullptr) override;
 
+  // Optimized prefix existence check
+  using DB::PrefixExists;
+  Status PrefixExists(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family,
+                      const Slice& prefix) override;
+
+  using DB::PrefixExistsMulti;
+  void PrefixExistsMulti(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family,
+                         bool prefixes_sorted, size_t num_prefixes,
+                         const Slice* prefixes, Status* statuses) override;
+
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;

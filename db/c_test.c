@@ -4500,6 +4500,350 @@ int main(int argc, char** argv) {
     rocksdb_sst_file_manager_destroy(sst_file_manager);
   }
 
+  StartPhase("prefix_exists_capi_basic_with_extractor");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_extractor-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+    rocksdb_slicetransform_t* pfx =
+        rocksdb_slicetransform_create_fixed_prefix(3);
+    rocksdb_options_set_prefix_extractor(popts, pfx);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "abc1", 4, "v1", 2, &perr);
+    CheckNoError(perr);
+    rocksdb_put(pdb, woptions, "abc2", 4, "v2", 2, &perr);
+    CheckNoError(perr);
+
+    unsigned char exists =
+        rocksdb_prefix_exists(pdb, roptions, "abc", 3, &perr);
+    CheckNoError(perr);
+    CheckCondition(exists == 1);
+
+    unsigned char not_exists =
+        rocksdb_prefix_exists(pdb, roptions, "xyz", 3, &perr);
+    CheckNoError(perr);
+    CheckCondition(not_exists == 0);
+
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_capi_without_extractor");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_no_extractor-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "key1", 4, "v1", 2, &perr);
+    CheckNoError(perr);
+    rocksdb_put(pdb, woptions, "key2", 4, "v2", 2, &perr);
+    CheckNoError(perr);
+
+    unsigned char exists =
+        rocksdb_prefix_exists(pdb, roptions, "key", 3, &perr);
+    CheckNoError(perr);
+    CheckCondition(exists == 1);
+
+    unsigned char not_exists =
+        rocksdb_prefix_exists(pdb, roptions, "zzz", 3, &perr);
+    CheckNoError(perr);
+    CheckCondition(not_exists == 0);
+
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_capi_flush_and_delete");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_flush_del-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+    rocksdb_slicetransform_t* pfx =
+        rocksdb_slicetransform_create_fixed_prefix(2);
+    rocksdb_options_set_prefix_extractor(popts, pfx);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "aa1", 3, "v1", 2, &perr);
+    CheckNoError(perr);
+
+    rocksdb_flushoptions_t* fopts = rocksdb_flushoptions_create();
+    rocksdb_flush(pdb, fopts, &perr);
+    CheckNoError(perr);
+
+    unsigned char exists = rocksdb_prefix_exists(pdb, roptions, "aa", 2, &perr);
+    CheckNoError(perr);
+    CheckCondition(exists == 1);
+
+    rocksdb_delete(pdb, woptions, "aa1", 3, &perr);
+    CheckNoError(perr);
+    rocksdb_flush(pdb, fopts, &perr);
+    CheckNoError(perr);
+
+    unsigned char not_exists =
+        rocksdb_prefix_exists(pdb, roptions, "aa", 2, &perr);
+    CheckNoError(perr);
+    CheckCondition(not_exists == 0);
+
+    rocksdb_flushoptions_destroy(fopts);
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_multi_capi_basic_with_extractor");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_multi_extractor-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+    rocksdb_slicetransform_t* pfx =
+        rocksdb_slicetransform_create_fixed_prefix(3);
+    rocksdb_options_set_prefix_extractor(popts, pfx);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "abc1", 4, "v1", 2, &perr);
+    CheckNoError(perr);
+    rocksdb_put(pdb, woptions, "abd1", 4, "v2", 2, &perr);
+    CheckNoError(perr);
+
+    const char* keys[] = {"abc", "abe", "abd"};
+    size_t lens[] = {3, 3, 3};
+    unsigned char out[3] = {0};
+    unsigned char ok = rocksdb_prefix_exists_multi(pdb, roptions, 0, 3, keys,
+                                                   lens, out, &perr);
+    CheckNoError(perr);
+    CheckCondition(ok == 1);
+    CheckCondition(out[0] == 1);
+    CheckCondition(out[1] == 0);
+    CheckCondition(out[2] == 1);
+
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_multi_capi_without_extractor");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_multi_no_extractor-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "key1", 4, "v1", 2, &perr);
+    CheckNoError(perr);
+    rocksdb_put(pdb, woptions, "key2", 4, "v2", 2, &perr);
+    CheckNoError(perr);
+
+    const char* keys[] = {"key", "zzz"};
+    size_t lens[] = {3, 3};
+    unsigned char out[2] = {0};
+    unsigned char ok = rocksdb_prefix_exists_multi(pdb, roptions, 0, 2, keys,
+                                                   lens, out, &perr);
+    CheckNoError(perr);
+    CheckCondition(ok == 1);
+    CheckCondition(out[0] == 1);
+    CheckCondition(out[1] == 0);
+
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_multi_capi_flush_and_delete");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_multi_flush_del-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+    rocksdb_slicetransform_t* pfx =
+        rocksdb_slicetransform_create_fixed_prefix(2);
+    rocksdb_options_set_prefix_extractor(popts, pfx);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "aa1", 3, "v1", 2, &perr);
+    CheckNoError(perr);
+    rocksdb_put(pdb, woptions, "bb1", 3, "v2", 2, &perr);
+    CheckNoError(perr);
+
+    rocksdb_flushoptions_t* fopts = rocksdb_flushoptions_create();
+    rocksdb_flush(pdb, fopts, &perr);
+    CheckNoError(perr);
+
+    const char* keys1[] = {"aa", "bb", "cc"};
+    size_t lens1[] = {2, 2, 2};
+    unsigned char out1[3] = {0};
+    unsigned char ok1 = rocksdb_prefix_exists_multi(pdb, roptions, 0, 3, keys1,
+                                                    lens1, out1, &perr);
+    CheckNoError(perr);
+    CheckCondition(ok1 == 1);
+    CheckCondition(out1[0] == 1);
+    CheckCondition(out1[1] == 1);
+    CheckCondition(out1[2] == 0);
+
+    // Delete one prefix and confirm
+    rocksdb_delete(pdb, woptions, "aa1", 3, &perr);
+    CheckNoError(perr);
+    rocksdb_flush(pdb, fopts, &perr);
+    CheckNoError(perr);
+
+    const char* keys2[] = {"aa", "bb"};
+    size_t lens2[] = {2, 2};
+    unsigned char out2[2] = {0};
+    unsigned char ok2 = rocksdb_prefix_exists_multi(pdb, roptions, 0, 2, keys2,
+                                                    lens2, out2, &perr);
+    CheckNoError(perr);
+    CheckCondition(ok2 == 1);
+    CheckCondition(out2[0] == 0);
+    CheckCondition(out2[1] == 1);
+
+    rocksdb_flushoptions_destroy(fopts);
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_multi_capi_sorted_hint_with_duplicates");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_multi_sorted_dups-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+    rocksdb_slicetransform_t* pfx =
+        rocksdb_slicetransform_create_fixed_prefix(3);
+    rocksdb_options_set_prefix_extractor(popts, pfx);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "abc1", 4, "v1", 2, &perr);
+    CheckNoError(perr);
+    rocksdb_flushoptions_t* fopts = rocksdb_flushoptions_create();
+    rocksdb_flush(pdb, fopts, &perr);
+    CheckNoError(perr);
+
+    const char* keys[] = {"abc", "abc", "abe", "abe"};
+    size_t lens[] = {3, 3, 3, 3};
+    unsigned char out[4] = {0};
+    unsigned char ok = rocksdb_prefix_exists_multi(pdb, roptions, 1 /*sorted*/,
+                                                   4, keys, lens, out, &perr);
+    CheckNoError(perr);
+    CheckCondition(ok == 1);
+    CheckCondition(out[0] == 1);
+    CheckCondition(out[1] == 1);
+    CheckCondition(out[2] == 0);
+    CheckCondition(out[3] == 0);
+
+    rocksdb_flushoptions_destroy(fopts);
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
+  StartPhase("prefix_exists_multi_capi_sorted_hint_without_extractor");
+  {
+    char* perr = NULL;
+    char pdbname[260];
+    snprintf(pdbname, sizeof(pdbname),
+             "%s/rocksdb_c_prefix_exists_multi_sorted_noext-%d", GetTempDir(),
+             ((int)geteuid()));
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+
+    rocksdb_options_t* popts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(popts, 1);
+
+    rocksdb_t* pdb = rocksdb_open(popts, pdbname, &perr);
+    CheckNoError(perr);
+
+    rocksdb_put(pdb, woptions, "key1", 4, "v1", 2, &perr);
+    CheckNoError(perr);
+
+    const char* keys[] = {"key", "key", "zzz"};
+    size_t lens[] = {3, 3, 3};
+    unsigned char out[3] = {0};
+    unsigned char ok = rocksdb_prefix_exists_multi(pdb, roptions, 1 /*sorted*/,
+                                                   3, keys, lens, out, &perr);
+    CheckNoError(perr);
+    CheckCondition(ok == 1);
+    CheckCondition(out[0] == 1);
+    CheckCondition(out[1] == 1);
+    CheckCondition(out[2] == 0);
+
+    rocksdb_close(pdb);
+    rocksdb_options_destroy(popts);
+    rocksdb_destroy_db(options, pdbname, &perr);
+    Free(&perr);
+  }
+
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
 

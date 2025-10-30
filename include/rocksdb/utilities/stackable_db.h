@@ -220,6 +220,22 @@ class StackableDB : public DB {
     return db_->KeyMayExist(options, column_family, key, value, value_found);
   }
 
+  using DB::PrefixExists;
+  Status PrefixExists(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family,
+                      const Slice& prefix) override {
+    return db_->PrefixExists(options, column_family, prefix);
+  }
+
+  using DB::PrefixExistsMulti;
+  void PrefixExistsMulti(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family,
+                         bool prefixes_sorted, size_t num_prefixes,
+                         const Slice* prefixes, Status* statuses) override {
+    db_->PrefixExistsMulti(options, column_family, prefixes_sorted,
+                           num_prefixes, prefixes, statuses);
+  }
+
   using DB::Delete;
   Status Delete(const WriteOptions& wopts, ColumnFamilyHandle* column_family,
                 const Slice& key) override {

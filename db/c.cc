@@ -643,6 +643,108 @@ static inline char* CopyString(const Slice& slice) {
   return result;
 }
 
+unsigned char rocksdb_prefix_exists(rocksdb_t* db,
+                                    const rocksdb_readoptions_t* options,
+                                    const char* prefix, size_t prefix_len,
+                                    char** errptr) {
+  Status s = db->rep->PrefixExists(options->rep, Slice(prefix, prefix_len));
+  if (s.ok()) {
+    return 1;
+  }
+  if (s.IsNotFound()) {
+    return 0;
+  }
+  SaveError(errptr, s);
+  return 0;
+}
+
+unsigned char rocksdb_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* prefix,
+    size_t prefix_len, char** errptr) {
+  Status s = db->rep->PrefixExists(options->rep, column_family->rep,
+                                   Slice(prefix, prefix_len));
+  if (s.ok()) {
+    return 1;
+  }
+  if (s.IsNotFound()) {
+    return 0;
+  }
+  SaveError(errptr, s);
+  return 0;
+}
+
+unsigned char rocksdb_prefix_exists_multi(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    unsigned char prefixes_sorted, size_t num_prefixes,
+    const char* const* prefixes, const size_t* prefix_lens,
+    unsigned char* out_exists, char** errptr) {
+  if (num_prefixes == 0) {
+    return 1;
+  }
+  // Build Slice array
+  std::vector<Slice> pfx;
+  pfx.reserve(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    pfx.emplace_back(prefixes[i], prefix_lens[i]);
+  }
+  // Output statuses
+  std::vector<Status> statuses(num_prefixes);
+  db->rep->PrefixExistsMulti(options->rep, static_cast<bool>(prefixes_sorted),
+                             num_prefixes, pfx.data(), statuses.data());
+  bool ok = true;
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (statuses[i].ok()) {
+      out_exists[i] = 1;
+    } else if (statuses[i].IsNotFound()) {
+      out_exists[i] = 0;
+    } else {
+      ok = false;
+      // capture first error
+      if (errptr && *errptr == nullptr) {
+        SaveError(errptr, statuses[i]);
+      }
+      out_exists[i] = 0;
+    }
+  }
+  return ok ? 1 : 0;
+}
+
+unsigned char rocksdb_prefix_exists_multi_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    unsigned char prefixes_sorted, size_t num_prefixes,
+    const char* const* prefixes, const size_t* prefix_lens,
+    unsigned char* out_exists, char** errptr) {
+  if (num_prefixes == 0) {
+    return 1;
+  }
+  std::vector<Slice> pfx;
+  pfx.reserve(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    pfx.emplace_back(prefixes[i], prefix_lens[i]);
+  }
+  std::vector<Status> statuses(num_prefixes);
+  db->rep->PrefixExistsMulti(options->rep, column_family->rep,
+                             static_cast<bool>(prefixes_sorted), num_prefixes,
+                             pfx.data(), statuses.data());
+  bool ok = true;
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (statuses[i].ok()) {
+      out_exists[i] = 1;
+    } else if (statuses[i].IsNotFound()) {
+      out_exists[i] = 0;
+    } else {
+      ok = false;
+      if (errptr && *errptr == nullptr) {
+        SaveError(errptr, statuses[i]);
+      }
+      out_exists[i] = 0;
+    }
+  }
+  return ok ? 1 : 0;
+}
+
 rocksdb_t* rocksdb_open(const rocksdb_options_t* options, const char* name,
                         char** errptr) {
   DB* db;
