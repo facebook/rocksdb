@@ -132,6 +132,8 @@ struct MutableCFOptions {
         max_compaction_bytes(options.max_compaction_bytes),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
+        compaction_use_tail_size_estimation(
+            options.compaction_use_tail_size_estimation),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
         ttl(options.ttl),
@@ -206,6 +208,7 @@ struct MutableCFOptions {
         max_compaction_bytes(0),
         target_file_size_base(0),
         target_file_size_multiplier(0),
+        compaction_use_tail_size_estimation(false),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
         ttl(0),
@@ -304,6 +307,7 @@ struct MutableCFOptions {
   uint64_t max_compaction_bytes;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
+  bool compaction_use_tail_size_estimation;
   uint64_t max_bytes_for_level_base;
   double max_bytes_for_level_multiplier;
   uint64_t ttl;
