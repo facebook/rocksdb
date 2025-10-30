@@ -1093,12 +1093,21 @@ if(USE_FOLLY_LITE)
     third-party/folly/folly/synchronization/DistributedMutex.cpp
     third-party/folly/folly/synchronization/ParkingLot.cpp)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  # Add boost to the include path
   exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
   build/fbcode_builder/getdeps.py show-source-dir boost OUTPUT_VARIABLE
   BOOST_SOURCE_PATH)
   exec_program(ls ARGS -d ${BOOST_SOURCE_PATH}/boost* OUTPUT_VARIABLE
   BOOST_INCLUDE_DIR)
   include_directories(${BOOST_INCLUDE_DIR})
+  # Add fmt to the include path
+  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+  build/fbcode_builder/getdeps.py show-source-dir fmt OUTPUT_VARIABLE
+  FMT_SOURCE_PATH)
+  exec_program(ls ARGS -d ${FMT_SOURCE_PATH}/fmt* OUTPUT_VARIABLE
+  FMT_INCLUDE_DIR)
+  include_directories(${FMT_INCLUDE_DIR})
+
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
   list(APPEND THIRDPARTY_LIBS glog)
 endif()
