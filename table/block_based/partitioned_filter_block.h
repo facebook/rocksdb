@@ -103,7 +103,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // Running total of completed filter partition sizes to avoid
   // iterating over filters_ deque, which can be concurrently modified by
   // the main thread when parallel compression is enabled.
-  RelaxedAtomic<size_t> completed_filters_size_{0};
+  RelaxedAtomic<size_t> completed_partitions_size_{0};
 
   // The desired number of keys per partition
   uint32_t keys_per_partition_;

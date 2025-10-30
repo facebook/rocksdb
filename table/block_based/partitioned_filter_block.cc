@@ -143,7 +143,7 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
     ikey = p_index_builder_->GetPartitionKey();
   }
   filters_.push_back({std::move(ikey), std::move(filter_data), filter});
-  completed_filters_size_.FetchAddRelaxed(filter.size());
+  completed_partitions_size_.FetchAddRelaxed(filter.size());
   partitioned_filters_construction_status_.UpdateIfOk(
       filter_construction_status);
 
@@ -224,19 +224,11 @@ void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
 
 void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
     uint64_t num_data_blocks) {
-  size_t filter_size = completed_filters_size_.LoadRelaxed();
+  size_t partitions_size = completed_partitions_size_.LoadRelaxed();
 
-  // Estimate top-level partition index size
-  if (p_index_builder_->separator_is_key_plus_seq()) {
-    filter_size += index_on_filter_block_builder_.CurrentSizeEstimate();
-  } else {
-    filter_size +=
-        index_on_filter_block_builder_without_seq_.CurrentSizeEstimate();
-  }
-
-  // Fallback: Reserve space if no partitions have been cut yet
+  // Reserve space if no partitions have been cut
   size_t active_filter_estimate = 0;
-  if (filters_.empty()) {
+  if (partitions_size == 0) {
     size_t avg_bytes_per_entry =
         2;  // 2 bytes per entry, approx 15 bits per key
 
@@ -247,17 +239,24 @@ void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
     // Add a 2x buffer (for top-level index, etc.)
     active_filter_estimate = active_filter_estimate * 2;
   }
+  size_t filter_estimate = std::max(partitions_size, active_filter_estimate);
 
-  size_t base_estimate = std::max(filter_size, active_filter_estimate);
+  // Estimate top-level partition index size
+  if (p_index_builder_->separator_is_key_plus_seq()) {
+    filter_estimate += index_on_filter_block_builder_.CurrentSizeEstimate();
+  } else {
+    filter_estimate +=
+        index_on_filter_block_builder_without_seq_.CurrentSizeEstimate();
+  }
 
   // Reserve filter space for the next data block
   size_t reserved = 0;
   if (num_data_blocks > 0) {
-    reserved = (base_estimate / num_data_blocks) *
+    reserved = (filter_estimate / num_data_blocks) *
                2;  // 2x average size per data block
-    estimated_filter_size_.StoreRelaxed(base_estimate + reserved);
+    estimated_filter_size_.StoreRelaxed(filter_estimate + reserved);
   } else {
-    estimated_filter_size_.StoreRelaxed(base_estimate);
+    estimated_filter_size_.StoreRelaxed(filter_estimate);
   }
 }
 
