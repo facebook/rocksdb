@@ -894,6 +894,7 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   OffsetableCacheKey base_cache_key;
   const TableFileCreationReason reason;
+  const bool compaction_use_tail_size_estimation;
 
   BlockHandle pending_handle;  // Handle to add to index block
 
@@ -1041,6 +1042,8 @@ struct BlockBasedTableBuilder::Rep {
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         reason(tbo.reason),
+        compaction_use_tail_size_estimation(
+            tbo.moptions.compaction_use_tail_size_estimation),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
@@ -2740,13 +2743,15 @@ Status BlockBasedTableBuilder::Finish() {
   r->state = Rep::State::kClosed;
   r->tail_size = r->offset.LoadRelaxed() - r->props.tail_start_offset;
 
-  // Assert tail size estimation is an overestimate only for compaction files
-  // with supported index/filter types:
+  // Assert tail size estimation is an overestimate only when tail size
+  // estimation option is enabled for compaction files with supported
+  // index/filter types:
   // - Shortened indexes (kBinarySearch, kBinarySearchWithFirstKey)
   // - Partitioned indexes (kTwoLevelIndexSearch)
   // - Full filters
   // - Partitioned filters
-  if (r->reason == TableFileCreationReason::kCompaction &&
+  if (r->compaction_use_tail_size_estimation &&
+      r->reason == TableFileCreationReason::kCompaction &&
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
     ROCKS_LOG_DEBUG(r->ioptions.info_log,
                     "File number: %" PRIu64 ", Estimated tail size = %" PRIu64
