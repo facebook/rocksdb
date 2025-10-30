@@ -487,13 +487,6 @@ ifneq ($(strip $(FOLLY_PATH)),)
 		PLATFORM_CXXFLAGS += -isystem $(BOOST_PATH)/include -isystem $(DBL_CONV_PATH)/include -isystem $(GLOG_PATH)/include -isystem $(LIBEVENT_PATH)/include -isystem $(XZ_PATH)/include -isystem $(LIBSODIUM_PATH)/include -isystem $(FOLLY_PATH)/include -isystem $(FMT_PATH)/include
 	endif
 
-	FOLLY_BUILD_FLAGS = --no-tests
-	# NOTE: To avoid ODR violations, we must build folly in debug mode iff
-	# building RocksDB in debug mode.
-ifneq ($(DEBUG_LEVEL),0)
-	FOLLY_BUILD_FLAGS += --build-type Debug
-endif
-
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
 
@@ -2541,6 +2534,13 @@ checkout_folly:
 	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
+
+FOLLY_BUILD_FLAGS = --no-tests
+# NOTE: To avoid ODR violations, we must build folly in debug mode iff
+# building RocksDB in debug mode.
+ifneq ($(DEBUG_LEVEL),0)
+FOLLY_BUILD_FLAGS += --build-type Debug
+endif
 
 build_folly:
 	FOLLY_INST_PATH=`cd third-party/folly; $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
