@@ -370,7 +370,7 @@ void PartitionedIndexBuilder::UpdateIndexSizeEstimate() {
   // Use running estimate of completed partitions instead of IndexSize() which
   // is only available after calling Finish().
   uint64_t completed_partitions_size =
-      +estimated_completed_partitions_size_.LoadRelaxed();
+      estimated_completed_partitions_size_.LoadRelaxed();
   total_size += completed_partitions_size;
 
   // Add current active partition size if it exists

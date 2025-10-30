@@ -29,6 +29,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
+#include "util/atomic.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -130,7 +131,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   // filter. This method is thread-safe and can be safely called
   // from background threads during parallel compression.
   size_t EstimateEntriesAdded() override {
-    return hash_entries_info_.entries_count.load(std::memory_order_relaxed);
+    return hash_entries_info_.entries_count.LoadRelaxed();
   }
 
   Status MaybePostVerify(const Slice& filter_content) override;
@@ -150,7 +151,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       hash_entries_info_.xor_checksum ^= hash;
     }
     hash_entries_info_.entries.push_back(hash);
-    hash_entries_info_.entries_count.fetch_add(1, std::memory_order_relaxed);
+    hash_entries_info_.entries_count.FetchAddRelaxed(1);
     if (cache_res_mgr_ &&
         // Traditional rounding to whole bucket size
         ((hash_entries_info_.entries.size() %
@@ -320,7 +321,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
     // Tracks the number of entries added for thread-safe
     // size estimation.
-    std::atomic<size_t> entries_count{0};
+    RelaxedAtomic<size_t> entries_count{0};
 
     // If cache_res_mgr_ != nullptr,
     // it manages cache charge for buckets of hash entries in (new) Bloom
@@ -340,10 +341,8 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     void Swap(HashEntriesInfo* other) {
       assert(other != nullptr);
       std::swap(entries, other->entries);
-      entries_count.store(other->entries_count.exchange(
-                              entries_count.load(std::memory_order_relaxed),
-                              std::memory_order_relaxed),
-                          std::memory_order_relaxed);
+      entries_count.StoreRelaxed(
+          other->entries_count.ExchangeRelaxed(entries_count.LoadRelaxed()));
       std::swap(cache_res_bucket_handles, other->cache_res_bucket_handles);
       std::swap(xor_checksum, other->xor_checksum);
       std::swap(prev_alt_hash, other->prev_alt_hash);
@@ -351,7 +350,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
     void Reset() {
       entries.clear();
-      entries_count.store(0, std::memory_order_relaxed);
+      entries_count.StoreRelaxed(0);
       cache_res_bucket_handles.clear();
       xor_checksum = 0;
       prev_alt_hash = {};
