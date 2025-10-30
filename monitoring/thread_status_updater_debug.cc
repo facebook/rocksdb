@@ -12,7 +12,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef NDEBUG
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     const std::vector<ColumnFamilyHandle*>& handles, bool check_exist) {
   std::unique_lock<std::mutex> lock(thread_list_mutex_);

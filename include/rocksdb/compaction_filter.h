@@ -284,9 +284,7 @@ class CompactionFilter : public Customizable {
       std::string* new_value,
       std::vector<std::pair<std::string, std::string>>* /* new_columns */,
       std::string* skip_until) const {
-#ifdef NDEBUG
     (void)existing_columns;
-#endif
 
     assert(!existing_value || !existing_columns);
     assert(value_type == ValueType::kWideColumnEntity || existing_value);
