@@ -5506,7 +5506,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   return s;
 }
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 
 void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* cfd) const {
   if (immutable_db_options_.enable_thread_tracking) {

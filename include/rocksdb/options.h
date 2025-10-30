@@ -32,7 +32,7 @@
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 
-#ifdef max
+#ifdef max  // ODR-SAFE
 #undef max
 #endif
 
