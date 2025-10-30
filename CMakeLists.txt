@@ -132,7 +132,9 @@ else()
     option(WITH_GFLAGS "build with GFlags" ON)
   endif()
   set(GFLAGS_LIB)
-  if(WITH_GFLAGS)
+  # Skip all gflags detection and setup when USE_FOLLY or USE_COROUTINES is enabled
+  # since Folly provides its own gflags (USE_COROUTINES automatically sets USE_FOLLY)
+  if(WITH_GFLAGS AND NOT USE_FOLLY AND NOT USE_COROUTINES)
     # Config with namespace available since gflags 2.2.2
     option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
     find_package(gflags CONFIG)
@@ -150,6 +152,9 @@ else()
     endif()
     include_directories(${GFLAGS_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
+    add_definitions(-DGFLAGS=1)
+  elseif(WITH_GFLAGS AND (USE_FOLLY OR USE_COROUTINES))
+    # Still set the DGFLAGS=1 define when using Folly since Folly provides gflags
     add_definitions(-DGFLAGS=1)
   endif()
 
@@ -642,6 +647,12 @@ if(USE_FOLLY)
     ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
 
     include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
+
+    # Fix gflags library name for debug builds
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath=${GFLAGS_INST_PATH}/lib")
+      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_INST_PATH}/lib/libgflags_debug.so.2.2")
+    endif()
   endif()
 
   add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
