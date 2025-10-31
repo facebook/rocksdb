@@ -1064,6 +1064,85 @@ class DB {
                        value_found);
   }
 
+  // Check if a key with the given prefix exists in the database.
+  // Optimized for existence-only reads; does not materialize values.
+  //
+  // Behavior:
+  // - Snapshot-aware: only keys visible at the provided snapshot (if any)
+  //   are considered.
+  // - With a prefix extractor configured, the extracted (effective) prefix is
+  //   used to bound iteration for efficiency. Existence is decided only if the
+  //   found user key starts with the exact requested prefix.
+  // - Without a prefix extractor, the requested prefix is used directly and we
+  //   test starts-with on the found user key.
+  // - Early aborts on the first visible, non-deletion match in memtable,
+  //   immutable memtables, or SSTs (index-only seek when possible).
+  // - Honors ReadOptions (e.g., snapshot, fill_cache, read_tier).
+  //
+  // Performance characteristics:
+  // - Uses filter policies (bloom, ribbon, etc.) to eliminate SSTs.
+  // - Seeks index blocks when needed; typically avoids loading data blocks.
+  //
+  // Returns:
+  // - OK if a key with the prefix exists
+  // - NotFound if no key with the prefix exists
+  // - Other error status if an error occurs
+  virtual Status PrefixExists(const ReadOptions& /*options*/,
+                              ColumnFamilyHandle* /*column_family*/,
+                              const Slice& /*prefix*/) {
+    return Status::NotSupported("PrefixExists() is not implemented.");
+  }
+
+  // Convenience method for PrefixExists with default column family
+  virtual Status PrefixExists(const ReadOptions& options, const Slice& prefix) {
+    return PrefixExists(options, DefaultColumnFamily(), prefix);
+  }
+
+  // Batched prefix existence check (column family form)
+  // Checks whether any key exists for each prefix in a single batched call.
+  // Mirrors PrefixExists semantics for each input while amortizing setup.
+  //
+  // Behavior:
+  // - Snapshot-aware for all inputs.
+  // - With a prefix extractor, inputs are grouped by the extracted (effective)
+  //   prefix to reuse iterators. Within each group, results are computed per
+  //   requested prefix: a match only if the found user key starts with the
+  //   exact requested prefix.
+  // - Without a prefix extractor, each requested prefix is used directly.
+  // - Honors ReadOptions for all inputs.
+  //
+  // Performance characteristics:
+  // - Reuses a single SuperVersion and shared Arena-backed mem/imm iterators
+  //   across the whole batch; one SST iterator (index-first) is reused too.
+  // - Uses table and memtable prefix filters when available to avoid work.
+  // - Typically avoids loading data blocks.
+  //
+  // Results per input prefix are returned via 'statuses[i]':
+  // - OK:       at least one key exists with the given prefix
+  // - NotFound: no key exists with the given prefix (or prefix not in domain)
+  // - Other:    error encountered while checking that prefix
+  //
+  // prefixes_sorted indicates whether the provided prefixes are already sorted
+  // by effective/transformed prefix. When false, the implementation may sort
+  // and deduplicate internally to improve locality and reduce seeks.
+  virtual void PrefixExistsMulti(const ReadOptions& /*options*/,
+                                 ColumnFamilyHandle* /*column_family*/,
+                                 bool /*prefixes_sorted*/, size_t num_prefixes,
+                                 const Slice* /*prefixes*/, Status* statuses) {
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      statuses[i] =
+          Status::NotSupported("PrefixExistsMulti() is not implemented.");
+    }
+  }
+
+  // Convenience method for default column family
+  virtual void PrefixExistsMulti(const ReadOptions& options,
+                                 bool prefixes_sorted, size_t num_prefixes,
+                                 const Slice* prefixes, Status* statuses) {
+    PrefixExistsMulti(options, DefaultColumnFamily(), prefixes_sorted,
+                      num_prefixes, prefixes, statuses);
+  }
+
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).

@@ -56,6 +56,7 @@ LIB_SOURCES =                                                   \
   db/db_impl/db_impl_follower.cc                                \
   db/db_impl/db_impl_open.cc                                    \
   db/db_impl/db_impl_readonly.cc                                \
+  db/db_impl/db_impl_prefix_exists.cc                           \
   db/db_impl/db_impl_secondary.cc                               \
   db/db_impl/db_impl_write.cc                                   \
   db/db_info_dumper.cc                                          \
@@ -548,6 +549,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/periodic_task_scheduler_test.cc                                    \
   db/plain_table_db_test.cc                                             \
   db/prefix_test.cc                                                     \
+  db/prefix_exists_test.cc                                              \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
   db/range_tombstone_fragmenter_test.cc                                 \
