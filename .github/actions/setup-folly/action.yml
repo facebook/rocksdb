@@ -7,5 +7,5 @@ runs:
       make checkout_folly
     shell: bash
   - name: Install patchelf
-    run: sudo apt-get update -y && sudo apt-get install -y patchelf
+    run: apt-get update -y && apt-get install -y patchelf
     shell: bash
