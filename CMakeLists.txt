@@ -80,6 +80,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE STRING
     "Default BUILD_TYPE is ${default_build_type}" FORCE)
 endif()
+message(STATUS "CMAKE_BUILD_TYPE is set to ${CMAKE_BUILD_TYPE}")
 
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
