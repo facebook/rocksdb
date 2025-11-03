@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.8.1 (10/29/2025)
+### Behavior Changes
+* PosixWritableFile now repositions the seek pointer to the new end of file after a call to Truncate.
+
 ## 10.8.0 (10/21/2025)
 ### New Features
 * Add kFSPrefetch to FSSupportedOps enum to allow file systems to indicate prefetch support capability, avoiding unnecessary prefetch system calls on file systems that don't support them.
