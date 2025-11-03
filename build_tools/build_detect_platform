@@ -311,7 +311,8 @@ EOF
 EOF
         then
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+          # Hack: don't link extra gflags assuming it comes with folly
+          [ "$USE_FOLLY" ] || PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         # check if namespace is gflags
         elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
             #include <gflags/gflags.h>
@@ -320,7 +321,8 @@ EOF
 EOF
         then
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=gflags"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+          # Hack: don't link extra gflags assuming it comes with folly
+          [ "$USE_FOLLY" ] || PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         # check if namespace is google
         elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
             #include <gflags/gflags.h>
