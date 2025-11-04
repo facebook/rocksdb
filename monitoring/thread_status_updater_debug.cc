@@ -37,7 +37,7 @@ void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     const std::vector<ColumnFamilyHandle*>& /*handles*/, bool /*check_exist*/) {
 }
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 #endif  // !NDEBUG
 
 }  // namespace ROCKSDB_NAMESPACE

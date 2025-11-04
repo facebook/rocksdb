@@ -162,5 +162,5 @@ std::map<std::string, uint64_t> ThreadStatus::InterpretOperationProperties(
   return std::map<std::string, uint64_t>();
 }
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 }  // namespace ROCKSDB_NAMESPACE

@@ -120,5 +120,5 @@ struct OperationInfo {};
 
 struct StateInfo {};
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 }  // namespace ROCKSDB_NAMESPACE

@@ -244,7 +244,7 @@ class TestFlushListener : public EventListener {
       }
     }
     ASSERT_TRUE(found_match);
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
   }
 
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {

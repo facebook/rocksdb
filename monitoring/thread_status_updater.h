@@ -55,7 +55,7 @@ struct ConstantColumnFamilyInfo {
   const void* db_key;
   const std::string db_name;
   const std::string cf_name;
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 };
 
 // the internal data-structure that is used to reflect the current
@@ -86,7 +86,7 @@ struct ThreadStatusData {
   std::atomic<ThreadStatus::OperationStage> operation_stage;
   std::atomic<uint64_t> op_properties[ThreadStatus::kNumOperationProperties];
   std::atomic<ThreadStatus::StateType> state_type;
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 };
 
 // The class that stores and updates the status of the current thread
@@ -220,7 +220,7 @@ class ThreadStatusUpdater {
 
 #else
   static ThreadStatusData* thread_status_data_;
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 };
 
 }  // namespace ROCKSDB_NAMESPACE

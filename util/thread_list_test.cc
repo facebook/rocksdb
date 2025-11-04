@@ -359,4 +359,4 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS

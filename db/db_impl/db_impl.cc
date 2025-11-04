@@ -5533,7 +5533,7 @@ void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 void DBImpl::EraseThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 
 void DBImpl::EraseThreadStatusDbInfo() const {}
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 
 //
 // A global method that can dump out the build version
