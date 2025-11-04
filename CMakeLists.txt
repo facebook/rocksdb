@@ -1105,7 +1105,7 @@ if(USE_FOLLY_LITE)
   exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
   build/fbcode_builder/getdeps.py show-source-dir fmt OUTPUT_VARIABLE
   FMT_SOURCE_PATH)
-  exec_program(ls ARGS -d ${FMT_SOURCE_PATH}/fmt* OUTPUT_VARIABLE
+  exec_program(ls ARGS -d ${FMT_SOURCE_PATH}/fmt*/include OUTPUT_VARIABLE
   FMT_INCLUDE_DIR)
   include_directories(${FMT_INCLUDE_DIR})
 
