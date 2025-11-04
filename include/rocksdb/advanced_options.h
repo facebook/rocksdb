@@ -482,7 +482,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   //
   // Dynamically changeable through SetOptions() API
-  bool compaction_use_tail_size_estimation = false;
+  bool target_file_size_is_upper_bound = false;
 
   // If true, RocksDB will pick target size of each level dynamically.
   // We will pick a base level b >= 1. L0 will be directly merged into level b,

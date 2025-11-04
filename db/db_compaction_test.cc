@@ -11549,7 +11549,7 @@ TEST_F(DBCompactionTest, CompactionRespectsTargetSizeWithTailEstimation) {
   const int kSeed = 301;
 
   Options options = CurrentOptions();
-  options.compaction_use_tail_size_estimation = true;
+  options.target_file_size_is_upper_bound = true;
   options.target_file_size_base = 256 * 1024;
   options.write_buffer_size = 2 * 1024 * 1024;
   options.level0_file_num_compaction_trigger = 100;  // Never trigger L0->L1

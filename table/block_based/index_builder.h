@@ -163,8 +163,9 @@ class IndexBuilder {
   // UpdateIndexSizeEstimate() to avoid recalculating on every key add,
   // which is critical for performance in the compaction hot path.
   //
-  // Can be called at any time during table construction, even before calling
-  // Finish(). Used during table construction to determine when to cut files.
+  // This function is only called by the SST "emit thread" but must be
+  // thread safe with concurrent calls to UpdateIndexSizeEstimate() from another
+  // thread (such as during parallel compression).
   virtual uint64_t CurrentIndexSizeEstimate() const = 0;
 
   virtual bool separator_is_key_plus_seq() { return true; }
@@ -190,9 +191,10 @@ class IndexBuilder {
   }
 
   // Updates the cached index size estimate used by CurrentIndexSizeEstimate().
-  // Subclasses that keep a cached estimate should override this method
-  // and call it whenever their internal state changes (such as when index
-  // entries are added).
+  //
+  // This function can be called from the SST "write thread" (via
+  // FinishIndexEntry()), and needs to be thread safe with
+  // CurrentIndexSizeEstimate() called from the SST "emit thread".
   virtual void UpdateIndexSizeEstimate() {}
 
   const InternalKeyComparator* comparator_;

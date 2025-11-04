@@ -894,7 +894,7 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   OffsetableCacheKey base_cache_key;
   const TableFileCreationReason reason;
-  const bool compaction_use_tail_size_estimation;
+  const bool target_file_size_is_upper_bound;
 
   BlockHandle pending_handle;  // Handle to add to index block
 
@@ -1042,8 +1042,8 @@ struct BlockBasedTableBuilder::Rep {
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         reason(tbo.reason),
-        compaction_use_tail_size_estimation(
-            tbo.moptions.compaction_use_tail_size_estimation),
+        target_file_size_is_upper_bound(
+            tbo.moptions.target_file_size_is_upper_bound),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
@@ -1614,6 +1614,17 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
     rep_->data_begin_offset += uncompressed_block_data.size();
     MaybeEnterUnbuffered(first_key_in_next_block);
   } else {
+    // Increment num_data_blocks when a data block is finalized in the
+    // emit thread to avoid data races with write worker threads
+    ++r->props.num_data_blocks;
+
+    // Notify filter builder that a data block has been finalized
+    // This must happen on the emit thread before the block is added to the
+    // ring buffer to avoid race conditions with worker threads
+    if (r->filter_builder) {
+      r->filter_builder->OnDataBlockFinalized(r->props.num_data_blocks);
+    }
+
     if (r->IsParallelCompressionActive()) {
       EmitBlockForParallel(r->data_block.MutableBuffer(), r->last_ikey,
                            first_key_in_next_block);
@@ -1695,12 +1706,6 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
   WriteBlock(uncompressed, &r->pending_handle, BlockType::kData,
              &skip_delta_encoding);
   if (LIKELY(ok())) {
-    // Notify filter builder that a data block has been finalized
-    // Add 1 to account for the data block that is about to be written
-    if (r->filter_builder) {
-      r->filter_builder->OnDataBlockFinalized(r->props.num_data_blocks + 1);
-    }
-
     // We do not emit the index entry for a block until we have seen the
     // first key for the next data block.  This allows us to use shorter
     // keys in the index block.  For example, consider a block boundary
@@ -1744,7 +1749,6 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   if (is_data_block) {
     r->props.data_size = r->get_offset();
     r->props.uncompressed_data_size += uncompressed_block_data.size();
-    ++r->props.num_data_blocks;
   }
 }
 
@@ -1793,12 +1797,6 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
       if (LIKELY(ios.ok())) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
-        ++rep_->props.num_data_blocks;
-
-        if (rep_->filter_builder) {
-          rep_->filter_builder->OnDataBlockFinalized(
-              rep_->props.num_data_blocks);
-        }
 
         rep_->index_builder->FinishIndexEntry(
             rep_->pending_handle, block_rep->prepared_index_entry.get(),
@@ -2750,14 +2748,14 @@ Status BlockBasedTableBuilder::Finish() {
   // - Partitioned indexes (kTwoLevelIndexSearch)
   // - Full filters
   // - Partitioned filters
-  if (r->compaction_use_tail_size_estimation &&
+  if (r->target_file_size_is_upper_bound &&
       r->reason == TableFileCreationReason::kCompaction &&
       r->table_options.index_type != BlockBasedTableOptions::kHashSearch) {
-    ROCKS_LOG_DEBUG(r->ioptions.info_log,
-                    "File number: %" PRIu64 ", Estimated tail size = %" PRIu64
-                    " bytes, Actual tail size = %" PRIu64 " bytes",
-                    r->props.orig_file_number, last_estimated_tail_size,
-                    r->tail_size);
+    ROCKS_LOG_WARN(r->ioptions.info_log,
+                   "File number: %" PRIu64 ", Estimated tail size = %" PRIu64
+                   " bytes, Actual tail size = %" PRIu64 " bytes",
+                   r->props.orig_file_number, last_estimated_tail_size,
+                   r->tail_size);
     assert(r->tail_size <= last_estimated_tail_size);
   }
 
