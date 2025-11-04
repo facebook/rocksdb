@@ -119,7 +119,7 @@ Slice ShortenedIndexBuilder::FindShortInternalKeySuccessor(
 
 void ShortenedIndexBuilder::UpdateIndexSizeEstimate() {
   uint64_t current_size =
-      must_use_separator_with_seq_
+      must_use_separator_with_seq_.LoadRelaxed()
           ? index_block_builder_.CurrentSizeEstimate()
           : index_block_builder_without_seq_.CurrentSizeEstimate();
 
@@ -186,8 +186,8 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   // must_use_separator_with_seq_ is true (internal-key mode) (set to false by
   // default on Creation) so that flush policy can point to
   // sub_index_builder_->index_block_builder_
-  if (must_use_separator_with_seq_) {
-    sub_index_builder_->must_use_separator_with_seq_ = true;
+  if (must_use_separator_with_seq_.LoadRelaxed()) {
+    sub_index_builder_->must_use_separator_with_seq_.StoreRelaxed(true);
     builder_to_monitor = &sub_index_builder_->index_block_builder_;
   } else {
     builder_to_monitor = &sub_index_builder_->index_block_builder_without_seq_;
@@ -262,9 +262,10 @@ void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
   // which uses FinishIndexEntry() instead of AddIndexEntry().
   UpdateIndexSizeEstimate();
 
-  if (!must_use_separator_with_seq_ && entry->must_use_separator_with_seq) {
+  if (!must_use_separator_with_seq_.LoadRelaxed() &&
+      entry->must_use_separator_with_seq) {
     // We need to apply !must_use_separator_with_seq to all sub-index builders
-    must_use_separator_with_seq_ = true;
+    must_use_separator_with_seq_.StoreRelaxed(true);
     flush_policy_->Retarget(sub_index_builder_->index_block_builder_);
   }
   // NOTE: not compatible with coupled partitioned filters so don't need to
@@ -291,10 +292,10 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
   // state after each data block is added.
   UpdateIndexSizeEstimate();
 
-  if (!must_use_separator_with_seq_ &&
-      sub_index_builder_->must_use_separator_with_seq_) {
+  if (!must_use_separator_with_seq_.LoadRelaxed() &&
+      sub_index_builder_->must_use_separator_with_seq_.LoadRelaxed()) {
     // We need to apply !must_use_separator_with_seq to all sub-index builders
-    must_use_separator_with_seq_ = true;
+    must_use_separator_with_seq_.StoreRelaxed(true);
     flush_policy_->Retarget(sub_index_builder_->index_block_builder_);
   }
   if (UNLIKELY(first_key_in_next_block == nullptr)) {
@@ -328,7 +329,7 @@ Status PartitionedIndexBuilder::Finish(
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
     index_block_builder_.Add(last_entry.key, handle_encoding.AsSlice(),
                              &handle_delta_encoding_slice);
-    if (!must_use_separator_with_seq_) {
+    if (!must_use_separator_with_seq_.LoadRelaxed()) {
       index_block_builder_without_seq_.Add(ExtractUserKey(last_entry.key),
                                            handle_encoding.AsSlice(),
                                            &handle_delta_encoding_slice);
@@ -337,7 +338,7 @@ Status PartitionedIndexBuilder::Finish(
   }
   // If there is no sub_index left, then return the 2nd level index.
   if (UNLIKELY(entries_.empty())) {
-    if (must_use_separator_with_seq_) {
+    if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
     } else {
       index_blocks->index_block_contents =
@@ -351,7 +352,8 @@ Status PartitionedIndexBuilder::Finish(
     // expect more calls to Finish
     Entry& entry = entries_.front();
     // Apply the policy to all sub-indexes
-    entry.value->must_use_separator_with_seq_ = must_use_separator_with_seq_;
+    entry.value->must_use_separator_with_seq_.StoreRelaxed(
+        must_use_separator_with_seq_.LoadRelaxed());
     auto s = entry.value->Finish(index_blocks);
     index_size_ += index_blocks->index_block_contents.size();
     finishing_indexes_ = true;
