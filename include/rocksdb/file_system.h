@@ -864,6 +864,25 @@ struct FSReadRequest {
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
+  // EXPERIMENTAL: Enables the file system to return less data than
+  // requested, even when the end of file has not been reached. Normally, our
+  // read semantics are defined so that we assume that less data is only
+  // returned when the end of file has been reached or an error has occurred.
+  //
+  // When optional_len > 0, if the end of the file is not reached, the
+  // returned data's size can be in the range [len - optional_len, len]. The
+  // returned data must still begin at the same offset, so only the tail end of
+  // the request is potentially trimmed.
+  //
+  // Note that optional_len should never exceed len
+  //
+  // It may be useful to set optional_len > 0 when prefetching is being
+  // performed and some of the data is not needed immediately. In that case, the
+  // file system has the freedom to tune the read size optimally based on its
+  // storage internals.
+
+  size_t optional_len = 0;
+
   // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
   // The lifecycle of scratch will be until IO is completed.
@@ -909,11 +928,20 @@ struct FSReadRequest {
   // 2. Take ownership of the object managed by fs_scratch.
   // 3. Handle invoking the custom deleter function from the FSAllocationPtr.
   //
-  // WARNING: Do NOT assume that fs_scratch points to the start of the actual
+  // WARNING 1: Do NOT assume that fs_scratch points to the start of the actual
   // char* data returned by the read. As the type signature suggests, fs_scratch
   // is a pointer to any arbitrary data type. Use result.data() to get a valid
   // start to the real data. See https://github.com/facebook/rocksdb/pull/13189
   // for more context.
+  //
+  // WARNING 2: Since fs_scratch is a unique pointer, FSReadRequest's copy
+  // constructor is implicitly disabled. This turns out to be very useful
+  // because we want users to be explicit when setting offset, len, and
+  // optional_len. Consider the possibility where optional_len ends
+  // up exceeding the request length because it was copied over by mistake. If
+  // you end up wanting to delete this field, be very careful and consider
+  // explicitly deleting the copy constructor, since the lack of a copy
+  // constructor is likely acting as a good protective measure against bugs
   FSAllocationPtr fs_scratch;
 };
 
