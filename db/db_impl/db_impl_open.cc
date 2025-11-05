@@ -2549,27 +2549,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->PrepopulateSeqnoToTimeMapping(preserve_info);
   }
 
-  // drop transient CFs before we create handles
-  if (s.ok()) {
-    impl->mutex_.AssertHeld();
-
-    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      if (cfd->ioptions().is_transient) {
-        ROCKS_LOG_INFO(impl->immutable_db_options().info_log,
-                       "Dropping transient CF: %s", cfd->GetName().c_str());
-        ColumnFamilyHandle* cf_handle =
-            new ColumnFamilyHandleImpl(cfd, impl.get(), &impl->mutex_);
-
-        Status drop_status = impl->DropColumnFamily(cf_handle);
-        if (!drop_status.ok()) {
-          s = drop_status;
-          break;
-        }
-        delete cf_handle;
-      }
-    }
-  }
-
   if (s.ok()) {
     // set column family handles
     for (const auto& cf : column_families) {
