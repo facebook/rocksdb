@@ -813,6 +813,16 @@ Status CompactionJob::VerifyOutputFiles() {
   Status status;
   std::vector<port::Thread> thread_pool;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  int32_t verify_output_option =
+      compact_->compaction->mutable_cf_options().verify_output_option;
+
+  // For backward compatibility
+  if (paranoid_file_checks_) {
+    verify_output_option |= VerifyOutputOptions::kVerifyIteration;
+    verify_output_option |= VerifyOutputOptions::kEnableForLocalCompaction;
+    verify_output_option |= VerifyOutputOptions::kEnableForRemoteCompaction;
+  }
+
   auto verify_table = [&](SubcompactionState& subcompaction_state) {
     for (const auto& output_file : subcompaction_state.GetOutputs()) {
       // Verify that the table is usable
@@ -842,27 +852,38 @@ Status CompactionJob::VerifyOutputFiles() {
           /*allow_unprepared_value=*/false);
       auto s = iter->status();
       if (s.ok()) {
-        if (paranoid_file_checks_) {
-          OutputValidator validator(cfd->internal_comparator(),
-                                    /*_enable_hash=*/true);
-          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-            s = validator.Add(iter->key(), iter->value());
-            if (!s.ok()) {
-              break;
+        // Check for remote/local compaction and verify_output_option flags
+        const bool should_verify =
+            (subcompaction_state.compaction_job_stats.is_remote_compaction &&
+             (verify_output_option &
+              VerifyOutputOptions::kEnableForRemoteCompaction)) ||
+            (!subcompaction_state.compaction_job_stats.is_remote_compaction &&
+             (verify_output_option &
+              VerifyOutputOptions::kEnableForLocalCompaction));
+
+        if (should_verify) {
+          if (verify_output_option &
+              VerifyOutputOptions::kVerifyBlockChecksum) {
+            s = table_reader_ptr->VerifyChecksum(
+                verify_table_read_options, TableReaderCaller::kCompaction);
+          }
+          if (s.ok() &&
+              verify_output_option & VerifyOutputOptions::kVerifyIteration) {
+            OutputValidator validator(cfd->internal_comparator(),
+                                      /*_enable_hash=*/true);
+            for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+              s = validator.Add(iter->key(), iter->value());
+              if (!s.ok()) {
+                break;
+              }
+            }
+            if (s.ok()) {
+              s = iter->status();
+            }
+            if (s.ok() && !validator.CompareValidator(output_file.validator)) {
+              s = Status::Corruption("Paranoid checksums do not match");
             }
           }
-          if (s.ok()) {
-            s = iter->status();
-          }
-          if (s.ok() && !validator.CompareValidator(output_file.validator)) {
-            s = Status::Corruption("Paranoid checksums do not match");
-          }
-        } else if (subcompaction_state.compaction_job_stats
-                       .is_remote_compaction &&
-                   compact_->compaction->mutable_cf_options()
-                       .remote_compaction_verify_block_checksums) {
-          s = table_reader_ptr->VerifyChecksum(verify_table_read_options,
-                                               TableReaderCaller::kCompaction);
         }
       }
 

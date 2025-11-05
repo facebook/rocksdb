@@ -1047,7 +1047,7 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
     Destroy(options);
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = paranoid_file_check_enabled;
-    options.remote_compaction_verify_block_checksums = false;
+    options.verify_output_option = VerifyOutputOptions::kVerifyNone;
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1102,17 +1102,24 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
   }
 }
 
-TEST_F(CompactionServiceTest, CorruptedOutputVerifyBlockChecksum) {
-  for (bool remote_compaction_verify_block_checksums : {false, true}) {
-    SCOPED_TRACE("remote_compaction_verify_block_checksums=" +
-                 std::to_string(remote_compaction_verify_block_checksums));
+TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputOptions) {
+  for (uint32_t verify_output_option :
+       {static_cast<uint32_t>(VerifyOutputOptions::kVerifyNone),
+        static_cast<uint32_t>(VerifyOutputOptions::kEnableForLocalCompaction |
+                              VerifyOutputOptions::kVerifyBlockChecksum),
+        static_cast<uint32_t>(VerifyOutputOptions::kEnableForRemoteCompaction |
+                              VerifyOutputOptions::kVerifyBlockChecksum),
+        static_cast<uint32_t>(VerifyOutputOptions::kEnableForRemoteCompaction |
+                              VerifyOutputOptions::kVerifyIteration),
+        static_cast<uint32_t>(VerifyOutputOptions::kVerifyAll)}) {
+    SCOPED_TRACE("verify_output_option=" +
+                 std::to_string(verify_output_option));
 
     Options options = CurrentOptions();
     Destroy(options);
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = false;
-    options.remote_compaction_verify_block_checksums =
-        remote_compaction_verify_block_checksums;
+    options.verify_output_option = verify_output_option;
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1144,12 +1151,14 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyBlockChecksum) {
     SyncPoint::GetInstance()->EnableProcessing();
 
     Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-    if (remote_compaction_verify_block_checksums) {
+    if ((verify_output_option &
+         VerifyOutputOptions::kEnableForRemoteCompaction) &&
+        ((verify_output_option & VerifyOutputOptions::kVerifyBlockChecksum) ||
+         (verify_output_option & VerifyOutputOptions::kVerifyIteration))) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsCorruption());
     } else {
-      // CompactRange() goes through if remote_compaction_verify_block_checksums
-      // is not enabled
+      // CompactRange() goes through if block checksum wasn't verified
       ASSERT_OK(s);
     }
 

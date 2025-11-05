@@ -272,8 +272,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->compaction_options_fifo = moptions.compaction_options_fifo;
   cf_opts->compaction_options_universal = moptions.compaction_options_universal;
 
-  cf_opts->remote_compaction_verify_block_checksums =
-      moptions.remote_compaction_verify_block_checksums;
+  cf_opts->verify_output_option = moptions.verify_output_option;
 
   // Blob file related options
   cf_opts->enable_blob_files = moptions.enable_blob_files;

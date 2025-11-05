@@ -1721,7 +1721,7 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, cf_opts,
       "paranoid_file_checks=true; "
-      "remote_compaction_verify_block_checksums=true; "
+      "verify_output_option=2049; "
       "block_based_table_factory.block_align=false; "
       "block_based_table_factory.super_block_alignment_size=65536; "
       "block_based_table_factory.super_block_alignment_space_overhead_ratio="
@@ -1729,7 +1729,12 @@ TEST_F(OptionsTest, MutableCFOptions) {
       "block_based_table_factory.block_size=8192;",
       &cf_opts));
   ASSERT_TRUE(cf_opts.paranoid_file_checks);
-  ASSERT_TRUE(cf_opts.remote_compaction_verify_block_checksums);
+  ASSERT_TRUE(cf_opts.verify_output_option &
+              VerifyOutputOptions::kVerifyBlockChecksum);
+  ASSERT_TRUE(cf_opts.verify_output_option &
+              VerifyOutputOptions::kEnableForRemoteCompaction);
+  ASSERT_FALSE(cf_opts.verify_output_option &
+               VerifyOutputOptions::kEnableForLocalCompaction);
   ASSERT_NE(cf_opts.table_factory.get(), nullptr);
   auto* bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
@@ -2584,7 +2589,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
-  ASSERT_EQ(new_cf_opt.remote_compaction_verify_block_checksums, false);
+  ASSERT_EQ(new_cf_opt.verify_output_option, 0);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
