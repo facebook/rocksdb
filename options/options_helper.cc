@@ -312,7 +312,6 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_op_scan_flush_trigger;
   cf_opts->memtable_avg_op_scan_flush_trigger =
       moptions.memtable_avg_op_scan_flush_trigger;
-  cf_opts->is_transient = moptions.is_transient;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
