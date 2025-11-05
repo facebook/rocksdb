@@ -277,7 +277,21 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         OptimizeForPersistentStats(&cfo);
         tmp_cfd = CreateCfAndInit(cfo, edit);
       } else {
-        tmp_cfd = CreateCfAndInit(cf_options->second, edit);
+        // Check that client doesn't incorrectly open a transient cf as
+        // non-transient
+        if (cf_options->second.is_transient !=
+            edit.GetTransientColumnFamily()) {
+          s = Status::InvalidArgument(
+              "is_transient value from provided Cf options does not match "
+              "MANIFEST for " +
+              cf_name + " Provided: is_transient=" +
+              std::to_string(cf_options->second.is_transient) +
+              " MANIFEST: is_transient=" +
+              std::to_string(edit.GetTransientColumnFamily()));
+          return s;
+        } else {
+          tmp_cfd = CreateCfAndInit(cf_options->second, edit);
+        }
       }
       *cfd = tmp_cfd;
     }
