@@ -139,7 +139,7 @@ jobs:
     - uses: "./.github/actions/build-folly"
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
+    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -151,7 +151,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make V=1 -j20 && ctest -j20
+    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -354,7 +354,7 @@ jobs:
     - name: cmake generate project file
       run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
     - name: Build tests
-      run: cd build && make V=1 -j8
+      run: cd build && make VERBOSE=1 -j8
     - name: Run shard 0 out of 4 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 0,,4
       if: ${{ matrix.run_sharded_tests == 0 }}
