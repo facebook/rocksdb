@@ -814,6 +814,13 @@ TEST_P(ColumnFamilyTest, OpenFailsWithTransientCF) {
   ASSERT_NOK(TryOpen(
       {"default", "one", "two", "threeTemp", "four"},
       {column_family_options_, cf_opts, cf_opts, transient_opts, cf_opts}));
+
+  // if we incorrectly open a transient CF as non-transient, we should see an
+  // invalid argument error
+  ASSERT_TRUE(
+      TryOpen({"default", "one", "two", "threeTemp", "four"},
+              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts})
+          .IsInvalidArgument());
 }
 
 TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
