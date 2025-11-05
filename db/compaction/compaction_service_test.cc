@@ -1047,6 +1047,7 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
     Destroy(options);
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = paranoid_file_check_enabled;
+    options.remote_compaction_verify_block_checksums = false;
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1083,6 +1084,72 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
       ASSERT_EQ(Status::Corruption("Paranoid checksums do not match"), s);
     } else {
       // CompactRange() goes through if paranoid file check is not enabled
+      ASSERT_OK(s);
+    }
+
+    ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    // On the worker side, the compaction is considered success
+    // Verification is done on the primary side
+    CompactionServiceResult result;
+    my_cs->GetResult(&result);
+    ASSERT_OK(result.status);
+    ASSERT_TRUE(result.stats.is_manual_compaction);
+    ASSERT_TRUE(result.stats.is_remote_compaction);
+  }
+}
+
+TEST_F(CompactionServiceTest, CorruptedOutputVerifyBlockChecksum) {
+  for (bool remote_compaction_verify_block_checksums : {false, true}) {
+    SCOPED_TRACE("remote_compaction_verify_block_checksums=" +
+                 std::to_string(remote_compaction_verify_block_checksums));
+
+    Options options = CurrentOptions();
+    Destroy(options);
+    options.disable_auto_compactions = true;
+    options.paranoid_file_checks = false;
+    options.remote_compaction_verify_block_checksums =
+        remote_compaction_verify_block_checksums;
+    ReopenWithCompactionService(&options);
+    GenerateTestData();
+
+    auto my_cs = GetCompactionService();
+
+    std::string start_str = Key(15);
+    std::string end_str = Key(45);
+    Slice start(start_str);
+    Slice end(end_str);
+    uint64_t comp_num = my_cs->GetCompactionNum();
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+          CompactionServiceResult* compaction_result =
+              *(static_cast<CompactionServiceResult**>(arg));
+          ASSERT_TRUE(compaction_result != nullptr &&
+                      !compaction_result->output_files.empty());
+          // Corrupt files here
+          for (const auto& output_file : compaction_result->output_files) {
+            std::string file_name =
+                compaction_result->output_path + "/" + output_file.file_name;
+
+            // Corrupt very small range of bytes. This corruption is so small
+            // that this isn't caught by default light-weight check
+            ASSERT_OK(test::CorruptFile(env_, file_name, 0, 1,
+                                        false /* verifyChecksum */));
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+    if (remote_compaction_verify_block_checksums) {
+      ASSERT_NOK(s);
+      ASSERT_TRUE(s.IsCorruption());
+    } else {
+      // CompactRange() goes through if remote_compaction_verify_block_checksums
+      // is not enabled
       ASSERT_OK(s);
     }
 
