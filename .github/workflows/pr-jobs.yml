@@ -141,7 +141,7 @@ jobs:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
-  build-linux-cmake-with-benchmark:
+  build-linux-cmake-with-benchmark-no-thread-status:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
@@ -151,7 +151,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
+    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make V=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
     if: ${{ github.repository_owner == 'facebook' }}

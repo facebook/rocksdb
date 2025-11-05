@@ -700,6 +700,7 @@ am__v_CCH_1 =
 %.h.pub: %.h # .h.pub not actually created, so re-checked on each invocation
 	$(AM_V_CCH) cd include/ && echo '#include "$(patsubst include/%,%,$<)"' | \
 	  $(CXX) -std=$(or $(ROCKSDB_CXX_STANDARD),c++20) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	build_tools/check-public-header.sh $<
 
 check-headers: $(HEADER_OK_FILES)
 

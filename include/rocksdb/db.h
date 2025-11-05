@@ -35,12 +35,6 @@
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
-#elif _WIN32
-#define ROCKSDB_DEPRECATED_FUNC __declspec(deprecated)
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 struct ColumnFamilyOptions;

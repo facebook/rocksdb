@@ -5506,7 +5506,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   return s;
 }
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 
 void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* cfd) const {
   if (immutable_db_options_.enable_thread_tracking) {
@@ -5533,7 +5533,7 @@ void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 void DBImpl::EraseThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 
 void DBImpl::EraseThreadStatusDbInfo() const {}
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 
 //
 // A global method that can dump out the build version
