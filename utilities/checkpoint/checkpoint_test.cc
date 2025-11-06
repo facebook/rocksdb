@@ -274,14 +274,6 @@ TEST_F(CheckpointTest, CheckpointTransientCF) {
   CreateColumnFamilies({"six_temp", "seven_temp", "eight_temp"},
                        transient_options);
 
-  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-  //     {{"CheckpointTest::CheckpointCF:2",
-  //     "DBImpl::FlushAllColumnFamilies:2"},
-  //      {"DBImpl::FlushAllColumnFamilies:1",
-  //      "CheckpointTest::CheckpointCF:1"}});
-
-  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
   ASSERT_OK(Put(0, "Default", "Default"));
   ASSERT_OK(Put(1, "one", "one"));
   ASSERT_OK(Put(2, "two", "two"));
@@ -331,6 +323,7 @@ TEST_F(CheckpointTest, CheckpointTransientCF) {
       kDefaultColumnFamilyName, "one", "two", "three", "four", "five",
   };
   std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(cfs.size());
   for (size_t i = 0; i < cfs.size(); ++i) {
     column_families.emplace_back(cfs[i], options);
   }
