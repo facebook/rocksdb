@@ -3677,8 +3677,9 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
 
       *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Created column family [%s] (ID %u)",
-                     column_family_name.c_str(), (unsigned)cfd->GetID());
+                     "Created column family [%s] (ID %u)%s",
+                     column_family_name.c_str(), (unsigned)cfd->GetID(),
+                     cf_options.is_transient ? " [transient]" : "");
     } else {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Creating column family [%s] FAILED -- %s",

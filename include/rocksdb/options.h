@@ -410,6 +410,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Create ColumnFamilyOptions from Options
   explicit ColumnFamilyOptions(const Options& options);
 
+  // Create a temporary CF that will be "dropped" upon reopen. Opening the db
+  // will fail if the transient cf is included in the list of column families to
+  // open. This is an immutable option - once a CF is declared transient, it
+  // cannot be changed (and vice versa). Transient CFs are currently included in
+  // the manifest/WAL, but are excluded from backups/snapshots.
   bool is_transient = false;
 
   void Dump(Logger* log) const;
