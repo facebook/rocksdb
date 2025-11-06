@@ -1613,8 +1613,19 @@ bool LevelIterator::SkipEmptyFileForward() {
         const ScanOptions& opts =
             GetMultiScanArgForFile(file_index_).GetScanRanges().front();
         if (opts.range.start.has_value()) {
-          InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
-                             kValueTypeForSeek);
+          InternalKey target;
+          const size_t ts_size =
+              user_comparator_.user_comparator()->timestamp_size();
+          if (ts_size == 0) {
+            target = InternalKey(opts.range.start.value(), kMaxSequenceNumber,
+                                 kValueTypeForSeek);
+          } else {
+            std::string seek_key;
+            AppendKeyWithMaxTimestamp(&seek_key, opts.range.start.value(),
+                                      ts_size);
+            target =
+                InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
+          }
           file_iter_.Seek(target.Encode());
         }
       } else {

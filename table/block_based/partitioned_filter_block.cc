@@ -143,6 +143,7 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
     ikey = p_index_builder_->GetPartitionKey();
   }
   filters_.push_back({std::move(ikey), std::move(filter_data), filter});
+  completed_partitions_size_.FetchAddRelaxed(filter.size());
   partitioned_filters_construction_status_.UpdateIfOk(
       filter_construction_status);
 
@@ -207,6 +208,56 @@ void PartitionedFilterBlockBuilder::AddImpl(const Slice& key_without_ts,
 
 size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
   return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
+}
+
+size_t PartitionedFilterBlockBuilder::CurrentFilterSizeEstimate() {
+  size_t active_partition_size =
+      filter_bits_builder_->EstimateEntriesAdded() * 2;  // 2 bytes per key
+
+  return estimated_filter_size_.LoadRelaxed() + active_partition_size;
+}
+
+void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
+    uint64_t num_data_blocks) {
+  UpdateFilterSizeEstimate(num_data_blocks);
+}
+
+void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
+    uint64_t num_data_blocks) {
+  size_t partitions_size = completed_partitions_size_.LoadRelaxed();
+
+  // Reserve space if no partitions have been cut
+  size_t active_filter_estimate = 0;
+  if (partitions_size == 0) {
+    size_t avg_bytes_per_entry =
+        2;  // 2 bytes per entry, approx 15 bits per key
+
+    // Estimate using keys_per_partition_ since we expect to cut the first
+    // partition once it reaches approx. this many entries.
+    active_filter_estimate = keys_per_partition_ * avg_bytes_per_entry;
+
+    // Add a 2x buffer (for top-level index, etc.)
+    active_filter_estimate = active_filter_estimate * 2;
+  }
+  size_t filter_estimate = std::max(partitions_size, active_filter_estimate);
+
+  // Estimate top-level partition index size
+  if (p_index_builder_->separator_is_key_plus_seq()) {
+    filter_estimate += index_on_filter_block_builder_.CurrentSizeEstimate();
+  } else {
+    filter_estimate +=
+        index_on_filter_block_builder_without_seq_.CurrentSizeEstimate();
+  }
+
+  // Reserve filter space for the next data block
+  size_t reserved = 0;
+  if (num_data_blocks > 0) {
+    reserved = (filter_estimate / num_data_blocks) *
+               2;  // 2x average size per data block
+    estimated_filter_size_.StoreRelaxed(filter_estimate + reserved);
+  } else {
+    estimated_filter_size_.StoreRelaxed(filter_estimate);
+  }
 }
 
 void PartitionedFilterBlockBuilder::PrevKeyBeforeFinish(

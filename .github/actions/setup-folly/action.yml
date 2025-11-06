@@ -5,5 +5,7 @@ runs:
   - name: Checkout folly sources
     run: |
       make checkout_folly
-      echo "GETDEPS_USE_WGET=1" >> "$GITHUB_ENV"
+    shell: bash
+  - name: Install patchelf
+    run: apt-get update -y && apt-get install -y patchelf
     shell: bash

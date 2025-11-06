@@ -450,6 +450,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, target_file_size_multiplier),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"target_file_size_is_upper_bound",
+         {offsetof(struct MutableCFOptions, target_file_size_is_upper_bound),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"arena_block_size",
          {offsetof(struct MutableCFOptions, arena_block_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -1168,6 +1172,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  target_file_size_base);
   ROCKS_LOG_INFO(log, "              target_file_size_multiplier: %d",
                  target_file_size_multiplier);
+  ROCKS_LOG_INFO(log, "         target_file_size_is_upper_bound: %d",
+                 target_file_size_is_upper_bound);
   ROCKS_LOG_INFO(log, "                 max_bytes_for_level_base: %" PRIu64,
                  max_bytes_for_level_base);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",

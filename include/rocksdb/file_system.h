@@ -558,7 +558,7 @@ class FileSystem : public Customizable {
   }
 
 // This seems to clash with a macro on Windows, so #undef it here
-#ifdef DeleteFile
+#ifdef DeleteFile  // ODR-SAFE
 #undef DeleteFile
 #endif
   // Delete the named file.
@@ -719,7 +719,7 @@ class FileSystem : public Customizable {
       const ImmutableDBOptions& db_options) const;
 
 // This seems to clash with a macro on Windows, so #undef it here
-#ifdef GetFreeSpace
+#ifdef GetFreeSpace  // ODR-SAFE
 #undef GetFreeSpace
 #endif
 
@@ -1166,8 +1166,10 @@ class FSWritableFile {
 
   // Truncate is necessary to trim the file to the correct size
   // before closing. It is not always possible to keep track of the file
-  // size due to whole pages writes. The behavior is undefined if called
-  // with other writes to follow.
+  // size due to whole pages writes. If called with other writes to follow,
+  // the behavior is file system specific. Posix will reseek to the new EOF.
+  // Other file systems may behave differently. Its the caller's
+  // responsibility to check the file system contract.
   virtual IOStatus Truncate(uint64_t /*size*/, const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();

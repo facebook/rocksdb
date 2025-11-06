@@ -25,6 +25,7 @@
 #include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
+#include "file/file_util.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
@@ -349,7 +350,6 @@ bool StressTest::BuildOptionsTable() {
            "1",
            "2",
        }},
-      {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
       {"block_based_table_factory",
        {
            keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:2.35}"
@@ -362,6 +362,13 @@ bool StressTest::BuildOptionsTable() {
                std::to_string(FLAGS_block_size + (FLAGS_seed & 0xFFFU)) + "}",
        }},
   };
+  if (FLAGS_use_multiscan == 0) {
+    // TODO: this can fail MultiScan when consecutive data blocks share the
+    // same user at boundary. MultiScan uses user key to locate the block to
+    // reach which can move the scan earlier than its current block.
+    options_tbl.emplace("max_sequential_skip_in_iterations",
+                        std::vector<std::string>{"4", "8", "12"});
+  }
   if (FLAGS_compaction_style == kCompactionStyleUniversal &&
       FLAGS_universal_max_read_amp > 0) {
     // level0_file_num_compaction_trigger needs to be at most max_read_amp
@@ -1695,7 +1702,10 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   std::vector<std::string> end_key_strs;
   // TODO support reverse BytewiseComparator in the stress test
   MultiScanArgs scan_opts(options_.comparator);
-  scan_opts.use_async_io = FLAGS_multiscan_use_async_io;
+  scan_opts.use_async_io =
+      FLAGS_multiscan_use_async_io &&
+      CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
+                            FSSupportedOps::kAsyncIO);
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
