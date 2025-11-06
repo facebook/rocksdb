@@ -86,9 +86,8 @@ class FullBloomTest : public testing::TestWithParam<std::string> {
     ResetPolicy();
   }
 
-  BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
-    // Throws on bad cast
-    return dynamic_cast<BuiltinFilterBitsBuilder*>(bits_builder_.get());
+  FilterBitsBuilder* GetFilterBitsBuilder() {
+    return bits_builder_.get();
   }
 
   const BloomLikeFilterPolicy* GetBloomLikeFilterPolicy() {
@@ -239,7 +238,7 @@ TEST_P(FullBloomTest, FilterSize) {
     EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
-    auto bits_builder = GetBuiltinFilterBitsBuilder();
+    auto bits_builder = GetFilterBitsBuilder();
     if (bpk.second == 0) {
       ASSERT_EQ(bits_builder, nullptr);
       continue;

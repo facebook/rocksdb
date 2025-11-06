@@ -47,9 +47,7 @@ void FullFilterBlockBuilder::UpdateFilterSizeEstimate(
     return;
   }
 
-  // Calculate the estimated filter size in bytes.
-  // Estimate ~15 bits per key for bloom filters.
-  size_t filter_size = ((entries_added * 15) + 7) / 8;
+  size_t filter_size = filter_bits_builder_->CalculateSpace(entries_added);
 
   // Reserve filter space for next data block ~2x the average.
   size_t buffer_size = 0;
