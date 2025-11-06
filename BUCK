@@ -5194,12 +5194,6 @@ cpp_unittest_wrapper(name="import_column_family_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="index_builder_test",
-            srcs=["table/block_based/index_builder_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
 cpp_unittest_wrapper(name="inlineskiplist_test",
             srcs=["memtable/inlineskiplist_test.cc"],
             deps=[":rocksdb_test_lib"],

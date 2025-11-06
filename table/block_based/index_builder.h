@@ -158,12 +158,15 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
-  // Get an estimate for current total index size based on current builder
-  // state.
+  // Returns an estimate of the current index size based on the builder's state.
+  // Implementations should cache the estimate and update it via
+  // UpdateIndexSizeEstimate() to avoid recalculating on every key add,
+  // which is critical for performance in the compaction hot path.
   //
-  // Called during compaction to estimate final index size for file cutting
-  // decisions.
-  virtual uint64_t EstimateCurrentIndexSize() const = 0;
+  // This function is only called by the SST "emit thread" but must be
+  // thread safe with concurrent calls to UpdateIndexSizeEstimate() from another
+  // thread (such as during parallel compression).
+  virtual uint64_t CurrentIndexSizeEstimate() const = 0;
 
   virtual bool separator_is_key_plus_seq() { return true; }
 
@@ -186,6 +189,13 @@ class IndexBuilder {
                : comparator_->user_comparator()->CompareWithoutTimestamp(
                      l_user_key, r_user_key) == 0;
   }
+
+  // Updates the cached index size estimate used by CurrentIndexSizeEstimate().
+  //
+  // This function can be called from the SST "write thread" (via
+  // FinishIndexEntry()), and needs to be thread safe with
+  // CurrentIndexSizeEstimate() called from the SST "emit thread".
+  virtual void UpdateIndexSizeEstimate() {}
 
   const InternalKeyComparator* comparator_;
   // Size of user-defined timestamp in bytes.
@@ -234,7 +244,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
     // Making the default true will disable the feature for old versions
-    must_use_separator_with_seq_ = (format_version <= 2);
+    must_use_separator_with_seq_.StoreRelaxed(format_version <= 2);
   }
 
   void OnKeyAdded(const Slice& key,
@@ -257,10 +267,10 @@ class ShortenedIndexBuilder : public IndexBuilder {
       } else {
         separator_with_seq = last_key_in_current_block;
       }
-      if (!must_use_separator_with_seq_ &&
+      if (!must_use_separator_with_seq_.LoadRelaxed() &&
           ShouldUseKeyPlusSeqAsSeparator(last_key_in_current_block,
                                          *first_key_in_next_block)) {
-        must_use_separator_with_seq_ = true;
+        must_use_separator_with_seq_.StoreRelaxed(true);
       }
     } else {
       if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
@@ -333,6 +343,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
 
     ++num_index_entries_;
+    UpdateIndexSizeEstimate();
   }
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
@@ -347,7 +358,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
     Slice first_internal_key = GetFirstInternalKey(&first_internal_key_buf);
 
     AddIndexEntryImpl(separator_with_seq, first_internal_key, block_handle,
-                      must_use_separator_with_seq_, skip_delta_encoding);
+                      must_use_separator_with_seq_.LoadRelaxed(),
+                      skip_delta_encoding);
     current_block_first_internal_key_.clear();
     return separator_with_seq;
   }
@@ -396,7 +408,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
                             &entry->separator_with_seq);
     Slice first_internal_key = GetFirstInternalKey(&entry->first_internal_key);
     entry->SaveFrom(separator, first_internal_key,
-                    must_use_separator_with_seq_);
+                    must_use_separator_with_seq_.LoadRelaxed());
     current_block_first_internal_key_.clear();
   }
 
@@ -413,7 +425,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   using IndexBuilder::Finish;
   Status Finish(IndexBlocks* index_blocks,
                 const BlockHandle& /*last_partition_block_handle*/) override {
-    if (must_use_separator_with_seq_) {
+    if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
     } else {
       index_blocks->index_block_contents =
@@ -425,10 +437,15 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
-  uint64_t EstimateCurrentIndexSize() const override;
+  uint64_t CurrentIndexSizeEstimate() const override {
+    return estimated_index_size_.LoadRelaxed();
+  }
+
+  // Updates the cached size estimate to minimize CPU usage in hot path
+  void UpdateIndexSizeEstimate() override;
 
   bool separator_is_key_plus_seq() override {
-    return must_use_separator_with_seq_;
+    return must_use_separator_with_seq_.LoadRelaxed();
   }
 
   // Changes *key to a short string >= *key.
@@ -452,12 +469,14 @@ class ShortenedIndexBuilder : public IndexBuilder {
   // before).
   BlockBuilder index_block_builder_without_seq_;
   const bool use_value_delta_encoding_;
-  bool must_use_separator_with_seq_;
+  RelaxedAtomic<bool> must_use_separator_with_seq_;
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   std::string current_block_first_internal_key_;
   uint64_t num_index_entries_ = 0;
+  // Cache for index size estimate to avoid recalculating in hot path
+  RelaxedAtomic<uint64_t> estimated_index_size_{0};
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -579,8 +598,7 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
-  // TODO: implement
-  uint64_t EstimateCurrentIndexSize() const override { return 0; }
+  uint64_t CurrentIndexSizeEstimate() const override { return 0; }
 
   bool separator_is_key_plus_seq() override {
     return primary_index_builder_.separator_is_key_plus_seq();
@@ -658,8 +676,11 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
 
-  // TODO: implement
-  uint64_t EstimateCurrentIndexSize() const override { return 0; }
+  // Returns a cached estimate of the current index size. This
+  // estimate is updated when data blocks are added.
+  uint64_t CurrentIndexSizeEstimate() const override {
+    return estimated_index_size_.LoadRelaxed();
+  }
 
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
@@ -679,8 +700,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // cutting the next partition
   void RequestPartitionCut();
 
+  // This function must be thread safe because multiple worker threads might
+  // update the index builder state during parallel compression.
   bool separator_is_key_plus_seq() override {
-    return must_use_separator_with_seq_;
+    return must_use_separator_with_seq_.LoadRelaxed();
   }
 
   bool get_use_value_delta_encoding() const {
@@ -694,6 +717,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t partition_cnt_ = 0;
 
   void MakeNewSubIndexBuilder();
+  void UpdateIndexSizeEstimate() override;
 
   struct Entry {
     std::string key;
@@ -713,7 +737,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if Finish is called once but not complete yet.
   bool finishing_indexes_ = false;
   const BlockBasedTableOptions& table_opt_;
-  bool must_use_separator_with_seq_;
+  RelaxedAtomic<bool> must_use_separator_with_seq_;
   bool use_value_delta_encoding_;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition
@@ -721,5 +745,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
+  // Cached estimate of current index size, updated when data blocks are added
+  RelaxedAtomic<uint64_t> estimated_index_size_{0};
+  // Running estimate of completed partitions total size
+  RelaxedAtomic<uint64_t> estimated_completed_partitions_size_{0};
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -225,6 +225,11 @@ class TableBuilder {
   // is enabled.
   virtual uint64_t EstimatedFileSize() const { return FileSize(); }
 
+  // Estimated tail size of the SST file generated so far. The "tail" refers to
+  // all blocks written after data blocks (index + filter). This value helps
+  // estimate the total file size when deciding when to cut files.
+  virtual uint64_t EstimatedTailSize() const { return 0; }
+
   virtual uint64_t GetTailSize() const { return 0; }
 
   // If the user defined table properties collector suggest the file to
