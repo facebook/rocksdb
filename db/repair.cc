@@ -124,7 +124,7 @@ class Repairer {
               file_options_, raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               /*db_id=*/"", db_session_id_, db_options.daily_offpeak_time_utc,
-              /*error_handler=*/nullptr, /*read_only=*/false),
+              /*error_handler=*/nullptr, /*unchanging=*/false),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
