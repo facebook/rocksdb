@@ -1165,17 +1165,10 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
       }
       // It should only be possible to seek a key between the start of current
       // prepared scan and start of next prepared range.
-      MultiScanUnexpectedSeekTarget(
-          seek_target, &user_seek_target,
-          std::get<0>(multi_scan_->block_index_ranges_per_scan
-                          [multi_scan_->next_scan_idx - 1]));
+      MultiScanUnexpectedSeekTarget(seek_target, &user_seek_target);
     } else {
       // Case 2:
-      MultiScanUnexpectedSeekTarget(
-          seek_target, &user_seek_target,
-          std::get<0>(
-              multi_scan_
-                  ->block_index_ranges_per_scan[multi_scan_->next_scan_idx]));
+      MultiScanUnexpectedSeekTarget(seek_target, &user_seek_target);
     }
   } else {
     // Case 2:
@@ -1192,12 +1185,17 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
       return;
     }
 
-    MultiScanSeekTargetFromBlock(seek_target, cur_scan_start_idx);
+    // max_sequential_skip_in_iterations can trigger a reseek on the start
+    // key of a scan range, even though the multiscan is already past
+    // `cur_scan_start_idx` (e.g., a user key spans multiple data blocks).
+    size_t block_idx =
+        std::max(cur_scan_start_idx, multi_scan_->cur_data_block_idx);
+    MultiScanSeekTargetFromBlock(seek_target, block_idx);
   }
 }
 
 void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
-    const Slice* seek_target, const Slice* user_seek_target, size_t block_idx) {
+    const Slice* seek_target, const Slice* user_seek_target) {
   // linear search the block that contains the seek target, and unpin blocks
   // that are before it.
 
@@ -1253,8 +1251,9 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
     }
   }
 
-  // Find the right block_idx;
-  block_idx = cur_scan_start_idx;
+  // Take the max here to ensure we don't move backwards.
+  size_t block_idx =
+      std::max(cur_scan_start_idx, multi_scan_->cur_data_block_idx);
   auto const& data_block_separators = multi_scan_->data_block_separators;
   while (block_idx < data_block_separators.size() &&
          (user_comparator_.CompareWithoutTimestamp(

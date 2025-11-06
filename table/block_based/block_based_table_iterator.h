@@ -659,8 +659,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void MultiScanSeekTargetFromBlock(const Slice* seek_target, size_t block_idx);
   void MultiScanUnexpectedSeekTarget(const Slice* seek_target,
-                                     const Slice* user_seek_target,
-                                     size_t block_idx);
+                                     const Slice* user_seek_target);
 
   // Return true, if there is an error, or end of file
   bool MultiScanLoadDataBlock(size_t idx) {
