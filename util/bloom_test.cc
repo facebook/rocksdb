@@ -86,9 +86,7 @@ class FullBloomTest : public testing::TestWithParam<std::string> {
     ResetPolicy();
   }
 
-  FilterBitsBuilder* GetFilterBitsBuilder() {
-    return bits_builder_.get();
-  }
+  FilterBitsBuilder* GetFilterBitsBuilder() { return bits_builder_.get(); }
 
   const BloomLikeFilterPolicy* GetBloomLikeFilterPolicy() {
     // Throws on bad cast

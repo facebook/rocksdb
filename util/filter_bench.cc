@@ -372,7 +372,7 @@ void FilterBench::Go() {
 
   // For example, average_keys_per_filter = 100, vary_key_count_ratio = 0.1.
   // Varys up to +/- 10 keys. variance_range = 21 (generating value 0..20).
-  // variance_offset = 10, so value - offset average value is always 0../
+  // variance_offset = 10, so value - offset average value is always 0.
   const uint32_t variance_range =
       1 + 2 * static_cast<uint32_t>(FLAGS_vary_key_count_ratio *
                                     FLAGS_average_keys_per_filter);

@@ -17,7 +17,6 @@
 #include <limits>
 #include <memory>
 
-#include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
 #include "port/lang.h"
@@ -31,7 +30,6 @@
 #include "table/block_based/full_filter_block.h"
 #include "util/atomic.h"
 #include "util/bloom_impl.h"
-#include "util/coding.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/ribbon_config.h"
