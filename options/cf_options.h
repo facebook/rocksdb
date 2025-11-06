@@ -120,6 +120,7 @@ struct MutableCFOptions {
         experimental_mempurge_threshold(
             options.experimental_mempurge_threshold),
         disable_auto_compactions(options.disable_auto_compactions),
+        disable_intra_l0_compaction(options.disable_intra_l0_compaction),
         table_factory(options.table_factory),
         soft_pending_compaction_bytes_limit(
             options.soft_pending_compaction_bytes_limit),
@@ -298,6 +299,8 @@ struct MutableCFOptions {
 
   // Compaction related options
   bool disable_auto_compactions;
+  bool disable_intra_l0_compaction;
+
   std::shared_ptr<TableFactory> table_factory;
   uint64_t soft_pending_compaction_bytes_limit;
   uint64_t hard_pending_compaction_bytes_limit;
