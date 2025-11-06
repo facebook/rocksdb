@@ -813,14 +813,14 @@ Status CompactionJob::VerifyOutputFiles() {
   Status status;
   std::vector<port::Thread> thread_pool;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-  int32_t verify_output_option =
-      compact_->compaction->mutable_cf_options().verify_output_option;
+  VerifyOutputFlags verify_output_flags =
+      compact_->compaction->mutable_cf_options().verify_output_flags;
 
   // For backward compatibility
   if (paranoid_file_checks_) {
-    verify_output_option |= VerifyOutputOptions::kVerifyIteration;
-    verify_output_option |= VerifyOutputOptions::kEnableForLocalCompaction;
-    verify_output_option |= VerifyOutputOptions::kEnableForRemoteCompaction;
+    verify_output_flags |= VerifyOutputFlags::kVerifyIteration;
+    verify_output_flags |= VerifyOutputFlags::kEnableForLocalCompaction;
+    verify_output_flags |= VerifyOutputFlags::kEnableForRemoteCompaction;
   }
 
   auto verify_table = [&](SubcompactionState& subcompaction_state) {
@@ -833,6 +833,10 @@ Status CompactionJob::VerifyOutputFiles() {
       // verification as user reads since the goal is to cache it here for
       // further user reads
       ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
+      verify_table_read_options.verify_checksums = true;
+      verify_table_read_options.readahead_size =
+          file_options_.compaction_readahead_size;
+
       std::unique_ptr<TableReader> table_reader_guard;
       TableReader* table_reader_ptr = table_reader_guard.get();
       verify_table_read_options.rate_limiter_priority =
@@ -852,23 +856,23 @@ Status CompactionJob::VerifyOutputFiles() {
           /*allow_unprepared_value=*/false);
       auto s = iter->status();
       if (s.ok()) {
-        // Check for remote/local compaction and verify_output_option flags
+        // Check for remote/local compaction and verify_output_flags flags
         const bool should_verify =
             (subcompaction_state.compaction_job_stats.is_remote_compaction &&
-             (verify_output_option &
-              VerifyOutputOptions::kEnableForRemoteCompaction)) ||
+             !!(verify_output_flags &
+                VerifyOutputFlags::kEnableForRemoteCompaction)) ||
             (!subcompaction_state.compaction_job_stats.is_remote_compaction &&
-             (verify_output_option &
-              VerifyOutputOptions::kEnableForLocalCompaction));
+             !!(verify_output_flags &
+                VerifyOutputFlags::kEnableForLocalCompaction));
 
         if (should_verify) {
-          if (verify_output_option &
-              VerifyOutputOptions::kVerifyBlockChecksum) {
+          if (!!(verify_output_flags &
+                 VerifyOutputFlags::kVerifyBlockChecksum)) {
             s = table_reader_ptr->VerifyChecksum(
                 verify_table_read_options, TableReaderCaller::kCompaction);
           }
           if (s.ok() &&
-              verify_output_option & VerifyOutputOptions::kVerifyIteration) {
+              !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration)) {
             OutputValidator validator(cfd->internal_comparator(),
                                       /*_enable_hash=*/true);
             for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {

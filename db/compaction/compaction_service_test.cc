@@ -1047,7 +1047,7 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
     Destroy(options);
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = paranoid_file_check_enabled;
-    options.verify_output_option = VerifyOutputOptions::kVerifyNone;
+    options.verify_output_flags = VerifyOutputFlags::kVerifyNone;
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1102,24 +1102,26 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
   }
 }
 
-TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputOptions) {
-  for (uint32_t verify_output_option :
-       {static_cast<uint32_t>(VerifyOutputOptions::kVerifyNone),
-        static_cast<uint32_t>(VerifyOutputOptions::kEnableForLocalCompaction |
-                              VerifyOutputOptions::kVerifyBlockChecksum),
-        static_cast<uint32_t>(VerifyOutputOptions::kEnableForRemoteCompaction |
-                              VerifyOutputOptions::kVerifyBlockChecksum),
-        static_cast<uint32_t>(VerifyOutputOptions::kEnableForRemoteCompaction |
-                              VerifyOutputOptions::kVerifyIteration),
-        static_cast<uint32_t>(VerifyOutputOptions::kVerifyAll)}) {
-    SCOPED_TRACE("verify_output_option=" +
-                 std::to_string(verify_output_option));
+TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
+  for (VerifyOutputFlags verify_output_flags :
+       {VerifyOutputFlags::kVerifyNone,
+        VerifyOutputFlags::kEnableForLocalCompaction |
+            VerifyOutputFlags::kVerifyBlockChecksum,
+        VerifyOutputFlags::kEnableForRemoteCompaction |
+            VerifyOutputFlags::kVerifyBlockChecksum,
+        VerifyOutputFlags::kEnableForRemoteCompaction |
+            VerifyOutputFlags::kVerifyIteration,
+        VerifyOutputFlags::kVerifyAll}) {
+    SCOPED_TRACE(
+        "verify_output_flags=" +
+        std::to_string(static_cast<std::underlying_type_t<VerifyOutputFlags>>(
+            verify_output_flags)));
 
     Options options = CurrentOptions();
     Destroy(options);
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = false;
-    options.verify_output_option = verify_output_option;
+    options.verify_output_flags = verify_output_flags;
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1151,10 +1153,10 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputOptions) {
     SyncPoint::GetInstance()->EnableProcessing();
 
     Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-    if ((verify_output_option &
-         VerifyOutputOptions::kEnableForRemoteCompaction) &&
-        ((verify_output_option & VerifyOutputOptions::kVerifyBlockChecksum) ||
-         (verify_output_option & VerifyOutputOptions::kVerifyIteration))) {
+    if (!!(verify_output_flags &
+           VerifyOutputFlags::kEnableForRemoteCompaction) &&
+        (!!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum) ||
+         !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration))) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsCorruption());
     } else {
