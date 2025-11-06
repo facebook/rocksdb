@@ -972,6 +972,9 @@ struct DBOptions {
   // smaller default here like 1MB is appropriate, the default value is 1GB to
   // match historical behavior (without it being a hard limit in case of giant
   // compacted manifest size).
+  //
+  // This option is mutable with SetDBOptions(), taking effect on the next
+  // manifest write (e.g. completed DB compaction or flush).
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
@@ -990,7 +993,12 @@ struct DBOptions {
   // primary storage space and more of a concern for DB recover time and size of
   // backup files that aren't incremental between backups. To minimize manifest
   // churn on initial DB population, setting max_manifest_file_size to something
-  // not too small, like 1MB, should suffice.
+  // not too small, like 1MB, should suffice. Similarly, write amp on the
+  // manifest file is likely not a direct concern but completed compactions and
+  // flushes cannot (currently) be committed while the (relatively small)
+  // manifest file is being compacted. Manifest compactions should not
+  // interfere with user write latency or throughput unless the DB is
+  // chronically stalling or close to stalling writes already.
   //
   // For this option to have a meaningful effect, it is recommended to set
   // max_manifest_file_size to something modest like 1MB. Then we can interpret
@@ -1006,6 +1014,9 @@ struct DBOptions {
   // * 500 - Recommended and default: 0.2 write amp and up to roughly 5.0 space
   // amp.
   // * 10000 - 0.01 write amp and up to 100 space amp on the manifest.
+  //
+  // This option is mutable with SetDBOptions(), taking effect on the next
+  // manifest write (e.g. completed DB compaction or flush).
   int max_manifest_space_amp_pct = 500;
 
   // Number of shards used for table cache.
