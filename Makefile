@@ -300,6 +300,7 @@ else
   CXXFLAGS += -march=armv8-a
   CFLAGS  += -march=armv8-a
 endif
+endif
 
 export JAVAC_ARGS
 CLEAN_FILES += make_config.mk rocksdb.pc
