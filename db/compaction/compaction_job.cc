@@ -891,7 +891,9 @@ Status CompactionJob::VerifyOutputFiles() {
               s = iter->status();
             }
             if (s.ok() && !validator.CompareValidator(output_file.validator)) {
-              s = Status::Corruption("Paranoid checksums do not match");
+              s = Status::Corruption(
+                  "Key-value checksum of compaction output doesn't match what "
+                  "was computed when written");
             }
           }
         }

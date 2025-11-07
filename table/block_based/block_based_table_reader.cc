@@ -3180,7 +3180,7 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(read_options, /*disable_prefix_seek=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                       /*lookup_contex=*/nullptr));
+                       /*lookup_context=*/nullptr));
 
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
@@ -3437,7 +3437,7 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
     Status tmp_status;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         read_options, blockhandles_iter->value().handle,
-        /*input_iter=*/nullptr, /*type=*/BlockType::kData,
+        /*input_iter=*/nullptr, /*block_type=*/BlockType::kData,
         /*get_context=*/nullptr, /*lookup_context=*/nullptr,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
         /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true));
