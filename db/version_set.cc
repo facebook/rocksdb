@@ -5331,6 +5331,7 @@ void AtomicGroupReadBuffer::Clear() {
 
 VersionSet::VersionSet(
     const std::string& dbname, const ImmutableDBOptions* _db_options,
+    const MutableDBOptions& mutable_db_options,
     const FileOptions& storage_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
     BlockCacheTracer* const block_cache_tracer,
@@ -5359,6 +5360,7 @@ VersionSet::VersionSet(
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
+      last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
@@ -5366,7 +5368,9 @@ VersionSet::VersionSet(
       offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)),
       error_handler_(error_handler),
       unchanging_(unchanging),
-      closed_(false) {}
+      closed_(false) {
+  UpdatedMutableDbOptions(mutable_db_options, /*mu=*/nullptr);
+}
 
 Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
   Status s;
@@ -5462,9 +5466,33 @@ void VersionSet::Reset() {
   current_version_number_ = 0;
   manifest_writers_.clear();
   manifest_file_size_ = 0;
+  last_compacted_manifest_file_size_ = 0;
+  TuneMaxManifestFileSize();
   obsolete_files_.clear();
   obsolete_manifests_.clear();
   wals_.Reset();
+}
+
+void VersionSet::UpdatedMutableDbOptions(
+    const MutableDBOptions& updated_options, InstrumentedMutex* mu) {
+  // Must be holding mutex if not called during initialization
+  if (manifest_file_size_ > 0) {
+    mu->AssertHeld();
+  }
+  file_options_.writable_file_max_buffer_size =
+      updated_options.writable_file_max_buffer_size;
+  min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
+  max_manifest_space_amp_pct_ = static_cast<unsigned>(
+      std::max(updated_options.max_manifest_space_amp_pct, 0));
+  manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
+  TuneMaxManifestFileSize();
+}
+
+void VersionSet::TuneMaxManifestFileSize() {
+  tuned_max_manifest_file_size_ =
+      std::max(min_max_manifest_file_size_,
+               last_compacted_manifest_file_size_ *
+                   (100U + max_manifest_space_amp_pct_) / 100U);
 }
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
@@ -5710,10 +5738,11 @@ Status VersionSet::ProcessManifestWrites(
   }
 #endif  // NDEBUG
 
+  uint64_t prev_manifest_file_size = manifest_file_size_;
   assert(pending_manifest_file_number_ == 0);
   if (!skip_manifest_write &&
       (!descriptor_log_ ||
-       manifest_file_size_ > db_options_->max_manifest_file_size)) {
+       prev_manifest_file_size >= tuned_max_manifest_file_size_)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {
@@ -5753,6 +5782,8 @@ Status VersionSet::ProcessManifestWrites(
   IOStatus manifest_io_status;
   manifest_io_status.PermitUncheckedError();
   std::unique_ptr<log::Writer> new_desc_log_ptr;
+  // Save before releasing mu
+  uint64_t manifest_preallocation_size = manifest_preallocation_size_;
   if (skip_manifest_write) {
     if (s.ok()) {
       constexpr bool update_stats = true;
@@ -5796,16 +5827,13 @@ Status VersionSet::ProcessManifestWrites(
       // This is fine because everything inside of this block is serialized --
       // only one thread can be here at the same time
       // create new manifest file
-      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
-                     pending_manifest_file_number_);
       std::string descriptor_fname =
           DescriptorFileName(dbname_, pending_manifest_file_number_);
       std::unique_ptr<FSWritableFile> descriptor_file;
       io_s = NewWritableFile(fs_.get(), descriptor_fname, &descriptor_file,
                              opt_file_opts);
       if (io_s.ok()) {
-        descriptor_file->SetPreallocationBlockSize(
-            db_options_->manifest_preallocation_size);
+        descriptor_file->SetPreallocationBlockSize(manifest_preallocation_size);
         FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
@@ -5906,6 +5934,13 @@ Status VersionSet::ProcessManifestWrites(
     if (s.ok()) {
       // find offset in manifest file where this version is stored.
       new_manifest_file_size = raw_desc_log_ptr->file()->GetFileSize();
+      if (new_descriptor_log) {
+        ROCKS_LOG_INFO(db_options_->info_log,
+                       "Created manifest %" PRIu64
+                       ", compacted+appended from %" PRIu64 " to %" PRIu64 "\n",
+                       pending_manifest_file_number_, prev_manifest_file_size,
+                       new_manifest_file_size);
+      }
     }
 
     if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
@@ -5954,6 +5989,8 @@ Status VersionSet::ProcessManifestWrites(
     descriptor_log_ = std::move(new_desc_log_ptr);
     obsolete_manifests_.emplace_back(
         DescriptorFileName("", manifest_file_number_));
+    last_compacted_manifest_file_size_ = new_manifest_file_size;
+    TuneMaxManifestFileSize();
   }
 
   // Install the new versions
@@ -6587,14 +6624,16 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   const ReadOptions read_options;
   const WriteOptions write_options;
 
-  ImmutableDBOptions db_options(*options);
+  ImmutableDBOptions imm_db_options(*options);
+  MutableDBOptions mutable_db_options(*options);
   ColumnFamilyOptions cf_options(*options);
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
-                      nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
+  VersionSet versions(dbname, &imm_db_options, mutable_db_options, file_options,
+                      tc.get(), &wb, &wc, nullptr /*BlockCacheTracer*/,
+                      nullptr /*IOTracer*/,
                       /*db_id*/ "",
                       /*db_session_id*/ "", options->daily_offpeak_time_utc,
                       /*error_handler_*/ nullptr, /*unchanging=*/false);
@@ -7646,12 +7685,13 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
 }
 
 ReactiveVersionSet::ReactiveVersionSet(
-    const std::string& dbname, const ImmutableDBOptions* _db_options,
+    const std::string& dbname, const ImmutableDBOptions* imm_db_options,
+    const MutableDBOptions& mutable_db_options,
     const FileOptions& _file_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
     const std::shared_ptr<IOTracer>& io_tracer)
-    : VersionSet(dbname, _db_options, _file_options, table_cache,
-                 write_buffer_manager, write_controller,
+    : VersionSet(dbname, imm_db_options, mutable_db_options, _file_options,
+                 table_cache, write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
                  /*error_handler=*/nullptr, /*unchanging=*/false) {}

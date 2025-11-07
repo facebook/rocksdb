@@ -4430,6 +4430,7 @@ void InitializeOptionsFromFlags(
     options.compression_opts.checksum = true;
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
+  options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;

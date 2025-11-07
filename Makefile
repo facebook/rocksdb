@@ -1421,6 +1421,9 @@ db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_etc3_test: $(OBJ_DIR)/db/db_etc3_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 compression_test: $(OBJ_DIR)/util/compression_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

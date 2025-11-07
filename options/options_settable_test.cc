@@ -408,6 +408,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_stats_update_on_db_open=false;"
                              "skip_checking_sst_file_sizes_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
+                             "max_manifest_space_amp_pct=321;"
                              "db_log_dir=path/to/db_log_dir;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
