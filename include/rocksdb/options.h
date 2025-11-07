@@ -958,11 +958,66 @@ struct DBOptions {
   // Default: 0
   size_t recycle_log_file_num = 0;
 
-  // manifest file is rolled over on reaching this limit.
-  // The older manifest file be deleted.
-  // The default value is 1GB so that the manifest file can grow, but not
-  // reach the limit of storage capacity.
+  // The manifest file is rolled over on reaching this limit AND the
+  // space amp limit described in max_manifest_space_amp_pct. More trade-off
+  // details there.
+  //
+  // NOTE: this option used to be a hard limit, but that made this a dangerous
+  // tuning parameter for optimizing manifest file size because the best
+  // size really depends on the DB size and average SST file size (and other
+  // settings). Now it is essentially a minimum for the auto-tuned max manifest
+  // file size.
+  //
+  // Until the max_manifest_space_amp_pct feature is fully validated to show a
+  // smaller default here like 1MB is appropriate, the default value is 1GB to
+  // match historical behavior (without it being a hard limit in case of giant
+  // compacted manifest size).
+  //
+  // This option is mutable with SetDBOptions(), taking effect on the next
+  // manifest write (e.g. completed DB compaction or flush).
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
+
+  // This option mostly replaces max_manifest_file_size to control an auto-tuned
+  // balance of manifest write amplification and space amplification. A new
+  // manifest file is created with the "compacted" contents of the old one when
+  //  current_manifest_size
+  //    >
+  //  max(max_manifest_file_size,
+  //      est_compacted_manifest_size * (1 + max_manifest_space_amp_pct/100))
+  //
+  // where est_compacted_manifest_size is an estimate of how big a new compacted
+  // version of the current manifest would be. Currently, the estimate used is
+  // the last newly-written manifest, in its "compacted" form.
+  //
+  // Space amplification in the manifest file might be less of a concern for
+  // primary storage space and more of a concern for DB recover time and size of
+  // backup files that aren't incremental between backups. To minimize manifest
+  // churn on initial DB population, setting max_manifest_file_size to something
+  // not too small, like 1MB, should suffice. Similarly, write amp on the
+  // manifest file is likely not a direct concern but completed compactions and
+  // flushes cannot (currently) be committed while the (relatively small)
+  // manifest file is being compacted. Manifest compactions should not
+  // interfere with user write latency or throughput unless the DB is
+  // chronically stalling or close to stalling writes already.
+  //
+  // For this option to have a meaningful effect, it is recommended to set
+  // max_manifest_file_size to something modest like 1MB. Then we can interpret
+  // values for this option as follows, starting with minimum space amp and
+  // maximum write amp:
+  // * 0 - Every manifest write (flush, compaction, etc.) generates a whole new
+  // manifest. Only useful for testing.
+  // * very small - Doesn't take many manifest writes to generate a whole new
+  // manifest.
+  // * 100 - In a DB with pretty consistent number of SST files, etc., achieves
+  // about 1.0 write amp (writing about 2x the theoretical minimum) and a max of
+  // about 1.0 space amp (manifest up to 2x the compacted size).
+  // * 500 - Recommended and default: 0.2 write amp and up to roughly 5.0 space
+  // amp.
+  // * 10000 - 0.01 write amp and up to 100 space amp on the manifest.
+  //
+  // This option is mutable with SetDBOptions(), taking effect on the next
+  // manifest write (e.g. completed DB compaction or flush).
+  int max_manifest_space_amp_pct = 500;
 
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;

@@ -596,6 +596,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
 TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
   Options options = CurrentOptions();
   options.max_manifest_file_size = 0;  // always rollover manifest for file add
+  options.max_manifest_space_amp_pct = 0;
   Reopen(options);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(

@@ -160,6 +160,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"keep_log_file_num", "39"},
       {"recycle_log_file_num", "5"},
       {"max_manifest_file_size", "40"},
+      {"max_manifest_space_amp_pct", "42"},
       {"table_cache_numshardbits", "41"},
       {"WAL_ttl_seconds", "43"},
       {"WAL_size_limit_MB", "44"},
@@ -341,7 +342,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.log_file_time_to_roll, 38U);
   ASSERT_EQ(new_db_opt.keep_log_file_num, 39U);
   ASSERT_EQ(new_db_opt.recycle_log_file_num, 5U);
-  ASSERT_EQ(new_db_opt.max_manifest_file_size, static_cast<uint64_t>(40));
+  ASSERT_EQ(new_db_opt.max_manifest_file_size, uint64_t{40});
+  ASSERT_EQ(new_db_opt.max_manifest_space_amp_pct, 42);
   ASSERT_EQ(new_db_opt.table_cache_numshardbits, 41);
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
   ASSERT_EQ(new_db_opt.WAL_size_limit_MB, static_cast<uint64_t>(44));
@@ -2479,6 +2481,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"keep_log_file_num", "39"},
       {"recycle_log_file_num", "5"},
       {"max_manifest_file_size", "40"},
+      {"max_manifest_space_amp_pct", "42"},
       {"table_cache_numshardbits", "41"},
       {"WAL_ttl_seconds", "43"},
       {"WAL_size_limit_MB", "44"},
@@ -2665,7 +2668,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.log_file_time_to_roll, 38U);
   ASSERT_EQ(new_db_opt.keep_log_file_num, 39U);
   ASSERT_EQ(new_db_opt.recycle_log_file_num, 5U);
-  ASSERT_EQ(new_db_opt.max_manifest_file_size, static_cast<uint64_t>(40));
+  ASSERT_EQ(new_db_opt.max_manifest_file_size, uint64_t{40});
+  ASSERT_EQ(new_db_opt.max_manifest_space_amp_pct, 42);
   ASSERT_EQ(new_db_opt.table_cache_numshardbits, 41);
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
   ASSERT_EQ(new_db_opt.WAL_size_limit_MB, static_cast<uint64_t>(44));

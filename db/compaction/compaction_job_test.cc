@@ -211,8 +211,8 @@ class CompactionJobTestBase : public testing::Test {
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
-            &write_buffer_manager_, &write_controller_,
+            dbname_, &db_options_, mutable_db_options_, env_options_,
+            table_cache_.get(), &write_buffer_manager_, &write_controller_,
             /*block_cache_tracer=*/nullptr,
             /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
             /*daily_offpeak_time_utc=*/"",
@@ -546,13 +546,13 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(s);
     db_options_.info_log = info_log;
 
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       test::kUnitTestDbId, /*db_session_id=*/"",
-                       /*daily_offpeak_time_utc=*/"",
-                       /*error_handler=*/nullptr, /*unchanging=*/false));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        test::kUnitTestDbId, /*db_session_id=*/"",
+        /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     compaction_job_stats_.Reset();
 
     VersionEdit new_db;
