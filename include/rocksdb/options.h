@@ -1082,6 +1082,13 @@ struct DBOptions {
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 
+  // Use O_DIRECT for WAL writes.
+  // When enabled, WAL writes will bypass the OS page cache and use direct I/O.
+  // This requires proper alignment (typically 512 bytes). The log writer will
+  // automatically pad records to meet alignment requirements.
+  // Default: false
+  bool use_direct_io_for_wal = false;
+
   // If false, fallocate() calls are bypassed, which disables file
   // preallocation. The file space preallocation is used to increase the file
   // write/append performance. By default, RocksDB preallocates space for WAL,

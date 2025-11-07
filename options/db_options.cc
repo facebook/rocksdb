@@ -183,6 +183,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    use_direct_io_for_flush_and_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"use_direct_io_for_wal",
+         {offsetof(struct ImmutableDBOptions, use_direct_io_for_wal),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"allow_2pc",
          {offsetof(struct ImmutableDBOptions, allow_2pc), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -751,6 +755,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       use_direct_reads(options.use_direct_reads),
       use_direct_io_for_flush_and_compaction(
           options.use_direct_io_for_flush_and_compaction),
+      use_direct_io_for_wal(options.use_direct_io_for_wal),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
@@ -873,6 +878,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    "                       "
                    "Options.use_direct_io_for_flush_and_compaction: %d",
                    use_direct_io_for_flush_and_compaction);
+  ROCKS_LOG_HEADER(log, "                  Options.use_direct_io_for_wal: %d",
+                   use_direct_io_for_wal);
   ROCKS_LOG_HEADER(log, "         Options.create_missing_column_families: %d",
                    create_missing_column_families);
   ROCKS_LOG_HEADER(log, "                             Options.db_log_dir: %s",

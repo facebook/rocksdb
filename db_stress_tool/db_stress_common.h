@@ -182,6 +182,7 @@ DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
 DECLARE_bool(use_direct_reads);
 DECLARE_bool(use_direct_io_for_flush_and_compaction);
+DECLARE_bool(use_direct_io_for_wal);
 DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);
 DECLARE_bool(sync);
