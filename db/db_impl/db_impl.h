@@ -2401,8 +2401,8 @@ class DBImpl : public DB {
   // REQUIRES: mutex held
   // Returns: Status of the trivial move operation
   Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                            bool& compaction_released, int32_t& moved_files,
-                            int64_t& moved_bytes);
+                            bool& compaction_released, size_t& moved_files,
+                            size_t& moved_bytes);
 
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,

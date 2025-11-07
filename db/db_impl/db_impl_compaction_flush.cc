@@ -1426,7 +1426,7 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
 
 Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
                                   bool& compaction_released,
-                                  int32_t& moved_files, int64_t& moved_bytes) {
+                                  size_t& moved_files, size_t& moved_bytes) {
   mutex_.AssertHeld();
 
   ROCKS_LOG_BUFFER(log_buffer, "[%s] Moving %d files to level-%d\n",
@@ -1450,7 +1450,7 @@ Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
                         f->file_checksum, f->file_checksum_func_name,
                         f->unique_id, f->compensated_range_deletion_size,
                         f->tail_size, f->user_defined_timestamps_persisted);
-      moved_bytes += c.input(l, i)->fd.GetFileSize();
+      moved_bytes += static_cast<size_t>(c.input(l, i)->fd.GetFileSize());
       ROCKS_LOG_BUFFER(
           log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
           c.column_family_data()->GetName().c_str(), f->fd.GetNumber(),
@@ -1574,8 +1574,8 @@ Status DBImpl::CompactFilesImpl(
     TEST_SYNC_POINT("DBImpl::CompactFilesImpl:TrivialMove");
 
     bool compaction_released = false;
-    int32_t moved_files = 0;
-    int64_t moved_bytes = 0;
+    size_t moved_files = 0;
+    size_t moved_bytes = 0;
     Status status = PerformTrivialMove(
         *c.get(), log_buffer, compaction_released, moved_files, moved_bytes);
 
@@ -1594,7 +1594,7 @@ Status DBImpl::CompactFilesImpl(
 
       ROCKS_LOG_BUFFER(
           log_buffer,
-          "[%s] Trivial move succeeded for %d files, %" PRIu64 " bytes total\n",
+          "[%s] Trivial move succeeded for %zu files, %zu bytes total\n",
           c->column_family_data()->GetName().c_str(), moved_files, moved_bytes);
     } else {
       if (!compaction_released) {
@@ -4201,8 +4201,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
 
     // Perform the trivial move
-    int32_t moved_files = 0;
-    int64_t moved_bytes = 0;
+    size_t moved_files = 0;
+    size_t moved_bytes = 0;
     status = PerformTrivialMove(*c.get(), log_buffer, compaction_released,
                                 moved_files, moved_bytes);
     io_s = versions_->io_status();
@@ -4219,8 +4219,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           << "total_files_size" << moved_bytes;
     }
     ROCKS_LOG_BUFFER(
-        log_buffer,
-        "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
+        log_buffer, "[%s] Moved #%d files to level-%zu %zu bytes %s: %s\n",
         c->column_family_data()->GetName().c_str(), moved_files,
         c->output_level(), moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
