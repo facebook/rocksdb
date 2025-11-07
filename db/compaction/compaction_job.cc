@@ -835,7 +835,7 @@ Status CompactionJob::VerifyOutputFiles() {
       ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
       verify_table_read_options.verify_checksums = true;
       verify_table_read_options.readahead_size =
-          file_options_.compaction_readahead_size;
+          file_options_for_read_.compaction_readahead_size;
 
       std::unique_ptr<TableReader> table_reader_guard;
       TableReader* table_reader_ptr = table_reader_guard.get();
@@ -866,13 +866,19 @@ Status CompactionJob::VerifyOutputFiles() {
                 VerifyOutputFlags::kEnableForLocalCompaction));
 
         if (should_verify) {
-          if (!!(verify_output_flags &
-                 VerifyOutputFlags::kVerifyBlockChecksum)) {
+          const bool should_verify_block_checksum =
+              !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
+          const bool should_verify_iteration =
+              !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+          if (should_verify_block_checksum) {
+            assert(table_reader_ptr != nullptr);
+            // If verifying iteration as well, verify meta blocks here only to
+            // avoid redundant checks on data blocks
             s = table_reader_ptr->VerifyChecksum(
-                verify_table_read_options, TableReaderCaller::kCompaction);
+                verify_table_read_options, TableReaderCaller::kCompaction,
+                /*meta_blocks_only=*/should_verify_iteration);
           }
-          if (s.ok() &&
-              !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration)) {
+          if (s.ok() && should_verify_iteration) {
             OutputValidator validator(cfd->internal_comparator(),
                                       /*_enable_hash=*/true);
             for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {

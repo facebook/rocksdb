@@ -211,7 +211,8 @@ class BlockBasedTable : public TableReader {
   Status DumpTable(WritableFile* out_file) override;
 
   Status VerifyChecksum(const ReadOptions& readOptions,
-                        TableReaderCaller caller) override;
+                        TableReaderCaller caller,
+                        bool meta_blocks_only = false) override;
 
   void MarkObsolete(uint32_t uncache_aggressiveness) override;
 

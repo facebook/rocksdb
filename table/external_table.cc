@@ -239,8 +239,8 @@ class ExternalTableReaderAdapter : public TableReader {
         "Get() not supported on external file iterator");
   }
 
-  virtual Status VerifyChecksum(const ReadOptions& /*ro*/,
-                                TableReaderCaller /*caller*/) override {
+  Status VerifyChecksum(const ReadOptions& /*ro*/, TableReaderCaller /*caller*/,
+                        bool /*meta_blocks_only*/ = false) override {
     return Status::OK();
   }
 

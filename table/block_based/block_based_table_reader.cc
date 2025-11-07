@@ -2757,7 +2757,8 @@ Status BlockBasedTable::Prefetch(const ReadOptions& read_options,
 }
 
 Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
-                                       TableReaderCaller caller) {
+                                       TableReaderCaller caller,
+                                       bool meta_blocks_only) {
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> metaindex;
@@ -2770,6 +2771,9 @@ Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
       return s;
     }
   } else {
+    return s;
+  }
+  if (meta_blocks_only) {
     return s;
   }
   // Check Data blocks

@@ -1151,12 +1151,16 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
           }
         });
     SyncPoint::GetInstance()->EnableProcessing();
+    const bool is_enabled_for_remote_compaction =
+        !!(verify_output_flags & VerifyOutputFlags::kEnableForRemoteCompaction);
+    const bool should_verify_block_checksum =
+        !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
+    const bool should_verify_iteration =
+        !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
 
     Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-    if (!!(verify_output_flags &
-           VerifyOutputFlags::kEnableForRemoteCompaction) &&
-        (!!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum) ||
-         !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration))) {
+    if (is_enabled_for_remote_compaction &&
+        (should_verify_block_checksum || should_verify_iteration)) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsCorruption());
     } else {
