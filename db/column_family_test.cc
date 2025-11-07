@@ -799,6 +799,60 @@ TEST_P(ColumnFamilyTest, DropTest) {
   }
 }
 
+TEST_P(ColumnFamilyTest, OpenFailsWithTransientCF) {
+  Open();
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions transient_opts;
+  transient_opts.is_transient = true;
+
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);
+
+  Close();
+
+  ASSERT_NOK(TryOpen(
+      {"default", "one", "two", "threeTemp", "four"},
+      {column_family_options_, cf_opts, cf_opts, transient_opts, cf_opts}));
+
+  // if we incorrectly open a transient CF as non-transient, we should see an
+  // invalid argument error
+  ASSERT_TRUE(
+      TryOpen({"default", "one", "two", "threeTemp", "four"},
+              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts})
+          .IsInvalidArgument());
+}
+
+TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
+  Open();
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions cf_transient_opts;
+  cf_transient_opts.is_transient = true;
+
+  // create column family options for transient column families
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, cf_transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);
+
+  ASSERT_OK(Put(0, "foo", "v1"));
+  ASSERT_OK(Put(1, "mirko", "v3"));
+  ASSERT_OK(Put(3, "temp", "temp"));
+  ASSERT_OK(Put(4, "mew", "two"));
+
+  // Verify we have all 5 CFs initially (default, one, two, threeTemp, four)
+  ASSERT_EQ(handles_.size(), 5);
+  Close();
+
+  ASSERT_OK(TryOpen({"default", "one", "two", "four"},
+                    {column_family_options_, cf_opts, cf_opts, cf_opts}));
+
+  ASSERT_EQ(Get(0, "foo"), "v1");
+  ASSERT_EQ(Get(1, "mirko"), "v3");
+  ASSERT_EQ(Get(3, "mew"), "two");
+
+  ASSERT_EQ(handles_.size(), 4);
+}
+
 TEST_P(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});

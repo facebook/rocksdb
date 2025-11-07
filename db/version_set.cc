@@ -6933,6 +6933,7 @@ Status VersionSet::WriteCurrentStateToManifest(
           cfd->internal_comparator().user_comparator()->Name());
       edit.SetPersistUserDefinedTimestamps(
           cfd->ioptions().persist_user_defined_timestamps);
+      edit.SetIsTransientColumnFamily(cfd->ioptions().is_transient);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +
