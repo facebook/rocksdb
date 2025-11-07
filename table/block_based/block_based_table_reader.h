@@ -430,7 +430,7 @@ class BlockBasedTable : public TableReader {
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
   InternalIteratorBase<IndexValue>* NewIndexIterator(
-      const ReadOptions& read_options, bool need_upper_bound_check,
+      const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
