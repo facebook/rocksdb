@@ -274,6 +274,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->compaction_options_fifo = moptions.compaction_options_fifo;
   cf_opts->compaction_options_universal = moptions.compaction_options_universal;
 
+  cf_opts->verify_output_flags = moptions.verify_output_flags;
+
   // Blob file related options
   cf_opts->enable_blob_files = moptions.enable_blob_files;
   cf_opts->min_blob_size = moptions.min_blob_size;

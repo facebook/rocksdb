@@ -145,6 +145,7 @@ struct MutableCFOptions {
         preclude_last_level_data_seconds(
             options.preclude_last_level_data_seconds),
         preserve_internal_time_seconds(options.preserve_internal_time_seconds),
+        verify_output_flags(options.verify_output_flags),
         enable_blob_files(options.enable_blob_files),
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
@@ -216,6 +217,7 @@ struct MutableCFOptions {
         compaction_options_fifo(),
         preclude_last_level_data_seconds(0),
         preserve_internal_time_seconds(0),
+        verify_output_flags(VerifyOutputFlags::kVerifyNone),
         enable_blob_files(false),
         min_blob_size(0),
         blob_file_size(0),
@@ -317,6 +319,7 @@ struct MutableCFOptions {
   CompactionOptionsUniversal compaction_options_universal;
   uint64_t preclude_last_level_data_seconds;
   uint64_t preserve_internal_time_seconds;
+  VerifyOutputFlags verify_output_flags;
 
   // Blob file related options
   bool enable_blob_files;
