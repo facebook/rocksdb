@@ -110,6 +110,18 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   }
 }
 
+Compressor* MaybeCloneSpecialized(
+    Compressor* compressor, CacheEntryRole block_type,
+    Compressor::DictSampleArgs&& dict_samples = {}) {
+  auto specialized =
+      compressor->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+  if (specialized) {
+    // Caller is responsible for freeing when distinct
+    return specialized.release();
+  } else {
+    return compressor;
+  }
+}
 }  // namespace
 
 // kBlockBasedTableMagicNumber was picked by running
@@ -824,15 +836,17 @@ struct BlockBasedTableBuilder::Rep {
 
   // *** Compressors & decompressors - Yes, it seems like a lot here but ***
   // *** these are distinct fields to minimize extra conditionals and    ***
-  // *** field reads on hot code paths.                                  ***
+  // *** field reads on hot code paths. And to avoid interlocked         ***
+  // *** instructions associated with shared_ptr.                        ***
 
   // A compressor for blocks in general, without dictionary compression
   std::unique_ptr<Compressor> basic_compressor;
-  // A compressor using dictionary compression (when applicable)
-  std::unique_ptr<Compressor> compressor_with_dict;
-  // Once configured/determined, points to one of the above Compressors to
-  // use on data blocks.
+  // A compressor for data blocks, which might be tuned differently and might
+  // use dictionary compression (when applicable). See ~Rep() for some details.
   Compressor* data_block_compressor = nullptr;
+  // A compressor for index blocks, which might be tuned differently from
+  // basic_compressor. See ~Rep() for some details.
+  Compressor* index_block_compressor = nullptr;
   // A decompressor corresponding to basic_compressor (when non-nullptr).
   // Used for verification and cache warming.
   std::shared_ptr<Decompressor> basic_decompressor;
@@ -853,7 +867,7 @@ struct BlockBasedTableBuilder::Rep {
       compression_types_used;
 
   // Working area for basic_compressor when compression_parallel_threads==1
-  WorkingAreaPair basic_working_area;
+  WorkingAreaPair index_block_working_area;
   // Working area for data_block_compressor, for emit/compaction thread
   WorkingAreaPair data_block_working_area;
 
@@ -1099,7 +1113,10 @@ struct BlockBasedTableBuilder::Rep {
         filter_context, tbo.compression_opts, tbo.compression_type);
     if (basic_compressor) {
       if (table_options.enable_index_compression) {
-        basic_working_area.compress = basic_compressor->ObtainWorkingArea();
+        index_block_compressor = MaybeCloneSpecialized(
+            basic_compressor.get(), CacheEntryRole::kIndexBlock);
+        index_block_working_area.compress =
+            basic_compressor->ObtainWorkingArea();
       }
       max_dict_sample_bytes = basic_compressor->GetMaxSampleSizeIfWantDict(
           CacheEntryRole::kDataBlock);
@@ -1114,8 +1131,10 @@ struct BlockBasedTableBuilder::Rep {
                                   tbo.compression_opts.max_dict_buffer_bytes);
         }
       } else {
-        // No distinct data block compressor using dictionary
-        data_block_compressor = basic_compressor.get();
+        // No distinct data block compressor using dictionary, but
+        // implementation might still want to specialize for data blocks
+        data_block_compressor = MaybeCloneSpecialized(
+            basic_compressor.get(), CacheEntryRole::kDataBlock);
         data_block_working_area.compress =
             data_block_compressor->ObtainWorkingArea();
       }
@@ -1129,8 +1148,9 @@ struct BlockBasedTableBuilder::Rep {
       if (table_options.verify_compression) {
         verify_decompressor = basic_decompressor.get();
         if (table_options.enable_index_compression) {
-          basic_working_area.verify = verify_decompressor->ObtainWorkingArea(
-              basic_compressor->GetPreferredCompressionType());
+          index_block_working_area.verify =
+              verify_decompressor->ObtainWorkingArea(
+                  index_block_compressor->GetPreferredCompressionType());
         }
         if (state == State::kUnbuffered) {
           assert(data_block_compressor);
@@ -1295,6 +1315,14 @@ struct BlockBasedTableBuilder::Rep {
   }
 
   ~Rep() {
+    // Delete specialized compressors if they were distinct (avoiding extra
+    // fields and interlocked instructions with shared_ptr)
+    if (data_block_compressor != basic_compressor.get()) {
+      delete data_block_compressor;
+    }
+    if (index_block_compressor != basic_compressor.get()) {
+      delete index_block_compressor;
+    }
     // Must have been cleaned up by StopParallelCompression
     assert(pc_rep == nullptr);
   }
@@ -1731,7 +1759,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   bool is_data_block = block_type == BlockType::kData;
   Status compress_status = CompressAndVerifyBlock(
       uncompressed_block_data, is_data_block,
-      is_data_block ? r->data_block_working_area : r->basic_working_area,
+      is_data_block ? r->data_block_working_area : r->index_block_working_area,
       &r->single_threaded_compressed_output, &type);
   r->SetStatus(compress_status);
   if (UNLIKELY(!ok())) {
@@ -1851,7 +1879,7 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
     compressor = r->data_block_compressor;
     verify_decomp = r->data_block_verify_decompressor.get();
   } else {
-    compressor = r->basic_compressor.get();
+    compressor = r->index_block_compressor;
     verify_decomp = r->verify_decompressor.get();
   }
 
@@ -2463,8 +2491,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
 void BlockBasedTableBuilder::WriteCompressionDictBlock(
     MetaIndexBuilder* meta_index_builder) {
   Slice compression_dict;
-  if (rep_->compressor_with_dict) {
-    compression_dict = rep_->compressor_with_dict->GetSerializedDict();
+  if (rep_->data_block_compressor) {
+    compression_dict = rep_->data_block_compressor->GetSerializedDict();
   }
   if (!compression_dict.empty()) {
     BlockHandle compression_dict_block_handle;
@@ -2600,15 +2628,12 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
 
   assert(samples.sample_data.size() > 0);
 
-  // final sample data block flushed, now we can generate dictionary
-  r->compressor_with_dict = r->basic_compressor->MaybeCloneSpecialized(
-      CacheEntryRole::kDataBlock, std::move(samples));
+  // final sample data block flushed, now we can generate dictionary (or it
+  // might opt not to use a dictionary and that's ok)
+  r->data_block_compressor =
+      MaybeCloneSpecialized(r->basic_compressor.get(),
+                            CacheEntryRole::kDataBlock, std::move(samples));
 
-  // The compressor might opt not to use a dictionary, in which case we
-  // can use the same compressor as for e.g. index blocks.
-  r->data_block_compressor = r->compressor_with_dict
-                                 ? r->compressor_with_dict.get()
-                                 : r->basic_compressor.get();
   Slice serialized_dict = r->data_block_compressor->GetSerializedDict();
   if (r->verify_decompressor) {
     if (serialized_dict.empty()) {
@@ -2831,8 +2856,8 @@ uint64_t BlockBasedTableBuilder::EstimatedTailSize() const {
   }
 
   // 3. Estimate compression dictionary size
-  if (rep_->compressor_with_dict) {
-    Slice dict = rep_->compressor_with_dict->GetSerializedDict();
+  if (rep_->data_block_compressor) {
+    Slice dict = rep_->data_block_compressor->GetSerializedDict();
     if (!dict.empty()) {
       estimated_tail_size += dict.size();
     }

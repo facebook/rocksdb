@@ -59,6 +59,10 @@ const char* AutoSkipCompressorWrapper::Name() const {
   return "AutoSkipCompressorWrapper";
 }
 
+std::unique_ptr<Compressor> AutoSkipCompressorWrapper::Clone() const {
+  return std::make_unique<AutoSkipCompressorWrapper>(wrapped_->Clone(), opts_);
+}
+
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, char* compressed_output,
     size_t* compressed_output_size, CompressionType* out_compression_type,
@@ -174,6 +178,10 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts)
 }
 
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
+
+std::unique_ptr<Compressor> CostAwareCompressor::Clone() const {
+  return std::make_unique<CostAwareCompressor>(opts_);
+}
 size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
     CacheEntryRole block_type) const {
   auto idx = allcompressors_index_.back();

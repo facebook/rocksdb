@@ -15,10 +15,12 @@
 #include "table/block_based/block_builder.h"
 #include "test_util/testutil.h"
 #include "util/auto_tune_compressor.h"
+#include "util/coding.h"
 #include "util/random.h"
 #include "util/simple_mixed_compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 class DBCompressionTest : public DBTestBase {
  public:
   DBCompressionTest() : DBTestBase("compression_test", /*env_do_fsync=*/true) {}
@@ -1108,6 +1110,112 @@ TEST_F(DBCompressionTest, RandomMixedCompressionManager) {
   }
 }
 
+namespace {
+// Template parameter to distinguish data blocks vs. v4+ index blocks
+template <bool kIndexBlockV4>
+static Status ValidateRocksBlock(Slice data) {
+  const char* src = data.data();
+  size_t srcSize = data.size();
+  const char* const block_type_str =
+      kIndexBlockV4 ? "Index block" : "Data block";
+
+  // Minimum RocksDB block content size: at least 1 entry + restarts
+  if (srcSize < 8) {
+    return Status::Corruption(std::string(block_type_str) + " too small");
+  }
+
+  uint32_t numRestarts = DecodeFixed32(src + srcSize - sizeof(uint32_t));
+
+  // Sanity check: num_restarts should be reasonable
+  // TODO: also support data block hash index
+  if (numRestarts > srcSize / 4 || numRestarts == 0) {
+    return Status::Corruption(std::string("Invalid num_restarts in ") +
+                              block_type_str);
+  }
+
+  size_t restartsSize = numRestarts * sizeof(uint32_t) + sizeof(uint32_t);
+  if (srcSize < restartsSize) {
+    return Status::Corruption(std::string(block_type_str) +
+                              " too small for restarts array");
+  }
+
+  size_t entriesSize = srcSize - restartsSize;
+  const char* entriesEnd = src + entriesSize;
+
+  // Parse entries
+  const char* p = src;
+  while (p < entriesEnd) {
+    // Parse shared_bytes varint
+    uint32_t shared;
+    const char* next = GetVarint32Ptr(p, entriesEnd, &shared);
+    if (next == nullptr) {
+      return Status::Corruption(std::string("Invalid shared_bytes varint in ") +
+                                block_type_str);
+    }
+    p = next;
+
+    // Parse unshared_bytes varint
+    uint32_t unshared;
+    next = GetVarint32Ptr(p, entriesEnd, &unshared);
+    if (next == nullptr) {
+      return Status::Corruption(
+          std::string("Invalid unshared_bytes varint in ") + block_type_str);
+    }
+    p = next;
+
+    uint32_t valueLen = 0;
+    if constexpr (!kIndexBlockV4) {
+      // For data blocks, parse value_length varint
+      next = GetVarint32Ptr(p, entriesEnd, &valueLen);
+      if (next == nullptr) {
+        return Status::Corruption(
+            std::string("Invalid value_length varint in ") + block_type_str);
+      }
+      p = next;
+    }
+
+    // Validate key delta
+    if (p + unshared > entriesEnd) {
+      return Status::Corruption(
+          std::string("Key delta exceeds end of entries in ") + block_type_str);
+    }
+    p += unshared;
+
+    if constexpr (kIndexBlockV4) {
+      // For v4 index blocks, value is self-describing (varints)
+      // Parse first varint (always present)
+      uint32_t v1;
+      next = GetVarint32Ptr(p, entriesEnd, &v1);
+      if (next == nullptr) {
+        return Status::Corruption(std::string("Invalid value varint in ") +
+                                  block_type_str);
+      }
+      p = next;
+
+      // If shared_bytes == 0, there's a second varint
+      if (shared == 0) {
+        uint32_t v2;
+        next = GetVarint32Ptr(p, entriesEnd, &v2);
+        if (next == nullptr) {
+          return Status::Corruption(
+              std::string("Invalid second value varint in ") + block_type_str);
+        }
+        p = next;
+      }
+    } else {
+      // For data blocks, validate value
+      if (p + valueLen > entriesEnd) {
+        return Status::Corruption(
+            std::string("Value exceeds end of entries in ") + block_type_str);
+      }
+      p += valueLen;
+    }
+  }
+
+  return Status::OK();
+}
+}  // anonymous namespace
+
 TEST_F(DBCompressionTest, CompressionManagerWrapper) {
   // Test that we can use a custom CompressionManager to wrap the built-in
   // CompressionManager, thus adopting a custom *strategy* based on existing
@@ -1119,14 +1227,81 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
   static std::string kDoNotCompress = "do_not_compress";
   static std::string kRejectCompression = "reject_compression";
 
-  struct MyCompressor : public CompressorWrapper {
+  static RelaxedAtomic<int> dataCheckedCount{0};
+  static RelaxedAtomic<int> indexCheckedCount{0};
+  static RelaxedAtomic<int> compressCalledCount{0};
+
+  // We also have wrappers here to help verify that when RocksDB asks to
+  // specialize the Compressor for a particular kind of block, it only passes in
+  // that kind of block to ensure proper grouping of related data for
+  // compression. We check this by parsing the subtly distinct schemas of data
+  // blocks vs. v4+ index blocks. This also ensures that structure-aware
+  // compressions like OpenZL can parse the data block and index block formats.
+  struct CheckDataBlockCompressorWrapper : public CompressorWrapper {
     using CompressorWrapper::CompressorWrapper;
-    const char* Name() const override { return "MyCompressor"; }
+    const char* Name() const override { return "CheckDataBlockCompressor"; }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<CheckDataBlockCompressorWrapper>(
+          wrapped_->Clone());
+    }
 
     Status CompressBlock(Slice uncompressed_data, char* compressed_output,
                          size_t* compressed_output_size,
                          CompressionType* out_compression_type,
                          ManagedWorkingArea* working_area) override {
+      dataCheckedCount.FetchAddRelaxed(1);
+      // Parse and validate data block format before compressing
+      Status s = ValidateRocksBlock</*kIndexBlockV4=*/false>(uncompressed_data);
+      if (!s.ok()) {
+        return s;
+      }
+      // Delegate to wrapped compressor on success
+      return wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                     compressed_output_size,
+                                     out_compression_type, working_area);
+    }
+  };
+
+  struct CheckIndexBlockCompressorWrapper : public CompressorWrapper {
+    using CompressorWrapper::CompressorWrapper;
+    const char* Name() const override { return "CheckIndexBlockCompressor"; }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<CheckIndexBlockCompressorWrapper>(
+          wrapped_->Clone());
+    }
+
+    Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                         size_t* compressed_output_size,
+                         CompressionType* out_compression_type,
+                         ManagedWorkingArea* working_area) override {
+      indexCheckedCount.FetchAddRelaxed(1);
+      // Parse and validate index block v4 format before compressing
+      Status s = ValidateRocksBlock</*kIndexBlockV4=*/true>(uncompressed_data);
+      if (!s.ok()) {
+        return s;
+      }
+      // Delegate to wrapped compressor on success
+      return wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                     compressed_output_size,
+                                     out_compression_type, working_area);
+    }
+  };
+
+  struct MyCompressor : public CompressorWrapper {
+    using CompressorWrapper::CompressorWrapper;
+    const char* Name() const override { return "MyCompressor"; }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<MyCompressor>(wrapped_->Clone());
+    }
+
+    Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                         size_t* compressed_output_size,
+                         CompressionType* out_compression_type,
+                         ManagedWorkingArea* working_area) override {
+      compressCalledCount.FetchAddRelaxed(1);
       auto begin = uncompressed_data.data();
       auto end = uncompressed_data.data() + uncompressed_data.size();
       if (std::search(begin, end, kDoNotCompress.begin(),
@@ -1154,6 +1329,7 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
           : wrapped_(std::move(wrapped)) {}
       ManagedWorkingArea wrapped_;
     };
+
     ManagedWorkingArea ObtainWorkingArea() override {
       ManagedWorkingArea rv{
           new MyWorkingArea{CompressorWrapper::ObtainWorkingArea()}, this};
@@ -1167,6 +1343,20 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
 
     void ReleaseWorkingArea(WorkingArea* wa) override {
       delete static_cast<MyWorkingArea*>(wa);
+    }
+
+    std::unique_ptr<Compressor> MaybeCloneSpecialized(
+        CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
+      std::unique_ptr<Compressor> result = std::make_unique<MyCompressor>(
+          wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples)));
+      if (block_type == CacheEntryRole::kDataBlock) {
+        result = std::make_unique<CheckDataBlockCompressorWrapper>(
+            std::move(result));
+      } else if (block_type == CacheEntryRole::kIndexBlock) {
+        result = std::make_unique<CheckIndexBlockCompressorWrapper>(
+            std::move(result));
+      }
+      return result;
     }
   };
   struct MyManager : public CompressionManagerWrapper {
@@ -1194,7 +1384,10 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
       options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
       options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
       BlockBasedTableOptions bbto;
-      bbto.enable_index_compression = false;
+      bbto.enable_index_compression = true;
+      bbto.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+      bbto.partition_filters = true;
+      bbto.filter_policy.reset(NewBloomFilterPolicy(5));
       options.table_factory.reset(NewBlockBasedTableFactory(bbto));
       options.compression_manager = use_wrapper ? mgr : nullptr;
       DestroyAndReopen(options);
@@ -1228,14 +1421,19 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
       }
       ASSERT_OK(Flush());
 
+      // Index partition is compressed
+      constexpr int kIdxComp = 1;
+      // Top level index block is rejected for compression
+      constexpr int kIdxRej = 1;
+
       if (use_wrapper) {
-        EXPECT_EQ(kCount / 2 - 1, PopStat(NUMBER_BLOCK_COMPRESSED));
+        EXPECT_EQ(kCount / 2 - 1 + kIdxComp, PopStat(NUMBER_BLOCK_COMPRESSED));
         EXPECT_EQ(kCount / 2, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
-        EXPECT_EQ(1 + 1, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+        EXPECT_EQ(1 + 1 + kIdxRej, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
       } else {
-        EXPECT_EQ(kCount - 1, PopStat(NUMBER_BLOCK_COMPRESSED));
+        EXPECT_EQ(kCount - 1 + kIdxComp, PopStat(NUMBER_BLOCK_COMPRESSED));
         EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
-        EXPECT_EQ(1, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+        EXPECT_EQ(1 + kIdxRej, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
       }
 
       // Ensure well-formed for reads
@@ -1243,6 +1441,15 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
         ASSERT_NE(Get(Key(i)), "NOT_FOUND");
       }
       ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
+
+      // Ensure expected checks were performed
+      EXPECT_EQ(indexCheckedCount.ExchangeRelaxed(0),
+                use_wrapper ? kIdxComp + kIdxRej : 0);
+      EXPECT_EQ(dataCheckedCount.ExchangeRelaxed(0), use_wrapper ? kCount : 0);
+      // And every use of MyCompressor went through either the data block
+      // checker or index block checker
+      EXPECT_EQ(compressCalledCount.ExchangeRelaxed(0),
+                use_wrapper ? kIdxComp + kIdxRej + kCount : 0);
     }
   }
 }
