@@ -1467,12 +1467,18 @@ TEST_F(ExternalSSTFileBasicTest, ReadOldValueOfIngestedKeyBug) {
   // L1 with seqno [1, 2]
   // L2 with seqno [3, 4]
 
-  // To create L1 shape
+  // To create L1 shape with overlapping files
+  // File 1 will have keys: k0, k1
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k0", "value0"));
   ASSERT_OK(
       db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k1", "seqno1"));
   ASSERT_OK(db_->Flush(FlushOptions()));
+  // File 2 will have keys: k1, k2 (overlaps with File 1 on k1)
   ASSERT_OK(
       db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k1", "seqno2"));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k2", "value2"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ColumnFamilyMetaData meta_1;
   db_->GetColumnFamilyMetaData(&meta_1);
@@ -1488,14 +1494,22 @@ TEST_F(ExternalSSTFileBasicTest, ReadOldValueOfIngestedKeyBug) {
   ASSERT_EQ(meta_2.levels[1].files.size(), 1);
   // Seqno starts from non-zero due to seqno reservation for
   // preserve_internal_time_seconds greater than 0;
-  ASSERT_EQ(meta_2.levels[1].files[0].largest_seqno, 102);
+  // The merged file contains 4 keys (k0, k1 from file1, k1, k2 from file2)
+  // so largest seqno is 104 (100 base + 4 keys)
+  ASSERT_EQ(meta_2.levels[1].files[0].largest_seqno, 104);
   ASSERT_EQ(meta_2.levels[2].files.size(), 0);
-  // To create L2 shape
-  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k2overlap",
+  // To create L2 shape with overlapping files
+  // File 3 will have keys: k3, k4 (non-overlapping with L1)
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k3", "value_k3"));
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k4overlap",
                      "old_value"));
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k2overlap",
+  // File 4 will have keys: k4overlap, k5 (overlaps with File 3 on k4overlap)
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k4overlap",
                      "old_value"));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k5", "value_k5"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ColumnFamilyMetaData meta_3;
   db_->GetColumnFamilyMetaData(&meta_3);
@@ -1509,7 +1523,10 @@ TEST_F(ExternalSSTFileBasicTest, ReadOldValueOfIngestedKeyBug) {
   ASSERT_EQ(meta_4.levels[0].files.size(), 0);
   ASSERT_EQ(meta_4.levels[1].files.size(), 1);
   ASSERT_EQ(meta_4.levels[2].files.size(), 1);
-  ASSERT_EQ(meta_4.levels[2].files[0].largest_seqno, 104);
+  // The merged file contains 4 keys (k2, k2overlap from file3, k2overlap, k3
+  // from file4) so largest seqno is 108 (100 base + 4 keys from L1 + 4 keys
+  // from L2)
+  ASSERT_EQ(meta_4.levels[2].files[0].largest_seqno, 108);
 
   // Ingest a file with new value of the key "k2overlap"
   SstFileWriter sst_file_writer(EnvOptions(), options);
