@@ -4671,6 +4671,69 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
   iter.reset();
 }
 
+TEST_P(DBMultiScanIteratorTest, ReseekAcrossBlocksSameUserKey) {
+  // This test exposes a bug where multiscan reseeks backwards when
+  // max_sequential_skip_in_iterations is triggered with the same user key
+  // spanning multiple data blocks.
+
+  auto options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 3;
+  options.compression = kNoCompression;
+
+  // Force each internal key into its own block
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Taking a snapshot after each Put to preserve all versions during flush.
+  std::vector<const Snapshot*> snapshots;
+  for (int i = 0; i < 7; ++i) {
+    ASSERT_OK(Put("key_a", "value_" + std::to_string(i)));
+    snapshots.push_back(db_->GetSnapshot());
+  }
+  ASSERT_OK(Put("key_b", "value_b"));
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // Setup multiscan range covering both keys
+  std::vector<std::string> key_ranges({"key_a", "key_c"});
+  ReadOptions ro;
+  Slice ub = key_ranges[1];
+  ro.iterate_upper_bound = &ub;
+  ro.fill_cache = GetParam();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Prepare(scan_options);
+
+  std::vector<std::string> seen_keys;
+  std::vector<std::string> seen_values;
+  iter->Seek(key_ranges[0]);
+  while (iter->status().ok() && iter->Valid()) {
+    seen_keys.push_back(iter->key().ToString());
+    seen_values.push_back(iter->value().ToString());
+    iter->Next();
+  }
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+
+  ASSERT_EQ(seen_keys.size(), 2) << "Should see key_a and key_b";
+  ASSERT_EQ(seen_keys[0], "key_a");
+  ASSERT_EQ(seen_keys[1], "key_b");
+  ASSERT_EQ(seen_values[0], "value_6");
+  ASSERT_EQ(seen_values[1], "value_b");
+
+  for (auto* snapshot : snapshots) {
+    db_->ReleaseSnapshot(snapshot);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
