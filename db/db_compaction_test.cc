@@ -7323,8 +7323,10 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimizedWithSizeLimit) {
   CompactRangeOptions cro_initial;
   cro_initial.bottommost_level_compaction =
       BottommostLevelCompaction::kForceOptimized;
-  Slice start_slice = Key(0);
-  Slice end_slice = Key(100);
+  std::string start_key = Key(0);
+  std::string end_key = Key(100);
+  Slice start_slice(start_key);
+  Slice end_slice(end_key);
   ASSERT_OK(dbfull()->CompactRange(cro_initial, &start_slice, &end_slice));
 
   // At this point:
@@ -7356,8 +7358,10 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimizedWithSizeLimit) {
 
   // Step 5: Also verify right partition [100, 200) works
   // (This should have always worked, even before the fix)
-  Slice start_slice_right = Key(100);
-  Slice end_slice_right = Key(200);
+  std::string start_key_right = Key(100);
+  std::string end_key_right = Key(200);
+  Slice start_slice_right(start_key_right);
+  Slice end_slice_right(end_key_right);
   ASSERT_OK(dbfull()->CompactRange(cro, &start_slice_right, &end_slice_right));
 
   for (int i = 100; i < 200; i++) {
