@@ -59,12 +59,6 @@ class FlushedFileCollector : public EventListener {
   std::mutex mutex_;
 };
 
-// Helper function to generate zero-padded keys
-// e.g., MakeKey("a", 5) -> "a05", MakeKey("b", 42) -> "b42"
-static std::string MakeKey(const std::string& prefix, int index) {
-  return prefix + (index < 10 ? "0" : "") + std::to_string(index);
-}
-
 TEST_F(CompactFilesTest, L0ConflictsFiles) {
   Options options;
   // to trigger compaction more easily
@@ -224,14 +218,10 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
 
-  // create couple files with overlapping key ranges
-  // Write keys in multiple passes to ensure L0 files overlap
-  for (int pass = 0; pass < 3; ++pass) {
-    for (int i = 1000; i < 1100; ++i) {
-      ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
-                        std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
-    }
-    ASSERT_OK(db->Flush(FlushOptions()));
+  // create couple files
+  for (int i = 1000; i < 2000; ++i) {
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
+                      std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
   }
 
   auto l0_files = collector->GetFlushedFiles();
@@ -544,6 +534,12 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   delete db;
 }
 
+// Helper function to generate zero-padded keys
+// e.g., MakeKey("a", 5) -> "a05", MakeKey("b", 42) -> "b42"
+static std::string MakeKey(const std::string& prefix, int index) {
+  return prefix + (index < 10 ? "0" : "") + std::to_string(index);
+}
+
 TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
   Options options;
   options.create_if_missing = true;
@@ -591,8 +587,10 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
     l0_files.push_back(file.db_path + "/" + file.name);
   }
 
+  CompactionOptions compact_option;
+  compact_option.allow_trivial_move = true;
   // Compact all L0 files to L1 (non-overlapping in L1)
-  ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
+  ASSERT_OK(db->CompactFiles(compact_option, l0_files, 1));
 
   // Verify files are now in L1
   db->GetColumnFamilyMetaData(&meta);
@@ -601,12 +599,14 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
 
   // Get the first file from L1 (should be the one with keys a00-a99)
   std::string l1_file_to_move;
+  std::vector<std::string> l1_files_to_move_later;
   uint64_t l1_file_number = 0;
   for (const auto& file : meta.levels[1].files) {
     if (file.smallestkey[0] == 'a') {
       l1_file_to_move = file.db_path + "/" + file.name;
       l1_file_number = file.file_number;
-      break;
+    } else {
+      l1_files_to_move_later.push_back(file.db_path + "/" + file.name);
     }
   }
   ASSERT_FALSE(l1_file_to_move.empty());
@@ -621,7 +621,7 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
   // Move the file from L1 to L6 - this should be a trivial move
   // because the file doesn't overlap with anything in L6
   std::vector<std::string> files_to_move = {l1_file_to_move};
-  ASSERT_OK(db->CompactFiles(CompactionOptions(), files_to_move, 6));
+  ASSERT_OK(db->CompactFiles(compact_option, files_to_move, 6));
 
   // Verify trivial move was executed
   ASSERT_TRUE(trivial_move_executed);
@@ -646,6 +646,16 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
     }
   }
   ASSERT_TRUE(found_file_in_l6);
+
+  // Move the other 2 files from L1 to L6, with allow_trivial_move set to false.
+  // This will trigger a normal compaction, so the 2 files will be compacted
+  // into a single file in L6.
+  ASSERT_OK(db->CompactFiles(CompactionOptions(), l1_files_to_move_later, 6));
+
+  // Verify files in L6
+  db->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[1].files.size(), 0);  // Zero files remain in L1
+  ASSERT_EQ(meta.levels[6].files.size(), 2);  // Two file in L6
 
   // Verify data integrity - all keys should still be readable
   for (int i = 0; i < 100; i++) {
@@ -687,8 +697,11 @@ TEST_F(CompactFilesTest, TrivialMoveBlockedByOverlap) {
     l0_files.push_back(file.db_path + "/" + file.name);
   }
 
+  CompactionOptions compact_option;
+  compact_option.allow_trivial_move = true;
+
   // Move to L6
-  ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 6));
+  ASSERT_OK(db->CompactFiles(compact_option, l0_files, 6));
 
   // Now create a file in L1 with overlapping keys [m50-m60]
   for (int i = 50; i <= 60; i++) {
@@ -705,7 +718,7 @@ TEST_F(CompactFilesTest, TrivialMoveBlockedByOverlap) {
   }
 
   // Move to L1
-  ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 1));
+  ASSERT_OK(db->CompactFiles(compact_option, l0_files_2, 1));
 
   // Get the L1 file
   db->GetColumnFamilyMetaData(&meta);
@@ -722,7 +735,7 @@ TEST_F(CompactFilesTest, TrivialMoveBlockedByOverlap) {
 
   // Try to move from L1 to L6 - this should NOT be a trivial move
   // because the file overlaps with the existing file in L6
-  ASSERT_OK(db->CompactFiles(CompactionOptions(), {l1_file}, 6));
+  ASSERT_OK(db->CompactFiles(compact_option, {l1_file}, 6));
 
   // Verify trivial move was NOT executed (full compaction happened)
   ASSERT_FALSE(trivial_move_executed);

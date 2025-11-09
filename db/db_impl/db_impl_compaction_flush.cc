@@ -1566,7 +1566,8 @@ Status DBImpl::CompactFilesImpl(
   // Note: We disable trivial move when compaction_service is present because
   // the service expects all compactions to go through CompactionJob for
   // tracking
-  bool is_trivial_move = c->IsTrivialMove() &&
+  bool is_trivial_move = compact_options.allow_trivial_move &&
+                         c->IsTrivialMove() &&
                          immutable_db_options().compaction_service == nullptr;
 
   if (is_trivial_move) {

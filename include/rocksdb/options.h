@@ -2438,11 +2438,17 @@ struct CompactionOptions {
   // "default_write_temperature"
   Temperature output_temperature_override = Temperature::kUnknown;
 
+  // Option to optimize the manual compaction by enabling trivial move for non
+  // overlapping files.
+  // Default: false
+  bool allow_trivial_move;
+
   CompactionOptions()
       : compression(kDisableCompressionOption),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
         max_subcompactions(0),
-        canceled(nullptr) {}
+        canceled(nullptr),
+        allow_trivial_move(false) {}
 };
 
 // For level based compaction, we can configure if we want to skip/force
