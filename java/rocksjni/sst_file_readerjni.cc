@@ -73,6 +73,19 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
 
 /*
  * Class:     org_rocksdb_SstFileReader
+ * Method:    newTableIterator
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_SstFileReader_newTableIterator(JNIEnv * /*env*/,
+                                                      jclass /*jcls*/,
+                                                      jlong jhandle) {
+  auto *sst_file_reader =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  return GET_CPLUSPLUS_POINTER(sst_file_reader->NewTableIterator().release());
+}
+
+/*
+ * Class:     org_rocksdb_SstFileReader
  * Method:    disposeInternal
  * Signature: (J)V
  */
