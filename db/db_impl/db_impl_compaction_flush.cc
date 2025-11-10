@@ -1424,6 +1424,56 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   return s;
 }
 
+Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
+                                  bool& compaction_released,
+                                  size_t& moved_files, size_t& moved_bytes) {
+  mutex_.AssertHeld();
+
+  ROCKS_LOG_BUFFER(log_buffer, "[%s] Moving %d files to level-%d\n",
+                   c.column_family_data()->GetName().c_str(),
+                   static_cast<int>(c.num_input_files(0)), c.output_level());
+
+  // Move files to the output level by editing the manifest
+  for (unsigned int l = 0; l < c.num_input_levels(); l++) {
+    if (c.level(l) == c.output_level()) {
+      continue;
+    }
+    for (size_t i = 0; i < c.num_input_files(l); i++) {
+      FileMetaData* f = c.input(l, i);
+      c.edit()->DeleteFile(c.level(l), f->fd.GetNumber());
+      c.edit()->AddFile(c.output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
+                        f->fd.GetFileSize(), f->smallest, f->largest,
+                        f->fd.smallest_seqno, f->fd.largest_seqno,
+                        f->marked_for_compaction, f->temperature,
+                        f->oldest_blob_file_number, f->oldest_ancester_time,
+                        f->file_creation_time, f->epoch_number,
+                        f->file_checksum, f->file_checksum_func_name,
+                        f->unique_id, f->compensated_range_deletion_size,
+                        f->tail_size, f->user_defined_timestamps_persisted);
+      moved_bytes += static_cast<size_t>(c.input(l, i)->fd.GetFileSize());
+      ROCKS_LOG_BUFFER(
+          log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
+          c.column_family_data()->GetName().c_str(), f->fd.GetNumber(),
+          c.output_level(), f->fd.GetFileSize());
+    }
+    moved_files += c.num_input_files(l);
+  }
+
+  // Install the new version
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const WriteOptions write_options(Env::IOActivity::kCompaction);
+  Status status = versions_->LogAndApply(
+      c.column_family_data(), read_options, write_options, c.edit(), &mutex_,
+      directories_.GetDbDir(), /*new_descriptor_log=*/false,
+      /*column_family_options=*/nullptr,
+      [&c, &compaction_released](const Status& s) {
+        c.ReleaseCompactionFiles(s);
+        compaction_released = true;
+      });
+
+  return status;
+}
+
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
@@ -1511,6 +1561,63 @@ Status DBImpl::CompactFilesImpl(
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
 
+  // Check if this can be a trivial move (metadata-only update)
+  // Similar to the logic in DBImpl::BackgroundCompaction
+  // Note: We disable trivial move when compaction_service is present because
+  // the service expects all compactions to go through CompactionJob for
+  // tracking
+  bool is_trivial_move = compact_options.allow_trivial_move &&
+                         c->IsTrivialMove() &&
+                         immutable_db_options().compaction_service == nullptr;
+
+  if (is_trivial_move) {
+    // Perform trivial move: just update manifest without rewriting data
+    TEST_SYNC_POINT("DBImpl::CompactFilesImpl:TrivialMove");
+
+    bool compaction_released = false;
+    size_t moved_files = 0;
+    size_t moved_bytes = 0;
+    Status status = PerformTrivialMove(
+        *c.get(), log_buffer, compaction_released, moved_files, moved_bytes);
+
+    if (status.ok()) {
+      InstallSuperVersionAndScheduleWork(
+          c->column_family_data(), job_context->superversion_contexts.data());
+
+      // Populate output file names for trivial move
+      if (output_file_names != nullptr) {
+        for (const auto& newf : c->edit()->GetNewFiles()) {
+          output_file_names->push_back(TableFileName(
+              c->immutable_options().cf_paths, newf.second.fd.GetNumber(),
+              newf.second.fd.GetPathId()));
+        }
+      }
+
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] Trivial move succeeded for %zu files, %zu bytes total\n",
+          c->column_family_data()->GetName().c_str(), moved_files, moved_bytes);
+    } else {
+      if (!compaction_released) {
+        c->ReleaseCompactionFiles(status);
+      }
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Trivial move failed: %s\n",
+                       c->column_family_data()->GetName().c_str(),
+                       status.ToString().c_str());
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    }
+
+    c.reset();
+    bg_compaction_scheduled_--;
+    if (bg_compaction_scheduled_ == 0) {
+      bg_cv_.SignalAll();
+    }
+    MaybeScheduleFlushOrCompaction();
+
+    return status;
+  }
+
+  // Not a trivial move, proceed with full compaction
   InitSnapshotContext(job_context);
 
   std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
@@ -4074,35 +4181,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
 
-    // Move files to next level
-    int32_t moved_files = 0;
-    int64_t moved_bytes = 0;
-    for (unsigned int l = 0; l < c->num_input_levels(); l++) {
-      if (c->level(l) == c->output_level()) {
-        continue;
-      }
-      for (size_t i = 0; i < c->num_input_files(l); i++) {
-        FileMetaData* f = c->input(l, i);
-        c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
-        c->edit()->AddFile(
-            c->output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
-            f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
-            f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
-            f->oldest_blob_file_number, f->oldest_ancester_time,
-            f->file_creation_time, f->epoch_number, f->file_checksum,
-            f->file_checksum_func_name, f->unique_id,
-            f->compensated_range_deletion_size, f->tail_size,
-            f->user_defined_timestamps_persisted);
-
-        ROCKS_LOG_BUFFER(
-            log_buffer,
-            "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
-            c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-            c->output_level(), f->fd.GetFileSize());
-        ++moved_files;
-        moved_bytes += f->fd.GetFileSize();
-      }
-    }
     if (c->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
         c->immutable_options().compaction_pri == kRoundRobin) {
       int start_level = c->start_level();
@@ -4113,14 +4191,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             vstorage->GetNextCompactCursor(start_level, c->num_input_files(0)));
       }
     }
-    status = versions_->LogAndApply(
-        c->column_family_data(), read_options, write_options, c->edit(),
-        &mutex_, directories_.GetDbDir(),
-        /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
-        [&c, &compaction_released](const Status& s) {
-          c->ReleaseCompactionFiles(s);
-          compaction_released = true;
-        });
+
+    // Perform the trivial move
+    size_t moved_files = 0;
+    size_t moved_bytes = 0;
+    status = PerformTrivialMove(*c.get(), log_buffer, compaction_released,
+                                moved_files, moved_bytes);
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), job_context->superversion_contexts.data());
@@ -4135,8 +4211,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           << "total_files_size" << moved_bytes;
     }
     ROCKS_LOG_BUFFER(
-        log_buffer,
-        "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
+        log_buffer, "[%s] Moved #%d files to level-%zu %zu bytes %s: %s\n",
         c->column_family_data()->GetName().c_str(), moved_files,
         c->output_level(), moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
