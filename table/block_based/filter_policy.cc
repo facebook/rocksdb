@@ -17,7 +17,6 @@
 #include <limits>
 #include <memory>
 
-#include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
 #include "port/lang.h"
@@ -31,7 +30,6 @@
 #include "table/block_based/full_filter_block.h"
 #include "util/atomic.h"
 #include "util/bloom_impl.h"
-#include "util/coding.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/ribbon_config.h"
@@ -62,7 +60,7 @@ Slice FinishAlwaysTrue(std::unique_ptr<const char[]>* /*buf*/) {
 
 // Base class for filter builders using the XXH3 preview hash,
 // also known as Hash64 or GetSliceHash64.
-class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
+class XXPH3FilterBitsBuilder : public FilterBitsBuilder {
  public:
   explicit XXPH3FilterBitsBuilder(
       std::atomic<int64_t>* aggregate_rounding_balance,
@@ -1078,7 +1076,7 @@ class Standard128RibbonBitsReader : public BuiltinFilterBitsReader {
 
 using LegacyBloomImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
 
-class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
+class LegacyBloomBitsBuilder : public FilterBitsBuilder {
  public:
   explicit LegacyBloomBitsBuilder(const int bits_per_key, Logger* info_log);
 
