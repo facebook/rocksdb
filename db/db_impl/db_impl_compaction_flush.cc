@@ -1607,15 +1607,6 @@ Status DBImpl::CompactFilesImpl(
       error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
     }
 
-#ifndef NDEBUG
-    // Unlock mutex before sync points to avoid deadlock with tests
-    // that need to acquire mutex between sync points (e.g., for Put/Flush)
-    mutex_.Unlock();
-    TEST_SYNC_POINT("CompactFilesImpl:2");
-    TEST_SYNC_POINT("CompactFilesImpl:3");
-    mutex_.Lock();
-#endif
-
     c.reset();
     bg_compaction_scheduled_--;
     if (bg_compaction_scheduled_ == 0) {
