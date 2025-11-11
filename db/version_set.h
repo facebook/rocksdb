@@ -1044,6 +1044,10 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  // Get column family metadata with optional filtering by key range and level.
+  void GetColumnFamilyMetaData(const GetColumnFamilyMetaDataOptions& options,
+                               ColumnFamilyMetaData* cf_meta);
+
   void GetSstFilesBoundaryKeys(Slice* smallest_user_key,
                                Slice* largest_user_key);
 
