@@ -5549,19 +5549,18 @@ void VersionSet::Reset() {
 void VersionSet::UpdatedMutableDbOptions(
     const MutableDBOptions& updated_options, InstrumentedMutex* mu) {
   // Must be holding mutex if not called during initialization
-  if (manifest_file_size_ > 0) {
-    if (mu) {  // mu will never be nullptr when manifest_file_size_ > 0
-      mu->AssertHeld();
-    }
+  if (mu) {
+    file_options_.writable_file_max_buffer_size =
+        updated_options.writable_file_max_buffer_size;
+    min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
+    max_manifest_space_amp_pct_ = static_cast<unsigned>(
+        std::max(updated_options.max_manifest_space_amp_pct, 0));
+    manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
+    TuneMaxManifestFileSize();
+  } else {
+    // called from the constructor
+    assert(manifest_file_size_ == 0);
   }
-
-  file_options_.writable_file_max_buffer_size =
-      updated_options.writable_file_max_buffer_size;
-  min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
-  max_manifest_space_amp_pct_ = static_cast<unsigned>(
-      std::max(updated_options.max_manifest_space_amp_pct, 0));
-  manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
-  TuneMaxManifestFileSize();
 }
 
 void VersionSet::TuneMaxManifestFileSize() {
@@ -5653,8 +5652,8 @@ Status VersionSet::ProcessManifestWrites(
         // the preceding version edits in the same atomic group, and update
         // their `remaining_entries_` member variable because we are NOT going
         // to write the version edits' of dropped CF to the MANIFEST. If we
-        // don't update, then Recover can report corrupted atomic group because
-        // the `remaining_entries_` do not match.
+        // don't update, then Recover can report corrupted atomic group
+        // because the `remaining_entries_` do not match.
         if (!batch_edits.empty()) {
           if (batch_edits.back()->IsInAtomicGroup() &&
               batch_edits.back()->GetRemainingEntries() > 0) {
@@ -5959,10 +5958,12 @@ Status VersionSet::ProcessManifestWrites(
 #ifndef NDEBUG
         if (batch_edits.size() > 1 && batch_edits.size() - 1 == idx) {
           TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:"
+              "0",
               nullptr);
           TEST_SYNC_POINT(
-              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:1");
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:"
+              "1");
         }
         ++idx;
 #endif /* !NDEBUG */
@@ -5999,8 +6000,8 @@ Status VersionSet::ProcessManifestWrites(
           file_options_.temperature, dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
-        // Quarantine old manifest file in case new manifest file's CURRENT file
-        // wasn't created successfully and the old manifest is needed.
+        // Quarantine old manifest file in case new manifest file's CURRENT
+        // file wasn't created successfully and the old manifest is needed.
         limbo_descriptor_log_file_number.push_back(manifest_file_number_);
         files_to_quarantine_if_commit_fail.push_back(
             &limbo_descriptor_log_file_number);
@@ -6149,21 +6150,21 @@ Status VersionSet::ProcessManifestWrites(
     // that renaming tmp file to CURRENT failed.
     //
     // On local POSIX-compliant FS, the CURRENT must point to the original
-    // MANIFEST. We can delete the new MANIFEST for simplicity, but we can also
-    // keep it. Future recovery will ignore this MANIFEST. It's also ok for the
-    // process not to crash and continue using the db. Any future LogAndApply()
-    // call will switch to a new MANIFEST and update CURRENT, still ignoring
-    // this one.
+    // MANIFEST. We can delete the new MANIFEST for simplicity, but we can
+    // also keep it. Future recovery will ignore this MANIFEST. It's also ok
+    // for the process not to crash and continue using the db. Any future
+    // LogAndApply() call will switch to a new MANIFEST and update CURRENT,
+    // still ignoring this one.
     //
     // On non-local FS, it is
     // possible that the rename operation succeeded on the server (remote)
     // side, but the client somehow returns a non-ok status to RocksDB. Note
     // that this does not violate atomicity. Should we delete the new MANIFEST
     // successfully, a subsequent recovery attempt will likely see the CURRENT
-    // pointing to the new MANIFEST, thus fail. We will not be able to open the
-    // DB again. Therefore, if manifest operations succeed, we should keep the
-    // the new MANIFEST. If the process proceeds, any future LogAndApply() call
-    // will switch to a new MANIFEST and update CURRENT. If user tries to
+    // pointing to the new MANIFEST, thus fail. We will not be able to open
+    // the DB again. Therefore, if manifest operations succeed, we should keep
+    // the the new MANIFEST. If the process proceeds, any future LogAndApply()
+    // call will switch to a new MANIFEST and update CURRENT. If user tries to
     // re-open the DB,
     // a) CURRENT points to the new MANIFEST, and the new MANIFEST is present.
     // b) CURRENT points to the original MANIFEST, and the original MANIFEST
@@ -6292,9 +6293,9 @@ Status VersionSet::LogAndApply(
     first_writer.cv.Wait();
   }
   if (first_writer.done) {
-    // All non-CF-manipulation operations can be grouped together and committed
-    // to MANIFEST. They should all have finished. The status code is stored in
-    // the first manifest writer.
+    // All non-CF-manipulation operations can be grouped together and
+    // committed to MANIFEST. They should all have finished. The status code
+    // is stored in the first manifest writer.
 #ifndef NDEBUG
     for (const auto& writer : writers) {
       assert(writer.done);
@@ -6348,8 +6349,8 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   assert(!edit->HasLastSequence());
   edit->SetLastSequence(*max_last_sequence);
   if (edit->IsColumnFamilyDrop()) {
-    // if we drop column family, we have to make sure to save max column family,
-    // so that we don't reuse existing ID
+    // if we drop column family, we have to make sure to save max column
+    // family, so that we don't reuse existing ID
     edit->SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
   }
 }
@@ -6638,7 +6639,8 @@ void VersionSet::RecoverEpochNumbers() {
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // Read "CURRENT" file, which contains a pointer to the current manifest file
+  // Read "CURRENT" file, which contains a pointer to the current manifest
+  // file
   std::string manifest_path;
   uint64_t manifest_file_number;
   Status s = GetCurrentManifestPath(dbname, fs, /*is_retry=*/false,
@@ -6795,9 +6797,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 
 // Get the checksum information including the checksum and checksum function
 // name of all SST and blob files in VersionSet. Store the information in
-// FileChecksumList which contains a map from file number to its checksum info.
-// If DB is not running, make sure call VersionSet::Recover() to load the file
-// metadata from Manifest to VersionSet before calling this function.
+// FileChecksumList which contains a map from file number to its checksum
+// info. If DB is not running, make sure call VersionSet::Recover() to load
+// the file metadata from Manifest to VersionSet before calling this function.
 Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   // Clean the previously stored checksum information if any.
   Status s;
@@ -6939,8 +6941,8 @@ Status VersionSet::WriteCurrentStateToManifest(
   // WARNING: This method doesn't hold a mutex!!
 
   // This is done without DB mutex lock held, but only within single-threaded
-  // LogAndApply. Column family manipulations can only happen within LogAndApply
-  // (the same single thread), so we're safe to iterate.
+  // LogAndApply. Column family manipulations can only happen within
+  // LogAndApply (the same single thread), so we're safe to iterate.
 
   assert(io_s.ok());
   if (db_options_->write_dbid_to_manifest) {
@@ -6974,9 +6976,9 @@ Status VersionSet::WriteCurrentStateToManifest(
   }
 
   // New manifest should rollover the WAL deletion record from previous
-  // manifest. Otherwise, when an addition record of a deleted WAL gets added to
-  // this new manifest later (which can happens in e.g, SyncWAL()), this new
-  // manifest creates an illusion that such WAL hasn't been deleted.
+  // manifest. Otherwise, when an addition record of a deleted WAL gets added
+  // to this new manifest later (which can happens in e.g, SyncWAL()), this
+  // new manifest creates an illusion that such WAL hasn't been deleted.
   VersionEdit wal_deletions;
   wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
   std::string wal_deletions_record;
@@ -7108,9 +7110,9 @@ Status VersionSet::WriteCurrentStateToManifest(
 // TODO(aekmekji): in CompactionJob::GenSubcompactionBoundaries(), this
 // function is called repeatedly with consecutive pairs of slices. For example
 // if the slice list is [a, b, c, d] this function is called with arguments
-// (a,b) then (b,c) then (c,d). Knowing this, an optimization is possible where
-// we avoid doing binary search for the keys b and c twice and instead somehow
-// maintain state of where they first appear in the files.
+// (a,b) then (b,c) then (c,d). Knowing this, an optimization is possible
+// where we avoid doing binary search for the keys b and c twice and instead
+// somehow maintain state of where they first appear in the files.
 uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
                                      const ReadOptions& read_options,
                                      Version* v, const Slice& start,
@@ -7131,19 +7133,20 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   }
 
   // Outline of the optimization that uses options.files_size_error_margin.
-  // When approximating the files total size that is used to store a keys range,
-  // we first sum up the sizes of the files that fully fall into the range.
-  // Then we sum up the sizes of all the files that may intersect with the range
-  // (this includes all files in L0 as well). Then, if total_intersecting_size
-  // is smaller than total_full_size * options.files_size_error_margin - we can
-  // infer that the intersecting files have a sufficiently negligible
-  // contribution to the total size, and we can approximate the storage required
-  // for the keys in range as just half of the intersecting_files_size.
-  // E.g., if the value of files_size_error_margin is 0.1, then the error of the
-  // approximation is limited to only ~10% of the total size of files that fully
-  // fall into the keys range. In such case, this helps to avoid a costly
-  // process of binary searching the intersecting files that is required only
-  // for a more precise calculation of the total size.
+  // When approximating the files total size that is used to store a keys
+  // range, we first sum up the sizes of the files that fully fall into the
+  // range. Then we sum up the sizes of all the files that may intersect with
+  // the range (this includes all files in L0 as well). Then, if
+  // total_intersecting_size is smaller than total_full_size *
+  // options.files_size_error_margin - we can infer that the intersecting
+  // files have a sufficiently negligible contribution to the total size, and
+  // we can approximate the storage required for the keys in range as just
+  // half of the intersecting_files_size. E.g., if the value of
+  // files_size_error_margin is 0.1, then the error of the approximation is
+  // limited to only ~10% of the total size of files that fully fall into the
+  // keys range. In such case, this helps to avoid a costly process of binary
+  // searching the intersecting files that is required only for a more precise
+  // calculation of the total size.
 
   autovector<FdWithKeyRange*, 32> first_files;
   autovector<FdWithKeyRange*, 16> last_files;
@@ -7215,10 +7218,11 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
     total_intersecting_size += file_ptr->fd.GetFileSize();
   }
 
-  // Now scan all the first & last files at each level, and estimate their size.
-  // If the total_intersecting_size is less than X% of the total_full_size - we
-  // want to approximate the result in order to avoid the costly binary search
-  // inside ApproximateSize. We use half of file size as an approximation below.
+  // Now scan all the first & last files at each level, and estimate their
+  // size. If the total_intersecting_size is less than X% of the
+  // total_full_size - we want to approximate the result in order to avoid the
+  // costly binary search inside ApproximateSize. We use half of file size as
+  // an approximation below.
 
   const double margin = options.files_size_error_margin;
   if (margin > 0 && total_intersecting_size <
@@ -7891,8 +7895,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
     }
   } else if (s.IsPathNotFound()) {
     // This can happen if the primary switches to a new MANIFEST after the
-    // secondary reads the CURRENT file but before the secondary actually tries
-    // to open the MANIFEST.
+    // secondary reads the CURRENT file but before the secondary actually
+    // tries to open the MANIFEST.
     s = Status::TryAgain(
         "The primary may have switched to a new MANIFEST and deleted the old "
         "one.");
