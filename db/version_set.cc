@@ -5550,11 +5550,7 @@ void VersionSet::UpdatedMutableDbOptions(
     const MutableDBOptions& updated_options, InstrumentedMutex* mu) {
   // Must be holding mutex if not called during initialization
   if (manifest_file_size_ > 0) {
-#ifndef NDEBUG
-
-    assert(mu != nullptr);
-#endif
-    if (mu) {
+    if (mu) {  // mu will never be nullptr when manifest_file_size_ > 0
       mu->AssertHeld();
     }
   }
