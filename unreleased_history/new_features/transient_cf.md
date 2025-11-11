@@ -1,1 +1,0 @@
-Adds a new option for transient CFs, for which data/metadata should not be persisted in the db long term. Transient cfs are dropped upon db restart, and they are excluded from backup/checkpoint. There will be references to transient cfs in WAL & Manifest. Attempting to open a db instance with transient cfs passed in will fail
