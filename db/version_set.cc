@@ -5550,6 +5550,7 @@ void VersionSet::UpdatedMutableDbOptions(
     const MutableDBOptions& updated_options, InstrumentedMutex* mu) {
   // Must be holding mutex if not called during initialization
   if (mu) {
+    mu->AssertHeld();
     file_options_.writable_file_max_buffer_size =
         updated_options.writable_file_max_buffer_size;
     min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
