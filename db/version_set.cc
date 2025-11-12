@@ -1217,6 +1217,10 @@ class LevelIterator final : public InternalIterator {
     // Propagate multiscan configs
     for (auto& file_to_arg : *file_to_scan_opts_) {
       file_to_arg.second.CopyConfigFrom(*so);
+      assert(OverlapRange(*file_to_arg.second.GetScanRanges().begin(),
+                          file_to_arg.first) &&
+             OverlapRange(*file_to_arg.second.GetScanRanges().rbegin(),
+                          file_to_arg.first));
     }
 
     auto before = file_index_;
@@ -1316,7 +1320,7 @@ class LevelIterator final : public InternalIterator {
   }
 
 #ifndef NDEBUG
-  bool OverlapRange(const ScanOptions& opts);
+  bool OverlapRange(const ScanOptions& opts, size_t file_index);
 #endif
 
   TableCache* table_cache_;
@@ -1719,27 +1723,14 @@ void LevelIterator::SkipEmptyFileBackward() {
 }
 
 #ifndef NDEBUG
-bool LevelIterator::OverlapRange(const ScanOptions& opts) {
+bool LevelIterator::OverlapRange(const ScanOptions& opts, size_t file_index) {
   return (user_comparator_.CompareWithoutTimestamp(
               opts.range.start.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index_].largest_key),
+              ExtractUserKey(flevel_->files[file_index].largest_key),
               /*b_has_ts=*/true) <= 0 &&
           user_comparator_.CompareWithoutTimestamp(
               opts.range.limit.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index_].smallest_key),
-              /*b_has_ts=*/true) > 0);
-}
-#endif
-
-#ifndef NDEBUG
-bool LevelIterator::OverlapRange(const ScanOptions& opts) {
-  return (user_comparator_.CompareWithoutTimestamp(
-              opts.range.start.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index_].largest_key),
-              /*b_has_ts=*/true) <= 0 &&
-          user_comparator_.CompareWithoutTimestamp(
-              opts.range.limit.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index_].smallest_key),
+              ExtractUserKey(flevel_->files[file_index].smallest_key),
               /*b_has_ts=*/true) > 0);
 }
 #endif
@@ -1788,6 +1779,8 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
         prepared_iters_.erase(prepared_it);
       } else if (FileHasMultiScanArg(file_index_)) {
         auto& args = GetMultiScanArgForFile(file_index_);
+        assert(OverlapRange(*args.GetScanRanges().begin(), file_index_) &&
+               OverlapRange(*args.GetScanRanges().rbegin(), file_index_));
         iter->Prepare(&args);
       }
 
