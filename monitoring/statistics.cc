@@ -352,6 +352,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
      "rocksdb.table.open.prefetch.tail.read.bytes"},
     {NUM_OP_PER_TRANSACTION, "rocksdb.num.op.per.transaction"},
+    {MULTISCAN_PREPARE_ITERATORS,
+     "rocksdb.multiscan.op.prepare.iterators.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
