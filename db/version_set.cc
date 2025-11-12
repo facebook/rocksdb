@@ -5551,17 +5551,17 @@ void VersionSet::UpdatedMutableDbOptions(
   // Must be holding mutex if not called during initialization
   if (mu) {
     mu->AssertHeld();
-    file_options_.writable_file_max_buffer_size =
-        updated_options.writable_file_max_buffer_size;
-    min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
-    max_manifest_space_amp_pct_ = static_cast<unsigned>(
-        std::max(updated_options.max_manifest_space_amp_pct, 0));
-    manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
-    TuneMaxManifestFileSize();
   } else {
-    // called from the constructor
+    // manifest_file_size_ must be 0 if called from the constructor
     assert(manifest_file_size_ == 0);
   }
+  file_options_.writable_file_max_buffer_size =
+      updated_options.writable_file_max_buffer_size;
+  min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
+  max_manifest_space_amp_pct_ = static_cast<unsigned>(
+      std::max(updated_options.max_manifest_space_amp_pct, 0));
+  manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
+  TuneMaxManifestFileSize();
 }
 
 void VersionSet::TuneMaxManifestFileSize() {
