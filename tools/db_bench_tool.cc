@@ -587,7 +587,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
 DEFINE_double(cache_low_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for low pri blocks.");
 
-DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
+DEFINE_string(cache_type, "hyper_clock_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
@@ -3260,10 +3260,10 @@ class Benchmark {
       db_bench_exit(1);
     } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
       size_t estimated_entry_charge;
-      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
-          FLAGS_cache_type == "hyper_clock_cache") {
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache") {
         estimated_entry_charge = FLAGS_block_size;
-      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache" ||
+                 FLAGS_cache_type == "hyper_clock_cache") {
         estimated_entry_charge = 0;
       } else {
         fprintf(stderr, "Cache type not supported.");

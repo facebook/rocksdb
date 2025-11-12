@@ -195,10 +195,10 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     exit(1);
   } else if (EndsWith(cache_type, "hyper_clock_cache")) {
     size_t estimated_entry_charge;
-    if (cache_type == "fixed_hyper_clock_cache" ||
-        cache_type == "hyper_clock_cache") {
+    if (cache_type == "fixed_hyper_clock_cache") {
       estimated_entry_charge = FLAGS_block_size;
-    } else if (cache_type == "auto_hyper_clock_cache") {
+    } else if (cache_type == "auto_hyper_clock_cache" ||
+               cache_type == "hyper_clock_cache") {
       estimated_entry_charge = 0;
     } else {
       fprintf(stderr, "Cache type not supported.");
