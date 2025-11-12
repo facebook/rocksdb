@@ -4154,6 +4154,9 @@ INSTANTIATE_TEST_CASE_P(DBMultiScanIteratorTest, DBMultiScanIteratorTest,
                         ::testing::Bool());
 
 TEST_P(DBMultiScanIteratorTest, BasicTest) {
+  auto options = CurrentOptions();
+  DestroyAndReopen(options);
+
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4196,6 +4199,8 @@ TEST_P(DBMultiScanIteratorTest, BasicTest) {
 }
 
 TEST_P(DBMultiScanIteratorTest, MixedBoundsTest) {
+  auto options = CurrentOptions();
+  DestroyAndReopen(options);
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4734,6 +4739,76 @@ TEST_P(DBMultiScanIteratorTest, ReseekAcrossBlocksSameUserKey) {
   }
 }
 
+TEST_P(DBMultiScanIteratorTest, AsyncPrefetchAcrossMultipleFiles) {
+  // Test async prefetch with multiple ranges within a single file
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  Random rnd(303);
+
+  // Create a single large file with many keys
+  // ~1MiB of data
+  // Should be lots of files now
+  for (int i = 0; i < 1000; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    // 1KiB values
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  ASSERT_GT(NumTableFilesAtLevel(49), 3);
+
+  // Set up multiple non-overlapping ranges in the same file
+  // Every 32 values should be a file or so
+  std::vector<std::string> key_ranges(
+      {"k00000", "k00100", "k00500", "k00600", "k00800", "k00900"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
+
+  auto read_count_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+  auto read_count_after =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  ASSERT_EQ(read_count_after, read_count_before);
+
+  // Verify all three ranges can be scanned successfully
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+      }
+    }
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  iter.reset();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
