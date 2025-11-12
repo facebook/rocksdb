@@ -145,6 +145,19 @@ class WritableFileWriter {
   // Actually written data size can be used for truncate
   // not counting padding data
   std::atomic<uint64_t> filesize_;
+  // Actually flushed logical data size (excluding any page-alignment padding
+  // bytes written during direct I/O). In direct I/O mode we may write a whole
+  // aligned page that includes a "leftover tail" of logical data plus zero
+  // padding; that tail is then kept in the buffer (refit) for future appends.
+  // When a subsequent Flush() occurs with no new logical data appended,
+  // `filesize_ == flushed_filesize_` and we must avoid re-writing the same
+  // tail page again. The Flush() direct I/O branch checks
+  // `filesize_ > flushed_filesize_` to decide whether there is new logical
+  // data to persist. This prevents redundant positional writes of the tail
+  // page. Contrast with `flushed_size_` which tracks physical bytes written
+  // (including padding and page alignment effects) and is used for range
+  // sync heuristics.
+  std::atomic<uint64_t> flushed_filesize_;
   std::atomic<uint64_t> flushed_size_;
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
@@ -185,6 +198,7 @@ class WritableFileWriter {
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
+        flushed_filesize_(0),
         flushed_size_(0),
         next_write_offset_(0),
         pending_sync_(false),

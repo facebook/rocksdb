@@ -367,7 +367,19 @@ IOStatus WritableFileWriter::Flush(const IOOptions& opts) {
 
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
-      if (pending_sync_) {
+      // Direct I/O path:
+      // We only issue a positional write if there is *new* logical data
+      // beyond what we previously flushed. After a prior direct write we
+      // may have refit a leftover (partial page) tail back into the buffer;
+      // that tail has already been persisted once (together with zero
+      // padding). Without this guard we'd rewrite the same tail page again
+      // on every Flush() call that finds the buffer non-empty but contains
+      // no newly appended bytes. The condition below prevents that by
+      // comparing logical file size (`filesize_`) to the last flushed logical
+      // size (`flushed_filesize_`).
+      if (pending_sync_ &&
+          filesize_.load(std::memory_order_acquire) >
+              flushed_filesize_.load(std::memory_order_acquire)) {
         if (perform_data_verification_ && buffered_data_with_checksum_) {
           s = WriteDirectWithChecksum(io_options);
         } else {
@@ -656,6 +668,7 @@ IOStatus WritableFileWriter::WriteBuffered(const IOOptions& opts,
     src += allowed;
     uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
     flushed_size_.store(cur_size + allowed, std::memory_order_release);
+    flushed_filesize_.store(cur_size + allowed, std::memory_order_release);
   }
   buf_.Size(0);
   buffered_data_crc32c_checksum_ = 0;
@@ -749,6 +762,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const IOOptions& opts,
   buffered_data_crc32c_checksum_ = 0;
   uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
   flushed_size_.store(cur_size + left, std::memory_order_release);
+  flushed_filesize_.store(cur_size + left, std::memory_order_release);
   if (!s.ok()) {
     set_seen_error(s);
   }
@@ -802,6 +816,14 @@ IOStatus WritableFileWriter::WriteDirect(const IOOptions& opts) {
   // will write it again in the future either on Close() OR when the current
   // whole page fills out.
   const size_t leftover_tail = buf_.CurrentSize() - file_advance;
+
+  // After the positional write succeeds we `RefitTail()` to move the
+  // leftover logical bytes (which were already persisted once together with
+  // zero padding) to the beginning of the buffer so that future appends can
+  // extend them. Until more logical data is appended `filesize_ ==
+  // flushed_filesize_` and a subsequent Flush() must not re-issue another
+  // PositionedAppend for this same tail. That is why Flush() adds the
+  // `filesize_ > flushed_filesize_` guard for direct I/O.
 
   // Round up and pad
   buf_.PadToAlignmentWith(0);
@@ -861,6 +883,9 @@ IOStatus WritableFileWriter::WriteDirect(const IOOptions& opts) {
     src += size;
     write_offset += size;
     flushed_size_.store(write_offset, std::memory_order_release);
+    flushed_filesize_.store(
+        std::min(write_offset, filesize_.load(std::memory_order_acquire)),
+        std::memory_order_release);
     assert((next_write_offset_ % alignment) == 0);
   }
 
@@ -966,6 +991,9 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(const IOOptions& opts) {
   IOSTATS_ADD(bytes_written, left);
   assert((next_write_offset_ % alignment) == 0);
   flushed_size_.store(next_write_offset_ + left, std::memory_order_release);
+  flushed_filesize_.store(std::min(next_write_offset_ + left,
+                                   filesize_.load(std::memory_order_acquire)),
+                          std::memory_order_release);
 
   if (s.ok()) {
     // Move the tail to the beginning of the buffer
