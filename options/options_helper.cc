@@ -114,6 +114,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.use_direct_io_for_flush_and_compaction =
       immutable_db_options.use_direct_io_for_flush_and_compaction;
   options.use_direct_io_for_wal = immutable_db_options.use_direct_io_for_wal;
+  options.wal_direct_io_preallocation_block_size =
+      immutable_db_options.wal_direct_io_preallocation_block_size;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;

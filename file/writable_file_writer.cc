@@ -250,6 +250,11 @@ IOStatus WritableFileWriter::Pad(const IOOptions& opts, const size_t pad_bytes,
 
 IOStatus WritableFileWriter::Close(const IOOptions& opts) {
   IOOptions io_options = FinalizeIOOptions(opts);
+
+  // Disable pre-allocation and wait for any ongoing pre-allocation to complete
+  direct_io_preallocation_disabled_.store(true, std::memory_order_release);
+  WaitForPreallocation();
+
   if (seen_error()) {
     IOStatus interim;
     if (writable_file_.get() != nullptr) {
@@ -377,13 +382,26 @@ IOStatus WritableFileWriter::Flush(const IOOptions& opts) {
       // no newly appended bytes. The condition below prevents that by
       // comparing logical file size (`filesize_`) to the last flushed logical
       // size (`flushed_filesize_`).
-      if (pending_sync_ &&
-          filesize_.load(std::memory_order_acquire) >
-              flushed_filesize_.load(std::memory_order_acquire)) {
+      uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+      uint64_t flushed_filesize =
+          flushed_filesize_.load(std::memory_order_acquire);
+      if (pending_sync_ && cur_size > flushed_filesize) {
+        // Check if we need to wait for pre-allocation
+        uint64_t preallocated_size =
+            direct_io_preallocated_size_.load(std::memory_order_acquire);
+        if (UseDirectIOPreallocation() && cur_size > preallocated_size) {
+          WaitForPreallocation();
+        }
+
         if (perform_data_verification_ && buffered_data_with_checksum_) {
           s = WriteDirectWithChecksum(io_options);
         } else {
           s = WriteDirect(io_options);
+        }
+
+        if (s.ok()) {
+          // Check if we should trigger next pre-allocation
+          MaybeSchedulePreallocation();
         }
       }
     } else {
@@ -494,6 +512,20 @@ IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync) {
     if (!s.ok()) {
       set_seen_error(s);
       return s;
+    }
+  }
+  if (use_direct_io() && UseDirectIOPreallocation()) {
+    uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+    uint64_t preallocated_size =
+        direct_io_preallocated_size_.load(std::memory_order_acquire);
+    if (cur_size > preallocated_size) {
+      // Ensure any ongoing pre-allocation is complete before returning
+      WaitForPreallocation();
+      if (seen_error()) {
+        return GetWriterHasPreviousErrorStatus();
+      }
+      assert(cur_size <=
+             direct_io_preallocated_size_.load(std::memory_order_acquire));
     }
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:1");
@@ -1039,4 +1071,124 @@ IOOptions WritableFileWriter::FinalizeIOOptions(const IOOptions& opts) const {
   }
   return io_options;
 }
+
+void WritableFileWriter::InitialPreallocation() {
+  if (!UseDirectIOPreallocation() || env_ == nullptr) {
+    return;
+  }
+
+  // Trigger initial pre-allocation in background with HIGH priority
+  direct_io_preallocation_in_progress_.store(true, std::memory_order_release);
+  env_->Schedule(&WritableFileWriter::BGWorkPreallocation, this,
+                 Env::Priority::HIGH);
+}
+
+void WritableFileWriter::WaitForPreallocation() {
+  if (!UseDirectIOPreallocation()) {
+    return;
+  }
+
+  // Wait for pre-allocation to complete
+  auto lock = std::unique_lock<std::mutex>(direct_io_preallocation_mutex_);
+  direct_io_preallocation_cv_.wait(lock, [this]() {
+    return !direct_io_preallocation_in_progress_.load(
+        std::memory_order_acquire);
+  });
+}
+
+void WritableFileWriter::MaybeSchedulePreallocation() {
+  if (!UseDirectIOPreallocation() || env_ == nullptr) {
+    return;
+  }
+
+  // Don't schedule new pre-allocations if disabled (e.g., during Close)
+  if (direct_io_preallocation_disabled_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+  uint64_t preallocated_size =
+      direct_io_preallocated_size_.load(std::memory_order_acquire);
+
+  // Trigger next pre-allocation when remaining space < 50% of block size
+  // Example: block_size=1MB, preallocated=3MB -> trigger when filesize > 2.5MB
+  if (cur_size + direct_io_preallocation_block_size_ / 2 > preallocated_size) {
+    bool expected = false;
+    if (direct_io_preallocation_in_progress_.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel)) {
+      // Schedule background work
+      env_->Schedule(&WritableFileWriter::BGWorkPreallocation, this,
+                     Env::Priority::LOW);
+    }
+  }
+}
+
+void WritableFileWriter::BGWorkPreallocation(void* writer) {
+  reinterpret_cast<WritableFileWriter*>(writer)->DoPreallocation();
+}
+
+void WritableFileWriter::DoPreallocation() {
+  assert(UseDirectIOPreallocation());
+
+  auto lock = std::unique_lock<std::mutex>(direct_io_preallocation_mutex_);
+
+  // Check again if we should proceed (might have been disabled)
+  if (direct_io_preallocation_disabled_.load(std::memory_order_acquire)) {
+    direct_io_preallocation_in_progress_.store(false,
+                                               std::memory_order_release);
+    lock.unlock();
+    direct_io_preallocation_cv_.notify_one();
+    return;
+  }
+
+  const size_t alignment = buf_.Alignment();
+  uint64_t block_size = direct_io_preallocation_block_size_;
+  uint64_t preallocated_size =
+      direct_io_preallocated_size_.load(std::memory_order_acquire);
+  assert(preallocated_size % alignment == 0);
+  uint64_t flushed_size = flushed_size_.load(std::memory_order_acquire);
+  assert(flushed_size % alignment == 0);
+  uint64_t preallocation_offset = std::max(preallocated_size, flushed_size);
+
+  // Use AlignedBuffer for zero-filling to support direct I/O
+  AlignedBuffer zero_buffer;
+  zero_buffer.Alignment(writable_file_->GetRequiredBufferAlignment());
+  zero_buffer.AllocateNewBuffer(block_size);
+  memset(zero_buffer.BufferStart(), 0, block_size);
+
+  IOOptions io_opts;
+  io_opts.io_activity = Env::IOActivity::kCustomIOActivity80;
+
+  // Write zeros to extend the file
+  IOStatus s;
+  uint64_t written = 0;
+  while (written < block_size && s.ok()) {
+    size_t to_write = block_size - written;
+    s = writable_file_->PositionedAppend(
+        Slice(zero_buffer.BufferStart(), to_write),
+        preallocation_offset + written, io_opts, nullptr);
+    if (s.ok()) {
+      written += to_write;
+      assert((preallocation_offset + written) % alignment == 0);
+    }
+  }
+
+  if (s.ok()) {
+    // Sync to persist file length metadata
+    s = writable_file_->Sync(io_opts, nullptr /* dbg */);
+  }
+
+  if (s.ok()) {
+    // Update preallocated size
+    direct_io_preallocated_size_.store(preallocation_offset + written,
+                                       std::memory_order_release);
+  } else {
+    set_seen_error(s);
+  }
+
+  direct_io_preallocation_in_progress_.store(false, std::memory_order_release);
+  lock.unlock();
+  direct_io_preallocation_cv_.notify_one();  // Wake up any waiting threads
+}
+
 }  // namespace ROCKSDB_NAMESPACE

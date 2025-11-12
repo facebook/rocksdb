@@ -2344,6 +2344,16 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
     lfile->SetWriteLifeTimeHint(opt_file_options.write_hint);
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
+    // For direct I/O WAL, pre-allocation is mandatory even if user specified 0
+    // Use a default block size of 1MB for direct I/O WAL
+    uint64_t direct_io_preallocation_block_size =
+        immutable_db_options_.wal_direct_io_preallocation_block_size;
+    if (immutable_db_options_.use_direct_io_for_wal &&
+        direct_io_preallocation_block_size == 0) {
+      direct_io_preallocation_block_size =
+          DBOptions{}.wal_direct_io_preallocation_block_size;
+    }
+
     const auto& listeners = immutable_db_options_.listeners;
     FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
@@ -2351,7 +2361,8 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
         immutable_db_options_.clock, io_tracer_, nullptr /* stats */,
         Histograms::HISTOGRAM_ENUM_MAX /* hist_type */, listeners, nullptr,
         tmp_set.Contains(FileType::kWalFile),
-        tmp_set.Contains(FileType::kWalFile)));
+        tmp_set.Contains(FileType::kWalFile),
+        direct_io_preallocation_block_size, immutable_db_options_.env));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush,
