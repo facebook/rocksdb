@@ -317,6 +317,9 @@ struct FileMetaData {
   void UpdateBoundariesForRange(const InternalKey& start,
                                 const InternalKey& end, SequenceNumber seqno,
                                 const InternalKeyComparator& icmp) {
+    assert(ExtractValueType(start.Encode()) < kTypeMaxValid);
+    assert(ExtractValueType(end.Encode()) < kTypeMaxValid);
+
     if (smallest.size() == 0 || icmp.Compare(start, smallest) < 0) {
       smallest = start;
     }
