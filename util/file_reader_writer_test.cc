@@ -334,6 +334,30 @@ TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
   }
 }
 
+TEST_F(WritableFileWriterTest, RepeatedFlushWithDirectIO) {
+  EnvOptions env_opts;
+  env_opts.use_direct_writes = true;
+  env_opts.writable_file_max_buffer_size = 1024 * 1024;
+
+  std::unique_ptr<WritableFileWriter> writer;
+  auto s =
+      WritableFileWriter::Create(FileSystem::Default(), /*fname=*/"dont_care_2",
+                                 FileOptions(env_opts), &writer,
+                                 /*dbg=*/nullptr);
+  EXPECT_OK(s);
+
+  const auto slice = Slice("hello");
+  EXPECT_OK(writer->Append(IOOptions(), slice));
+  ASSERT_EQ(writer->GetFileSize(), slice.size());
+
+  EXPECT_OK(writer->Flush(IOOptions()));
+  const auto flushed_size = writer->GetFlushedSize();
+
+  // flushed twice.
+  EXPECT_OK(writer->Flush(IOOptions()));
+  ASSERT_EQ(writer->GetFlushedSize(), flushed_size);
+}
+
 class DBWritableFileWriterTest : public DBTestBase {
  public:
   DBWritableFileWriterTest()
