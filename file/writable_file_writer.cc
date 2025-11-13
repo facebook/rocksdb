@@ -380,9 +380,9 @@ IOStatus WritableFileWriter::Flush(const IOOptions& opts) {
       // padding). Without this guard we'd rewrite the same tail page again
       // on every Flush() call that finds the buffer non-empty but contains
       // no newly appended bytes. The condition below prevents that by
-      // comparing logical file size (`filesize_`) to the last flushed logical
-      // size (`flushed_filesize_`).
-      uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+      // comparing logical file size to the last flushed logical size
+      // (`flushed_filesize_`).
+      uint64_t cur_size = next_write_offset_ + buf_.CurrentSize();
       uint64_t flushed_filesize =
           flushed_filesize_.load(std::memory_order_acquire);
       if (pending_sync_ && cur_size > flushed_filesize) {
@@ -1113,7 +1113,7 @@ void WritableFileWriter::MaybeSchedulePreallocation() {
     return;
   }
 
-  uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+  uint64_t cur_size = flushed_filesize_.load(std::memory_order_acquire);
   uint64_t preallocated_size =
       direct_io_preallocated_size_.load(std::memory_order_acquire);
 
