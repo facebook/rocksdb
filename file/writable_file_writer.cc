@@ -521,11 +521,18 @@ IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync) {
     if (cur_size > preallocated_size) {
       // Ensure any ongoing pre-allocation is complete before returning
       WaitForPreallocation();
-      if (seen_error()) {
-        return GetWriterHasPreviousErrorStatus();
+
+      // Check again after waiting
+      preallocated_size =
+          direct_io_preallocated_size_.load(std::memory_order_acquire);
+      // If still not enough, sync to ensure data durability
+      if (cur_size > preallocated_size) {
+        s = SyncInternal(io_options, use_fsync);
+        if (!s.ok()) {
+          set_seen_error(s);
+          return s;
+        }
       }
-      assert(cur_size <=
-             direct_io_preallocated_size_.load(std::memory_order_acquire));
     }
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:1");
@@ -1183,7 +1190,7 @@ void WritableFileWriter::DoPreallocation() {
     direct_io_preallocated_size_.store(preallocation_offset + written,
                                        std::memory_order_release);
   } else {
-    set_seen_error(s);
+    // Ignore pre-allocation errors. They will be surfaced during actual writes.
   }
 
   direct_io_preallocation_in_progress_.store(false, std::memory_order_release);
