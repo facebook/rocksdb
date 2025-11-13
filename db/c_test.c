@@ -2650,6 +2650,9 @@ int main(int argc, char** argv) {
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(o));
 
+    rocksdb_options_set_use_direct_io_for_wal(o, 1);
+    CheckCondition(1 == rocksdb_options_get_use_direct_io_for_wal(o));
+
     rocksdb_options_set_is_fd_close_on_exec(o, 1);
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(o));
 
@@ -2857,6 +2860,7 @@ int main(int argc, char** argv) {
     CheckCondition(1 == rocksdb_options_get_use_direct_reads(copy));
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(copy));
+    CheckCondition(1 == rocksdb_options_get_use_direct_io_for_wal(copy));
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(copy));
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(copy));
     CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(copy));
@@ -3126,6 +3130,10 @@ int main(int argc, char** argv) {
         0 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(copy));
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(o));
+
+    rocksdb_options_set_use_direct_io_for_wal(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_use_direct_io_for_wal(copy));
+    CheckCondition(1 == rocksdb_options_get_use_direct_io_for_wal(o));
 
     rocksdb_options_set_is_fd_close_on_exec(copy, 0);
     CheckCondition(0 == rocksdb_options_get_is_fd_close_on_exec(copy));
