@@ -1709,7 +1709,6 @@ Status BlockBasedTableIterator::ExecuteIO(
         assert(false);
         return s;
       }
-      assert(async_read.io_handle);
       for (auto& req : *read_reqs) {
         if (!req.status.ok()) {
           assert(false);
