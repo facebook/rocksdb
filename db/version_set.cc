@@ -1230,12 +1230,14 @@ class LevelIterator final : public InternalIterator {
 
       file_index_ = file_index;
       // Create iterator for this file
-      auto iter = NewFileIterator();
-      // If we have async enabled, lets prepare all our iterators.
-      if (iter != nullptr && so->use_async_io) {
-        iter->Prepare(&file_to_arg.second);
-        // Store the prepared iterator
-        prepared_iters_[file_index] = iter;
+      if (so->use_async_io) {
+        auto iter = NewFileIterator();
+        if (iter != nullptr) {
+          // If we have async enabled, lets prepare all our iterators.
+          iter->Prepare(&file_to_arg.second);
+          // Store the prepared iterator
+          prepared_iters_[file_index] = iter;
+        }
       }
     }
     file_index_ = before;
