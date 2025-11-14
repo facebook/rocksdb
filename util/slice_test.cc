@@ -527,6 +527,29 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(before.Get<Field2>(), false);
     ASSERT_EQ(before.Get<Field3>(), false);
     ASSERT_EQ(after, state);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
+                      Field4::MinusTransformPromiseNoUnderflow(3U);
+    relaxed.ApplyRelaxed(transform3, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field1>(), 10045U);
+    ASSERT_EQ(after.Get<Field4>(), 0U);
+
+    auto transform4 = Field1::MinusTransformPromiseNoUnderflow(999U) +
+                      Field4::PlusTransformPromiseNoOverflow(31U);
+    relaxed.ApplyRelaxed(transform4, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    // Unmodified
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
   }
   {
     AcqRelBitFieldsAtomic<MyState> acqrel{state};
@@ -555,6 +578,29 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(before.Get<Field2>(), false);
     ASSERT_EQ(before.Get<Field3>(), false);
     ASSERT_EQ(after, state);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
+                      Field4::MinusTransformPromiseNoUnderflow(3U);
+    acqrel.Apply(transform3, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field1>(), 10045U);
+    ASSERT_EQ(after.Get<Field4>(), 0U);
+
+    auto transform4 = Field1::MinusTransformPromiseNoUnderflow(999U) +
+                      Field4::PlusTransformPromiseNoOverflow(31U);
+    acqrel.Apply(transform4, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    // Unmodified
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
   }
 }
 
