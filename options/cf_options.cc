@@ -909,7 +909,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"is_transient",
          {offsetof(struct ImmutableCFOptions, is_transient),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionTypeFlags::kCompareLoose}},
         {"cf_allow_ingest_behind",
          {offsetof(struct ImmutableCFOptions, cf_allow_ingest_behind),
           OptionType::kBoolean, OptionVerificationType::kNormal,
