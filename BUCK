@@ -63,6 +63,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/db_impl/db_impl_files.cc",
         "db/db_impl/db_impl_follower.cc",
         "db/db_impl/db_impl_open.cc",
+        "db/db_impl/db_impl_prefix_exists.cc",
         "db/db_impl/db_impl_readonly.cc",
         "db/db_impl/db_impl_secondary.cc",
         "db/db_impl/db_impl_write.cc",
@@ -5406,6 +5407,12 @@ cpp_unittest_wrapper(name="point_lock_manager_test",
 
 cpp_unittest_wrapper(name="prefetch_test",
             srcs=["file/prefetch_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="prefix_exists_test",
+            srcs=["db/prefix_exists_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
