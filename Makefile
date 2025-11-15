@@ -296,6 +296,28 @@ $(info $(shell $(CC) --version))
 $(info $(shell $(CXX) --version))
 endif
 
+# ccache support
+# Set USE_CCACHE=1 to enable ccache, or let it auto-detect
+ifndef USE_CCACHE
+  CCACHE := $(shell which ccache 2>/dev/null)
+  ifneq ($(CCACHE),)
+    USE_CCACHE := 1
+  else
+    USE_CCACHE := 0
+  endif
+endif
+
+ifeq ($(USE_CCACHE), 1)
+  CCACHE := $(shell which ccache 2>/dev/null)
+  ifneq ($(CCACHE),)
+    $(info Using ccache: $(CCACHE))
+    CC := $(CCACHE) $(CC)
+    CXX := $(CCACHE) $(CXX)
+  else
+    $(warning ccache requested but not found in PATH)
+  endif
+endif
+
 missing_make_config_paths := $(shell				\
 	grep "\./\S*\|/\S*" -o $(CURDIR)/make_config.mk | 	\
 	while read path;					\
