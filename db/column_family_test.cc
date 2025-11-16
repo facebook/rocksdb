@@ -851,6 +851,14 @@ TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
   ASSERT_EQ(Get(3, "mew"), "two");
 
   ASSERT_EQ(handles_.size(), 4);
+
+  std::vector<std::string> cfs_in_manifest;
+  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &cfs_in_manifest));
+  ASSERT_EQ(cfs_in_manifest.size(), 4);
+  ASSERT_EQ(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "threeTemp"),
+      cfs_in_manifest.end())
+      << "temp CF is still in MANIFEST";
 }
 
 TEST_P(ColumnFamilyTest, WriteBatchFailure) {
