@@ -1223,14 +1223,14 @@ class LevelIterator final : public InternalIterator {
                           file_to_arg.first));
     }
 
-    auto before = file_index_;
-    // Pre-create and prepare only relevant file iterators
-    for (auto& file_to_arg : *file_to_scan_opts_) {
-      size_t file_index = file_to_arg.first;
+    if (so->use_async_io) {
+      auto before = file_index_;
+      // Pre-create and prepare only relevant file iterators
+      for (auto& file_to_arg : *file_to_scan_opts_) {
+        size_t file_index = file_to_arg.first;
 
-      file_index_ = file_index;
-      // Create iterator for this file
-      if (so->use_async_io) {
+        file_index_ = file_index;
+        // Create iterator for this file
         auto iter = NewFileIterator();
         if (iter != nullptr) {
           // If we have async enabled, lets prepare all our iterators.
@@ -1239,8 +1239,8 @@ class LevelIterator final : public InternalIterator {
           prepared_iters_[file_index] = iter;
         }
       }
+      file_index_ = before;
     }
-    file_index_ = before;
   }
 
  private:
@@ -1281,12 +1281,6 @@ class LevelIterator final : public InternalIterator {
     auto file_meta = flevel_->files[file_index_];
     if (should_sample_) {
       sample_file_read_inc(file_meta.file_metadata);
-    }
-
-    auto prepared_it = prepared_iters_.find(file_index_);
-    if (prepared_it != prepared_iters_.end()) {
-      InternalIterator* iter = prepared_it->second;
-      return iter;
     }
 
     const InternalKey* smallest_compaction_key = nullptr;
@@ -1772,14 +1766,18 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
+      if (!prepared_iters_.empty()) {
+        auto prepared_it = prepared_iters_.find(file_index_);
+        if (prepared_it != prepared_iters_.end()) {
+          InternalIterator* iter = prepared_it->second;
+          prepared_iters_.erase(prepared_it);
+          SetFileIterator(iter);
+          return;
+        }
+      }
+
       InternalIterator* iter = NewFileIterator();
-      // We quickly check to see if this was a prepared iterator. If so we skip
-      // preparing it
-      auto prepared_it = prepared_iters_.find(file_index_);
-      if (prepared_it != prepared_iters_.end()) {
-        // We did prepare it so lets erase it.
-        prepared_iters_.erase(prepared_it);
-      } else if (FileHasMultiScanArg(file_index_)) {
+      if (FileHasMultiScanArg(file_index_)) {
         auto& args = GetMultiScanArgForFile(file_index_);
         assert(OverlapRange(*args.GetScanRanges().begin(), file_index_) &&
                OverlapRange(*args.GetScanRanges().rbegin(), file_index_));
