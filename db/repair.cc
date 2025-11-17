@@ -81,7 +81,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/unique_id_impl.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
