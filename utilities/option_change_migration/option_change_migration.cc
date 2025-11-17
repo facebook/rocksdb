@@ -34,7 +34,8 @@ Status CompactToLevel(DB* db, ColumnFamilyHandle* cf_handle, int dest_level) {
 
   if (dest_level == 0) {
     // cannot use kForceOptimized because the compaction is expected to
-    // generate one output file
+    // generate one output file so to force the full compaction to skip trivial
+    // move to L0
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   }
 
@@ -142,13 +143,12 @@ Status ValidateCFDescriptors(
 
 struct BaseOptionsResult {
   ColumnFamilyOptions base_opts;
-  bool need_reopen;
+  bool need_reopen = true;
 };
 
 BaseOptionsResult DetermineBaseOptions(const ColumnFamilyOptions& old_opts,
                                        const ColumnFamilyOptions& new_opts) {
   BaseOptionsResult result;
-  result.need_reopen = true;
 
   if (new_opts.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     if (!new_opts.level_compaction_dynamic_level_bytes) {
@@ -298,6 +298,7 @@ Status OptionChangeMigration(
   if (!s.ok()) {
     return s;
   }
+  assert(db != nullptr);
 
   // Step 4: Migrate all CFs
   s = MigrateAllCFs(db.get(), handles, old_db_opts, new_db_opts, old_cf_descs,
@@ -305,24 +306,42 @@ Status OptionChangeMigration(
 
   // Step 5: Cleanup CF handles
   Status cleanup_status = CleanupCFHandles(db.get(), &handles);
-  if (!cleanup_status.ok() && s.ok()) {
+  if (s.ok() && !cleanup_status.ok()) {
     s = cleanup_status;
   }
 
-  // Step 6: Reopen DB if needed to rewrite manifest
+  // Step 6: Close and reopen DB if needed to rewrite manifest
   if (s.ok() && any_need_reopen) {
+    Status close_status = db->Close();
+    if (!close_status.ok()) {
+      return close_status;
+    }
     db.reset();
+
     s = OpenDBWithCFs(old_db_opts, dbname, no_compact_cf_descs, &db, &handles);
+    if (!s.ok()) {
+      return s;
+    }
+
+    // Cleanup CF handles before final close
     cleanup_status = CleanupCFHandles(db.get(), &handles);
     if (!cleanup_status.ok() && s.ok()) {
       s = cleanup_status;
     }
   }
 
+  // Final step: Close DB (either after reopening or without reopening)
+  Status close_status = db->Close();
+  if (!close_status.ok() && s.ok()) {
+    s = close_status;
+  }
+
+  db.reset();
+
   return s;
 }
 
-Status OptionChangeMigration(std::string dbname, const Options& old_opts,
+Status OptionChangeMigration(std::string& dbname, const Options& old_opts,
                              const Options& new_opts) {
   DBOptions old_db_opts(old_opts);
   DBOptions new_db_opts(new_opts);
