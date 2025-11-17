@@ -853,6 +853,9 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
       options.num_levels = 2;
       options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
       options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
+      // Disable target_file_size_is_upper_bound to maintain the expected file
+      // layout for testing.
+      options.target_file_size_is_upper_bound = false;
       BlockBasedTableOptions table_options;
       table_options.cache_index_and_filter_blocks = true;
       table_options.block_cache.reset(new MockCache());

@@ -5671,6 +5671,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = k128KB;
   options.max_bytes_for_level_multiplier = 4;
+  options.target_file_size_is_upper_bound = false;
 
   // Block flush thread and disable compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -5687,7 +5688,8 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   // Write 3 files that have the same key range.
   // Since level0_file_num_compaction_trigger is 3, compaction should be
-  // triggered. The compaction should result in one L1 file
+  // triggered. With target_file_size_is_upper_bound disabled, the compaction
+  // can result in 1 L1 file that exceeds target_file_size_base.
   gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   gen_l0_kb(0, 64, 1);
@@ -5701,9 +5703,42 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_LE(metadata[0].size, k64KB + k4KB);
   ASSERT_GE(metadata[0].size, k64KB - k4KB);
 
+  // Test dynamically enabling target_file_size_is_upper_bound
+  // Write 3 more files with the same key range. With
+  // target_file_size_is_upper_bound enabled, compaction should result in 2 L1
+  // files to avoid exceeding target_file_size_base.
+  ASSERT_OK(
+      dbfull()->SetOptions({{"target_file_size_is_upper_bound", "true"}}));
+
+  gen_l0_kb(0, 64, 1);
+  gen_l0_kb(0, 64, 1);
+  gen_l0_kb(0, 64, 1);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,2", FilesPerLevel());
+  metadata.clear();
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 2U);
+  ASSERT_LE(metadata[0].size, k64KB);
+  ASSERT_LE(metadata[1].size, k32KB);
+  ASSERT_GE(metadata[1].size, k4KB);
+
+  // Test dynamically disabling target_file_size_is_upper_bound,
+  // compaction merge should result in 1 L1 file that exceeds
+  // target_file_size_base.
+  ASSERT_OK(
+      dbfull()->SetOptions({{"target_file_size_is_upper_bound", "false"}}));
+
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,1", FilesPerLevel());
+  metadata.clear();
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 1U);
+  ASSERT_LE(metadata[0].size, k64KB + k4KB);
+  ASSERT_GE(metadata[0].size, k64KB - k4KB);
+
   // Test compaction trigger and target_file_size_base
   // Reduce compaction trigger to 2, and reduce L1 file size to 32KB.
-  // Writing to 64KB L0 files should trigger a compaction. Since these
+  // Writing two 64KB L0 files should trigger a compaction. Since these
   // 2 L0 files have the same key range, compaction merge them and should
   // result in 2 32KB L1 files.
   ASSERT_OK(
@@ -6631,7 +6666,7 @@ TEST_F(DBTest, SuggestCompactRangeUniversal) {
     GenerateNewRandomFile(&rnd);
   }
 
-  ASSERT_EQ("1,2,3,4", FilesPerLevel());
+  ASSERT_EQ("1,3,4,5", FilesPerLevel());
   for (int i = 0; i < 3; i++) {
     ASSERT_OK(
         db_->SuggestCompactRange(db_->DefaultColumnFamily(), nullptr, nullptr));

@@ -1577,6 +1577,9 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
   options.target_file_size_base = 100 << 10;
   // Infinite for full compaction.
   options.max_compaction_bytes = options.target_file_size_base * 100;
+  // Disable target_file_size_is_upper_bound maintain predictable file sizes for
+  // testing.
+  options.target_file_size_is_upper_bound = false;
 
   Reopen(options);
 

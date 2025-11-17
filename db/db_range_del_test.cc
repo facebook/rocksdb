@@ -120,6 +120,11 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   options.num_levels = 2;
   options.target_file_size_base = kFileBytes;
+  // Disable target_file_size_is_upper_bound to test the exact edge case without
+  // interference from tail size estimation. The target_file_size_is_upper_bound
+  // feature prevents this edge case from occurring by cutting files before they
+  // reach the target size when accounting for the tail size.
+  options.target_file_size_is_upper_bound = false;
   BlockBasedTableOptions table_options;
   table_options.block_size_deviation = 50;  // each block holds two keys
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1803,6 +1808,9 @@ TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenPointKeyAndTombstone) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout for testing.
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
@@ -1840,6 +1848,9 @@ TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenTombstone) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout needed for testing
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
@@ -1879,6 +1890,9 @@ TEST_F(DBRangeDelTest, OversizeCompactionPointKeyWithinRangetombstone) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout for testing max_compaction_bytes behavior.
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
   Random rnd(301);
   for (int i = 0; i < 9; ++i) {
@@ -1907,6 +1921,9 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout for testing.
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
@@ -1947,6 +1964,9 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout needed for testing.
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
@@ -2804,6 +2824,9 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 3 * 1024;
   options.max_compaction_bytes = 3 * 1024;
+  // Disable target_file_size_is_upper_bound to maintain the specific L1 file
+  // layout required for testing
+  options.target_file_size_is_upper_bound = false;
 
   DestroyAndReopen(options);
   // L2

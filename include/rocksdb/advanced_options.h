@@ -534,10 +534,10 @@ struct AdvancedColumnFamilyOptions {
   // large tail blocks. When disabled, only the data block size is considered,
   // which may result in SST files exceeding the target_file_size_base.
   //
-  // Default: false
+  // Default: true
   //
   // Dynamically changeable through SetOptions() API
-  bool target_file_size_is_upper_bound = false;
+  bool target_file_size_is_upper_bound = true;
 
   // If true, RocksDB will pick target size of each level dynamically.
   // We will pick a base level b >= 1. L0 will be directly merged into level b,
