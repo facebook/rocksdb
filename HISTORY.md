@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.8.3 (11/10/2025)
+### New Features
+* Add a GetColumnFamilyMetaData API variant in DB to get the SST files intersecting a given key range.
+
 ## 10.8.2 (11/07/2025)
 ### New Features
 * Added an auto-tuning feature for DB manifest file size that also (by default) improves the safety of existing configurations in case `max_manifest_file_size` is repeatedly exceeded. The new recommendation is to set `max_manifest_file_size` to something small like 1MB and tune `max_manifest_space_amp_pct` as needed to balance write amp and space amp in the manifest. Refer to comments on those options in `DBOptions` for details. Both options are (now) mutable.
