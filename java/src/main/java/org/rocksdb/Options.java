@@ -1487,6 +1487,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public boolean targetFileSizeIsUpperBound() {
+    return targetFileSizeIsUpperBound(nativeHandle_);
+  }
+
+  @Override
+  public Options setTargetFileSizeIsUpperBound(final boolean targetFileSizeIsUpperBound) {
+    setTargetFileSizeIsUpperBound(nativeHandle_, targetFileSizeIsUpperBound);
+    return this;
+  }
+
+  @Override
   public Options setMaxBytesForLevelBase(final long maxBytesForLevelBase) {
     setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
     return this;
@@ -2360,6 +2371,9 @@ public class Options extends RocksObject
   private static native long targetFileSizeBase(long handle);
   private static native void setTargetFileSizeMultiplier(long handle, int multiplier);
   private static native int targetFileSizeMultiplier(long handle);
+  private static native void setTargetFileSizeIsUpperBound(
+      long handle, boolean targetFileSizeIsUpperBound);
+  private static native boolean targetFileSizeIsUpperBound(long handle);
   private static native void setMaxBytesForLevelBase(long handle, long maxBytesForLevelBase);
   private static native long maxBytesForLevelBase(long handle);
   private static native void setLevelCompactionDynamicLevelBytes(

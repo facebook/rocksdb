@@ -287,6 +287,29 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   int targetFileSizeMultiplier();
 
   /**
+   * If true, RocksDB enforces stricter file size limits when deciding whether to cut a compaction
+   * output file, which prevents files from exceeding target_file_size_base. When
+   * false, SST files might exceed the target_file_size_base.
+   *
+   * @param targetFileSizeIsUpperBound whether to treat target file size as
+   *     an upper bound
+   * @return the reference to the current options.
+   *
+   * Default: true
+   *
+   * Dynamically changeable through SetOptions() API
+   */
+  T setTargetFileSizeIsUpperBound(boolean targetFileSizeIsUpperBound);
+
+  /**
+   * If true, RocksDB enforces stricter file size limits when deciding whether to cut a compaction
+   * output file. Otherwise, files might exceed the target_file_size_base.
+   *
+   * @return whether target file size is treated as an upper bound
+   */
+  boolean targetFileSizeIsUpperBound();
+
+  /**
    * The ratio between the total size of level-(L+1) files and the total
    * size of level-L files for all L.
    * DEFAULT: 10

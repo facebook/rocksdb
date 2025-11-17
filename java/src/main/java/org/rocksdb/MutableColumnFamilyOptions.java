@@ -95,6 +95,7 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     max_compaction_bytes(ValueType.LONG),
     target_file_size_base(ValueType.LONG),
     target_file_size_multiplier(ValueType.INT),
+    target_file_size_is_upper_bound(ValueType.BOOLEAN),
     max_bytes_for_level_base(ValueType.LONG),
     max_bytes_for_level_multiplier(ValueType.INT),
     max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
@@ -404,6 +405,18 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Override
     public int targetFileSizeMultiplier() {
       return getInt(CompactionOption.target_file_size_multiplier);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setTargetFileSizeIsUpperBound(
+        final boolean targetFileSizeIsUpperBound) {
+      return setBoolean(
+          CompactionOption.target_file_size_is_upper_bound, targetFileSizeIsUpperBound);
+    }
+
+    @Override
+    public boolean targetFileSizeIsUpperBound() {
+      return getBoolean(CompactionOption.target_file_size_is_upper_bound);
     }
 
     @Override
