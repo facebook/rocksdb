@@ -213,6 +213,9 @@ class TableBuilder {
     return NumEntries() == 0 && GetTableProperties().num_range_deletions == 0;
   }
 
+  // Get the number of data blocks written so far.
+  virtual uint64_t NumDataBlocks() const { return 0; }
+
   // Size of the file before its content is compressed.
   virtual uint64_t PreCompressionSize() const { return 0; }
 

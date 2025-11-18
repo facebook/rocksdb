@@ -290,7 +290,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   //    is written (prevents files with only metadata/tail blocks).
   if (compaction_->mutable_cf_options().target_file_size_is_upper_bound &&
       builder_->NumEntries() > 0 &&
-      builder_->GetTableProperties().num_data_blocks > 0) {
+      builder_->NumDataBlocks() > 0) {
     estimated_file_size += builder_->EstimatedTailSize();
   }
 
