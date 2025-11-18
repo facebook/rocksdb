@@ -9,10 +9,37 @@
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class BlockHandle;
+struct ReadOptions;
+template <typename T>
+class CachableEntry;
+class Block;
+class BlockBasedTable;
+
+class IOJob {
+ public:
+  std::vector<BlockHandle> block_handles;
+
+  // Table reader for accessing block cache
+  BlockBasedTable* table = nullptr;
+
+  // Read options for the operation
+  ReadOptions* read_options = nullptr;
+};
+
+class JobHandle {
+ public:
+  // Storage for pinned blocks (one per block handle)
+  // Must be resized to match block_handles.size()
+  std::vector<CachableEntry<Block>> pinned_blocks;
+};
 
 /*
  * IODispatcher is a component that dispatches IO operations to a ThreadPool
@@ -23,8 +50,7 @@ class IODispatcher {
  public:
   virtual ~IODispatcher() {}
 
-  virtual void SubmitJob(const std::function<void()>&) = 0;
-  virtual void SubmitJob(std::function<void()>&&) = 0;
+  virtual std::shared_ptr<JobHandle> SubmitJob(std::shared_ptr<IOJob> job) = 0;
 
   virtual unsigned int GetQueueLen() const = 0;
 };

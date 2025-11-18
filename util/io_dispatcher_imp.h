@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <functional>
 #include <memory>
 
 #include "rocksdb/io_dispatcher.h"
@@ -23,8 +22,7 @@ class IODispatcherImpl : public IODispatcher {
   IODispatcherImpl(IODispatcherImpl&&) = delete;
   IODispatcherImpl& operator=(IODispatcherImpl&&) = delete;
 
-  void SubmitJob(const std::function<void()>&) override;
-  void SubmitJob(std::function<void()>&&) override;
+  std::shared_ptr<JobHandle> SubmitJob(std::shared_ptr<IOJob> job) override;
 
   unsigned int GetQueueLen() const override;
 
