@@ -16,6 +16,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -980,7 +981,8 @@ class LevelIterator final : public InternalIterator {
           nullptr,
       bool allow_unprepared_value = false,
       std::unique_ptr<TruncatedRangeDelIterator>*** range_tombstone_iter_ptr_ =
-          nullptr)
+          nullptr,
+      Statistics* db_statistics = nullptr, SystemClock* clock = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -1005,7 +1007,9 @@ class LevelIterator final : public InternalIterator {
         allow_unprepared_value_(allow_unprepared_value),
         is_next_read_sequential_(false),
         to_return_sentinel_(false),
-        scan_opts_(nullptr) {
+        scan_opts_(nullptr),
+        db_statistics_(db_statistics),
+        clock_(clock) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
     if (range_tombstone_iter_ptr_) {
@@ -1013,7 +1017,15 @@ class LevelIterator final : public InternalIterator {
     }
   }
 
-  ~LevelIterator() override { delete file_iter_.Set(nullptr); }
+  ~LevelIterator() override {
+    delete file_iter_.Set(nullptr);
+    // Clean up any prepared iterators that weren't used
+    assert(prepared_iters_.size() == 0);
+    for (auto& entry : prepared_iters_) {
+      delete entry.second;
+    }
+    prepared_iters_.clear();
+  }
 
   // Seek to the first file with a key >= target.
   // If range_tombstone_iter_ is not nullptr, then we pretend that file
@@ -1124,10 +1136,12 @@ class LevelIterator final : public InternalIterator {
 
   void Prepare(const MultiScanArgs* so) override {
     // We assume here that scan_opts is sorted such that
-    // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
+    // scan_opts[0].range.start < scan_opts[1].range.start, and non
+    // overlapping
     if (so == nullptr) {
       return;
     }
+
     scan_opts_ = so;
 
     // Verify comparator is consistent
@@ -1197,9 +1211,35 @@ class LevelIterator final : public InternalIterator {
         }
       }
     }
+
+    StopWatch timer(clock_, db_statistics_, MULTISCAN_PREPARE_ITERATORS);
+
     // Propagate multiscan configs
     for (auto& file_to_arg : *file_to_scan_opts_) {
       file_to_arg.second.CopyConfigFrom(*so);
+      assert(OverlapRange(*file_to_arg.second.GetScanRanges().begin(),
+                          file_to_arg.first) &&
+             OverlapRange(*file_to_arg.second.GetScanRanges().rbegin(),
+                          file_to_arg.first));
+    }
+
+    if (so->use_async_io) {
+      auto before = file_index_;
+      // Pre-create and prepare only relevant file iterators
+      for (auto& file_to_arg : *file_to_scan_opts_) {
+        size_t file_index = file_to_arg.first;
+
+        file_index_ = file_index;
+        // Create iterator for this file
+        auto iter = NewFileIterator();
+        if (iter != nullptr) {
+          // If we have async enabled, lets prepare all our iterators.
+          iter->Prepare(&file_to_arg.second);
+          // Store the prepared iterator
+          prepared_iters_[file_index] = iter;
+        }
+      }
+      file_index_ = before;
     }
   }
 
@@ -1276,7 +1316,7 @@ class LevelIterator final : public InternalIterator {
   }
 
 #ifndef NDEBUG
-  bool OverlapRange(const ScanOptions& opts);
+  bool OverlapRange(const ScanOptions& opts, size_t file_index);
 #endif
 
   TableCache* table_cache_;
@@ -1334,8 +1374,14 @@ class LevelIterator final : public InternalIterator {
   bool to_return_sentinel_ = false;
   const MultiScanArgs* scan_opts_ = nullptr;
 
+  Statistics* db_statistics_ = nullptr;
+  SystemClock* clock_ = nullptr;
+
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
+
+  // Map to store pre-created iterators by file index
+  std::unordered_map<size_t, InternalIterator*> prepared_iters_;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1673,14 +1719,14 @@ void LevelIterator::SkipEmptyFileBackward() {
 }
 
 #ifndef NDEBUG
-bool LevelIterator::OverlapRange(const ScanOptions& opts) {
+bool LevelIterator::OverlapRange(const ScanOptions& opts, size_t file_index) {
   return (user_comparator_.CompareWithoutTimestamp(
               opts.range.start.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index_].largest_key),
+              ExtractUserKey(flevel_->files[file_index].largest_key),
               /*b_has_ts=*/true) <= 0 &&
           user_comparator_.CompareWithoutTimestamp(
               opts.range.limit.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index_].smallest_key),
+              ExtractUserKey(flevel_->files[file_index].smallest_key),
               /*b_has_ts=*/true) > 0);
 }
 #endif
@@ -1691,15 +1737,6 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
-  if (iter && scan_opts_) {
-    if (FileHasMultiScanArg(file_index_)) {
-      const MultiScanArgs& new_opts = GetMultiScanArgForFile(file_index_);
-      assert(OverlapRange(*new_opts.GetScanRanges().begin()) &&
-             OverlapRange(*new_opts.GetScanRanges().rbegin()));
-      file_iter_.Prepare(&new_opts);
-    }
-  }
-
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
     file_iter_.UpdateReadaheadState(old_iter);
@@ -1729,7 +1766,24 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
+      if (!prepared_iters_.empty()) {
+        auto prepared_it = prepared_iters_.find(file_index_);
+        if (prepared_it != prepared_iters_.end()) {
+          InternalIterator* iter = prepared_it->second;
+          prepared_iters_.erase(prepared_it);
+          SetFileIterator(iter);
+          return;
+        }
+      }
+
       InternalIterator* iter = NewFileIterator();
+      if (FileHasMultiScanArg(file_index_)) {
+        auto& args = GetMultiScanArgForFile(file_index_);
+        assert(OverlapRange(*args.GetScanRanges().begin(), file_index_) &&
+               OverlapRange(*args.GetScanRanges().rbegin(), file_index_));
+        iter->Prepare(&args);
+      }
+
       SetFileIterator(iter);
     }
   }
@@ -2192,7 +2246,7 @@ InternalIterator* Version::TEST_GetLevelIterator(
       cfd_->internal_stats()->GetFileReadHist(level),
       TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
       nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
-      allow_unprepared_value, &tombstone_iter_ptr);
+      allow_unprepared_value, &tombstone_iter_ptr, db_statistics_, clock_);
   if (read_options.ignore_range_deletions) {
     merge_iter_builder->AddIterator(level_iter);
   } else {
@@ -2332,7 +2386,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
         /*range_del_agg=*/nullptr,
         /*compaction_boundaries=*/nullptr, allow_unprepared_value,
-        &tombstone_iter_ptr);
+        &tombstone_iter_ptr, db_statistics_, clock_);
     if (read_options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(level_iter);
     } else {
@@ -2389,7 +2443,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         mutable_cf_options_, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        &range_del_agg, nullptr, false));
+        &range_del_agg, nullptr, false, nullptr, db_statistics_, clock_));
     status = OverlapWithIterator(ucmp, smallest_user_key, largest_user_key,
                                  iter.get(), overlap);
   }
@@ -7491,7 +7545,8 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
-            c->boundaries(which), false, &tombstone_iter_ptr);
+            c->boundaries(which), false, &tombstone_iter_ptr,
+            db_options_->statistics.get(), clock_);
         range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
       }
     }
