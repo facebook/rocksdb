@@ -83,7 +83,7 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   bool IsEmpty() const override;
 
-   // Get the number of data blocks written so far (for use during compaction file cutting)
+  // Get the number of data blocks written so far
   uint64_t NumDataBlocks() const;
 
   uint64_t PreCompressionSize() const override;
