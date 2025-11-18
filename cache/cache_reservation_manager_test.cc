@@ -151,21 +151,21 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
          "during cache reservation on full cache";
   EXPECT_GE(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly before cache resevation failure happens "
+      << "Failed to bookkeep correctly before cache reservation failure happens "
          "due to full cache";
   EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(),
             kSmallCacheCapacity)
       << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
-         "entry insertions) when encountering cache resevation failure due to "
+         "entry insertions) when encountering cache reservation failure due to "
          "full cache";
   EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
       << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly when "
-         "encountering cache resevation failure due to full cache";
+         "encountering cache reservation failure due to full cache";
   EXPECT_LE(cache->GetPinnedUsage(), kSmallCacheCapacity)
       << "Failed to insert underlying dummy entries correctly when "
-         "encountering cache resevation failure due to full cache";
+         "encountering cache reservation failure due to full cache";
 
   new_mem_used = kSmallCacheCapacity / 2;  // 2 dummy entries
   s = test_cache_rev_mng->UpdateCacheReservation(new_mem_used);
@@ -180,12 +180,12 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
       << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry)
       << "Failed to release underlying dummy entries correctly on cache "
-         "reservation decrease after encountering cache resevation failure due "
+         "reservation decrease after encountering cache reservation failure due "
          "to full cache";
   EXPECT_LT(cache->GetPinnedUsage(),
             2 * kSizeDummyEntry + kMetaDataChargeOverhead)
       << "Failed to release underlying dummy entries correctly on cache "
-         "reservation decrease after encountering cache resevation failure due "
+         "reservation decrease after encountering cache reservation failure due "
          "to full cache";
 
   // Create cache full again for subsequent tests
@@ -196,21 +196,21 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
          "during cache reservation on full cache";
   EXPECT_GE(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly before cache resevation failure happens "
+      << "Failed to bookkeep correctly before cache reservation failure happens "
          "due to full cache";
   EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(),
             kSmallCacheCapacity)
       << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
-         "entry insertions) when encountering cache resevation failure due to "
+         "entry insertions) when encountering cache reservation failure due to "
          "full cache";
   EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
       << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly when "
-         "encountering cache resevation failure due to full cache";
+         "encountering cache reservation failure due to full cache";
   EXPECT_LE(cache->GetPinnedUsage(), kSmallCacheCapacity)
       << "Failed to insert underlying dummy entries correctly when "
-         "encountering cache resevation failure due to full cache";
+         "encountering cache reservation failure due to full cache";
 
   // Increase cache capacity so the previously failed insertion can fully
   // succeed
