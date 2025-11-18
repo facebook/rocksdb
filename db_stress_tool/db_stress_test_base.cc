@@ -1343,15 +1343,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
 
         if (total_size <= FLAGS_backup_max_size) {
-          // TODO(hx235): enable error injection with
-          // backup/restore after fixing the various issues it surfaces
-          if (fault_fs_guard) {
-            fault_fs_guard->DisableAllThreadLocalErrorInjection();
-          }
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
-          if (fault_fs_guard) {
-            fault_fs_guard->EnableAllThreadLocalErrorInjection();
-          }
           ProcessStatus(shared, "Backup/restore", s);
         }
       }
@@ -2602,10 +2594,18 @@ Status StressTest::TestBackupRestore(
     }
   }
   if (restored_db != nullptr) {
+    // Temporarily disable error injection for clean up
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    }
     for (auto* cf_handle : restored_cf_handles) {
-      restored_db->DestroyColumnFamilyHandle(cf_handle);
+      s = restored_db->DestroyColumnFamilyHandle(cf_handle);
+      assert(s.ok());
     }
     delete restored_db;
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableAllThreadLocalErrorInjection();
+    }
     restored_db = nullptr;
   }
   if (s.ok() && inplace_not_restore) {
@@ -2621,7 +2621,15 @@ Status StressTest::TestBackupRestore(
     }
   }
   if (backup_engine != nullptr) {
+    // Temporarily disable error injection for clean up
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    }
     delete backup_engine;
+    // Enable back error injection disabled for clean up
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableAllThreadLocalErrorInjection();
+    }
     backup_engine = nullptr;
   }
 
