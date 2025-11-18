@@ -1952,6 +1952,9 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
     bool* skip_delta_encoding) {
+  // Must have pre-checked status in single-threaded context
+  assert(status().ok());
+  assert(io_status().ok());
   rep_->SetIOStatus(WriteMaybeCompressedBlockImpl(
       block_contents, comp_type, handle, block_type, uncompressed_block_data,
       skip_delta_encoding));
@@ -2026,8 +2029,6 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
 
   handle->set_offset(offset);
   handle->set_size(block_contents.size());
-  assert(status().ok());
-  assert(io_status().ok());
   if (uncompressed_block_data == nullptr) {
     uncompressed_block_data = &block_contents;
     assert(comp_type == kNoCompression);
@@ -2152,8 +2153,9 @@ void BlockBasedTableBuilder::StopParallelCompression(bool abort) {
     pc_rep.SetAbort(pc_rep.emit_thread_state);
   } else if (pc_rep.emit_thread_state !=
              ParallelCompressionRep::ThreadState::kEnd) {
-    // In case we didn't do a final flush with no next key
-    assert(rep_->props.num_data_blocks == 0);
+    // In case we didn't do a final flush with no next key, which might have
+    // been skipped if !ok() was set after the start of Finish()
+    assert(rep_->props.num_data_blocks == 0 || !ok());
     pc_rep.SetNoMoreToEmit(pc_rep.emit_thread_state, pc_rep.emit_slot);
   }
 #ifdef BBTB_PC_WATCHDOG
@@ -2700,6 +2702,20 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
 Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_.get();
   assert(r->state != Rep::State::kClosed);
+
+#ifndef NDEBUG
+  {
+    // This sync point callback is a simple approximation of a failure detected
+    // in parallel compression after the start of calling Finish() but before
+    // Finish() calls Flush()
+    IOStatus s = rep_->GetIOStatus();
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::Finish:ParallelIOStatus",
+                             &s);
+    if (!s.ok()) {
+      rep_->SetIOStatus(s);
+    }
+  }
+#endif  // !NDEBUG
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries first, in Flush().
   Flush(/*first_key_in_next_block=*/nullptr);
