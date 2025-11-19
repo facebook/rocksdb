@@ -289,8 +289,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   //    tail overhead estimation would trigger cutting before meaningful data
   //    is written (prevents files with only metadata/tail blocks).
   if (compaction_->mutable_cf_options().target_file_size_is_upper_bound &&
-      builder_->NumEntries() > 0 &&
-      builder_->NumDataBlocks() > 0) {
+      builder_->NumEntries() > 0 && builder_->NumDataBlocks() > 0) {
     estimated_file_size += builder_->EstimatedTailSize();
   }
 
