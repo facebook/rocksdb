@@ -135,6 +135,9 @@ def generate_buck(repo_path, deps_map):
 
     BUCK = TARGETSBuilder("%s/BUCK" % repo_path, extra_argv)
 
+    # Add oncall("rocksdb_point_of_contact") at the top
+    BUCK.add_oncall("rocksdb_point_of_contact")
+
     # rocksdb_lib
     BUCK.add_library(
         "rocksdb_lib",
