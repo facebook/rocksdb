@@ -112,6 +112,6 @@ class IODispatcher {
   virtual std::shared_ptr<ReadSet> SubmitJob(std::shared_ptr<IOJob> job) = 0;
 };
 
-IODispatcher* NewIODispatcher(int num_threads);
+IODispatcher* NewIODispatcher();
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -41,7 +41,7 @@ class IODispatcherTest : public DBTestBase {
   // Helper to collect block handles from a table
   // We use TEST_GetDataBlockHandle to get handles for specific keys
   // Since we know the keys we inserted, we can collect their block handles
-  Status CollectBlockHandles(BlockBasedTable* table, int num_keys,
+  Status CollectBlockHandles(BlockBasedTable* table, size_t num_keys,
                              std::vector<BlockHandle>* block_handles_out) {
     block_handles_out->clear();
 
@@ -50,20 +50,29 @@ class IODispatcherTest : public DBTestBase {
 
     // Iterate through all keys and get their block handles
     // We collect unique block handles (same block might contain multiple keys)
-    for (int i = 0; i < num_keys; i++) {
-      char key_buf[100];
-      snprintf(key_buf, sizeof(key_buf), "key%08d", i);
-      std::string key(key_buf);
-      InternalKey ikey(key, i, kTypeValue);
+    IndexBlockIter iiter_on_stack;
+    BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
+    auto iiter = table->NewIndexIterator(
+        read_options, /*need_upper_bound_check=*/false, &iiter_on_stack,
+        /*get_context=*/nullptr, &context);
+    std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+    if (iiter != &iiter_on_stack) {
+      iiter_unique_ptr.reset(iiter);
+    }
 
-      BlockHandle handle;
-      table->TEST_GetDataBlockHandle(read_options, ikey.Encode(), handle);
+    // Position the iterator at the first entry
+    iiter->SeekToFirst();
 
-      // Only add if we haven't seen this block before
+    while (iiter->Valid()) {
+      auto handle = iiter->value().handle;
       if (seen_offsets.find(handle.offset()) == seen_offsets.end()) {
         block_handles_out->push_back(handle);
         seen_offsets.insert(handle.offset());
+        if (block_handles_out->size() >= num_keys) {
+          break;
+        }
       }
+      iiter->Next();
     }
 
     return Status::OK();
@@ -230,7 +239,7 @@ class IODispatcherTest : public DBTestBase {
 uint64_t IODispatcherTest::cur_file_num_ = 1;
 
 TEST_F(IODispatcherTest, BasicSSTRead) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(1));
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;
@@ -274,7 +283,7 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
 }
 
 TEST_F(IODispatcherTest, MultipleSSTFiles) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(2));
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::vector<std::shared_ptr<ReadSet>> read_sets;
   std::vector<ReadOptions> read_options_vec;
@@ -315,7 +324,7 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
 }
 
 TEST_F(IODispatcherTest, ConcurrentSSTReads) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(4));
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::vector<std::shared_ptr<ReadSet>> read_sets;
   std::vector<ReadOptions> read_options_vec;
@@ -356,7 +365,7 @@ TEST_F(IODispatcherTest, ConcurrentSSTReads) {
 }
 
 TEST_F(IODispatcherTest, LargeSST) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(2));
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;
@@ -385,7 +394,7 @@ TEST_F(IODispatcherTest, LargeSST) {
 }
 
 TEST_F(IODispatcherTest, StatisticsTracking) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(1));
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;
@@ -399,11 +408,12 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   job->table = table.get();
   ReadOptions read_options;
   job->read_options = &read_options;
+  job->job_options.async = true;  // Use async IO for statistics tracking
 
   auto read_set = dispatcher->SubmitJob(job);
 
   // Wait for async IO to complete
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
   // Read all blocks
   for (size_t i = 0; i < block_handles.size(); ++i) {
@@ -445,7 +455,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
 TEST_F(IODispatcherTest, FullyAsynchronousRead) {
   // This test verifies that when async IO completes before blocks are read,
   // all reads are served asynchronously with no synchronous reads.
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(2));
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;
@@ -461,13 +471,14 @@ TEST_F(IODispatcherTest, FullyAsynchronousRead) {
   // Ensure we don't use cache for this test - we want fresh reads
   read_options.fill_cache = false;
   job->read_options = &read_options;
+  job->job_options.async = true;
 
   auto read_set = dispatcher->SubmitJob(job);
   ASSERT_NE(read_set, nullptr);
 
   // Wait longer to ensure all async IO completes
   // The IODispatcher should prefetch all blocks asynchronously
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
   // Now read all blocks - they should all come from completed async IO
   for (size_t i = 0; i < block_handles.size(); ++i) {
@@ -502,6 +513,56 @@ TEST_F(IODispatcherTest, FullyAsynchronousRead) {
   // Total reads should equal number of blocks
   uint64_t total_reads = num_sync + num_async + num_cache;
   ASSERT_EQ(total_reads, block_handles.size());
+}
+
+TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(30, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_EQ(block_handles.size(), 30);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  ReadOptions read_options;
+  job->read_options = &read_options;
+  job->job_options.async =
+      false;  // Use sync IO so blocks are pinned immediately
+
+  auto* rep = table->get_rep();
+  auto cache = rep->table_options.block_cache.get();
+  ASSERT_NE(cache, nullptr);
+
+  auto initial_pinned_usage = cache->GetPinnedUsage();
+  ASSERT_EQ(initial_pinned_usage, 0);
+
+  {
+    auto read_set = dispatcher->SubmitJob(job);
+    ASSERT_NE(read_set, nullptr);
+
+    // With sync IO, blocks are already pinned in read_set->pinned_blocks_
+    // We do NOT call read_set->Read() - blocks should remain in pinned_blocks_
+
+    // At this point, blocks should be pinned in the ReadSet
+    auto pinned_usage_with_blocks = cache->GetPinnedUsage();
+    ASSERT_GT(pinned_usage_with_blocks, initial_pinned_usage)
+        << "Expected pinned usage to increase after SubmitJob, but "
+        << "initial=" << initial_pinned_usage
+        << " current=" << pinned_usage_with_blocks;
+
+    // ReadSet goes out of scope here, its destructor should unpin all blocks
+  }
+
+  // ReadSet destroyed - all blocks should be unpinned
+  auto final_pinned_usage = cache->GetPinnedUsage();
+  ASSERT_EQ(final_pinned_usage, initial_pinned_usage)
+      << "Expected pinned usage to return to initial value after ReadSet "
+      << "destruction, but initial=" << initial_pinned_usage
+      << " final=" << final_pinned_usage;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
