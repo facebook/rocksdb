@@ -49,7 +49,7 @@ ReadSet::~ReadSet() {
 }
 
 // Main Read() method - transparently handles cache, async IO, and sync reads
-Status ReadSet::Read(size_t block_index, CachableEntry<Block>* out) {
+Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   // Bounds check
   if (block_index >= pinned_blocks_.size()) {
     return Status::InvalidArgument("Block index out of range");
@@ -87,6 +87,17 @@ Status ReadSet::Read(size_t block_index, CachableEntry<Block>* out) {
     num_sync_reads_++;
   }
   return s;
+}
+
+Status ReadSet::ReadOffset(size_t offset, CachableEntry<Block>* out) {
+  for (size_t i = 0; i < job_->block_handles.size(); i++) {
+    const auto& handle = job_->block_handles[i];
+    if (offset >= handle.offset() &&
+        (offset < (handle.offset() + handle.size()))) {
+      return ReadOffset(i, out);
+    }
+  }
+  return Status::InvalidArgument();
 }
 
 // Poll and process async IO for a specific block

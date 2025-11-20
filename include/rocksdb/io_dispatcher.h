@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -39,7 +40,7 @@ class IOJob {
  public:
   std::vector<BlockHandle> block_handles;
 
-  // Table reader for accessing block cache
+  // Table reader for accessing block cache and index
   BlockBasedTable* table = nullptr;
 
   // Read options for the operation
@@ -69,7 +70,8 @@ class ReadSet {
   // out: Output parameter for the pinned block entry
   //
   // Returns: Status::OK() on success, error status otherwise
-  Status Read(size_t block_index, CachableEntry<Block>* out);
+  Status ReadIndex(size_t block_index, CachableEntry<Block>* out);
+  Status ReadOffset(size_t offset, CachableEntry<Block>* out);
 
   // Statistics accessors
   uint64_t GetNumSyncReads() const { return num_sync_reads_; }

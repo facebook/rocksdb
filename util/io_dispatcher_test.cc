@@ -264,7 +264,7 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
   // Read blocks using the new ReadSet API and verify they are valid
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
-    Status read_status = read_set->Read(i, &block);
+    Status read_status = read_set->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
 
@@ -316,7 +316,7 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
   for (size_t i = 0; i < read_sets.size(); ++i) {
     for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
       CachableEntry<Block> block;
-      Status read_status = read_sets[i]->Read(j, &block);
+      Status read_status = read_sets[i]->ReadIndex(j, &block);
       ASSERT_OK(read_status);
       ASSERT_NE(block.GetValue(), nullptr);
     }
@@ -357,7 +357,7 @@ TEST_F(IODispatcherTest, ConcurrentSSTReads) {
   for (size_t i = 0; i < read_sets.size(); ++i) {
     for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
       CachableEntry<Block> block;
-      Status read_status = read_sets[i]->Read(j, &block);
+      Status read_status = read_sets[i]->ReadIndex(j, &block);
       ASSERT_OK(read_status);
       ASSERT_NE(block.GetValue(), nullptr);
     }
@@ -387,7 +387,7 @@ TEST_F(IODispatcherTest, LargeSST) {
   // Verify reading blocks
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
-    Status read_status = read_set->Read(i, &block);
+    Status read_status = read_set->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
   }
@@ -418,7 +418,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   // Read all blocks
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
-    Status read_status = read_set->Read(i, &block);
+    Status read_status = read_set->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
   }
@@ -442,7 +442,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
 
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
-    Status read_status = read_set2->Read(i, &block);
+    Status read_status = read_set2->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
   }
@@ -483,7 +483,7 @@ TEST_F(IODispatcherTest, FullyAsynchronousRead) {
   // Now read all blocks - they should all come from completed async IO
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
-    Status read_status = read_set->Read(i, &block);
+    Status read_status = read_set->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
 
