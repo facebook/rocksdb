@@ -339,7 +339,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   auto read_set = dispatcher->SubmitJob(job);
 
   // Wait for async IO to complete
-  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
   // Read all blocks
   for (size_t i = 0; i < block_handles.size(); ++i) {
@@ -364,7 +364,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
 
   // Read the same blocks again - should all be cache hits now
   auto read_set2 = dispatcher->SubmitJob(job);
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
@@ -378,69 +378,88 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
             read_set2->GetNumSyncReads());
 }
 
-TEST_F(IODispatcherTest, FullyAsynchronousRead) {
+TEST_F(IODispatcherTest, AsyncAndSyncRead) {
   // This test verifies that when async IO completes before blocks are read,
   // all reads are served asynchronously with no synchronous reads.
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;
-  Status s = CreateAndOpenSST(40, &table, &block_handles);
-  ASSERT_OK(s);
-  ASSERT_NE(table, nullptr);
-  ASSERT_GT(block_handles.size(), 0);
+  for (auto async : {true, false}) {
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+    Status s = CreateAndOpenSST(40, &table, &block_handles);
+    ASSERT_OK(s);
+    ASSERT_NE(table, nullptr);
+    ASSERT_GT(block_handles.size(), 0);
 
-  auto job = std::make_shared<IOJob>();
-  job->block_handles = block_handles;
-  job->table = table.get();
-  ReadOptions read_options;
-  // Ensure we don't use cache for this test - we want fresh reads
-  read_options.fill_cache = false;
-  job->read_options = &read_options;
-  job->job_options.async = true;
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    ReadOptions read_options;
+    // Ensure we don't use cache for this test - we want fresh reads
+    read_options.fill_cache = false;
+    job->read_options = &read_options;
+    job->job_options.async = async;
 
-  auto read_set = dispatcher->SubmitJob(job);
-  ASSERT_NE(read_set, nullptr);
+    auto read_set = dispatcher->SubmitJob(job);
+    ASSERT_NE(read_set, nullptr);
 
-  // Wait longer to ensure all async IO completes
-  // The IODispatcher should prefetch all blocks asynchronously
-  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    // Wait longer to ensure all async IO completes
+    // The IODispatcher should prefetch all blocks asynchronously
+    if (async) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 
-  // Now read all blocks - they should all come from completed async IO
-  for (size_t i = 0; i < block_handles.size(); ++i) {
-    CachableEntry<Block> block;
-    Status read_status = read_set->ReadIndex(i, &block);
-    ASSERT_OK(read_status);
-    ASSERT_NE(block.GetValue(), nullptr);
+    // Now read all blocks - they should all come from completed async IO
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      CachableEntry<Block> block;
+      Status read_status = read_set->ReadIndex(i, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
 
-    // Verify the block has reasonable content
-    const Block* block_ptr = block.GetValue();
-    ASSERT_GT(block_ptr->size(), 0);
+      // Verify the block has reasonable content
+      const Block* block_ptr = block.GetValue();
+      ASSERT_GT(block_ptr->size(), 0);
+    }
+
+    // Verify statistics: NO synchronous reads should have occurred
+    uint64_t num_sync = read_set->GetNumSyncReads();
+    uint64_t num_async = read_set->GetNumAsyncReads();
+    uint64_t num_cache = read_set->GetNumCacheHits();
+
+    // The key assertion: no synchronous reads
+    if (async) {
+      ASSERT_EQ(num_sync, 0)
+          << "Expected 0 synchronous reads, but got " << num_sync
+          << ". This indicates async IO did not complete "
+             "before Read() was called.";
+    } else {
+      ASSERT_EQ(num_async, 0)
+          << "Expected 0 asynchronous reads, but got " << num_sync;
+    }
+    // All reads should be async (since fill_cache=false, cache hits should be
+    // 0)
+    ASSERT_EQ(num_cache, 0)
+        << "Expected 0 cache hits (fill_cache=false), but got " << num_cache;
+
+    if (async) {
+      ASSERT_EQ(num_async, block_handles.size())
+          << "Expected all " << block_handles.size()
+          << " reads to be async, but got " << num_async;
+
+    } else {
+      ASSERT_EQ(num_sync, block_handles.size())
+          << "Expected all " << block_handles.size()
+          << " reads to be async, but got " << num_async;
+    }
+
+    // Total reads should equal number of blocks
+    uint64_t total_reads = num_sync + num_async + num_cache;
+    ASSERT_EQ(total_reads, block_handles.size());
   }
-
-  // Verify statistics: NO synchronous reads should have occurred
-  uint64_t num_sync = read_set->GetNumSyncReads();
-  uint64_t num_async = read_set->GetNumAsyncReads();
-  uint64_t num_cache = read_set->GetNumCacheHits();
-
-  // The key assertion: no synchronous reads
-  ASSERT_EQ(num_sync, 0)
-      << "Expected 0 synchronous reads, but got " << num_sync
-      << ". This indicates async IO did not complete before Read() was called.";
-
-  // All reads should be async (since fill_cache=false, cache hits should be 0)
-  ASSERT_EQ(num_cache, 0)
-      << "Expected 0 cache hits (fill_cache=false), but got " << num_cache;
-
-  ASSERT_EQ(num_async, block_handles.size())
-      << "Expected all " << block_handles.size()
-      << " reads to be async, but got " << num_async;
-
-  // Total reads should equal number of blocks
-  uint64_t total_reads = num_sync + num_async + num_cache;
-  ASSERT_EQ(total_reads, block_handles.size());
 }
 
+// We want to test here that even when we DONT read from the readset that all
+// pinned blocks will be unpinned.
 TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
