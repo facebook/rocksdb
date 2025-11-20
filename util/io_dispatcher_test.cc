@@ -5,121 +5,503 @@
 
 #include "rocksdb/io_dispatcher.h"
 
-#include <atomic>
 #include <chrono>
+#include <memory>
 #include <thread>
 
-#include "test_util/testharness.h"
+#include "db/db_test_util.h"
+#include "db/dbformat.h"
+#include "file/writable_file_writer.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/env.h"
+#include "rocksdb/options.h"
+#include "rocksdb/table.h"
+#include "table/block_based/block_based_table_builder.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_reader.h"
+
+// Enable io_uring support for this test
+extern "C" bool RocksDbIOUringEnable() { return true; }
 
 namespace ROCKSDB_NAMESPACE {
 
-class IODispatcherTest : public testing::Test {
+class IODispatcherTest : public DBTestBase {
  public:
-  IODispatcherTest() = default;
-  ~IODispatcherTest() override = default;
+  IODispatcherTest()
+      : DBTestBase("io_dispatcher_test", /*env_do_fsync=*/false) {}
+
+  ~IODispatcherTest() override {
+    // Close any open tables
+    for (auto& table : tables_) {
+      table.reset();
+    }
+    tables_.clear();
+  }
+
+  // Helper to collect block handles from a table
+  // We use TEST_GetDataBlockHandle to get handles for specific keys
+  // Since we know the keys we inserted, we can collect their block handles
+  Status CollectBlockHandles(BlockBasedTable* table, int num_keys,
+                             std::vector<BlockHandle>* block_handles_out) {
+    block_handles_out->clear();
+
+    ReadOptions read_options;
+    std::unordered_set<uint64_t> seen_offsets;
+
+    // Iterate through all keys and get their block handles
+    // We collect unique block handles (same block might contain multiple keys)
+    for (int i = 0; i < num_keys; i++) {
+      char key_buf[100];
+      snprintf(key_buf, sizeof(key_buf), "key%08d", i);
+      std::string key(key_buf);
+      InternalKey ikey(key, i, kTypeValue);
+
+      BlockHandle handle;
+      table->TEST_GetDataBlockHandle(read_options, ikey.Encode(), handle);
+
+      // Only add if we haven't seen this block before
+      if (seen_offsets.find(handle.offset()) == seen_offsets.end()) {
+        block_handles_out->push_back(handle);
+        seen_offsets.insert(handle.offset());
+      }
+    }
+
+    return Status::OK();
+  }
+
+  std::string test_dir_;
+  Env* env_;
+  std::shared_ptr<FileSystem> fs_;
+
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+
+  void SetUp() override {
+    SetupSyncPointsToMockDirectIO();
+    test_dir_ = test::PerThreadDBPath("block_based_table_reader_test");
+    env_ = Env::Default();
+    fs_ = FileSystem::Default();
+    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+  }
+
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+
+  void NewFileWriter(const std::string& filename,
+                     std::unique_ptr<WritableFileWriter>* writer) {
+    std::string path = Path(filename);
+    EnvOptions env_options;
+    FileOptions foptions;
+    std::unique_ptr<FSWritableFile> file;
+    ASSERT_OK(fs_->NewWritableFile(path, foptions, &file, nullptr));
+    writer->reset(new WritableFileWriter(std::move(file), path, env_options));
+  }
+
+  void NewFileReader(const std::string& filename, const FileOptions& opt,
+                     std::unique_ptr<RandomAccessFileReader>* reader,
+                     Statistics* stats = nullptr) {
+    std::string path = Path(filename);
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             env_->GetSystemClock().get(),
+                                             /*io_tracer=*/nullptr,
+                                             /*stats=*/stats));
+  }
+
+  std::vector<std::shared_ptr<Statistics>> all_stats_;
+  std::vector<std::unique_ptr<BlockBasedTable>> tables_;
+
+  // Options must be stored as member variables to avoid use-after-scope
+  // The BlockBasedTable keeps references to these options
+  std::vector<std::unique_ptr<Options>> all_options_;
+  std::vector<std::unique_ptr<ImmutableOptions>> all_ioptions_;
+  std::vector<std::unique_ptr<MutableCFOptions>> all_moptions_;
+  std::vector<std::unique_ptr<InternalKeyComparator>> all_comparators_;
+  std::vector<std::unique_ptr<EnvOptions>> all_env_options_;
+
+  // Helper to create an SST file and open it as a table
+  // Following pattern from table_test.cc TableConstructor
+  Status CreateAndOpenSST(int num_keys, std::unique_ptr<BlockBasedTable>* table,
+                          std::vector<BlockHandle>* block_handles_out) {
+    // Create options - store in member variables to avoid use-after-scope
+    // The BlockBasedTable will keep references to these options
+    auto options = std::make_unique<Options>();
+    options->statistics = nullptr;
+    BlockBasedTableOptions table_options;
+    table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+    table_options.block_size = 1024;  // Small blocks for testing
+    table_options.no_block_cache = false;
+    options->table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    // Store these in member variables so they outlive the function
+    auto ioptions = std::make_unique<ImmutableOptions>(*options);
+    auto moptions = std::make_unique<MutableCFOptions>(*options);
+    InternalKeyComparator internal_comparator(options->comparator);
+
+    // Create in-memory file using StringSink (like table_test.cc)
+    auto table_name = "test_table";
+    std::unique_ptr<WritableFileWriter> file_writer;
+    NewFileWriter(table_name, &file_writer);
+
+    // Create table builder
+    std::string column_family_name;
+    const ReadOptions read_options;
+    const WriteOptions write_options;
+    std::vector<std::unique_ptr<InternalTblPropCollFactory>>
+        int_tbl_prop_coll_factories;
+    TableBuilderOptions builder_options(
+        *ioptions, *moptions, read_options, write_options, internal_comparator,
+        &int_tbl_prop_coll_factories, kNoCompression, options->compression_opts,
+        0 /* column_family_id */, column_family_name, -1 /* level */,
+        kUnknownNewestKeyTime);
+
+    std::unique_ptr<TableBuilder> builder(
+        options->table_factory->NewTableBuilder(builder_options,
+                                                file_writer.get()));
+
+    auto rnd = Random::GetTLSInstance();
+    // Add keys to the table
+    for (int i = 0; i < num_keys; i++) {
+      std::string value = rnd->RandomString(2 << 14);
+      InternalKey ikey(Key(i), i, kTypeValue);
+      builder->Add(ikey.Encode(), value);
+    }
+
+    Status s = builder->Finish();
+    if (!s.ok()) {
+      return s;
+    }
+
+    uint64_t file_size = builder->FileSize();
+
+    IOOptions io_options;
+    s = file_writer->Flush(io_options);
+    if (!s.ok()) {
+      return s;
+    }
+
+    // Now open the file for reading using StringSource (like table_test.cc)
+    std::unique_ptr<RandomAccessFileReader> file;
+    FileOptions foptions;
+    foptions.use_direct_reads = false;
+
+    NewFileReader(table_name, foptions, &file, nullptr);
+
+    // Store EnvOptions and InternalKeyComparator to avoid use-after-scope
+    auto soptions = std::make_unique<EnvOptions>();
+    BlockCacheTracer block_cache_tracer;
+    std::unique_ptr<TableReader> table_reader;
+
+    auto ikc = std::make_unique<InternalKeyComparator>(options->comparator);
+    TableReaderOptions reader_options(*ioptions, moptions->prefix_extractor,
+                                      moptions->compression_manager.get(),
+                                      *soptions, *ikc,
+                                      0 /* block_protection_bytes_per_key */);
+
+    s = options->table_factory->NewTableReader(reader_options, std::move(file),
+                                               file_size, &table_reader);
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
+
+    // Collect actual block handles from the table's index
+    // This is similar to how block_based_table_iterator.cc CollectBlockHandles
+    // works
+    s = CollectBlockHandles(table->get(), num_keys, block_handles_out);
+    if (!s.ok()) {
+      return s;
+    }
+
+    // Store all options in member variables to keep them alive
+    all_options_.push_back(std::move(options));
+    all_ioptions_.push_back(std::move(ioptions));
+    all_moptions_.push_back(std::move(moptions));
+    all_comparators_.push_back(std::move(ikc));
+    all_env_options_.push_back(std::move(soptions));
+
+    return Status::OK();
+  }
+
+  static uint64_t cur_file_num_;
 };
 
-TEST_F(IODispatcherTest, SingleJob) {
-  IODispatcher* dispatcher = NewIODispatcher(1);
-  std::atomic<int> counter(0);
+uint64_t IODispatcherTest::cur_file_num_ = 1;
 
-  dispatcher->SubmitJob([&counter]() { counter++; });
+TEST_F(IODispatcherTest, BasicSSTRead) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(1));
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(50, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GT(block_handles.size(), 0);
 
-  ASSERT_EQ(1, counter.load());
-  delete dispatcher;
-}
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  ReadOptions read_options;
+  job->read_options = &read_options;
+  job->job_options.async = true;  // Use sync I/O for this test
 
-TEST_F(IODispatcherTest, MultipleJobs) {
-  IODispatcher* dispatcher = NewIODispatcher(4);
-  std::atomic<int> counter(0);
-  const int num_jobs = 10;
+  auto read_set = dispatcher->SubmitJob(job);
+  ASSERT_NE(read_set, nullptr);
 
-  for (int i = 0; i < num_jobs; i++) {
-    dispatcher->SubmitJob([&counter]() { counter++; });
-  }
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-  ASSERT_EQ(num_jobs, counter.load());
-  delete dispatcher;
-}
-
-TEST_F(IODispatcherTest, QueueLength) {
-  IODispatcher* dispatcher = NewIODispatcher(1);
-
-  std::atomic<bool> job_started(false);
-  std::atomic<bool> job_continue(false);
-
-  dispatcher->SubmitJob([&job_started, &job_continue]() {
-    job_started = true;
-    while (!job_continue.load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-  });
-
-  while (!job_started.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  dispatcher->SubmitJob([]() {});
-  dispatcher->SubmitJob([]() {});
-
-  ASSERT_GE(dispatcher->GetQueueLen(), 1u);
-
-  job_continue = true;
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-  delete dispatcher;
-}
-
-TEST_F(IODispatcherTest, ConcurrentJobExecution) {
-  IODispatcher* dispatcher = NewIODispatcher(4);
-  std::atomic<int> concurrent_count(0);
-  std::atomic<int> max_concurrent(0);
-  std::atomic<int> completed_count(0);
-  const int num_jobs = 8;
-
-  for (int i = 0; i < num_jobs; i++) {
-    dispatcher->SubmitJob(
-        [&concurrent_count, &max_concurrent, &completed_count]() {
-          int current = concurrent_count.fetch_add(1) + 1;
-
-          int expected_max = max_concurrent.load();
-          while (current > expected_max &&
-                 !max_concurrent.compare_exchange_weak(expected_max, current)) {
-          }
-
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-          concurrent_count.fetch_sub(1);
-          completed_count.fetch_add(1);
-        });
-  }
-
+  // Wait for job to complete
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-  ASSERT_EQ(num_jobs, completed_count.load());
-  ASSERT_LE(max_concurrent.load(), 4);
-  ASSERT_GE(max_concurrent.load(), 1);
+  // Read blocks using the new ReadSet API and verify they are valid
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->Read(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
 
-  delete dispatcher;
+    // Verify the block has reasonable content
+    const Block* block_ptr = block.GetValue();
+    ASSERT_GT(block_ptr->size(), 0);
+  }
+
+  // Verify statistics - some blocks should have been read asynchronously
+  // Note: actual counts depend on cache behavior and IO completion
+  uint64_t total_reads = read_set->GetNumSyncReads() +
+                         read_set->GetNumAsyncReads() +
+                         read_set->GetNumCacheHits();
+  ASSERT_EQ(total_reads, block_handles.size());
+  ASSERT_GT(read_set->GetNumAsyncReads() + read_set->GetNumCacheHits(), 0);
 }
 
-TEST_F(IODispatcherTest, MoveSemantics) {
-  IODispatcher* dispatcher = NewIODispatcher(2);
-  std::atomic<int> counter(0);
+TEST_F(IODispatcherTest, MultipleSSTFiles) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(2));
 
-  auto lambda = [&counter]() { counter++; };
+  std::vector<std::shared_ptr<ReadSet>> read_sets;
+  std::vector<ReadOptions> read_options_vec;
+  std::vector<std::vector<BlockHandle>> all_block_handles;
 
-  dispatcher->SubmitJob(std::move(lambda));
+  // Create and submit jobs for multiple SST files
+  for (int i = 0; i < 3; i++) {
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    Status s = CreateAndOpenSST(30 + i * 10, &table, &block_handles);
+    ASSERT_OK(s);
 
-  ASSERT_EQ(1, counter.load());
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    tables_.push_back(std::move(table));
 
-  delete dispatcher;
+    read_options_vec.emplace_back();
+    job->read_options = &read_options_vec.back();
+
+    all_block_handles.push_back(block_handles);
+    read_sets.push_back(dispatcher->SubmitJob(job));
+  }
+
+  // Wait for all jobs to complete
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+  // Verify all ReadSets can read their blocks successfully
+  for (size_t i = 0; i < read_sets.size(); ++i) {
+    for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
+      CachableEntry<Block> block;
+      Status read_status = read_sets[i]->Read(j, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+  }
+}
+
+TEST_F(IODispatcherTest, ConcurrentSSTReads) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(4));
+
+  std::vector<std::shared_ptr<ReadSet>> read_sets;
+  std::vector<ReadOptions> read_options_vec;
+  std::vector<std::vector<BlockHandle>> all_block_handles;
+
+  // Create multiple jobs concurrently
+  for (int i = 0; i < 8; i++) {
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+
+    Status s = CreateAndOpenSST(40, &table, &block_handles);
+    ASSERT_OK(s);
+
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+
+    read_options_vec.emplace_back();
+    job->read_options = &read_options_vec.back();
+
+    all_block_handles.push_back(block_handles);
+    tables_.push_back(std::move(table));
+    read_sets.push_back(dispatcher->SubmitJob(job));
+  }
+
+  // Wait for concurrent processing
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+  // Verify all ReadSets can read their blocks successfully
+  for (size_t i = 0; i < read_sets.size(); ++i) {
+    for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
+      CachableEntry<Block> block;
+      Status read_status = read_sets[i]->Read(j, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+  }
+}
+
+TEST_F(IODispatcherTest, LargeSST) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(2));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(100, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  ReadOptions read_options;
+  job->read_options = &read_options;
+
+  auto read_set = dispatcher->SubmitJob(job);
+  ASSERT_NE(read_set, nullptr);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(800));
+
+  // Verify reading blocks
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->Read(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+TEST_F(IODispatcherTest, StatisticsTracking) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(1));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(30, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  ReadOptions read_options;
+  job->read_options = &read_options;
+
+  auto read_set = dispatcher->SubmitJob(job);
+
+  // Wait for async IO to complete
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  // Read all blocks
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->Read(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+
+  // After reading all blocks, verify statistics
+  uint64_t num_sync = read_set->GetNumSyncReads();
+  uint64_t num_async = read_set->GetNumAsyncReads();
+  uint64_t num_cache = read_set->GetNumCacheHits();
+
+  // Total reads should equal number of blocks
+  uint64_t total_reads = num_sync + num_async + num_cache;
+  ASSERT_EQ(total_reads, block_handles.size());
+
+  // At least some blocks should have been read (either async or from cache)
+  // The exact distribution depends on timing and cache behavior
+  ASSERT_GT(num_async + num_cache, 0);
+
+  // Read the same blocks again - should all be cache hits now
+  auto read_set2 = dispatcher->SubmitJob(job);
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set2->Read(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+
+  // Second read set should have mostly cache hits
+  ASSERT_GT(read_set2->GetNumCacheHits() + read_set2->GetNumAsyncReads(),
+            read_set2->GetNumSyncReads());
+}
+
+TEST_F(IODispatcherTest, FullyAsynchronousRead) {
+  // This test verifies that when async IO completes before blocks are read,
+  // all reads are served asynchronously with no synchronous reads.
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(2));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(40, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  ReadOptions read_options;
+  // Ensure we don't use cache for this test - we want fresh reads
+  read_options.fill_cache = false;
+  job->read_options = &read_options;
+
+  auto read_set = dispatcher->SubmitJob(job);
+  ASSERT_NE(read_set, nullptr);
+
+  // Wait longer to ensure all async IO completes
+  // The IODispatcher should prefetch all blocks asynchronously
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+  // Now read all blocks - they should all come from completed async IO
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->Read(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+
+    // Verify the block has reasonable content
+    const Block* block_ptr = block.GetValue();
+    ASSERT_GT(block_ptr->size(), 0);
+  }
+
+  // Verify statistics: NO synchronous reads should have occurred
+  uint64_t num_sync = read_set->GetNumSyncReads();
+  uint64_t num_async = read_set->GetNumAsyncReads();
+  uint64_t num_cache = read_set->GetNumCacheHits();
+
+  // The key assertion: no synchronous reads
+  ASSERT_EQ(num_sync, 0)
+      << "Expected 0 synchronous reads, but got " << num_sync
+      << ". This indicates async IO did not complete before Read() was called.";
+
+  // All reads should be async (since fill_cache=false, cache hits should be 0)
+  ASSERT_EQ(num_cache, 0)
+      << "Expected 0 cache hits (fill_cache=false), but got " << num_cache;
+
+  ASSERT_EQ(num_async, block_handles.size())
+      << "Expected all " << block_handles.size()
+      << " reads to be async, but got " << num_async;
+
+  // Total reads should equal number of blocks
+  uint64_t total_reads = num_sync + num_async + num_cache;
+  ASSERT_EQ(total_reads, block_handles.size());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
@@ -127,6 +509,5 @@ TEST_F(IODispatcherTest, MoveSemantics) {
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
-
   return RUN_ALL_TESTS();
 }

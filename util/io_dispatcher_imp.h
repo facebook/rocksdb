@@ -16,19 +16,13 @@ namespace ROCKSDB_NAMESPACE {
 
 class IODispatcherImpl : public IODispatcher {
  public:
-  explicit IODispatcherImpl(int num_threads);
-  ~IODispatcherImpl();
+  explicit IODispatcherImpl();
+  ~IODispatcherImpl() override;
 
-  IODispatcherImpl(IODispatcherImpl&&) = delete;
-  IODispatcherImpl& operator=(IODispatcherImpl&&) = delete;
-
-  std::shared_ptr<JobHandle> SubmitJob(std::shared_ptr<IOJob> job) override;
-
-  unsigned int GetQueueLen() const override;
-
-  struct Impl;
+  std::shared_ptr<ReadSet> SubmitJob(std::shared_ptr<IOJob> job) override;
 
  private:
+  struct Impl;
   std::unique_ptr<Impl> impl_;
 };
 
