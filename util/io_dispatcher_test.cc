@@ -248,8 +248,7 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
   job->block_handles = block_handles;
   job->table = table.get();
   ReadOptions read_options;
-  job->read_options = &read_options;
-  job->job_options.async = true;  // Use sync I/O for this test
+  job->job_options.read_options.async_io = true;
 
   auto read_set = dispatcher->SubmitJob(job);
   ASSERT_NE(read_set, nullptr);
@@ -282,7 +281,6 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::vector<std::shared_ptr<ReadSet>> read_sets;
-  std::vector<ReadOptions> read_options_vec;
   std::vector<std::vector<BlockHandle>> all_block_handles;
 
   // Create and submit jobs for multiple SST files
@@ -297,9 +295,6 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
     job->block_handles = block_handles;
     job->table = table.get();
     tables_.push_back(std::move(table));
-
-    read_options_vec.emplace_back();
-    job->read_options = &read_options_vec.back();
 
     all_block_handles.push_back(block_handles);
     read_sets.push_back(dispatcher->SubmitJob(job));
@@ -332,9 +327,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  ReadOptions read_options;
-  job->read_options = &read_options;
-  job->job_options.async = true;  // Use async IO for statistics tracking
+  job->job_options.read_options.async_io = true;
 
   auto read_set = dispatcher->SubmitJob(job);
 
@@ -397,8 +390,7 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
     ReadOptions read_options;
     // Ensure we don't use cache for this test - we want fresh reads
     read_options.fill_cache = false;
-    job->read_options = &read_options;
-    job->job_options.async = async;
+    job->job_options.read_options.async_io = async;
 
     auto read_set = dispatcher->SubmitJob(job);
     ASSERT_NE(read_set, nullptr);
@@ -474,8 +466,7 @@ TEST_F(IODispatcherTest, VerifyBlockContent) {
   job->block_handles = block_handles;
   job->table = table.get();
   ReadOptions read_options;
-  job->read_options = &read_options;
-  job->job_options.async = false;
+  job->job_options.read_options.async_io = false;
 
   auto read_set = dispatcher->SubmitJob(job);
   ASSERT_NE(read_set, nullptr);
@@ -555,8 +546,7 @@ TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
   job->block_handles = block_handles;
   job->table = table.get();
   ReadOptions read_options;
-  job->read_options = &read_options;
-  job->job_options.async =
+  job->job_options.read_options.async_io =
       false;  // Use sync IO so blocks are pinned immediately
 
   auto* rep = table->get_rep();

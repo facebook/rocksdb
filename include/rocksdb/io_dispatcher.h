@@ -13,8 +13,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -31,10 +31,8 @@ class BlockBasedTable;
 struct AsyncIOState;
 
 struct JobOptions {
-  // When true, uses asynchronous reads (ReadAsync)
-  // When false, uses standard synchronous MultiGet reads
-  bool async = false;
   uint64_t io_coalesce_threshold = 16 * 1024;
+  ReadOptions read_options;
 };
 
 class IOJob {
@@ -43,9 +41,6 @@ class IOJob {
 
   // Table reader for accessing block cache and index
   BlockBasedTable* table = nullptr;
-
-  // Read options for the operation
-  ReadOptions* read_options = nullptr;
 
   // Job execution options
   JobOptions job_options;

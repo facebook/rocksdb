@@ -62,7 +62,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   }
 
   // Case 2: Block has async IO in progress - poll and process
-  if (job_->job_options.async) {
+  if (job_->job_options.read_options.async_io) {
     auto it = async_io_map_.find(block_index);
     if (it != async_io_map_.end()) {
       Status s = PollAndProcessAsyncIO(block_index);
@@ -144,7 +144,8 @@ Status ReadSet::PollAndProcessAsyncIO(size_t block_index) {
     if (rep->uncompression_dict_reader) {
       Status s =
           rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-              nullptr, *job_->read_options, nullptr, nullptr, &cached_dict);
+              nullptr, job_->job_options.read_options, nullptr, nullptr,
+              &cached_dict);
       if (!s.ok()) {
         return s;
       }
@@ -170,8 +171,8 @@ Status ReadSet::PollAndProcessAsyncIO(size_t block_index) {
 #endif
 
     Status s = job_->table->CreateAndPinBlockInCache<Block_kData>(
-        *job_->read_options, block_handle, decompressor, &tmp_contents,
-        &pinned_blocks_[idx].As<Block_kData>());
+        job_->job_options.read_options, block_handle, decompressor,
+        &tmp_contents, &pinned_blocks_[idx].As<Block_kData>());
 
     if (!s.ok()) {
       return s;
@@ -204,7 +205,7 @@ Status ReadSet::SyncRead(size_t block_index) {
   // Try to lookup and pin the block again (maybe it was added to cache by
   // another thread)
   Status s = job_->table->LookupAndPinBlocksInCache<Block_kData>(
-      *job_->read_options, block_handle,
+      job_->job_options.read_options, block_handle,
       &pinned_blocks_[block_index].As<Block_kData>());
 
   if (s.ok() && pinned_blocks_[block_index].GetValue()) {
@@ -213,7 +214,7 @@ Status ReadSet::SyncRead(size_t block_index) {
 
   // Block not in cache - perform synchronous read
   IOOptions io_opts;
-  s = rep->file->PrepareIOOptions(*job_->read_options, io_opts);
+  s = rep->file->PrepareIOOptions(job_->job_options.read_options, io_opts);
   if (!s.ok()) {
     return s;
   }
@@ -241,9 +242,6 @@ Status ReadSet::SyncRead(size_t block_index) {
   s = rep->file->Read(io_opts, read_req.offset, read_req.len, &read_req.result,
                       read_req.scratch, direct_io ? &aligned_buf : nullptr);
   if (!s.ok()) {
-    fprintf(stderr, "ERROR in SyncRead: offset=%llu, len=%llu, status=%s\n",
-            (unsigned long long)read_req.offset,
-            (unsigned long long)read_req.len, s.ToString().c_str());
     return s;
   }
 
@@ -259,7 +257,8 @@ Status ReadSet::SyncRead(size_t block_index) {
 
   if (rep->uncompression_dict_reader) {
     s = rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr, *job_->read_options, nullptr, nullptr, &cached_dict);
+        nullptr, job_->job_options.read_options, nullptr, nullptr,
+        &cached_dict);
     if (!s.ok()) {
       return s;
     }
@@ -279,7 +278,7 @@ Status ReadSet::SyncRead(size_t block_index) {
 #endif
 
   s = job_->table->CreateAndPinBlockInCache<Block_kData>(
-      *job_->read_options, block_handle, decompressor, &tmp_contents,
+      job_->job_options.read_options, block_handle, decompressor, &tmp_contents,
       &pinned_blocks_[block_index].As<Block_kData>());
 
   return s;
@@ -336,7 +335,7 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
 
     // Lookup and pin block in cache
     Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
-        *job->read_options, data_block_handle,
+        job->job_options.read_options, data_block_handle,
         &(read_set->pinned_blocks_)[i].As<Block_kData>());
 
     if (!s.ok()) {
@@ -346,7 +345,7 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
     if (!(read_set->pinned_blocks_)[i].GetValue()) {
       // Block not in cache - needs to be read from disk
       block_indices_to_read.emplace_back(i);
-      if (job->job_options.async) {
+      if (job->job_options.read_options.async_io) {
         read_set->num_async_reads_++;
       } else {
         read_set->num_sync_reads_++;
@@ -369,7 +368,7 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
                     &coalesced_block_indices);
 
   // Step 3: Execute IO requests based on JobOptions
-  if (job->job_options.async) {
+  if (job->job_options.read_options.async_io) {
     ExecuteAsyncIO(job, read_set, read_reqs, coalesced_block_indices);
   } else {
     ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
@@ -446,7 +445,8 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
   // Get file and IO options
   auto* rep = job->table->get_rep();
   IOOptions io_opts;
-  Status s = rep->file->PrepareIOOptions(*job->read_options, io_opts);
+  Status s =
+      rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
   if (!s.ok()) {
     return;
   }
@@ -503,7 +503,8 @@ void IODispatcherImpl::Impl::ExecuteSyncIO(
   // Get file and IO options
   auto* rep = job->table->get_rep();
   IOOptions io_opts;
-  Status s = rep->file->PrepareIOOptions(*job->read_options, io_opts);
+  Status s =
+      rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
   if (!s.ok()) {
     return;
   }
@@ -572,7 +573,7 @@ Status IODispatcherImpl::Impl::CreateAndPinBlockFromBuffer(
 
   if (rep->uncompression_dict_reader) {
     Status s = rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr, *job->read_options, nullptr, nullptr, &cached_dict);
+        nullptr, job->job_options.read_options, nullptr, nullptr, &cached_dict);
     if (!s.ok()) {
       return s;
     }
@@ -597,7 +598,7 @@ Status IODispatcherImpl::Impl::CreateAndPinBlockFromBuffer(
 #endif
 
   return job->table->CreateAndPinBlockInCache<Block_kData>(
-      *job->read_options, block, decompressor, &tmp_contents,
+      job->job_options.read_options, block, decompressor, &tmp_contents,
       &pinned_block_entry.As<Block_kData>());
 }
 
