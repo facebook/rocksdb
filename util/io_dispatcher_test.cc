@@ -250,7 +250,9 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
   ReadOptions read_options;
   job->job_options.read_options.async_io = true;
 
-  auto read_set = dispatcher->SubmitJob(job);
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
   ASSERT_NE(read_set, nullptr);
 
   // Wait for job to complete
@@ -297,7 +299,10 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
     tables_.push_back(std::move(table));
 
     all_block_handles.push_back(block_handles);
-    read_sets.push_back(dispatcher->SubmitJob(job));
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    read_sets.push_back(read_set);
   }
 
   // Wait for all jobs to complete
@@ -329,9 +334,12 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   job->table = table.get();
   job->job_options.read_options.async_io = true;
 
-  auto read_set = dispatcher->SubmitJob(job);
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
 
-  // Wait for async IO to complete
+  // Wait longer to ensure all async IO completes
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
   // Read all blocks
@@ -356,7 +364,9 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   ASSERT_GT(num_async + num_cache, 0);
 
   // Read the same blocks again - should all be cache hits now
-  auto read_set2 = dispatcher->SubmitJob(job);
+  std::shared_ptr<ReadSet> read_set2;
+  s = dispatcher->SubmitJob(job, &read_set2);
+  ASSERT_OK(s);
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
   for (size_t i = 0; i < block_handles.size(); ++i) {
@@ -392,7 +402,9 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
     read_options.fill_cache = false;
     job->job_options.read_options.async_io = async;
 
-    auto read_set = dispatcher->SubmitJob(job);
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
     ASSERT_NE(read_set, nullptr);
 
     // Wait longer to ensure all async IO completes
@@ -420,33 +432,34 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
 
     // The key assertion: no synchronous reads
     if (async) {
-      ASSERT_EQ(num_sync, 0)
+      EXPECT_EQ(num_sync, 0)
           << "Expected 0 synchronous reads, but got " << num_sync
           << ". This indicates async IO did not complete "
              "before Read() was called.";
     } else {
-      ASSERT_EQ(num_async, 0)
+      EXPECT_EQ(num_async, 0)
           << "Expected 0 asynchronous reads, but got " << num_sync;
     }
     // All reads should be async (since fill_cache=false, cache hits should be
     // 0)
-    ASSERT_EQ(num_cache, 0)
-        << "Expected 0 cache hits (fill_cache=false), but got " << num_cache;
+    EXPECT_EQ(num_cache, 0)
+        << "Expected 0 cache hits (fill_cache=false), but got " << num_cache
+        << ": " << async;
 
     if (async) {
-      ASSERT_EQ(num_async, block_handles.size())
+      EXPECT_EQ(num_async, block_handles.size())
           << "Expected all " << block_handles.size()
           << " reads to be async, but got " << num_async;
 
     } else {
-      ASSERT_EQ(num_sync, block_handles.size())
+      EXPECT_EQ(num_sync, block_handles.size())
           << "Expected all " << block_handles.size()
           << " reads to be async, but got " << num_async;
     }
 
     // Total reads should equal number of blocks
     uint64_t total_reads = num_sync + num_async + num_cache;
-    ASSERT_EQ(total_reads, block_handles.size());
+    EXPECT_EQ(total_reads, block_handles.size());
   }
 }
 
@@ -468,7 +481,9 @@ TEST_F(IODispatcherTest, VerifyBlockContent) {
   ReadOptions read_options;
   job->job_options.read_options.async_io = false;
 
-  auto read_set = dispatcher->SubmitJob(job);
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
   ASSERT_NE(read_set, nullptr);
 
   // Read each block and verify its content
@@ -557,7 +572,9 @@ TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
   ASSERT_EQ(initial_pinned_usage, 0);
 
   {
-    auto read_set = dispatcher->SubmitJob(job);
+    std::shared_ptr<ReadSet> read_set;
+    Status t = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(t);
     ASSERT_NE(read_set, nullptr);
 
     // With sync IO, blocks are already pinned in read_set->pinned_blocks_

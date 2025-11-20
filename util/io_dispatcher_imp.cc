@@ -58,6 +58,12 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   // Case 1: Block is already in cache (from initial cache lookup)
   if (pinned_blocks_[block_index].GetValue()) {
     *out = std::move(pinned_blocks_[block_index]);
+    // We only bump this if we are in async_io mode, as this means we have not
+    // yet polled, and its in the cache, meaning we didn't put this in the
+    // cache.
+    if (job_->job_options.read_options.async_io) {
+      num_async_reads_++;
+    }
     return Status::OK();
   }
 
@@ -69,6 +75,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
       if (!s.ok()) {
         return s;
       }
+      num_async_reads_++;
 
       // After polling, the block should be in pinned_blocks_
       if (pinned_blocks_[block_index].GetValue()) {
@@ -288,7 +295,8 @@ struct IODispatcherImpl::Impl {
   Impl();
   ~Impl();
 
-  std::shared_ptr<ReadSet> SubmitJob(std::shared_ptr<IOJob> job);
+  Status SubmitJob(std::shared_ptr<IOJob> job,
+                   std::shared_ptr<ReadSet>* read_set);
 
  private:
   void PrepareIORequests(
@@ -303,7 +311,7 @@ struct IODispatcherImpl::Impl {
       std::vector<FSReadRequest>& read_reqs,
       const std::vector<std::vector<size_t>>& coalesced_block_indices);
 
-  void ExecuteSyncIO(
+  Status ExecuteSyncIO(
       std::shared_ptr<IOJob> job, std::shared_ptr<ReadSet> read_set,
       std::vector<FSReadRequest>& read_reqs,
       const std::vector<std::vector<size_t>>& coalesced_block_indices);
@@ -319,13 +327,17 @@ IODispatcherImpl::Impl::Impl() {}
 
 IODispatcherImpl::Impl::~Impl() {}
 
-std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
-    std::shared_ptr<IOJob> job) {
-  auto read_set = std::make_shared<ReadSet>();
+Status IODispatcherImpl::Impl::SubmitJob(std::shared_ptr<IOJob> job,
+                                         std::shared_ptr<ReadSet>* read_set) {
+  if (!read_set) {
+    return Status::InvalidArgument("read_set output parameter is null");
+  }
+
+  auto rs = std::make_shared<ReadSet>();
 
   // Initialize ReadSet
-  read_set->job_ = job;
-  read_set->pinned_blocks_.resize(job->block_handles.size());
+  rs->job_ = job;
+  rs->pinned_blocks_.resize(job->block_handles.size());
 
   // Step 1: Check cache and pin cached blocks
   std::vector<size_t> block_indices_to_read;
@@ -336,29 +348,23 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
     // Lookup and pin block in cache
     Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
         job->job_options.read_options, data_block_handle,
-        &(read_set->pinned_blocks_)[i].As<Block_kData>());
+        &(rs->pinned_blocks_)[i].As<Block_kData>());
 
     if (!s.ok()) {
       continue;
     }
 
-    if (!(read_set->pinned_blocks_)[i].GetValue()) {
+    if (!(rs->pinned_blocks_)[i].GetValue()) {
       // Block not in cache - needs to be read from disk
       block_indices_to_read.emplace_back(i);
-      if (job->job_options.read_options.async_io) {
-        read_set->num_async_reads_++;
-      } else {
-        read_set->num_sync_reads_++;
-      }
-    } else {
-      read_set->num_cache_hits_++;
     }
   }
 
   // Step 2: Prepare IO requests for blocks not in cache
   if (block_indices_to_read.empty()) {
     // All blocks found in cache
-    return read_set;
+    *read_set = std::move(rs);
+    return Status::OK();
   }
 
   // Prepare read requests - coalesce adjacent blocks
@@ -369,12 +375,18 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
 
   // Step 3: Execute IO requests based on JobOptions
   if (job->job_options.read_options.async_io) {
-    ExecuteAsyncIO(job, read_set, read_reqs, coalesced_block_indices);
+    ExecuteAsyncIO(job, rs, read_reqs, coalesced_block_indices);
   } else {
-    ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
+    Status s = ExecuteSyncIO(job, rs, read_reqs, coalesced_block_indices);
+    if (!s.ok()) {
+      return s;
+    }
+    // We bump this for sync reads
+    rs->num_sync_reads_ += block_indices_to_read.size();
   }
 
-  return read_set;
+  *read_set = std::move(rs);
+  return Status::OK();
 }
 
 void IODispatcherImpl::Impl::PrepareIORequests(
@@ -496,7 +508,7 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
   }
 }
 
-void IODispatcherImpl::Impl::ExecuteSyncIO(
+Status IODispatcherImpl::Impl::ExecuteSyncIO(
     std::shared_ptr<IOJob> job, std::shared_ptr<ReadSet> read_set,
     std::vector<FSReadRequest>& read_reqs,
     const std::vector<std::vector<size_t>>& coalesced_block_indices) {
@@ -506,7 +518,7 @@ void IODispatcherImpl::Impl::ExecuteSyncIO(
   Status s =
       rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
   if (!s.ok()) {
-    return;
+    return s;
   }
 
   const bool direct_io = rep->file->use_direct_io();
@@ -537,13 +549,14 @@ void IODispatcherImpl::Impl::ExecuteSyncIO(
   s = rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
                            direct_io ? &aligned_buf : nullptr);
   if (!s.ok()) {
-    return;
+    return s;
   }
 
-  // Check for individual request failures
-  // TODO: Should we return early if any one request fails? I honestly think we
-  // should just let it pin the block, and retry the read later if need be? If
-  // it is a bad error it will fail at that point and percolate the error?
+  for (const auto& rq : read_reqs) {
+    if (!rq.status.ok()) {
+      return rq.status;
+    }
+  }
 
   // Process all blocks from the MultiRead results
   for (size_t i = 0; i < coalesced_block_indices.size(); ++i) {
@@ -554,11 +567,14 @@ void IODispatcherImpl::Impl::ExecuteSyncIO(
       s = CreateAndPinBlockFromBuffer(job, block_handle, read_req.offset,
                                       read_req.result,
                                       read_set->pinned_blocks_[block_idx]);
+
       if (!s.ok()) {
-        return;
+        return s;
       }
     }
   }
+
+  return Status::OK();
 }
 
 Status IODispatcherImpl::Impl::CreateAndPinBlockFromBuffer(
@@ -606,9 +622,9 @@ IODispatcherImpl::IODispatcherImpl() : impl_(new Impl()) {}
 
 IODispatcherImpl::~IODispatcherImpl() = default;
 
-std::shared_ptr<ReadSet> IODispatcherImpl::SubmitJob(
-    std::shared_ptr<IOJob> job) {
-  return impl_->SubmitJob(job);
+Status IODispatcherImpl::SubmitJob(std::shared_ptr<IOJob> job,
+                                   std::shared_ptr<ReadSet>* read_set) {
+  return impl_->SubmitJob(job, read_set);
 }
 
 IODispatcher* NewIODispatcher() { return new IODispatcherImpl(); }

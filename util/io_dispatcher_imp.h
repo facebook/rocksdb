@@ -19,7 +19,8 @@ class IODispatcherImpl : public IODispatcher {
   explicit IODispatcherImpl();
   ~IODispatcherImpl() override;
 
-  std::shared_ptr<ReadSet> SubmitJob(std::shared_ptr<IOJob> job) override;
+  Status SubmitJob(std::shared_ptr<IOJob> job,
+                   std::shared_ptr<ReadSet>* read_set) override;
 
  private:
   struct Impl;

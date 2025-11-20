@@ -107,7 +107,12 @@ class IODispatcher {
  public:
   virtual ~IODispatcher() {}
 
-  virtual std::shared_ptr<ReadSet> SubmitJob(std::shared_ptr<IOJob> job) = 0;
+  // Submit a job for IO processing
+  // job: The IO job to submit
+  // read_set: Output parameter that will be populated with the ReadSet on success
+  // Returns: Status::OK() on success, error status otherwise
+  virtual Status SubmitJob(std::shared_ptr<IOJob> job,
+                           std::shared_ptr<ReadSet>* read_set) = 0;
 };
 
 IODispatcher* NewIODispatcher();
