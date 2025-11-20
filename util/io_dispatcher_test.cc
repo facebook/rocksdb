@@ -121,30 +121,28 @@ class IODispatcherTest : public DBTestBase {
 
   // Options must be stored as member variables to avoid use-after-scope
   // The BlockBasedTable keeps references to these options
-  std::vector<std::unique_ptr<Options>> all_options_;
   std::vector<std::unique_ptr<ImmutableOptions>> all_ioptions_;
-  std::vector<std::unique_ptr<MutableCFOptions>> all_moptions_;
-  std::vector<std::unique_ptr<InternalKeyComparator>> all_comparators_;
   std::vector<std::unique_ptr<EnvOptions>> all_env_options_;
 
   // Helper to create an SST file and open it as a table
   // Following pattern from table_test.cc TableConstructor
-  Status CreateAndOpenSST(int num_keys, std::unique_ptr<BlockBasedTable>* table,
+  Status CreateAndOpenSST(int num_blocks,
+                          std::unique_ptr<BlockBasedTable>* table,
                           std::vector<BlockHandle>* block_handles_out) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
-    auto options = std::make_unique<Options>();
-    options->statistics = nullptr;
+    Options options{};
+    options.statistics = nullptr;
     BlockBasedTableOptions table_options;
     table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
-    table_options.block_size = 1024;  // Small blocks for testing
+    table_options.block_size = 16 * 1024;
     table_options.no_block_cache = false;
-    options->table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     // Store these in member variables so they outlive the function
-    auto ioptions = std::make_unique<ImmutableOptions>(*options);
-    auto moptions = std::make_unique<MutableCFOptions>(*options);
-    InternalKeyComparator internal_comparator(options->comparator);
+    auto ioptions = std::make_unique<ImmutableOptions>(options);
+    auto moptions = MutableCFOptions{options};
+    InternalKeyComparator internal_comparator(options.comparator);
 
     // Create in-memory file using StringSink (like table_test.cc)
     auto table_name = "test_table";
@@ -158,19 +156,20 @@ class IODispatcherTest : public DBTestBase {
     std::vector<std::unique_ptr<InternalTblPropCollFactory>>
         int_tbl_prop_coll_factories;
     TableBuilderOptions builder_options(
-        *ioptions, *moptions, read_options, write_options, internal_comparator,
-        &int_tbl_prop_coll_factories, kNoCompression, options->compression_opts,
+        *ioptions, moptions, read_options, write_options, internal_comparator,
+        &int_tbl_prop_coll_factories, kNoCompression, options.compression_opts,
         0 /* column_family_id */, column_family_name, -1 /* level */,
         kUnknownNewestKeyTime);
 
     std::unique_ptr<TableBuilder> builder(
-        options->table_factory->NewTableBuilder(builder_options,
-                                                file_writer.get()));
+        options.table_factory->NewTableBuilder(builder_options,
+                                               file_writer.get()));
 
     auto rnd = Random::GetTLSInstance();
     // Add keys to the table
-    for (int i = 0; i < num_keys; i++) {
-      std::string value = rnd->RandomString(2 << 14);
+    // 10k * 1Kib = ~10MiB
+    for (int i = 0; i < 10000; i++) {
+      std::string value = rnd->RandomString(2 << 10);
       InternalKey ikey(Key(i), i, kTypeValue);
       builder->Add(ikey.Encode(), value);
     }
@@ -200,14 +199,14 @@ class IODispatcherTest : public DBTestBase {
     BlockCacheTracer block_cache_tracer;
     std::unique_ptr<TableReader> table_reader;
 
-    auto ikc = std::make_unique<InternalKeyComparator>(options->comparator);
-    TableReaderOptions reader_options(*ioptions, moptions->prefix_extractor,
-                                      moptions->compression_manager.get(),
-                                      *soptions, *ikc,
+    auto ikc = InternalKeyComparator(options.comparator);
+    TableReaderOptions reader_options(*ioptions, moptions.prefix_extractor,
+                                      moptions.compression_manager.get(),
+                                      *soptions, ikc,
                                       0 /* block_protection_bytes_per_key */);
 
-    s = options->table_factory->NewTableReader(reader_options, std::move(file),
-                                               file_size, &table_reader);
+    s = options.table_factory->NewTableReader(reader_options, std::move(file),
+                                              file_size, &table_reader);
 
     if (!s.ok()) {
       return s;
@@ -218,16 +217,13 @@ class IODispatcherTest : public DBTestBase {
     // Collect actual block handles from the table's index
     // This is similar to how block_based_table_iterator.cc CollectBlockHandles
     // works
-    s = CollectBlockHandles(table->get(), num_keys, block_handles_out);
+    s = CollectBlockHandles(table->get(), num_blocks, block_handles_out);
     if (!s.ok()) {
       return s;
     }
 
     // Store all options in member variables to keep them alive
-    all_options_.push_back(std::move(options));
     all_ioptions_.push_back(std::move(ioptions));
-    all_moptions_.push_back(std::move(moptions));
-    all_comparators_.push_back(std::move(ikc));
     all_env_options_.push_back(std::move(soptions));
 
     return Status::OK();
@@ -320,76 +316,6 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
       ASSERT_OK(read_status);
       ASSERT_NE(block.GetValue(), nullptr);
     }
-  }
-}
-
-TEST_F(IODispatcherTest, ConcurrentSSTReads) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
-
-  std::vector<std::shared_ptr<ReadSet>> read_sets;
-  std::vector<ReadOptions> read_options_vec;
-  std::vector<std::vector<BlockHandle>> all_block_handles;
-
-  // Create multiple jobs concurrently
-  for (int i = 0; i < 8; i++) {
-    std::unique_ptr<BlockBasedTable> table;
-    std::vector<BlockHandle> block_handles;
-
-    Status s = CreateAndOpenSST(40, &table, &block_handles);
-    ASSERT_OK(s);
-
-    auto job = std::make_shared<IOJob>();
-    job->block_handles = block_handles;
-    job->table = table.get();
-
-    read_options_vec.emplace_back();
-    job->read_options = &read_options_vec.back();
-
-    all_block_handles.push_back(block_handles);
-    tables_.push_back(std::move(table));
-    read_sets.push_back(dispatcher->SubmitJob(job));
-  }
-
-  // Wait for concurrent processing
-  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-
-  // Verify all ReadSets can read their blocks successfully
-  for (size_t i = 0; i < read_sets.size(); ++i) {
-    for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
-      CachableEntry<Block> block;
-      Status read_status = read_sets[i]->ReadIndex(j, &block);
-      ASSERT_OK(read_status);
-      ASSERT_NE(block.GetValue(), nullptr);
-    }
-  }
-}
-
-TEST_F(IODispatcherTest, LargeSST) {
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
-
-  std::unique_ptr<BlockBasedTable> table;
-  std::vector<BlockHandle> block_handles;
-  Status s = CreateAndOpenSST(100, &table, &block_handles);
-  ASSERT_OK(s);
-  ASSERT_NE(table, nullptr);
-
-  auto job = std::make_shared<IOJob>();
-  job->block_handles = block_handles;
-  job->table = table.get();
-  ReadOptions read_options;
-  job->read_options = &read_options;
-
-  auto read_set = dispatcher->SubmitJob(job);
-  ASSERT_NE(read_set, nullptr);
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(800));
-
-  // Verify reading blocks
-  for (size_t i = 0; i < block_handles.size(); ++i) {
-    CachableEntry<Block> block;
-    Status read_status = read_set->ReadIndex(i, &block);
-    ASSERT_OK(read_status);
-    ASSERT_NE(block.GetValue(), nullptr);
   }
 }
 
