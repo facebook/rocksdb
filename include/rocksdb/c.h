@@ -168,6 +168,7 @@ typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
 
 // Remote compaction typedef
 typedef struct rocksdb_compactionservice_scheduleresponse_t rocksdb_compactionservice_scheduleresponse_t;
+typedef struct rocksdb_compactionservice_jobinfo_t rocksdb_compactionservice_jobinfo_t;
 
 /* DB operations */
 
@@ -3534,10 +3535,49 @@ extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t* rocksdb
 
 extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_scheduleresponse_getstatus(const rocksdb_compactionservice_scheduleresponse_t* response);
 
-extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_scheduleresponse_getscheduledjobid(const rocksdb_compactionservice_scheduleresponse_t* response);
-
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(const rocksdb_compactionservice_scheduleresponse_t* response, size_t* len);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionservice_scheduleresponse_t_destroy(rocksdb_compactionservice_scheduleresponse_t* response);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
+    const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_db_id(
+    const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_db_session_id(
+    const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_cf_name(
+    const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
+
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_compactionservice_jobinfo_t_get_cf_id(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionservice_jobinfo_t_get_job_id(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_priority(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_compaction_reason(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_base_input_level(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_output_level(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_full_compaction(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_manual_compaction(
+    const rocksdb_compactionservice_jobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
+    const rocksdb_compactionservice_jobinfo_t* info);
+ 
 
 #ifdef __cplusplus
 } /* end extern "C" */
