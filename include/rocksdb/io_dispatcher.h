@@ -34,6 +34,7 @@ struct JobOptions {
   // When true, uses asynchronous reads (ReadAsync)
   // When false, uses standard synchronous MultiGet reads
   bool async = false;
+  uint64_t io_coalesce_threshold = 16 * 1024;
 };
 
 class IOJob {

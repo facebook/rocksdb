@@ -293,6 +293,7 @@ struct IODispatcherImpl::Impl {
 
  private:
   void PrepareIORequests(
+      std::shared_ptr<IOJob> job,
       const std::vector<size_t>& block_indices_to_read,
       const std::vector<BlockHandle>& block_handles,
       std::vector<FSReadRequest>* read_reqs,
@@ -364,7 +365,7 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
   // Prepare read requests - coalesce adjacent blocks
   std::vector<FSReadRequest> read_reqs;
   std::vector<std::vector<size_t>> coalesced_block_indices;
-  PrepareIORequests(block_indices_to_read, job->block_handles, &read_reqs,
+  PrepareIORequests(job, block_indices_to_read, job->block_handles, &read_reqs,
                     &coalesced_block_indices);
 
   // Step 3: Execute IO requests based on JobOptions
@@ -378,14 +379,11 @@ std::shared_ptr<ReadSet> IODispatcherImpl::Impl::SubmitJob(
 }
 
 void IODispatcherImpl::Impl::PrepareIORequests(
+    std::shared_ptr<IOJob> job,
     const std::vector<size_t>& block_indices_to_read,
     const std::vector<BlockHandle>& block_handles,
     std::vector<FSReadRequest>* read_reqs,
     std::vector<std::vector<size_t>>* coalesced_block_indices) {
-  // IO coalesce threshold - blocks within this distance are coalesced
-  constexpr uint64_t kIOCoalesceThreshold = 16 * 1024;  // 16KB
-
-  // Sort block indices by their offset in the file
   // This is necessary because block handles may not be in sorted order
   std::vector<size_t> sorted_block_indices = block_indices_to_read;
   std::sort(sorted_block_indices.begin(), sorted_block_indices.end(),
@@ -406,7 +404,8 @@ void IODispatcherImpl::Impl::PrepareIORequests(
           BlockBasedTable::BlockSizeWithTrailer(last_block_handle);
       uint64_t current_start = block_handles[block_idx].offset();
 
-      if (current_start > last_block_end + kIOCoalesceThreshold) {
+      if (current_start >
+          last_block_end + job->job_options.io_coalesce_threshold) {
         // Gap too large - start new IO request
         coalesced_block_indices->emplace_back();
       }
