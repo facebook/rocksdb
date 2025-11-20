@@ -166,6 +166,9 @@ typedef struct rocksdb_writestallinfo_t rocksdb_writestallinfo_t;
 typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
 typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
 
+// Remote compaction typedef
+
+
 /* DB operations */
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open(
@@ -3511,6 +3514,15 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer_cf(
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, char* buffer, size_t buffer_size, size_t* vallen,
     unsigned char* found, char** errptr);
+
+// Remote compaction
+enum {
+    rocksdb_compactionservice_jobstatus_success = 0,
+    rocksdb_compactionservice_jobstatus_failure = 1,
+    rocksdb_compactionservice_jobstatus_aborted = 2,
+    rocksdb_compactionservice_jobstatus_use_local = 3,
+  };
+
 
 #ifdef __cplusplus
 } /* end extern "C" */
