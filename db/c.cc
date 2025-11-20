@@ -145,6 +145,8 @@ using ROCKSDB_NAMESPACE::WriteBufferManager;
 using ROCKSDB_NAMESPACE::WriteOptions;
 using ROCKSDB_NAMESPACE::WriteStallCondition;
 using ROCKSDB_NAMESPACE::WriteStallInfo;
+using ROCKSDB_NAMESPACE::CompactionServiceScheduleResponse;
+using ROCKSDB_NAMESPACE::CompactionServiceJobStatus;
 
 using std::unordered_set;
 using std::vector;
@@ -347,6 +349,10 @@ struct rocksdb_externalfileingestioninfo_t {
 struct rocksdb_statistics_histogram_data_t {
   rocksdb_statistics_histogram_data_t() : rep() {}
   HistogramData rep;
+};
+
+struct rocksdb_compactionservice_scheduleresponse_t {
+  CompactionServiceScheduleResponse* rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -642,6 +648,39 @@ static inline char* CopyString(const Slice& slice) {
   memcpy(result, slice.data(), slice.size());
   return result;
 }
+
+rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(const char* scheduled_job_id,
+int status) {
+  rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t;
+  response->rep = new CompactionServiceScheduleResponse(
+    scheduled_job_id ? std::string(scheduled_job_id) : "",
+    static_cast<CompactionServiceJobStatus>(status)
+  );
+  return response;
+}
+
+rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create_with_status(
+  int status) {
+    rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t;
+    response->rep = new CompactionServiceScheduleResponse(
+      static_cast<CompactionServiceJobStatus>(status)
+    );
+    return response;
+}
+
+void rocksdb_compactionservice_scheduleresponse_t_destroy(rocksdb_compactionservice_scheduleresponse_t* response) {
+  delete response;
+}
+
+int rocksdb_compactionservice_scheduleresponse_getstatus(const rocksdb_compactionservice_scheduleresponse_t* response) {
+  return static_cast<int>(response->rep->status);
+}
+
+const char* rocksdb_compactionservice_scheduleresponse_getscheduledjobid(const rocksdb_compactionservice_scheduleresponse_t* response){
+  return response->rep->scheduled_job_id.c_str();
+}
+
+ 
 
 rocksdb_t* rocksdb_open(const rocksdb_options_t* options, const char* name,
                         char** errptr) {
