@@ -2353,6 +2353,10 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     Temperature dst_temperature, uint64_t* bytes_toward_next_callback,
     uint64_t* size, std::string* checksum_hex) {
   assert(src.empty() != contents.empty());
+  if (stop_backup_.load(std::memory_order_acquire)) {
+    return status_to_io_status(Status::Incomplete("Backup stopped"));
+  }
+
   IOStatus io_s;
   std::unique_ptr<FSWritableFile> dst_file;
   std::unique_ptr<FSSequentialFile> src_file;
@@ -2755,6 +2759,9 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     std::string* checksum_hex, const Temperature src_temperature) const {
   if (checksum_hex == nullptr) {
     return status_to_io_status(Status::Aborted("Checksum pointer is null"));
+  }
+  if (stop_backup_.load(std::memory_order_acquire)) {
+    return status_to_io_status(Status::Incomplete("Backup stopped"));
   }
   uint32_t checksum_value = 0;
   if (size_limit == 0) {
