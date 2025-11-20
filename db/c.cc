@@ -147,6 +147,7 @@ using ROCKSDB_NAMESPACE::WriteStallCondition;
 using ROCKSDB_NAMESPACE::WriteStallInfo;
 using ROCKSDB_NAMESPACE::CompactionServiceScheduleResponse;
 using ROCKSDB_NAMESPACE::CompactionServiceJobStatus;
+using ROCKSDB_NAMESPACE::CompactionServiceJobInfo;
 
 using std::unordered_set;
 using std::vector;
@@ -352,7 +353,11 @@ struct rocksdb_statistics_histogram_data_t {
 };
 
 struct rocksdb_compactionservice_scheduleresponse_t {
-  CompactionServiceScheduleResponse* rep;
+  CompactionServiceScheduleResponse rep;
+};
+
+struct rocksdb_compactionservice_jobinfo_t {
+  CompactionServiceJobInfo rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -649,35 +654,112 @@ static inline char* CopyString(const Slice& slice) {
   return result;
 }
 
-rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(const char* scheduled_job_id,
-int status) {
-  rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t;
-  response->rep = new CompactionServiceScheduleResponse(
-    scheduled_job_id ? std::string(scheduled_job_id) : "",
-    static_cast<CompactionServiceJobStatus>(status)
-  );
+//Remote Compaction
+
+const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
+  const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  *len = info->rep.db_name.size();
+  return info->rep.db_name.data();
+}
+
+const char* rocksdb_compactionservice_jobinfo_t_get_db_id(
+  const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  *len = info->rep.db_id.size();
+  return info->rep.db_id.data();
+}
+
+const char* rocksdb_compactionservice_jobinfo_t_get_db_session_id(
+  const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  *len = info->rep.db_session_id.size();
+  return info->rep.db_session_id.data();
+}
+
+const char* rocksdb_compactionservice_jobinfo_t_get_cf_name(
+  const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  *len = info->rep.cf_name.size();
+  return info->rep.cf_name.data();
+}
+
+uint32_t rocksdb_compactionservice_jobinfo_t_get_cf_id(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.cf_id;
+}
+
+uint64_t rocksdb_compactionservice_jobinfo_t_get_job_id(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.job_id;
+}
+
+int rocksdb_compactionservice_jobinfo_t_get_priority(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return static_cast<int>(info->rep.priority);
+}
+
+int rocksdb_compactionservice_jobinfo_t_get_compaction_reason(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return static_cast<int>(info->rep.compaction_reason);
+}
+
+int rocksdb_compactionservice_jobinfo_t_get_base_input_level(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.base_input_level;
+}
+
+int rocksdb_compactionservice_jobinfo_t_get_output_level(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.output_level;
+}
+
+unsigned char rocksdb_compactionservice_jobinfo_t_is_full_compaction(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.is_full_compaction;
+}
+
+unsigned char rocksdb_compactionservice_jobinfo_t_is_manual_compaction(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.is_manual_compaction;
+}
+
+unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
+  const rocksdb_compactionservice_jobinfo_t* info) {
+  return info->rep.bottommost_level;
+}
+
+rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(
+  const char* scheduled_job_id, int status) {
+rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t{
+    CompactionServiceScheduleResponse(
+      scheduled_job_id ? std::string(scheduled_job_id) : "",
+      static_cast<CompactionServiceJobStatus>(status)
+    )
+  };
   return response;
 }
 
 rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create_with_status(
   int status) {
-    rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t;
-    response->rep = new CompactionServiceScheduleResponse(
+rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t{
+    CompactionServiceScheduleResponse(
       static_cast<CompactionServiceJobStatus>(status)
-    );
-    return response;
+    )
+  };
+  return response;
 }
 
-void rocksdb_compactionservice_scheduleresponse_t_destroy(rocksdb_compactionservice_scheduleresponse_t* response) {
+void rocksdb_compactionservice_scheduleresponse_t_destroy(
+  rocksdb_compactionservice_scheduleresponse_t* response) {
   delete response;
 }
 
-int rocksdb_compactionservice_scheduleresponse_getstatus(const rocksdb_compactionservice_scheduleresponse_t* response) {
-  return static_cast<int>(response->rep->status);
+int rocksdb_compactionservice_scheduleresponse_getstatus(
+  const rocksdb_compactionservice_scheduleresponse_t* response) {
+  return static_cast<int>(response->rep.status);  
 }
 
-const char* rocksdb_compactionservice_scheduleresponse_getscheduledjobid(const rocksdb_compactionservice_scheduleresponse_t* response){
-  return response->rep->scheduled_job_id.c_str();
+const char* rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(
+  const rocksdb_compactionservice_scheduleresponse_t* response, size_t* len) {
+*len = response->rep.scheduled_job_id.size();
+return response->rep.scheduled_job_id.data();
 }
 
  
