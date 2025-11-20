@@ -540,11 +540,9 @@ void IODispatcherImpl::Impl::ExecuteSyncIO(
   }
 
   // Check for individual request failures
-  for (auto& req : read_reqs) {
-    if (!req.status.ok()) {
-      return;
-    }
-  }
+  // TODO: Should we return early if any one request fails? I honestly think we
+  // should just let it pin the block, and retry the read later if need be? If
+  // it is a bad error it will fail at that point and percolate the error?
 
   // Process all blocks from the MultiRead results
   for (size_t i = 0; i < coalesced_block_indices.size(); ++i) {

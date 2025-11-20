@@ -458,6 +458,87 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
   }
 }
 
+TEST_F(IODispatcherTest, VerifyBlockContent) {
+  // Test that blocks retrieved through ReadSet contain the correct data
+  // that was written to the SST file
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(50, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  ReadOptions read_options;
+  job->read_options = &read_options;
+  job->job_options.async = false;
+
+  auto read_set = dispatcher->SubmitJob(job);
+  ASSERT_NE(read_set, nullptr);
+
+  // Read each block and verify its content
+  int t = 0;
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block_entry;
+    Status read_status = read_set->ReadIndex(i, &block_entry);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block_entry.GetValue(), nullptr);
+
+    Block* block = block_entry.GetValue();
+    ASSERT_GT(block->size(), 0);
+
+    // Create an iterator to walk through the block's keys
+    // We use InternalKeyComparator for data blocks
+    InternalKeyComparator internal_comparator(BytewiseComparator());
+    std::unique_ptr<DataBlockIter> iter(block->NewDataIterator(
+        internal_comparator.user_comparator(), kDisableGlobalSequenceNumber));
+
+    // Iterate through all keys in this block
+    size_t num_keys_in_block = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      num_keys_in_block++;
+
+      // Verify key is not empty
+      ASSERT_GT(iter->key().size(), 0)
+          << "Block " << i << " contains empty key";
+
+      // Verify value is not empty (we wrote 1KB values)
+      ASSERT_GT(iter->value().size(), 2 ^ 10)
+          << "Block " << i << " contains empty value";
+
+      // Parse the internal key
+      ParsedInternalKey parsed_key;
+      Status parse_status =
+          ParseInternalKey(iter->key(), &parsed_key, true /* log_err */);
+      ASSERT_OK(parse_status) << "Failed to parse internal key in block " << i;
+
+      // Verify the key matches the expected format from CreateAndOpenSST
+      // Keys are created with Key(i) which generates keys like "key000000"
+      std::string user_key = parsed_key.user_key.ToString();
+      auto check = Key(t);
+      t++;
+      ASSERT_TRUE(user_key.find("key") == 0)
+          << "Unexpected key format in block " << i << ": " << user_key;
+
+      ASSERT_EQ(check.c_str(), user_key);
+
+      // Verify value type is correct (should be kTypeValue)
+      ASSERT_EQ(parsed_key.type, kTypeValue)
+          << "Unexpected value type in block " << i;
+    }
+
+    // Verify iterator status after iteration
+    ASSERT_OK(iter->status()) << "Iterator error in block " << i;
+
+    // Each block should contain at least one key
+    ASSERT_GT(num_keys_in_block, 0) << "Block " << i << " contains no keys";
+  }
+}
+
 // We want to test here that even when we DONT read from the readset that all
 // pinned blocks will be unpinned.
 TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
