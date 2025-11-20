@@ -5688,6 +5688,25 @@ Status VersionSet::ProcessManifestWrites(
   bool skip_manifest_write =
       first_writer.edit_list.front()->IsNoManifestWriteDummy();
 
+  // Check if this is for a transient CF - skip writing to manifest
+  // Case 1: Existing CF operations (flush, compaction, drop)
+  if (!skip_manifest_write && first_writer.cfd != nullptr &&
+      first_writer.cfd->ioptions().is_transient) {
+    skip_manifest_write = true;
+    ROCKS_LOG_INFO(db_options_->info_log,
+                   "Skipping manifest write for transient CF [%s] (ID %u)",
+                   first_writer.cfd->GetName().c_str(),
+                   first_writer.cfd->GetID());
+  }
+
+  // Case 2: CF creation (cfd is nullptr, but new_cf_options has is_transient)
+  if (!skip_manifest_write && first_writer.cfd == nullptr &&
+      new_cf_options != nullptr && new_cf_options->is_transient) {
+    skip_manifest_write = true;
+    ROCKS_LOG_INFO(db_options_->info_log,
+                   "Skipping manifest write for new transient CF");
+  }
+
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front(), &max_last_sequence);
@@ -6249,6 +6268,11 @@ Status VersionSet::ProcessManifestWrites(
   // confidence in `descriptor_last_sequence_`.
   if (s.ok()) {
     for (const auto* v : versions) {
+      // Skip transient CFs - they are not written to the manifest, so
+      // descriptor_last_sequence_ doesn't track their sequence numbers
+      if (v->cfd_ && v->cfd_->ioptions().is_transient) {
+        continue;
+      }
       const auto* vstorage = v->storage_info();
       for (int level = 0; level < vstorage->num_levels(); ++level) {
         for (const auto& file : vstorage->LevelFiles(level)) {
@@ -7066,7 +7090,6 @@ Status VersionSet::WriteCurrentStateToManifest(
           cfd->internal_comparator().user_comparator()->Name());
       edit.SetPersistUserDefinedTimestamps(
           cfd->ioptions().persist_user_defined_timestamps);
-      edit.SetIsTransientColumnFamily(cfd->ioptions().is_transient);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +

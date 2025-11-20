@@ -261,37 +261,26 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         cf_name.compare(kPersistentStatsColumnFamilyName) == 0;
     if (cf_options == name_to_options_.end() &&
         !is_persistent_stats_column_family) {
-      // distinguish between transient cfs (should not open) & cfs not passed in
-      // by user (error)
-      ROCKS_LOG_INFO(version_set_->db_options()->info_log,
-                     "Column family being marked as do not open in "
-                     "VersionEditHandler: %s (is_transient=%d)",
-                     cf_name.c_str(), edit.GetTransientColumnFamily());
       do_not_open_column_families_.emplace(edit.GetColumnFamily(), cf_name);
-      if (edit.GetTransientColumnFamily()) {
-        transient_column_families_.insert(edit.GetColumnFamily());
-      }
     } else {
       if (is_persistent_stats_column_family) {
         ColumnFamilyOptions cfo;
         OptimizeForPersistentStats(&cfo);
         tmp_cfd = CreateCfAndInit(cfo, edit);
       } else {
-        // Check that client doesn't incorrectly open a transient cf as
-        // non-transient
-        if (cf_options->second.is_transient !=
-            edit.GetTransientColumnFamily()) {
+        // Check that user doesn't incorrectly try to open a regular CF
+        // (one that exists in MANIFEST) as transient.
+        // A CF that exists in MANIFEST is not transient and should never be
+        // opened with transient cf_options
+        if (cf_options->second.is_transient) {
           s = Status::InvalidArgument(
-              "is_transient value from provided Cf options does not match "
-              "MANIFEST for " +
-              cf_name + " Provided: is_transient=" +
-              std::to_string(cf_options->second.is_transient) +
-              " MANIFEST: is_transient=" +
-              std::to_string(edit.GetTransientColumnFamily()));
+              "Column family " + cf_name +
+              " exists in MANIFEST (persistent CF) but is being opened with "
+              "is_transient=true. A persistent CF cannot be reopened as "
+              "transient.");
           return s;
-        } else {
-          tmp_cfd = CreateCfAndInit(cf_options->second, edit);
         }
+        tmp_cfd = CreateCfAndInit(cf_options->second, edit);
       }
       *cfd = tmp_cfd;
     }
@@ -422,18 +411,18 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       !do_not_open_column_families_.empty()) {
     std::string msg;
     for (const auto& cf : do_not_open_column_families_) {
-      // Skip transient CFs - they are intentionally not opened
-      if (transient_column_families_.find(cf.first) !=
-          transient_column_families_.end()) {
-        continue;
-      }
+      // // Skip transient CFs - they are intentionally not opened
+      // if (transient_column_families_.find(cf.first) !=
+      //     transient_column_families_.end()) {
+      //   continue;
+      // }
       msg.append(", ");
       msg.append(cf.second);
     }
-    if (!msg.empty()) {
-      msg = msg.substr(2);
-      *s = Status::InvalidArgument("Column families not opened: " + msg);
-    }
+    // if (!msg.empty()) {
+    msg = msg.substr(2);
+    *s = Status::InvalidArgument("Column families not opened: " + msg);
+    // }
   }
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(

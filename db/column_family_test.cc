@@ -799,7 +799,7 @@ TEST_P(ColumnFamilyTest, DropTest) {
   }
 }
 
-TEST_P(ColumnFamilyTest, OpenFailsWithTransientCF) {
+TEST_P(ColumnFamilyTest, OpenWithTransientCF) {
   Open();
   ColumnFamilyOptions cf_opts;
   ColumnFamilyOptions transient_opts;
@@ -809,56 +809,128 @@ TEST_P(ColumnFamilyTest, OpenFailsWithTransientCF) {
                        {cf_opts, cf_opts, transient_opts, cf_opts});
   ASSERT_EQ(handles_.size(), 5);
 
-  Close();
-
-  ASSERT_NOK(TryOpen(
-      {"default", "one", "two", "threeTemp", "four"},
-      {column_family_options_, cf_opts, cf_opts, transient_opts, cf_opts}));
-
-  // if we incorrectly open a transient CF as non-transient, we should see an
-  // invalid argument error
-  ASSERT_TRUE(
-      TryOpen({"default", "one", "two", "threeTemp", "four"},
-              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts})
-          .IsInvalidArgument());
-}
-
-TEST_P(ColumnFamilyTest, DropTransientCFUponReopen) {
-  Open();
-  ColumnFamilyOptions cf_opts;
-  ColumnFamilyOptions cf_transient_opts;
-  cf_transient_opts.is_transient = true;
-
-  // create column family options for transient column families
-  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
-                       {cf_opts, cf_opts, cf_transient_opts, cf_opts});
-  ASSERT_EQ(handles_.size(), 5);
-
   ASSERT_OK(Put(0, "foo", "v1"));
   ASSERT_OK(Put(1, "mirko", "v3"));
   ASSERT_OK(Put(3, "temp", "temp"));
   ASSERT_OK(Put(4, "mew", "two"));
 
-  // Verify we have all 5 CFs initially (default, one, two, threeTemp, four)
-  ASSERT_EQ(handles_.size(), 5);
   Close();
 
+  // Opening db with transient CF fails
+  ASSERT_NOK(TryOpen(
+      {"default", "one", "two", "threeTemp", "four"},
+      {column_family_options_, cf_opts, cf_opts, transient_opts, cf_opts}));
+
+  // attempting to open transient cf with regular cf settings fails
+  ASSERT_TRUE(
+      TryOpen({"default", "one", "two", "threeTemp", "four"},
+              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts})
+          .IsInvalidArgument());
+
+  // attempting to open regular cf with transient cf settings fails
+  ASSERT_TRUE(
+      TryOpen({"default", "one", "two", "four"},
+              {column_family_options_, cf_opts, cf_opts, transient_opts})
+          .IsInvalidArgument());
+
+  // Successfully open without the transient CF
   ASSERT_OK(TryOpen({"default", "one", "two", "four"},
                     {column_family_options_, cf_opts, cf_opts, cf_opts}));
+
+  // Opening the db with create_missing_column_families=true will create a new
+  // transient CF
+  db_options_.create_missing_column_families = true;
+  Close();
+
+  ASSERT_OK(TryOpen({"default", "one", "two", "threeTemp", "four", "five"},
+                    {column_family_options_, cf_opts, cf_opts, transient_opts,
+                     cf_opts, cf_opts}));
+
+  ASSERT_EQ(Get(3, "temp"),
+            "NOT_FOUND");  // confirms we've created a new threeTemp, and aren't
+                           // returning data from old transient cf
+  Close();
+
+  db_options_.create_missing_column_families = false;
+  ASSERT_NOK(TryOpen({"default", "one", "two", "threeTemp", "four", "five"},
+                     {column_family_options_, cf_opts, cf_opts, transient_opts,
+                      cf_opts, cf_opts}));
+
+  ASSERT_OK(
+      TryOpen({"default", "one", "two", "four", "five"},
+              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts}));
+
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, TransientColumnFamilyNotInManifest) {
+  Open();
+
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions cf_transient_opts;
+  cf_transient_opts.is_transient = true;
+
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, cf_transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);  // default + one + two + threeTemp + four
+
+  // put some data and flush to regular and transient cfs
+  ASSERT_OK(Put(0, "foo", "v1"));     // default
+  ASSERT_OK(Put(1, "mirko", "v3"));   // one
+  ASSERT_OK(Put(3, "temp", "temp"));  // threeTemp (transient)
+  ASSERT_OK(Put(4, "mew", "two"));    // four
+
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(3));
+  ASSERT_OK(Flush(4));
+
+  ASSERT_EQ(Get(0, "foo"), "v1");
+  ASSERT_EQ(Get(1, "mirko"), "v3");
+  ASSERT_EQ(Get(3, "temp"), "temp");
+  ASSERT_EQ(Get(4, "mew"), "two");
+
+  // Parse manifest to verify transient CF isn't there
+  std::vector<std::string> cfs_in_manifest;
+  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &cfs_in_manifest));
+  ASSERT_EQ(cfs_in_manifest.size(), 4)
+      << "Expected only 4 CFs in manifest (default + one + two + four), found "
+      << cfs_in_manifest.size();
+
+  ASSERT_NE(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "default"),
+      cfs_in_manifest.end())
+      << "default CF not found in manifest";
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "one"),
+            cfs_in_manifest.end())
+      << "one CF not found in manifest";
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "two"),
+            cfs_in_manifest.end())
+      << "two CF not found in manifest";
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "four"),
+            cfs_in_manifest.end())
+      << "four CF not found in manifest";
+
+  ASSERT_EQ(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "threeTemp"),
+      cfs_in_manifest.end())
+      << "threeTemp should NOT be in manifest but was found!";
+
+  Close();
+
+  // Reopen without transient CFs successfully
+  ASSERT_OK(TryOpen({"default", "one", "two", "four"},
+                    {column_family_options_, cf_opts, cf_opts, cf_opts}));
+
+  ASSERT_EQ(handles_.size(), 4)
+      << "Expected 4 CFs after reopen (default + one + two + four), found "
+      << handles_.size();
 
   ASSERT_EQ(Get(0, "foo"), "v1");
   ASSERT_EQ(Get(1, "mirko"), "v3");
   ASSERT_EQ(Get(3, "mew"), "two");
 
-  ASSERT_EQ(handles_.size(), 4);
-
-  std::vector<std::string> cfs_in_manifest;
-  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &cfs_in_manifest));
-  ASSERT_EQ(cfs_in_manifest.size(), 4);
-  ASSERT_EQ(
-      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "threeTemp"),
-      cfs_in_manifest.end())
-      << "temp CF is still in MANIFEST";
+  Close();
 }
 
 TEST_P(ColumnFamilyTest, WriteBatchFailure) {
