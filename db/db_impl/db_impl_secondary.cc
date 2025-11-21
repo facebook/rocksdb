@@ -1299,24 +1299,33 @@ Status DBImplSecondary::CompactWithoutInstallation(
   }
   Status s;
 
-  // TODO(hx235): Resuming compaction is currently incompatible with
-  // paranoid_file_checks=true because OutputValidator hash verification would
-  // fail during compaction resumption. Before interruption, resuming
-  // compaction needs to persist the hash of each output file to enable
-  // validation after resumption. Alternatively and preferably, we could move
-  // the output verification to happen immediately after each output file is
-  // created. This workaround currently disables resuming compaction when
-  // paranoid_file_checks is enabled. Note that paranoid_file_checks is
-  // disabled by default.
-  bool allow_resumption =
-      options.allow_resumption &&
-      !cfd->GetLatestMutableCFOptions().paranoid_file_checks;
+  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
 
-  if (options.allow_resumption &&
-      cfd->GetLatestMutableCFOptions().paranoid_file_checks) {
+  // TODO(hx235): Resuming compaction is currently incompatible with
+  // output hash verification (enabled via paranoid_file_checks=true or
+  // verify_output_flags containing kVerifyIteration) because resumed compaction
+  // will lose the hash computed before interruption.
+  // Potential solutions:
+  // 1. Persist the hash state: Before interruption, save the current hash value
+  //    of each output file to disk, allowing validation to continue correctly
+  //    after resumption.
+  // 2. Immediate verification: Move output verification to happen
+  //    immediately after each output file is created and closed, eliminating
+  //    the need to maintain hash state across resumption boundaries.
+  bool output_hash_verification_enabled =
+      mutable_cf_options.paranoid_file_checks ||
+      !!(mutable_cf_options.verify_output_flags &
+         VerifyOutputFlags::kVerifyIteration);
+
+  bool allow_resumption =
+      options.allow_resumption && !output_hash_verification_enabled;
+
+  if (options.allow_resumption && output_hash_verification_enabled) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Resume compaction configured but disabled due to "
-                   "incompatible with paranoid_file_checks=true");
+                   "incompatibility with output hash verification "
+                   "(paranoid_file_checks=true or verify_output_flags "
+                   "containing kVerifyIteration)");
   }
 
   mutex_.Unlock();
@@ -1345,8 +1354,8 @@ Status DBImplSecondary::CompactWithoutInstallation(
   CompactionOptions comp_options;
   comp_options.compression = kDisableCompressionOption;
   comp_options.output_file_size_limit = MaxFileSizeForLevel(
-      cfd->GetLatestMutableCFOptions(), input.output_level,
-      cfd->ioptions().compaction_style, vstorage->base_level(),
+      mutable_cf_options, input.output_level, cfd->ioptions().compaction_style,
+      vstorage->base_level(),
       cfd->ioptions().level_compaction_dynamic_level_bytes);
 
   std::vector<CompactionInputFiles> input_files;
@@ -1384,8 +1393,8 @@ Status DBImplSecondary::CompactWithoutInstallation(
   }
   c.reset(cfd->compaction_picker()->PickCompactionForCompactFiles(
       comp_options, input_files, input.output_level, vstorage,
-      cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0,
-      earliest_snapshot, job_context.snapshot_checker));
+      mutable_cf_options, mutable_db_options_, 0, earliest_snapshot,
+      job_context.snapshot_checker));
   assert(c != nullptr);
   c->FinalizeInputInfo(version);
 
