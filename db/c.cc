@@ -781,13 +781,15 @@ unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
 
 rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(
   const char* scheduled_job_id, int status) {
-  // Validate status is in range
-  if (status < 0 || status > 3) {
+  // Validate status is in range [success=0, failure=1, aborted=2, use_local=3]
+  if (status < rocksdb_compactionservice_jobstatus_success || 
+      status > rocksdb_compactionservice_jobstatus_use_local) {
     return nullptr;
   }
   
   // If status is success, job_id must be provided
-  if (status == 0 && (!scheduled_job_id || scheduled_job_id[0] == '\0')) {
+  if (status == rocksdb_compactionservice_jobstatus_success && 
+      (!scheduled_job_id || scheduled_job_id[0] == '\0')) {
     return nullptr;
   }
   
@@ -802,13 +804,14 @@ rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_schedule
 
 rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create_with_status(
   int status) {
-  // Validate status is in range
-  if (status < 0 || status > 3) {
+  // Validate status is in range [success=0, failure=1, aborted=2, use_local=3]
+  if (status < rocksdb_compactionservice_jobstatus_success || 
+      status > rocksdb_compactionservice_jobstatus_use_local) {
     return nullptr;
   }
   
   // Status must NOT be success (success requires a job_id)
-  if (status == 0) {
+  if (status == rocksdb_compactionservice_jobstatus_success) {
     return nullptr;
   }
   
@@ -829,13 +832,20 @@ void rocksdb_compactionservice_scheduleresponse_t_destroy(
 
 int rocksdb_compactionservice_scheduleresponse_getstatus(
   const rocksdb_compactionservice_scheduleresponse_t* response) {
+  if (!response) {
+    return rocksdb_compactionservice_jobstatus_failure;
+  }
   return static_cast<int>(response->rep.status);  
 }
 
 const char* rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(
   const rocksdb_compactionservice_scheduleresponse_t* response, size_t* len) {
-*len = response->rep.scheduled_job_id.size();
-return response->rep.scheduled_job_id.data();
+  if (!response || !len) {
+    if (len) *len = 0;
+    return "";
+  }
+  *len = response->rep.scheduled_job_id.size();
+  return response->rep.scheduled_job_id.data();
 }
 
 
@@ -1068,9 +1078,7 @@ char* rocksdb_open_and_compact(
     return nullptr;
   }
 
-  if (output_len) {
-    *output_len = output_str.size();
-  }
+  // Allocate +1 for null terminator
   char* result = static_cast<char*>(malloc(output_str.size() + 1));
   if (!result) {
     SaveError(errptr, Status::MemoryLimit("Failed to allocate output buffer"));
@@ -1078,7 +1086,13 @@ char* rocksdb_open_and_compact(
   }
 
   memcpy(result, output_str.data(), output_str.size());
-  result[output_str.size()] = '\0'; 
+  result[output_str.size()] = '\0';
+  
+  // Only set output_len after successful allocation
+  if (output_len) {
+    *output_len = output_str.size();
+  }
+  
   return result;
 }
 
@@ -1114,10 +1128,6 @@ char* rocksdb_open_and_compact_with_options(
     return nullptr;
   }
 
-  if (output_len) {
-    *output_len = output_str.size();
-  }
-
   // Allocate +1 for null terminator
   char* result = static_cast<char*>(malloc(output_str.size() + 1));
   if (!result) {
@@ -1127,6 +1137,12 @@ char* rocksdb_open_and_compact_with_options(
 
   memcpy(result, output_str.data(), output_str.size());
   result[output_str.size()] = '\0';  // Null terminate
+  
+  // Only set output_len after successful allocation
+  if (output_len) {
+    *output_len = output_str.size();
+  }
+  
   return result;
 }
  
