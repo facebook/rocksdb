@@ -769,7 +769,8 @@ class CompactionCompressionListener : public EventListener {
 enum CompressionFailureType {
   kTestCompressionFail,
   kTestDecompressionFail,
-  kTestDecompressionCorruption
+  kTestDecompressionCorruption,
+  kTestStartOfFinishFail,
 };
 
 class CompressionFailuresTest
@@ -793,7 +794,8 @@ INSTANTIATE_TEST_CASE_P(
     DBCompressionTest, CompressionFailuresTest,
     ::testing::Combine(::testing::Values(kTestCompressionFail,
                                          kTestDecompressionFail,
-                                         kTestDecompressionCorruption),
+                                         kTestDecompressionCorruption,
+                                         kTestStartOfFinishFail),
                        ::testing::ValuesIn(GetSupportedCompressions()),
                        ::testing::Values(0, 10), ::testing::Values(1, 4)));
 
@@ -845,6 +847,17 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
           std::unique_ptr<char[]> fake_data(new char[len]());
           *contents = BlockContents(std::move(fake_data), len);
         });
+  } else if (compression_failure_type_ == kTestStartOfFinishFail) {
+    if (compression_parallel_threads_ <= 1) {
+      // skip this configuration
+      return;
+    }
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::Finish:ParallelIOStatus", [&](void* arg) {
+          *static_cast<IOStatus*>(arg) = IOStatus::Corruption("Seeded failure");
+        });
+  } else {
+    abort();
   }
 
   std::map<std::string, std::string> key_value_written;
@@ -888,6 +901,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
+  auto st = s.getState();
   if (compression_failure_type_ == kTestCompressionFail) {
     // Should be kNoCompression, check content consistency
     std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
@@ -901,11 +915,18 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
     ASSERT_OK(db_iter->status());
     ASSERT_EQ(0, key_value_written.size());
   } else if (compression_failure_type_ == kTestDecompressionFail) {
-    ASSERT_EQ(std::string(s.getState()),
-              "Could not decompress: kTestDecompressionFail");
+    ASSERT_EQ(s.code(), Status::kCorruption);
+    ASSERT_NE(st, nullptr);
+    ASSERT_EQ(std::string(st), "Could not decompress: kTestDecompressionFail");
   } else if (compression_failure_type_ == kTestDecompressionCorruption) {
-    ASSERT_EQ(std::string(s.getState()),
+    ASSERT_EQ(s.code(), Status::kCorruption);
+    ASSERT_NE(st, nullptr);
+    ASSERT_EQ(std::string(st),
               "Decompressed block did not match pre-compression block");
+  } else if (compression_failure_type_ == kTestStartOfFinishFail) {
+    ASSERT_EQ(s.code(), Status::kCorruption);
+    ASSERT_NE(st, nullptr);
+    ASSERT_EQ(std::string(st), "Seeded failure");
   }
 }
 
