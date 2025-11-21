@@ -1020,11 +1020,11 @@ class LevelIterator final : public InternalIterator {
   ~LevelIterator() override {
     delete file_iter_.Set(nullptr);
     // Clean up any prepared iterators that weren't used
-    assert(prepared_iters_.size() == 0);
     for (auto& entry : prepared_iters_) {
       delete entry.second;
     }
     prepared_iters_.clear();
+    assert(prepared_iters_.size() == 0);
   }
 
   // Seek to the first file with a key >= target.
