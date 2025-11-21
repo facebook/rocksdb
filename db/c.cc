@@ -149,6 +149,8 @@ using ROCKSDB_NAMESPACE::CompactionServiceScheduleResponse;
 using ROCKSDB_NAMESPACE::CompactionServiceJobStatus;
 using ROCKSDB_NAMESPACE::CompactionServiceJobInfo;
 using ROCKSDB_NAMESPACE::CompactionService;
+using ROCKSDB_NAMESPACE::CompactionServiceOptionsOverride;
+using ROCKSDB_NAMESPACE::OpenAndCompactOptions;
 
 using std::unordered_set;
 using std::vector;
@@ -359,6 +361,14 @@ struct rocksdb_compactionservice_scheduleresponse_t {
 
 struct rocksdb_compactionservice_jobinfo_t {
   CompactionServiceJobInfo rep;
+};
+
+struct rocksdb_compaction_service_options_override_t {
+  CompactionServiceOptionsOverride rep;
+};
+
+struct rocksdb_open_and_compact_options_t {
+  OpenAndCompactOptions rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -769,12 +779,19 @@ struct rocksdb_compactionservice_t : public CompactionService {
   void (*destructor_) (void*);
   rocksdb_compaction_service_schedule_cb schedule_;
   std::string name_;  
+  rocksdb_compaction_service_wait_cb wait_;
+  rocksdb_compaction_service_cancel_awaiting_jobs_cb cancel_awaiting_jobs_;
+  rocksdb_compaction_service_on_installation_cb on_installation_;
   
   rocksdb_compactionservice_t (void *state, void(*destructor)(void*),
     rocksdb_compaction_service_schedule_cb rocksdb_compaction_service_schedule_ptr,
-    const char* name
-  ) : state_(state), destructor_(destructor), schedule_(rocksdb_compaction_service_schedule_ptr),
-      name_(name ? name : "CompactionService") {}
+    const char* name,
+    rocksdb_compaction_service_wait_cb wait,
+    rocksdb_compaction_service_cancel_awaiting_jobs_cb cancel_awaiting_jobs,
+    rocksdb_compaction_service_on_installation_cb on_installation
+  ) : state_(state), destructor_(destructor), schedule_(rocksdb_compaction_service_schedule_ptr), 
+      name_(name ? name : "CompactionService"), wait_(wait), 
+      cancel_awaiting_jobs_(cancel_awaiting_jobs), on_installation_(on_installation) {}
   
   ~rocksdb_compactionservice_t() override {
     if (destructor_) {
@@ -790,6 +807,12 @@ struct rocksdb_compactionservice_t : public CompactionService {
     const CompactionServiceJobInfo& info, 
     const std::string & compaction_service_input
   ) override {
+
+    if(schedule_ == nullptr) {
+      return CompactionServiceScheduleResponse(
+        CompactionServiceJobStatus::kUseLocal);
+    }
+
     rocksdb_compactionservice_scheduleresponse_t* c_response = (*schedule_)(
       state_,
       reinterpret_cast<const rocksdb_compactionservice_jobinfo_t*>(&info),
@@ -797,17 +820,52 @@ struct rocksdb_compactionservice_t : public CompactionService {
       compaction_service_input.size()
     );
 
-    CompactionServiceScheduleResponse response = c_response->rep;
+    CompactionServiceScheduleResponse response = std::move(c_response->rep);
     delete c_response;
     return response;
 
   }
 
   CompactionServiceJobStatus Wait(
-    const std::string& /*scheduled_job_id*/, 
-    std::string* /*result*/) override {
-      return CompactionServiceJobStatus::kUseLocal;
-  
+    const std::string& scheduled_job_id, 
+    std::string* result) override {
+      if(wait_ == nullptr) {
+        return CompactionServiceJobStatus::kUseLocal;
+      }
+      
+      char* c_result = nullptr;
+      size_t result_len = 0;
+      
+      int status = (*wait_)(
+        state_,
+        scheduled_job_id.c_str(),
+        &c_result,
+        &result_len
+      );
+      
+      if (c_result != nullptr && result != nullptr) {
+        result->assign(c_result, result_len);
+        free(c_result);
+      }
+      
+      return static_cast<CompactionServiceJobStatus>(status);
+  }
+
+  void CancelAwaitingJobs() override {
+    if (cancel_awaiting_jobs_ != nullptr) {
+      (*cancel_awaiting_jobs_)(state_);
+    }
+  }
+
+  void OnInstallation(const std::string& scheduled_job_id,
+                     CompactionServiceJobStatus status) override {
+    if (on_installation_ != nullptr) {
+      (*on_installation_)(
+        state_,
+        scheduled_job_id.c_str(),
+        static_cast<int>(status)
+      );
+    }
   }
     
 };
@@ -816,21 +874,158 @@ rocksdb_compactionservice_t* rocksdb_compactionservice_create(
   void* state,
   void (*destructor)(void*),
   rocksdb_compaction_service_schedule_cb schedule,
-  const char* name) {
-return new rocksdb_compactionservice_t(state, destructor, schedule, name);
-}
-
-void rocksdb_compactionservice_destroy(rocksdb_compactionservice_t* service) {
-delete service;
+  const char* name,
+  rocksdb_compaction_service_wait_cb wait,
+  rocksdb_compaction_service_cancel_awaiting_jobs_cb cancel_awaiting_jobs,
+  rocksdb_compaction_service_on_installation_cb on_installation) {
+return new rocksdb_compactionservice_t(state, destructor, schedule, name, wait, cancel_awaiting_jobs, on_installation);
 }
 
 void rocksdb_options_set_compaction_service(
   rocksdb_options_t* opt,
   rocksdb_compactionservice_t* service) {
-  // Use a no-op deleter to avoid double-free. The user retains ownership
-  // and must call rocksdb_compactionservice_destroy() to clean up.
-  opt->rep.compaction_service = std::shared_ptr<CompactionService>(
-      service, [](CompactionService*) { /* no-op deleter */ });
+    if(!opt || !service) {
+      return;
+    }
+
+    opt->rep.compaction_service = std::shared_ptr<CompactionService>(service);
+
+}
+
+// CompactionServiceOptionsOverride functions
+rocksdb_compaction_service_options_override_t* rocksdb_compaction_service_options_override_create() {
+  return new rocksdb_compaction_service_options_override_t;
+}
+
+void rocksdb_compaction_service_options_override_destroy(
+    rocksdb_compaction_service_options_override_t* override_options) {
+  delete override_options;
+}
+
+void rocksdb_compaction_service_options_override_set_env(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_env_t* env) {
+  if (override_options && env) {
+    override_options->rep.env = env->rep;
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_comparator(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_comparator_t* comparator) {
+  if (override_options && comparator) {
+    override_options->rep.comparator = static_cast<const Comparator*>(comparator);
+  }
+}
+
+// OpenAndCompactOptions functions
+rocksdb_open_and_compact_options_t* rocksdb_open_and_compact_options_create() {
+  return new rocksdb_open_and_compact_options_t;
+}
+
+void rocksdb_open_and_compact_options_destroy(
+    rocksdb_open_and_compact_options_t* options) {
+  delete options;
+}
+
+void rocksdb_open_and_compact_options_set_canceled(
+    rocksdb_open_and_compact_options_t* options,
+    unsigned char* canceled) {
+  if (options && canceled) {
+    options->rep.canceled = reinterpret_cast<std::atomic<bool>*>(canceled);
+  }
+}
+
+void rocksdb_open_and_compact_options_set_allow_resumption(
+    rocksdb_open_and_compact_options_t* options,
+    unsigned char allow_resumption) {
+  if (options) {
+    options->rep.allow_resumption = allow_resumption != 0;
+  }
+}
+
+// OpenAndCompact functions
+char* rocksdb_open_and_compact(
+    const char* db_path,
+    const char* output_directory,
+    const char* input,
+    size_t input_len,
+    size_t* output_len,
+    const rocksdb_compaction_service_options_override_t* override_options,
+    char** errptr) {
+  
+  if (!db_path || !output_directory || !input || !override_options) {
+    SaveError(errptr, Status::InvalidArgument("Invalid arguments"));
+    return nullptr;
+  }
+
+  std::string input_str(input, input_len);
+  std::string output_str;
+  
+  Status s = DB::OpenAndCompact(
+      db_path,
+      output_directory,
+      input_str,
+      &output_str,
+      override_options->rep
+  );
+
+  if (!s.ok()) {
+    SaveError(errptr, s);
+    return nullptr;
+  }
+
+  if (output_len) {
+    *output_len = output_str.size();
+  }
+  char* result = static_cast<char*>(malloc(output_str.size()));
+  if (result) {
+    memcpy(result, output_str.data(), output_str.size());
+  }
+  return result;
+}
+
+char* rocksdb_open_and_compact_with_options(
+    const rocksdb_open_and_compact_options_t* options,
+    const char* db_path,
+    const char* output_directory,
+    const char* input,
+    size_t input_len,
+    size_t* output_len,
+    const rocksdb_compaction_service_options_override_t* override_options,
+    char** errptr) {
+  
+  if (!options || !db_path || !output_directory || !input || !override_options) {
+    SaveError(errptr, Status::InvalidArgument("Invalid arguments"));
+    return nullptr;
+  }
+
+  std::string input_str(input, input_len);
+  std::string output_str;
+  
+  Status s = DB::OpenAndCompact(
+      options->rep,
+      db_path,
+      output_directory,
+      input_str,
+      &output_str,
+      override_options->rep
+  );
+
+  if (!s.ok()) {
+    SaveError(errptr, s);
+    return nullptr;
+  }
+
+  // Allocate and copy output
+  if (output_len) {
+    *output_len = output_str.size();
+  }
+  char* result = static_cast<char*>(malloc(output_str.size()));
+  if (result) {
+    memcpy(result, output_str.data(), output_str.size());
+  }
+  return result;
 }
  
 
