@@ -487,19 +487,18 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
     // Callback for async read completion
     // TODO: Probably need to make this more useful.
     auto cb = [](const FSReadRequest& req, void* cb_arg) {
-      FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
-      read_req->status = req.status;
+      auto async_state = static_cast<AsyncIOState*>(cb_arg);
     };
 
     s = rep->file->ReadAsync(async_state->read_req, io_opts, cb,
-                             &async_state->read_req, &async_state->io_handle,
+                             async_state.get(), &async_state->io_handle,
                              &async_state->del_fn,
                              direct_io ? &async_state->aligned_buf : nullptr);
 
-    assert(async_state->io_handle);
     if (!s.ok()) {
       continue;
     }
+    assert(async_state->io_handle);
 
     // Add async state to map for all blocks in this request
     for (const auto idx : async_state->block_indices) {
