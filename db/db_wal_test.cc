@@ -1295,11 +1295,12 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
 }
 
 // Test WAL recovery with mixed batch containing both regular and transient CF
-// writes. Transient CF metadata is not in MANIFEST-  during recovery, writes
+// writes. Transient CF metadata is not in MANIFEST, so during recovery, writes
 // to transient CFs are silently ignored while regular CF writes are recovered.
 TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
   Options options = CurrentOptions();
   options.create_missing_column_families = true;
+  // ensure data stays in WAL
   options.disable_auto_compactions = true;
   options.avoid_flush_during_recovery = true;
 
@@ -1325,17 +1326,26 @@ TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
   WriteBatch batch;
   ASSERT_OK(batch.Put(handles_[0], "foo", "bar"));
   ASSERT_OK(batch.Put(handles_[1], "foo", "bar"));
-  ASSERT_OK(batch.Put(handles_[2], "a", "b"));
+  ASSERT_OK(batch.Put(handles_[2], "temp", "temp"));
+  ASSERT_OK(batch.Put(handles_[2], "long", "gone"));
   ASSERT_OK(batch.Put(handles_[3], "mew", "two"));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
   ASSERT_EQ(Get(0, "foo"), "bar");
   ASSERT_EQ(Get(1, "foo"), "bar");
-  ASSERT_EQ(Get(2, "a"), "b");
+  ASSERT_EQ(Get(2, "temp"), "temp");
+  ASSERT_EQ(Get(2, "long"), "gone");
   ASSERT_EQ(Get(3, "mew"), "two");
 
   // close without flush - forces us to recover memtables from WAL
   Close();
+
+  // count skipped transient CF writes during WAL replay
+  std::atomic<int> skipped_cf_write_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBatchInternal::PutCFImpl::SkippedCFWrite",
+      [&](void* /*arg*/) { skipped_cf_write_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // Reopen (without transient cf)
   std::vector<ColumnFamilyDescriptor> reopen_cf_descs;
@@ -1346,23 +1356,29 @@ TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
 
   ASSERT_OK(DB::Open(options, dbname_, reopen_cf_descs, &handles_, &db_));
 
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // 2 transient cf writes skipped
+  ASSERT_EQ(skipped_cf_write_count.load(), 2);
+
   ASSERT_EQ(handles_.size(), 3)
       << "Expected 3 CFs after reopen: default + regular_cf1 + regular_cf2";
 
-  // regular CF data should be recovered from WAL, while transient CF should be
-  // skipped during WAL replay, since ignore_missing_column_families=true
+  // Verify regular CF data was recovered from WAL
+  // During WAL replay, ignore_missing_column_families=true, so transient CF
+  // operations are silently skipped while regular CF operations succeed
   ASSERT_EQ(Get(0, "foo"), "bar")
-      << "regular cf data should be recovered from WAL";
+      << "Default CF data should be recovered from WAL";
   ASSERT_EQ(Get(1, "foo"), "bar")
-      << "regular cf data should be recovered from WAL";
+      << "Regular CF 1 data should be recovered from WAL";
   ASSERT_EQ(Get(2, "mew"), "two")
-      << "regular cf data should be recovered from WAL";
+      << "Regular CF 2 data should be recovered from WAL";
 
   Close();
 
   // Reopen with create_missing_column_families=true and create a new transient
   // cf with same name
-
   std::vector<ColumnFamilyDescriptor> final_cf_descs;
   final_cf_descs.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
@@ -1379,7 +1395,107 @@ TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
   ASSERT_EQ(Get(0, "foo"), "bar");
   ASSERT_EQ(Get(1, "foo"), "bar");
   ASSERT_EQ(Get(2, "mew"), "two");
-  ASSERT_EQ(Get(3, "a"), "NOT_FOUND");
+  ASSERT_EQ(Get(3, "temp"), "NOT_FOUND");
+}
+
+// Test WAL recovery with transient CFs
+TEST_F(DBWALTest, RecoveryWithTransientCF) {
+  Options options = CurrentOptions();
+  options.create_missing_column_families = true;
+  options.avoid_flush_during_recovery = true;
+
+  ColumnFamilyOptions cf_opts(options);
+  ColumnFamilyOptions transient_opts(options);
+  transient_opts.is_transient = true;
+
+  DestroyAndReopen(options);
+  Close();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
+  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
+  cf_descs.push_back(ColumnFamilyDescriptor("transient_cf", transient_opts));
+  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+
+  ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles_, &db_));
+
+  ASSERT_EQ(handles_.size(), 4)
+      << "Expected 4 CFs: default + regular_cf1 + transient_cf + regular_cf2";
+
+  // Write individual Put operations (not using WriteBatch explicitly)
+  // to different column families
+  ASSERT_OK(Put(0, "foo", "bar"));
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(2, "temp", "temp"));
+  ASSERT_OK(Put(2, "long", "gone"));
+  ASSERT_OK(Put(3, "mew", "two"));
+
+  ASSERT_EQ(Get(0, "foo"), "bar");
+  ASSERT_EQ(Get(1, "foo"), "bar");
+  ASSERT_EQ(Get(2, "temp"), "temp");
+  ASSERT_EQ(Get(2, "long"), "gone");
+  ASSERT_EQ(Get(3, "mew"), "two");
+
+  // close without flush - forces us to recover memtables from WAL
+  Close();
+
+  // Set up sync point to count skipped transient CF writes during WAL replay
+  std::atomic<int> skipped_cf_write_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBatchInternal::PutCFImpl::SkippedCFWrite",
+      [&](void* /*arg*/) { skipped_cf_write_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Reopen (without transient cf)
+  std::vector<ColumnFamilyDescriptor> reopen_cf_descs;
+  reopen_cf_descs.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
+  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
+  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+
+  ASSERT_OK(DB::Open(options, dbname_, reopen_cf_descs, &handles_, &db_));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // 2 puts for transient cf data should be skipped
+  ASSERT_EQ(skipped_cf_write_count.load(), 2);
+
+  ASSERT_EQ(handles_.size(), 3)
+      << "Expected 3 CFs after reopen: default + regular_cf1 + regular_cf2";
+
+  // Verify regular CF data was recovered from WAL
+  ASSERT_EQ(Get(0, "foo"), "bar")
+      << "Default CF data should be recovered from WAL";
+  ASSERT_EQ(Get(1, "foo"), "bar")
+      << "Regular CF 1 data should be recovered from WAL";
+  ASSERT_EQ(Get(2, "mew"), "two")
+      << "Regular CF 2 data should be recovered from WAL";
+
+  Close();
+
+  // Reopen with a transient cf with the same name, it will be created as a new
+  // transient cf since create_missing_column_families=true
+  std::vector<ColumnFamilyDescriptor> final_cf_descs;
+  final_cf_descs.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
+  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
+  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+  final_cf_descs.push_back(
+      ColumnFamilyDescriptor("transient_cf", transient_opts));
+
+  ASSERT_OK(DB::Open(options, dbname_, final_cf_descs, &handles_, &db_));
+
+  ASSERT_EQ(handles_.size(), 4);
+
+  // Verify regular CF data is still there, but transient cf data was lost
+  ASSERT_EQ(Get(0, "foo"), "bar");
+  ASSERT_EQ(Get(1, "foo"), "bar");
+  ASSERT_EQ(Get(2, "mew"), "two");
+  ASSERT_EQ(Get(3, "temp"), "NOT_FOUND");
+  ASSERT_EQ(Get(3, "long"), "NOT_FOUND");
+
+  Close();
 }
 
 TEST_F(DBWALTest, RecoverWithLargeLog) {
