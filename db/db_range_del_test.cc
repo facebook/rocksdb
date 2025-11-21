@@ -3825,6 +3825,134 @@ TEST_F(DBRangeDelTest, RowCache) {
   // and should not turn db into read-only mdoe.
   ASSERT_OK(Put(Key(5), "foo"));
 }
+
+TEST_F(DBRangeDelTest, FileCutWithTruncatedRangeDelKey) {
+  // Test for a bug that used to generate files with meta.smallest
+  // containing kMaxValid.
+  //
+  // Setup:
+  // - Write Key(2), Key(3) and DeleteRange(Key(1), Key(4))
+  // - Flush to L0
+  // - Use SingleKeySstPartitioner to force each user key into its own file
+  // - Compact files from L0 to L1 will generate files
+  // File[0]:
+  //   smallest=[user_key=key000001, seq=4, type=15],
+  //   largest= [user_key=key000002, seq=72057594037927935, type=15]
+  // File[1]:
+  //   smallest=[user_key=key000002, seq=2, type=1],
+  //   largest= [user_key=key000003, seq=72057594037927935, type=15]
+  // File[2]:
+  //   smallest=[user_key=key000003, seq=3, type=1],
+  //   largest= [user_key=key000004, seq=72057594037927935, type=15]
+  // With range deletions truncated to each files key range.
+  //
+  // - Compact these files again into L2. RocksDB usede to set truncated
+  // range deletion start key to have value type kMaxValid. The range deletion
+  // start key is used in compaction file cutting decision.
+  // - Verify the file boundary keys after compaction have valid boundary keys
+  //
+  // Before the fix:
+  // File[0]:
+  //   smallest=[user_key=key000001, seq=4, type=15],
+  //   largest= [user_key=key000002, seq=72057594037927935, type=15]
+  // File[1]:
+  //   smallest=[user_key=key000002, seq=2, type=26],
+  //   largest= [user_key=key000003, seq=72057594037927935, type=15]
+  // File[2]:
+  //   smallest=[user_key=key000003, seq=3, type=26],
+  //   largest= [user_key=key000004, seq=72057594037927935, type=15]
+  //
+  // After the fix:
+  // File[0]:
+  //   smallest=[user_key=key000001, seq=4, type=15],
+  //   largest= [user_key=key000002, seq=72057594037927935, type=15]
+  // File[1]:
+  //   smallest=[user_key=key000002, seq=2, type=1],
+  //   largest= [user_key=key000003, seq=72057594037927935, type=15]
+  // File[2]:
+  //   smallest=[user_key=key000003, seq=3, type=1],
+  //   largest= [user_key=key000004, seq=72057594037927935, type=15]
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  // Use partitioner that cuts before every new user key.
+  // Key(x) generates keys of length 9.
+  auto factory = std::shared_ptr<SstPartitionerFactory>(
+      NewSstPartitionerFixedPrefixFactory(10));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  // Create a file in a lower level so the compactions below are not
+  // bottommost compactions. Range deletion start keys are not considered
+  // in bottommost compaction.
+  ASSERT_OK(Put(Key(3), rnd.RandomBinaryString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+  ASSERT_OK(Put(Key(2), rnd.RandomString(100)));
+  // Snapshots keep point keys alive.
+  ManagedSnapshot snapshot1(db_);
+  ASSERT_OK(Put(Key(3), rnd.RandomString(100)));
+  ManagedSnapshot snapshot2(db_);
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
+                             Key(4)));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  ColumnFamilyMetaData cf_meta_l0;
+  db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_l0);
+  ASSERT_EQ(1, cf_meta_l0.levels[0].files.size());
+  std::vector<std::string> l0_filenames;
+  for (const auto& sst_file : cf_meta_l0.levels[0].files) {
+    l0_filenames.push_back(sst_file.name);
+  }
+
+  // Compact L0 files to L1
+  CompactionOptions compact_options_l0;
+  ASSERT_OK(db_->CompactFiles(compact_options_l0, l0_filenames, 1));
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+
+  // Check L1 file metadata
+  std::vector<std::vector<FileMetaData>> files_l1;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_l1);
+
+  for (const auto& file : files_l1[1]) {
+    ASSERT_LT(ExtractValueType(file.smallest.Encode()), kTypeMaxValid);
+    ASSERT_LT(ExtractValueType(file.largest.Encode()), kTypeMaxValid);
+  }
+
+  // Get file names from level 1
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta);
+  std::vector<std::string> input_filenames;
+  for (const auto& sst_file : cf_meta.levels[1].files) {
+    input_filenames.push_back(sst_file.name);
+  }
+
+  // Compact files from L1 to L2
+  CompactionOptions compact_options;
+  ASSERT_OK(db_->CompactFiles(compact_options, input_filenames, 2));
+
+  // Check L2 file metadata
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
+
+  for (const auto& file : files[2]) {
+    ASSERT_LT(ExtractValueType(file.smallest.Encode()), kTypeMaxValid);
+    ASSERT_LT(ExtractValueType(file.largest.Encode()), kTypeMaxValid);
+  }
+
+  // // Verify iteration works correctly
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
