@@ -169,6 +169,13 @@ typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
 // Remote compaction typedef
 typedef struct rocksdb_compactionservice_scheduleresponse_t rocksdb_compactionservice_scheduleresponse_t;
 typedef struct rocksdb_compactionservice_jobinfo_t rocksdb_compactionservice_jobinfo_t;
+typedef struct rocksdb_compactionservice_t rocksdb_compactionservice_t;
+typedef rocksdb_compactionservice_scheduleresponse_t* (*rocksdb_compaction_service_schedule_cb)(
+    void* state,
+    const rocksdb_compactionservice_jobinfo_t* info,
+    const char* compaction_service_input,
+    size_t input_len
+);
 
 /* DB operations */
 
@@ -3524,6 +3531,13 @@ enum {
     rocksdb_compactionservice_jobstatus_use_local = 3,
   };
 
+enum {
+    rocksdb_compaction_service_job_status_success = 0,
+    rocksdb_compaction_service_job_status_failure = 1,
+    rocksdb_compaction_service_job_status_aborted = 2,
+    rocksdb_compaction_service_job_status_use_local = 3
+  };
+
 extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(
     const char* scheduled_job_id,
     int status
@@ -3578,7 +3592,21 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
     const rocksdb_compactionservice_jobinfo_t* info);
  
+extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_t*
+rocksdb_compactionservice_create(
+    void* state,
+    void (*destructor)(void*),
+    rocksdb_compaction_service_schedule_cb schedule,
+    const char* name);
 
+extern ROCKSDB_LIBRARY_API void 
+rocksdb_compactionservice_destroy(rocksdb_compactionservice_t* service);
+
+extern ROCKSDB_LIBRARY_API void 
+rocksdb_options_set_compaction_service(
+    rocksdb_options_t* options,
+    rocksdb_compactionservice_t* service);
+    
 #ifdef __cplusplus
 } /* end extern "C" */
 #endif

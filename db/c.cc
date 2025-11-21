@@ -148,6 +148,7 @@ using ROCKSDB_NAMESPACE::WriteStallInfo;
 using ROCKSDB_NAMESPACE::CompactionServiceScheduleResponse;
 using ROCKSDB_NAMESPACE::CompactionServiceJobStatus;
 using ROCKSDB_NAMESPACE::CompactionServiceJobInfo;
+using ROCKSDB_NAMESPACE::CompactionService;
 
 using std::unordered_set;
 using std::vector;
@@ -762,6 +763,75 @@ const char* rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(
 return response->rep.scheduled_job_id.data();
 }
 
+
+struct rocksdb_compactionservice_t : public CompactionService {
+  void* state_;
+  void (*destructor_) (void*);
+  rocksdb_compaction_service_schedule_cb schedule_;
+  std::string name_;  
+  
+  rocksdb_compactionservice_t (void *state, void(*destructor)(void*),
+    rocksdb_compaction_service_schedule_cb rocksdb_compaction_service_schedule_ptr,
+    const char* name
+  ) : state_(state), destructor_(destructor), schedule_(rocksdb_compaction_service_schedule_ptr),
+      name_(name ? name : "CompactionService") {}
+  
+  ~rocksdb_compactionservice_t() override {
+    if (destructor_) {
+        (*destructor_)(state_);
+      }
+  }
+
+  const char* Name() const override {
+    return name_.c_str();
+  }
+
+  CompactionServiceScheduleResponse Schedule(
+    const CompactionServiceJobInfo& info, 
+    const std::string & compaction_service_input
+  ) override {
+    rocksdb_compactionservice_scheduleresponse_t* c_response = (*schedule_)(
+      state_,
+      reinterpret_cast<const rocksdb_compactionservice_jobinfo_t*>(&info),
+      compaction_service_input.data(),
+      compaction_service_input.size()
+    );
+
+    CompactionServiceScheduleResponse response = c_response->rep;
+    delete c_response;
+    return response;
+
+  }
+
+  CompactionServiceJobStatus Wait(
+    const std::string& /*scheduled_job_id*/, 
+    std::string* /*result*/) override {
+      return CompactionServiceJobStatus::kUseLocal;
+  
+  }
+    
+};
+
+rocksdb_compactionservice_t* rocksdb_compactionservice_create(
+  void* state,
+  void (*destructor)(void*),
+  rocksdb_compaction_service_schedule_cb schedule,
+  const char* name) {
+return new rocksdb_compactionservice_t(state, destructor, schedule, name);
+}
+
+void rocksdb_compactionservice_destroy(rocksdb_compactionservice_t* service) {
+delete service;
+}
+
+void rocksdb_options_set_compaction_service(
+  rocksdb_options_t* opt,
+  rocksdb_compactionservice_t* service) {
+  // Use a no-op deleter to avoid double-free. The user retains ownership
+  // and must call rocksdb_compactionservice_destroy() to clean up.
+  opt->rep.compaction_service = std::shared_ptr<CompactionService>(
+      service, [](CompactionService*) { /* no-op deleter */ });
+}
  
 
 rocksdb_t* rocksdb_open(const rocksdb_options_t* options, const char* name,
@@ -7962,7 +8032,7 @@ rocksdb_memory_usage_t* rocksdb_approximate_memory_usage_create(
     dbs.push_back(db->rep);
   }
 
-  unordered_set<const Cache*> cache_set;
+  std::unordered_set<const Cache*> cache_set;
   for (auto cache : consumers->caches) {
     cache_set.insert(const_cast<const Cache*>(cache->rep.get()));
   }
