@@ -3894,12 +3894,11 @@ TEST_F(DBRangeDelTest, FileCutWithTruncatedRangeDelKey) {
   MoveFilesToLevel(6);
   ASSERT_EQ(1, NumTableFilesAtLevel(6));
 
-  // Snapshots keep point keys alive.
-  std::vector<const Snapshot*> snapshots;
   ASSERT_OK(Put(Key(2), rnd.RandomString(100)));
-  snapshots.push_back(db_->GetSnapshot());
+  // Snapshots keep point keys alive.
+  ManagedSnapshot snapshot1(db_);
   ASSERT_OK(Put(Key(3), rnd.RandomString(100)));
-  snapshots.push_back(db_->GetSnapshot());
+  ManagedSnapshot snapshot2(db_);
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
                              Key(4)));
   ASSERT_OK(Flush());
@@ -3953,11 +3952,6 @@ TEST_F(DBRangeDelTest, FileCutWithTruncatedRangeDelKey) {
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
-
-  // Clean up snapshots
-  for (const auto s : snapshots) {
-    db_->ReleaseSnapshot(s);
-  }
 }
 }  // namespace ROCKSDB_NAMESPACE
 
