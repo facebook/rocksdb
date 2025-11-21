@@ -486,8 +486,8 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
 
     // Callback for async read completion
     // TODO: Probably need to make this more useful.
-    auto cb = [](const FSReadRequest& req, void* cb_arg) {
-      auto async_state = static_cast<AsyncIOState*>(cb_arg);
+    auto cb = [](const FSReadRequest& /*req*/, void* /*cb_arg*/) {
+      // Placeholder callback - currently does nothing
     };
 
     s = rep->file->ReadAsync(async_state->read_req, io_opts, cb,
