@@ -669,76 +669,129 @@ static inline char* CopyString(const Slice& slice) {
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
   const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  if (!info || !len) {
+    if (len) *len = 0;
+    return "";
+  }
   *len = info->rep.db_name.size();
   return info->rep.db_name.data();
 }
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_id(
   const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  if (!info || !len) {
+    if (len) *len = 0;
+    return "";
+  }
   *len = info->rep.db_id.size();
   return info->rep.db_id.data();
 }
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_session_id(
   const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  if (!info || !len) {
+    if (len) *len = 0;
+    return "";
+  }
   *len = info->rep.db_session_id.size();
   return info->rep.db_session_id.data();
 }
 
 const char* rocksdb_compactionservice_jobinfo_t_get_cf_name(
   const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
+  if (!info || !len) {
+    if (len) *len = 0;
+    return "";
+  }
   *len = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
 uint32_t rocksdb_compactionservice_jobinfo_t_get_cf_id(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.cf_id;
 }
 
 uint64_t rocksdb_compactionservice_jobinfo_t_get_job_id(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.job_id;
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_priority(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return static_cast<int>(info->rep.priority);
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_compaction_reason(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return static_cast<int>(info->rep.compaction_reason);
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_base_input_level(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.base_input_level;
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_output_level(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.output_level;
 }
 
 unsigned char rocksdb_compactionservice_jobinfo_t_is_full_compaction(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.is_full_compaction;
 }
 
 unsigned char rocksdb_compactionservice_jobinfo_t_is_manual_compaction(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.is_manual_compaction;
 }
 
 unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
   const rocksdb_compactionservice_jobinfo_t* info) {
+  if (!info) {
+    return 0;
+  }
   return info->rep.bottommost_level;
 }
 
 rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(
   const char* scheduled_job_id, int status) {
-rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t{
+  // Validate status is in range
+  if (status < 0 || status > 3) {
+    return nullptr;
+  }
+  
+  // If status is success, job_id must be provided
+  if (status == 0 && (!scheduled_job_id || scheduled_job_id[0] == '\0')) {
+    return nullptr;
+  }
+  
+  rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t{
     CompactionServiceScheduleResponse(
       scheduled_job_id ? std::string(scheduled_job_id) : "",
       static_cast<CompactionServiceJobStatus>(status)
@@ -749,7 +802,17 @@ rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactions
 
 rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create_with_status(
   int status) {
-rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t{
+  // Validate status is in range
+  if (status < 0 || status > 3) {
+    return nullptr;
+  }
+  
+  // Status must NOT be success (success requires a job_id)
+  if (status == 0) {
+    return nullptr;
+  }
+  
+  rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactionservice_scheduleresponse_t{
     CompactionServiceScheduleResponse(
       static_cast<CompactionServiceJobStatus>(status)
     )
@@ -759,7 +822,9 @@ rocksdb_compactionservice_scheduleresponse_t* response = new rocksdb_compactions
 
 void rocksdb_compactionservice_scheduleresponse_t_destroy(
   rocksdb_compactionservice_scheduleresponse_t* response) {
-  delete response;
+  if (response) {
+    delete response;
+  }
 }
 
 int rocksdb_compactionservice_scheduleresponse_getstatus(
@@ -808,7 +873,7 @@ struct rocksdb_compactionservice_t : public CompactionService {
     const std::string & compaction_service_input
   ) override {
 
-    if(schedule_ == nullptr) {
+    if (schedule_ == nullptr) {
       return CompactionServiceScheduleResponse(
         CompactionServiceJobStatus::kUseLocal);
     }
@@ -820,6 +885,11 @@ struct rocksdb_compactionservice_t : public CompactionService {
       compaction_service_input.size()
     );
 
+    if (c_response == nullptr) {
+      return CompactionServiceScheduleResponse(
+        CompactionServiceJobStatus::kFailure);
+    }
+
     CompactionServiceScheduleResponse response = std::move(c_response->rep);
     delete c_response;
     return response;
@@ -829,7 +899,7 @@ struct rocksdb_compactionservice_t : public CompactionService {
   CompactionServiceJobStatus Wait(
     const std::string& scheduled_job_id, 
     std::string* result) override {
-      if(wait_ == nullptr) {
+      if (wait_ == nullptr) {
         return CompactionServiceJobStatus::kUseLocal;
       }
       
@@ -843,8 +913,10 @@ struct rocksdb_compactionservice_t : public CompactionService {
         &result_len
       );
       
-      if (c_result != nullptr && result != nullptr) {
-        result->assign(c_result, result_len);
+      if (c_result != nullptr) {
+        if (result != nullptr) {
+          result->assign(c_result, result_len);
+        }
         free(c_result);
       }
       
@@ -884,7 +956,7 @@ return new rocksdb_compactionservice_t(state, destructor, schedule, name, wait, 
 void rocksdb_options_set_compaction_service(
   rocksdb_options_t* opt,
   rocksdb_compactionservice_t* service) {
-    if(!opt || !service) {
+    if (!opt || !service) {
       return;
     }
 
@@ -899,7 +971,9 @@ rocksdb_compaction_service_options_override_t* rocksdb_compaction_service_option
 
 void rocksdb_compaction_service_options_override_destroy(
     rocksdb_compaction_service_options_override_t* override_options) {
-  delete override_options;
+  if (override_options) {
+    delete override_options;
+  }
 }
 
 void rocksdb_compaction_service_options_override_set_env(
@@ -914,7 +988,24 @@ void rocksdb_compaction_service_options_override_set_comparator(
     rocksdb_compaction_service_options_override_t* override_options,
     rocksdb_comparator_t* comparator) {
   if (override_options && comparator) {
-    override_options->rep.comparator = static_cast<const Comparator*>(comparator);
+    override_options->rep.comparator = comparator;
+  }
+}
+
+// Atomic bool management for cancellation
+unsigned char* rocksdb_open_and_compact_canceled_create() {
+  return reinterpret_cast<unsigned char*>(new std::atomic<bool>(false));
+}
+
+void rocksdb_open_and_compact_canceled_destroy(unsigned char* canceled) {
+  if (canceled) {
+    delete reinterpret_cast<std::atomic<bool>*>(canceled);
+  }
+}
+
+void rocksdb_open_and_compact_canceled_set(unsigned char* canceled, unsigned char value) {
+  if (canceled) {
+    reinterpret_cast<std::atomic<bool>*>(canceled)->store(value != 0);
   }
 }
 
@@ -925,7 +1016,9 @@ rocksdb_open_and_compact_options_t* rocksdb_open_and_compact_options_create() {
 
 void rocksdb_open_and_compact_options_destroy(
     rocksdb_open_and_compact_options_t* options) {
-  delete options;
+  if (options) {
+    delete options;
+  }
 }
 
 void rocksdb_open_and_compact_options_set_canceled(
@@ -978,10 +1071,14 @@ char* rocksdb_open_and_compact(
   if (output_len) {
     *output_len = output_str.size();
   }
-  char* result = static_cast<char*>(malloc(output_str.size()));
-  if (result) {
-    memcpy(result, output_str.data(), output_str.size());
+  char* result = static_cast<char*>(malloc(output_str.size() + 1));
+  if (!result) {
+    SaveError(errptr, Status::MemoryLimit("Failed to allocate output buffer"));
+    return nullptr;
   }
+
+  memcpy(result, output_str.data(), output_str.size());
+  result[output_str.size()] = '\0'; 
   return result;
 }
 
@@ -1017,14 +1114,19 @@ char* rocksdb_open_and_compact_with_options(
     return nullptr;
   }
 
-  // Allocate and copy output
   if (output_len) {
     *output_len = output_str.size();
   }
-  char* result = static_cast<char*>(malloc(output_str.size()));
-  if (result) {
-    memcpy(result, output_str.data(), output_str.size());
+
+  // Allocate +1 for null terminator
+  char* result = static_cast<char*>(malloc(output_str.size() + 1));
+  if (!result) {
+    SaveError(errptr, Status::MemoryLimit("Failed to allocate output buffer"));
+    return nullptr;
   }
+
+  memcpy(result, output_str.data(), output_str.size());
+  result[output_str.size()] = '\0';  // Null terminate
   return result;
 }
  

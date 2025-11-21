@@ -3637,6 +3637,18 @@ rocksdb_compaction_service_options_override_set_comparator(
     rocksdb_compaction_service_options_override_t* override_options,
     rocksdb_comparator_t* comparator);
 
+// Atomic bool management for cancellation
+// Creates an atomic bool that can be used for cancellation.
+// User must call rocksdb_open_and_compact_canceled_destroy() to free it.
+extern ROCKSDB_LIBRARY_API unsigned char*
+rocksdb_open_and_compact_canceled_create();
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_open_and_compact_canceled_destroy(unsigned char* canceled);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_open_and_compact_canceled_set(unsigned char* canceled, unsigned char value);
+
 // OpenAndCompactOptions
 extern ROCKSDB_LIBRARY_API rocksdb_open_and_compact_options_t*
 rocksdb_open_and_compact_options_create();
