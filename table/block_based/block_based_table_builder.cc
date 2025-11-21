@@ -1761,6 +1761,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   assert(!r->IsParallelCompressionActive());
   CompressionType type;
   bool is_data_block = block_type == BlockType::kData;
+  // NOTE: only index and data blocks are currently compressed
+  assert(is_data_block || block_type == BlockType::kIndex);
   Status compress_status = CompressAndVerifyBlock(
       uncompressed_block_data, is_data_block,
       is_data_block ? r->data_block_working_area : r->index_block_working_area,
