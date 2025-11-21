@@ -4,6 +4,16 @@ runs:
   steps:
   - name: Add msbuild to PATH
     uses: microsoft/setup-msbuild@v1.3.1
+  - name: Cache ccache directory
+    id: ccache-cache
+    uses: actions/cache@v4
+    with:
+      path: C:\a\rocksdb\rocksdb\.ccache
+      key: rocksdb-build-${{ runner.os }}-${{ runner.arch }}-ccache-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}-v1
+  - name: ccache
+    uses: hendrikmuhs/ccache-action@v1.2
+    with:
+      max-size: "10GB"
   - name: Custom steps
     env:
       THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
@@ -11,9 +21,9 @@ runs:
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
       CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
       JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
-      SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.1.8
-      SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.1.8;${{ github.workspace }}/thirdparty/snappy-1.1.8/build
-      SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.2.2
+      SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.2.2;${{ github.workspace }}/thirdparty/snappy-1.2.2/build
+      SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.2.2/build/Debug/snappy.lib
     run: |-
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
@@ -22,14 +32,14 @@ runs:
       mkdir $Env:THIRDPARTY_HOME
       cd $Env:THIRDPARTY_HOME
       echo "Building Snappy dependency..."
-      curl -Lo snappy-1.1.8.zip https://github.com/google/snappy/archive/refs/tags/1.1.8.zip
+      curl -Lo snappy-1.2.2.zip https://github.com/google/snappy/archive/refs/tags/1.2.2.zip
       if(!$?) { Exit $LASTEXITCODE }
-      unzip -q snappy-1.1.8.zip
+      unzip -q snappy-1.2.2.zip
       if(!$?) { Exit $LASTEXITCODE }
-      cd snappy-1.1.8
+      cd snappy-1.2.2
       mkdir build
       cd build
-      & cmake -G "$Env:CMAKE_GENERATOR" ..
+      & cmake -G "$Env:CMAKE_GENERATOR" .. -DSNAPPY_BUILD_TESTS=OFF -DSNAPPY_BUILD_BENCHMARKS=OFF
       if(!$?) { Exit $LASTEXITCODE }
       msbuild Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
@@ -38,11 +48,12 @@ runs:
       $env:Path = $env:JAVA_HOME + ";" + $env:Path
       mkdir build
       cd build
-      & cmake -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DJNI=1 ..
+      & cmake -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DWIN_CI=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DXPRESS=1 -DJNI=1 ..
       if(!$?) { Exit $LASTEXITCODE }
       cd ..
       echo "Building with VS version: $Env:CMAKE_GENERATOR"
-      msbuild build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      # use more parallel processes than the number of processes available, as most of the compile command would be cache hit
+      msbuild build/rocksdb.sln /m:32 /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
       echo ========================= Test RocksDB =========================
       build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
@@ -52,3 +63,7 @@ runs:
       & ctest -C Debug -j 16
       if(!$?) { Exit $LASTEXITCODE }
     shell: pwsh
+  - name: Show ccache stats
+    shell: pwsh
+    run: |
+      ccache --show-stats -v
