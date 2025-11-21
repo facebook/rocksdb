@@ -110,6 +110,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   }
 }
 
+// A convenience function for populating the Compressor* fields; see ~Rep()
 Compressor* MaybeCloneSpecialized(
     Compressor* compressor, CacheEntryRole block_type,
     Compressor::DictSampleArgs&& dict_samples = {}) {
@@ -843,10 +844,10 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<Compressor> basic_compressor;
   // A compressor for data blocks, which might be tuned differently and might
   // use dictionary compression (when applicable). See ~Rep() for some details.
-  Compressor* data_block_compressor = nullptr;
+  UnownedPtr<Compressor> data_block_compressor = nullptr;
   // A compressor for index blocks, which might be tuned differently from
   // basic_compressor. See ~Rep() for some details.
-  Compressor* index_block_compressor = nullptr;
+  UnownedPtr<Compressor> index_block_compressor = nullptr;
   // A decompressor corresponding to basic_compressor (when non-nullptr).
   // Used for verification and cache warming.
   std::shared_ptr<Decompressor> basic_decompressor;
@@ -1116,7 +1117,7 @@ struct BlockBasedTableBuilder::Rep {
         index_block_compressor = MaybeCloneSpecialized(
             basic_compressor.get(), CacheEntryRole::kIndexBlock);
         index_block_working_area.compress =
-            basic_compressor->ObtainWorkingArea();
+            index_block_compressor->ObtainWorkingArea();
       }
       max_dict_sample_bytes = basic_compressor->GetMaxSampleSizeIfWantDict(
           CacheEntryRole::kDataBlock);
@@ -1315,16 +1316,19 @@ struct BlockBasedTableBuilder::Rep {
   }
 
   ~Rep() {
-    // Delete specialized compressors if they were distinct (avoiding extra
-    // fields and interlocked instructions with shared_ptr)
-    if (data_block_compressor != basic_compressor.get()) {
-      delete data_block_compressor;
-    }
-    if (index_block_compressor != basic_compressor.get()) {
-      delete index_block_compressor;
-    }
+    // Delete working areas before their compressors.
+    index_block_working_area = {};
+    data_block_working_area = {};
     // Must have been cleaned up by StopParallelCompression
     assert(pc_rep == nullptr);
+    // Delete specialized compressors if they were distinct (avoiding extra
+    // fields and interlocked instructions with shared_ptr)
+    if (data_block_compressor.get() != basic_compressor.get()) {
+      delete data_block_compressor.get();
+    }
+    if (index_block_compressor.get() != basic_compressor.get()) {
+      delete index_block_compressor.get();
+    }
   }
 
   Rep(const Rep&) = delete;
@@ -1873,7 +1877,7 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
   Rep* r = rep_.get();
   Status status;
 
-  Compressor* compressor = nullptr;
+  UnownedPtr<Compressor> compressor = nullptr;
   Decompressor* verify_decomp = nullptr;
   if (is_data_block) {
     compressor = r->data_block_compressor;
@@ -2144,7 +2148,7 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   // that latency. So even with some optimizations, turning on the parallel
   // framework when compression is disabled just eats more CPU with little-to-no
   // improvement in throughput.
-  if (rep_->data_block_compressor == nullptr) {
+  if (!rep_->data_block_compressor) {
     // Force the generally best configuration for no compression: no parallelism
     return;
   }
@@ -2587,6 +2591,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     // The below code is neither safe nor necessary for handling zero data
     // blocks.
     // For PostPopulateCompressionProperties()
+    assert(!r->data_block_compressor);
     r->data_block_compressor = r->basic_compressor.get();
     return;
   }
