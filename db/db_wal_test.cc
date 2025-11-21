@@ -1294,6 +1294,94 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
   } while (ChangeWalOptions());
 }
 
+// Test WAL recovery with mixed batch containing both regular and transient CF
+// writes. Transient CF metadata is not in MANIFEST-  during recovery, writes
+// to transient CFs are silently ignored while regular CF writes are recovered.
+TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
+  Options options = CurrentOptions();
+  options.create_missing_column_families = true;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+
+  ColumnFamilyOptions cf_opts(options);
+  ColumnFamilyOptions transient_opts(options);
+  transient_opts.is_transient = true;
+
+  DestroyAndReopen(options);
+  Close();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
+  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
+  cf_descs.push_back(ColumnFamilyDescriptor("transient_cf", transient_opts));
+  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+
+  ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles_, &db_));
+
+  ASSERT_EQ(handles_.size(), 4)
+      << "Expected 4 CFs: default + regular_cf1 + transient_cf + regular_cf2";
+
+  // Write a mixed batch with both regular and transient CF operations
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(handles_[0], "foo", "bar"));
+  ASSERT_OK(batch.Put(handles_[1], "foo", "bar"));
+  ASSERT_OK(batch.Put(handles_[2], "a", "b"));
+  ASSERT_OK(batch.Put(handles_[3], "mew", "two"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_EQ(Get(0, "foo"), "bar");
+  ASSERT_EQ(Get(1, "foo"), "bar");
+  ASSERT_EQ(Get(2, "a"), "b");
+  ASSERT_EQ(Get(3, "mew"), "two");
+
+  // close without flush - forces us to recover memtables from WAL
+  Close();
+
+  // Reopen (without transient cf)
+  std::vector<ColumnFamilyDescriptor> reopen_cf_descs;
+  reopen_cf_descs.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
+  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
+  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+
+  ASSERT_OK(DB::Open(options, dbname_, reopen_cf_descs, &handles_, &db_));
+
+  ASSERT_EQ(handles_.size(), 3)
+      << "Expected 3 CFs after reopen: default + regular_cf1 + regular_cf2";
+
+  // regular CF data should be recovered from WAL, while transient CF should be
+  // skipped during WAL replay, since ignore_missing_column_families=true
+  ASSERT_EQ(Get(0, "foo"), "bar")
+      << "regular cf data should be recovered from WAL";
+  ASSERT_EQ(Get(1, "foo"), "bar")
+      << "regular cf data should be recovered from WAL";
+  ASSERT_EQ(Get(2, "mew"), "two")
+      << "regular cf data should be recovered from WAL";
+
+  Close();
+
+  // Reopen with create_missing_column_families=true and create a new transient
+  // cf with same name
+
+  std::vector<ColumnFamilyDescriptor> final_cf_descs;
+  final_cf_descs.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
+  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
+  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+  final_cf_descs.push_back(
+      ColumnFamilyDescriptor("transient_cf", transient_opts));
+
+  ASSERT_OK(DB::Open(options, dbname_, final_cf_descs, &handles_, &db_));
+
+  ASSERT_EQ(handles_.size(), 4);
+
+  // regular CF data is persisted, new transient CF doesn't have old key/value
+  ASSERT_EQ(Get(0, "foo"), "bar");
+  ASSERT_EQ(Get(1, "foo"), "bar");
+  ASSERT_EQ(Get(2, "mew"), "two");
+  ASSERT_EQ(Get(3, "a"), "NOT_FOUND");
+}
+
 TEST_F(DBWALTest, RecoverWithLargeLog) {
   do {
     {
