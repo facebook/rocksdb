@@ -1,1 +1,0 @@
-Fixed a bug in MultiScan where `max_sequential_skip_in_iterations` could cause the iterator to seek backward to already-unpinned blocks when the same user key spans multiple data blocks, leading to assertion failures or seg fault.
