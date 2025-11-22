@@ -766,6 +766,10 @@ struct CompressorCustomAlg : public CompressorWrapper {
     return kCompression;
   }
 
+  std::unique_ptr<Compressor> Clone() const override {
+    return std::make_unique<CompressorCustomAlg>(wrapped_->Clone());
+  }
+
   Status CompressBlock(Slice uncompressed_data, char* compressed_output,
                        size_t* compressed_output_size,
                        CompressionType* out_compression_type,
@@ -794,7 +798,7 @@ struct CompressorCustomAlg : public CompressorWrapper {
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
     auto clone =
-        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+        wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples));
     return std::make_unique<CompressorCustomAlg>(std::move(clone));
   }
 

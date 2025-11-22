@@ -16,7 +16,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // MultiCompressorWrapper implementation
 MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
-                                               CompressionDict&& dict) {
+                                               CompressionDict&& dict)
+    : opts_(opts) {
   // TODO: make the compression manager a field
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
@@ -59,6 +60,10 @@ const char* RandomMixedCompressor::Name() const {
   return "RandomMixedCompressor";
 }
 
+std::unique_ptr<Compressor> RandomMixedCompressor::Clone() const {
+  return std::make_unique<RandomMixedCompressor>(opts_);
+}
+
 Status RandomMixedCompressor::CompressBlock(
     Slice uncompressed_data, char* compressed_output,
     size_t* compressed_output_size, CompressionType* out_compression_type,
@@ -84,6 +89,10 @@ std::unique_ptr<Compressor> RandomMixedCompressionManager::GetCompressorForSST(
 // RoundRobinCompressor implementation
 const char* RoundRobinCompressor::Name() const {
   return "RoundRobinCompressor";
+}
+
+std::unique_ptr<Compressor> RoundRobinCompressor::Clone() const {
+  return std::make_unique<RoundRobinCompressor>(opts_);
 }
 
 Status RoundRobinCompressor::CompressBlock(
