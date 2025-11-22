@@ -1,6 +1,29 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.9.0 (11/21/2025)
+### New Features
+* Added an auto-tuning feature for DB manifest file size that also (by default) improves the safety of existing configurations in case `max_manifest_file_size` is repeatedly exceeded. The new recommendation is to set `max_manifest_file_size` to something small like 1MB and tune `max_manifest_space_amp_pct` as needed to balance write amp and space amp in the manifest. Refer to comments on those options in `DBOptions` for details. Both options are (now) mutable.
+* Added a new API to support option migration for multiple column families
+* Added new option target_file_size_is_upper_bound  that makes most compaction output SST files come close to the target file size without exceeding it, rather than commonly exceeding it by some fraction (current behavior). For now the new behavior is off by default, but we expect to enable it by default in the future.
+* Add a new option allow_trivial_move in CompactionOptions to allow CompactFiles to perform trivial move if possible. By default the flag of allow_trivial_move is false, so it preserve the original behavior.
+
+### Public API Changes
+* To reduce risk of ODR violations or similar, `ROCKSDB_USING_THREAD_STATUS` has been removed from public headers and replaced with static `const bool ThreadStatus::kEnabled`. Some other uses of conditional compilation have been removed from public API headers to reduce risk of ODR violations or other issues.
+
+### Behavior Changes
+* PosixWritableFile now repositions the seek pointer to the new end of file after a call to Truncate.
+* Updated standalone range deletion L0 file compaction behavior to avoid compacting with any newer L0 files (which is expensive and not useful).
+
+### Bug Fixes
+* Fix a bug where compaction with range deletion can persist kTypeMaxValid in MANIFEST as file metadata. kTypeMaxValid is not supposed to be persisted and can change as new value types are introduced. This can cause a forward compatibility issue where older versions of RocksDB don't recognize kTypeMaxValid from newer versions. A new placeholder value type kTypeTruncatedRangeDeletionSentinel is also introduced to replace kTypeMaxValid when reading existing SST files' metadata from MANIFEST. This allows us to strengthen some checks to avoid using kTypeMaxValid in the future.
+* Fixed a bug where `DB::GetSortedWalFiles()` could hang when waiting for a purge operation that found nothing to do (potentially triggered by iterator release, flush, compaction, etc.).
+* Fixed a bug in MultiScan where `max_sequential_skip_in_iterations` could cause the iterator to seek backward to already-unpinned blocks when the same user key spans multiple data blocks, leading to assertion failures or seg fault.
+* Fixed a bug for `WAL_ttl_seconds > 0` use cases where the newest archived WAL files could be incorrectly deleted when the system clock moved backwards.
+
+### Performance Improvements
+* Added optimization that allowed for the asynchronous prefetching of all data outlined in a multiscan iterator. This optimization was applied to the level iterator, which prefetches all data through each of the block-based iterators.
+
 ## 10.8.0 (10/21/2025)
 ### New Features
 * Add kFSPrefetch to FSSupportedOps enum to allow file systems to indicate prefetch support capability, avoiding unnecessary prefetch system calls on file systems that don't support them.
