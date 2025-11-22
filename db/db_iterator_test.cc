@@ -4293,6 +4293,9 @@ TEST_P(DBMultiScanIteratorTest, RangeAcrossFiles) {
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 50;
   options.compression = kNoCompression;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout for testing.
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
 
   auto rnd = Random::GetTLSInstance();
@@ -4463,6 +4466,9 @@ TEST_P(DBMultiScanIteratorTest, RangeBetweenFiles) {
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 50;
   options.compression = kNoCompression;
+  // Disable target_file_size_is_upper_bound to maintain the expected file
+  // layout for testing.
+  options.target_file_size_is_upper_bound = false;
   DestroyAndReopen(options);
 
   auto rnd = Random::GetTLSInstance();

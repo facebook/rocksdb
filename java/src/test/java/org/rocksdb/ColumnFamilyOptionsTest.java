@@ -183,6 +183,19 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void targetFileSizeIsUpperBound() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      assertThat(opt.targetFileSizeIsUpperBound()).isTrue();
+
+      opt.setTargetFileSizeIsUpperBound(false);
+      assertThat(opt.targetFileSizeIsUpperBound()).isFalse();
+
+      opt.setTargetFileSizeIsUpperBound(true);
+      assertThat(opt.targetFileSizeIsUpperBound()).isTrue();
+    }
+  }
+
+  @Test
   public void maxBytesForLevelBase() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();

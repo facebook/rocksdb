@@ -83,6 +83,9 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   bool IsEmpty() const override;
 
+  // Get the number of data blocks written so far
+  uint64_t NumDataBlocks() const override;
+
   uint64_t PreCompressionSize() const override;
 
   // Size of the file generated so far.  If invoked after a successful

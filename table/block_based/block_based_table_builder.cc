@@ -2827,6 +2827,10 @@ bool BlockBasedTableBuilder::IsEmpty() const {
   return rep_->props.num_entries == 0 && rep_->props.num_range_deletions == 0;
 }
 
+uint64_t BlockBasedTableBuilder::NumDataBlocks() const {
+  return rep_->props.num_data_blocks;
+}
+
 uint64_t BlockBasedTableBuilder::PreCompressionSize() const {
   return rep_->pre_compression_size;
 }

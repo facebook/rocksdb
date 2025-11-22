@@ -279,9 +279,20 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
 
   // reach the max file size
   uint64_t estimated_file_size = current_output_file_size_;
-  if (compaction_->mutable_cf_options().target_file_size_is_upper_bound) {
+
+  // When target_file_size_is_upper_bound is enabled, add tail size estimation
+  // to enforce target file size as a hard upper bound. Only add tail size when
+  // there is:
+  // 1. At least one key to prevent creating empty files when tail overhead
+  //    alone would exceed max_output_file_size.
+  // 2. At least one data block written to prevent premature file cutting when
+  //    tail overhead estimation would trigger cutting before meaningful data
+  //    is written (prevents files with only metadata/tail blocks).
+  if (compaction_->mutable_cf_options().target_file_size_is_upper_bound &&
+      builder_->NumEntries() > 0 && builder_->NumDataBlocks() > 0) {
     estimated_file_size += builder_->EstimatedTailSize();
   }
+
   if (estimated_file_size >= compaction_->max_output_file_size()) {
     return true;
   }

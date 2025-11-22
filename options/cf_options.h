@@ -209,7 +209,7 @@ struct MutableCFOptions {
         max_compaction_bytes(0),
         target_file_size_base(0),
         target_file_size_multiplier(0),
-        target_file_size_is_upper_bound(false),
+        target_file_size_is_upper_bound(true),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
         ttl(0),

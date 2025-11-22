@@ -65,6 +65,7 @@ public class MutableOptionsGetSetTest {
                    .setMaxCompactionBytes(12)
                    .setTargetFileSizeBase(99)
                    .setTargetFileSizeMultiplier(112)
+                   .setTargetFileSizeIsUpperBound(true)
                    .setMaxSequentialSkipInIterations(50)
                    .setReportBgIoStats(true);
 

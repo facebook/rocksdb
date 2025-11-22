@@ -126,6 +126,19 @@ public class OptionsTest {
   }
 
   @Test
+  public void targetFileSizeIsUpperBound() {
+    try (final Options opt = new Options()) {
+      assertThat(opt.targetFileSizeIsUpperBound()).isTrue();
+
+      opt.setTargetFileSizeIsUpperBound(false);
+      assertThat(opt.targetFileSizeIsUpperBound()).isFalse();
+
+      opt.setTargetFileSizeIsUpperBound(true);
+      assertThat(opt.targetFileSizeIsUpperBound()).isTrue();
+    }
+  }
+
+  @Test
   public void maxBytesForLevelBase() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();

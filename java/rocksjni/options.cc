@@ -2802,6 +2802,30 @@ void Java_org_rocksdb_Options_setTargetFileSizeMultiplier(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setTargetFileSizeIsUpperBound
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setTargetFileSizeIsUpperBound(
+    JNIEnv*, jclass, jlong jhandle, jboolean jtarget_file_size_is_upper_bound) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->target_file_size_is_upper_bound =
+      static_cast<bool>(jtarget_file_size_is_upper_bound);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    targetFileSizeIsUpperBound
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_targetFileSizeIsUpperBound(JNIEnv*, jclass,
+                                                             jlong jhandle) {
+  return static_cast<jboolean>(
+      reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+          ->target_file_size_is_upper_bound);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxBytesForLevelBase
  * Signature: (J)J
  */
@@ -4751,6 +4775,30 @@ void Java_org_rocksdb_ColumnFamilyOptions_setTargetFileSizeMultiplier(
   reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
       ->target_file_size_multiplier =
       static_cast<int>(jtarget_file_size_multiplier);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setTargetFileSizeIsUpperBound
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setTargetFileSizeIsUpperBound(
+    JNIEnv*, jclass, jlong jhandle, jboolean jtarget_file_size_is_upper_bound) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->target_file_size_is_upper_bound =
+      static_cast<bool>(jtarget_file_size_is_upper_bound);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    targetFileSizeIsUpperBound
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_targetFileSizeIsUpperBound(
+    JNIEnv*, jclass, jlong jhandle) {
+  return static_cast<jboolean>(
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+          ->target_file_size_is_upper_bound);
 }
 
 /*
