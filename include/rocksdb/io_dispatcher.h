@@ -10,12 +10,12 @@
 
 #include <atomic>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
-#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -84,7 +84,7 @@ class ReadSet {
   std::vector<CachableEntry<Block>> pinned_blocks_;
 
   // Map from block index to async IO state for blocks being read asynchronously
-  UnorderedMap<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
+  std::unordered_map<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
 
   // Statistics counters
   std::atomic<uint64_t> num_sync_reads_ = 0;
