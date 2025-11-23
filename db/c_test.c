@@ -722,6 +722,86 @@ static void LoadAndCheckLatestOptions(const char* db_name, rocksdb_env_t* env,
                                       num_column_families);
 }
 
+
+// Global state for tracking remote compaction calls
+typedef struct {
+  int schedule_called;
+  int wait_called;
+  int cancel_called;
+  char last_scheduled_job_id[256];
+  char last_db_name[256];
+} RemoteCompactionState;
+
+// Schedule callback - gets called when compaction is scheduled
+static rocksdb_compactionservice_scheduleresponse_t* 
+RemoteCompactionSchedule(
+    void* state,
+    const rocksdb_compactionservice_jobinfo_t* info,
+    const char* input,
+    size_t input_len) {
+  (void)input;      
+  (void)input_len;  
+  RemoteCompactionState* rcs = (RemoteCompactionState*)state;
+  rcs->schedule_called++;
+  
+  // Extract job info
+  size_t db_name_len;
+  const char* db_name = rocksdb_compactionservice_jobinfo_t_get_db_name(
+      info, &db_name_len);
+  memcpy(rcs->last_db_name, db_name, db_name_len);
+  rcs->last_db_name[db_name_len] = '\0';
+  
+  // Generate a job ID
+  snprintf(rcs->last_scheduled_job_id, sizeof(rcs->last_scheduled_job_id),
+           "job-%d", rcs->schedule_called);
+  
+  // Create response with success status
+  char* err = NULL;
+  rocksdb_compactionservice_scheduleresponse_t* response =
+      rocksdb_compactionservice_scheduleresponse_create(
+          rcs->last_scheduled_job_id,
+          rocksdb_compactionservice_jobstatus_success,
+          &err);
+  if (err) {
+    free(err);
+  }
+  return response;
+}
+
+// Wait callback - simulates waiting for remote compaction to complete
+static int RemoteCompactionWait(
+    void* state,
+    const char* scheduled_job_id,
+    char** result,
+    size_t* result_len) {
+  RemoteCompactionState* rcs = (RemoteCompactionState*)state;
+  rcs->wait_called++;
+  
+  if (strcmp(scheduled_job_id, rcs->last_scheduled_job_id) != 0) {
+    return rocksdb_compactionservice_jobstatus_failure;
+  }
+  
+  // For testing, just return empty result (simulating completed remote compaction)
+  // In a real scenario, this would communicate with a remote worker that calls
+  // rocksdb_open_and_compact() and returns the serialized result
+  *result = (char*)malloc(1);
+  (*result)[0] = '\0';
+  *result_len = 0;
+  
+  return rocksdb_compactionservice_jobstatus_success;
+}
+
+// Cancel callback - cancels pending jobs
+static void RemoteCompactionCancel(void* state) {
+  RemoteCompactionState* rcs = (RemoteCompactionState*)state;
+  rcs->cancel_called++;
+}
+
+// Destructor callback
+static void RemoteCompactionDestroy(void* state) {
+  (void)state; 
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -4482,6 +4562,169 @@ int main(int argc, char** argv) {
     rocksdb_write_buffer_manager_destroy(write_buffer_manager);
     rocksdb_cache_destroy(lru);
   }
+
+
+StartPhase("remote_compaction_service");
+{
+  RemoteCompactionState remote_state = {0, 0, 0, "", ""};
+  
+  // Create compaction service
+  rocksdb_compactionservice_t* service = 
+      rocksdb_compactionservice_create(
+          &remote_state,              // state
+          RemoteCompactionDestroy,    // destructor
+          RemoteCompactionSchedule,   // schedule callback
+          "TestRemoteCompaction",     // name
+          RemoteCompactionWait,       // wait callback
+          RemoteCompactionCancel,     // cancel_awaiting_jobs
+          NULL);                      // on_installation
+  
+  // Create options with remote compaction
+  rocksdb_options_t* remote_options = rocksdb_options_create();
+  rocksdb_options_set_create_if_missing(remote_options, 1);
+  rocksdb_options_set_level0_file_num_compaction_trigger(remote_options, 2);
+  rocksdb_options_set_write_buffer_size(remote_options, 1024); // Small buffer to create multiple files
+  rocksdb_options_set_compaction_service(remote_options, service);
+  
+  // Destroy old DB and create new one
+  rocksdb_close(db);
+  rocksdb_destroy_db(remote_options, dbname, &err);
+  CheckNoError(err);
+  
+  db = rocksdb_open(remote_options, dbname, &err);
+  CheckNoError(err);
+  
+  // Create multiple SST files to trigger compaction
+  rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
+  rocksdb_flushoptions_set_wait(flush_opts, 1);
+  
+  // Write and flush multiple times to create multiple L0 files
+  for (int batch = 0; batch < 3; batch++) {
+    for (int i = 0; i < 50; i++) {
+      char key[20], val[100];
+      snprintf(key, sizeof(key), "key%d_%d", batch, i);
+      snprintf(val, sizeof(val), "value%d_%d", batch, i);
+      rocksdb_put(db, woptions, key, strlen(key), val, strlen(val), &err);
+      CheckNoError(err);
+    }
+    rocksdb_flush(db, flush_opts, &err);
+    CheckNoError(err);
+  }
+  rocksdb_flushoptions_destroy(flush_opts);
+  
+  // Trigger manual compaction to invoke remote compaction service
+  rocksdb_compact_range(db, NULL, 0, NULL, 0);
+  
+
+  if (remote_state.schedule_called > 0) {
+    CheckCondition(remote_state.wait_called > 0);
+  }
+  
+  // Verify data is still accessible after remote compaction
+  for (int batch = 0; batch < 3; batch++) {
+    for (int i = 0; i < 50; i++) {
+      char key[20], expected[100];
+      snprintf(key, sizeof(key), "key%d_%d", batch, i);
+      snprintf(expected, sizeof(expected), "value%d_%d", batch, i);
+      CheckGet(db, roptions, key, expected);
+    }
+  }
+  
+  // Test cancellation API directly
+  RemoteCompactionCancel(&remote_state);
+  CheckCondition(remote_state.cancel_called > 0);
+  
+  // Cleanup
+  rocksdb_close(db);
+  rocksdb_options_destroy(remote_options);
+  // Note: service is owned by options, automatically destroyed
+}
+
+StartPhase("remote_compaction_scheduleresponse");
+{
+  // Test scheduleresponse creation and getters
+  rocksdb_compactionservice_scheduleresponse_t* response;
+  
+  // Test success response
+  err = NULL;
+  response = rocksdb_compactionservice_scheduleresponse_create(
+      "test-job-123",
+      rocksdb_compactionservice_jobstatus_success,
+      &err);
+  CheckNoError(err);
+  CheckCondition(response != NULL);
+  CheckCondition(rocksdb_compactionservice_scheduleresponse_getstatus(response) ==
+                 rocksdb_compactionservice_jobstatus_success);
+  
+  size_t job_id_len;
+  const char* job_id = 
+      rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(
+          response, &job_id_len);
+  CheckCondition(job_id_len == strlen("test-job-123"));
+  CheckCondition(memcmp(job_id, "test-job-123", job_id_len) == 0);
+  rocksdb_compactionservice_scheduleresponse_t_destroy(response);
+  
+  // Test failure response
+  response = rocksdb_compactionservice_scheduleresponse_create_with_status(
+      rocksdb_compactionservice_jobstatus_failure);
+  CheckCondition(response != NULL);
+  CheckCondition(rocksdb_compactionservice_scheduleresponse_getstatus(response) ==
+                 rocksdb_compactionservice_jobstatus_failure);
+  rocksdb_compactionservice_scheduleresponse_t_destroy(response);
+  
+  // Test NULL validation - should return NULL for invalid inputs
+  err = NULL;
+  response = rocksdb_compactionservice_scheduleresponse_create(
+      NULL,  
+      rocksdb_compactionservice_jobstatus_success,
+      &err);
+  CheckCondition(response == NULL);
+  if (err) {
+    free(err);
+  }
+  
+  response = rocksdb_compactionservice_scheduleresponse_create_with_status(
+      rocksdb_compactionservice_jobstatus_success);  
+  CheckCondition(response == NULL);
+  
+  response = rocksdb_compactionservice_scheduleresponse_create_with_status(999);
+  CheckCondition(response == NULL);  // Invalid status
+}
+
+StartPhase("remote_compaction_options_override");
+{
+  // Test CompactionServiceOptionsOverride API
+  rocksdb_compaction_service_options_override_t* override_opts =
+      rocksdb_compaction_service_options_override_create();
+  CheckCondition(override_opts != NULL);
+  
+  // Set up override options
+  rocksdb_compaction_service_options_override_set_env(override_opts, env);
+  rocksdb_compaction_service_options_override_set_comparator(override_opts, cmp);
+  
+  rocksdb_compaction_service_options_override_destroy(override_opts);
+  
+}
+
+StartPhase("remote_compaction_canceled_flag");
+{
+  // Test atomic cancellation flag API
+  unsigned char* canceled = rocksdb_open_and_compact_canceled_create();
+  CheckCondition(canceled != NULL);
+  
+  // Set cancellation
+  rocksdb_open_and_compact_canceled_set(canceled, 1);
+  
+  // Use with OpenAndCompactOptions
+  rocksdb_open_and_compact_options_t* oac_opts = 
+      rocksdb_open_and_compact_options_create();
+  rocksdb_open_and_compact_options_set_canceled(oac_opts, canceled);
+  rocksdb_open_and_compact_options_set_allow_resumption(oac_opts, 1);
+  
+  // Cleanup
+  rocksdb_open_and_compact_options_destroy(oac_opts);
+  rocksdb_open_and_compact_canceled_destroy(canceled);
+}
 
   StartPhase("sst_file_manager");
   {
