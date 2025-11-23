@@ -3621,7 +3621,7 @@ rocksdb_options_set_compaction_service(
 
 // CompactionServiceOptionsOverride
 extern ROCKSDB_LIBRARY_API rocksdb_compaction_service_options_override_t*
-rocksdb_compaction_service_options_override_create();
+rocksdb_compaction_service_options_override_create(void);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_compaction_service_options_override_destroy(
@@ -3641,7 +3641,7 @@ rocksdb_compaction_service_options_override_set_comparator(
 // Creates an atomic bool that can be used for cancellation.
 // User must call rocksdb_open_and_compact_canceled_destroy() to free it.
 extern ROCKSDB_LIBRARY_API unsigned char*
-rocksdb_open_and_compact_canceled_create();
+rocksdb_open_and_compact_canceled_create(void);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_open_and_compact_canceled_destroy(unsigned char* canceled);
@@ -3651,7 +3651,7 @@ rocksdb_open_and_compact_canceled_set(unsigned char* canceled, unsigned char val
 
 // OpenAndCompactOptions
 extern ROCKSDB_LIBRARY_API rocksdb_open_and_compact_options_t*
-rocksdb_open_and_compact_options_create();
+rocksdb_open_and_compact_options_create(void);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_open_and_compact_options_destroy(
