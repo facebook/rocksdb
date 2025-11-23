@@ -665,8 +665,6 @@ static inline char* CopyString(const Slice& slice) {
   return result;
 }
 
-//Remote Compaction
-
 const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
   const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
   if (!info || !len) {
@@ -780,16 +778,20 @@ unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
 }
 
 rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(
-  const char* scheduled_job_id, int status) {
+  const char* scheduled_job_id, int status, char** errptr) {
   // Validate status is in range [success=0, failure=1, aborted=2, use_local=3]
   if (status < rocksdb_compactionservice_jobstatus_success || 
       status > rocksdb_compactionservice_jobstatus_use_local) {
-    return nullptr;
+      SaveError(errptr, Status::InvalidArgument(
+          "Invalid status value. Must be 0-3."));
+      return nullptr;
   }
   
   // If status is success, job_id must be provided
   if (status == rocksdb_compactionservice_jobstatus_success && 
       (!scheduled_job_id || scheduled_job_id[0] == '\0')) {
+    SaveError(errptr, Status::InvalidArgument(
+          "Success status requires non-empty job ID."));
     return nullptr;
   }
   
