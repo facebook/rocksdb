@@ -643,6 +643,80 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_key_may_exist_cf(
     size_t key_len, char** value, size_t* val_len, const char* timestamp,
     size_t timestamp_len, unsigned char* value_found);
 
+/* Check if a key with the given prefix exists in the database.
+ * Optimized for existence-only reads; values are not materialized.
+ *
+ * Behavior:
+ * - Snapshot-aware: only keys visible at the provided snapshot (if any) are
+ *   considered.
+ * - With a configured prefix extractor, the extracted (effective) prefix is
+ *   used to bound iteration for efficiency. Existence is decided only if a
+ *   found user key starts with the exact requested prefix.
+ * - Without a prefix extractor, the requested prefix is used directly and we
+ *   test starts-with on found user keys.
+ * - Early-aborts on the first visible, non-deletion match in memtable,
+ *   immutable memtables, or SSTs (typically index-only seek).
+ * - Honors ReadOptions (e.g., snapshot, fill_cache, read_tier).
+ *
+ * Performance characteristics:
+ * - Uses table and memtable prefix filters when available to avoid work.
+ * - Seeks index blocks when needed; typically avoids loading data blocks.
+ *
+ * Return values:
+ * - 1: Prefix exists (errptr is set to NULL)
+ * - 0: Prefix does not exist (errptr is set to NULL)
+ * - 0 with error: An error occurred (errptr contains error message)
+ */
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_prefix_exists(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* prefix,
+    size_t prefix_len, char** errptr);
+
+/* Check if a key with the given prefix exists in a specific column family.
+ * See rocksdb_prefix_exists for details.
+ */
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* prefix,
+    size_t prefix_len, char** errptr);
+
+/* Batched prefix existence check.
+ * Mirrors rocksdb_prefix_exists semantics for each input while amortizing
+ * setup across the batch.
+ *
+ * Behavior:
+ * - Snapshot-aware for all inputs.
+ * - With a configured prefix extractor, inputs may be grouped by extracted
+ *   (effective) prefix for locality. Within each group, results are computed
+ *   per requested prefix: a match only if a found user key starts with the
+ *   exact requested prefix.
+ * - Without a prefix extractor, each requested prefix is used directly.
+ * - Honors ReadOptions for all inputs.
+ *
+ * Performance characteristics:
+ * - Reuses a single SuperVersion and shared Arena-backed iterators across the
+ *   whole batch; typically avoids loading data blocks.
+ * - Uses table/memtable prefix filters when available to avoid work.
+ *
+ * prefixes_sorted: set to 1 if the input prefixes are already sorted by
+ *                  transformed/effective prefix (for better locality), else 0.
+ * out_exists must be a buffer with at least num_prefixes bytes.
+ * On success, out_exists[i] is set to 1 if prefixes[i] exists, otherwise 0.
+ * Returns 1 on success; returns 0 and sets errptr on error.
+ */
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_prefix_exists_multi(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    unsigned char prefixes_sorted, size_t num_prefixes,
+    const char* const* prefixes, const size_t* prefix_lens,
+    unsigned char* out_exists, char** errptr);
+
+/* Column-family variant of batched prefix existence check. */
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_prefix_exists_multi_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    unsigned char prefixes_sorted, size_t num_prefixes,
+    const char* const* prefixes, const size_t* prefix_lens,
+    unsigned char* out_exists, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options);
 
