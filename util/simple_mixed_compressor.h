@@ -25,7 +25,7 @@ class MultiCompressorWrapper : public Compressor {
   CompressionType GetPreferredCompressionType() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override;
 
  protected:
   const CompressionOptions opts_;
