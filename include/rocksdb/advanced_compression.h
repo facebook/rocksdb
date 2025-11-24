@@ -90,6 +90,10 @@ class Compressor {
     return CompressionType::kDisableCompressionOption;
   }
 
+  // Return a distinct but functionally equivalent Compressor. This is often
+  // needed to implement MaybeCloneSpecialized() in wrapper compressors.
+  virtual std::unique_ptr<Compressor> Clone() const = 0;
+
   // Utility struct for providing sample data for the compression dictionary.
   // Potentially extensible by callers of Compressor (but not recommended)
   struct DictSampleArgs {
@@ -121,7 +125,7 @@ class Compressor {
   // dictionary associated with a returned compressor must be read from
   // GetSerializedDict().
   virtual std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
     // Default implementation: no specialization
     (void)block_type;
     (void)dict_samples;
@@ -129,6 +133,18 @@ class Compressor {
     // to provide dictionary samples
     assert(dict_samples.empty());
     return nullptr;
+  }
+
+  // A convenience function when a clone is needed and may or may not be
+  // specialized.
+  std::unique_ptr<Compressor> CloneMaybeSpecialized(
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
+    auto clone = MaybeCloneSpecialized(block_type, std::move(dict_samples));
+    if (clone == nullptr) {
+      clone = Clone();
+      assert(clone != nullptr);
+    }
+    return clone;
   }
 
   // A WorkingArea is an optional structure (both for callers and
@@ -473,9 +489,19 @@ class CompressorWrapper : public Compressor {
     return wrapped_->GetPreferredCompressionType();
   }
 
+  // NOTE: Clone() not implemented here because it needs to be in the derived
+  // class
+
+  // NOTE: MaybeCloneSpecialized() is only implemented here for convenience
+  // when the wrapped Compressor uses the default implementation of
+  // MaybeCloneSpecialized(). This needs to be overridden if not.
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
-    return wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override {
+    auto clone =
+        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+    // Assert default no-op MaybeCloneSpecialized()
+    assert(clone == nullptr);
+    return clone;
   }
 
   ManagedWorkingArea ObtainWorkingArea() override {

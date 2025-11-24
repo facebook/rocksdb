@@ -427,6 +427,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new UpdateManifestCommand(parsed_params.cmd_params,
                                      parsed_params.option_map,
                                      parsed_params.flags);
+  } else if (parsed_params.cmd == CompactionProgressDumpCommand::Name()) {
+    return new CompactionProgressDumpCommand(parsed_params.cmd_params,
+                                             parsed_params.option_map,
+                                             parsed_params.flags);
   }
   return nullptr;
 }
@@ -1606,15 +1610,67 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &immutable_db_options, MutableDBOptions{}, sopt,
+                      tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
+  }
+}
+
+void DumpCompactionProgressFile(const std::string& file_path) {
+  Status s;
+  std::unique_ptr<SequentialFileReader> file_reader;
+
+  std::unique_ptr<FSSequentialFile> file;
+  const std::shared_ptr<FileSystem>& fs = Env::Default()->GetFileSystem();
+  s = fs->NewSequentialFile(file_path, FileOptions(), &file, nullptr);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed to open compaction progress file %s: %s\n",
+            file_path.c_str(), s.ToString().c_str());
+    return;
+  }
+
+  file_reader = std::make_unique<SequentialFileReader>(std::move(file),
+                                                       file_path, 0, nullptr);
+
+  log::Reader reader(nullptr, std::move(file_reader), nullptr,
+                     true /* checksum */, 0);
+
+  Slice record;
+  std::string scratch;
+  int count = 0;
+
+  fprintf(stdout, "Compaction Progress File: %s\n", file_path.c_str());
+  fprintf(stdout, "============================================\n");
+
+  while (reader.ReadRecord(&record, &scratch)) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to decode VersionEdit: %s\n",
+              s.ToString().c_str());
+      continue;
+    }
+
+    if (edit.HasSubcompactionProgress()) {
+      fprintf(stdout, "Progress Record %d:\n", count);
+      const auto& progress = edit.GetSubcompactionProgress();
+      fprintf(stdout, "%s\n", progress.ToString().c_str());
+      ++count;
+    }
+  }
+
+  if (count == 0) {
+    fprintf(stdout,
+            "No valid records found in the compaction progress file.\n");
+  } else {
+    fprintf(stdout, "\nTotal records: %d\n", count);
   }
 }
 
@@ -1750,11 +1806,12 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &immutable_db_options, MutableDBOptions{options},
+                      sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -2605,7 +2662,8 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc(opt.delayed_write_rate);
   WriteBufferManager wb(opt.db_write_buffer_size);
-  VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
+  VersionSet versions(db_path_, &db_options, MutableDBOptions{opt}, soptions,
+                      tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       opt.daily_offpeak_time_utc,
@@ -5301,6 +5359,37 @@ void UpdateManifestCommand::DoCommand() {
     exec_state_ =
         LDBCommandExecuteResult::Succeed("Manifest updates successful");
   }
+}
+
+const std::string CompactionProgressDumpCommand::ARG_PATH = "path";
+
+CompactionProgressDumpCommand::CompactionProgressDumpCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_PATH})) {
+  auto itr = options.find(ARG_PATH);
+  if (itr != options.end()) {
+    path_ = itr->second;
+  } else {
+    path_ = "";
+  }
+
+  if (path_.empty()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "The --path option is required for compaction_progress_dump command");
+  }
+}
+
+void CompactionProgressDumpCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(CompactionProgressDumpCommand::Name());
+  ret.append(" [--" + ARG_PATH + "=<path_to_compaction_progress_file>]");
+  ret.append("\n");
+}
+
+void CompactionProgressDumpCommand::DoCommand() {
+  DumpCompactionProgressFile(path_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

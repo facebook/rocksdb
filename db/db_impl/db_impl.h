@@ -484,9 +484,12 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   Status FlushWAL(bool sync) override {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    return FlushWAL(WriteOptions(), sync);
+    FlushWALOptions options;
+    options.sync = sync;
+    return FlushWAL(options);
   }
+
+  Status FlushWAL(const FlushWALOptions& options) override;
 
   virtual Status FlushWAL(const WriteOptions& write_options, bool sync);
   bool WALBufferIsEmpty();
@@ -568,6 +571,11 @@ class DBImpl : public DB {
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               ColumnFamilyMetaData* metadata) override;
+
+  // Get column family metadata with filtering based on key range and level
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               const GetColumnFamilyMetaDataOptions& options,
                                ColumnFamilyMetaData* metadata) override;
 
   void GetAllColumnFamilyMetaData(
@@ -2392,6 +2400,14 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
+
+  // Helper function to perform trivial move by updating manifest metadata
+  // without rewriting data files. This is called when IsTrivialMove() is true.
+  // REQUIRES: mutex held
+  // Returns: Status of the trivial move operation
+  Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
+                            bool& compaction_released, size_t& moved_files,
+                            size_t& moved_bytes);
 
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,

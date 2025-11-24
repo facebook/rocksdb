@@ -381,6 +381,27 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool block_iter_points_to_real_block_;
   // See InternalIteratorBase::IsOutOfBound().
   bool is_out_of_bound_ = false;
+
+  // Mark prepared ranges as exhausted for multiscan.
+  void MarkPreparedRangeExhausted() {
+    assert(multi_scan_ != nullptr);
+    if (multi_scan_->next_scan_idx <
+        multi_scan_->block_index_ranges_per_scan.size()) {
+      // If there are more prepared ranges, we don't ResetDataIter() here,
+      // because next scan might be reading from the same block. ResetDataIter()
+      // will free the underlying block cache handle and we don't want the
+      // block to be unpinned.
+      // Set out of bound to mark the current prepared range as exhausted.
+      is_out_of_bound_ = true;
+    } else {
+      // This is the last prepared range of this file, there might be more
+      // data on next file. Reset data iterator to indicate the iterator is
+      // no longer valid on this file. Let LevelIter advance to the next file
+      // instead of ending the scan.
+      ResetDataIter();
+    }
+  }
+
   // During cache lookup to find readahead size, index_iter_ is iterated and it
   // can point to a different block.
   // If Prepare() is called, index_iter_ is used to prefetch data blocks for the
@@ -438,6 +459,15 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     const std::shared_ptr<FileSystem> fs;
     const MultiScanArgs* scan_opts;
     std::vector<CachableEntry<Block>> pinned_data_blocks;
+    // The separator of each data block in above pinned_data_blocks vector.
+    // Its size is same as pinned_data_blocks.
+    // The value of separator is larger than or equal to the last key in the
+    // corresponding data block.
+    std::vector<std::string> data_block_separators;
+    // Track previously seeked key in multi-scan.
+    // This is used to ensure that the seek key is keep moving forward, as
+    // blocks that are smaller than the seek key are unpinned from memory.
+    std::string prev_seek_key_;
 
     // Indicies into pinned_data_blocks for data blocks for each scan range.
     // inclusive start, exclusive end
@@ -464,12 +494,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     MultiScanState(
         const std::shared_ptr<FileSystem>& _fs, const MultiScanArgs* _scan_opts,
         std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
+        std::vector<std::string>&& _data_block_separators,
         std::vector<std::tuple<size_t, size_t>>&& _block_index_ranges_per_scan,
         UnorderedMap<size_t, size_t>&& _block_idx_to_readreq_idx,
         std::vector<AsyncReadState>&& _async_states, size_t _prefetch_max_idx)
         : fs(_fs),
           scan_opts(_scan_opts),
           pinned_data_blocks(std::move(_pinned_data_blocks)),
+          data_block_separators(std::move(_data_block_separators)),
           block_index_ranges_per_scan(std::move(_block_index_ranges_per_scan)),
           next_scan_idx(0),
           cur_data_block_idx(0),
@@ -605,9 +637,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void FindBlockForwardInMultiScan();
 
-  // Unpins blocks from the immediately previous scan range.
-  void UnpinPreviousScanBlocks(size_t current_scan_idx);
-
   void PrepareReadAsyncCallBack(FSReadRequest& req, void* cb_arg) {
     // Record status, result and sanity check offset from `req`.
     AsyncReadState* async_state = static_cast<AsyncReadState*>(cb_arg);
@@ -628,15 +657,32 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-  Status MultiScanLoadDataBlock(size_t idx) {
+  void MultiScanSeekTargetFromBlock(const Slice* seek_target, size_t block_idx);
+  void MultiScanUnexpectedSeekTarget(const Slice* seek_target,
+                                     const Slice* user_seek_target);
+
+  // Return true, if there is an error, or end of file
+  bool MultiScanLoadDataBlock(size_t idx) {
     if (idx >= multi_scan_->prefetch_max_idx) {
-      return Status::PrefetchLimitReached();
+      // TODO: Fix the max_prefetch_size support for multiple files.
+      // The goal is to limit the memory usage, prefetch could be done
+      // incrementally.
+      if (multi_scan_->scan_opts->max_prefetch_size == 0) {
+        // If max_prefetch_size is not set, treat this as end of file.
+        ResetDataIter();
+        assert(!is_out_of_bound_);
+        assert(!Valid());
+      } else {
+        // If max_prefetch_size is set, treat this as error.
+        multi_scan_status_ = Status::PrefetchLimitReached();
+      }
+      return true;
     }
 
     if (!multi_scan_->async_states.empty()) {
-      Status s = PollForBlock(idx);
-      if (!s.ok()) {
-        return s;
+      multi_scan_status_ = PollForBlock(idx);
+      if (!multi_scan_status_.ok()) {
+        return true;
       }
     }
     // This block should have been initialized
@@ -647,7 +693,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, multi_scan_->pinned_data_blocks[idx], &block_iter_,
         Status::OK());
-    return Status::OK();
+    return false;
   }
 
   // After PollForBlock(idx), the async request that contains
@@ -665,13 +711,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                      const Slice& buffer_data,
                                      CachableEntry<Block>& pinned_block_entry);
 
-  // Helper functions for Prepare():
-  Status ValidateScanOptions(const MultiScanArgs* multiscan_opts);
-
   Status CollectBlockHandles(
-      const std::vector<ScanOptions>& scan_opts, bool require_file_overlap,
+      const std::vector<ScanOptions>& scan_opts,
       std::vector<BlockHandle>* scan_block_handles,
-      std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan);
+      std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan,
+      std::vector<std::string>* data_block_boundary_keys);
 
   Status FilterAndPinCachedBlocks(
       const std::vector<BlockHandle>& scan_block_handles,

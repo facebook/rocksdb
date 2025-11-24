@@ -245,8 +245,9 @@ default_params = {
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size": lambda: random.choice(
-        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]
+        [t * 2048 if t < 5 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
+    "max_manifest_space_amp_pct": lambda: random.choice([0, 10, 100, 1000]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
@@ -402,6 +403,7 @@ default_params = {
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
+    "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
     "remote_compaction_failure_fall_back_to_local": 1,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
@@ -845,6 +847,24 @@ def finalize_and_sanitize(src_params):
         dest_params["checkpoint_one_in"] = 0
         dest_params["use_timed_put_one_in"] = 0
         dest_params["test_secondary"] = 0
+        dest_params["mmap_read"] = 0
+
+        # Disable database open fault injection to prevent test inefficiency described below.
+        # When fault injection occurs during DB open, the db will wait for compaction
+        # to finish to clean up the database before retrying without injected error.
+        # However remote compaction threads are not yet created at that point
+        # so the db has to wait for the timeout (currently 30 seconds) to fall back to
+        # local compaction in order for the compaction to finish.
+        #
+        # TODO: Consider moving compaction thread creation earlier in the startup sequence
+        # to allow db open fault injection testing without this performance penalty
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        dest_params["sync_fault_injection"] = 0
+    else:
+        dest_params["allow_resumption_one_in"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -1197,6 +1217,14 @@ def finalize_and_sanitize(src_params):
         dest_params["prefixpercent"] = 0
         dest_params["read_fault_one_in"] = 0
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
+        dest_params["max_sequential_skip_in_iterations"] = sys.maxsize
+        # This option ingests a delete range that might partially overlap with
+        # existing key range, which will cause a reseek that's currently not
+        # supported by multiscan
+        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
+        # which are not updated if skip_stats_update_on_db_open is true
+        dest_params["skip_stats_update_on_db_open"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek

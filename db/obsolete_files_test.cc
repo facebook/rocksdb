@@ -303,6 +303,47 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   ASSERT_EQ(deleted_files, expected_deleted_files);
 }
 
+TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {
+  // This test used to trigger a hang in `DB::GetSortedWalFiles()`, where it
+  // would wait for a no-op purge that did not signal the CV upon completion.
+
+  // Grab an iterator and flush to switch the super version. That way, when the
+  // iterator is destroyed, it will go through the purge path.
+  DB* db = db_;  // Only using `db` makes it clear we only use DB-level APIs.
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Sync points ensure `GetSortedWalFiles()` waits for a purge after
+  // `FindObsoleteFiles()` releases the mutex but before its corresponding purge
+  // completes.
+  SyncPoint::GetInstance()->SetCallBack(
+      "FindObsoleteFiles::PostMutexUnlock", [&](void* /* arg */) {
+        TEST_SYNC_POINT(
+            "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:"
+            "InCallback:1");
+        TEST_SYNC_POINT(
+            "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:"
+            "InCallback:2");
+      });
+  SyncPoint::GetInstance()->LoadDependency({
+      {"ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:1",
+       "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin"},
+      {"DBImpl::GetSortedWalFilesImpl:WaitPurge",
+       "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:2"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread get_sorted_wal_files_thread([db]() {
+    TEST_SYNC_POINT(
+        "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin");
+    VectorWalPtr files;
+    ASSERT_OK(db->GetSortedWalFiles(files));
+  });
+  iter.reset();
+  get_sorted_wal_files_thread.join();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

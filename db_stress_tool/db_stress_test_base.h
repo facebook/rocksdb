@@ -14,6 +14,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/experimental.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
@@ -25,6 +26,13 @@ using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
+  static bool IsErrorInjectedAndRetryable(const Status& error_s) {
+    assert(!error_s.ok());
+    return error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s) &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
+  }
+
   StressTest();
 
   virtual ~StressTest() {}
@@ -348,13 +356,6 @@ class StressTest {
       ThreadState* /*thread*/,
       const std::vector<int>& /*rand_column_families*/) {
     return Status::NotSupported("TestCustomOperations() must be overridden");
-  }
-
-  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
-    assert(!error_s.ok());
-    return error_s.getState() &&
-           FaultInjectionTestFS::IsInjectedError(error_s) &&
-           !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,

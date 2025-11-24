@@ -1492,6 +1492,246 @@ TEST_F(DBTest, MetaDataTest) {
   CheckLiveFilesMeta(live_file_meta, files_by_level);
 }
 
+TEST_F(DBTest, GetColumnFamilyMetaDataWithKeyRangeAndLevel) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  int64_t temp_time = 0;
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_index = 0;
+  for (int i = 0; i < 100; ++i) {
+    // Add a single blob reference to each file
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
+                          /* offset */ 1234, /* size */ 5678, kNoCompression);
+
+    WriteBatch batch;
+    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, Key(key_index),
+                                               blob_index));
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
+    ++key_index;
+
+    // Fill up the rest of the file with random values.
+    GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+
+    ASSERT_OK(Flush());
+  }
+
+  std::vector<std::vector<FileMetaData>> files_by_level;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
+
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
+
+  ColumnFamilyMetaData cf_meta;
+  // Keys in the SST files are distributed
+  // (key000000, key000100) ->File 1
+  // (key000101, key000201) -> File 2
+  // (key000202, key000302) -> File 3
+  // (key009999, key010099) -> File 100
+
+  // With keySlice (key000050, key000150) => should only pick 2 files(instead of
+  // default 100 that is in the level)
+  auto startKey = Slice("key000050");
+  auto endKey = Slice("key000150");
+  GetColumnFamilyMetaDataOptions cf_options(startKey, endKey, 0);
+  db_->GetColumnFamilyMetaData(cf_options, &cf_meta);
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  const auto& level_meta_from_cf = cf_meta.levels[0];
+  ASSERT_EQ(level_meta_from_cf.files.size(), 2);
+  ASSERT_LT(level_meta_from_cf.files[1].smallestkey,
+            std::string(startKey.data()));
+  ASSERT_GT(level_meta_from_cf.files[0].largestkey, std::string(endKey.data()));
+
+  GetColumnFamilyMetaDataOptions cf_option_default;
+  db_->GetColumnFamilyMetaData(cf_option_default, &cf_meta);
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  ASSERT_EQ(cf_meta.levels[0].files.size(), 100);
+
+  // Test with start key valid and end key unbounded
+  // This should get all files from key000150 onwards (99 files)
+  auto startKeyUnbounded = Slice("key000150");
+  GetColumnFamilyMetaDataOptions cf_options_unbounded_end(startKeyUnbounded,
+                                                          OptSlice(), 0);
+  db_->GetColumnFamilyMetaData(cf_options_unbounded_end, &cf_meta);
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  ASSERT_EQ(cf_meta.levels[0].files.size(), 99);
+
+  // Test with end key valid and start key unbounded
+  // This should get all files from beginning to key000250 ( 3 files)
+  auto endKeyUnbounded = Slice("key000250");
+  GetColumnFamilyMetaDataOptions cf_options_unbounded_start(OptSlice(),
+                                                            endKeyUnbounded, 0);
+  db_->GetColumnFamilyMetaData(cf_options_unbounded_start, &cf_meta);
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  ASSERT_EQ(cf_meta.levels[0].files.size(), 3);
+}
+
+TEST_F(DBTest, GetColumnFamilyMetaDataBottommostLevel) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_index = 0;
+
+  for (int i = 0; i < 100; ++i) {
+    GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+    ASSERT_OK(Flush());
+  }
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.change_level = true;
+  compact_options.target_level = 6;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  // Nothing on Level 0 after compaction
+  ColumnFamilyMetaData cf_meta;
+  GetColumnFamilyMetaDataOptions cf_options_0(OptSlice(), OptSlice(), 0);
+  db_->GetColumnFamilyMetaData(cf_options_0, &cf_meta);
+
+  ASSERT_EQ(cf_meta.levels.size(), 0);
+  ASSERT_EQ(cf_meta.file_count, 0);
+
+  // Data should be in Level 6
+  GetColumnFamilyMetaDataOptions cf_options(OptSlice(), OptSlice(), 6);
+  db_->GetColumnFamilyMetaData(cf_options, &cf_meta);
+
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  ASSERT_EQ(cf_meta.levels[0].level, 6);
+  ASSERT_GT(cf_meta.levels[0].files.size(), 0);
+  size_t all_files = cf_meta.levels[0].files.size();
+
+  // Keys in the SST files are distributed across level 6
+  // Test with key range - should only return files within the range
+  auto startKey = Slice("key000050");
+  auto endKey = Slice("key000150");
+  GetColumnFamilyMetaDataOptions cf_options_range(startKey, endKey, 6);
+  db_->GetColumnFamilyMetaData(cf_options_range, &cf_meta);
+
+  ASSERT_EQ(cf_meta.levels.size(), 1);
+  ASSERT_EQ(cf_meta.levels[0].level, 6);
+  ASSERT_GT(cf_meta.levels[0].files.size(), 0);
+  size_t files_in_range = cf_meta.levels[0].files.size();
+
+  // Files in range should be less than or equal to all files
+  ASSERT_LE(files_in_range, all_files);
+}
+
+TEST_F(DBTest, GetColumnFamilyMetaDataMultipleLevels) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_index = 0;
+
+  for (int i = 0; i < 50; ++i) {
+    GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+    ASSERT_OK(Flush());
+  }
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.change_level = true;
+  compact_options.target_level = 6;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  for (int i = 0; i < 30; ++i) {
+    GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+    ASSERT_OK(Flush());
+  }
+
+  // First verify both levels have files without key range filter
+  ColumnFamilyMetaData cf_meta_all_no_range;
+  GetColumnFamilyMetaDataOptions cf_options_all_no_range;
+  db_->GetColumnFamilyMetaData(cf_options_all_no_range, &cf_meta_all_no_range);
+
+  bool has_level_0 = false;
+  bool has_level_6 = false;
+  for (const auto& level : cf_meta_all_no_range.levels) {
+    if (level.level == 0 && level.files.size() > 0) {
+      has_level_0 = true;
+    }
+    if (level.level == 6 && level.files.size() > 0) {
+      has_level_6 = true;
+    }
+  }
+
+  ASSERT_TRUE(has_level_0);
+  ASSERT_TRUE(has_level_6);
+
+  // Test querying bottommost level only with key range
+  // Use a range that should be in the first set of files (now in level 6)
+  auto startKey = Slice("key000050");
+  auto endKey = Slice("key000150");
+  ColumnFamilyMetaData cf_meta_bottommost;
+  GetColumnFamilyMetaDataOptions cf_options_bottommost(startKey, endKey, 6);
+  db_->GetColumnFamilyMetaData(cf_options_bottommost, &cf_meta_bottommost);
+
+  ASSERT_EQ(cf_meta_bottommost.levels.size(), 1);
+  ASSERT_EQ(cf_meta_bottommost.levels[0].level, 6);
+  ASSERT_GT(cf_meta_bottommost.levels[0].files.size(), 0);
+  size_t level_6_files_in_range = cf_meta_bottommost.levels[0].files.size();
+
+  // Test querying all levels with same key range
+  ColumnFamilyMetaData cf_meta_all;
+  GetColumnFamilyMetaDataOptions cf_options_all(startKey, endKey);
+  db_->GetColumnFamilyMetaData(cf_options_all, &cf_meta_all);
+
+  size_t level_6_files_in_range_from_all = 0;
+  for (const auto& level : cf_meta_all.levels) {
+    if (level.level == 6) {
+      level_6_files_in_range_from_all = level.files.size();
+    }
+  }
+
+  ASSERT_GT(level_6_files_in_range_from_all, 0);
+  ASSERT_EQ(level_6_files_in_range, level_6_files_in_range_from_all);
+}
+
+TEST_F(DBTest, GetColumnFamilyMetaDataEmptyDB) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+
+  // Test on empty database
+  ColumnFamilyMetaData cf_meta_empty_db;
+  GetColumnFamilyMetaDataOptions cf_options_empty_db;
+  db_->GetColumnFamilyMetaData(cf_options_empty_db, &cf_meta_empty_db);
+
+  ASSERT_EQ(cf_meta_empty_db.levels.size(), 0);
+  ASSERT_EQ(cf_meta_empty_db.file_count, 0);
+  ASSERT_EQ(cf_meta_empty_db.size, 0);
+
+  // Test on empty database with key range
+  auto startKey = Slice("key000050");
+  auto endKey = Slice("key000150");
+  ColumnFamilyMetaData cf_meta_empty_range;
+  GetColumnFamilyMetaDataOptions cf_options_empty_range(startKey, endKey);
+  db_->GetColumnFamilyMetaData(cf_options_empty_range, &cf_meta_empty_range);
+
+  ASSERT_EQ(cf_meta_empty_range.levels.size(), 0);
+  ASSERT_EQ(cf_meta_empty_range.file_count, 0);
+  ASSERT_EQ(cf_meta_empty_range.size, 0);
+}
+
 TEST_F(DBTest, AllMetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -3535,6 +3775,11 @@ class ModelDB : public DB {
   void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                ColumnFamilyMetaData* /*metadata*/) override {}
 
+  void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* /*column_family*/,
+      const GetColumnFamilyMetaDataOptions& /*options*/,
+      ColumnFamilyMetaData* /*metadata*/) override {}
+
   Status GetDbIdentity(std::string& /*identity*/) const override {
     return Status::OK();
   }
@@ -4934,7 +5179,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 namespace {
 bool VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
                           int expected_count) {
@@ -5392,7 +5637,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   ASSERT_EQ(operation_count[ThreadStatus::OP_COMPACTION], 0);
 }
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 
 TEST_F(DBTest, FlushOnDestroy) {
   WriteOptions wo;
@@ -6127,9 +6372,9 @@ TEST_F(DBTest, MergeTestTime) {
 
   ASSERT_EQ(1, count);
   ASSERT_EQ(4000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
   ASSERT_GT(TestGetTickerCount(options, FLUSH_WRITE_BYTES), 0);
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 }
 
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {

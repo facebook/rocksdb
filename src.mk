@@ -396,6 +396,7 @@ STRESS_LIB_SOURCES =                                           \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
+  db_stress_tool/db_stress_compaction_service.cc               \
   db_stress_tool/db_stress_compression_manager.cc              \
   db_stress_tool/db_stress_driver.cc                           \
   db_stress_tool/db_stress_filters.cc                          \
@@ -493,6 +494,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_clip_test.cc                                                    \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
+  db/db_etc3_test.cc                                                    \
   db/db_flush_test.cc                                                   \
   db/db_follower_test.cc						                                    \
   db/db_readonly_with_timestamp_test.cc                                 \
@@ -588,7 +590,6 @@ TEST_MAIN_SOURCES =                                                     \
   table/block_based/block_based_table_reader_test.cc                    \
   table/block_based/block_test.cc                                       \
   table/block_based/data_block_hash_index_test.cc                       \
-  table/block_based/index_builder_test.cc                               \
   table/block_based/full_filter_block_test.cc                           \
   table/block_based/partitioned_filter_block_test.cc                    \
   table/cleanable_test.cc                                               \

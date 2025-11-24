@@ -1,7 +1,17 @@
 name: build-folly
+description: Build folly and dependencies (skipped if cache hit)
+inputs:
+  cache-hit:
+    description: Whether the folly cache was hit
+    required: true
 runs:
   using: composite
   steps:
   - name: Build folly and dependencies
+    if: ${{ inputs.cache-hit != 'true' }}
     run: make build_folly
+    shell: bash
+  - name: Skip folly build (using cached version)
+    if: ${{ inputs.cache-hit == 'true' }}
+    run: echo "Folly build skipped - using cached version"
     shell: bash

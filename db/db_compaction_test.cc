@@ -11541,6 +11541,71 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 }
 
+// Test verifies compaction file cutting logic when using tail size estimation
+// maintains output files at or below the target file size.
+TEST_F(DBCompactionTest, CompactionRespectsTargetSizeWithTailEstimation) {
+  const int kInitialKeyCount = 10000;  // 10k keys
+  const int kValueSize = 100;          // 100 bytes per key
+  const int kSeed = 301;
+
+  Options options = CurrentOptions();
+  options.target_file_size_is_upper_bound = true;
+  options.target_file_size_base = 256 * 1024;
+  options.write_buffer_size = 2 * 1024 * 1024;
+  options.level0_file_num_compaction_trigger = 100;  // Never trigger L0->L1
+  options.compression = kNoCompression;
+
+  BlockBasedTableOptions table_options;
+  table_options.partition_filters = true;
+  table_options.metadata_block_size = 4 * 1024;
+  table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  // Generate 2 L0 files
+  // Generate first file with 10k keys (each ~100 bytes) approx 1.2MB total
+  Random rnd(kSeed);
+  for (int i = 0; i < kInitialKeyCount; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
+  }
+  ASSERT_OK(Flush());
+
+  // Generate second file with overlapping keys to force compaction (prevent
+  // trivial move)
+  for (int i = kInitialKeyCount / 2; i < kInitialKeyCount * 1.5; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
+  }
+  ASSERT_OK(Flush());
+
+  // Capture file metadata and assert two L0 files
+  std::vector<LiveFileMetaData> file_metadata;
+  db_->GetLiveFilesMetaData(&file_metadata);
+  ASSERT_EQ(file_metadata.size(), 2);
+  for (const auto& file : file_metadata) {
+    ASSERT_EQ(file.level, 0);
+  };
+
+  // Manually compact LO files to L1
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 1;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify that compacted output files are under target file size
+  for (const auto& file : file_metadata) {
+    if (file.level > 0) {
+      EXPECT_LE(file.size, options.target_file_size_base)
+          << "Output file size exceeds target size: " << " File: " << file.name
+          << " level: " << file.level << " File size: " << file.size
+          << " Target size: " << options.target_file_size_base;
+    }
+  }
+}
+
 class PeriodicCompactionListener : public EventListener {
  public:
   explicit PeriodicCompactionListener() {}

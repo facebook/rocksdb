@@ -224,6 +224,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BACKUP_WRITE_BYTES, "rocksdb.backup.write.bytes"},
     {REMOTE_COMPACT_READ_BYTES, "rocksdb.remote.compact.read.bytes"},
     {REMOTE_COMPACT_WRITE_BYTES, "rocksdb.remote.compact.write.bytes"},
+    {REMOTE_COMPACT_RESUMED_BYTES, "rocksdb.remote.compact.resumed.bytes"},
     {HOT_FILE_READ_BYTES, "rocksdb.hot.file.read.bytes"},
     {WARM_FILE_READ_BYTES, "rocksdb.warm.file.read.bytes"},
     {COOL_FILE_READ_BYTES, "rocksdb.cool.file.read.bytes"},
@@ -351,6 +352,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
      "rocksdb.table.open.prefetch.tail.read.bytes"},
     {NUM_OP_PER_TRANSACTION, "rocksdb.num.op.per.transaction"},
+    {MULTISCAN_PREPARE_ITERATORS,
+     "rocksdb.multiscan.op.prepare.iterators.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

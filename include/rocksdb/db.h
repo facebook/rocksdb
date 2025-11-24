@@ -35,12 +35,6 @@
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
-#elif _WIN32
-#define ROCKSDB_DEPRECATED_FUNC __declspec(deprecated)
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 struct ColumnFamilyOptions;
@@ -49,6 +43,7 @@ struct CompactRangeOptions;
 struct DBOptions;
 struct ExternalSstFileInfo;
 struct FlushOptions;
+struct FlushWALOptions;
 struct Options;
 struct ReadOptions;
 struct TableProperties;
@@ -352,16 +347,30 @@ class DB {
       std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
   // End EXPERIMENTAL
 
-  // Open DB and run the compaction.
-  // It's a read-only operation, the result won't be installed to the DB, it
-  // will be output to the `output_directory`. The API should only be used with
-  // `options.CompactionService` to run compaction triggered by
-  // `CompactionService`.
   static Status OpenAndCompact(
       const std::string& name, const std::string& output_directory,
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
+  // Opens a database and runs compaction without modifying the original DB.
+  //
+  // This read-only operation outputs compaction results to `output_directory`
+  // instead of installing them back to the source database. Designed primarily
+  // for use with `CompactionService` to process remote compaction jobs.
+  //
+  // Parameters:
+  // - `options`: Additional controls
+  //   * When `allow_resumption = false`: The `output_directory` MUST be empty
+  //     before calling this function. Any existing files (including resume
+  //     state or output files from previous runs) in the directory may
+  //     cause correctness errors as the compaction will start from scratch.
+  // - `name`: Source database path
+  // - `output_directory`: Where compaction output files are written
+  // - `input`: Serialized compaction input information
+  // - `output`: Serialized compaction result
+  // - `override_options`: Configuration overrides for the operation
+  //
+  // Returns: Status of the compaction operation
   static Status OpenAndCompact(
       const OpenAndCompactOptions& options, const std::string& name,
       const std::string& output_directory, const std::string& input,
@@ -1777,6 +1786,10 @@ class DB {
     return Status::NotSupported("FlushWAL not implemented");
   }
 
+  virtual Status FlushWAL(const FlushWALOptions& /*options*/) {
+    return Status::NotSupported("FlushWAL not implemented");
+  }
+
   // Ensure all WAL writes have been synced to storage, so that (assuming OS
   // and hardware support) data will survive power loss. This function does
   // not imply FlushWAL, so `FlushWAL(true)` is recommended if using
@@ -1916,9 +1929,22 @@ class DB {
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
 
+  // Obtains the LSM-tree meta data of the specified column family of the DB
+  // with optional filtering by key range and level.
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* /*column_family*/,
+      const GetColumnFamilyMetaDataOptions& /*options*/,
+      ColumnFamilyMetaData* /*metadata*/) {}
+
   // Get the metadata of the default column family.
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* metadata) {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
+  }
+
+  // Get the metadata of the default column family with optional filtering.
+  void GetColumnFamilyMetaData(const GetColumnFamilyMetaDataOptions& options,
+                               ColumnFamilyMetaData* metadata) {
+    GetColumnFamilyMetaData(DefaultColumnFamily(), options, metadata);
   }
 
   // Obtains the LSM-tree meta data of all column families of the DB, including

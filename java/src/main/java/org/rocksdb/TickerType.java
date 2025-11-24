@@ -901,6 +901,11 @@ public enum TickerType {
      */
     SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT((byte) -0x5E),
 
+    /**
+     * Bytes of output files successfully resumed during remote compaction
+     */
+    REMOTE_COMPACT_RESUMED_BYTES((byte) -0x5F),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

@@ -17,7 +17,6 @@
 #include <limits>
 #include <memory>
 
-#include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
 #include "port/lang.h"
@@ -29,8 +28,8 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
+#include "util/atomic.h"
 #include "util/bloom_impl.h"
-#include "util/coding.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/ribbon_config.h"
@@ -61,7 +60,7 @@ Slice FinishAlwaysTrue(std::unique_ptr<const char[]>* /*buf*/) {
 
 // Base class for filter builders using the XXH3 preview hash,
 // also known as Hash64 or GetSliceHash64.
-class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
+class XXPH3FilterBitsBuilder : public FilterBitsBuilder {
  public:
   explicit XXPH3FilterBitsBuilder(
       std::atomic<int64_t>* aggregate_rounding_balance,
@@ -126,8 +125,11 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     }
   }
 
+  // Returns an estimate of the number of entries added to the
+  // filter. This method is thread-safe and can be safely called
+  // from background threads during parallel compression.
   size_t EstimateEntriesAdded() override {
-    return hash_entries_info_.entries.size();
+    return hash_entries_info_.entries_count.LoadRelaxed();
   }
 
   Status MaybePostVerify(const Slice& filter_content) override;
@@ -147,6 +149,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       hash_entries_info_.xor_checksum ^= hash;
     }
     hash_entries_info_.entries.push_back(hash);
+    hash_entries_info_.entries_count.FetchAddRelaxed(1);
     if (cache_res_mgr_ &&
         // Traditional rounding to whole bucket size
         ((hash_entries_info_.entries.size() %
@@ -314,6 +317,10 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // and has near-minimal peak memory use.
     std::deque<uint64_t> entries;
 
+    // Tracks the number of entries added for thread-safe
+    // size estimation.
+    RelaxedAtomic<size_t> entries_count{0};
+
     // If cache_res_mgr_ != nullptr,
     // it manages cache charge for buckets of hash entries in (new) Bloom
     // or Ribbon Filter construction.
@@ -332,6 +339,8 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     void Swap(HashEntriesInfo* other) {
       assert(other != nullptr);
       std::swap(entries, other->entries);
+      entries_count.StoreRelaxed(
+          other->entries_count.ExchangeRelaxed(entries_count.LoadRelaxed()));
       std::swap(cache_res_bucket_handles, other->cache_res_bucket_handles);
       std::swap(xor_checksum, other->xor_checksum);
       std::swap(prev_alt_hash, other->prev_alt_hash);
@@ -339,6 +348,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
     void Reset() {
       entries.clear();
+      entries_count.StoreRelaxed(0);
       cache_res_bucket_handles.clear();
       xor_checksum = 0;
       prev_alt_hash = {};
@@ -1066,7 +1076,7 @@ class Standard128RibbonBitsReader : public BuiltinFilterBitsReader {
 
 using LegacyBloomImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
 
-class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
+class LegacyBloomBitsBuilder : public FilterBitsBuilder {
  public:
   explicit LegacyBloomBitsBuilder(const int bits_per_key, Logger* info_log);
 

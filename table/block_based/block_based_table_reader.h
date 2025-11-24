@@ -211,7 +211,8 @@ class BlockBasedTable : public TableReader {
   Status DumpTable(WritableFile* out_file) override;
 
   Status VerifyChecksum(const ReadOptions& readOptions,
-                        TableReaderCaller caller) override;
+                        TableReaderCaller caller,
+                        bool meta_blocks_only = false) override;
 
   void MarkObsolete(uint32_t uncache_aggressiveness) override;
 
@@ -429,7 +430,7 @@ class BlockBasedTable : public TableReader {
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
   InternalIteratorBase<IndexValue>* NewIndexIterator(
-      const ReadOptions& read_options, bool need_upper_bound_check,
+      const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
@@ -610,7 +611,9 @@ struct BlockBasedTable::Rep {
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
+        fs_prefetch_support(CheckFSFeatureSupport(
+            _ioptions.fs.get(), FSSupportedOps::kFSPrefetch)) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -698,6 +701,8 @@ struct BlockBasedTable::Rep {
   // partitioned filters), the `first_internal_key` in `IndexValue`, the
   // `end_key` for range deletion entries.
   const bool user_defined_timestamps_persisted;
+
+  const bool fs_prefetch_support;
 
   // Set to >0 when the file is known to be obsolete and should have its block
   // cache entries evicted on close. NOTE: when the file becomes obsolete,

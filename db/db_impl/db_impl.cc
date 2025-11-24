@@ -258,10 +258,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       [this]() { this->TriggerPeriodicCompaction(); });
 
   versions_.reset(new VersionSet(
-      dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
-      write_buffer_manager_, &write_controller_, &block_cache_tracer_,
-      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc,
-      &error_handler_, read_only));
+      dbname_, &immutable_db_options_, mutable_db_options_, file_options_,
+      table_cache_.get(), write_buffer_manager_, &write_controller_,
+      &block_cache_tracer_, io_tracer_, db_id_, db_session_id_,
+      options.daily_offpeak_time_utc, &error_handler_, read_only));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -1412,7 +1412,7 @@ Status DBImpl::SetDBOptions(
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
-      versions_->ChangeFileOptions(mutable_db_options_);
+      versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
       // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
@@ -1478,6 +1478,12 @@ int DBImpl::FindMinimumEmptyLevelFitting(
     minimum_level = i;
   }
   return minimum_level;
+}
+
+Status DBImpl::FlushWAL(const FlushWALOptions& options) {
+  WriteOptions write_options;
+  write_options.rate_limiter_priority = options.rate_limiter_priority;
+  return FlushWAL(write_options, options.sync);
 }
 
 Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
@@ -5041,6 +5047,19 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   }
 }
 
+void DBImpl::GetColumnFamilyMetaData(
+    ColumnFamilyHandle* column_family,
+    const GetColumnFamilyMetaDataOptions& options,
+    ColumnFamilyMetaData* metadata) {
+  assert(column_family);
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    cfd->current()->GetColumnFamilyMetaData(options, metadata);
+  }
+}
+
 void DBImpl::GetAllColumnFamilyMetaData(
     std::vector<ColumnFamilyMetaData>* metadata) {
   InstrumentedMutexLock l(&mutex_);
@@ -5500,7 +5519,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   return s;
 }
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 
 void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* cfd) const {
   if (immutable_db_options_.enable_thread_tracking) {
@@ -5527,7 +5546,7 @@ void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 void DBImpl::EraseThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 
 void DBImpl::EraseThreadStatusDbInfo() const {}
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 
 //
 // A global method that can dump out the build version

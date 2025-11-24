@@ -30,6 +30,7 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
 Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
                                       SequenceNumber seqno,
                                       ValueType value_type) {
+  assert(value_type < kTypeMaxValid);
   if (value_type == kTypeBlobIndex) {
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(value);
@@ -975,6 +976,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n FullHistoryTsLow: ");
     r.append(Slice(full_history_ts_low_).ToString(hex_key));
   }
+  if (HasSubcompactionProgress()) {
+    r.append("\n SubcompactionProgress: ");
+    r.append(subcompaction_progress_.ToString());
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1122,6 +1127,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (HasFullHistoryTsLow()) {
     jw << "FullHistoryTsLow" << Slice(full_history_ts_low_).ToString(hex_key);
+  }
+
+  if (HasSubcompactionProgress()) {
+    jw << "SubcompactionProgress" << subcompaction_progress_.ToString();
   }
 
   jw.EndObject();

@@ -30,6 +30,35 @@ size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
   return filter_bits_builder_->EstimateEntriesAdded();
 }
 
+void FullFilterBlockBuilder::OnDataBlockFinalized(uint64_t num_data_blocks) {
+  UpdateFilterSizeEstimate(num_data_blocks);
+}
+
+size_t FullFilterBlockBuilder::CurrentFilterSizeEstimate() {
+  return estimated_filter_size_;
+}
+
+void FullFilterBlockBuilder::UpdateFilterSizeEstimate(
+    uint64_t num_data_blocks) {
+  size_t entries_added = filter_bits_builder_->EstimateEntriesAdded();
+
+  if (entries_added == 0) {
+    estimated_filter_size_ = 0;
+    return;
+  }
+
+  size_t filter_size = filter_bits_builder_->CalculateSpace(entries_added);
+
+  // Reserve filter space for next data block ~2x the average.
+  size_t buffer_size = 0;
+  if (num_data_blocks > 0) {
+    buffer_size = (filter_size / num_data_blocks) * 2;
+    estimated_filter_size_ = filter_size + buffer_size;
+  } else {
+    estimated_filter_size_ = filter_size;
+  }
+}
+
 void FullFilterBlockBuilder::AddWithPrevKey(
     const Slice& key_without_ts, const Slice& /*prev_key_without_ts*/) {
   FullFilterBlockBuilder::Add(key_without_ts);

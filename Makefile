@@ -296,6 +296,28 @@ $(info $(shell $(CC) --version))
 $(info $(shell $(CXX) --version))
 endif
 
+# ccache support
+# Set USE_CCACHE=1 to enable ccache, or let it auto-detect
+ifndef USE_CCACHE
+  CCACHE := $(shell which ccache 2>/dev/null)
+  ifneq ($(CCACHE),)
+    USE_CCACHE := 1
+  else
+    USE_CCACHE := 0
+  endif
+endif
+
+ifeq ($(USE_CCACHE), 1)
+  CCACHE := $(shell which ccache 2>/dev/null)
+  ifneq ($(CCACHE),)
+    $(info Using ccache: $(CCACHE))
+    CC := $(CCACHE) $(CC)
+    CXX := $(CCACHE) $(CXX)
+  else
+    $(warning ccache requested but not found in PATH)
+  endif
+endif
+
 missing_make_config_paths := $(shell				\
 	grep "\./\S*\|/\S*" -o $(CURDIR)/make_config.mk | 	\
 	while read path;					\
@@ -446,83 +468,7 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
-# This provides a Makefile simulation of a Meta-internal folly integration.
-# It is not validated for general use.
-#
-# USE_FOLLY links the build targets with libfolly.a. The latter could be
-# built using 'make build_folly', or built externally and specified in
-# the CXXFLAGS and EXTRA_LDFLAGS env variables. The build_detect_platform
-# script tries to detect if an external folly dependency has been specified.
-# If not, it exports FOLLY_PATH to the path of the installed Folly and
-# dependency libraries.
-#
-# USE_FOLLY_LITE cherry picks source files from Folly to include in the
-# RocksDB library. Its faster and has fewer dependencies on 3rd party
-# libraries, but with limited functionality. For example, coroutine
-# functionality is not available.
-ifeq ($(USE_FOLLY),1)
-ifeq ($(USE_FOLLY_LITE),1)
-$(error Please specify only one of USE_FOLLY and USE_FOLLY_LITE)
-endif
-ifneq ($(strip $(FOLLY_PATH)),)
-	BOOST_PATH = $(shell (ls -d $(FOLLY_PATH)/../boost*))
-	DBL_CONV_PATH = $(shell (ls -d $(FOLLY_PATH)/../double-conversion*))
-	GFLAGS_PATH = $(shell (ls -d $(FOLLY_PATH)/../gflags*))
-	GLOG_PATH = $(shell (ls -d $(FOLLY_PATH)/../glog*))
-	LIBEVENT_PATH = $(shell (ls -d $(FOLLY_PATH)/../libevent*))
-	XZ_PATH = $(shell (ls -d $(FOLLY_PATH)/../xz*))
-	LIBSODIUM_PATH = $(shell (ls -d $(FOLLY_PATH)/../libsodium*))
-	FMT_PATH = $(shell (ls -d $(FOLLY_PATH)/../fmt*))
-
-	# For some reason, glog and fmt libraries are under either lib or lib64
-	GLOG_LIB_PATH = $(shell (ls -d $(GLOG_PATH)/lib*))
-	FMT_LIB_PATH = $(shell (ls -d $(FMT_PATH)/lib*))
-
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(BOOST_PATH)/include -I$(DBL_CONV_PATH)/include -I$(GLOG_PATH)/include -I$(LIBEVENT_PATH)/include -I$(XZ_PATH)/include -I$(LIBSODIUM_PATH)/include -I$(FOLLY_PATH)/include -I$(FMT_PATH)/include
-		PLATFORM_CXXFLAGS += -I$(BOOST_PATH)/include -I$(DBL_CONV_PATH)/include -I$(GLOG_PATH)/include -I$(LIBEVENT_PATH)/include -I$(XZ_PATH)/include -I$(LIBSODIUM_PATH)/include -I$(FOLLY_PATH)/include -I$(FMT_PATH)/include
-	else
-		PLATFORM_CCFLAGS += -isystem $(BOOST_PATH)/include -isystem $(DBL_CONV_PATH)/include -isystem $(GLOG_PATH)/include -isystem $(LIBEVENT_PATH)/include -isystem $(XZ_PATH)/include -isystem $(LIBSODIUM_PATH)/include -isystem $(FOLLY_PATH)/include -isystem $(FMT_PATH)/include
-		PLATFORM_CXXFLAGS += -isystem $(BOOST_PATH)/include -isystem $(DBL_CONV_PATH)/include -isystem $(GLOG_PATH)/include -isystem $(LIBEVENT_PATH)/include -isystem $(XZ_PATH)/include -isystem $(LIBSODIUM_PATH)/include -isystem $(FOLLY_PATH)/include -isystem $(FMT_PATH)/include
-	endif
-
-	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
-	# in the command line
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(FMT_LIB_PATH)/libfmt.a $(GLOG_LIB_PATH)/libglog.so $(GFLAGS_PATH)/lib/libgflags.so.2.2 $(LIBEVENT_PATH)/lib/libevent-2.1.so -ldl
-	PLATFORM_LDFLAGS += -Wl,-rpath=$(GFLAGS_PATH)/lib -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(LIBEVENT_PATH)/lib -Wl,-rpath=$(LIBSODIUM_PATH)/lib -Wl,-rpath=$(LIBEVENT_PATH)/lib
-endif
-	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-endif
-
-ifeq ($(USE_FOLLY_LITE),1)
-	# Path to the Folly source code and include files
-	FOLLY_DIR = ./third-party/folly
-ifneq ($(strip $(BOOST_SOURCE_PATH)),)
-	BOOST_INCLUDE = $(shell (ls -d $(BOOST_SOURCE_PATH)/boost*/))
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(BOOST_INCLUDE)
-		PLATFORM_CXXFLAGS += -I$(BOOST_INCLUDE)
-	else
-		PLATFORM_CCFLAGS += -isystem $(BOOST_INCLUDE)
-		PLATFORM_CXXFLAGS += -isystem $(BOOST_INCLUDE)
-	endif
-endif  # BOOST_SOURCE_PATH
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
-		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
-	else
-		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
-		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
-	endif
-	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-# TODO: fix linking with fbcode compiler config
-	PLATFORM_LDFLAGS += -lglog
-endif
+include folly.mk
 
 ifdef TEST_CACHE_LINE_SIZE
   PLATFORM_CCFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
@@ -683,6 +629,7 @@ am__v_CCH_1 =
 %.h.pub: %.h # .h.pub not actually created, so re-checked on each invocation
 	$(AM_V_CCH) cd include/ && echo '#include "$(patsubst include/%,%,$<)"' | \
 	  $(CXX) -std=$(or $(ROCKSDB_CXX_STANDARD),c++20) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	build_tools/check-public-header.sh $<
 
 check-headers: $(HEADER_OK_FILES)
 
@@ -1496,6 +1443,9 @@ db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_etc3_test: $(OBJ_DIR)/db/db_etc3_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 compression_test: $(OBJ_DIR)/util/compression_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1737,9 +1687,6 @@ block_test: $(OBJ_DIR)/table/block_based/block_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 data_block_hash_index_test: $(OBJ_DIR)/table/block_based/data_block_hash_index_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
-index_builder_test: $(OBJ_DIR)/table/block_based/index_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 inlineskiplist_test: $(OBJ_DIR)/memtable/inlineskiplist_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2494,40 +2441,6 @@ commit_prereq:
 	echo "TODO: bring this back using parts of old precommit_checker.py and rocksdb-lego-determinator"
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-
-# For public CI runs, checkout folly in a way that can build with RocksDB.
-# This is mostly intended as a test-only simulation of Meta-internal folly
-# integration.
-checkout_folly:
-	if [ -e third-party/folly ]; then \
-		cd third-party/folly && ${GIT_COMMAND} fetch origin; \
-	else \
-		cd third-party && ${GIT_COMMAND} clone https://github.com/facebook/folly.git; \
-	fi
-	@# Pin to a particular version for public CI, so that PR authors don't
-	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard e95383b7c8b5b1e46cf47acf2f317d54f93c8268
-	@# Apparently missing include
-	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
-	@# Warning-as-error on memcpy
-	perl -pi -e 's/memcpy.&ptr/memcpy((void*)&ptr/' third-party/folly/folly/lang/Exception.cpp
-	@# const mismatch
-	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
-	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
-	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost
-
-CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
-
-build_folly:
-	FOLLY_INST_PATH=`cd third-party/folly; $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
-	if [ "$$FOLLY_INST_PATH" ]; then \
-		rm -rf $${FOLLY_INST_PATH}/../../*; \
-	else \
-		echo "Please run checkout_folly first"; \
-		false; \
-	fi
-	cd third-party/folly && \
-		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing

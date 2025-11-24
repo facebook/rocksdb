@@ -57,6 +57,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
     return filter_bits_builder_->EstimateEntriesAdded() == 0;
   }
   size_t EstimateEntriesAdded() override;
+  size_t CurrentFilterSizeEstimate() override;
+  void OnDataBlockFinalized(uint64_t num_data_blocks) override;
   Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
                 std::unique_ptr<const char[]>* filter_owner = nullptr) override;
   using FilterBlockBuilder::Finish;
@@ -73,6 +75,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
 
+  void UpdateFilterSizeEstimate(uint64_t num_data_blocks_written) override;
+
  private:
   // important: all of these might point to invalid addresses
   // at the time of destruction of this filter block. destructor
@@ -80,6 +84,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   const SliceTransform* const prefix_extractor_;
   const bool whole_key_filtering_;
   std::unique_ptr<const char[]> filter_data_;
+
+  size_t estimated_filter_size_ = 0;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

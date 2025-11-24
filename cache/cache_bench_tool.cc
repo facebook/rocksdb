@@ -119,7 +119,7 @@ DEFINE_uint32(seed, 0, "Hashing/random seed to use. 0 = choose at random");
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 
-DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
+DEFINE_string(cache_type, "hyper_clock_cache", "Type of block cache.");
 
 DEFINE_bool(use_jemalloc_no_dump_allocator, false,
             "Whether to use JemallocNoDumpAllocator");

@@ -158,7 +158,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
-  uint64_t EstimateCurrentIndexSize() const override { return 0; }
+  uint64_t CurrentIndexSizeEstimate() const override { return 0; }
 
   bool separator_is_key_plus_seq() override {
     return internal_index_builder_->separator_is_key_plus_seq();

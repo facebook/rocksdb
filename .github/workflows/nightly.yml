@@ -58,7 +58,7 @@ jobs:
     - uses: "./.github/actions/build-folly"
     - run: LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
     - uses: "./.github/actions/post-steps"
-  build-linux-valgrind:
+  build-linux-cmake-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
@@ -68,7 +68,28 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: make V=1 -j32 valgrind_test
+    - uses: "./.github/actions/setup-folly"
+    - uses: "./.github/actions/cache-folly"
+      id: cache-folly
+    - uses: "./.github/actions/build-folly"
+      with:
+        cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make VERBOSE=1 -j20 && ctest -j20)"
+    - uses: "./.github/actions/post-steps"
+  build-linux-release-with-folly:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - run: "DEBUG_LEVEL=0 make -j20 build_folly"
+    - run: "USE_FOLLY=1 LIB_MODE=static DEBUG_LEVEL=0 V=1 make -j20 release"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DCMAKE_BUILD_TYPE=Release .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-windows-vs2022-avx2:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -117,7 +138,7 @@ jobs:
     - name: Build fuzzers
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
-  build-linux-cmake-with-folly-lite-no-test:
+  build-linux-cmake-with-folly-lite:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
@@ -128,5 +149,5 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
-    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 -DCMAKE_CXX_FLAGS=-DGLOG_USE_GLOG_EXPORT .. && make V=1 -j20)"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 -DCMAKE_CXX_FLAGS=-DGLOG_USE_GLOG_EXPORT .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"

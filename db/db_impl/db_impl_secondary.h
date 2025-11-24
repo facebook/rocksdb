@@ -303,6 +303,87 @@ class DBImplSecondary : public DBImpl {
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 
+ private:
+  // Holds results of compaction progress files and output files from a single
+  // directory scan
+  struct CompactionProgressFilesScan {
+    // The latest (newest) progress file filename
+    std::optional<std::string> latest_progress_filename;
+    uint64_t latest_progress_timestamp = 0;
+
+    // Older progress file filenames (to be deleted)
+    autovector<std::string> old_progress_filenames;
+
+    // Temporary progress file filenames (to be deleted)
+    autovector<std::string> temp_progress_filenames;
+
+    // All output file numbers - for cleanup optimization
+    std::vector<uint64_t> table_file_numbers;
+
+    bool HasLatestProgressFile() const {
+      return latest_progress_filename.has_value();
+    }
+
+    void Clear() {
+      latest_progress_filename.reset();
+      latest_progress_timestamp = 0;
+      old_progress_filenames.clear();
+      temp_progress_filenames.clear();
+      table_file_numbers.clear();
+    }
+  };
+
+  Status InitializeCompactionWorkspace(
+      bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status PrepareCompactionProgressState();
+
+  Status ScanCompactionProgressFiles(CompactionProgressFilesScan* scan_result);
+
+  Status DeleteCompactionProgressFiles(
+      const std::vector<std::string>& filenames);
+
+  Status CleanupOldAndTemporaryCompactionProgressFiles(
+      bool preserve_latest, const CompactionProgressFilesScan& scan_result);
+
+  Status LoadCompactionProgressAndCleanupExtraOutputFiles(
+      const std::string& compaction_progress_file_path,
+      const CompactionProgressFilesScan& scan_result);
+
+  Status ParseCompactionProgressFile(
+      const std::string& compaction_progress_file_path,
+      CompactionProgress* compaction_progress);
+
+  Status HandleInvalidOrNoCompactionProgress(
+      const std::optional<std::string>& compaction_progress_file_path,
+      const CompactionProgressFilesScan& scan_result);
+
+  Status CleanupPhysicalCompactionOutputFiles(
+      bool preserve_tracked_files,
+      const CompactionProgressFilesScan& scan_result);
+
+  Status FinalizeCompactionProgressWriter(
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status CreateCompactionProgressWriter(
+      const std::string& file_path,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status PersistInitialCompactionProgress(
+      log::Writer* compaction_progress_writer,
+      const CompactionProgress& compaction_progress);
+
+  Status RenameCompactionProgressFile(const std::string& temp_file_path,
+                                      std::string* final_file_path);
+
+  Status HandleCompactionProgressWriterCreationFailure(
+      const std::string& temp_file_path, const std::string& final_file_path,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  uint64_t CalculateResumedCompactionBytes(
+      const CompactionProgress& compaction_progress) const;
+
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
@@ -311,6 +392,8 @@ class DBImplSecondary : public DBImpl {
   std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 
   const std::string secondary_path_;
+
+  CompactionProgress compaction_progress_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

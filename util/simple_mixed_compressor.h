@@ -25,15 +25,17 @@ class MultiCompressorWrapper : public Compressor {
   CompressionType GetPreferredCompressionType() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override;
 
  protected:
+  const CompressionOptions opts_;
   std::vector<std::unique_ptr<Compressor>> compressors_;
 };
 
 struct RandomMixedCompressor : public MultiCompressorWrapper {
   using MultiCompressorWrapper::MultiCompressorWrapper;
   const char* Name() const override;
+  std::unique_ptr<Compressor> Clone() const override;
   Status CompressBlock(Slice uncompressed_data, char* compressed_output,
                        size_t* compressed_output_size,
                        CompressionType* out_compression_type,
@@ -51,6 +53,7 @@ class RandomMixedCompressionManager : public CompressionManagerWrapper {
 struct RoundRobinCompressor : public MultiCompressorWrapper {
   using MultiCompressorWrapper::MultiCompressorWrapper;
   const char* Name() const override;
+  std::unique_ptr<Compressor> Clone() const override;
   Status CompressBlock(Slice uncompressed_data, char* compressed_output,
                        size_t* compressed_output_size,
                        CompressionType* out_compression_type,

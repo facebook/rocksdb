@@ -1,0 +1,33 @@
+name: cache-folly
+description: Cache folly build to speed up CI
+outputs:
+  cache-hit:
+    description: Whether the cache was hit
+    value: ${{ steps.cache-folly-build.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+  - name: Extract FOLLY_MK_HASH
+    id: extract-folly-hash
+    shell: bash
+    run: |
+      FOLLY_MK_HASH=$(md5sum folly.mk | cut -d' ' -f1)
+      echo "hash=$FOLLY_MK_HASH" >> $GITHUB_OUTPUT
+  - name: Extract FOLLY_INSTALL_DIR
+    id: extract-folly-install-dir
+    shell: bash
+    run: |
+      FOLLY_INSTALL_DIR=$(cd third-party/folly && python3 build/fbcode_builder/getdeps.py show-inst-dir)
+      echo "dir=$(echo $FOLLY_INSTALL_DIR | sed 's|installed/folly|installed|')" >> $GITHUB_OUTPUT
+  - name: Cache folly build
+    id: cache-folly-build
+    uses: actions/cache@v4
+    with:
+      # Cache the folly build directory
+      path: ${{ steps.extract-folly-install-dir.outputs.dir }}
+      # Key is based on:
+      # - OS and architecture
+      # - The docker image, which may not always be specified/known
+      # - Hash of folly.mk, which includes the folly repository commit hash
+      # NOTE: this is still only intended for DEBUG folly builds
+      key: folly-build-${{ runner.os }}-${{ runner.arch }}-${{ github.job_container.image }}-${{ steps.extract-folly-hash.outputs.hash }}

@@ -395,6 +395,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"verify_output_flags",
+         {offsetof(struct MutableCFOptions, verify_output_flags),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"verify_checksums_in_compaction",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -449,6 +453,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"target_file_size_multiplier",
          {offsetof(struct MutableCFOptions, target_file_size_multiplier),
           OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"target_file_size_is_upper_bound",
+         {offsetof(struct MutableCFOptions, target_file_size_is_upper_bound),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"arena_block_size",
          {offsetof(struct MutableCFOptions, arena_block_size),
@@ -1070,10 +1078,12 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
   if (op1 == 0 || op2 <= 0) {
     return 0;
   }
-  if (std::numeric_limits<uint64_t>::max() / op1 < op2) {
-    return op1;
+
+  if (op1 * op2 < static_cast<double>(std::numeric_limits<uint64_t>::max())) {
+    return static_cast<uint64_t>(op1 * op2);
   }
-  return static_cast<uint64_t>(op1 * op2);
+
+  return op1;
 }
 
 // when level_compaction_dynamic_level_bytes is true and leveled compaction
@@ -1168,6 +1178,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  target_file_size_base);
   ROCKS_LOG_INFO(log, "              target_file_size_multiplier: %d",
                  target_file_size_multiplier);
+  ROCKS_LOG_INFO(log, "         target_file_size_is_upper_bound: %d",
+                 target_file_size_is_upper_bound);
   ROCKS_LOG_INFO(log, "                 max_bytes_for_level_base: %" PRIu64,
                  max_bytes_for_level_base);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",

@@ -812,20 +812,19 @@ Status CompactionJob::SyncOutputDirectories() {
 Status CompactionJob::VerifyOutputFiles() {
   Status status;
   std::vector<port::Thread> thread_pool;
-  std::vector<const CompactionOutputs::Output*> files_output;
-  for (const auto& state : compact_->sub_compact_states) {
-    for (const auto& output : state.GetOutputs()) {
-      files_output.emplace_back(&output);
-    }
-  }
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-  std::atomic<size_t> next_file_idx(0);
-  auto verify_table = [&](Status& output_status) {
-    while (true) {
-      size_t file_idx = next_file_idx.fetch_add(1);
-      if (file_idx >= files_output.size()) {
-        break;
-      }
+  VerifyOutputFlags verify_output_flags =
+      compact_->compaction->mutable_cf_options().verify_output_flags;
+
+  // For backward compatibility
+  if (paranoid_file_checks_) {
+    verify_output_flags |= VerifyOutputFlags::kVerifyIteration;
+    verify_output_flags |= VerifyOutputFlags::kEnableForLocalCompaction;
+    verify_output_flags |= VerifyOutputFlags::kEnableForRemoteCompaction;
+  }
+
+  auto verify_table = [&](SubcompactionState& subcompaction_state) {
+    for (const auto& output_file : subcompaction_state.GetOutputs()) {
       // Verify that the table is usable
       // We set for_compaction to false and don't
       // OptimizeForCompactionTableRead here because this is a special case
@@ -834,13 +833,19 @@ Status CompactionJob::VerifyOutputFiles() {
       // verification as user reads since the goal is to cache it here for
       // further user reads
       ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
+      verify_table_read_options.verify_checksums = true;
+      verify_table_read_options.readahead_size =
+          file_options_for_read_.compaction_readahead_size;
+
+      std::unique_ptr<TableReader> table_reader_guard;
+      TableReader* table_reader_ptr = table_reader_guard.get();
       verify_table_read_options.rate_limiter_priority =
           GetRateLimiterPriority();
       InternalIterator* iter = cfd->table_cache()->NewIterator(
           verify_table_read_options, file_options_, cfd->internal_comparator(),
-          files_output[file_idx]->meta,
+          output_file.meta,
           /*range_del_agg=*/nullptr, compact_->compaction->mutable_cf_options(),
-          /*table_reader_ptr=*/nullptr,
+          /*table_reader_ptr=*/&table_reader_ptr,
           cfd->internal_stats()->GetFileReadHist(
               compact_->compaction->output_level()),
           TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
@@ -850,38 +855,63 @@ Status CompactionJob::VerifyOutputFiles() {
           /*largest_compaction_key=*/nullptr,
           /*allow_unprepared_value=*/false);
       auto s = iter->status();
+      if (s.ok()) {
+        // Check for remote/local compaction and verify_output_flags flags
+        const bool should_verify =
+            (subcompaction_state.compaction_job_stats.is_remote_compaction &&
+             !!(verify_output_flags &
+                VerifyOutputFlags::kEnableForRemoteCompaction)) ||
+            (!subcompaction_state.compaction_job_stats.is_remote_compaction &&
+             !!(verify_output_flags &
+                VerifyOutputFlags::kEnableForLocalCompaction));
 
-      if (s.ok() && paranoid_file_checks_) {
-        OutputValidator validator(cfd->internal_comparator(),
-                                  /*_enable_hash=*/true);
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-          s = validator.Add(iter->key(), iter->value());
-          if (!s.ok()) {
-            break;
+        if (should_verify) {
+          const bool should_verify_block_checksum =
+              !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
+          const bool should_verify_iteration =
+              !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+          if (should_verify_block_checksum) {
+            assert(table_reader_ptr != nullptr);
+            // If verifying iteration as well, verify meta blocks here only to
+            // avoid redundant checks on data blocks
+            s = table_reader_ptr->VerifyChecksum(
+                verify_table_read_options, TableReaderCaller::kCompaction,
+                /*meta_blocks_only=*/should_verify_iteration);
           }
-        }
-        if (s.ok()) {
-          s = iter->status();
-        }
-        if (s.ok() &&
-            !validator.CompareValidator(files_output[file_idx]->validator)) {
-          s = Status::Corruption("Paranoid checksums do not match");
+          if (s.ok() && should_verify_iteration) {
+            OutputValidator validator(cfd->internal_comparator(),
+                                      /*_enable_hash=*/true);
+            for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+              s = validator.Add(iter->key(), iter->value());
+              if (!s.ok()) {
+                break;
+              }
+            }
+            if (s.ok()) {
+              s = iter->status();
+            }
+            if (s.ok() && !validator.CompareValidator(output_file.validator)) {
+              s = Status::Corruption(
+                  "Key-value checksum of compaction output doesn't match what "
+                  "was computed when written");
+            }
+          }
         }
       }
 
       delete iter;
 
       if (!s.ok()) {
-        output_status = s;
+        subcompaction_state.status = s;
         break;
       }
     }
   };
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
     thread_pool.emplace_back(verify_table,
-                             std::ref(compact_->sub_compact_states[i].status));
+                             std::ref(compact_->sub_compact_states[i]));
   }
-  verify_table(compact_->sub_compact_states[0].status);
+  verify_table(compact_->sub_compact_states[0]);
   for (auto& thread : thread_pool) {
     thread.join();
   }
@@ -950,7 +980,8 @@ void CompactionJob::FinalizeCompactionRun(
     UpdateCompactionJobInputStatsFromInternalStats(internal_stats_,
                                                    num_input_range_del);
   }
-  UpdateCompactionJobOutputStatsFromInternalStats(internal_stats_);
+  UpdateCompactionJobOutputStatsFromInternalStats(input_status,
+                                                  internal_stats_);
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
@@ -1427,7 +1458,8 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       env_, ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
       blob_resources.blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
-      sub_compact->compaction->DoesInputReferenceBlobFiles(),
+      sub_compact->compaction
+          ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
       sub_compact->compaction, compaction_filter, shutting_down_,
       db_options_.info_log, full_history_ts_low, preserve_seqno_after_);
 }
@@ -2016,7 +2048,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
 
-  if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact,
+  if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact, c_iter,
                                                   prev_table_last_internal_key,
                                                   next_table_min_key, meta)) {
     UpdateSubcompactionProgress(c_iter, next_table_min_key, sub_compact);
@@ -2027,7 +2059,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 }
 
 bool CompactionJob::ShouldUpdateSubcompactionProgress(
-    const SubcompactionState* sub_compact,
+    const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
     const ParsedInternalKey& prev_table_last_internal_key,
     const Slice& next_table_min_internal_key, const FileMetaData* meta) const {
   const auto* cfd = sub_compact->compaction->column_family_data();
@@ -2083,6 +2115,21 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
 
   if (cfd->user_comparator()->EqualWithoutTimestamp(next_table_min_user_key,
                                                     prev_table_last_user_key)) {
+    return false;
+  }
+
+  // LIMITATION: Don't save progress if the current key has already been scanned
+  // (looked ahead) in the input but not yet output. This can happen with merge
+  // operations, single deletes, and deletes at the bottommost level where
+  // CompactionIterator needs to look ahead to process multiple entries for the
+  // same user key before outputting a result. If we saved progress and resumed
+  // at this boundary, the resumed session would see and process the same input
+  // key again through Seek(), leading to incorrect double-counting in
+  // number of processed input entries and input count verification failure
+  //
+  // TODO(hx235): Offset num_processed_input_records to avoid double counting
+  // instead of disabling progress persistence.
+  if (c_iter->IsCurrentKeyAlreadyScanned()) {
     return false;
   }
 
@@ -2511,6 +2558,7 @@ void CompactionJob::UpdateCompactionJobInputStatsFromInternalStats(
 }
 
 void CompactionJob::UpdateCompactionJobOutputStatsFromInternalStats(
+    const Status& status,
     const InternalStats::CompactionStatsFull& internal_stats) const {
   assert(job_stats_);
   job_stats_->elapsed_micros = internal_stats.output_level_stats.micros;
@@ -2541,7 +2589,7 @@ void CompactionJob::UpdateCompactionJobOutputStatsFromInternalStats(
         internal_stats.proximal_level_stats.num_output_files_blob;
   }
 
-  if (job_stats_->num_output_files > 0) {
+  if (status.ok() && job_stats_->num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),
                CompactionJobStats::kMaxPrefixLength,
                &job_stats_->smallest_output_key_prefix);
@@ -2770,8 +2818,9 @@ Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
     return Status::NotFound("No subcompaction progress to resume");
   }
 
-  ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] Resuming compaction",
-                 cfd->GetName().c_str(), job_id_);
+  ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] Resuming compaction : %s",
+                 cfd->GetName().c_str(), job_id_,
+                 subcompaction_progress.ToString().c_str());
 
   input_iter->Seek(subcompaction_progress.next_internal_key_to_compact);
 
@@ -2865,8 +2914,18 @@ void CompactionJob::UpdateSubcompactionProgress(
   subcompaction_progress.next_internal_key_to_compact =
       next_ikey_to_compact.GetInternalKey().ToString();
 
+  // Track total processed input records for progress reporting by combining:
+  // - Resumed count: records already processed before compaction was
+  // interrupted
+  // - Current count: records scanned in the current compaction session
+  // Only update when both tracking mechanisms provide accurate counts to ensure
+  // reliability.
   subcompaction_progress.num_processed_input_records =
-      c_iter->HasNumInputEntryScanned() ? c_iter->NumInputEntryScanned() : 0;
+      c_iter->HasNumInputEntryScanned() &&
+              sub_compact->compaction_job_stats.has_accurate_num_input_records
+          ? c_iter->NumInputEntryScanned() +
+                sub_compact->compaction_job_stats.num_input_records
+          : 0;
 
   UpdateSubcompactionProgressPerLevel(
       sub_compact, false /* is_proximal_level */, subcompaction_progress);

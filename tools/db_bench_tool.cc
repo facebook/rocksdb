@@ -159,6 +159,7 @@ DEFINE_string(
     "readrandomoperands,"
     "backup,"
     "restore,"
+    "openandcompact,"
     "approximatememtablestats",
 
     "Comma-separated list of operations to run in the specified"
@@ -230,6 +231,9 @@ DEFINE_string(
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
     "\tflush - flush the memtable\n"
+    "\topenandcompact -- Open DB and compact all files to bottommost level, "
+    "writing output to separate directory without modifying source DB. "
+    "Designed for remote compaction service testing\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
@@ -442,6 +446,14 @@ DEFINE_int64(db_write_buffer_size,
              ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
              "Number of bytes to buffer in all memtables before compacting");
 
+DEFINE_int64(max_manifest_file_size,
+             ROCKSDB_NAMESPACE::Options().max_manifest_file_size,
+             "Max manifest file size (or minimum max with auto-tuning)");
+
+DEFINE_int32(max_manifest_space_amp_pct,
+             ROCKSDB_NAMESPACE::Options().max_manifest_space_amp_pct,
+             "Max manifest space amp percentage for auto-tuning");
+
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
 
@@ -575,7 +587,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
 DEFINE_double(cache_low_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for low pri blocks.");
 
-DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
+DEFINE_string(cache_type, "hyper_clock_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
@@ -1872,6 +1884,18 @@ DEFINE_bool(
         .use_async_io,
     "Sets MultiScanArgs::use_async_io");
 
+DEFINE_bool(openandcompact_allow_resumption, false,
+            "Whether to keep existing progress and enable resume compaction in "
+            "OpenAndCompact benchmark");
+
+DEFINE_bool(openandcompact_test_cancel_on_odd, false,
+            "During OpenAndCompact[Xn], odd runs gets cancelled "
+            "after specified `openandcompact_cancel_after_millseconds`");
+
+DEFINE_uint32(openandcompact_cancel_after_millseconds, 1,
+              "Time to wait before cancelling compaction in odd runs when "
+              "openandcompact_test_cancel_on_odd is true");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -2625,24 +2649,33 @@ class CombinedStats {
     const char* name = bench_name.c_str();
     int num_runs = static_cast<int>(throughput_ops_.size());
 
+    double avg_ops_per_sec = CalcAvg(throughput_ops_);
+    double avg_millis_per_op =
+        (avg_ops_per_sec > 0) ? (1000.0 / avg_ops_per_sec) : 0;
+
+    printf("\n");
+
     if (throughput_mbs_.size() == throughput_ops_.size()) {
       // \xC2\xB1 is +/- character in UTF-8
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec; %6.1f (\xC2\xB1 "
+              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec; %.3f ms/op; "
+              "%6.1f (\xC2\xB1 "
               "%.1f) MB/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec; %6.1f MB/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)),
-              CalcAvg(throughput_mbs_), CalcConfidence95(throughput_mbs_), name,
-              num_runs, static_cast<int>(CalcMedian(throughput_ops_)),
+              avg_millis_per_op, CalcAvg(throughput_mbs_),
+              CalcConfidence95(throughput_mbs_), name, num_runs,
+              static_cast<int>(CalcMedian(throughput_ops_)),
               CalcMedian(throughput_mbs_));
     } else {
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec\n"
+              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec; %.3f ms/op\n"
               "%s [MEDIAN %d runs] : %d ops/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
-              static_cast<int>(CalcConfidence95(throughput_ops_)), name,
-              num_runs, static_cast<int>(CalcMedian(throughput_ops_)));
+              static_cast<int>(CalcConfidence95(throughput_ops_)),
+              avg_millis_per_op, name, num_runs,
+              static_cast<int>(CalcMedian(throughput_ops_)));
     }
   }
 
@@ -2801,6 +2834,8 @@ class Duration {
   uint64_t start_at_;
 };
 
+// Global run counter for cancel/resume-OpenAndCompact() testing
+static std::atomic<int> openandcompact_run_counter{0};
 class Benchmark {
  private:
   std::shared_ptr<Cache> cache_;
@@ -3225,10 +3260,10 @@ class Benchmark {
       db_bench_exit(1);
     } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
       size_t estimated_entry_charge;
-      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
-          FLAGS_cache_type == "hyper_clock_cache") {
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache") {
         estimated_entry_charge = FLAGS_block_size;
-      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache" ||
+                 FLAGS_cache_type == "hyper_clock_cache") {
         estimated_entry_charge = 0;
       } else {
         fprintf(stderr, "Cache type not supported.");
@@ -3853,6 +3888,9 @@ class Benchmark {
         method = &Benchmark::Backup;
       } else if (name == "restore") {
         method = &Benchmark::Restore;
+      } else if (name == "openandcompact") {
+        fresh_db = false;
+        method = &Benchmark::OpenAndCompact;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -4338,6 +4376,8 @@ class Benchmark {
       options.write_buffer_manager.reset(
           new WriteBufferManager(FLAGS_db_write_buffer_size, cache_));
     }
+    options.max_manifest_file_size = FLAGS_max_manifest_file_size;
+    options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
     options.arena_block_size = FLAGS_arena_block_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
@@ -5180,6 +5220,206 @@ class Benchmark {
 
   void WriteUniqueRandom(ThreadState* thread) {
     DoWrite(thread, UNIQUE_RANDOM);
+  }
+
+  void OpenAndCompact(ThreadState* thread) {
+    if (thread->tid != 0) {
+      return;
+    }
+
+    int current_run = ++openandcompact_run_counter;
+    bool is_odd_run = (current_run % 2 == 1);
+
+    if (FLAGS_openandcompact_test_cancel_on_odd) {
+      const char* even_description = FLAGS_openandcompact_allow_resumption
+                                         ? "even - resume"
+                                         : "even - normal";
+      fprintf(stdout, "\n--- Run %d (%s) ---\n", current_run,
+              is_odd_run ? "odd - will cancel" : even_description);
+    }
+
+    Status create_status =
+        db_.db->GetEnv()->CreateDirIfMissing(FLAGS_secondary_path);
+    if (!create_status.ok()) {
+      fprintf(stderr, "Failed to create secondary path: %s\n",
+              create_status.ToString().c_str());
+      return;
+    }
+
+    std::string options_file;
+    Status options_status =
+        GetLatestOptionsFileName(FLAGS_db, db_.db->GetEnv(), &options_file);
+    if (!options_status.ok()) {
+      fprintf(stderr, "FAILED: Cannot find OPTIONS file in %s: %s\n",
+              FLAGS_db.c_str(), options_status.ToString().c_str());
+      return;
+    }
+
+    uint64_t options_file_number;
+    FileType type;
+    if (!ParseFileName(options_file, &options_file_number, &type) ||
+        type != kOptionsFile) {
+      fprintf(stderr, "FAILED: Cannot parse OPTIONS file number from %s\n",
+              options_file.c_str());
+      return;
+    }
+
+    CompactionServiceInput compaction_input;
+    compaction_input.cf_name = kDefaultColumnFamilyName;
+
+    std::vector<std::string> input_file_names;
+    ColumnFamilyMetaData cf_meta;
+    db_.db->GetColumnFamilyMetaData(&cf_meta);
+
+    uint64_t total_input_keys = 0;
+    uint64_t total_input_files = 0;
+
+    // Collect files from all levels for full compaction
+    for (const auto& level : cf_meta.levels) {
+      for (const auto& file : level.files) {
+        input_file_names.push_back(file.name);
+        total_input_keys += file.num_entries;
+        total_input_files++;
+      }
+    }
+
+    // Set output level to configured bottom level (num_levels - 1)
+    compaction_input.output_level = FLAGS_num_levels - 1;
+    compaction_input.db_id = "db_bench_openandcompact";
+    compaction_input.options_file_number = options_file_number;
+
+    compaction_input.input_files = input_file_names;
+
+    std::string input_string;
+    Status serialize_status = compaction_input.Write(&input_string);
+    if (!serialize_status.ok()) {
+      fprintf(stderr, "FAILED: Cannot serialize compaction input: %s\n",
+              serialize_status.ToString().c_str());
+      return;
+    }
+
+    fprintf(stdout, "\nInput files: %" PRIu64 " files, %" PRIu64 " keys\n",
+            total_input_files, total_input_keys);
+
+    std::string output_directory =
+        FLAGS_secondary_path + "/openandcompact_" + std::to_string(thread->tid);
+
+    // Always clean up in odd run, depending on
+    // !FLAGS_openandcompact_allow_resumption in even run
+    bool should_cleanup = is_odd_run || !FLAGS_openandcompact_allow_resumption;
+
+    if (should_cleanup) {
+      std::vector<std::string> children;
+      Status list_status = FLAGS_env->GetChildren(output_directory, &children);
+      if (list_status.ok()) {
+        for (const auto& child : children) {
+          if (child != "." && child != "..") {
+            std::string child_path = output_directory + "/" + child;
+            Status del_status = FLAGS_env->DeleteFile(child_path);
+            if (!del_status.ok()) {
+              fprintf(stderr, "Warning: Failed to delete file %s: %s\n",
+                      child_path.c_str(), del_status.ToString().c_str());
+            }
+          }
+        }
+        Status del_dir_status = FLAGS_env->DeleteDir(output_directory);
+        if (!del_dir_status.ok()) {
+          fprintf(stderr, "Warning: Failed to delete directory %s: %s\n",
+                  output_directory.c_str(), del_dir_status.ToString().c_str());
+        }
+      }
+    }
+
+    Status create_output_status =
+        FLAGS_env->CreateDirIfMissing(output_directory);
+    if (!create_output_status.ok()) {
+      fprintf(stderr, "Failed to create output directory %s: %s\n",
+              output_directory.c_str(),
+              create_output_status.ToString().c_str());
+      return;
+    }
+
+    std::string result_string;
+
+    CompactionServiceOptionsOverride options_override;
+    options_override.env = FLAGS_env;
+    BlockBasedTableOptions table_options;
+    options_override.table_factory.reset(
+        NewBlockBasedTableFactory(table_options));
+
+    OpenAndCompactOptions options;
+    std::atomic<bool> should_cancel{false};
+    options.canceled = &should_cancel;
+    options.allow_resumption = FLAGS_openandcompact_allow_resumption;
+
+    Status s;
+    uint64_t start_time = FLAGS_env->NowMicros();
+    uint64_t end_time = start_time;
+
+    if (FLAGS_openandcompact_test_cancel_on_odd && is_odd_run) {
+      std::thread compaction_thread([&]() {
+        s = DB::OpenAndCompact(options, FLAGS_db, output_directory,
+                               input_string, &result_string, options_override);
+        end_time = FLAGS_env->NowMicros();
+      });
+
+      std::thread cancellation_timer([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            FLAGS_openandcompact_cancel_after_millseconds));
+        should_cancel.store(true);
+      });
+
+      compaction_thread.join();
+      cancellation_timer.join();
+    } else {
+      // Normal synchronous operation for even runs or when test_cancel_on_odd
+      // is false
+      s = DB::OpenAndCompact(options, FLAGS_db, output_directory, input_string,
+                             &result_string, options_override);
+      end_time = FLAGS_env->NowMicros();
+    }
+
+    uint64_t latency_micros = end_time - start_time;
+    double latency_seconds = latency_micros / 1000000.0;
+
+    fprintf(stdout,
+            "OpenAndCompact() API call : %.3f micros/op %.3f seconds/op\n",
+            (double)latency_micros, latency_seconds);
+
+    fprintf(stdout, "OpenAndCompact status: %s\n", s.ToString().c_str());
+
+    if (FLAGS_openandcompact_test_cancel_on_odd && is_odd_run) {
+      if (!s.IsManualCompactionPaused()) {
+        fprintf(stdout, "Fail to cancel compaction");
+      }
+      return;
+    } else if (!s.ok()) {
+      fprintf(stderr, "OpenAndCompact failed: %s\n", s.ToString().c_str());
+      return;
+    }
+
+    CompactionServiceResult compaction_result;
+    Status parse_status =
+        CompactionServiceResult::Read(result_string, &compaction_result);
+    if (parse_status.ok()) {
+      uint64_t total_output_size = 0;
+      for (const auto& output_file : compaction_result.output_files) {
+        total_output_size += output_file.file_size;
+      }
+
+      uint64_t num_output_files = compaction_result.output_files.size();
+      uint64_t avg_output_file_size =
+          num_output_files > 0 ? total_output_size / num_output_files : 0;
+
+      fprintf(stdout,
+              "Output: %" PRIu64 " files, average size: %" PRIu64
+              " bytes (%.2f MB)\n",
+              num_output_files, avg_output_file_size,
+              avg_output_file_size / (1024.0 * 1024.0));
+    } else {
+      fprintf(stderr, "Failed to parse compaction result: %s\n",
+              parse_status.ToString().c_str());
+    }
   }
 
   class KeyGenerator {

@@ -18,6 +18,7 @@
 #include "table/block_based/filter_block_reader_common.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/index_builder.h"
+#include "util/atomic.h"
 #include "util/autovector.h"
 #include "util/hash_containers.h"
 
@@ -46,6 +47,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   }
 
   size_t EstimateEntriesAdded() override;
+  size_t CurrentFilterSizeEstimate() override;
+  void OnDataBlockFinalized(uint64_t num_data_blocks) override;
 
   void PrevKeyBeforeFinish(const Slice& prev_key_without_ts) override;
   Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
@@ -66,6 +69,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   Status MaybePostVerifyFilter(const Slice& /* filter_content */) override {
     return Status::OK();
   }
+
+ protected:
+  // Needs to be thread-safe to be invoked from background worker
+  // thread when parallel compression is enabled.
+  void UpdateFilterSizeEstimate(uint64_t num_data_blocks) override;
 
  private:  // fns
   // Whether to cut a filter block before the next key
@@ -92,6 +100,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   };
   std::deque<FilterEntry> filters_;  // list of partitioned filters and keys
                                      // used in building the index
+  // Running total of completed filter partition sizes to avoid
+  // iterating over filters_ deque, which can be concurrently modified by
+  // the main thread when parallel compression is enabled.
+  RelaxedAtomic<size_t> completed_partitions_size_{0};
+
   // The desired number of keys per partition
   uint32_t keys_per_partition_;
   // According to the bits builders, how many keys/prefixes added
@@ -106,6 +119,12 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   // For Add without prev key
   std::string prev_key_without_ts_;
+
+  // Cached filter size estimate for hot path performance - updated only when
+  // data blocks are written for meaningful estimate updates.
+  // Must be atomic since UpdateFilterSizeEstimate() can be called from
+  // background worker threads when parallel compression is enabled.
+  RelaxedAtomic<size_t> estimated_filter_size_{0};
 
 #ifndef NDEBUG
   // For verifying accurate previous keys are provided by the caller, so that

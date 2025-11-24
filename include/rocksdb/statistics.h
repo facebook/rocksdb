@@ -440,6 +440,9 @@ enum Tickers : uint32_t {
   REMOTE_COMPACT_READ_BYTES,
   REMOTE_COMPACT_WRITE_BYTES,
 
+  // Bytes of output files successfully resumed during compaction
+  REMOTE_COMPACT_RESUMED_BYTES,
+
   // Tiered storage related statistics
   HOT_FILE_READ_BYTES,
   WARM_FILE_READ_BYTES,
@@ -688,6 +691,9 @@ enum Histograms : uint32_t {
 
   // Number of operations per transaction.
   NUM_OP_PER_TRANSACTION,
+
+  // MultiScan Prefill iterator Prepare cost
+  MULTISCAN_PREPARE_ITERATORS,
 
   HISTOGRAM_ENUM_MAX
 };

@@ -156,6 +156,61 @@ enum class PrepopulateBlobCache : uint8_t {
   kFlushOnly = 0x1,  // Prepopulate blobs during flush only
 };
 
+// Bitmask enum for verify output flags during compaction.
+// This allows fine-grained control over what verification is performed
+// on compaction output files and when it's enabled.
+enum class VerifyOutputFlags : uint32_t {
+  kVerifyNone = 0x0,  // No verification
+
+  // First set of bits: type of verifications
+  kVerifyBlockChecksum = 1 << 0,  // Verify block checksums
+  kVerifyIteration = 1 << 1,      // Verify iteration and full key/value hash
+                                  // by comparing the one inserted into a
+                                  // file, and what is read back.
+
+  // TODO - Implement
+  // kVerifyFileChecksum = 1 << 2,   // Verify file-level checksum
+
+  // Second set of bits: when to enable verification
+  kEnableForLocalCompaction = 1 << 10,   // Enable for local compaction
+  kEnableForRemoteCompaction = 1 << 11,  // Enable for remote compaction
+
+  // TODO - Implement
+  // kEnableForFlush = 1 << 12,  // Enable for flush
+
+  kVerifyAll = 0xFFFFFFFF,
+};
+
+inline VerifyOutputFlags operator|(VerifyOutputFlags lhs,
+                                   VerifyOutputFlags rhs) {
+  using T = std::underlying_type_t<VerifyOutputFlags>;
+  return static_cast<VerifyOutputFlags>(static_cast<T>(lhs) |
+                                        static_cast<T>(rhs));
+}
+
+inline VerifyOutputFlags& operator|=(VerifyOutputFlags& lhs,
+                                     VerifyOutputFlags rhs) {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+inline VerifyOutputFlags operator&(VerifyOutputFlags lhs,
+                                   VerifyOutputFlags rhs) {
+  using T = std::underlying_type_t<VerifyOutputFlags>;
+  return static_cast<VerifyOutputFlags>(static_cast<T>(lhs) &
+                                        static_cast<T>(rhs));
+}
+
+inline VerifyOutputFlags& operator&=(VerifyOutputFlags& lhs,
+                                     VerifyOutputFlags rhs) {
+  lhs = lhs & rhs;
+  return lhs;
+}
+
+inline bool operator!(VerifyOutputFlags flag) {
+  return flag == VerifyOutputFlags::kVerifyNone;
+}
+
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
   // The default and the minimum number is 2, so that when 1 write buffer
@@ -473,6 +528,17 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int target_file_size_multiplier = 1;
 
+  // If true, RocksDB will consider the estimated tail size (filter + index +
+  // meta blocks) when deciding whether to cut a compaction output file. This
+  // helps prevent output files from exceeding the target_file_size_base due to
+  // large tail blocks. When disabled, only the data block size is considered,
+  // which may result in SST files exceeding the target_file_size_base.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
+  bool target_file_size_is_upper_bound = false;
+
   // If true, RocksDB will pick target size of each level dynamically.
   // We will pick a base level b >= 1. L0 will be directly merged into level b,
   // instead of always into level 1. Level 1 to b-1 need to be empty.
@@ -703,6 +769,13 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
+
+  // Bitmask enum for output verification option.
+  //
+  // Default: 0 (kVerifyNone)
+  //
+  // Dynamically changeable (as a uint32_t) through SetOptions() API.
+  VerifyOutputFlags verify_output_flags = VerifyOutputFlags::kVerifyNone;
 
   // In debug mode, RocksDB runs consistency checks on the LSM every time the
   // LSM changes (Flush, Compaction, AddFile). When this option is true, these

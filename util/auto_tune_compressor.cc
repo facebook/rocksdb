@@ -59,6 +59,17 @@ const char* AutoSkipCompressorWrapper::Name() const {
   return "AutoSkipCompressorWrapper";
 }
 
+std::unique_ptr<Compressor> AutoSkipCompressorWrapper::Clone() const {
+  return std::make_unique<AutoSkipCompressorWrapper>(wrapped_->Clone(), opts_);
+}
+
+std::unique_ptr<Compressor> AutoSkipCompressorWrapper::MaybeCloneSpecialized(
+    CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
+  auto clone =
+      wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples));
+  return std::make_unique<AutoSkipCompressorWrapper>(std::move(clone), opts_);
+}
+
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, char* compressed_output,
     size_t* compressed_output_size, CompressionType* out_compression_type,
@@ -174,6 +185,10 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts)
 }
 
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
+
+std::unique_ptr<Compressor> CostAwareCompressor::Clone() const {
+  return std::make_unique<CostAwareCompressor>(opts_);
+}
 size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
     CacheEntryRole block_type) const {
   auto idx = allcompressors_index_.back();
@@ -190,7 +205,7 @@ CompressionType CostAwareCompressor::GetPreferredCompressionType() const {
   return kZSTD;
 }
 std::unique_ptr<Compressor> CostAwareCompressor::MaybeCloneSpecialized(
-    CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+    CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
   auto idx = allcompressors_index_.back();
