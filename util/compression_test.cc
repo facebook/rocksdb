@@ -1364,7 +1364,8 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
     }
 
     std::unique_ptr<Compressor> MaybeCloneSpecialized(
-        CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
+        CacheEntryRole block_type,
+        DictSampleArgs&& dict_samples) const override {
       std::unique_ptr<Compressor> result = std::make_unique<MyCompressor>(
           wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples)));
       if (block_type == CacheEntryRole::kDataBlock) {
@@ -1991,34 +1992,37 @@ class DBAutoSkip : public DBTestBase {
 };
 
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  for (auto type : GetSupportedCompressions()) {
-    if (type == kNoCompression) {
-      continue;
+  for (uint32_t max_dict_bytes : {0, 10000}) {
+    for (auto type : GetSupportedCompressions()) {
+      if (type == kNoCompression) {
+        continue;
+      }
+      options.compression = type;
+      options.bottommost_compression = type;
+      options.compression_opts.max_dict_bytes = max_dict_bytes;
+      DestroyAndReopen(options);
+      const int kValueSize = 20000;
+      // This will set the rejection ratio to 60%
+      CompressionUnfriendlyPut(6, kValueSize);
+      CompressionFriendlyPut(4, kValueSize);
+      // This will verify all the data block compressions are bypassed based on
+      // previous prediction
+      CompressionUnfriendlyPut(6, kValueSize);
+      CompressionFriendlyPut(4, kValueSize);
+      // This will set the rejection ratio to 40%
+      CompressionUnfriendlyPut(4, kValueSize);
+      CompressionFriendlyPut(6, kValueSize);
+      // This will verify all the data block compression are attempted based on
+      // previous prediction
+      // Compression will be rejected for 6 compression unfriendly blocks
+      // Compression will be accepted for 4 compression friendly blocks
+      CompressionUnfriendlyPut(6, kValueSize);
+      CompressionFriendlyPut(4, kValueSize);
+      // Extra block write to ensure that the all above cases are checked
+      CompressionFriendlyPut(6, kValueSize);
+      CompressionFriendlyPut(4, kValueSize);
+      ASSERT_OK(Flush());
     }
-    options.compression = type;
-    options.bottommost_compression = type;
-    DestroyAndReopen(options);
-    const int kValueSize = 20000;
-    // This will set the rejection ratio to 60%
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // This will verify all the data block compressions are bypassed based on
-    // previous prediction
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // This will set the rejection ratio to 40%
-    CompressionUnfriendlyPut(4, kValueSize);
-    CompressionFriendlyPut(6, kValueSize);
-    // This will verify all the data block compression are attempted based on
-    // previous prediction
-    // Compression will be rejected for 6 compression unfriendly blocks
-    // Compression will be accepted for 4 compression friendly blocks
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // Extra block write to ensure that the all above cases are checked
-    CompressionFriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    ASSERT_OK(Flush());
   }
 }
 class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {

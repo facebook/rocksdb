@@ -48,7 +48,7 @@ Compressor::ManagedWorkingArea MultiCompressorWrapper::ObtainWorkingArea() {
 }
 
 std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
-    CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+    CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
   return compressors_.back()->MaybeCloneSpecialized(block_type,
