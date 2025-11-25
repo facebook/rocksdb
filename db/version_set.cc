@@ -5688,6 +5688,10 @@ Status VersionSet::ProcessManifestWrites(
   bool skip_manifest_write =
       first_writer.edit_list.front()->IsNoManifestWriteDummy();
 
+  // Track whether we have any transient CFs in atomic groups.
+  // This allows us to skip the extra pass to edit num_remaining counts
+  bool has_transient_cf_edits_in_atomic_group = false;
+
   // Check if this is for a transient CF - skip writing to manifest
   // Case 1: Existing CF operations (flush, compaction, drop)
   if (!skip_manifest_write && first_writer.cfd != nullptr &&
@@ -5753,6 +5757,19 @@ Status VersionSet::ProcessManifestWrites(
           }
         }
       } else {
+        // Check if this is a transient CF with atomic group edits.
+        // If so, we'll need to do a backward pass later to adjust num_remaining
+        // counts
+        if (!has_transient_cf_edits_in_atomic_group &&
+            last_writer->cfd->ioptions().is_transient) {
+          for (const auto& e : last_writer->edit_list) {
+            if (e->IsInAtomicGroup()) {
+              has_transient_cf_edits_in_atomic_group = true;
+              break;  // Found one, no need to check further
+            }
+          }
+        }
+
         // We do a linear search on versions because versions is small.
         // TODO(yanqin) maybe consider unordered_map
         Version* version = nullptr;
@@ -6012,6 +6029,81 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
 
+      // Adjusting manifest encoding for transient CFs
+      //
+      // Transient CF version edits need to be excluded from the manifest, but
+      // are retained in memory to build versions. However, if edits are part
+      // of an atomic group, each edit tracks remaining_entries. We need to
+      // adjust remaining_entries before writing the edits to manifest, so the
+      // missing transient CF version edits are not reported as manifest
+      // corruption. We then restore previous values for remaining_entries, as
+      // we have validations that check the remaining entries for edits in an
+      // atomic group, and these expect the transient CF edits to be there.
+      //
+      // NOTE: We could remove the validations and not restore the previous
+      // values, but we choose to do so for consistency with the in-memory
+      // Version.
+      //
+      // We skip this entirely if there are no transient CFs in
+      // atomic groups, based on the has_transient_cf_edits_in_atomic_group bool
+      // we set above. This avoids the extra pass for most RocksDB instances
+      // where transient CFs will not be used.
+      //
+      // For each edit in an atomic group, we need to know how many transient
+      // CF edits will be skipped AFTER it, so we can adjust its
+      // remaining_entries before writing to MANIFEST. We iterate backward
+      // through batch_edits, tracking the number of transient edits seen so
+      // far. When we encounter a non-transient edit, we know how many transient
+      // edits follow it.
+      std::vector<uint32_t> remaining_adjustments(batch_edits.size(), 0);
+
+      if (has_transient_cf_edits_in_atomic_group) {
+        TEST_SYNC_POINT(
+            "VersionSet::ProcessManifestWrites:BackwardPassForTransientCF");
+        // Backward pass: for each atomic group, count transient edits after
+        // each position
+        for (int bidx = static_cast<int>(batch_edits.size()) - 1; bidx >= 0;
+             --bidx) {
+          auto* e = batch_edits[bidx];
+
+          if (!e->IsInAtomicGroup()) {
+            continue;  // Not in an atomic group, no adjustment needed
+          }
+
+          // Check if this is the start of an atomic group
+          bool is_group_start =
+              (bidx == 0 || !batch_edits[bidx - 1]->IsInAtomicGroup() ||
+               batch_edits[bidx - 1]->GetRemainingEntries() == 0);
+
+          if (is_group_start && bidx > 0) {
+            // Reset count for new atomic group
+            continue;
+          }
+
+          // Check if this edit is for a transient CF
+          bool is_transient = false;
+          if (!e->IsColumnFamilyManipulation()) {
+            ColumnFamilyData* cfd =
+                column_family_set_->GetColumnFamily(e->GetColumnFamily());
+            if (cfd && cfd->ioptions().is_transient) {
+              is_transient = true;
+            }
+          } else if (e->IsColumnFamilyAdd() && new_cf_options != nullptr &&
+                     new_cf_options->is_transient) {
+            is_transient = true;
+          }
+
+          // Apply the count to all previous edits in the group
+          uint32_t transient_count = is_transient ? 1 : 0;
+          if (bidx + 1 < static_cast<int>(batch_edits.size()) &&
+              batch_edits[bidx + 1]->IsInAtomicGroup()) {
+            transient_count += remaining_adjustments[bidx + 1];
+          }
+
+          remaining_adjustments[bidx] = transient_count;
+        }
+      }
+
       // Write new records to MANIFEST log
 #ifndef NDEBUG
       size_t idx = 0;
@@ -6019,13 +6111,59 @@ Status VersionSet::ProcessManifestWrites(
       assert(batch_edits.size() == batch_edits_ts_sz.size());
       for (size_t bidx = 0; bidx < batch_edits.size(); bidx++) {
         auto& e = batch_edits[bidx];
+
+        // Check if this edit is for a transient CF - skip writing to MANIFEST
+        bool is_transient_cf_edit = false;
+        if (!e->IsColumnFamilyManipulation()) {
+          ColumnFamilyData* cfd =
+              column_family_set_->GetColumnFamily(e->GetColumnFamily());
+          if (cfd && cfd->ioptions().is_transient) {
+            is_transient_cf_edit = true;
+          }
+        } else if (e->IsColumnFamilyAdd() && new_cf_options != nullptr &&
+                   new_cf_options->is_transient) {
+          is_transient_cf_edit = true;
+        }
+
+        if (is_transient_cf_edit) {
+          // Skip writing this edit to MANIFEST.
+          // Transient CF edits are included in batch_edits for in-memory
+          // Version building, but should not be persisted to MANIFEST.
+#ifndef NDEBUG
+          ++idx;
+#endif
+          continue;
+        }
+
         files_to_quarantine_if_commit_fail.push_back(
             e->GetFilesToQuarantineIfCommitFail());
+
+        // Adjust remaining_entries to account for transient CF edits that
+        // will not be written to manifest from this atomic group. Use the
+        // deltas computed in remaining_adjustments above.
+        uint32_t original_remaining = e->GetRemainingEntries();
+        if (e->IsInAtomicGroup() && remaining_adjustments[bidx] > 0) {
+          assert(original_remaining >= remaining_adjustments[bidx]);
+          e->SetRemainingEntries(original_remaining -
+                                 remaining_adjustments[bidx]);
+        }
+
         std::string record;
         if (!e->EncodeTo(&record, batch_edits_ts_sz[bidx])) {
           s = Status::Corruption("Unable to encode VersionEdit:" +
                                  e->DebugString(true));
+          // Restore original remaining_entries values in batch_edits for
+          // consistency
+          if (e->IsInAtomicGroup() && remaining_adjustments[bidx] > 0) {
+            e->SetRemainingEntries(original_remaining);
+          }
           break;
+        }
+
+        // Restore original remaining_entries values in batch_edits for
+        // consistency
+        if (e->IsInAtomicGroup() && remaining_adjustments[bidx] > 0) {
+          e->SetRemainingEntries(original_remaining);
         }
         TEST_KILL_RANDOM_WITH_WEIGHT("VersionSet::LogAndApply:BeforeAddRecord",
                                      REDUCE_ODDS2);
