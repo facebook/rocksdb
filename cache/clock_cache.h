@@ -819,7 +819,8 @@ class AutoHyperClockTable : public BaseClockTable {
         return Get<EndFlag>();
       }
       bool IsLockedNotEnd() const {
-        // TODO: can the compiler optimize the naive version?
+        // NOTE: helping GCC to optimize this simpler code:
+        // return IsLocked() && !IsEnd();
         constexpr U kEndFlag = U{1} << EndFlag::kBitOffset;
         constexpr U kLockedFlag = U{1} << LockedFlag::kBitOffset;
         return (underlying & (kEndFlag | kLockedFlag)) == kLockedFlag;
