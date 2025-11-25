@@ -966,12 +966,9 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithTransientCF) {
        transient_cf_opts, regular_cf_opts});
   ASSERT_EQ(handles_.size(), 7);  // default + 6 created
 
-  // Write data to all CFs to trigger atomic flush
   for (size_t i = 0; i < handles_.size(); ++i) {
     ASSERT_OK(Put(i, "key", "value" + std::to_string(i)));
   }
-
-  // Trigger atomic flush - should flush all CFs together
   ASSERT_OK(Flush(0));
 
   // Verify all data is readable
@@ -1019,7 +1016,7 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithTransientCF) {
 
   ASSERT_EQ(handles_.size(), 5);
 
-  // Verify regular CF data is still readable after recovery
+  // Verify regular CF data is still there after recovery
   ASSERT_EQ(Get(0, "key"), "value0");  // default
   ASSERT_EQ(Get(1, "key"), "value1");  // cf1
   ASSERT_EQ(Get(2, "key"), "value3");  // cf3
@@ -1039,21 +1036,19 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithAllTransientCFs) {
   ColumnFamilyOptions transient_cf_opts;
   transient_cf_opts.is_transient = true;
 
-  // Create only transient CFs
+  // Create only transient CFs and write some data
   CreateColumnFamilies(
       {"t1", "t2", "t3"},
       {transient_cf_opts, transient_cf_opts, transient_cf_opts});
   ASSERT_EQ(handles_.size(), 4);  // default + 3 transient
 
-  // Write data to all CFs
   for (size_t i = 0; i < handles_.size(); ++i) {
     ASSERT_OK(Put(i, "key", "value" + std::to_string(i)));
   }
 
-  // Trigger atomic flush
+  // atomic flush
   ASSERT_OK(Flush(0));
 
-  // Verify data
   for (size_t i = 0; i < handles_.size(); ++i) {
     ASSERT_EQ(Get(i, "key"), "value" + std::to_string(i));
   }
@@ -1073,7 +1068,6 @@ TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
   // validation on in-memory state of version edits
 
   db_options_.atomic_flush = true;
-  // Disable WAL like in crash test to ensure we go through atomic flush path
   db_options_.manual_wal_flush = false;
   Open();
 
@@ -1096,17 +1090,12 @@ TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
     }
   }
 
-  // Trigger atomic flush across all CFs
-  // This should create an atomic group with 8 flush edits + 1 WAL edit = 9
-  // entries The atomic group will have remaining_entries counting down: 8, 7,
-  // 6, 5, 4, 3, 2, 1, 0 But 2 edits are for transient CFs and won't be written
-  // to MANIFEST The validation at line 5880 checks that last edit has
-  // remaining_entries = 0 If a transient CF edit is near the end, the counters
-  // won't match expectations
+  // atomic group contains two transient cf version edits that need to be
+  // accounted for in num_remaining
   FlushOptions flush_opts;
   ASSERT_OK(db_->Flush(flush_opts, handles_));
 
-  // Verify all data is still readable
+  // check added data
   for (size_t cf = 0; cf < handles_.size(); ++cf) {
     std::cout << "Trying for cf " << std::to_string(cf);
     for (int i = 0; i < kNumKeys; ++i) {
@@ -1115,10 +1104,9 @@ TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
     }
   }
 
-  // Close and reopen to test recovery from MANIFEST
-  // This will replay the MANIFEST file and validate num_remaining counts for
-  // atomic groups If transient CF edits were skipped from manifest without
-  // adjusting remaining_entries, recovery should fail with corruption
+  // Close and reopen to test recovery from manifest. If transient CF edits were
+  // skipped from manifest without adjusting remaining_entries, recovery should
+  // fail with corruption
   Close();
 
   std::vector<std::string> regular_cfs = {"default", "cf1", "cf3",
@@ -1134,7 +1122,6 @@ TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
     for (int i = 0; i < kNumKeys; ++i) {
       std::string expected;
       if (cf_idx == 0) {
-        // Default CF
         expected = "value0_" + std::to_string(i);
       } else {
         // Regular CFs: cf1=1, cf3=3, cf4=4, cf6=6, cf7=7
