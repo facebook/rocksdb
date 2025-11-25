@@ -129,7 +129,8 @@ struct OrTransform {
   using U = typename BitFieldsT::U;
   U to_or = 0;
   // + for general combine
-  OrTransform<BitFieldsT> operator+(OrTransform<BitFieldsT> other) const {
+  OrTransform<BitFieldsT> operator+(
+      const OrTransform<BitFieldsT>& other) const {
     return OrTransform<BitFieldsT>{to_or | other.to_or};
   }
 };
@@ -141,7 +142,8 @@ struct AndTransform {
   using U = typename BitFieldsT::U;
   U to_and = 0;
   // + for general combine
-  AndTransform<BitFieldsT> operator+(AndTransform<BitFieldsT> other) const {
+  AndTransform<BitFieldsT> operator+(
+      const AndTransform<BitFieldsT>& other) const {
     return AndTransform<BitFieldsT>{to_and & other.to_and};
   }
 };
@@ -162,7 +164,7 @@ struct AddTransform {
   };
   std::vector<Precondition> preconditions;
 #endif  // NDEBUG
-  void AssertPreconditions([[maybe_unused]] U from) {
+  void AssertPreconditions([[maybe_unused]] U from) const {
 #ifndef NDEBUG
     for (auto p : preconditions) {
       U tmp = (from & p.mask) + p.piece;
@@ -174,7 +176,8 @@ struct AddTransform {
 #endif  // NDEBUG
   }
   // + for general combine
-  AddTransform<BitFieldsT> operator+(AddTransform<BitFieldsT> other) const {
+  AddTransform<BitFieldsT> operator+(
+      const AddTransform<BitFieldsT>& other) const {
     AddTransform<BitFieldsT> rv{to_add + other.to_add};
 #ifndef NDEBUG
     rv.preconditions = preconditions;
@@ -347,22 +350,22 @@ class RelaxedBitFieldsAtomic {
     return BitFieldsT{
         v_.exchange(desired.underlying, std::memory_order_relaxed)};
   }
-  void ApplyRelaxed(OrTransform<BitFieldsT> transform,
+  void ApplyRelaxed(const OrTransform<BitFieldsT>& transform,
                     BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     ApplyImpl<std::memory_order_relaxed>(transform, before, after);
   }
-  void ApplyRelaxed(AndTransform<BitFieldsT> transform,
+  void ApplyRelaxed(const AndTransform<BitFieldsT>& transform,
                     BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     ApplyImpl<std::memory_order_relaxed>(transform, before, after);
   }
-  void ApplyRelaxed(AddTransform<BitFieldsT> transform,
+  void ApplyRelaxed(const AddTransform<BitFieldsT>& transform,
                     BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     ApplyImpl<std::memory_order_relaxed>(transform, before, after);
   }
 
  protected:  // fns
   template <std::memory_order kOrder>
-  void ApplyImpl(OrTransform<BitFieldsT> transform,
+  void ApplyImpl(const OrTransform<BitFieldsT>& transform,
                  BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     U before_val = v_.fetch_or(transform.to_or, kOrder);
     if (before) {
@@ -373,7 +376,7 @@ class RelaxedBitFieldsAtomic {
     }
   }
   template <std::memory_order kOrder>
-  void ApplyImpl(AndTransform<BitFieldsT> transform,
+  void ApplyImpl(const AndTransform<BitFieldsT>& transform,
                  BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     U before_val = v_.fetch_and(transform.to_and, kOrder);
     if (before) {
@@ -384,7 +387,7 @@ class RelaxedBitFieldsAtomic {
     }
   }
   template <std::memory_order kOrder>
-  void ApplyImpl(AddTransform<BitFieldsT> transform,
+  void ApplyImpl(const AddTransform<BitFieldsT>& transform,
                  BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     U before_val = v_.fetch_add(transform.to_add, kOrder);
     transform.AssertPreconditions(before_val);
@@ -428,18 +431,18 @@ class AcqRelBitFieldsAtomic : public RelaxedBitFieldsAtomic<BitFieldsT> {
     return BitFieldsT{
         Base::v_.exchange(desired.underlying, std::memory_order_acq_rel)};
   }
-  void Apply(OrTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
-             BitFieldsT* after = nullptr) {
+  void Apply(const OrTransform<BitFieldsT>& transform,
+             BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     Base::template ApplyImpl<std::memory_order_acq_rel>(transform, before,
                                                         after);
   }
-  void Apply(AndTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
-             BitFieldsT* after = nullptr) {
+  void Apply(const AndTransform<BitFieldsT>& transform,
+             BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     Base::template ApplyImpl<std::memory_order_acq_rel>(transform, before,
                                                         after);
   }
-  void Apply(AddTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
-             BitFieldsT* after = nullptr) {
+  void Apply(const AddTransform<BitFieldsT>& transform,
+             BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     Base::template ApplyImpl<std::memory_order_acq_rel>(transform, before,
                                                         after);
   }
