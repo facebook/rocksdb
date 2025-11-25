@@ -27,7 +27,14 @@ namespace ROCKSDB_NAMESPACE {
 
 // State for async IO operations (implementation detail)
 struct AsyncIOState {
+  AsyncIOState() : offset(-1) {}
   ~AsyncIOState() { read_req.status.PermitUncheckedError(); }
+
+  AsyncIOState(const AsyncIOState&) = delete;
+  AsyncIOState& operator=(const AsyncIOState&) = delete;
+  AsyncIOState(AsyncIOState&&) = default;
+  AsyncIOState& operator=(AsyncIOState&&) = default;
+
   std::unique_ptr<char[]> buf;
   AlignedBuf aligned_buf;
   void* io_handle = nullptr;
@@ -102,7 +109,7 @@ Status ReadSet::ReadOffset(size_t offset, CachableEntry<Block>* out) {
     const auto& handle = job_->block_handles[i];
     if (offset >= handle.offset() &&
         (offset < (handle.offset() + handle.size()))) {
-      return ReadOffset(i, out);
+      return ReadIndex(i, out);
     }
   }
   return Status::InvalidArgument();
@@ -300,28 +307,30 @@ struct IODispatcherImpl::Impl {
   Impl();
   ~Impl();
 
-  Status SubmitJob(std::shared_ptr<IOJob> job,
+  Status SubmitJob(const std::shared_ptr<IOJob>& job,
                    std::shared_ptr<ReadSet>* read_set);
 
  private:
   void PrepareIORequests(
-      std::shared_ptr<IOJob> job,
+      const std::shared_ptr<IOJob>& job,
       const std::vector<size_t>& block_indices_to_read,
       const std::vector<BlockHandle>& block_handles,
       std::vector<FSReadRequest>* read_reqs,
       std::vector<std::vector<size_t>>* coalesced_block_indices);
 
   void ExecuteAsyncIO(
-      std::shared_ptr<IOJob> job, std::shared_ptr<ReadSet> read_set,
+      const std::shared_ptr<IOJob>& job,
+      const std::shared_ptr<ReadSet>& read_set,
       std::vector<FSReadRequest>& read_reqs,
       const std::vector<std::vector<size_t>>& coalesced_block_indices);
 
   Status ExecuteSyncIO(
-      std::shared_ptr<IOJob> job, std::shared_ptr<ReadSet> read_set,
+      const std::shared_ptr<IOJob>& job,
+      const std::shared_ptr<ReadSet>& read_set,
       std::vector<FSReadRequest>& read_reqs,
       const std::vector<std::vector<size_t>>& coalesced_block_indices);
 
-  Status CreateAndPinBlockFromBuffer(std::shared_ptr<IOJob> job,
+  Status CreateAndPinBlockFromBuffer(const std::shared_ptr<IOJob>& job,
                                      const BlockHandle& block,
                                      uint64_t buffer_start_offset,
                                      const Slice& buffer_data,
@@ -332,7 +341,7 @@ IODispatcherImpl::Impl::Impl() {}
 
 IODispatcherImpl::Impl::~Impl() {}
 
-Status IODispatcherImpl::Impl::SubmitJob(std::shared_ptr<IOJob> job,
+Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
                                          std::shared_ptr<ReadSet>* read_set) {
   if (!read_set) {
     return Status::InvalidArgument("read_set output parameter is null");
@@ -395,7 +404,7 @@ Status IODispatcherImpl::Impl::SubmitJob(std::shared_ptr<IOJob> job,
 }
 
 void IODispatcherImpl::Impl::PrepareIORequests(
-    std::shared_ptr<IOJob> job,
+    const std::shared_ptr<IOJob>& job,
     const std::vector<size_t>& block_indices_to_read,
     const std::vector<BlockHandle>& block_handles,
     std::vector<FSReadRequest>* read_reqs,
@@ -456,7 +465,7 @@ void IODispatcherImpl::Impl::PrepareIORequests(
 }
 
 void IODispatcherImpl::Impl::ExecuteAsyncIO(
-    std::shared_ptr<IOJob> job, std::shared_ptr<ReadSet> read_set,
+    const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& read_set,
     std::vector<FSReadRequest>& read_reqs,
     const std::vector<std::vector<size_t>>& coalesced_block_indices) {
   // Get file and IO options
@@ -516,7 +525,7 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
 }
 
 Status IODispatcherImpl::Impl::ExecuteSyncIO(
-    std::shared_ptr<IOJob> job, std::shared_ptr<ReadSet> read_set,
+    const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& read_set,
     std::vector<FSReadRequest>& read_reqs,
     const std::vector<std::vector<size_t>>& coalesced_block_indices) {
   // Get file and IO options
@@ -585,7 +594,7 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
 }
 
 Status IODispatcherImpl::Impl::CreateAndPinBlockFromBuffer(
-    std::shared_ptr<IOJob> job, const BlockHandle& block,
+    const std::shared_ptr<IOJob>& job, const BlockHandle& block,
     uint64_t buffer_start_offset, const Slice& buffer_data,
     CachableEntry<Block>& pinned_block_entry) {
   auto* rep = job->table->get_rep();
@@ -629,7 +638,7 @@ IODispatcherImpl::IODispatcherImpl() : impl_(new Impl()) {}
 
 IODispatcherImpl::~IODispatcherImpl() = default;
 
-Status IODispatcherImpl::SubmitJob(std::shared_ptr<IOJob> job,
+Status IODispatcherImpl::SubmitJob(const std::shared_ptr<IOJob>& job,
                                    std::shared_ptr<ReadSet>* read_set) {
   return impl_->SubmitJob(job, read_set);
 }
