@@ -1328,31 +1328,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   WalFilter walFilter();
 
   /**
-   * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
-   * / SetOptions will fail if options file is not detected or properly
-   * persisted.
-   *
-   * DEFAULT: false
-   *
-   * @param failIfOptionsFileError true if we should fail if there is an error
-   *     in the options file
-   *
-   * @return the reference to the current options.
-   */
-  T setFailIfOptionsFileError(boolean failIfOptionsFileError);
-
-  /**
-   * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
-   * / SetOptions will fail if options file is not detected or properly
-   * persisted.
-   *
-   * DEFAULT: false
-   *
-   * @return true if we should fail if there is an error in the options file
-   */
-  boolean failIfOptionsFileError();
-
-  /**
    * If true, then print malloc stats together with rocksdb.stats
    * when printing to LOG.
    *

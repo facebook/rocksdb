@@ -1030,19 +1030,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setFailIfOptionsFileError(final boolean failIfOptionsFileError) {
-    assert(isOwningHandle());
-    setFailIfOptionsFileError(nativeHandle_, failIfOptionsFileError);
-    return this;
-  }
-
-  @Override
-  public boolean failIfOptionsFileError() {
-    assert(isOwningHandle());
-    return failIfOptionsFileError(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setDumpMallocStats(final boolean dumpMallocStats) {
     assert(isOwningHandle());
     setDumpMallocStats(nativeHandle_, dumpMallocStats);
@@ -1398,9 +1385,6 @@ public class DBOptions extends RocksObject
   private static native boolean allow2pc(final long handle);
   private static native void setRowCache(final long handle, final long rowCacheHandle);
   private static native void setWalFilter(final long handle, final long walFilterHandle);
-  private static native void setFailIfOptionsFileError(
-      final long handle, final boolean failIfOptionsFileError);
-  private static native boolean failIfOptionsFileError(final long handle);
   private static native void setDumpMallocStats(final long handle, final boolean dumpMallocStats);
   private static native boolean dumpMallocStats(final long handle);
   private static native void setAvoidFlushDuringRecovery(
