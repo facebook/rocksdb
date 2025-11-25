@@ -5692,25 +5692,6 @@ Status VersionSet::ProcessManifestWrites(
   // This allows us to skip the extra pass to edit num_remaining counts
   bool has_transient_cf_edits_in_atomic_group = false;
 
-  // Check if this is for a transient CF - skip writing to manifest
-  // Case 1: Existing CF operations (flush, compaction, drop)
-  if (!skip_manifest_write && first_writer.cfd != nullptr &&
-      first_writer.cfd->ioptions().is_transient) {
-    skip_manifest_write = true;
-    ROCKS_LOG_INFO(db_options_->info_log,
-                   "Skipping manifest write for transient CF [%s] (ID %u)",
-                   first_writer.cfd->GetName().c_str(),
-                   first_writer.cfd->GetID());
-  }
-
-  // Case 2: CF creation (cfd is nullptr, but new_cf_options has is_transient)
-  if (!skip_manifest_write && first_writer.cfd == nullptr &&
-      new_cf_options != nullptr && new_cf_options->is_transient) {
-    skip_manifest_write = true;
-    ROCKS_LOG_INFO(db_options_->info_log,
-                   "Skipping manifest write for new transient CF");
-  }
-
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front(), &max_last_sequence);

@@ -1097,7 +1097,6 @@ TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
 
   // check added data
   for (size_t cf = 0; cf < handles_.size(); ++cf) {
-    std::cout << "Trying for cf " << std::to_string(cf);
     for (int i = 0; i < kNumKeys; ++i) {
       ASSERT_EQ(Get(cf, "key" + std::to_string(i)),
                 "value" + std::to_string(cf) + "_" + std::to_string(i));
@@ -1118,7 +1117,6 @@ TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
 
   // Verify data for regular CFs after recovery
   for (size_t cf_idx = 0; cf_idx < handles_.size(); ++cf_idx) {
-    std::cout << "Verifying CF " << cf_idx << " after recovery\n";
     for (int i = 0; i < kNumKeys; ++i) {
       std::string expected;
       if (cf_idx == 0) {
