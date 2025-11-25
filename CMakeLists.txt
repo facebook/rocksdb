@@ -337,8 +337,35 @@ int main() {
 }
 " BUILTIN_ATOMIC)
   if (NOT BUILTIN_ATOMIC)
-    #TODO: Check if -latomic exists
-    list(APPEND THIRDPARTY_LIBS atomic)
+    # Only consider -latomic when not on Apple (macOS has no separate libatomic)
+    if (APPLE)
+      message(STATUS "Builtin atomics probe failed, but skipping -latomic on Apple")
+    else()
+      # Prefer a positive link test with -latomic; if that succeeds, then add it.
+      set(_OLD_REQ_LIBS ${CMAKE_REQUIRED_LIBRARIES})
+      list(APPEND CMAKE_REQUIRED_LIBRARIES atomic)
+      unset(HAVE_WORKING_LIBATOMIC CACHE)
+      CHECK_CXX_SOURCE_COMPILES("
+#include <atomic>
+std::atomic<unsigned __int128> x{};
+int main() { auto v = x.load(std::memory_order_relaxed); (void)v; return 0; }
+" HAVE_WORKING_LIBATOMIC)
+      set(CMAKE_REQUIRED_LIBRARIES ${_OLD_REQ_LIBS})
+
+      if (HAVE_WORKING_LIBATOMIC)
+        list(APPEND THIRDPARTY_LIBS atomic)
+        message(STATUS "Using -latomic (probe succeeded)")
+      else()
+        # Fallback: try to locate the library and add it only if it actually exists
+        find_library(ATOMIC_LIBRARY atomic)
+        if (ATOMIC_LIBRARY)
+          list(APPEND THIRDPARTY_LIBS atomic)
+          message(STATUS "Using -latomic (found in system)")
+        else()
+          message(STATUS "libatomic not found or not required; continuing without it")
+        endif()
+      endif()
+    endif()
   endif()
 endif()
 
