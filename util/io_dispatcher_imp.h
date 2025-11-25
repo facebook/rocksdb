@@ -19,7 +19,7 @@ class IODispatcherImpl : public IODispatcher {
   explicit IODispatcherImpl();
   ~IODispatcherImpl() override;
 
-  Status SubmitJob(std::shared_ptr<IOJob> job,
+  Status SubmitJob(const std::shared_ptr<IOJob>& job,
                    std::shared_ptr<ReadSet>* read_set) override;
 
  private:

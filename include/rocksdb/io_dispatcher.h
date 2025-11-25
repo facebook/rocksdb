@@ -21,14 +21,12 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlockHandle;
 struct ReadOptions;
+struct AsyncIOState;
 
 template <typename T>
 class CachableEntry;
 class Block;
 class BlockBasedTable;
-
-// Forward declaration for async IO state (implementation detail)
-struct AsyncIOState;
 
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
@@ -55,6 +53,11 @@ class ReadSet {
  public:
   ReadSet() = default;
   ~ReadSet();
+
+  ReadSet(const ReadSet&) = delete;
+  ReadSet& operator=(const ReadSet&) = delete;
+  ReadSet(ReadSet&&) noexcept = delete;
+  ReadSet& operator=(ReadSet&&) noexcept = delete;
 
   // Read a block by index
   // - If the block is in cache, returns it immediately
@@ -104,14 +107,22 @@ class ReadSet {
  * standard synchronous reads.
  * */
 class IODispatcher {
+ protected:
+  IODispatcher() = default;
+
  public:
   virtual ~IODispatcher() {}
+
+  IODispatcher(const IODispatcher&) = delete;
+  IODispatcher& operator=(const IODispatcher&) = delete;
+  IODispatcher(IODispatcher&&) = delete;
+  IODispatcher& operator=(IODispatcher&&) = delete;
 
   // Submit a job for IO processing
   // job: The IO job to submit
   // read_set: Output parameter that will be populated with the ReadSet on
   // success Returns: Status::OK() on success, error status otherwise
-  virtual Status SubmitJob(std::shared_ptr<IOJob> job,
+  virtual Status SubmitJob(const std::shared_ptr<IOJob>& job,
                            std::shared_ptr<ReadSet>* read_set) = 0;
 };
 
