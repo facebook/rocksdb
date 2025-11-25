@@ -52,9 +52,8 @@ class IODispatcherTest : public DBTestBase {
     // We collect unique block handles (same block might contain multiple keys)
     IndexBlockIter iiter_on_stack;
     BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
-    auto iiter = table->NewIndexIterator(
-        read_options, /*need_upper_bound_check=*/false, &iiter_on_stack,
-        /*get_context=*/nullptr, &context);
+    auto iiter = table->NewIndexIterator(read_options, false, &iiter_on_stack,
+                                         nullptr, &context);
     std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
@@ -78,8 +77,8 @@ class IODispatcherTest : public DBTestBase {
     return Status::OK();
   }
 
-  std::string test_dir_;
-  Env* env_;
+  std::string test_dir_{};
+  Env* env_{};
   std::shared_ptr<FileSystem> fs_;
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
@@ -165,6 +164,7 @@ class IODispatcherTest : public DBTestBase {
         options.table_factory->NewTableBuilder(builder_options,
                                                file_writer.get()));
 
+    Status s;
     auto rnd = Random::GetTLSInstance();
     // Add keys to the table
     // 10k * 1Kib = ~10MiB
@@ -173,8 +173,7 @@ class IODispatcherTest : public DBTestBase {
       InternalKey ikey(Key(i), i, kTypeValue);
       builder->Add(ikey.Encode(), value);
     }
-
-    Status s = builder->Finish();
+    s = builder->Finish();
     if (!s.ok()) {
       return s;
     }
