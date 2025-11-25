@@ -950,7 +950,7 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithTransientCF) {
   // 1. Atomic flush succeeds with mixed transient and regular CFs
   // 2. Version edits for transient CFs are not written to MANIFEST
   // 3. Atomic group counters in MANIFEST are correct (excluding transient CFs)
-  // 4. Recovery works correctly after crash
+  // 4. Recovery works correctly after restart
 
   db_options_.atomic_flush = true;
   Open();
@@ -1012,7 +1012,7 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithTransientCF) {
 
   Close();
 
-  // Reopen without transient CFs - simulating a restart
+  // Reopen without transient CFs
   ASSERT_OK(TryOpen({"default", "cf1", "cf3", "cf4", "cf6"},
                     {column_family_options_, regular_cf_opts, regular_cf_opts,
                      regular_cf_opts, regular_cf_opts}));
@@ -1030,9 +1030,8 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithTransientCF) {
 }
 
 TEST_P(ColumnFamilyTest, AtomicFlushWithAllTransientCFs) {
-  // Edge case: all CFs in atomic group are transient
-  // This should work - atomic group should not be created since nothing
-  // is written to MANIFEST
+  // if all CFs in atomic group are transient, atomic group should not be
+  // created since nothing is written to MANIFEST
 
   db_options_.atomic_flush = true;
   Open();
@@ -1068,19 +1067,10 @@ TEST_P(ColumnFamilyTest, AtomicFlushWithAllTransientCFs) {
   Close();
 }
 
-TEST_P(ColumnFamilyTest, AtomicFlushTransientCFAtomicGroupValidation) {
-  // This test is designed to trigger the assertion failure at line 5880
-  // in version_set.cc: `0 == batch_edits[i - 1]->GetRemainingEntries()`
-  //
-  // The bug occurs when:
-  // 1. Atomic flush creates version edits for multiple CFs (including
-  // transient)
-  // 2. All edits are marked as an atomic group with remaining_entries countdown
-  // 3. Validation checks that the last edit has remaining_entries = 0
-  // 4. But transient edits will be skipped from MANIFEST, breaking the count
-  //
-  // This test creates a scenario similar to db_stress with 8 CFs and 2
-  // transient
+TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
+  // transient cf edits are part of an atomic group, but should not be written
+  // to manifest. test should pass without manifest corruption or any failed
+  // validation on in-memory state of version edits
 
   db_options_.atomic_flush = true;
   // Disable WAL like in crash test to ensure we go through atomic flush path
@@ -1089,18 +1079,15 @@ TEST_P(ColumnFamilyTest, AtomicFlushTransientCFAtomicGroupValidation) {
 
   ColumnFamilyOptions regular_cf_opts;
   ColumnFamilyOptions transient_cf_opts;
-  // transient_cf_opts.is_transient = false;
   transient_cf_opts.is_transient = true;
 
-  // Create 7 CFs total (2 transient, 5 regular) to match crash test pattern
-  // The order matters - having transient CFs interspersed can trigger the bug
+  // Create 7 CFs total (2 transient, 5 regular)
   CreateColumnFamilies(
       {"cf1", "cf2_trans", "cf3", "cf4", "cf5_trans", "cf6", "cf7"},
       {regular_cf_opts, transient_cf_opts, regular_cf_opts, regular_cf_opts,
        transient_cf_opts, regular_cf_opts, regular_cf_opts});
   ASSERT_EQ(handles_.size(), 8);  // default + 7 created
 
-  // Write enough data to each CF to trigger flush
   const int kNumKeys = 100;
   for (size_t cf = 0; cf < handles_.size(); ++cf) {
     for (int i = 0; i < kNumKeys; ++i) {
@@ -1129,16 +1116,11 @@ TEST_P(ColumnFamilyTest, AtomicFlushTransientCFAtomicGroupValidation) {
   }
 
   // Close and reopen to test recovery from MANIFEST
-  // This will replay the MANIFEST file and validate atomic group counters
-  // If transient CF edits were skipped from MANIFEST without adjusting
-  // remaining_entries, recovery should fail with corrupted atomic group error
+  // This will replay the MANIFEST file and validate num_remaining counts for
+  // atomic groups If transient CF edits were skipped from manifest without
+  // adjusting remaining_entries, recovery should fail with corruption
   Close();
 
-  std::cout << "\nReopening DB to test MANIFEST recovery...\n";
-
-  // Reopen with the same CF configuration
-  // Note: We cannot reopen transient CFs (they were never written to MANIFEST)
-  // so we only reopen the regular CFs
   std::vector<std::string> regular_cfs = {"default", "cf1", "cf3",
                                           "cf4",     "cf6", "cf7"};
   std::vector<ColumnFamilyOptions> regular_opts(regular_cfs.size(),
