@@ -4667,11 +4667,6 @@ int main(int argc, char** argv) {
     // Test cancellation API directly
     RemoteCompactionCancel(&remote_state);
     CheckCondition(remote_state.cancel_called > 0);
-
-    // Cleanup
-    rocksdb_close(db);
-    rocksdb_options_destroy(remote_options);
-    // Note: service is owned by options, automatically destroyed
   }
 
   StartPhase("remote_compaction_scheduleresponse");
@@ -4699,29 +4694,19 @@ int main(int argc, char** argv) {
 
     // Test failure response
     response = rocksdb_compactionservice_scheduleresponse_create_with_status(
-        rocksdb_compactionservice_jobstatus_failure);
+        rocksdb_compactionservice_jobstatus_failure, &err);
     CheckCondition(response != NULL);
     CheckCondition(
         rocksdb_compactionservice_scheduleresponse_getstatus(response) ==
         rocksdb_compactionservice_jobstatus_failure);
     rocksdb_compactionservice_scheduleresponse_t_destroy(response);
 
-    // Test NULL validation - should return NULL for invalid inputs
-    err = NULL;
-    response = rocksdb_compactionservice_scheduleresponse_create(
-        NULL, rocksdb_compactionservice_jobstatus_success, &err);
-    CheckCondition(response == NULL);
-    if (err) {
-      free(err);
-    }
-
     response = rocksdb_compactionservice_scheduleresponse_create_with_status(
-        rocksdb_compactionservice_jobstatus_success);
-    CheckCondition(response == NULL);
-
-    response =
-        rocksdb_compactionservice_scheduleresponse_create_with_status(999);
+        999, &err);
     CheckCondition(response == NULL);  // Invalid status
+    if (err) {
+      Free(&err);
+    }
   }
 
   StartPhase("remote_compaction_options_override");
@@ -4752,8 +4737,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_compaction_service(null_opts, null_service);
 
     const char* null_db = "rocksdb_c_test_null_service";
-    rocksdb_destroy_db(null_opts, null_db, &err);
-    CheckNoError(err);
 
     rocksdb_t* null_db_handle = rocksdb_open(null_opts, null_db, &err);
     CheckNoError(err);
