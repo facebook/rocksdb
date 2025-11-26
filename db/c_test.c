@@ -773,15 +773,15 @@ static int RemoteCompactionWait(void* state, const char* scheduled_job_id,
     return rocksdb_compactionservice_jobstatus_failure;
   }
 
-  // For testing purposes, return failure to cause RocksDB to fall back to local
-  // compaction This tests the callback mechanism without needing a fully
-  // serialized result In a real scenario, this would communicate with a remote
+  // For testing purposes, return kUseLocal to cause RocksDB to fall back to
+  // local compaction. This tests the callback mechanism without needing a fully
+  // serialized result. In a real scenario, this would communicate with a remote
   // worker that calls rocksdb_open_and_compact() and returns a properly
   // serialized CompactionServiceResult
   *result = NULL;
   *result_len = 0;
 
-  return rocksdb_compactionservice_jobstatus_failure;
+  return rocksdb_compactionservice_jobstatus_use_local;
 }
 
 // Cancel callback - cancels pending jobs
@@ -4601,8 +4601,6 @@ int main(int argc, char** argv) {
     db = rocksdb_open(remote_options, dbname, &err);
     CheckNoError(err);
 
-    fprintf(stderr, "Writing data to trigger remote compaction...\n");
-
     // Create multiple SST files to trigger compaction
     rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_opts, 1);
@@ -4621,35 +4619,23 @@ int main(int argc, char** argv) {
       }
       rocksdb_flush(db, flush_opts, &err);
       CheckNoError(err);
-      fprintf(stderr, "Flushed batch %d\n", batch);
     }
     rocksdb_flushoptions_destroy(flush_opts);
-
-    fprintf(stderr, "Triggering manual compaction...\n");
 
     // Trigger manual compaction to invoke remote compaction service
     rocksdb_compact_range(db, NULL, 0, NULL, 0);
 
-    fprintf(stderr, "Compaction triggered, waiting for completion...\n");
-
-    // Sleep briefly to let compaction complete
-    // (In a real test, you'd use rocksdb_wait_for_compact)
-#ifdef _WIN32
-    Sleep(2000);  // Windows: Sleep takes milliseconds
-#else
-    sleep(2);  // POSIX: sleep takes seconds
-#endif
-
-    fprintf(stderr, "schedule_called=%d, wait_called=%d\n",
-            remote_state.schedule_called, remote_state.wait_called);
+    rocksdb_wait_for_compact_options_t* wco =
+        rocksdb_wait_for_compact_options_create();
+    rocksdb_wait_for_compact(db, wco, &err);
+    CheckNoError(err);
+    rocksdb_wait_for_compact_options_destroy(wco);
 
     // Verify that callbacks were actually called
     CheckCondition(remote_state.schedule_called > 0);
     CheckCondition(remote_state.wait_called > 0);
     CheckCondition(strlen(remote_state.last_db_name) > 0);
     CheckCondition(strstr(remote_state.last_db_name, "rocksdb_c_test") != NULL);
-
-    fprintf(stderr, "Remote compaction callbacks verified!\n");
 
     // Verify data is still accessible after remote compaction
     // Just check a few keys to verify data integrity
@@ -4667,6 +4653,16 @@ int main(int argc, char** argv) {
     // Test cancellation API directly
     RemoteCompactionCancel(&remote_state);
     CheckCondition(remote_state.cancel_called > 0);
+
+    // Cleanup
+    rocksdb_close(db);
+    rocksdb_destroy_db(remote_options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(remote_options);
+
+    // Reopen DB with original options for subsequent tests
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
   }
 
   StartPhase("remote_compaction_scheduleresponse");
