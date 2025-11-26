@@ -3550,7 +3550,8 @@ rocksdb_compactionservice_scheduleresponse_create(const char* scheduled_job_id,
                                                   int status, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t*
-rocksdb_compactionservice_scheduleresponse_create_with_status(int status);
+rocksdb_compactionservice_scheduleresponse_create_with_status(int status,
+                                                              char** errptr);
 
 extern ROCKSDB_LIBRARY_API int
 rocksdb_compactionservice_scheduleresponse_getstatus(
