@@ -1,1 +1,0 @@
-* Backport new value types `kTypeValuePreferredSeqno` and `kTypeColumnFamilyValuePreferredSeqno` introduced in RocksDB 9.1. This fixes a forward compatibility issue to allow reading MANIFEST with entries containing kTypeMaxValid written by RocksDB 9.1+.

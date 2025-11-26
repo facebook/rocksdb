@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.11.5 (11/26/2025)
+### Behavior Changes
+* Backport new value types `kTypeValuePreferredSeqno` and `kTypeColumnFamilyValuePreferredSeqno` introduced in RocksDB 9.1. This fixes a forward compatibility issue to allow reading MANIFEST with entries containing kTypeMaxValid written by RocksDB 9.1+.
+
 ## 8.11.4 (04/09/2024)
 ### Bug Fixes
 * Fixed CMake Javadoc build
