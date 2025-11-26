@@ -167,34 +167,29 @@ typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
 typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
 
 // Remote compaction typedef
-typedef struct rocksdb_compactionservice_scheduleresponse_t rocksdb_compactionservice_scheduleresponse_t;
-typedef struct rocksdb_compactionservice_jobinfo_t rocksdb_compactionservice_jobinfo_t;
+typedef struct rocksdb_compactionservice_scheduleresponse_t
+    rocksdb_compactionservice_scheduleresponse_t;
+typedef struct rocksdb_compactionservice_jobinfo_t
+    rocksdb_compactionservice_jobinfo_t;
 typedef struct rocksdb_compactionservice_t rocksdb_compactionservice_t;
-typedef struct rocksdb_compaction_service_options_override_t rocksdb_compaction_service_options_override_t;
-typedef struct rocksdb_open_and_compact_options_t rocksdb_open_and_compact_options_t;
-typedef rocksdb_compactionservice_scheduleresponse_t* (*rocksdb_compaction_service_schedule_cb)(
-    void* state,
-    const rocksdb_compactionservice_jobinfo_t* info,
-    const char* compaction_service_input,
-    size_t input_len
-);
+typedef struct rocksdb_compaction_service_options_override_t
+    rocksdb_compaction_service_options_override_t;
+typedef struct rocksdb_open_and_compact_options_t
+    rocksdb_open_and_compact_options_t;
+typedef rocksdb_compactionservice_scheduleresponse_t* (
+    *rocksdb_compaction_service_schedule_cb)(
+    void* state, const rocksdb_compactionservice_jobinfo_t* info,
+    const char* compaction_service_input, size_t input_len);
 
-typedef int (*rocksdb_compaction_service_wait_cb)(
-    void* state,
-    const char* scheduled_job_id,
-    char** result,
-    size_t* result_len
-);
+typedef int (*rocksdb_compaction_service_wait_cb)(void* state,
+                                                  const char* scheduled_job_id,
+                                                  char** result,
+                                                  size_t* result_len);
 
-typedef void (*rocksdb_compaction_service_cancel_awaiting_jobs_cb)(
-    void* state
-);
+typedef void (*rocksdb_compaction_service_cancel_awaiting_jobs_cb)(void* state);
 
 typedef void (*rocksdb_compaction_service_on_installation_cb)(
-    void* state,
-    const char* scheduled_job_id,
-    int status
-);
+    void* state, const char* scheduled_job_id, int status);
 
 /* DB operations */
 
@@ -2687,7 +2682,7 @@ rocksdb_slicetransform_create(
     unsigned char (*in_range)(void*, const char* key, size_t length),
     const char* (*name)(void*));
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
-    rocksdb_slicetransform_create_fixed_prefix(size_t);
+rocksdb_slicetransform_create_fixed_prefix(size_t);
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
 rocksdb_slicetransform_create_noop(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_slicetransform_destroy(
@@ -3544,81 +3539,92 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer_cf(
 
 // Remote compaction
 enum {
-    rocksdb_compactionservice_jobstatus_success = 0,
-    rocksdb_compactionservice_jobstatus_failure = 1,
-    rocksdb_compactionservice_jobstatus_aborted = 2,
-    rocksdb_compactionservice_jobstatus_use_local = 3,
-  };
+  rocksdb_compactionservice_jobstatus_success = 0,
+  rocksdb_compactionservice_jobstatus_failure = 1,
+  rocksdb_compactionservice_jobstatus_aborted = 2,
+  rocksdb_compactionservice_jobstatus_use_local = 3,
+};
 
-extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create(
-    const char* scheduled_job_id,
-    int status,
-    char** errptr
-);
+extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t*
+rocksdb_compactionservice_scheduleresponse_create(const char* scheduled_job_id,
+                                                  int status, char** errptr);
 
-extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t* rocksdb_compactionservice_scheduleresponse_create_with_status(
-    int status
-);
+extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_scheduleresponse_t*
+rocksdb_compactionservice_scheduleresponse_create_with_status(int status);
 
-extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_scheduleresponse_getstatus(const rocksdb_compactionservice_scheduleresponse_t* response);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_compactionservice_scheduleresponse_getstatus(
+    const rocksdb_compactionservice_scheduleresponse_t* response);
 
-extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(const rocksdb_compactionservice_scheduleresponse_t* response, size_t* len);
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(
+    const rocksdb_compactionservice_scheduleresponse_t* response, size_t* len);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_compactionservice_scheduleresponse_t_destroy(rocksdb_compactionservice_scheduleresponse_t* response);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compactionservice_scheduleresponse_t_destroy(
+    rocksdb_compactionservice_scheduleresponse_t* response);
 
-extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_compactionservice_jobinfo_t_get_db_name(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
 
-extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_db_id(
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_compactionservice_jobinfo_t_get_db_id(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
 
-extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_db_session_id(
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_compactionservice_jobinfo_t_get_db_session_id(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
 
-extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionservice_jobinfo_t_get_cf_name(
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_compactionservice_jobinfo_t_get_cf_name(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len);
 
-extern ROCKSDB_LIBRARY_API uint32_t rocksdb_compactionservice_jobinfo_t_get_cf_id(
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_compactionservice_jobinfo_t_get_cf_id(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionservice_jobinfo_t_get_job_id(
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compactionservice_jobinfo_t_get_job_id(
     const rocksdb_compactionservice_jobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_priority(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_compaction_reason(
+extern ROCKSDB_LIBRARY_API int
+rocksdb_compactionservice_jobinfo_t_get_compaction_reason(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_base_input_level(
+extern ROCKSDB_LIBRARY_API int
+rocksdb_compactionservice_jobinfo_t_get_base_input_level(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API int rocksdb_compactionservice_jobinfo_t_get_output_level(
+extern ROCKSDB_LIBRARY_API int
+rocksdb_compactionservice_jobinfo_t_get_output_level(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_full_compaction(
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compactionservice_jobinfo_t_is_full_compaction(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_manual_compaction(
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compactionservice_jobinfo_t_is_manual_compaction(
     const rocksdb_compactionservice_jobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
     const rocksdb_compactionservice_jobinfo_t* info);
- 
+
 extern ROCKSDB_LIBRARY_API rocksdb_compactionservice_t*
 rocksdb_compactionservice_create(
-    void* state,
-    void (*destructor)(void*),
-    rocksdb_compaction_service_schedule_cb schedule,
-    const char* name,
+    void* state, void (*destructor)(void*),
+    rocksdb_compaction_service_schedule_cb schedule, const char* name,
     rocksdb_compaction_service_wait_cb wait,
     rocksdb_compaction_service_cancel_awaiting_jobs_cb cancel_awaiting_jobs,
     rocksdb_compaction_service_on_installation_cb on_installation);
 
-extern ROCKSDB_LIBRARY_API void 
-rocksdb_options_set_compaction_service(
-    rocksdb_options_t* options,
-    rocksdb_compactionservice_t* service);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_service(
+    rocksdb_options_t* options, rocksdb_compactionservice_t* service);
 
 // CompactionServiceOptionsOverride
 extern ROCKSDB_LIBRARY_API rocksdb_compaction_service_options_override_t*
@@ -3644,24 +3650,21 @@ rocksdb_compaction_service_options_override_set_comparator(
 extern ROCKSDB_LIBRARY_API unsigned char*
 rocksdb_open_and_compact_canceled_create(void);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_open_and_compact_canceled_destroy(unsigned char* canceled);
+extern ROCKSDB_LIBRARY_API void rocksdb_open_and_compact_canceled_destroy(
+    unsigned char* canceled);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_open_and_compact_canceled_set(unsigned char* canceled, unsigned char value);
+extern ROCKSDB_LIBRARY_API void rocksdb_open_and_compact_canceled_set(
+    unsigned char* canceled, unsigned char value);
 
 // OpenAndCompactOptions
 extern ROCKSDB_LIBRARY_API rocksdb_open_and_compact_options_t*
 rocksdb_open_and_compact_options_create(void);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_open_and_compact_options_destroy(
+extern ROCKSDB_LIBRARY_API void rocksdb_open_and_compact_options_destroy(
     rocksdb_open_and_compact_options_t* options);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_open_and_compact_options_set_canceled(
-    rocksdb_open_and_compact_options_t* options,
-    unsigned char* canceled);
+extern ROCKSDB_LIBRARY_API void rocksdb_open_and_compact_options_set_canceled(
+    rocksdb_open_and_compact_options_t* options, unsigned char* canceled);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_open_and_compact_options_set_allow_resumption(
@@ -3669,23 +3672,15 @@ rocksdb_open_and_compact_options_set_allow_resumption(
     unsigned char allow_resumption);
 
 // OpenAndCompact - main functions
-extern ROCKSDB_LIBRARY_API char*
-rocksdb_open_and_compact(
-    const char* db_path,
-    const char* output_directory,
-    const char* input,
-    size_t input_len,
-    size_t* output_len,
+extern ROCKSDB_LIBRARY_API char* rocksdb_open_and_compact(
+    const char* db_path, const char* output_directory, const char* input,
+    size_t input_len, size_t* output_len,
     const rocksdb_compaction_service_options_override_t* override_options,
     char** errptr);
 
-extern ROCKSDB_LIBRARY_API char*
-rocksdb_open_and_compact_with_options(
-    const rocksdb_open_and_compact_options_t* options,
-    const char* db_path,
-    const char* output_directory,
-    const char* input,
-    size_t input_len,
+extern ROCKSDB_LIBRARY_API char* rocksdb_open_and_compact_with_options(
+    const rocksdb_open_and_compact_options_t* options, const char* db_path,
+    const char* output_directory, const char* input, size_t input_len,
     size_t* output_len,
     const rocksdb_compaction_service_options_override_t* override_options,
     char** errptr);
