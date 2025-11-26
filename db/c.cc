@@ -667,113 +667,70 @@ static inline char* CopyString(const Slice& slice) {
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
-  if (!info || !len) {
-    if (len) *len = 0;
-    return "";
-  }
   *len = info->rep.db_name.size();
   return info->rep.db_name.data();
 }
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_id(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
-  if (!info || !len) {
-    if (len) *len = 0;
-    return "";
-  }
   *len = info->rep.db_id.size();
   return info->rep.db_id.data();
 }
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_session_id(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
-  if (!info || !len) {
-    if (len) *len = 0;
-    return "";
-  }
   *len = info->rep.db_session_id.size();
   return info->rep.db_session_id.data();
 }
 
 const char* rocksdb_compactionservice_jobinfo_t_get_cf_name(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
-  if (!info || !len) {
-    if (len) *len = 0;
-    return "";
-  }
   *len = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
 uint32_t rocksdb_compactionservice_jobinfo_t_get_cf_id(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.cf_id;
 }
 
 uint64_t rocksdb_compactionservice_jobinfo_t_get_job_id(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.job_id;
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_priority(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return static_cast<int>(info->rep.priority);
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_compaction_reason(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return static_cast<int>(info->rep.compaction_reason);
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_base_input_level(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.base_input_level;
 }
 
 int rocksdb_compactionservice_jobinfo_t_get_output_level(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.output_level;
 }
 
 unsigned char rocksdb_compactionservice_jobinfo_t_is_full_compaction(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.is_full_compaction;
 }
 
 unsigned char rocksdb_compactionservice_jobinfo_t_is_manual_compaction(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.is_manual_compaction;
 }
 
 unsigned char rocksdb_compactionservice_jobinfo_t_is_bottommost_level(
     const rocksdb_compactionservice_jobinfo_t* info) {
-  if (!info) {
-    return 0;
-  }
   return info->rep.bottommost_level;
 }
 
