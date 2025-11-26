@@ -55,6 +55,8 @@ struct ImmutableDBOptions {
   bool allow_mmap_writes;
   bool use_direct_reads;
   bool use_direct_io_for_flush_and_compaction;
+  bool use_direct_io_for_wal;
+  uint64_t wal_direct_io_preallocation_block_size;
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;

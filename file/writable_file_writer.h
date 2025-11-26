@@ -9,6 +9,7 @@
 
 #pragma once
 #include <atomic>
+#include <condition_variable>
 #include <string>
 
 #include "db/version_edit.h"
@@ -145,6 +146,19 @@ class WritableFileWriter {
   // Actually written data size can be used for truncate
   // not counting padding data
   std::atomic<uint64_t> filesize_;
+  // Actually flushed logical data size (excluding any page-alignment padding
+  // bytes written during direct I/O). In direct I/O mode we may write a whole
+  // aligned page that includes a "leftover tail" of logical data plus zero
+  // padding; that tail is then kept in the buffer (refit) for future appends.
+  // When a subsequent Flush() occurs with no new logical data appended,
+  // `filesize_ == flushed_filesize_` and we must avoid re-writing the same
+  // tail page again. The Flush() direct I/O branch checks
+  // `filesize_ > flushed_filesize_` to decide whether there is new logical
+  // data to persist. This prevents redundant positional writes of the tail
+  // page. Contrast with `flushed_size_` which tracks physical bytes written
+  // (including padding and page alignment effects) and is used for range
+  // sync heuristics.
+  std::atomic<uint64_t> flushed_filesize_;
   std::atomic<uint64_t> flushed_size_;
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
@@ -168,6 +182,14 @@ class WritableFileWriter {
   bool buffered_data_with_checksum_;
   Temperature temperature_;
 
+  uint64_t direct_io_preallocation_block_size_;
+  std::atomic<uint64_t> direct_io_preallocated_size_;
+  std::atomic<bool> direct_io_preallocation_in_progress_;
+  std::atomic<bool> direct_io_preallocation_disabled_;
+  std::mutex direct_io_preallocation_mutex_;
+  std::condition_variable direct_io_preallocation_cv_;
+  Env* env_;  // For scheduling background work
+
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
@@ -178,13 +200,15 @@ class WritableFileWriter {
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
       bool perform_data_verification = false,
-      bool buffered_data_with_checksum = false)
+      bool buffered_data_with_checksum = false,
+      uint64_t direct_io_preallocation_block_size = 0, Env* env = nullptr)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
+        flushed_filesize_(0),
         flushed_size_(0),
         next_write_offset_(0),
         pending_sync_(false),
@@ -202,9 +226,24 @@ class WritableFileWriter {
         checksum_finalized_(false),
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
-        buffered_data_with_checksum_(buffered_data_with_checksum) {
+        buffered_data_with_checksum_(buffered_data_with_checksum),
+        direct_io_preallocation_block_size_(direct_io_preallocation_block_size),
+        direct_io_preallocated_size_(0),
+        direct_io_preallocation_in_progress_(false),
+        direct_io_preallocation_disabled_(false),
+        env_(env) {
     temperature_ = options.temperature;
     assert(!use_direct_io() || max_buffer_size_ > 0);
+    // Adjust direct IO preallocation block size to be multiple of alignment
+    if (use_direct_io()) {
+      if (direct_io_preallocation_block_size_ > 0) {
+        direct_io_preallocation_block_size_ =
+            Roundup(direct_io_preallocation_block_size_,
+                    writable_file_->GetRequiredBufferAlignment());
+      }
+    } else {
+      direct_io_preallocation_block_size_ = 0;
+    }
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -222,6 +261,8 @@ class WritableFileWriter {
           file_checksum_gen_factory->CreateFileChecksumGenerator(
               checksum_gen_context);
     }
+    // If enabled, trigger initial preallocation in background.
+    InitialPreallocation();
   }
 
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
@@ -367,5 +408,20 @@ class WritableFileWriter {
   // `opts` should've been called with `FinalizeIOOptions()` before passing in
   IOStatus SyncInternal(const IOOptions& opts, bool use_fsync);
   IOOptions FinalizeIOOptions(const IOOptions& opts) const;
+
+  // Check if direct I/O preallocation is enabled
+  bool UseDirectIOPreallocation() const {
+    return direct_io_preallocation_block_size_ > 0;
+  }
+  // Trigger initial pre-allocation for newly created file
+  void InitialPreallocation();
+  // Check if we should trigger pre-allocation (>50% of current block used)
+  void MaybeSchedulePreallocation();
+  // Wait for ongoing pre-allocation to complete
+  void WaitForPreallocation();
+  // Background work for pre-allocation
+  static void BGWorkPreallocation(void* writer);
+  // Perform pre-allocation
+  void DoPreallocation();
 };
 }  // namespace ROCKSDB_NAMESPACE
