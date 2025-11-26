@@ -3763,6 +3763,11 @@ void rocksdb_block_based_options_set_unpartitioned_pinning_tier(
       static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }
 
+void rocksdb_block_based_options_set_block_align(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.block_align = v;
+}
+
 /* FlushJobInfo */
 
 const char* rocksdb_flushjobinfo_cf_name(const rocksdb_flushjobinfo_t* info,
