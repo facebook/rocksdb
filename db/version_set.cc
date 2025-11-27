@@ -5571,6 +5571,15 @@ void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
+
+    // Clear TableCache to prevent use-after-free: Reset() deletes old
+    // ColumnFamilySet but reuses table_cache_, which may contain
+    // BlockBasedTable entries with dangling references to deleted CFD's
+    // ioptions.
+    if (table_cache_) {
+      table_cache_->EraseUnRefEntries();
+    }
+
     // db_id becomes the source of truth after DBImpl::Recover():
     // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
     // Note: we may not be able to recover db_id from MANIFEST if
