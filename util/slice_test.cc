@@ -527,6 +527,67 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(before.Get<Field2>(), false);
     ASSERT_EQ(before.Get<Field3>(), false);
     ASSERT_EQ(after, state);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
+                      Field4::MinusTransformPromiseNoUnderflow(3U);
+    relaxed.ApplyRelaxed(transform3, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field1>(), 10045U);
+    ASSERT_EQ(after.Get<Field4>(), 0U);
+
+    auto transform4 = Field1::MinusTransformPromiseNoUnderflow(999U) +
+                      Field4::PlusTransformPromiseNoOverflow(31U);
+    relaxed.ApplyRelaxed(transform4, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    // Unmodified
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    // Test overflow/underflow detection
+    relaxed.StoreRelaxed(MyState{}.With<Field1>(65535U));  // Field1 max value
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field1::PlusTransformPromiseNoOverflow(1U)));
+    relaxed.StoreRelaxed(MyState{}.With<Field4>(31U));  // Field4 max value
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field4::PlusTransformPromiseNoOverflow(1U)));
+    relaxed.StoreRelaxed(MyState{}.With<Field1>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field1::MinusTransformPromiseNoUnderflow(1U)));
+    relaxed.StoreRelaxed(MyState{}.With<Field4>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field4::MinusTransformPromiseNoUnderflow(1U)));
+    ASSERT_TESTABLE_FAILURE(relaxed.ApplyRelaxed(
+        Field4::MinusTransformPromiseNoUnderflow(64U)));  // Too big
+    ASSERT_TESTABLE_FAILURE(relaxed.ApplyRelaxed(
+        Field4::PlusTransformPromiseNoOverflow(64U)));  // Too big
+
+    // Including combinations
+    relaxed.StoreRelaxed(MyState{}.With<Field4>(31U));  // Field4 max value
+    relaxed.StoreRelaxed(MyState{}.With<Field1>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field4::PlusTransformPromiseNoOverflow(1U) +
+                             Field1::MinusTransformPromiseNoUnderflow(1U)));
+
+    // But a field at the limit of upper bits is allowed to over/underflow
+    using Field5 = UnsignedBitField<MyState, 9, Field4>;
+    relaxed.StoreRelaxed(MyState{}.With<Field5>(0));  // Field5 max value
+    relaxed.ApplyRelaxed(Field5::MinusTransformIgnoreUnderflow(1U), &before,
+                         &after);  // "Safe" underflow
+    ASSERT_EQ(after.Get<Field5>(), 511U);
+    relaxed.ApplyRelaxed(Field5::PlusTransformIgnoreOverflow(1U), &before,
+                         &after);  // "Safe" overflow
+    ASSERT_EQ(after.Get<Field5>(), 0U);
+    relaxed.ApplyRelaxed(Field5::PlusTransformIgnoreOverflow(2048U), &before,
+                         &after);  // "Safe" overflow
+    ASSERT_EQ(after.Get<Field5>(), 0U);
   }
   {
     AcqRelBitFieldsAtomic<MyState> acqrel{state};
@@ -555,6 +616,71 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(before.Get<Field2>(), false);
     ASSERT_EQ(before.Get<Field3>(), false);
     ASSERT_EQ(after, state);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform2a = Field2::And(true) + Field3::And(false);
+    acqrel.Apply(transform2a, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2b = Field2::And(false) + Field3::And(true);
+    acqrel.Apply(transform2b, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2c = Field2::Or(true) + Field3::Or(false);
+    acqrel.Apply(transform2c, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2d = Field2::Or(false) + Field3::Or(true);
+    acqrel.Apply(transform2d, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
+                      Field4::MinusTransformPromiseNoUnderflow(3U);
+    acqrel.Apply(transform3, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field1>(), 10045U);
+    ASSERT_EQ(after.Get<Field4>(), 0U);
+
+    auto transform4 = Field1::MinusTransformPromiseNoUnderflow(999U) +
+                      Field4::PlusTransformPromiseNoOverflow(31U);
+    acqrel.Apply(transform4, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    auto transform4a =
+        Field1::AndTransform(8192U + 4096U) + Field4::AndTransform(15U);
+    acqrel.Apply(transform4a, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 8192U);
+    ASSERT_EQ(after.Get<Field4>(), 15U);
+
+    auto transform4b = Field1::OrTransform(127U) + Field4::OrTransform(16U);
+    acqrel.Apply(transform4b, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 8192U + 127U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    // Unmodified
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    // Test overflow/underflow detection
+    acqrel.Store(MyState{}.With<Field1>(65535U));
+    ASSERT_TESTABLE_FAILURE(
+        acqrel.Apply(Field1::PlusTransformPromiseNoOverflow(1U)));
+    acqrel.Store(MyState{}.With<Field4>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        acqrel.Apply(Field4::MinusTransformPromiseNoUnderflow(1U)));
   }
 }
 
