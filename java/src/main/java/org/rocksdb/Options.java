@@ -325,6 +325,76 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setFlushVerifyMemtableCount(
+      final boolean flushVerifyMemtableCount) {
+    assert(isOwningHandle());
+    setFlushVerifyMemtableCount(nativeHandle_, flushVerifyMemtableCount);
+    return this;
+  }
+
+  @Override
+  public boolean flushVerifyMemtableCount() {
+    assert(isOwningHandle());
+    return flushVerifyMemtableCount(nativeHandle_);
+  }
+
+  @Override
+  public Options setCompactionVerifyRecordCount(
+      final boolean compactionVerifyRecordCount) {
+    assert(isOwningHandle());
+    setCompactionVerifyRecordCount(nativeHandle_, compactionVerifyRecordCount);
+    return this;
+  }
+
+  @Override
+  public boolean compactionVerifyRecordCount() {
+    assert(isOwningHandle());
+    return compactionVerifyRecordCount(nativeHandle_);
+  }
+
+  @Override
+  public Options setTrackAndVerifyWalsInManifest(
+      final boolean trackAndVerifyWalsInManifest) {
+    assert(isOwningHandle());
+    setTrackAndVerifyWalsInManifest(nativeHandle_, trackAndVerifyWalsInManifest);
+    return this;
+  }
+
+  @Override
+  public boolean trackAndVerifyWalsInManifest() {
+    assert(isOwningHandle());
+    return trackAndVerifyWalsInManifest(nativeHandle_);
+  }
+
+  @Override
+  public Options setTrackAndVerifyWals(
+      final boolean trackAndVerifyWals) {
+    assert(isOwningHandle());
+    setTrackAndVerifyWals(nativeHandle_, trackAndVerifyWals);
+    return this;
+  }
+
+  @Override
+  public boolean trackAndVerifyWals() {
+    assert(isOwningHandle());
+    return trackAndVerifyWals(nativeHandle_);
+  }
+
+  @Override
+  public Options setVerifySstUniqueIdInManifest(
+      final boolean verifySstUniqueIdInManifest) {
+    assert(isOwningHandle());
+    setVerifySstUniqueIdInManifest(nativeHandle_, verifySstUniqueIdInManifest);
+    return this;
+  }
+
+  @Override
+  public boolean verifySstUniqueIdInManifest() {
+    assert(isOwningHandle());
+    return verifySstUniqueIdInManifest(nativeHandle_);
+  }
+
+  @Override
   public int maxOpenFiles() {
     assert(isOwningHandle());
     return maxOpenFiles(nativeHandle_);
@@ -1072,6 +1142,19 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setWalCompression(final CompressionType walCompression) {
+    assert(isOwningHandle());
+    setWalCompression(nativeHandle_, walCompression.getValue());
+    return this;
+  }
+
+  @Override
+  public CompressionType walCompression() {
+    assert(isOwningHandle());
+    return CompressionType.getCompressionType(walCompression(nativeHandle_));
+  }
+
+  @Override
   public Options setAllow2pc(final boolean allow2pc) {
     assert(isOwningHandle());
     setAllow2pc(nativeHandle_, allow2pc);
@@ -1188,6 +1271,19 @@ public class Options extends RocksObject
   public boolean manualWalFlush() {
     assert(isOwningHandle());
     return manualWalFlush(nativeHandle_);
+  }
+
+  @Override
+  public Options setBackgroundCloseInactiveWals(final boolean manualWalFlush) {
+    assert(isOwningHandle());
+    setBackgroundCloseInactiveWals(nativeHandle_, manualWalFlush);
+    return this;
+  }
+
+  @Override
+  public boolean backgroundCloseInactiveWals() {
+    assert(isOwningHandle());
+    return backgroundCloseInactiveWals(nativeHandle_);
   }
 
   @Override
@@ -1857,6 +1953,18 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setPrefixSeekOptInOnly(final boolean prefixSeekOptInOnly) {
+    setPrefixSeekOptInOnly(nativeHandle_, prefixSeekOptInOnly);
+    return this;
+  }
+
+  @Override
+  public boolean prefixSeekOptInOnly() {
+    assert (isOwningHandle());
+    return prefixSeekOptInOnly(nativeHandle_);
+  }
+
+  @Override
   public Options setPersistStatsToDisk(final boolean persistStatsToDisk) {
     setPersistStatsToDisk(nativeHandle_, persistStatsToDisk);
     return this;
@@ -1878,6 +1986,18 @@ public class Options extends RocksObject
   public boolean writeDbidToManifest() {
     assert (isOwningHandle());
     return writeDbidToManifest(nativeHandle_);
+  }
+
+  @Override
+  public Options setWriteIdentityFile(final boolean writeIdentityFile) {
+    setWriteIdentityFile(nativeHandle_, writeIdentityFile);
+    return this;
+  }
+
+  @Override
+  public boolean writeIdentityFile() {
+    assert (isOwningHandle());
+    return writeIdentityFile(nativeHandle_);
   }
 
   @Override
@@ -1926,6 +2046,84 @@ public class Options extends RocksObject
   public long bgerrorResumeRetryInterval() {
     assert (isOwningHandle());
     return bgerrorResumeRetryInterval(nativeHandle_);
+  }
+
+  @Override
+  public Options setAllowDataInErrors(final boolean allowDataInErrors) {
+    assert(isOwningHandle());
+    setAllowDataInErrors(nativeHandle_, allowDataInErrors);
+    return this;
+  }
+
+  @Override
+  public boolean allowDataInErrors() {
+    assert(isOwningHandle());
+    return allowDataInErrors(nativeHandle_);
+  }
+
+  @Override
+  public String dbHostId() {
+    assert(isOwningHandle());
+    return dbHostId(nativeHandle_);
+  }
+
+  @Override
+  public Options setDbHostId(final String dbHostId) {
+    assert(isOwningHandle());
+    setDbHostId(nativeHandle_, dbHostId);
+    return this;
+  }
+
+  @Override
+  public Options setEnforceSingleDelContracts(final boolean enforceSingleDelContracts) {
+    assert(isOwningHandle());
+    setEnforceSingleDelContracts(nativeHandle_, enforceSingleDelContracts);
+    return this;
+  }
+
+  @Override
+  public boolean enforceSingleDelContracts() {
+    assert(isOwningHandle());
+    return enforceSingleDelContracts(nativeHandle_);
+  }
+
+  @Override
+  public Options setFollowerRefreshCatchupPeriodMs(final boolean followerRefreshCatchupPeriodMs) {
+    assert(isOwningHandle());
+    setFollowerRefreshCatchupPeriodMs(nativeHandle_, followerRefreshCatchupPeriodMs);
+    return this;
+  }
+
+  @Override
+  public boolean followerRefreshCatchupPeriodMs() {
+    assert(isOwningHandle());
+    return followerRefreshCatchupPeriodMs(nativeHandle_);
+  }
+
+  @Override
+  public Options setFollowerRefreshCatchupRetryCount(final boolean followerRefreshCatchupRetryCount) {
+    assert(isOwningHandle());
+    setFollowerRefreshCatchupRetryCount(nativeHandle_, followerRefreshCatchupRetryCount);
+    return this;
+  }
+
+  @Override
+  public boolean followerRefreshCatchupRetryCount() {
+    assert(isOwningHandle());
+    return followerRefreshCatchupRetryCount(nativeHandle_);
+  }
+
+  @Override
+  public Options setFollowerCatchupRetryWaitMs(final boolean followerCatchupRetryWaitMs) {
+    assert(isOwningHandle());
+    setFollowerCatchupRetryWaitMs(nativeHandle_, followerCatchupRetryWaitMs);
+    return this;
+  }
+
+  @Override
+  public boolean followerCatchupRetryWaitMs() {
+    assert(isOwningHandle());
+    return followerCatchupRetryWaitMs(nativeHandle_);
   }
 
   @Override
@@ -2137,6 +2335,16 @@ public class Options extends RocksObject
   private static native boolean errorIfExists(long handle);
   private static native void setParanoidChecks(long handle, boolean paranoidChecks);
   private static native boolean paranoidChecks(long handle);
+  private static native void setFlushVerifyMemtableCount(long handle, boolean flushVerifyMemtableCount);
+  private static native boolean flushVerifyMemtableCount(long handle);
+  private static native void setCompactionVerifyRecordCount(long handle, boolean compactionVerifyRecordCount);
+  private static native boolean compactionVerifyRecordCount(long handle);
+  private static native void setTrackAndVerifyWalsInManifest(long handle, boolean trackAndVerifyWalsInManifest);
+  private static native boolean trackAndVerifyWalsInManifest(long handle);
+  private static native void setTrackAndVerifyWals(long handle, boolean trackAndVerifyWals);
+  private static native boolean trackAndVerifyWals(long handle);
+  private static native void setVerifySstUniqueIdInManifest(long handle, boolean trackAndVerifyWals);
+  private static native boolean verifySstUniqueIdInManifest(long handle);
   private static native void setRateLimiter(long handle, long rateLimiterHandle);
   private static native void setSstFileManager(final long handle, final long sstFileManagerHandle);
   private static native void setLogger(
@@ -2275,6 +2483,8 @@ public class Options extends RocksObject
   private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private static native void setWalRecoveryMode(final long handle, final byte walRecoveryMode);
   private static native byte walRecoveryMode(final long handle);
+  private static native void setWalCompression(final long handle, final byte walCompression);
+  private static native byte walCompression(final long handle);
   private static native void setAllow2pc(final long handle, final boolean allow2pc);
   private static native boolean allow2pc(final long handle);
   private static native void setRowCache(final long handle, final long rowCacheHandle);
@@ -2294,6 +2504,8 @@ public class Options extends RocksObject
   private static native boolean twoWriteQueues(final long handle);
   private static native void setManualWalFlush(final long handle, final boolean manualWalFlush);
   private static native boolean manualWalFlush(final long handle);
+  private static native void setBackgroundCloseInactiveWals(final long handle, final boolean manualWalFlush);
+  private static native boolean backgroundCloseInactiveWals(final long handle);
 
   // CF native handles
   private static native void oldDefaults(
@@ -2441,12 +2653,18 @@ public class Options extends RocksObject
   private static native void setAvoidUnnecessaryBlockingIO(
       final long handle, final boolean avoidBlockingIO);
   private static native boolean avoidUnnecessaryBlockingIO(final long handle);
+  private static native void setPrefixSeekOptInOnly(
+      final long handle, final boolean prefixSeekOptInOnly);
+  private static native boolean prefixSeekOptInOnly(final long handle);
   private static native void setPersistStatsToDisk(
       final long handle, final boolean persistStatsToDisk);
   private static native boolean persistStatsToDisk(final long handle);
   private static native void setWriteDbidToManifest(
       final long handle, final boolean writeDbidToManifest);
   private static native boolean writeDbidToManifest(final long handle);
+  private static native void setWriteIdentityFile(
+      final long handle, final boolean writeDbidToManifest);
+  private static native boolean writeIdentityFile(final long handle);
   private static native void setLogReadaheadSize(final long handle, final long logReadaheadSize);
   private static native long logReadaheadSize(final long handle);
   private static native void setBestEffortsRecovery(
@@ -2458,7 +2676,18 @@ public class Options extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
-
+  private static native void setAllowDataInErrors(final long handle, final boolean allowDataInErrors);
+  private static native boolean allowDataInErrors(final long handle);
+  private static native void setDbHostId(long handle, String dbLogDir);
+  private static native String dbHostId(long handle);
+  private static native void setEnforceSingleDelContracts(final long handle, final boolean enforceSingleDelContracts);
+  private static native boolean enforceSingleDelContracts(final long handle);
+  private static native void setFollowerRefreshCatchupPeriodMs(final long handle, final boolean followerRefreshCatchupPeriodMs);
+  private static native boolean followerRefreshCatchupPeriodMs(final long handle);
+  private static native void setFollowerRefreshCatchupRetryCount(final long handle, final boolean followerRefreshCatchupRetryCount);
+  private static native boolean followerRefreshCatchupRetryCount(final long handle);
+  private static native void setFollowerCatchupRetryWaitMs(final long handle, final boolean followerCatchupRetryWaitMs);
+  private static native boolean followerCatchupRetryWaitMs(final long handle);
   private static native void setEnableBlobFiles(
       final long nativeHandle_, final boolean enableBlobFiles);
   private static native boolean enableBlobFiles(final long nativeHandle_);

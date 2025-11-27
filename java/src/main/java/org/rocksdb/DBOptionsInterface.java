@@ -145,6 +145,26 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    */
   boolean paranoidChecks();
 
+  T setFlushVerifyMemtableCount(boolean flushVerifyMemtableCount);
+
+  boolean flushVerifyMemtableCount();
+
+  T setCompactionVerifyRecordCount(boolean compactionVerifyRecordCount);
+
+  boolean compactionVerifyRecordCount();
+
+  T setTrackAndVerifyWalsInManifest(boolean trackAndVerifyWalsInManifest);
+
+  boolean trackAndVerifyWalsInManifest();
+
+  T setTrackAndVerifyWals(boolean trackAndVerifyWals);
+
+  boolean trackAndVerifyWals();
+
+  T setVerifySstUniqueIdInManifest(boolean verifySstUniqueIdInManifest);
+
+  boolean verifySstUniqueIdInManifest();
+
   /**
    * Use to control write rate of flush and compaction. Flush has higher
    * priority than compaction. Rate limiting is disabled if nullptr.
@@ -1264,6 +1284,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    */
   WALRecoveryMode walRecoveryMode();
 
+  T setWalCompression(CompressionType walCompression);
+
+  CompressionType walCompression();
+
   /**
    * if set to false then recovery will fail when a prepared
    * transaction is encountered in the WAL
@@ -1448,6 +1472,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    */
   boolean manualWalFlush();
 
+  T setBackgroundCloseInactiveWals(boolean manualWalFlush);
+
+  boolean backgroundCloseInactiveWals();
+
   /**
    * If true, RocksDB supports flushing multiple column families and committing
    * their results atomically to MANIFEST. Note that it is not
@@ -1502,6 +1530,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return true, if working thread may avoid doing unnecessary operation.
    */
   boolean avoidUnnecessaryBlockingIO();
+
+  T setPrefixSeekOptInOnly(boolean prefixSeekOptInOnly);
+
+  boolean prefixSeekOptInOnly();
 
   /**
    * If true, automatically persist stats to a hidden column family (column
@@ -1566,6 +1598,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return true, if DB ID will be written to Manifest file.
    */
   boolean writeDbidToManifest();
+
+  T setWriteIdentityFile(boolean writeIdentityFile);
+
+  boolean writeIdentityFile();
 
   /**
    * The number of bytes to prefetch when reading the log. This is mostly useful
@@ -1671,6 +1707,30 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return the instance of the current object.
    */
   long bgerrorResumeRetryInterval();
+
+  T setAllowDataInErrors(boolean allowDataInErrors);
+
+  boolean allowDataInErrors();
+
+  String dbHostId();
+
+  T setDbHostId(String dbHostId);
+
+  T setEnforceSingleDelContracts(boolean enforceSingleDelContracts);
+
+  boolean enforceSingleDelContracts();
+
+  T setFollowerRefreshCatchupPeriodMs(boolean followerRefreshCatchupPeriodMs);
+
+  boolean followerRefreshCatchupPeriodMs();
+
+  T setFollowerRefreshCatchupRetryCount(boolean followerRefreshCatchupRetryCount);
+
+  boolean followerRefreshCatchupRetryCount();
+
+  T setFollowerCatchupRetryWaitMs(boolean followerCatchupRetryWaitMs);
+
+  boolean followerCatchupRetryWaitMs();
 
   /**
    * Implementing off-peak duration awareness in RocksDB. In this context,
