@@ -3879,13 +3879,14 @@ TEST_F(DBBasicTest, BestEffortRecoveryFailureWithTableCacheUseAfterFree) {
   DestroyAndReopen(options);
 
   // Disable file deletions to preserve old manifest files for
-  // best-effort-recovery to succeed
+  // best-efforts recovery to succeed
   ASSERT_OK(db_->DisableFileDeletions());
 
   // Create multiple SST files to populate TableCache during
-  // best-effort-recovery
+  // best-efforts recovery
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put("key" + std::to_string(i), std::string(1000, 'a' + i)));
+    ASSERT_OK(Put("key" + std::to_string(i),
+                  std::string(1000, static_cast<char>('a' + i))));
     ASSERT_OK(Flush());
   }
 
