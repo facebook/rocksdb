@@ -13,7 +13,8 @@
 #include <stdlib.h>
 
 #include "include/org_rocksdb_TransactionLogIterator.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/batch_result_jni.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 /*
  * Class:     org_rocksdb_TransactionLogIterator

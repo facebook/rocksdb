@@ -8,9 +8,10 @@
 
 #include "rocksjni/wal_filter_jnicallback.h"
 
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
-
+#include "rocksjni/portal/abstract_wal_filter_jni.h"
+#include "rocksjni/portal/hash_map_jni.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/wal_processing_option_jni.h"
 namespace ROCKSDB_NAMESPACE {
 WalFilterJniCallback::WalFilterJniCallback(JNIEnv* env, jobject jwal_filter)
     : JniCallback(env, jwal_filter) {
