@@ -2116,7 +2116,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return {@code this}
    */
-  T setFollowerRefreshCatchupPeriodMs(boolean followerRefreshCatchupPeriodMs);
+  T setFollowerRefreshCatchupPeriodMs(long followerRefreshCatchupPeriodMs);
 
   /**
    * When a RocksDB database is opened in follower mode, this option
@@ -2127,7 +2127,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return The frequency of the follower attempting to refresh its view of the leader
    */
-  boolean followerRefreshCatchupPeriodMs();
+  long followerRefreshCatchupPeriodMs();
 
   /**
    * For a given catch up attempt, this option specifies the number of times
@@ -2141,7 +2141,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return {@code this}
    */
-  T setFollowerRefreshCatchupRetryCount(boolean followerRefreshCatchupRetryCount);
+  T setFollowerRefreshCatchupRetryCount(long followerRefreshCatchupRetryCount);
 
   /**
    * For a given catch up attempt, this option specifies the number of times
@@ -2152,7 +2152,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return The number of times to tail the MANIFEST and try to install a new, consistent version
    */
-  boolean followerRefreshCatchupRetryCount();
+  long followerRefreshCatchupRetryCount();
 
   /**
    * Time to wait between consecutive catch up attempts
@@ -2162,14 +2162,14 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return {@code this}
    */
-  T setFollowerCatchupRetryWaitMs(boolean followerCatchupRetryWaitMs);
+  T setFollowerCatchupRetryWaitMs(long followerCatchupRetryWaitMs);
 
   /**
    * Time to wait between consecutive catch up attempts
    *
    * @return Time to wait between consecutive catch up attempts
    */
-  boolean followerCatchupRetryWaitMs();
+  long followerCatchupRetryWaitMs();
 
   /**
    * Implementing off-peak duration awareness in RocksDB. In this context,

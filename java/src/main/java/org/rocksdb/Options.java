@@ -25,7 +25,7 @@ public class Options extends RocksObject
    * @return The Options-style representation of those properties.
    */
   public static String getOptionStringFromProps(final Properties properties) {
-    if (properties == null || properties.size() == 0) {
+    if (properties == null || properties.isEmpty()) {
       throw new IllegalArgumentException("Properties value must contain at least one value.");
     }
     final StringBuilder stringBuilder = new StringBuilder();
@@ -2088,40 +2088,40 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setFollowerRefreshCatchupPeriodMs(final boolean followerRefreshCatchupPeriodMs) {
+  public Options setFollowerRefreshCatchupPeriodMs(final long followerRefreshCatchupPeriodMs) {
     assert(isOwningHandle());
     setFollowerRefreshCatchupPeriodMs(nativeHandle_, followerRefreshCatchupPeriodMs);
     return this;
   }
 
   @Override
-  public boolean followerRefreshCatchupPeriodMs() {
+  public long followerRefreshCatchupPeriodMs() {
     assert(isOwningHandle());
     return followerRefreshCatchupPeriodMs(nativeHandle_);
   }
 
   @Override
-  public Options setFollowerRefreshCatchupRetryCount(final boolean followerRefreshCatchupRetryCount) {
+  public Options setFollowerRefreshCatchupRetryCount(final long followerRefreshCatchupRetryCount) {
     assert(isOwningHandle());
     setFollowerRefreshCatchupRetryCount(nativeHandle_, followerRefreshCatchupRetryCount);
     return this;
   }
 
   @Override
-  public boolean followerRefreshCatchupRetryCount() {
+  public long followerRefreshCatchupRetryCount() {
     assert(isOwningHandle());
     return followerRefreshCatchupRetryCount(nativeHandle_);
   }
 
   @Override
-  public Options setFollowerCatchupRetryWaitMs(final boolean followerCatchupRetryWaitMs) {
+  public Options setFollowerCatchupRetryWaitMs(final long followerCatchupRetryWaitMs) {
     assert(isOwningHandle());
     setFollowerCatchupRetryWaitMs(nativeHandle_, followerCatchupRetryWaitMs);
     return this;
   }
 
   @Override
-  public boolean followerCatchupRetryWaitMs() {
+  public long followerCatchupRetryWaitMs() {
     assert(isOwningHandle());
     return followerCatchupRetryWaitMs(nativeHandle_);
   }
@@ -2682,12 +2682,12 @@ public class Options extends RocksObject
   private static native String dbHostId(long handle);
   private static native void setEnforceSingleDelContracts(final long handle, final boolean enforceSingleDelContracts);
   private static native boolean enforceSingleDelContracts(final long handle);
-  private static native void setFollowerRefreshCatchupPeriodMs(final long handle, final boolean followerRefreshCatchupPeriodMs);
-  private static native boolean followerRefreshCatchupPeriodMs(final long handle);
-  private static native void setFollowerRefreshCatchupRetryCount(final long handle, final boolean followerRefreshCatchupRetryCount);
-  private static native boolean followerRefreshCatchupRetryCount(final long handle);
-  private static native void setFollowerCatchupRetryWaitMs(final long handle, final boolean followerCatchupRetryWaitMs);
-  private static native boolean followerCatchupRetryWaitMs(final long handle);
+  private static native void setFollowerRefreshCatchupPeriodMs(final long handle, final long followerRefreshCatchupPeriodMs);
+  private static native long followerRefreshCatchupPeriodMs(final long handle);
+  private static native void setFollowerRefreshCatchupRetryCount(final long handle, final long followerRefreshCatchupRetryCount);
+  private static native long followerRefreshCatchupRetryCount(final long handle);
+  private static native void setFollowerCatchupRetryWaitMs(final long handle, final long followerCatchupRetryWaitMs);
+  private static native long followerCatchupRetryWaitMs(final long handle);
   private static native void setEnableBlobFiles(
       final long nativeHandle_, final boolean enableBlobFiles);
   private static native boolean enableBlobFiles(final long nativeHandle_);

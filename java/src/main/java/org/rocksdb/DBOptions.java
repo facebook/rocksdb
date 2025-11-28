@@ -1362,40 +1362,40 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setFollowerRefreshCatchupPeriodMs(final boolean followerRefreshCatchupPeriodMs) {
+  public DBOptions setFollowerRefreshCatchupPeriodMs(final long followerRefreshCatchupPeriodMs) {
     assert(isOwningHandle());
     setFollowerRefreshCatchupPeriodMs(nativeHandle_, followerRefreshCatchupPeriodMs);
     return this;
   }
 
   @Override
-  public boolean followerRefreshCatchupPeriodMs() {
+  public long followerRefreshCatchupPeriodMs() {
     assert(isOwningHandle());
     return followerRefreshCatchupPeriodMs(nativeHandle_);
   }
 
   @Override
-  public DBOptions setFollowerRefreshCatchupRetryCount(final boolean followerRefreshCatchupRetryCount) {
+  public DBOptions setFollowerRefreshCatchupRetryCount(final long followerRefreshCatchupRetryCount) {
     assert(isOwningHandle());
     setFollowerRefreshCatchupRetryCount(nativeHandle_, followerRefreshCatchupRetryCount);
     return this;
   }
 
   @Override
-  public boolean followerRefreshCatchupRetryCount() {
+  public long followerRefreshCatchupRetryCount() {
     assert(isOwningHandle());
     return followerRefreshCatchupRetryCount(nativeHandle_);
   }
 
   @Override
-  public DBOptions setFollowerCatchupRetryWaitMs(final boolean followerCatchupRetryWaitMs) {
+  public DBOptions setFollowerCatchupRetryWaitMs(final long followerCatchupRetryWaitMs) {
     assert(isOwningHandle());
     setFollowerCatchupRetryWaitMs(nativeHandle_, followerCatchupRetryWaitMs);
     return this;
   }
 
   @Override
-  public boolean followerCatchupRetryWaitMs() {
+  public long followerCatchupRetryWaitMs() {
     assert(isOwningHandle());
     return followerCatchupRetryWaitMs(nativeHandle_);
   }
@@ -1646,12 +1646,12 @@ public class DBOptions extends RocksObject
   private static native String dbHostId(long handle);
   private static native void setEnforceSingleDelContracts(final long handle, final boolean allowDataInErrors);
   private static native boolean enforceSingleDelContracts(final long handle);
-  private static native void setFollowerRefreshCatchupPeriodMs(final long handle, final boolean followerRefreshCatchupPeriodMs);
-  private static native boolean followerRefreshCatchupPeriodMs(final long handle);
-  private static native void setFollowerRefreshCatchupRetryCount(final long handle, final boolean followerRefreshCatchupRetryCount);
-  private static native boolean followerRefreshCatchupRetryCount(final long handle);
-  private static native void setFollowerCatchupRetryWaitMs(final long handle, final boolean followerCatchupRetryWaitMs);
-  private static native boolean followerCatchupRetryWaitMs(final long handle);
+  private static native void setFollowerRefreshCatchupPeriodMs(final long handle, final long followerRefreshCatchupPeriodMs);
+  private static native long followerRefreshCatchupPeriodMs(final long handle);
+  private static native void setFollowerRefreshCatchupRetryCount(final long handle, final long followerRefreshCatchupRetryCount);
+  private static native long followerRefreshCatchupRetryCount(final long handle);
+  private static native void setFollowerCatchupRetryWaitMs(final long handle, final long followerCatchupRetryWaitMs);
+  private static native long followerCatchupRetryWaitMs(final long handle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
