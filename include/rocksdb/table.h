@@ -848,7 +848,7 @@ struct PlainTableOptions {
 // the hash bucket found, a binary search is executed for hash conflicts.
 // Finally, a linear search is used.
 
-TableFactory* NewPlainTableFactory(
+ROCKSDB_LIBRARY_API TableFactory* NewPlainTableFactory(
     const PlainTableOptions& options = PlainTableOptions());
 
 struct CuckooTablePropertyNames {
