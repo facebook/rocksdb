@@ -23,6 +23,7 @@ DECLARE_int64(max_key);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_int32(threads);
 DECLARE_int32(column_families);
+DECLARE_int32(transient_column_families);
 DECLARE_int32(nooverwritepercent);
 DECLARE_string(expected_values_dir);
 DECLARE_int32(clear_column_family_one_in);
@@ -125,12 +126,15 @@ class SharedState {
       }
     }
     if (status.ok()) {
+      // Calculate total number of CFs including transient ones
+      size_t total_column_families =
+          FLAGS_column_families + FLAGS_transient_column_families;
       if (FLAGS_expected_values_dir.empty()) {
         expected_state_manager_.reset(
-            new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
+            new AnonExpectedStateManager(FLAGS_max_key, total_column_families));
       } else {
         expected_state_manager_.reset(new FileExpectedStateManager(
-            FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
+            FLAGS_max_key, total_column_families, FLAGS_expected_values_dir));
       }
       status = expected_state_manager_->Open();
     }
