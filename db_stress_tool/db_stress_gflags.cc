@@ -52,11 +52,6 @@ DEFINE_int32(key_window_scale_factor, 10,
 
 DEFINE_int32(column_families, 10, "Number of column families");
 
-DEFINE_int32(transient_column_families, 0,
-             "Number of transient column families. These provide no durability "
-             "guarantees and their data is lost on crash/restart. Must be <= "
-             "column_families.");
-
 DEFINE_double(
     hot_key_alpha, 0,
     "Use Zipfian distribution to generate the key "

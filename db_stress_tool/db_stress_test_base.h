@@ -413,8 +413,6 @@ class StressTest {
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
   std::vector<std::string> column_family_names_;
-  std::vector<ColumnFamilyHandle*> transient_column_families_;
-  std::vector<std::string> transient_column_family_names_;
   std::atomic<int> new_column_family_name_;
   int num_times_reopened_;
   std::unordered_map<std::string, std::vector<std::string>> options_table_;

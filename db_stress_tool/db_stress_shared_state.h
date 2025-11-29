@@ -23,7 +23,6 @@ DECLARE_int64(max_key);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_int32(threads);
 DECLARE_int32(column_families);
-DECLARE_int32(transient_column_families);
 DECLARE_int32(nooverwritepercent);
 DECLARE_string(expected_values_dir);
 DECLARE_int32(clear_column_family_one_in);

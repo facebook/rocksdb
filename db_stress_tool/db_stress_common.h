@@ -85,7 +85,6 @@ DECLARE_int32(max_key_len);
 DECLARE_string(key_len_percent_dist);
 DECLARE_int32(key_window_scale_factor);
 DECLARE_int32(column_families);
-DECLARE_int32(transient_column_families);
 DECLARE_string(options_file);
 DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
