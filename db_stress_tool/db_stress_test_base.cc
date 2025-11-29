@@ -125,6 +125,10 @@ void StressTest::CleanUpColumnFamilies() {
     delete cf;
   }
   column_families_.clear();
+  for (auto cf : transient_column_families_) {
+    delete cf;
+  }
+  transient_column_families_.clear();
   for (auto* cf : secondary_cfhs_) {
     delete cf;
   }
@@ -1208,8 +1212,24 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
-      int rand_column_family = thread->rand.Next() % FLAGS_column_families;
-      ColumnFamilyHandle* column_family = column_families_[rand_column_family];
+      // Select random CF - the first time we open (and create transient CFs, if
+      // enabled), we want to carry out operations for transient and regular CFs
+      // After reopen, transient_column_families_ will be empty, so we only
+      // select persistent CFs
+      int total_cfs = FLAGS_column_families +
+                      static_cast<int>(transient_column_families_.size());
+      int rand_cf_index = thread->rand.Next() % total_cfs;
+      int rand_column_family;  // for persistent CFs only
+      ColumnFamilyHandle* column_family;
+      if (rand_cf_index < FLAGS_column_families) {
+        rand_column_family = rand_cf_index;
+        column_family = column_families_[rand_cf_index];
+      } else {
+        // Select from transient CFs
+        rand_column_family = 0;
+        column_family =
+            transient_column_families_[rand_cf_index - FLAGS_column_families];
+      }
 
       if (thread->rand.OneInOpt(FLAGS_compact_files_one_in)) {
         TestCompactFiles(thread, column_family);
@@ -2538,6 +2558,7 @@ Status StressTest::TestBackupRestore(
     for (const auto& name : column_family_names_) {
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(db_opt));
     }
+
     if (inplace_not_restore) {
       BackupInfo& info = backup_info[thread->rand.Uniform(count)];
       db_opt.env = info.env_for_open.get();
@@ -3795,6 +3816,21 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       column_family_names_.push_back(name);
     }
 
+    // if this is the first time opening a new db, create descriptors for
+    // transient CFs as well
+    if (!reopen) {
+      while (
+          cf_descriptors.size() <
+          (size_t)(FLAGS_column_families + FLAGS_transient_column_families)) {
+        std::string name = std::to_string(new_column_family_name_.load());
+        new_column_family_name_++;
+        ColumnFamilyOptions transient_opts(options_);
+        transient_opts.is_transient = true;
+        cf_descriptors.emplace_back(name, transient_opts);
+        transient_column_family_names_.push_back(name);
+      }
+    }
+
     options_.listeners.clear();
     options_.listeners.emplace_back(
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
@@ -3999,6 +4035,66 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       fflush(stderr);
     }
     assert(s.ok());
+
+    // Split column_families_ into persistent and transient
+    // column_families_ currently contains ALL handles returned by DB::Open
+    std::vector<ColumnFamilyHandle*> all_cfhs = column_families_;
+    column_families_.clear();
+    transient_column_families_.clear();
+
+    // Expected handle count depends on whether this is first open or reopen
+    size_t expected_handle_count =
+        reopen ? static_cast<size_t>(
+                     FLAGS_column_families)  // Reopen: only persistent
+               : static_cast<size_t>(
+                     FLAGS_column_families +
+                     FLAGS_transient_column_families);  // First: both
+
+    if (all_cfhs.size() != expected_handle_count) {
+      fprintf(stderr,
+              "CF handle count mismatch! Expected: %zu, Actual: %zu\n"
+              "  reopen=%s, FLAGS_column_families=%d, "
+              "FLAGS_transient_column_families=%d\n",
+              expected_handle_count, all_cfhs.size(), reopen ? "true" : "false",
+              FLAGS_column_families, FLAGS_transient_column_families);
+      fflush(stderr);
+    }
+    assert(all_cfhs.size() == expected_handle_count);
+
+    // First FLAGS_column_families handles are always persistent
+    for (int i = 0; i < FLAGS_column_families; ++i) {
+      column_families_.push_back(all_cfhs[i]);
+    }
+
+    // On first open, remaining handles are transient
+    // On reopen, there are no remaining handles (transient CFs don't exist)
+    if (!reopen) {
+      for (int i = FLAGS_column_families;
+           i < FLAGS_column_families + FLAGS_transient_column_families; ++i) {
+        transient_column_families_.push_back(all_cfhs[i]);
+      }
+    }
+
+    // Log what we created
+    if (FLAGS_transient_column_families > 0) {
+      int transient_created = reopen ? 0 : FLAGS_transient_column_families;
+      if (transient_created > 0) {
+        fprintf(
+            stdout,
+            "Created %d persistent CFs (0-%d) and %d transient CFs (%d-%d)\n",
+            FLAGS_column_families, FLAGS_column_families - 1, transient_created,
+            FLAGS_column_families,
+            FLAGS_column_families + transient_created - 1);
+      } else {
+        fprintf(stdout,
+                "Created %d persistent CFs (0-%d) and 0 transient CFs\n",
+                FLAGS_column_families, FLAGS_column_families - 1);
+      }
+    } else {
+      fprintf(stdout, "Created %d persistent CFs (0-%d) and 0 transient CFs\n",
+              FLAGS_column_families, FLAGS_column_families - 1);
+    }
+
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
     // Clear statistics reference from options_ to intentionally shorten the
