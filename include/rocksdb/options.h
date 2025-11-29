@@ -410,6 +410,17 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Create ColumnFamilyOptions from Options
   explicit ColumnFamilyOptions(const Options& options);
 
+  // Create a temporary CF that will be "dropped" upon reopen. Opening the db
+  // will fail if the transient cf is included in the list of column families to
+  // open. This is an immutable option - once a CF is declared transient, it
+  // cannot be changed (and vice versa). Transient CFs are currently included in
+  // the manifest/WAL, but are excluded from backups/snapshots.
+  // If a rocksdb instance is created with a transient CF, it can be reopened by
+  // older versions of RocksDB, as long as ignore_unknown_options is set to true
+  // during db open. This will ignore the is_transient field in the options
+  // file, and allow the user to reopen all transient CFs as regular CFs.
+  bool is_transient = false;
+
   void Dump(Logger* log) const;
 };
 

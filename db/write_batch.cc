@@ -2249,6 +2249,8 @@ class MemTableInserter : public WriteBatch::Handler {
           MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
         }
       } else if (ret_status.ok()) {
+        // Write skipped due to missing CF (or transient CF not in manifest)
+        TEST_SYNC_POINT("WriteBatchInternal::PutCFImpl::SkippedCFWrite");
         MaybeAdvanceSeq(false /* batch_boundary */);
       }
       return ret_status;

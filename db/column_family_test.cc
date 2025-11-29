@@ -799,6 +799,342 @@ TEST_P(ColumnFamilyTest, DropTest) {
   }
 }
 
+TEST_P(ColumnFamilyTest, OpenWithTransientCF) {
+  Open();
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions transient_opts;
+  transient_opts.is_transient = true;
+
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);
+
+  ASSERT_OK(Put(0, "foo", "v1"));
+  ASSERT_OK(Put(1, "mirko", "v3"));
+  ASSERT_OK(Put(3, "temp", "temp"));
+  ASSERT_OK(Put(4, "mew", "two"));
+
+  Close();
+
+  // Opening db with transient CF fails
+  ASSERT_NOK(TryOpen(
+      {"default", "one", "two", "threeTemp", "four"},
+      {column_family_options_, cf_opts, cf_opts, transient_opts, cf_opts}));
+
+  // attempting to open transient cf with regular cf settings fails
+  ASSERT_TRUE(
+      TryOpen({"default", "one", "two", "threeTemp", "four"},
+              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts})
+          .IsInvalidArgument());
+
+  // attempting to open regular cf with transient cf settings fails
+  ASSERT_TRUE(
+      TryOpen({"default", "one", "two", "four"},
+              {column_family_options_, cf_opts, cf_opts, transient_opts})
+          .IsInvalidArgument());
+
+  // Successfully open without the transient CF
+  ASSERT_OK(TryOpen({"default", "one", "two", "four"},
+                    {column_family_options_, cf_opts, cf_opts, cf_opts}));
+
+  // Opening the db with create_missing_column_families=true will create a new
+  // transient CF
+  db_options_.create_missing_column_families = true;
+  Close();
+
+  ASSERT_OK(TryOpen({"default", "one", "two", "threeTemp", "four", "five"},
+                    {column_family_options_, cf_opts, cf_opts, transient_opts,
+                     cf_opts, cf_opts}));
+
+  ASSERT_EQ(Get(3, "temp"),
+            "NOT_FOUND");  // confirms we've created a new threeTemp, and aren't
+  // returning data from old transient cf
+
+  // newly created cf is actually transient
+  std::vector<std::string> cfs_in_manifest;
+  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &cfs_in_manifest));
+  ASSERT_EQ(cfs_in_manifest.size(), 5) << "Expected 5 CFs in manifest (default "
+                                          "+ one + two + four + five), found "
+                                       << cfs_in_manifest.size();
+
+  ASSERT_EQ(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "threeTemp"),
+      cfs_in_manifest.end())
+      << "transient CF found in manifest";
+  Close();
+
+  db_options_.create_missing_column_families = false;
+  ASSERT_NOK(TryOpen({"default", "one", "two", "threeTemp", "four", "five"},
+                     {column_family_options_, cf_opts, cf_opts, transient_opts,
+                      cf_opts, cf_opts}));
+
+  ASSERT_OK(
+      TryOpen({"default", "one", "two", "four", "five"},
+              {column_family_options_, cf_opts, cf_opts, cf_opts, cf_opts}));
+
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, TransientColumnFamilyNotInManifest) {
+  Open();
+
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions cf_transient_opts;
+  cf_transient_opts.is_transient = true;
+
+  CreateColumnFamilies({"one", "two", "threeTemp", "four"},
+                       {cf_opts, cf_opts, cf_transient_opts, cf_opts});
+  ASSERT_EQ(handles_.size(), 5);  // default + one + two + threeTemp + four
+
+  // put some data and flush to regular and transient cfs
+  ASSERT_OK(Put(0, "foo", "v1"));     // default
+  ASSERT_OK(Put(1, "mirko", "v3"));   // one
+  ASSERT_OK(Put(3, "temp", "temp"));  // threeTemp (transient)
+  ASSERT_OK(Put(4, "mew", "two"));    // four
+
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(3));
+  ASSERT_OK(Flush(4));
+
+  ASSERT_EQ(Get(0, "foo"), "v1");
+  ASSERT_EQ(Get(1, "mirko"), "v3");
+  ASSERT_EQ(Get(3, "temp"), "temp");
+  ASSERT_EQ(Get(4, "mew"), "two");
+
+  // Parse manifest to verify transient CF isn't there
+  std::vector<std::string> cfs_in_manifest;
+  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &cfs_in_manifest));
+  ASSERT_EQ(cfs_in_manifest.size(), 4)
+      << "Expected only 4 CFs in manifest (default + one + two + four), found "
+      << cfs_in_manifest.size();
+
+  ASSERT_NE(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "default"),
+      cfs_in_manifest.end())
+      << "default CF not found in manifest";
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "one"),
+            cfs_in_manifest.end())
+      << "one CF not found in manifest";
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "two"),
+            cfs_in_manifest.end())
+      << "two CF not found in manifest";
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "four"),
+            cfs_in_manifest.end())
+      << "four CF not found in manifest";
+
+  ASSERT_EQ(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "threeTemp"),
+      cfs_in_manifest.end())
+      << "threeTemp should NOT be in manifest but was found!";
+
+  Close();
+
+  // Reopen without transient CFs successfully
+  ASSERT_OK(TryOpen({"default", "one", "two", "four"},
+                    {column_family_options_, cf_opts, cf_opts, cf_opts}));
+
+  ASSERT_EQ(handles_.size(), 4)
+      << "Expected 4 CFs after reopen (default + one + two + four), found "
+      << handles_.size();
+
+  ASSERT_EQ(Get(0, "foo"), "v1");
+  ASSERT_EQ(Get(1, "mirko"), "v3");
+  ASSERT_EQ(Get(3, "mew"), "two");
+
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, AtomicFlushWithTransientCF) {
+  // Test atomic flush with transient column families to ensure that:
+  // 1. Atomic flush succeeds with mixed transient and regular CFs
+  // 2. Version edits for transient CFs are not written to MANIFEST
+  // 3. Atomic group counters in MANIFEST are correct (excluding transient CFs)
+  // 4. Recovery works correctly after restart
+
+  db_options_.atomic_flush = true;
+  Open();
+
+  ColumnFamilyOptions regular_cf_opts;
+  ColumnFamilyOptions transient_cf_opts;
+  transient_cf_opts.is_transient = true;
+
+  // Create 4 regular CFs and 2 transient CFs
+  CreateColumnFamilies(
+      {"cf1", "cf2_transient", "cf3", "cf4", "cf5_transient", "cf6"},
+      {regular_cf_opts, transient_cf_opts, regular_cf_opts, regular_cf_opts,
+       transient_cf_opts, regular_cf_opts});
+  ASSERT_EQ(handles_.size(), 7);  // default + 6 created
+
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ASSERT_OK(Put(i, "key", "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush(0));
+
+  // Verify all data is readable
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ASSERT_EQ(Get(i, "key"), "value" + std::to_string(i));
+  }
+
+  // Parse manifest to verify only non-transient CFs are persisted
+  std::vector<std::string> cfs_in_manifest;
+  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &cfs_in_manifest));
+
+  // Should have: default + cf1 + cf3 + cf4 + cf6 = 5 CFs
+  // Should NOT have: cf2_transient, cf5_transient
+  ASSERT_EQ(cfs_in_manifest.size(), 5)
+      << "Expected 5 CFs in manifest (excluding 2 transient CFs), found "
+      << cfs_in_manifest.size();
+
+  ASSERT_NE(
+      std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "default"),
+      cfs_in_manifest.end());
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "cf1"),
+            cfs_in_manifest.end());
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "cf3"),
+            cfs_in_manifest.end());
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "cf4"),
+            cfs_in_manifest.end());
+  ASSERT_NE(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(), "cf6"),
+            cfs_in_manifest.end());
+
+  ASSERT_EQ(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(),
+                      "cf2_transient"),
+            cfs_in_manifest.end())
+      << "cf2_transient should NOT be in manifest";
+  ASSERT_EQ(std::find(cfs_in_manifest.begin(), cfs_in_manifest.end(),
+                      "cf5_transient"),
+            cfs_in_manifest.end())
+      << "cf5_transient should NOT be in manifest";
+
+  Close();
+
+  // Reopen without transient CFs
+  ASSERT_OK(TryOpen({"default", "cf1", "cf3", "cf4", "cf6"},
+                    {column_family_options_, regular_cf_opts, regular_cf_opts,
+                     regular_cf_opts, regular_cf_opts}));
+
+  ASSERT_EQ(handles_.size(), 5);
+
+  // Verify regular CF data is still there after recovery
+  ASSERT_EQ(Get(0, "key"), "value0");  // default
+  ASSERT_EQ(Get(1, "key"), "value1");  // cf1
+  ASSERT_EQ(Get(2, "key"), "value3");  // cf3
+  ASSERT_EQ(Get(3, "key"), "value4");  // cf4
+  ASSERT_EQ(Get(4, "key"), "value6");  // cf6
+
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, AtomicFlushWithAllTransientCFs) {
+  // if all CFs in atomic group are transient, atomic group should not be
+  // created since nothing is written to MANIFEST
+
+  db_options_.atomic_flush = true;
+  Open();
+
+  ColumnFamilyOptions transient_cf_opts;
+  transient_cf_opts.is_transient = true;
+
+  // Create only transient CFs and write some data
+  CreateColumnFamilies(
+      {"t1", "t2", "t3"},
+      {transient_cf_opts, transient_cf_opts, transient_cf_opts});
+  ASSERT_EQ(handles_.size(), 4);  // default + 3 transient
+
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ASSERT_OK(Put(i, "key", "value" + std::to_string(i)));
+  }
+
+  // atomic flush
+  ASSERT_OK(Flush(0));
+
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ASSERT_EQ(Get(i, "key"), "value" + std::to_string(i));
+  }
+
+  Close();
+
+  // After reopen, transient CFs should not exist
+  ASSERT_OK(TryOpen({"default"}, {column_family_options_}));
+  ASSERT_EQ(handles_.size(), 1);
+
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, TransientCFAtomicGroupValidation) {
+  // transient cf edits are part of an atomic group, but should not be written
+  // to manifest. test should pass without manifest corruption or any failed
+  // validation on in-memory state of version edits
+
+  db_options_.atomic_flush = true;
+  db_options_.manual_wal_flush = false;
+  Open();
+
+  ColumnFamilyOptions regular_cf_opts;
+  ColumnFamilyOptions transient_cf_opts;
+  transient_cf_opts.is_transient = true;
+
+  // Create 7 CFs total (2 transient, 5 regular)
+  CreateColumnFamilies(
+      {"cf1", "cf2_trans", "cf3", "cf4", "cf5_trans", "cf6", "cf7"},
+      {regular_cf_opts, transient_cf_opts, regular_cf_opts, regular_cf_opts,
+       transient_cf_opts, regular_cf_opts, regular_cf_opts});
+  ASSERT_EQ(handles_.size(), 8);  // default + 7 created
+
+  const int kNumKeys = 100;
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    for (int i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(Put(cf, "key" + std::to_string(i),
+                    "value" + std::to_string(cf) + "_" + std::to_string(i)));
+    }
+  }
+
+  // atomic group contains two transient cf version edits that need to be
+  // accounted for in num_remaining
+  FlushOptions flush_opts;
+  ASSERT_OK(db_->Flush(flush_opts, handles_));
+
+  // check added data
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    for (int i = 0; i < kNumKeys; ++i) {
+      ASSERT_EQ(Get(cf, "key" + std::to_string(i)),
+                "value" + std::to_string(cf) + "_" + std::to_string(i));
+    }
+  }
+
+  // Close and reopen to test recovery from manifest. If transient CF edits were
+  // skipped from manifest without adjusting remaining_entries, recovery should
+  // fail with corruption
+  Close();
+
+  std::vector<std::string> regular_cfs = {"default", "cf1", "cf3",
+                                          "cf4",     "cf6", "cf7"};
+  std::vector<ColumnFamilyOptions> regular_opts(regular_cfs.size(),
+                                                regular_cf_opts);
+
+  Open(regular_cfs, regular_opts);
+
+  // Verify data for regular CFs after recovery
+  for (size_t cf_idx = 0; cf_idx < handles_.size(); ++cf_idx) {
+    for (int i = 0; i < kNumKeys; ++i) {
+      std::string expected;
+      if (cf_idx == 0) {
+        expected = "value0_" + std::to_string(i);
+      } else {
+        // Regular CFs: cf1=1, cf3=3, cf4=4, cf6=6, cf7=7
+        // Map cf_idx to original CF number
+        std::vector<int> cf_numbers = {0, 1, 3, 4, 6, 7};
+        expected = "value" + std::to_string(cf_numbers[cf_idx]) + "_" +
+                   std::to_string(i);
+      }
+      ASSERT_EQ(Get(cf_idx, "key" + std::to_string(i)), expected);
+    }
+  }
+
+  Close();
+}
+
 TEST_P(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});

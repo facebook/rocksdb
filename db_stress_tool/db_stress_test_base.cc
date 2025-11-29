@@ -2535,8 +2535,24 @@ Status StressTest::TestBackupRestore(
     // `ListColumnFamilies` to get names because it won't necessarily give
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
-    for (const auto& name : column_family_names_) {
-      cf_descriptors.emplace_back(name, ColumnFamilyOptions(db_opt));
+
+    // Only include persistent CFs for backup/restore
+    // If column_families_contains_transient_cfs_ is true, we exclude the
+    // transient CFs (last FLAGS_transient_column_families names in the vector)
+    size_t num_cfs_to_restore = column_families_contains_transient_cfs_
+                                    ? FLAGS_column_families
+                                    : column_family_names_.size();
+    // fprintf(stdout, "TestBackup: Creating backup with %zu CFs\n",
+    //         num_cfs_to_restore);
+    // fprintf(stdout,
+    //         "TestBackup: column_families_contains_transient_cfs_=%d, "
+    //         "column_family_names_.size()=%zu\n",
+    //         column_families_contains_transient_cfs_,
+    //         column_family_names_.size());
+
+    for (size_t i = 0; i < num_cfs_to_restore; ++i) {
+      cf_descriptors.emplace_back(column_family_names_[i],
+                                  ColumnFamilyOptions(db_opt));
     }
     if (inplace_not_restore) {
       BackupInfo& info = backup_info[thread->rand.Uniform(count)];
@@ -2855,8 +2871,17 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
     if (FLAGS_clear_column_family_one_in == 0) {
-      for (const auto& name : column_family_names_) {
-        cf_descs.emplace_back(name, ColumnFamilyOptions(options));
+      // Only include persistent CFs for checkpoint verification
+      // If column_families_contains_transient_cfs_ is true, we exclude the
+      // transient CFs (last FLAGS_transient_column_families names in the
+      // vector)
+      size_t num_cfs_to_check = column_families_contains_transient_cfs_
+                                    ? FLAGS_column_families
+                                    : column_family_names_.size();
+
+      for (size_t i = 0; i < num_cfs_to_check; ++i) {
+        cf_descs.emplace_back(column_family_names_[i],
+                              ColumnFamilyOptions(options));
       }
       s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
                               &cf_handles, &checkpoint_db);
@@ -3788,11 +3813,34 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       }
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
     }
+    fprintf(stdout, "Open: Creating %d regular (persistent) CFs (reopen=%d)\n",
+            FLAGS_column_families, reopen);
     while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
       std::string name = std::to_string(new_column_family_name_.load());
       new_column_family_name_++;
-      cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
+      ColumnFamilyOptions regular_opts(options_);
+      cf_descriptors.emplace_back(name, regular_opts);
       column_family_names_.push_back(name);
+    }
+
+    // On first open (not reopen), add transient CF descriptors
+    // These will be stored in column_families_ along with persistent CFs
+    if (!reopen && FLAGS_transient_column_families > 0) {
+      fprintf(stdout, "Open: Creating %d transient CFs (reopen=%d)\n",
+              FLAGS_transient_column_families, reopen);
+      while (cf_descriptors.size() <
+             static_cast<size_t>(FLAGS_column_families +
+                                 FLAGS_transient_column_families)) {
+        std::string name = std::to_string(new_column_family_name_.load());
+        new_column_family_name_++;
+        ColumnFamilyOptions transient_opts(options_);
+        transient_opts.is_transient = true;
+        fprintf(stdout, "Open: Adding transient CF '%s' with is_transient=%d\n",
+                name.c_str(), transient_opts.is_transient);
+        cf_descriptors.emplace_back(name, transient_opts);
+        column_family_names_.push_back(name);
+      }
+      column_families_contains_transient_cfs_ = true;
     }
 
     options_.listeners.clear();
@@ -3999,8 +4047,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       fflush(stderr);
     }
     assert(s.ok());
-    assert(column_families_.size() ==
-           static_cast<size_t>(FLAGS_column_families));
+
+    // Verify the expected number of CF handles
+    size_t expected_cf_count = FLAGS_column_families;
+    if (column_families_contains_transient_cfs_) {
+      expected_cf_count += FLAGS_transient_column_families;
+    }
+    assert(column_families_.size() == expected_cf_count);
+
     // Clear statistics reference from options_ to intentionally shorten the
     // statistics object lifetime to be same as the db object (which is the
     // common case in practice) and detect if RocksDB access the statistics
@@ -4072,6 +4126,15 @@ void StressTest::Reopen(ThreadState* thread) {
     bg_canceled = wait;
   }
   assert(!write_prepared || bg_canceled);
+
+  // Before cleanup, drop transient CFs if they exist in column_families_
+  // This ensures that on reopen, only persistent CFs are opened
+  if (column_families_contains_transient_cfs_) {
+    // Resize to keep only persistent CFs
+    column_families_.resize(FLAGS_column_families);
+    column_family_names_.resize(FLAGS_column_families);
+    column_families_contains_transient_cfs_ = false;
+  }
 
   CleanUpColumnFamilies();
 

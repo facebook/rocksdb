@@ -268,6 +268,18 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         OptimizeForPersistentStats(&cfo);
         tmp_cfd = CreateCfAndInit(cfo, edit);
       } else {
+        // Check that user doesn't incorrectly try to open a regular CF
+        // (one that exists in MANIFEST) as transient.
+        // A CF that exists in MANIFEST is not transient and should never be
+        // opened with transient cf_options
+        if (cf_options->second.is_transient) {
+          s = Status::InvalidArgument(
+              "Column family " + cf_name +
+              " exists in MANIFEST (persistent CF) but is being opened with "
+              "is_transient=true. A persistent CF cannot be reopened as "
+              "transient.");
+          return s;
+        }
         tmp_cfd = CreateCfAndInit(cf_options->second, edit);
       }
       *cfd = tmp_cfd;
@@ -312,6 +324,7 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
   bool do_not_open_cf = false;
   bool cf_in_builders = false;
+
   CheckColumnFamilyId(edit, &do_not_open_cf, &cf_in_builders);
 
   assert(cfd != nullptr);
@@ -390,17 +403,26 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     msg.append(" entry in MANIFEST");
     *s = Status::Corruption(msg);
   }
+
   // There were some column families in the MANIFEST that weren't specified
-  // in the argument. This is OK in read_only mode
+  // in the argument. This is OK in read_only mode. Transient CFs are also
+  // intentionally not opened and should not cause errors.
   if (s->ok() && MustOpenAllColumnFamilies() &&
       !do_not_open_column_families_.empty()) {
     std::string msg;
     for (const auto& cf : do_not_open_column_families_) {
+      // // Skip transient CFs - they are intentionally not opened
+      // if (transient_column_families_.find(cf.first) !=
+      //     transient_column_families_.end()) {
+      //   continue;
+      // }
       msg.append(", ");
       msg.append(cf.second);
     }
+    // if (!msg.empty()) {
     msg = msg.substr(2);
     *s = Status::InvalidArgument("Column families not opened: " + msg);
+    // }
   }
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
