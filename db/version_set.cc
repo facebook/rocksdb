@@ -6094,17 +6094,38 @@ Status VersionSet::ProcessManifestWrites(
         auto& e = batch_edits[bidx];
 
         // Check if this edit is for a transient CF - skip writing to MANIFEST
-        bool is_transient_cf_edit = false;
-        if (!e->IsColumnFamilyManipulation()) {
-          ColumnFamilyData* cfd =
-              column_family_set_->GetColumnFamily(e->GetColumnFamily());
-          if (cfd && cfd->ioptions().is_transient) {
-            is_transient_cf_edit = true;
+        // Use the version edit tag that was set when the edit was
+        // created, since cfd could be nullptr if the cf was dropped by now.
+        // This avoids a race condition where transient cf edits are written to
+        // manifest if we cannot identify them as transient because the
+        // cfd->ioptions have been lost before we process a manifest write
+        bool is_transient_cf_edit = e->GetTransientColumnFamily();
+
+#ifndef NDEBUG
+        // verify that the version edit's flag matches the cfd options
+        if (!is_transient_cf_edit) {
+          if (!e->IsColumnFamilyManipulation()) {
+            ColumnFamilyData* cfd =
+                column_family_set_->GetColumnFamily(e->GetColumnFamily());
+            if (cfd && cfd->ioptions().is_transient) {
+              ROCKS_LOG_FATAL(
+                  db_options_->info_log,
+                  "MISMATCH - Version edit for CF '%s' (ID %u) not marked as "
+                  "transient, but cfd options have is_transient=true.",
+                  cfd->GetName().c_str(), cfd->GetID());
+              assert(false);
+            }
+          } else if (e->IsColumnFamilyAdd() && new_cf_options != nullptr &&
+                     new_cf_options->is_transient) {
+            ROCKS_LOG_FATAL(
+                db_options_->info_log,
+                "MISMATCH - Version edit for CF add '%s' (ID %u) not marked as "
+                "transient, but new_cf_options have is_transient=true.",
+                e->GetColumnFamilyName().c_str(), e->GetColumnFamily());
+            assert(false);
           }
-        } else if (e->IsColumnFamilyAdd() && new_cf_options != nullptr &&
-                   new_cf_options->is_transient) {
-          is_transient_cf_edit = true;
         }
+#endif
 
         if (is_transient_cf_edit) {
           // Skip writing this edit to MANIFEST.
@@ -7209,6 +7230,7 @@ Status VersionSet::WriteCurrentStateToManifest(
           cfd->internal_comparator().user_comparator()->Name());
       edit.SetPersistUserDefinedTimestamps(
           cfd->ioptions().persist_user_defined_timestamps);
+      edit.SetIsTransientColumnFamily(cfd->ioptions().is_transient);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +

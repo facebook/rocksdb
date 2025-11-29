@@ -165,6 +165,7 @@ class Repairer {
     ColumnFamilyData* cfd;
     cfd = nullptr;
     edit.AddColumnFamily(cf_name);
+    edit.SetIsTransientColumnFamily(cf_opts->is_transient);
 
     mutex_.Lock();
     std::unique_ptr<FSDirectory> db_dir;

@@ -206,6 +206,12 @@ void FlushJob::PickMemTable() {
   edit_->SetLogNumber(max_next_log_number);
   edit_->SetColumnFamily(cfd_->GetID());
 
+  // Set transient flag based on CF options. We set it here while db mutex is
+  // held, because cfd is guaranteed to not be nullptr - this way we can
+  // reference the flag to decide whether to write edits to manifest (when cfd
+  // could be null)
+  edit_->SetIsTransientColumnFamily(cfd_->ioptions().is_transient);
+
   // path 0 for level 0 file.
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   meta_.epoch_number = cfd_->NewEpochNumber();
