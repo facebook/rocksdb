@@ -2615,7 +2615,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   } else {
     persist_options_status.PermitUncheckedError();
   }
-
   impl->mutex_.Unlock();
 
   auto sfm = static_cast<SstFileManagerImpl*>(

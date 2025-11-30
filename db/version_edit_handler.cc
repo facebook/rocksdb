@@ -324,7 +324,6 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
   bool do_not_open_cf = false;
   bool cf_in_builders = false;
-
   CheckColumnFamilyId(edit, &do_not_open_cf, &cf_in_builders);
 
   assert(cfd != nullptr);
@@ -403,7 +402,6 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     msg.append(" entry in MANIFEST");
     *s = Status::Corruption(msg);
   }
-
   // There were some column families in the MANIFEST that weren't specified
   // in the argument. This is OK in read_only mode. Transient CFs are also
   // intentionally not opened and should not cause errors.
@@ -411,18 +409,11 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       !do_not_open_column_families_.empty()) {
     std::string msg;
     for (const auto& cf : do_not_open_column_families_) {
-      // // Skip transient CFs - they are intentionally not opened
-      // if (transient_column_families_.find(cf.first) !=
-      //     transient_column_families_.end()) {
-      //   continue;
-      // }
       msg.append(", ");
       msg.append(cf.second);
     }
-    // if (!msg.empty()) {
     msg = msg.substr(2);
     *s = Status::InvalidArgument("Column families not opened: " + msg);
-    // }
   }
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(

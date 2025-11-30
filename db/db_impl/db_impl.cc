@@ -3650,9 +3650,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     {  // write thread
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
-      // LogAndApply will both write the creation in MANIFEST and create
-      // ColumnFamilyData object for regular persistent CFs. For transient cfs,
-      // it will skip the manifest write
       s = versions_->LogAndApply(nullptr, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
