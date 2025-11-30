@@ -1312,10 +1312,10 @@ TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
   Close();
 
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  cf_descs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
-  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
-  cf_descs.push_back(ColumnFamilyDescriptor("transient_cf", transient_opts));
-  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+  cf_descs.emplace_back(kDefaultColumnFamilyName, cf_opts);
+  cf_descs.emplace_back("regular_cf1", cf_opts);
+  cf_descs.emplace_back("transient_cf", transient_opts);
+  cf_descs.emplace_back("regular_cf2", cf_opts);
 
   ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles_, &db_));
 
@@ -1349,10 +1349,9 @@ TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
 
   // Reopen (without transient cf)
   std::vector<ColumnFamilyDescriptor> reopen_cf_descs;
-  reopen_cf_descs.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
-  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
-  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+  reopen_cf_descs.emplace_back(kDefaultColumnFamilyName, cf_opts);
+  reopen_cf_descs.emplace_back("regular_cf1", cf_opts);
+  reopen_cf_descs.emplace_back("regular_cf2", cf_opts);
 
   ASSERT_OK(DB::Open(options, dbname_, reopen_cf_descs, &handles_, &db_));
 
@@ -1380,12 +1379,10 @@ TEST_F(DBWALTest, RecoveryWithTransientAndRegularCFMixedBatch) {
   // Reopen with create_missing_column_families=true and create a new transient
   // cf with same name
   std::vector<ColumnFamilyDescriptor> final_cf_descs;
-  final_cf_descs.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
-  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
-  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
-  final_cf_descs.push_back(
-      ColumnFamilyDescriptor("transient_cf", transient_opts));
+  final_cf_descs.emplace_back(kDefaultColumnFamilyName, cf_opts);
+  final_cf_descs.emplace_back("regular_cf1", cf_opts);
+  final_cf_descs.emplace_back("regular_cf2", cf_opts);
+  final_cf_descs.emplace_back("transient_cf", transient_opts);
 
   ASSERT_OK(DB::Open(options, dbname_, final_cf_descs, &handles_, &db_));
 
@@ -1412,10 +1409,10 @@ TEST_F(DBWALTest, RecoveryWithTransientCF) {
   Close();
 
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  cf_descs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
-  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
-  cf_descs.push_back(ColumnFamilyDescriptor("transient_cf", transient_opts));
-  cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+  cf_descs.emplace_back(kDefaultColumnFamilyName, cf_opts);
+  cf_descs.emplace_back("regular_cf1", cf_opts);
+  cf_descs.emplace_back("transient_cf", transient_opts);
+  cf_descs.emplace_back("regular_cf2", cf_opts);
 
   ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles_, &db_));
 
@@ -1448,10 +1445,9 @@ TEST_F(DBWALTest, RecoveryWithTransientCF) {
 
   // Reopen (without transient cf)
   std::vector<ColumnFamilyDescriptor> reopen_cf_descs;
-  reopen_cf_descs.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
-  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
-  reopen_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
+  reopen_cf_descs.emplace_back(kDefaultColumnFamilyName, cf_opts);
+  reopen_cf_descs.emplace_back("regular_cf1", cf_opts);
+  reopen_cf_descs.emplace_back("regular_cf2", cf_opts);
 
   ASSERT_OK(DB::Open(options, dbname_, reopen_cf_descs, &handles_, &db_));
 
@@ -1477,12 +1473,10 @@ TEST_F(DBWALTest, RecoveryWithTransientCF) {
   // Reopen with a transient cf with the same name, it will be created as a new
   // transient cf since create_missing_column_families=true
   std::vector<ColumnFamilyDescriptor> final_cf_descs;
-  final_cf_descs.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_opts));
-  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf1", cf_opts));
-  final_cf_descs.push_back(ColumnFamilyDescriptor("regular_cf2", cf_opts));
-  final_cf_descs.push_back(
-      ColumnFamilyDescriptor("transient_cf", transient_opts));
+  final_cf_descs.emplace_back(kDefaultColumnFamilyName, cf_opts);
+  final_cf_descs.emplace_back("regular_cf1", cf_opts);
+  final_cf_descs.emplace_back("regular_cf2", cf_opts);
+  final_cf_descs.emplace_back("transient_cf", transient_opts);
 
   ASSERT_OK(DB::Open(options, dbname_, final_cf_descs, &handles_, &db_));
 

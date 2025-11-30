@@ -2542,14 +2542,7 @@ Status StressTest::TestBackupRestore(
     size_t num_cfs_to_restore = column_families_contains_transient_cfs_
                                     ? FLAGS_column_families
                                     : column_family_names_.size();
-    // fprintf(stdout, "TestBackup: Creating backup with %zu CFs\n",
-    //         num_cfs_to_restore);
-    // fprintf(stdout,
-    //         "TestBackup: column_families_contains_transient_cfs_=%d, "
-    //         "column_family_names_.size()=%zu\n",
-    //         column_families_contains_transient_cfs_,
-    //         column_family_names_.size());
-
+    cf_descriptors.reserve(num_cfs_to_restore);
     for (size_t i = 0; i < num_cfs_to_restore; ++i) {
       cf_descriptors.emplace_back(column_family_names_[i],
                                   ColumnFamilyOptions(db_opt));

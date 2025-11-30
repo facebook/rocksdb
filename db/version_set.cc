@@ -6037,6 +6037,7 @@ Status VersionSet::ProcessManifestWrites(
       // far. When we encounter a non-transient edit, we know how many transient
       // edits follow it.
       std::vector<uint32_t> remaining_adjustments(batch_edits.size(), 0);
+      assert(remaining_adjustments.size() == batch_edits.size());
 
       if (has_transient_cf_edits_in_atomic_group) {
         TEST_SYNC_POINT(
