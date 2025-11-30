@@ -2907,24 +2907,39 @@ TEST_F(VersionSetAtomicGroupTest, NoTransientCFPass) {
       [&](void* /* arg */) { backward_pass_executed = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // atomic group with regular CFs
-  edits_.resize(kAtomicGroupSize);
+  NewDB();
+
+  // Create atomic group with no transient CFs
+  autovector<VersionEdit> edits;
+  edits.resize(kAtomicGroupSize);
   int remaining = kAtomicGroupSize;
 
-  for (size_t i = 0; i < edits_.size(); ++i) {
-    edits_[i].SetLogNumber(0);
-    edits_[i].SetNextFile(2);
-    edits_[i].MarkAtomicGroup(--remaining);
-    edits_[i].SetLastSequence(last_seqno_++);
+  for (size_t i = 0; i < edits.size(); ++i) {
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    edits[i].MarkAtomicGroup(--remaining);
+    edits[i].SetLastSequence(last_seqno_++);
   }
 
-  CreateCurrentFile();
-  AddNewEditsToLog(kAtomicGroupSize);
+  // Prepare edit lists for LogAndApply
+  autovector<ColumnFamilyData*> cfds;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  for (size_t i = 0; i < edits.size(); ++i) {
+    cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
+    autovector<VersionEdit*> edit_list;
+    edit_list.emplace_back(&edits[i]);
+    edit_lists.emplace_back(edit_list);
+  }
 
-  EXPECT_OK(versions_->Recover(column_families_, false));
-  EXPECT_TRUE(first_in_atomic_group_);
-  EXPECT_TRUE(last_in_atomic_group_);
-  EXPECT_EQ(kAtomicGroupSize, num_edits_in_atomic_group_);
+  // Call LogAndApply which triggers ProcessManifestWrites
+  mutex_.Lock();
+  Status s = versions_->LogAndApply(cfds, read_options_, write_options_,
+                                    edit_lists, &mutex_, nullptr);
+  mutex_.Unlock();
+  EXPECT_OK(s);
+
+  // verify the backward pass to fix num_remaining counts for transient CFs in
+  // atomic groups was not executed
   EXPECT_FALSE(backward_pass_executed);
 
   SyncPoint::GetInstance()->DisableProcessing();
