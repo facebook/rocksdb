@@ -187,6 +187,8 @@ void SetupSyncPointsToMockDirectIO();
 #define testable_assert(cond)
 #else
 namespace ROCKSDB_NAMESPACE {
+// Intentionally not based on std::exception to reduce places where this
+// would be caught
 struct TestableAssertionFailure {};
 extern std::atomic<int> g_throw_on_testable_assertion_failure;
 }  // namespace ROCKSDB_NAMESPACE
