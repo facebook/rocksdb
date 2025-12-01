@@ -10,8 +10,9 @@
 
 #include "include/org_rocksdb_CompactionJobInfo.h"
 #include "rocksdb/listener.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/compaction_reason_jni.h"
+#include "rocksjni/portal/compression_type_jni.h"
+#include "rocksjni/portal/table_properties_jni.h"
 
 /*
  * Class:     org_rocksdb_CompactionJobInfo
