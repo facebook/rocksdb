@@ -863,6 +863,28 @@ void Java_org_rocksdb_Options_setMaxBackgroundFlushes(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    maxManifestSpaceAmpPet
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxManifestSpaceAmpPet(JNIEnv*, jclass,
+                                                     jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+    ->max_manifest_space_amp_pct;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxManifestSpaceAmpPet
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxManifestSpaceAmpPet(
+    JNIEnv*, jclass, jlong jhandle, jint max_manifest_space_amp_pct) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+    ->max_manifest_space_amp_pct = static_cast<int>(max_manifest_space_amp_pct);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxBackgroundJobs
  * Signature: (J)I
  */
@@ -7045,6 +7067,28 @@ jint Java_org_rocksdb_DBOptions_maxBackgroundFlushes(JNIEnv*, jclass,
                                                      jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->max_background_flushes;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    maxManifestSpaceAmpPet
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_DBOptions_maxManifestSpaceAmpPet(JNIEnv*, jclass,
+                                                       jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+    ->max_manifest_space_amp_pct;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setMaxManifestSpaceAmpPet
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DBOptions_setMaxManifestSpaceAmpPet(
+    JNIEnv*, jclass, jlong jhandle, jint max_manifest_space_amp_pct) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+    ->max_manifest_space_amp_pct = static_cast<int>(max_manifest_space_amp_pct);
 }
 
 /*
