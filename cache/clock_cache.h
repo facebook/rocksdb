@@ -775,6 +775,7 @@ class AutoHyperClockTable : public BaseClockTable {
     // chain--specifically the next entry in the chain.
     // * The end of a chain is given a special "end" marker and refers back
     // to the head of the chain.
+    // These decorated pointers use the NextWithShift bit field struct below.
     //
     // Why do we need shift on each pointer? To make Lookup wait-free, we need
     // to be able to query a chain without missing anything, and preferably
@@ -794,47 +795,63 @@ class AutoHyperClockTable : public BaseClockTable {
     // it is normal to see "under construction" entries on the chain, and it
     // is not safe to read their hashed key without either a read reference
     // on the entry or a rewrite lock on the chain.
+    struct NextWithShift : public BitFields<uint64_t, NextWithShift> {
+      // The "shift" associated with this decorated pointer (see description
+      // above).
+      using Shift = UnsignedBitField<NextWithShift, 6, NoPrevBitField>;
+      // Marker for the end of a chain. Must also (a) point back to the head of
+      // the chain (with end marker removed), and (b) set the LockedFlag
+      // (below), so that attempting to lock an empty chain has no effect (not
+      // needed, as the lock is only needed for removals).
+      using EndFlag = BoolBitField<NextWithShift, Shift>;
+      // Marker that some thread owning writes to the chain structure (except
+      // for inserts), but only if not an "end" pointer. Also called the
+      // "rewrite lock."
+      using LockedFlag = BoolBitField<NextWithShift, EndFlag>;
+      // The "next" associated with this decorated pointer, which is an index
+      // into the table's array_ (see description above).
+      using Next = UnsignedBitField<NextWithShift, 56, LockedFlag>;
 
-    // Marker in a "with_shift" head pointer for some thread owning writes
-    // to the chain structure (except for inserts), but only if not an
-    // "end" pointer. Also called the "rewrite lock."
-    static constexpr uint64_t kHeadLocked = uint64_t{1} << 7;
+      bool IsLocked() const { return Get<LockedFlag>(); }
+      bool IsEnd() const {
+        // End flag should imply locked flag
+        assert(!Get<EndFlag>() || Get<LockedFlag>());
+        return Get<EndFlag>();
+      }
+      bool IsLockedNotEnd() const {
+        // NOTE: helping GCC to optimize this simpler code:
+        // return IsLocked() && !IsEnd();
+        constexpr U kEndFlag = U{1} << EndFlag::kBitOffset;
+        constexpr U kLockedFlag = U{1} << LockedFlag::kBitOffset;
+        return (underlying & (kEndFlag | kLockedFlag)) == kLockedFlag;
+      }
+      auto GetNext() const { return Get<Next>(); }
+      auto GetShift() const { return Get<Shift>(); }
 
-    // Marker in a "with_shift" pointer for the end of a chain. Must also
-    // point back to the head of the chain (with end marker removed).
-    // Also includes the "locked" bit so that attempting to lock an empty
-    // chain has no effect (not needed, as the lock is only needed for
-    // removals).
-    static constexpr uint64_t kNextEndFlags = (uint64_t{1} << 6) | kHeadLocked;
+      static NextWithShift Make(size_t next, int shift) {
+        return NextWithShift{}.With<Next>(next).With<Shift>(
+            static_cast<uint8_t>(shift));
+      }
 
-    static inline bool IsEnd(uint64_t next_with_shift) {
-      // Assuming certain values never used, suffices to check this one bit
-      constexpr auto kCheckBit = kNextEndFlags ^ kHeadLocked;
-      return next_with_shift & kCheckBit;
-    }
-
-    // Bottom bits to right shift away to get an array index from a
-    // "with_shift" pointer.
-    static constexpr int kNextShift = 8;
-
-    // A bit mask for the "shift" associated with each "with_shift" pointer.
-    // Always bottommost bits.
-    static constexpr int kShiftMask = 63;
+      static NextWithShift MakeEnd(size_t next, int shift) {
+        return Make(next, shift).With<EndFlag>(true).With<LockedFlag>(true);
+      }
+    };
 
     // A marker for head_next_with_shift that indicates this HandleImpl is
     // heap allocated (standalone) rather than in the table.
-    static constexpr uint64_t kStandaloneMarker = UINT64_MAX;
+    static constexpr NextWithShift kStandaloneMarker{UINT64_MAX};
 
     // A marker for head_next_with_shift indicating the head is not yet part
     // of the usable table, or for chain_next_with_shift indicating that the
     // entry is not present or is not yet part of a chain (must not be
     // "shareable" state).
-    static constexpr uint64_t kUnusedMarker = 0;
+    static constexpr NextWithShift kUnusedMarker{0};
 
     // See above. The head pointer is logically independent of the rest of
     // the entry, including the chain next pointer.
-    AcqRelAtomic<uint64_t> head_next_with_shift{kUnusedMarker};
-    AcqRelAtomic<uint64_t> chain_next_with_shift{kUnusedMarker};
+    AcqRelBitFieldsAtomic<NextWithShift> head_next_with_shift{kUnusedMarker};
+    AcqRelBitFieldsAtomic<NextWithShift> chain_next_with_shift{kUnusedMarker};
 
     // For supporting CreateStandalone and some fallback cases.
     inline bool IsStandalone() const {
