@@ -470,6 +470,19 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setMaxManifestSpaceAmpPet(final int maxManifestSpaceAmpPet) {
+    assert(isOwningHandle());
+    setMaxManifestSpaceAmpPet(nativeHandle_, maxManifestSpaceAmpPet);
+    return this;
+  }
+
+  @Override
+  public int maxManifestSpaceAmpPet() {
+    assert(isOwningHandle());
+    return maxManifestSpaceAmpPet(nativeHandle_);
+  }
+
+  @Override
   @Deprecated
   public DBOptions setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
@@ -1488,6 +1501,8 @@ public class DBOptions extends RocksObject
   private static native int maxBackgroundFlushes(long handle);
   private static native void setMaxBackgroundJobs(long handle, int maxBackgroundJobs);
   private static native int maxBackgroundJobs(long handle);
+  private static native void setMaxManifestSpaceAmpPet(long handle, int maxManifestSpaceAmpPet);
+  private static native int maxManifestSpaceAmpPet(long handle);
   private static native void setMaxLogFileSize(long handle, long maxLogFileSize)
       throws IllegalArgumentException;
   private static native long maxLogFileSize(long handle);

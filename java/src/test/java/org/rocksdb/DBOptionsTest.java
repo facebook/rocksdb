@@ -976,6 +976,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void maxManifestSpaceAmpPct() {
+    try (final DBOptions options = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      then(options.setMaxManifestSpaceAmpPet(intValue)).isEqualTo(options);
+      then(options.maxManifestSpaceAmpPet()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
   public void skipCheckingSstFileSizesOnDbOpen() {
     try (final DBOptions options = new DBOptions()) {
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);

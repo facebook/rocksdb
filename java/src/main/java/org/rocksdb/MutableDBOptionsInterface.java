@@ -22,6 +22,100 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   int maxBackgroundJobs();
 
   /**
+   * This option mostly replaces max_manifest_file_size to control an auto-tuned
+   * balance of manifest write amplification and space amplification. A new
+   * manifest file is created with the "compacted" contents of the old one when
+   *  current_manifest_size
+   *    >
+   *  max(max_manifest_file_size,
+   *      est_compacted_manifest_size * (1 + max_manifest_space_amp_pct/100))
+   * <p>
+   * where est_compacted_manifest_size is an estimate of how big a new compacted
+   * version of the current manifest would be. Currently, the estimate used is
+   * the last newly-written manifest, in its "compacted" form.
+   * <p>
+   * Space amplification in the manifest file might be less of a concern for
+   * primary storage space and more of a concern for DB recover time and size of
+   * backup files that aren't incremental between backups. To minimize manifest
+   * churn on initial DB population, setting max_manifest_file_size to something
+   * not too small, like 1MB, should suffice. Similarly, write amp on the
+   * manifest file is likely not a direct concern but completed compactions and
+   * flushes cannot (currently) be committed while the (relatively small)
+   * manifest file is being compacted. Manifest compactions should not
+   * interfere with user write latency or throughput unless the DB is
+   * chronically stalling or close to stalling writes already.
+   * <p>
+   * For this option to have a meaningful effect, it is recommended to set
+   * max_manifest_file_size to something modest like 1MB. Then we can interpret
+   * values for this option as follows, starting with minimum space amp and
+   * maximum write amp:
+   * * 0 - Every manifest write (flush, compaction, etc.) generates a whole new
+   * manifest. Only useful for testing.
+   * * very small - Doesn't take many manifest writes to generate a whole new
+   * manifest.
+   * * 100 - In a DB with pretty consistent number of SST files, etc., achieves
+   * about 1.0 write amp (writing about 2x the theoretical minimum) and a max of
+   * about 1.0 space amp (manifest up to 2x the compacted size).
+   * * 500 - Recommended and default: 0.2 write amp and up to roughly 5.0 space
+   * amp.
+   * * 10000 - 0.01 write amp and up to 100 space amp on the manifest.
+   * <p>
+   * This option is mutable with SetDBOptions(), taking effect on the next
+   * manifest write (e.g. completed DB compaction or flush).
+   *
+   * @param maxManifestSpaceAmpPet
+   *
+   * @return {@code this}
+   */
+  T setMaxManifestSpaceAmpPet(int maxManifestSpaceAmpPet);
+
+  /**
+   * This option mostly replaces max_manifest_file_size to control an auto-tuned
+   * balance of manifest write amplification and space amplification. A new
+   * manifest file is created with the "compacted" contents of the old one when
+   *  current_manifest_size
+   *    >
+   *  max(max_manifest_file_size,
+   *      est_compacted_manifest_size * (1 + max_manifest_space_amp_pct/100))
+   * <p>
+   * where est_compacted_manifest_size is an estimate of how big a new compacted
+   * version of the current manifest would be. Currently, the estimate used is
+   * the last newly-written manifest, in its "compacted" form.
+   * <p>
+   * Space amplification in the manifest file might be less of a concern for
+   * primary storage space and more of a concern for DB recover time and size of
+   * backup files that aren't incremental between backups. To minimize manifest
+   * churn on initial DB population, setting max_manifest_file_size to something
+   * not too small, like 1MB, should suffice. Similarly, write amp on the
+   * manifest file is likely not a direct concern but completed compactions and
+   * flushes cannot (currently) be committed while the (relatively small)
+   * manifest file is being compacted. Manifest compactions should not
+   * interfere with user write latency or throughput unless the DB is
+   * chronically stalling or close to stalling writes already.
+   * <p>
+   * For this option to have a meaningful effect, it is recommended to set
+   * max_manifest_file_size to something modest like 1MB. Then we can interpret
+   * values for this option as follows, starting with minimum space amp and
+   * maximum write amp:
+   * * 0 - Every manifest write (flush, compaction, etc.) generates a whole new
+   * manifest. Only useful for testing.
+   * * very small - Doesn't take many manifest writes to generate a whole new
+   * manifest.
+   * * 100 - In a DB with pretty consistent number of SST files, etc., achieves
+   * about 1.0 write amp (writing about 2x the theoretical minimum) and a max of
+   * about 1.0 space amp (manifest up to 2x the compacted size).
+   * * 500 - Recommended and default: 0.2 write amp and up to roughly 5.0 space
+   * amp.
+   * * 10000 - 0.01 write amp and up to 100 space amp on the manifest.
+   * <p>
+   * This option is mutable with SetDBOptions(), taking effect on the next
+   * manifest write (e.g. completed DB compaction or flush).
+   *
+   * @return
+   */
+  int maxManifestSpaceAmpPet();
+
+  /**
    * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
    * value of max_background_jobs. For backwards compatibility we will set
    * `max_background_jobs = max_background_compactions + max_background_flushes`
