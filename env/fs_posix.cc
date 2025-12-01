@@ -270,7 +270,10 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
+          !IsIOUringEnabled() ? nullptr
+                              : thread_local_async_read_io_urings_.get(),
+          !IsIOUringEnabled() ? nullptr
+                              : thread_local_multi_read_io_urings_.get()
 #endif
               ));
     }
@@ -1087,8 +1090,9 @@ class PosixFileSystem : public FileSystem {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
-    if (thread_local_io_urings_) {
-      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (thread_local_async_read_io_urings_) {
+      iu = static_cast<struct io_uring*>(
+          thread_local_async_read_io_urings_->Get());
     }
 
     // Init failed, platform doesn't support io_uring.
@@ -1161,8 +1165,9 @@ class PosixFileSystem : public FileSystem {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
-    if (thread_local_io_urings_) {
-      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (thread_local_async_read_io_urings_) {
+      iu = static_cast<struct io_uring*>(
+          thread_local_async_read_io_urings_->Get());
     }
 
     // Init failed, platform doesn't support io_uring.
@@ -1277,7 +1282,8 @@ class PosixFileSystem : public FileSystem {
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
-  std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
+  std::unique_ptr<ThreadLocalPtr> thread_local_async_read_io_urings_;
+  std::unique_ptr<ThreadLocalPtr> thread_local_multi_read_io_urings_;
 #endif
 
   size_t page_size_;
@@ -1337,7 +1343,8 @@ PosixFileSystem::PosixFileSystem()
   // io_uring can be created.
   struct io_uring* new_io_uring = CreateIOUring();
   if (new_io_uring != nullptr) {
-    thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
+    thread_local_async_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
+    thread_local_multi_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
     delete new_io_uring;
   }
 #endif

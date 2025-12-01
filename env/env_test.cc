@@ -1655,42 +1655,6 @@ void GenerateFilesAndRequest(Env* env, const std::string& fname,
   }
 }
 
-TEST_F(EnvPosixTest, MultiReadIOUringError) {
-  // In this test we don't do aligned read, so we can't do direct I/O.
-  EnvOptions soptions;
-  soptions.use_direct_reads = soptions.use_direct_writes = false;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
-
-  std::vector<std::string> scratches;
-  std::vector<ReadRequest> reqs;
-  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
-  // Query the data
-  std::unique_ptr<RandomAccessFile> file;
-  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-
-  bool io_uring_wait_cqe_called = false;
-  SyncPoint::GetInstance()->SetCallBack(
-      "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return",
-      [&](void* arg) {
-        if (!io_uring_wait_cqe_called) {
-          io_uring_wait_cqe_called = true;
-          ssize_t& ret = *(static_cast<ssize_t*>(arg));
-          ret = 1;
-        }
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  Status s = file->MultiRead(reqs.data(), reqs.size());
-  if (io_uring_wait_cqe_called) {
-    ASSERT_NOK(s);
-  } else {
-    s.PermitUncheckedError();
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-}
-
 TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   // In this test we don't do aligned read, so we can't do direct I/O.
   EnvOptions soptions;

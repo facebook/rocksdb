@@ -589,7 +589,8 @@ PosixRandomAccessFile::PosixRandomAccessFile(
     const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
     ,
-    ThreadLocalPtr* thread_local_io_urings
+    ThreadLocalPtr* thread_local_async_read_io_urings,
+    ThreadLocalPtr* thread_local_multi_read_io_urings
 #endif
     )
     : filename_(fname),
@@ -598,7 +599,8 @@ PosixRandomAccessFile::PosixRandomAccessFile(
       logical_sector_size_(logical_block_size)
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
-      thread_local_io_urings_(thread_local_io_urings)
+      thread_local_async_read_io_urings_(thread_local_async_read_io_urings),
+      thread_local_multi_read_io_urings_(thread_local_multi_read_io_urings)
 #endif
 {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
@@ -672,12 +674,22 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   struct io_uring* iu = nullptr;
-  if (thread_local_io_urings_) {
-    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+  if (thread_local_multi_read_io_urings_) {
+    iu = static_cast<struct io_uring*>(
+        thread_local_multi_read_io_urings_->Get());
     if (iu == nullptr) {
-      iu = CreateIOUring();
+      unsigned int flags = 0;
+#if defined(IORING_SETUP_SINGLE_ISSUER)
+      // Available since 6.0.
+      flags |= IORING_SETUP_SINGLE_ISSUER;
+#if defined(IORING_SETUP_DEFER_TASKRUN)
+      // Available since 6.1. Requires IORING_SETUP_SINGLE_ISSUER to be set.
+      flags |= IORING_SETUP_DEFER_TASKRUN;
+#endif
+#endif
+      iu = CreateIOUring(flags);
       if (iu != nullptr) {
-        thread_local_io_urings_->Reset(iu);
+        thread_local_multi_read_io_urings_->Reset(iu);
       }
     }
   }
@@ -688,8 +700,6 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
 
-  IOStatus ios = IOStatus::OK();
-
   struct WrappedReadRequest {
     FSReadRequest* req;
     struct iovec iov;
@@ -698,27 +708,30 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
   };
 
   autovector<WrappedReadRequest, 32> req_wraps;
-  autovector<WrappedReadRequest*, 4> incomplete_rq_list;
+  autovector<WrappedReadRequest*, 4> resubmit_rq_list;
   std::unordered_set<WrappedReadRequest*> wrap_cache;
 
   for (size_t i = 0; i < num_reqs; i++) {
     req_wraps.emplace_back(&reqs[i]);
   }
 
+  IOStatus ios = IOStatus::OK();
   size_t reqs_off = 0;
-  while (num_reqs > reqs_off || !incomplete_rq_list.empty()) {
-    size_t this_reqs = (num_reqs - reqs_off) + incomplete_rq_list.size();
-
-    // If requests exceed depth, split it into batches
-    if (this_reqs > kIoUringDepth) {
-      this_reqs = kIoUringDepth;
+  while ((num_reqs - reqs_off > 0) || !resubmit_rq_list.empty() ||
+         !wrap_cache.empty()) {
+    size_t reqs_inflight = wrap_cache.size();
+    size_t reqs_outstanding =
+        num_reqs - reqs_off + resubmit_rq_list.size() + reqs_inflight;
+    if (reqs_outstanding > kIoUringDepth) {
+      reqs_outstanding = kIoUringDepth;
     }
-
-    assert(incomplete_rq_list.size() <= this_reqs);
-    for (size_t i = 0; i < this_reqs; i++) {
+    assert(resubmit_rq_list.size() <= reqs_outstanding);
+    assert(reqs_inflight <= reqs_outstanding);
+    size_t reqs_to_submit = reqs_outstanding - reqs_inflight;
+    for (size_t i = 0; i < reqs_to_submit; i++) {
       WrappedReadRequest* rep_to_submit;
-      if (i < incomplete_rq_list.size()) {
-        rep_to_submit = incomplete_rq_list[i];
+      if (i < resubmit_rq_list.size()) {
+        rep_to_submit = resubmit_rq_list[i];
       } else {
         rep_to_submit = &req_wraps[reqs_off++];
       }
@@ -736,79 +749,111 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
       io_uring_sqe_set_data(sqe, rep_to_submit);
       wrap_cache.emplace(rep_to_submit);
     }
-    incomplete_rq_list.clear();
+    resubmit_rq_list.clear();
 
-    ssize_t ret =
-        io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
-    TEST_SYNC_POINT_CALLBACK(
-        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
-        &ret);
-    TEST_SYNC_POINT_CALLBACK(
-        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
-        iu);
-
-    if (static_cast<size_t>(ret) != this_reqs) {
-      fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
-      // If error happens and we submitted fewer than expected, it is an
-      // exception case and we don't retry here. We should still consume
-      // what is is submitted in the ring.
-      for (ssize_t i = 0; i < ret; i++) {
-        struct io_uring_cqe* cqe = nullptr;
-        io_uring_wait_cqe(iu, &cqe);
-        if (cqe != nullptr) {
-          io_uring_cqe_seen(iu, cqe);
+    struct io_uring_cqe* cqe = nullptr;
+    unsigned head;
+    if (reqs_to_submit > 0) {
+      size_t reqs_submitted = 0;
+      ssize_t err = 0;
+      bool drain_completion_queue = false;
+      do {
+        ssize_t ret = io_uring_submit_and_wait(
+            iu, static_cast<unsigned int>(reqs_to_submit - reqs_submitted));
+        TEST_SYNC_POINT_CALLBACK(
+            "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+            &ret);
+        TEST_SYNC_POINT_CALLBACK(
+            "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+            iu);
+        if (ret < 0) {
+          if (-EINTR == ret) {
+            // Submission failed due to interrupted system call. Try again.
+            continue;
+          }
+          if (-EAGAIN == ret || -ENOMEM == ret) {
+            fprintf(stderr,
+                    "PosixRandomAccessFile::MultiRead: "
+                    "io_uring_submit_and_wait returned transient error = %zd\n",
+                    ret);
+            // Best effort to reclaim resources in terse condition.
+            drain_completion_queue = true;
+          } else {
+            fprintf(stderr,
+                    "PosixRandomAccessFile::MultiRead: "
+                    "io_uring_submit_and_wait returned terminal error: %zd\n",
+                    ret);
+            err = ret;
+          }
+          break;
         }
+        if (0 == ret) {
+          // This scenario is unexpected for any modern kernel!
+          fprintf(stderr,
+                  "PosixRandomAccessFile::MultiRead: "
+                  "io_uring_submit_and_wait returned 0 submissions!\n");
+          break;
+        }
+        reqs_submitted += static_cast<size_t>(ret);
+      } while (reqs_submitted < reqs_to_submit);
+
+      // Error occurred or IO uring stopped submitting outstanding requests.
+      if (reqs_submitted < reqs_to_submit && !drain_completion_queue) {
+        // Consume all the completed requests in the ring.
+        unsigned int nr = 0;
+        io_uring_for_each_cqe(iu, head, cqe) { nr++; }
+        io_uring_cq_advance(iu, nr);
+        if (err < 0) {
+          return IOStatus::IOError(
+              "io_uring_submit_and_wait() failed with an error " +
+              std::to_string(err));
+        }
+        return IOStatus::IOError("io_uring_submit_and_wait() requested " +
+                                 std::to_string(reqs_to_submit) +
+                                 " but returned " +
+                                 std::to_string(reqs_submitted));
       }
-      return IOStatus::IOError("io_uring_submit_and_wait() requested " +
-                               std::to_string(this_reqs) + " but returned " +
-                               std::to_string(ret));
     }
 
-    for (size_t i = 0; i < this_reqs; i++) {
-      struct io_uring_cqe* cqe = nullptr;
-      WrappedReadRequest* req_wrap;
-
-      // We could use the peek variant here, but this seems safer in terms
-      // of our initial wait not reaping all completions
-      ret = io_uring_wait_cqe(iu, &cqe);
-      TEST_SYNC_POINT_CALLBACK(
-          "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return", &ret);
-      if (ret) {
-        ios = IOStatus::IOError("io_uring_wait_cqe() returns " +
-                                std::to_string(ret));
-
-        if (cqe != nullptr) {
-          io_uring_cqe_seen(iu, cqe);
+    unsigned int nr = 0;
+    io_uring_for_each_cqe(iu, head, cqe) {
+      if (cqe->user_data) {
+        nr++;
+        WrappedReadRequest* req_wrap =
+            static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+        // Check that we got a valid unique cqe data
+        auto wrap_check = wrap_cache.find(req_wrap);
+        if (wrap_check == wrap_cache.end()) {
+          fprintf(stderr,
+                  "PosixRandomAccessFile::MultiRead: "
+                  "Bad cqe data from IO uring - %p\n",
+                  req_wrap);
+          port::PrintStack();
+          ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
+                                  std::to_string((uint64_t)req_wrap));
+          continue;
         }
-        continue;
-      }
+        wrap_cache.erase(wrap_check);
+        if (cqe->res < 0) {
+          if (-EINTR == cqe->res) {
+            resubmit_rq_list.push_back(req_wrap);
+          } else {
+            ios = IOStatus::IOError("io_uring_for_each_cqe() returns " +
+                                    std::to_string(cqe->res));
+          }
+          continue;
+        }
+        // cqe->res >= 0
+        FSReadRequest* req = req_wrap->req;
+        size_t bytes_read = 0;
+        bool read_again = false;
+        UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
+                     false /*async_read*/, use_direct_io(),
+                     GetRequiredBufferAlignment(), req_wrap->finished_len, req,
+                     bytes_read, read_again);
 
-      req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
-      // Reset cqe data to catch any stray reuse of it
-      static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
-      // Check that we got a valid unique cqe data
-      auto wrap_check = wrap_cache.find(req_wrap);
-      if (wrap_check == wrap_cache.end()) {
-        fprintf(stderr,
-                "PosixRandomAccessFile::MultiRead: "
-                "Bad cqe data from IO uring - %p\n",
-                req_wrap);
-        port::PrintStack();
-        ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
-                                std::to_string((uint64_t)req_wrap));
-        continue;
-      }
-      wrap_cache.erase(wrap_check);
-
-      FSReadRequest* req = req_wrap->req;
-      size_t bytes_read = 0;
-      bool read_again = false;
-      UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
-                   false /*async_read*/, use_direct_io(),
-                   GetRequiredBufferAlignment(), req_wrap->finished_len, req,
-                   bytes_read, read_again);
-      int32_t res = cqe->res;
-      if (res >= 0) {
         if (bytes_read == 0) {
           if (read_again) {
             Slice tmp_slice;
@@ -819,14 +864,32 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
             req->result =
                 Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
           }
-          // else It means EOF so no need to do anything.
+          // else it means EOF so no need to do anything.
         } else if (bytes_read < req_wrap->iov.iov_len) {
-          incomplete_rq_list.push_back(req_wrap);
+          resubmit_rq_list.push_back(req_wrap);
         }
       }
-      io_uring_cqe_seen(iu, cqe);
     }
-    wrap_cache.clear();
+    io_uring_cq_advance(iu, nr);
+    if (nr < reqs_to_submit) {
+      // We can end up here in one of the two scenarios:
+      //
+      // 1) io_uring_submit_and_wait(iu, N) = N
+      // 2) io_uring_submit_and_wait(iu, N) = -EAGAIN or -ENOMEM
+      //
+      // Even if io_uring_submit_and_wait(iu, N) returned N indicative of the
+      // successful batch submission, it is possible that one or more waits on
+      // those completions got interrupted or otherwise failed. In that case,
+      // wrap_cache will retain the outstanding requests entries capping max #
+      // of requests being (processed + inflight) simultaneously ensuring that
+      // we will attempt to read those completions again in the next iteration.
+      // Therefore, no explicit draining is needed.
+      fprintf(stdout,
+              "PosixRandomAccessFile::MultiRead: "
+              "io_uring_submit_and_wait returned %ld completions "
+              "when %ld were expected\n",
+              (long)nr, (long)reqs_to_submit);
+    }
   }
   return ios;
 #else
@@ -923,12 +986,22 @@ IOStatus PosixRandomAccessFile::ReadAsync(
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring_queue_init.
   struct io_uring* iu = nullptr;
-  if (thread_local_io_urings_) {
-    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+  if (thread_local_async_read_io_urings_) {
+    iu = static_cast<struct io_uring*>(
+        thread_local_async_read_io_urings_->Get());
     if (iu == nullptr) {
-      iu = CreateIOUring();
+      unsigned int flags = 0;
+#if defined(IORING_SETUP_SINGLE_ISSUER)
+      // Available since 6.0.
+      flags |= IORING_SETUP_SINGLE_ISSUER;
+#if defined(IORING_SETUP_DEFER_TASKRUN)
+      // Available since 6.1. Requires IORING_SETUP_SINGLE_ISSUER to be set.
+      flags |= IORING_SETUP_DEFER_TASKRUN;
+#endif
+#endif
+      iu = CreateIOUring(flags);
       if (iu != nullptr) {
-        thread_local_io_urings_->Reset(iu);
+        thread_local_async_read_io_urings_->Reset(iu);
       }
     }
   }
@@ -966,11 +1039,35 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   io_uring_sqe_set_data(sqe, posix_handle);
 
   // Step 4: io_uring_submit
-  ssize_t ret = io_uring_submit(iu);
-  if (ret < 0) {
-    fprintf(stderr, "io_uring_submit error: %ld\n", long(ret));
-    return IOStatus::IOError("io_uring_submit() requested but returned " +
-                             std::to_string(ret));
+  ssize_t ret;
+  do {
+    ret = io_uring_submit(iu);
+    if (ret < 0) {
+      if (-EINTR == ret || -EAGAIN == ret) {
+        // Submission failed due to transient error. Try again.
+        continue;
+      }
+      fprintf(stderr,
+              "PosixRandomAccessFile::ReadAsync: "
+              "io_uring_submit returned terminal error = %zd\n",
+              ret);
+      break;
+    }
+    if (0 == ret) {
+      // Unexpected. Will be reported as error.
+      break;
+    }
+  } while (ret < 1);
+  if (ret <= 0) {
+    return IOStatus::IOError(
+        "PosixRandomAccessFile::ReadAsync: io_uring_submit() returned " +
+        std::to_string(ret));
+  }
+  if (ret > 1) {
+    fprintf(stderr,
+            "PosixRandomAccessFile::ReadAsync: "
+            "io_uring_submit() returned = %zd\n",
+            ret);
   }
   return IOStatus::OK();
 #else
