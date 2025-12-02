@@ -403,6 +403,7 @@ Status Replayer::Replay() {
   ReadOptions roptions;
   Trace trace;
   uint64_t ops = 0;
+  (void)ops;  // Used for counting operations
   Iterator* single_iter = nullptr;
   while (s.ok()) {
     trace.reset();
@@ -542,6 +543,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   WriteOptions woptions;
   ReadOptions roptions;
   uint64_t ops = 0;
+  (void)ops;  // Used for counting operations
   while (s.ok()) {
     std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
     ra->db = db_;
