@@ -63,6 +63,9 @@ void print_help(bool to_stderr) {
     --decode_blob_index
       Decode blob indexes and print them in a human-readable format during scans.
 
+    --show_sequence_number_type
+      Show sequence number and value type when executing raw command
+
     --from=<user_key>
       Key to start reading from when executing check|scan
 
@@ -177,6 +180,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   bool verify_checksum = false;
   bool output_hex = false;
   bool decode_blob_index = false;
+  bool show_sequence_number_type = false;
   bool input_key_hex = false;
   bool has_from = false;
   bool has_to = false;
@@ -235,6 +239,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       output_hex = true;
     } else if (strcmp(argv[i], "--decode_blob_index") == 0) {
       decode_blob_index = true;
+    } else if (strcmp(argv[i], "--show_sequence_number_type") == 0) {
+      show_sequence_number_type = true;
     } else if (strcmp(argv[i], "--input_key_hex") == 0) {
       input_key_hex = true;
     } else if (sscanf(argv[i], "--read_num=%lu%c", (unsigned long*)&n, &junk) ==
@@ -531,7 +537,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 
     ROCKSDB_NAMESPACE::SstFileDumper dumper(
         options, filename, Temperature::kUnknown, readahead_size,
-        verify_checksum, output_hex, decode_blob_index);
+        verify_checksum, output_hex, decode_blob_index, EnvOptions(), false,
+        show_sequence_number_type);
 
     // Not a valid SST
     if (!dumper.getStatus().ok()) {

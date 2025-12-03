@@ -3232,7 +3232,8 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpTable(WritableFile* out_file) {
+Status BlockBasedTable::DumpTable(WritableFile* out_file,
+                                  bool show_sequence_number_type) {
   WritableFileStringStreamAdapter out_file_wrapper(out_file);
   std::ostream out_stream(&out_file_wrapper);
   // Output Footer
@@ -3325,15 +3326,15 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       out_stream << "Range deletions:\n"
                     "--------------------------------------\n";
       for (; range_del_iter->Valid(); range_del_iter->Next()) {
-        DumpKeyValue(range_del_iter->key(), range_del_iter->value(),
-                     out_stream);
+        DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_stream,
+                     show_sequence_number_type);
       }
       out_stream << "\n";
     }
     delete range_del_iter;
   }
   // Output Data blocks
-  s = DumpDataBlocks(out_stream);
+  s = DumpDataBlocks(out_stream, show_sequence_number_type);
 
   if (!s.ok()) {
     return s;
@@ -3398,7 +3399,8 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
+Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream,
+                                       bool show_sequence_number_type) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
@@ -3455,7 +3457,8 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
         out_stream << "Error reading the block - Skipped \n";
         break;
       }
-      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_stream);
+      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_stream,
+                   show_sequence_number_type);
     }
     out_stream << "\n";
   }
@@ -3477,14 +3480,26 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
 }
 
 void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
-                                   std::ostream& out_stream) {
-  InternalKey ikey;
-  ikey.DecodeFrom(key);
+                                   std::ostream& out_stream,
+                                   bool show_sequence_number_type) {
+  ParsedInternalKey result;
+  auto s = ParseInternalKey(key, &result, true);
+  if (!s.ok()) {
+    out_stream << "Error parsing internal key - Skipped \n";
+    return;
+  }
 
-  out_stream << "  HEX    " << ikey.user_key().ToString(true) << ": "
-             << value.ToString(true) << "\n";
+  if (show_sequence_number_type) {
+    out_stream << "  HEX    " << result.user_key.ToString(true)
+               << "  seq: " << result.sequence
+               << "  type: " << std::to_string(result.type) << " : "
+               << value.ToString(true) << "\n";
+  } else {
+    out_stream << "  HEX    " << result.user_key.ToString(true) << ": "
+               << value.ToString(true) << "\n";
+  }
 
-  std::string str_key = ikey.user_key().ToString();
+  std::string str_key = result.user_key.ToString();
   std::string str_value = value.ToString();
   std::string res_key, res_value;
   char cspace = ' ';
