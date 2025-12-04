@@ -191,6 +191,13 @@ class CompactionMergingIterator : public InternalIterator {
 
     bool operator()(HeapItem* a, HeapItem* b) const {
       int r = comparator_->Compare(a->key(), b->key());
+      // For each file, we assume all range tombstone start keys come before
+      // its file boundary sentinel key (file's meta.largest key).
+      // In the case when meta.smallest = meta.largest and range tombstone start
+      // key is truncated at meta.smallest, the start key will have op_type =
+      // kMaxValid to make it smaller (see TruncatedRangeDelIterator
+      // constructor). The following assertion validates this assumption.
+      assert(a->type == b->type || r != 0);
       return r > 0;
     }
 
@@ -235,24 +242,8 @@ class CompactionMergingIterator : public InternalIterator {
     return !minHeap_.empty() ? minHeap_.top() : nullptr;
   }
 
-  // For each file under a LevelIterator, the lifetime of range tombstone
-  // iterator is tied to the point key iterator. So we want scan through
-  // all range tombstone start keys before the file boundary sentinel key
-  // (file's meta.largest). When meta.smallest == meta.largest, the truncated
-  // range del start key may be ordered after meta.largest.
-  // Here we skip the first range deletion start key if it's truncated.
-  // This range deletion start key is redundant for compaction file cutting
-  // decision anyway, since the same point key will be considered for file
-  // cutting too.
-  void InsertNextValidRangeTombstoneAtLevel(size_t level) {
+  void InsertRangeTombstoneAtLevel(size_t level) {
     if (range_tombstone_iters_[level]->Valid()) {
-      if (range_tombstone_iters_[level]->start_key().type !=
-          kTypeRangeDeletion) {
-        range_tombstone_iters_[level]->Next();
-        if (!range_tombstone_iters_[level]->Valid()) {
-          return;
-        }
-      }
       pinned_heap_item_[level].SetTombstoneForCompaction(
           range_tombstone_iters_[level]->start_key());
       minHeap_.push(&pinned_heap_item_[level]);
@@ -271,7 +262,7 @@ void CompactionMergingIterator::SeekToFirst() {
   for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
     if (range_tombstone_iters_[i]) {
       range_tombstone_iters_[i]->SeekToFirst();
-      InsertNextValidRangeTombstoneAtLevel(i);
+      InsertRangeTombstoneAtLevel(i);
     }
   }
 
@@ -299,7 +290,7 @@ void CompactionMergingIterator::Seek(const Slice& target) {
                  0) {
         range_tombstone_iters_[i]->Next();
       }
-      InsertNextValidRangeTombstoneAtLevel(i);
+      InsertRangeTombstoneAtLevel(i);
     }
   }
 
@@ -366,7 +357,7 @@ void CompactionMergingIterator::FindNextVisibleKey() {
       minHeap_.pop();
     }
     if (range_tombstone_iters_[current->level]) {
-      InsertNextValidRangeTombstoneAtLevel(current->level);
+      InsertRangeTombstoneAtLevel(current->level);
     }
   }
 }

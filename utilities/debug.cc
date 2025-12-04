@@ -41,8 +41,6 @@ static std::unordered_map<std::string, ValueType> value_type_string_map = {
     {"TypeValuePreferredSeqno", ValueType::kTypeValuePreferredSeqno},
     {"TypeColumnFamilyValuePreferredSeqno",
      ValueType::kTypeColumnFamilyValuePreferredSeqno},
-    {"kTypeTruncatedRangeDeletionSentinel",
-     ValueType::kTypeTruncatedRangeDeletionSentinel},
 };
 
 std::string KeyVersion::GetTypeName() const {
