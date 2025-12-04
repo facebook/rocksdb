@@ -47,12 +47,13 @@ SstFileDumper::SstFileDumper(const Options& options,
                              Temperature file_temp, size_t readahead_size,
                              bool verify_checksum, bool output_hex,
                              bool decode_blob_index, const EnvOptions& soptions,
-                             bool silent)
+                             bool silent, bool show_sequence_number_type)
     : file_name_(file_path),
       read_num_(0),
       file_temp_(file_temp),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
+      show_sequence_number_type_(show_sequence_number_type),
       soptions_(soptions),
       silent_(silent),
       options_(options),
@@ -220,7 +221,7 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
   Env* env = options_.env;
   Status s = env->NewWritableFile(out_filename, &out_file, soptions_);
   if (s.ok()) {
-    s = table_reader_->DumpTable(out_file.get());
+    s = table_reader_->DumpTable(out_file.get(), show_sequence_number_type_);
   }
   if (!s.ok()) {
     // close the file before return error, ignore the close error if there's any
