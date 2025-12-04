@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 // with `Options::compaction_options_fifo.max_table_files_size` > 0 can cause
 // the whole DB to be dropped right after migration if the migrated data is
 // larger than `max_table_files_size`
-Status OptionChangeMigration(std::string& dbname, const Options& old_opts,
+Status OptionChangeMigration(const std::string& dbname, const Options& old_opts,
                              const Options& new_opts);
 
 // Multi-CF version: Prepares a database with multiple column families to be
