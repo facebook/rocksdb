@@ -3854,7 +3854,7 @@ TEST_F(DBRangeDelTest, SeekForPrevTest) {
 
   ASSERT_OK(Flush());
   // Compact to Lmax, it should have seq 0 now.
-  CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // Open an iterator and create a snapshot, so that keys are not deleted
   // completely by delete range in SST
@@ -3875,9 +3875,10 @@ TEST_F(DBRangeDelTest, SeekForPrevTest) {
   // Flush
   ASSERT_OK(Flush());
   // Compact to Lmax
-  CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // Close the iterator and release the snapshot.
+  ASSERT_OK(iter->status());
   iter.reset();
   db_->ReleaseSnapshot(read_opts.snapshot);
 
@@ -3903,6 +3904,7 @@ TEST_F(DBRangeDelTest, SeekForPrevTest) {
       ASSERT_EQ("ka1", iter2->key().ToString());
     }
   }
+  ASSERT_OK(iter2->status());
   iter2.reset();
 }
 
