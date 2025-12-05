@@ -1309,6 +1309,9 @@ db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRA
 db_stress_compression_manager: $(OBJ_DIR)/db_stress_tool/db_stress_compression_manager.o $(LIBRARY)
 	$(AM_LINK)
 
+replay_db_stress: $(OBJ_DIR)/db_stress_tool/replay_db_stress.o $(STRESS_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
 	$(AM_LINK)
 
