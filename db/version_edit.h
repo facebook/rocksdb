@@ -73,6 +73,7 @@ enum Tag : uint32_t {
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
+  kIsTransientColumnFamily,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -909,6 +910,13 @@ class VersionEdit {
   void MarkNoManifestWriteDummy() { is_no_manifest_write_dummy_ = true; }
   bool IsNoManifestWriteDummy() const { return is_no_manifest_write_dummy_; }
 
+  void SetIsTransientColumnFamily(bool is_transient) {
+    has_transient_column_family_ = true;
+    transient_column_family_ = is_transient;
+  }
+  bool HasTransientColumnFamily() const { return has_transient_column_family_; }
+  bool GetTransientColumnFamily() const { return transient_column_family_; }
+
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
     remaining_entries_ = remaining_entries;
@@ -1003,6 +1011,8 @@ class VersionEdit {
   bool has_min_log_number_to_keep_ = false;
   bool has_last_sequence_ = false;
   bool has_persist_user_defined_timestamps_ = false;
+  bool has_transient_column_family_ = false;
+  bool transient_column_family_ = false;
 
   // Compaction cursors for round-robin compaction policy
   CompactCursors compact_cursors_;
