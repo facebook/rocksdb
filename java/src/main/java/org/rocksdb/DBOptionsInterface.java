@@ -146,6 +146,224 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   boolean paranoidChecks();
 
   /**
+   * @deprecated This option might be removed in a future release.
+   * <p>
+   * If true, during memtable flush, RocksDB will validate total entries
+   * read in flush, total entries written in the SST and compare them with
+   * counter of keys added.
+   * <p>
+   * The option is here to turn the feature off in case this new validation
+   * feature has a bug. The option may be removed in the future once the
+   * feature is stable.
+   * <p>
+   * Default: {@code true}
+   *
+   * @param flushVerifyMemtableCount a flag to indicate whether the verification is on
+   *
+   * @return {@code this}
+   */
+  @Deprecated
+  T setFlushVerifyMemtableCount(boolean flushVerifyMemtableCount);
+
+  /**
+   * @deprecated This option might be removed in a future release.
+   * <p>
+   * If true, during memtable flush, RocksDB will validate total entries
+   * read in flush, total entries written in the SST and compare them with
+   * counter of keys added.
+   * <p>
+   * The option is here to turn the feature off in case this new validation
+   * feature has a bug. The option may be removed in the future once the
+   * feature is stable.
+   *
+   * @return a flag indicating whether the verification is on
+   */
+  @Deprecated
+  boolean flushVerifyMemtableCount();
+
+  /**
+   * @deprecated This option might be removed in a future release.
+   * <p>
+   * If true, during compaction, RocksDB will count the number of entries
+   * read and compare it against the number of entries in the compaction
+   * input files. This is intended to add protection against corruption
+   * during compaction. Note that
+   * - this verification is not done for compactions during which a compaction
+   * filter returns kRemoveAndSkipUntil, and
+   * - the number of range deletions is not verified.
+   * <p>
+   * The option is here to turn the feature off in case this new validation
+   * feature has a bug. The option may be removed in the future once the
+   * feature is stable.
+   * <p>
+   * Default: true
+   *
+   * @param compactionVerifyRecordCount a flag to indicate whether compaction count is on
+   *
+   * @return {@code this}
+   */
+  @Deprecated
+  T setCompactionVerifyRecordCount(boolean compactionVerifyRecordCount);
+
+  /**
+   * @deprecated This option might be removed in a future release.
+   * <p>
+   * If true, during compaction, RocksDB will count the number of entries
+   * read and compare it against the number of entries in the compaction
+   * input files. This is intended to add protection against corruption
+   * during compaction. Note that
+   * - this verification is not done for compactions during which a compaction
+   * filter returns kRemoveAndSkipUntil, and
+   * - the number of range deletions is not verified.
+   * <p>
+   * The option is here to turn the feature off in case this new validation
+   * feature has a bug. The option may be removed in the future once the
+   * feature is stable.
+   *
+   * @return A flag to indicate whether compaction count is on
+   */
+  @Deprecated
+  boolean compactionVerifyRecordCount();
+
+  /**
+   * If true, the log numbers and sizes of the synced WALs are tracked
+   * in MANIFEST. During DB recovery, if a synced WAL is missing
+   * from disk, or the WAL's size does not match the recorded size in
+   * MANIFEST, an error will be reported and the recovery will be aborted.
+   * <p>
+   * This is one additional protection against WAL corruption besides the
+   * per-WAL-entry checksum.
+   * <p>
+   * Note that this option does not work with secondary instance.
+   * Currently, only syncing closed WALs are tracked. Calling `DB::SyncWAL()`,
+   * etc. or writing with `WriteOptions::sync=true` to sync the live WAL is not
+   * tracked for performance/efficiency reasons.
+   * <p>
+   * Default: false
+   *
+   * @param trackAndVerifyWalsInManifest A flag to indicate whether to track log numbers and sizes in MANIFEST.
+   *
+   * @return {@code this}
+   */
+  T setTrackAndVerifyWalsInManifest(boolean trackAndVerifyWalsInManifest);
+
+  /**
+   * If true, the log numbers and sizes of the synced WALs are tracked
+   * in MANIFEST. During DB recovery, if a synced WAL is missing
+   * from disk, or the WAL's size does not match the recorded size in
+   * MANIFEST, an error will be reported and the recovery will be aborted.
+   * <p>
+   * This is one additional protection against WAL corruption besides the
+   * per-WAL-entry checksum.
+   * <p>
+   * Note that this option does not work with secondary instance.
+   * Currently, only syncing closed WALs are tracked. Calling `DB::SyncWAL()`,
+   * etc. or writing with `WriteOptions::sync=true` to sync the live WAL is not
+   * tracked for performance/efficiency reasons.
+   *
+   * @return A flag indicating whether to track log numbers and sizes in MANIFEST.
+   */
+  boolean trackAndVerifyWalsInManifest();
+
+  /**
+   * EXPERIMENTAL
+   * <p>
+   * If true, each new WAL will record various information about its predecessor
+   * WAL for verification on the predecessor WAL during WAL recovery.
+   * <p>
+   * It verifies the following:
+   * 1. There exists at least some WAL in the DB
+   * - It's not compatible with `RepairDB()` since this option imposes a
+   * stricter requirement on WAL than the DB went through `RepariDB()` can
+   * normally meet
+   * 2. There exists no WAL hole where new WAL data presents while some old WAL
+   * data not yet obsolete is missing. The DB manifest indicates which WALs are
+   * obsolete.
+   * <p>
+   * This is intended to be a better replacement to
+   * {@link #setTrackAndVerifyWalsInManifest(boolean)}.
+   * <p>
+   * Default: false
+   *
+   * @param trackAndVerifyWals A flag to indicate whether each new WAL should record information about its predecessor for verification purposes
+   *
+   * @return {@code this}
+   */
+  T setTrackAndVerifyWals(boolean trackAndVerifyWals);
+
+  /**
+   * EXPERIMENTAL
+   * <p>
+   * If true, each new WAL will record various information about its predecessor
+   * WAL for verification on the predecessor WAL during WAL recovery.
+   * <p>
+   * It verifies the following:
+   * 1. There exists at least some WAL in the DB
+   * - It's not compatible with `RepairDB()` since this option imposes a
+   * stricter requirement on WAL than the DB went through `RepariDB()` can
+   * normally meet
+   * 2. There exists no WAL hole where new WAL data presents while some old WAL
+   * data not yet obsolete is missing. The DB manifest indicates which WALs are
+   * obsolete.
+   * <p>
+   * This is intended to be a better replacement to
+   * {@link #trackAndVerifyWalsInManifest()}.
+   *
+   * @return A flag indicating whether each new WAL will record information about its predecessor for verification purposes
+   */
+  boolean trackAndVerifyWals();
+
+  /**
+   * If true, verifies the SST unique id between MANIFEST and actual file
+   * each time an SST file is opened. This check ensures an SST file is not
+   * overwritten or misplaced. A corruption error will be reported if mismatch
+   * detected, but only when MANIFEST tracks the unique id, which starts from
+   * RocksDB version 7.3. Although the tracked internal unique id is related
+   * to the one returned by GetUniqueIdFromTableProperties, that is subject to
+   * change.
+   * NOTE: verification is currently only done on SST files using block-based
+   * table format.
+   * <p>
+   * Setting to false should only be needed in case of unexpected problems.
+   * <p>
+   * Although an early version of this option opened all SST files for
+   * verification on DB::Open, that is no longer guaranteed. However, as
+   * documented in an above option, if max_open_files is -1, DB will open all
+   * files on DB::Open().
+   * <p>
+   * Default: true
+   *
+   * @param verifySstUniqueIdInManifest A flag indicating whether the SST unique ID
+   *                                    should be verified against MANIFEST on every opening of an SST file
+   *
+   * @return {@code this}
+   */
+  T setVerifySstUniqueIdInManifest(boolean verifySstUniqueIdInManifest);
+
+  /**
+   * If true, verifies the SST unique id between MANIFEST and actual file
+   * each time an SST file is opened. This check ensures an SST file is not
+   * overwritten or misplaced. A corruption error will be reported if mismatch
+   * detected, but only when MANIFEST tracks the unique id, which starts from
+   * RocksDB version 7.3. Although the tracked internal unique id is related
+   * to the one returned by GetUniqueIdFromTableProperties, that is subject to
+   * change.
+   * NOTE: verification is currently only done on SST files using block-based
+   * table format.
+   * <p>
+   * Setting to false should only be needed in case of unexpected problems.
+   * <p>
+   * Although an early version of this option opened all SST files for
+   * verification on DB::Open, that is no longer guaranteed. However, as
+   * documented in an above option, if max_open_files is -1, DB will open all
+   * files on DB::Open().
+   *
+   * @return A flag indicating whether the SST unique ID
+   *         will be verified against MANIFEST on every opening of an SST file
+   */
+  boolean verifySstUniqueIdInManifest();
+
+  /**
    * Use to control write rate of flush and compaction. Flush has higher
    * priority than compaction. Rate limiting is disabled if nullptr.
    * Default: nullptr
@@ -1265,6 +1483,30 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   WALRecoveryMode walRecoveryMode();
 
   /**
+   * If enabled WAL records will be compressed before they are written. Only
+   * ZSTD (= kZSTD) is supported (until streaming support is adapted for other
+   * compression types). Compressed WAL records will be read in supported
+   * versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
+   * the WAL is read.
+   *
+   * @param walCompression The {@link CompressionType}
+   *
+   * @return {@code this}
+   */
+  T setWalCompression(CompressionType walCompression);
+
+  /**
+   * If enabled WAL records will be compressed before they are written. Only
+   * ZSTD (= kZSTD) is supported (until streaming support is adapted for other
+   * compression types). Compressed WAL records will be read in supported
+   * versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
+   * the WAL is read.
+   *
+   * @return The {@link CompressionType}
+   */
+  CompressionType walCompression();
+
+  /**
    * if set to false then recovery will fail when a prepared
    * transaction is encountered in the WAL
    *
@@ -1326,31 +1568,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return the filter used for processing WALs during recovery.
    */
   WalFilter walFilter();
-
-  /**
-   * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
-   * / SetOptions will fail if options file is not detected or properly
-   * persisted.
-   *
-   * DEFAULT: false
-   *
-   * @param failIfOptionsFileError true if we should fail if there is an error
-   *     in the options file
-   *
-   * @return the reference to the current options.
-   */
-  T setFailIfOptionsFileError(boolean failIfOptionsFileError);
-
-  /**
-   * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
-   * / SetOptions will fail if options file is not detected or properly
-   * persisted.
-   *
-   * DEFAULT: false
-   *
-   * @return true if we should fail if there is an error in the options file
-   */
-  boolean failIfOptionsFileError();
 
   /**
    * If true, then print malloc stats together with rocksdb.stats
@@ -1474,6 +1691,36 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   boolean manualWalFlush();
 
   /**
+   * Set to true to re-instate an old behavior of keeping complete, synced WAL
+   * files open for write until they are collected for deletion by a
+   * background thread. This should not be needed unless there is a
+   * performance issue with file Close(), but setting it to true means that
+   * Checkpoint might call LinkFile on a WAL still open for write, which might
+   * be unsupported on some FileSystem implementations. As this is intended as
+   * a temporary kill switch, it is already DEPRECATED.
+   *
+   * @param manualWalFlush
+   *
+   * @return
+   */
+  @Deprecated
+  T setBackgroundCloseInactiveWals(boolean manualWalFlush);
+
+  /**
+   * Set to true to re-instate an old behavior of keeping complete, synced WAL
+   * files open for write until they are collected for deletion by a
+   * background thread. This should not be needed unless there is a
+   * performance issue with file Close(), but setting it to true means that
+   * Checkpoint might call LinkFile on a WAL still open for write, which might
+   * be unsupported on some FileSystem implementations. As this is intended as
+   * a temporary kill switch, it is already DEPRECATED.
+   *
+   * @return
+   */
+  @Deprecated
+  boolean backgroundCloseInactiveWals();
+
+  /**
    * If true, RocksDB supports flushing multiple column families and committing
    * their results atomically to MANIFEST. Note that it is not
    * necessary to set atomic_flush to true if WAL is always enabled since WAL
@@ -1527,6 +1774,38 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return true, if working thread may avoid doing unnecessary operation.
    */
   boolean avoidUnnecessaryBlockingIO();
+
+  /**
+   * Historically, when prefix_extractor != nullptr, iterators have an
+   * unfortunate default semantics of *possibly* only returning data
+   * within the same prefix. To avoid "spooky action at a distance," iterator
+   * bounds should come from the instantiation or seeking of the iterator,
+   * not from a mutable column family option.
+   * <p>
+   * When set to true, it is as if every iterator is created with
+   * total_order_seek=true and only auto_prefix_mode=true and
+   * prefix_same_as_start=true can take advantage of prefix seek optimizations.
+   *
+   * @param prefixSeekOptInOnly A flag that indicates whether every iterator should be created with total_order_seek=true
+   *
+   * @return {@code this}
+   */
+  T setPrefixSeekOptInOnly(boolean prefixSeekOptInOnly);
+
+  /**
+   * Historically, when prefix_extractor != nullptr, iterators have an
+   * unfortunate default semantics of *possibly* only returning data
+   * within the same prefix. To avoid "spooky action at a distance," iterator
+   * bounds should come from the instantiation or seeking of the iterator,
+   * not from a mutable column family option.
+   * <p>
+   * When set to true, it is as if every iterator is created with
+   * total_order_seek=true and only auto_prefix_mode=true and
+   * prefix_same_as_start=true can take advantage of prefix seek optimizations.
+   *
+   * @return A flag that indicates whether every iterator will be created with total_order_seek=true
+   */
+  boolean prefixSeekOptInOnly();
 
   /**
    * If true, automatically persist stats to a hidden column family (column
@@ -1591,6 +1870,30 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return true, if DB ID will be written to Manifest file.
    */
   boolean writeDbidToManifest();
+
+  /**
+   * It is expected that the Identity file will be obsoleted by recording
+   * DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
+   * maintains the historical behavior of writing an Identity file, while
+   * setting to false is expected to be the future default. This option might
+   * eventually be obsolete and removed as Identity files are phased out.
+   *
+   * @param writeIdentityFile Indicates whether to write an identity file
+   *
+   * @return {@code this}
+   */
+  T setWriteIdentityFile(boolean writeIdentityFile);
+
+  /**
+   * It is expected that the Identity file will be obsoleted by recording
+   * DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
+   * maintains the historical behavior of writing an Identity file, while
+   * setting to false is expected to be the future default. This option might
+   * eventually be obsolete and removed as Identity files are phased out.
+   *
+   * @return A flag indicating whether an identity file will be written
+   */
+  boolean writeIdentityFile();
 
   /**
    * The number of bytes to prefetch when reading the log. This is mostly useful
@@ -1696,6 +1999,177 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return the instance of the current object.
    */
   long bgerrorResumeRetryInterval();
+
+  /**
+   * It allows user to opt-in to get error messages containing corrupted
+   * keys/values. Corrupt keys, values will be logged in the
+   * messages/logs/status that will help users with the useful information
+   * regarding affected data. By default value is set false to prevent users
+   * data to be exposed in the logs/messages etc.
+   * <p>
+   * Default: false
+   *
+   * @param allowDataInErrors Indicates whether corrupt keys/values should in the error messages
+   *
+   * @return {@code this}
+   */
+  T setAllowDataInErrors(boolean allowDataInErrors);
+
+  /**
+   * It allows user to opt-in to get error messages containing corrupted
+   * keys/values. Corrupt keys, values will be logged in the
+   * messages/logs/status that will help users with the useful information
+   * regarding affected data. By default value is set false to prevent users
+   * data to be exposed in the logs/messages etc.
+   *
+   * @return whether corrupt keys/values will in the error messages
+   */
+  boolean allowDataInErrors();
+
+  /**
+   * A string identifying the machine hosting the DB. This
+   * will be written as a property in every SST file written by the DB (or
+   * by offline writers such as SstFileWriter and RepairDB). It can be useful
+   * for troubleshooting in memory corruption caused by a failing host when
+   * writing a file, by tracing back to the writing host. These corruptions
+   * may not be caught by the checksum since they happen before checksumming.
+   * If left as default, the table writer will substitute it with the actual
+   * hostname when writing the SST file. If set to an empty string, the
+   * property will not be written to the SST file.
+   * <p>
+   * Default: hostname
+   *
+   * @return The DB host identifier
+   */
+  String dbHostId();
+
+  /**
+   * A string identifying the machine hosting the DB. This
+   * will be written as a property in every SST file written by the DB (or
+   * by offline writers such as SstFileWriter and RepairDB). It can be useful
+   * for troubleshooting in memory corruption caused by a failing host when
+   * writing a file, by tracing back to the writing host. These corruptions
+   * may not be caught by the checksum since they happen before checksumming.
+   * If left as default, the table writer will substitute it with the actual
+   * hostname when writing the SST file. If set to an empty string, the
+   * property will not be written to the SST file.
+   * <p>
+   * Default: hostname
+   *
+   * @param dbHostId A string identifying the machine hosting the DB
+   *
+   * @return {@code this}
+   */
+  T setDbHostId(String dbHostId);
+
+  /**
+   * DEPRECATED: This option might be removed in a future release.
+   *
+   * If set to false, when compaction or flush sees a SingleDelete followed by
+   * a Delete for the same user key, compaction job will not fail.
+   * Otherwise, compaction job will fail.
+   * This is a temporary option to help existing use cases migrate, and
+   * will be removed in a future release.
+   * Warning: do not set to false unless you are trying to migrate existing
+   * data in which the contract of single delete
+   * (https://github.com/facebook/rocksdb/wiki/Single-Delete) is not enforced,
+   * thus has Delete mixed with SingleDelete for the same user key. Violation
+   * of the contract leads to undefined behaviors with high possibility of data
+   * inconsistency, e.g. deleted old data become visible again, etc.
+   *
+   * @param enforceSingleDelContracts
+   *
+   * @return {@code this}
+   */
+  @Deprecated
+  T setEnforceSingleDelContracts(boolean enforceSingleDelContracts);
+
+  /**
+   * DEPRECATED: This option might be removed in a future release.
+   *
+   * If set to false, when compaction or flush sees a SingleDelete followed by
+   * a Delete for the same user key, compaction job will not fail.
+   * Otherwise, compaction job will fail.
+   * This is a temporary option to help existing use cases migrate, and
+   * will be removed in a future release.
+   * Warning: do not set to false unless you are trying to migrate existing
+   * data in which the contract of single delete
+   * (https://github.com/facebook/rocksdb/wiki/Single-Delete) is not enforced,
+   * thus has Delete mixed with SingleDelete for the same user key. Violation
+   * of the contract leads to undefined behaviors with high possibility of data
+   * inconsistency, e.g. deleted old data become visible again, etc.
+   *
+   * @return
+   */
+  @Deprecated
+  boolean enforceSingleDelContracts();
+
+  /**
+   * When a RocksDB database is opened in follower mode, this option
+   * is set by the user to request the frequency of the follower
+   * attempting to refresh its view of the leader. RocksDB may choose to
+   * trigger catch ups more frequently if it detects any changes in the
+   * database state.
+   * Default every 10s.
+   *
+   * @param followerRefreshCatchupPeriodMs The intended frequency of the follower attempting to refresh its view of the leader
+   *
+   * @return {@code this}
+   */
+  T setFollowerRefreshCatchupPeriodMs(long followerRefreshCatchupPeriodMs);
+
+  /**
+   * When a RocksDB database is opened in follower mode, this option
+   * is set by the user to request the frequency of the follower
+   * attempting to refresh its view of the leader. RocksDB may choose to
+   * trigger catch ups more frequently if it detects any changes in the
+   * database state.
+   *
+   * @return The frequency of the follower attempting to refresh its view of the leader
+   */
+  long followerRefreshCatchupPeriodMs();
+
+  /**
+   * For a given catch up attempt, this option specifies the number of times
+   * to tail the MANIFEST and try to install a new, consistent  version before
+   * giving up. Though it should be extremely rare, the catch up may fail if
+   * the leader is mutating the LSM at a very high rate and the follower is
+   * unable to get a consistent view.
+   * Default to 10 attempts
+   *
+   * @param followerRefreshCatchupRetryCount The number of times to tail the MANIFEST and try to install a new, consistent version
+   *
+   * @return {@code this}
+   */
+  T setFollowerRefreshCatchupRetryCount(long followerRefreshCatchupRetryCount);
+
+  /**
+   * For a given catch up attempt, this option specifies the number of times
+   * to tail the MANIFEST and try to install a new, consistent  version before
+   * giving up. Though it should be extremely rare, the catch up may fail if
+   * the leader is mutating the LSM at a very high rate and the follower is
+   * unable to get a consistent view.
+   *
+   * @return The number of times to tail the MANIFEST and try to install a new, consistent version
+   */
+  long followerRefreshCatchupRetryCount();
+
+  /**
+   * Time to wait between consecutive catch up attempts
+   * Default 100ms
+   *
+   * @param followerCatchupRetryWaitMs Time to wait between consecutive catch up attempts
+   *
+   * @return {@code this}
+   */
+  T setFollowerCatchupRetryWaitMs(long followerCatchupRetryWaitMs);
+
+  /**
+   * Time to wait between consecutive catch up attempts
+   *
+   * @return Time to wait between consecutive catch up attempts
+   */
+  long followerCatchupRetryWaitMs();
 
   /**
    * Implementing off-peak duration awareness in RocksDB. In this context,
