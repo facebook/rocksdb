@@ -289,8 +289,6 @@ int ReplayOperations(DB* db, ColumnFamilyHandle* cfh,
   return error_count;
 }
 
-}  // namespace ROCKSDB_NAMESPACE
-
 int main(int argc, char** argv) {
   SetUsageMessage(
       "A tool to replay operations from db_stress test failures.\n"
@@ -310,8 +308,6 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Error: --op_logs string is required\n");
     return 1;
   }
-
-  using namespace ROCKSDB_NAMESPACE;
 
   // Parse operations
   printf("Parsing op_logs...\n");
@@ -450,4 +446,5 @@ int main(int argc, char** argv) {
   return result > 0 ? 1 : 0;
 }
 
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
