@@ -70,7 +70,7 @@ struct BitFields {
 
   // Return a copy with the given field modified
   template <typename BitFieldT>
-  Derived With(typename BitFieldT::V value) const {
+  constexpr Derived With(typename BitFieldT::V value) const {
     static_assert(std::is_same_v<typename BitFieldT::Parent, Derived>);
     Derived rv = static_cast<const Derived&>(*this);
     BitFieldT::SetIn(rv, value);
@@ -125,24 +125,26 @@ struct BitFields {
 // For building atomic updates affecting one or more fields, assuming all the
 // updates are bitwise-or.
 template <typename BitFieldsT>
-struct OrTransform {
+struct OrTransformer {
   using U = typename BitFieldsT::U;
   U to_or = 0;
   // + for general combine
-  OrTransform<BitFieldsT> operator+(OrTransform<BitFieldsT> other) const {
-    return OrTransform<BitFieldsT>{to_or | other.to_or};
+  OrTransformer<BitFieldsT> operator+(
+      const OrTransformer<BitFieldsT>& other) const {
+    return OrTransformer<BitFieldsT>{to_or | other.to_or};
   }
 };
 
 // For building atomic updates affecting one or more fields, assuming all the
 // updates are bitwise-and.
 template <typename BitFieldsT>
-struct AndTransform {
+struct AndTransformer {
   using U = typename BitFieldsT::U;
   U to_and = 0;
   // + for general combine
-  AndTransform<BitFieldsT> operator+(AndTransform<BitFieldsT> other) const {
-    return AndTransform<BitFieldsT>{to_and & other.to_and};
+  AndTransformer<BitFieldsT> operator+(
+      const AndTransformer<BitFieldsT>& other) const {
+    return AndTransformer<BitFieldsT>{to_and & other.to_and};
   }
 };
 
@@ -152,7 +154,7 @@ struct AndTransform {
 // corresponding preconditions. (NOTE that when representing a subtraction, we
 // rely on overflow of the unsigned representation.)
 template <typename BitFieldsT>
-struct AddTransform {
+struct AddTransformer {
   using U = typename BitFieldsT::U;
   U to_add = 0;
 #ifndef NDEBUG
@@ -162,7 +164,7 @@ struct AddTransform {
   };
   std::vector<Precondition> preconditions;
 #endif  // NDEBUG
-  void AssertPreconditions([[maybe_unused]] U from) {
+  void AssertPreconditions([[maybe_unused]] U from) const {
 #ifndef NDEBUG
     for (auto p : preconditions) {
       U tmp = (from & p.mask) + p.piece;
@@ -174,8 +176,9 @@ struct AddTransform {
 #endif  // NDEBUG
   }
   // + for general combine
-  AddTransform<BitFieldsT> operator+(AddTransform<BitFieldsT> other) const {
-    AddTransform<BitFieldsT> rv{to_add + other.to_add};
+  AddTransformer<BitFieldsT> operator+(
+      const AddTransformer<BitFieldsT>& other) const {
+    AddTransformer<BitFieldsT> rv{to_add + other.to_add};
 #ifndef NDEBUG
     rv.preconditions = preconditions;
     rv.preconditions.insert(rv.preconditions.end(), other.preconditions.begin(),
@@ -214,14 +217,18 @@ struct BoolBitField {
     return (bf.underlying & (U{1} << kBitOffset)) != 0;
   }
   static void SetIn(ParentBase& bf, bool value) {
+    // NOTE: avoiding conditional branches is usually best for speed on modern
+    // processors
     bf.underlying =
         (bf.underlying & ~(U{1} << kBitOffset)) | (U{value} << kBitOffset);
   }
-  static OrTransform<BitFieldsT> SetTransform() {
-    return OrTransform<BitFieldsT>{U{1} << kBitOffset};
+  static OrTransformer<BitFieldsT> SetTransform() { return Or(true); }
+  static OrTransformer<BitFieldsT> Or(bool b) {
+    return OrTransformer<BitFieldsT>{U{b} << kBitOffset};
   }
-  static AndTransform<BitFieldsT> ClearTransform() {
-    return AndTransform<BitFieldsT>{~(U{1} << kBitOffset)};
+  static AndTransformer<BitFieldsT> ClearTransform() { return And(false); }
+  static AndTransformer<BitFieldsT> And(bool b) {
+    return AndTransformer<BitFieldsT>{~(U{!b} << kBitOffset)};
   }
 };
 
@@ -258,18 +265,31 @@ struct UnsignedBitField {
     bf.underlying |= static_cast<U>(value & kMask) << kBitOffset;
   }
 
-  // Create a transfor for clearing this field to zero.
-  static AndTransform<BitFieldsT> ClearTransform() {
-    return AndTransform<BitFieldsT>{~(static_cast<U>(kMask) << kBitOffset)};
+  // Create a transform for clearing this field to zero.
+  static AndTransformer<BitFieldsT> ClearTransform() {
+    return AndTransformer<BitFieldsT>{~(static_cast<U>(kMask) << kBitOffset)};
+  }
+
+  // Create a transform for bitwise-and
+  static AndTransformer<BitFieldsT> AndTransform(V value) {
+    assert((value & ~kMask) == 0);
+    return AndTransformer<BitFieldsT>{
+        ~(static_cast<U>(value ^ kMask) << kBitOffset)};
+  }
+
+  // Create a transform for bitwise-or
+  static OrTransformer<BitFieldsT> OrTransform(V value) {
+    assert((value & ~kMask) == 0);
+    return OrTransformer<BitFieldsT>{static_cast<U>(value) << kBitOffset};
   }
 
   // Create a transform for adding a particular value, but with the precondition
   // that adding the value will not overflow the field. This applies for fields
   // that do not include the top bit of the underlying representation. Can be
   // combined with other additive transforms for other fields.
-  static AddTransform<BitFieldsT> PlusTransformPromiseNoOverflow(V value) {
+  static AddTransformer<BitFieldsT> PlusTransformPromiseNoOverflow(V value) {
     static_assert(!kIncludesTopBit);
-    AddTransform<BitFieldsT> rv{static_cast<U>(value) << kBitOffset};
+    AddTransformer<BitFieldsT> rv{static_cast<U>(value) << kBitOffset};
 #ifndef NDEBUG
     rv.preconditions.push_back(
         {static_cast<U>(kMask) << kBitOffset, rv.to_add});
@@ -281,9 +301,9 @@ struct UnsignedBitField {
   // in that field. This applies for fields that include the top bit of the
   // underlying representation. Can be combined with other additive transforms
   // for other fields.
-  static AddTransform<BitFieldsT> PlusTransformIgnoreOverflow(V value) {
+  static AddTransformer<BitFieldsT> PlusTransformIgnoreOverflow(V value) {
     static_assert(kIncludesTopBit);
-    AddTransform<BitFieldsT> rv{static_cast<U>(value) << kBitOffset};
+    AddTransformer<BitFieldsT> rv{static_cast<U>(value) << kBitOffset};
     return rv;
   }
 
@@ -292,9 +312,9 @@ struct UnsignedBitField {
   // applies for fields that do not include the top bit of the underlying
   // representation. Can be combined with other additive transforms for other
   // fields.
-  static AddTransform<BitFieldsT> MinusTransformPromiseNoUnderflow(V value) {
+  static AddTransformer<BitFieldsT> MinusTransformPromiseNoUnderflow(V value) {
     static_assert(!kIncludesTopBit);
-    AddTransform<BitFieldsT> rv{U{0} - (static_cast<U>(value) << kBitOffset)};
+    AddTransformer<BitFieldsT> rv{U{0} - (static_cast<U>(value) << kBitOffset)};
 #ifndef NDEBUG
     rv.preconditions.push_back(
         {static_cast<U>(kMask) << kBitOffset, rv.to_add});
@@ -306,9 +326,9 @@ struct UnsignedBitField {
   // underflow in that field. This applies for fields that include the top bit
   // of the underlying representation. Can be combined with other additive
   // transforms for other fields.
-  static AddTransform<BitFieldsT> MinusTransformIgnoreUnderflow(V value) {
+  static AddTransformer<BitFieldsT> MinusTransformIgnoreUnderflow(V value) {
     static_assert(kIncludesTopBit);
-    AddTransform<BitFieldsT> rv{U{0} - (static_cast<U>(value) << kBitOffset)};
+    AddTransformer<BitFieldsT> rv{U{0} - (static_cast<U>(value) << kBitOffset)};
     return rv;
   }
 };
@@ -347,22 +367,22 @@ class RelaxedBitFieldsAtomic {
     return BitFieldsT{
         v_.exchange(desired.underlying, std::memory_order_relaxed)};
   }
-  void ApplyRelaxed(OrTransform<BitFieldsT> transform,
+  void ApplyRelaxed(const OrTransformer<BitFieldsT>& transform,
                     BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     ApplyImpl<std::memory_order_relaxed>(transform, before, after);
   }
-  void ApplyRelaxed(AndTransform<BitFieldsT> transform,
+  void ApplyRelaxed(const AndTransformer<BitFieldsT>& transform,
                     BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     ApplyImpl<std::memory_order_relaxed>(transform, before, after);
   }
-  void ApplyRelaxed(AddTransform<BitFieldsT> transform,
+  void ApplyRelaxed(const AddTransformer<BitFieldsT>& transform,
                     BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     ApplyImpl<std::memory_order_relaxed>(transform, before, after);
   }
 
  protected:  // fns
   template <std::memory_order kOrder>
-  void ApplyImpl(OrTransform<BitFieldsT> transform,
+  void ApplyImpl(const OrTransformer<BitFieldsT>& transform,
                  BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     U before_val = v_.fetch_or(transform.to_or, kOrder);
     if (before) {
@@ -373,7 +393,7 @@ class RelaxedBitFieldsAtomic {
     }
   }
   template <std::memory_order kOrder>
-  void ApplyImpl(AndTransform<BitFieldsT> transform,
+  void ApplyImpl(const AndTransformer<BitFieldsT>& transform,
                  BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     U before_val = v_.fetch_and(transform.to_and, kOrder);
     if (before) {
@@ -384,7 +404,7 @@ class RelaxedBitFieldsAtomic {
     }
   }
   template <std::memory_order kOrder>
-  void ApplyImpl(AddTransform<BitFieldsT> transform,
+  void ApplyImpl(const AddTransformer<BitFieldsT>& transform,
                  BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     U before_val = v_.fetch_add(transform.to_add, kOrder);
     transform.AssertPreconditions(before_val);
@@ -428,18 +448,18 @@ class AcqRelBitFieldsAtomic : public RelaxedBitFieldsAtomic<BitFieldsT> {
     return BitFieldsT{
         Base::v_.exchange(desired.underlying, std::memory_order_acq_rel)};
   }
-  void Apply(OrTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
-             BitFieldsT* after = nullptr) {
+  void Apply(const OrTransformer<BitFieldsT>& transform,
+             BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     Base::template ApplyImpl<std::memory_order_acq_rel>(transform, before,
                                                         after);
   }
-  void Apply(AndTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
-             BitFieldsT* after = nullptr) {
+  void Apply(const AndTransformer<BitFieldsT>& transform,
+             BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     Base::template ApplyImpl<std::memory_order_acq_rel>(transform, before,
                                                         after);
   }
-  void Apply(AddTransform<BitFieldsT> transform, BitFieldsT* before = nullptr,
-             BitFieldsT* after = nullptr) {
+  void Apply(const AddTransformer<BitFieldsT>& transform,
+             BitFieldsT* before = nullptr, BitFieldsT* after = nullptr) {
     Base::template ApplyImpl<std::memory_order_acq_rel>(transform, before,
                                                         after);
   }
