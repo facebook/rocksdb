@@ -326,8 +326,8 @@ class Repairer {
                                       0);
             } else if (type == kBlobFile) {
               return Status::NotSupported(
-                "RepairDB does not support blob files, found blob file: " +
-                filenames[i]);
+                  "RepairDB does not support blob files, found blob file: " +
+                  filenames[i]);
             } else {
               // Ignore other files
             }
