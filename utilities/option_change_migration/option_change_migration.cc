@@ -341,7 +341,7 @@ Status OptionChangeMigration(
   return s;
 }
 
-Status OptionChangeMigration(std::string& dbname, const Options& old_opts,
+Status OptionChangeMigration(const std::string& dbname, const Options& old_opts,
                              const Options& new_opts) {
   DBOptions old_db_opts(old_opts);
   DBOptions new_db_opts(new_opts);
