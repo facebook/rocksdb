@@ -793,7 +793,9 @@ int rocksdb_compactionservice_scheduleresponse_getstatus(
 const char* rocksdb_compactionservice_scheduleresponse_get_scheduled_job_id(
     const rocksdb_compactionservice_scheduleresponse_t* response, size_t* len) {
   if (!response || !len) {
-    if (len) *len = 0;
+    if (len) {
+      *len = 0;
+    }
     return "";
   }
   *len = response->rep.scheduled_job_id.size();
