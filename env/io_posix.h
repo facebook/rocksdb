@@ -11,6 +11,16 @@
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #include <sys/uio.h>
+
+// Compatibility defines for io_uring flags that may not be present in older
+// kernel headers. These values are fixed and won't change, so it's safe to
+// define them even if the running kernel doesn't support them.
+#ifndef IORING_SETUP_SINGLE_ISSUER
+#define IORING_SETUP_SINGLE_ISSUER (1U << 12)
+#endif
+#ifndef IORING_SETUP_DEFER_TASKRUN
+#define IORING_SETUP_DEFER_TASKRUN (1U << 13)
+#endif
 #endif
 #include <unistd.h>
 
