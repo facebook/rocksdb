@@ -1291,10 +1291,10 @@ class DB {
     //      filter and index blocks).
     static const std::string kEstimateTableReadersMem;
 
-    //  "rocksdb.is-file-deletions-enabled" - returns 0 if deletion of obsolete
-    //      files is enabled; otherwise, returns a non-zero number.
-    //  This name may be misleading because true(non-zero) means disable,
-    //  but we keep the name for backward compatibility.
+    //  "rocksdb.is-file-deletions-enabled" - returns 1 when RocksDB is allowed
+    //      to delete obsolete files (DisableFileDeletions counter is 0), and 0
+    //      while file deletions are disabled; name kept for backward
+    //      compatibility.
     static const std::string kIsFileDeletionsEnabled;
 
     //  "rocksdb.num-snapshots" - returns number of unreleased snapshots of the
