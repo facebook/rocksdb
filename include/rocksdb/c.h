@@ -166,7 +166,7 @@ typedef struct rocksdb_writestallinfo_t rocksdb_writestallinfo_t;
 typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
 typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
 
-// Remote compaction typedef
+// Remote Compaction typedef
 typedef struct rocksdb_compactionservice_scheduleresponse_t
     rocksdb_compactionservice_scheduleresponse_t;
 typedef struct rocksdb_compactionservice_jobinfo_t
