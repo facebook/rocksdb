@@ -3604,6 +3604,127 @@ TEST_F(TestAsyncRead, ReadAsync) {
   }
 }
 
+// Test ReadAsync -> MultiRead -> Poll with real io_uring (not mock).
+// This verifies that MultiRead doesn't interfere with async read buffers.
+TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // Use the real filesystem directly (not the mock ReadAsyncFS).
+  std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env_, "testfile_iouring");
+
+  const size_t kSectorSize = 4096;
+  const size_t kNumSectors = 8;
+
+  // 1. Create & write to a file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(
+        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+
+    for (size_t i = 0; i < kNumSectors; ++i) {
+      auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  // 2. Test interleaved ReadAsync and MultiRead operations.
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+
+    IOOptions opts;
+    std::vector<void*> io_handles(kNumSectors);
+    std::vector<FSReadRequest> async_reqs(kNumSectors);
+    std::vector<std::unique_ptr<char, Deleter>> async_data;
+    std::vector<size_t> vals;
+    IOHandleDeleter del_fn;
+
+    // Initialize async read requests.
+    for (size_t i = 0; i < kNumSectors; i++) {
+      async_reqs[i].offset = i * kSectorSize;
+      async_reqs[i].len = kSectorSize;
+      async_data.emplace_back(NewAligned(kSectorSize, 0));
+      async_reqs[i].scratch = async_data.back().get();
+      vals.push_back(i);
+    }
+
+    // Callback function for async reads.
+    std::function<void(FSReadRequest&, void*)> callback =
+        [&](FSReadRequest& req, void* cb_arg) {
+          assert(cb_arg != nullptr);
+          size_t i = *(reinterpret_cast<size_t*>(cb_arg));
+          async_reqs[i].offset = req.offset;
+          async_reqs[i].result = req.result;
+          async_reqs[i].status = req.status;
+        };
+
+    // Submit asynchronous read requests.
+    for (size_t i = 0; i < kNumSectors; i++) {
+      void* cb_arg = static_cast<void*>(&(vals[i]));
+      IOStatus s = file->ReadAsync(async_reqs[i], opts, callback, cb_arg,
+                                   &(io_handles[i]), &del_fn, nullptr);
+      if (s.IsNotSupported()) {
+        // io_uring not supported on this system, skip the test.
+        fprintf(stderr, "Skipping test - io_uring not supported: %s\n",
+                s.ToString().c_str());
+        for (size_t j = 0; j < i; j++) {
+          if (io_handles[j] != nullptr) {
+            del_fn(io_handles[j]);
+          }
+        }
+        return;
+      }
+      // For any other error, fail the test.
+      ASSERT_OK(s);
+    }
+    // IO Uring is supported!
+
+    // Do a MultiRead on same sectors while async reads are submitted.
+    std::vector<FSReadRequest> multi_reqs(kNumSectors);
+    std::vector<std::unique_ptr<char, Deleter>> multi_data;
+    for (size_t i = 0; i < kNumSectors; i++) {
+      multi_reqs[i].offset = i * kSectorSize;
+      multi_reqs[i].len = kSectorSize;
+      multi_data.emplace_back(NewAligned(kSectorSize, 0));
+      multi_reqs[i].scratch = multi_data.back().get();
+    }
+    ASSERT_OK(file->MultiRead(multi_reqs.data(), kNumSectors, opts, nullptr));
+
+    // Check the status of MultiRead requests (should all succeed).
+    for (size_t i = 0; i < kNumSectors; i++) {
+      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice expected_data(buf.get(), kSectorSize);
+
+      ASSERT_EQ(multi_reqs[i].offset, i * kSectorSize);
+      ASSERT_OK(multi_reqs[i].status);
+      ASSERT_EQ(expected_data.ToString(), multi_reqs[i].result.ToString());
+    }
+
+    // Poll for the submitted async requests.
+    ASSERT_OK(fs->Poll(io_handles, kNumSectors));
+
+    // Check the status of async read requests (should all succeed).
+    for (size_t i = 0; i < kNumSectors; i++) {
+      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice expected_data(buf.get(), kSectorSize);
+
+      ASSERT_EQ(async_reqs[i].offset, i * kSectorSize);
+      ASSERT_OK(async_reqs[i].status);
+      ASSERT_EQ(expected_data.ToString(), async_reqs[i].result.ToString());
+    }
+
+    // Delete io_handles.
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      del_fn(io_handles[i]);
+    }
+  }
+#else
+  fprintf(stderr, "Skipping test - ROCKSDB_IOURING_PRESENT not defined\n");
+#endif
+}
+
 struct StaticDestructionTester {
   bool activated = false;
   ~StaticDestructionTester() {
