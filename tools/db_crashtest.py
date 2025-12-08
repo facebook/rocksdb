@@ -5,6 +5,7 @@ import argparse
 import math
 import os
 import random
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,18 @@ def get_random_seed(override):
         return random.randint(1, 2**64)
     else:
         return override
+
+
+def quote_arg_for_display(arg):
+    """
+    Quote only the value after '=' for shell display.
+    This makes the printed command safe to copy/paste into a Unix shell.
+    Note: shlex is Unix-focused; Non-Unix shell users may need to adjust quoting after copying.
+    """
+    if "=" not in arg:
+        return arg
+    flag, value = arg.split("=", 1)
+    return f"{flag}={shlex.quote(value)}"
 
 
 def setup_random_seed_before_main():
@@ -1324,7 +1337,10 @@ def gen_cmd(params, unknown_params):
 
 def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-    print("Running db_stress with pid=%d: %s\n\n" % (child.pid, " ".join(cmd)))
+    print(
+        "Running db_stress with pid=%d: %s\n\n"
+        % (child.pid, " ".join(quote_arg_for_display(arg) for arg in cmd))
+    )
     pid = child.pid
 
     try:
