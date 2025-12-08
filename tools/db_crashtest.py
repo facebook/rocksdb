@@ -5,6 +5,7 @@ import argparse
 import math
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -1342,10 +1343,91 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
-def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):
+def run_replay_db_stress_on_error(stderr, dbname):
+    """
+    Parse op_logs from stderr and run replay_db_stress to help debug the error.
+
+    This function looks for op_logs in the error output and automatically runs
+    replay_db_stress to show the exact sequence of operations that led to the failure.
+    """
+    # Pattern to match op_logs in error output
+    # Example: "Column family: 3, op_logs: S 000000... *N*N* SFP ..."
+    op_logs_pattern = r'op_logs:\s*(.+?)(?:\n|$)'
+
+    # Also extract column family if present
+    cf_pattern = r'Column family:\s*(\S+),'
+
+    match = re.search(op_logs_pattern, stderr)
+    if not match:
+        return  # No op_logs found, nothing to replay
+
+    op_logs = match.group(1).strip()
+
+    # Extract column family name/number if present
+    cf_match = re.search(cf_pattern, stderr)
+    cf_name = "default"
+    if cf_match:
+        cf_value = cf_match.group(1)
+        # If it's a number, try to map it to a CF name (default to "default")
+        # For now we'll just use "default" as most tests use it
+        if not cf_value.isdigit():
+            cf_name = cf_value
+
+    print("\n" + "="*80)
+    print("ERROR DETECTED - Running replay_db_stress to show operation sequence")
+    print("="*80)
+    print(f"Database: {dbname}")
+    print(f"Column family: {cf_name}")
+    print(f"Op logs: {op_logs[:100]}..." if len(op_logs) > 100 else f"Op logs: {op_logs}")
+    print()
+
+    # Build replay_db_stress command
+    replay_cmd = [
+        "./replay_db_stress",
+        f"--db={dbname}",
+        f"--op_logs={op_logs}",
+        f"--column_family={cf_name}",
+    ]
+
+    try:
+        print("Running: " + " ".join(replay_cmd))
+        print("-"*80)
+        result = subprocess.run(
+            replay_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout for replay
+        )
+
+        # Print the replay output
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print("Replay stderr:", result.stderr, file=sys.stderr)
+
+        print("-"*80)
+        print("replay_db_stress completed")
+        print("="*80 + "\n")
+
+    except subprocess.TimeoutExpired:
+        print("WARNING: replay_db_stress timed out after 30 seconds")
+        print("="*80 + "\n")
+    except FileNotFoundError:
+        print("WARNING: replay_db_stress binary not found. Build it with 'make replay_db_stress'")
+        print("="*80 + "\n")
+    except Exception as e:
+        print(f"WARNING: Failed to run replay_db_stress: {e}")
+        print("="*80 + "\n")
+
+
+def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False, dbname=None):
     print("stdout:\n", stdout)
     if len(stderr) == 0:
         return
+
+    # Try to run replay_db_stress if we have op_logs in the error
+    if dbname is not None and "op_logs:" in stderr:
+        run_replay_db_stress_on_error(stderr, dbname)
 
     if print_stderr_separately:
         print("stderr:\n", stderr, file=sys.stderr)
@@ -1391,10 +1473,10 @@ def blackbox_crash_main(args, unknown_args):
 
         if not hit_timeout:
             print("Exit Before Killing")
-            print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+            print_output_and_exit_on_error(outs, errs, args.print_stderr_separately, dbname)
             sys.exit(2)
 
-        print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+        print_output_and_exit_on_error(outs, errs, args.print_stderr_separately, dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -1414,7 +1496,7 @@ def blackbox_crash_main(args, unknown_args):
     )
 
     # For the final run
-    print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+    print_output_and_exit_on_error(outs, errs, args.print_stderr_separately, dbname)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1562,7 +1644,7 @@ def whitebox_crash_main(args, unknown_args):
 
         print(msg)
         print_output_and_exit_on_error(
-            stdoutdata, stderrdata, args.print_stderr_separately
+            stdoutdata, stderrdata, args.print_stderr_separately, dbname
         )
 
         if hit_timeout:
