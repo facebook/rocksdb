@@ -723,7 +723,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     assert(reqs_pending_submission <= wrap_cache.size());
     assert(resubmit_rq_list.size() + wrap_cache.size() <= reqs_outstanding);
-    size_t new_sqe_reqs_count = reqs_outstanding - reqs_pending_submission;
+    size_t new_sqe_reqs_count = reqs_outstanding - wrap_cache.size();
     for (size_t i = 0; i < new_sqe_reqs_count; i++) {
       WrappedReadRequest* req;
       if (i < resubmit_rq_list.size()) {
@@ -757,13 +757,14 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
       // only, requires separate reaping). We chose batching approach to
       // reduce the volume of syscalls and context switches.
       ssize_t ret = io_uring_submit_and_wait(
-          iu, reqs_pending_submission - reqs_submitted);
+          iu,
+          static_cast<unsigned int>(reqs_pending_submission - reqs_submitted));
       TEST_SYNC_POINT_CALLBACK(
           "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
           &ret);
       if (ret < 0) {
         if (-EINTR == ret || -EAGAIN == ret) {
-          // Submission failed due to interrupted system call. Try again.
+          // Submission failed due to rare, retryable syscall error. Try again.
           continue;
         }
         if (-ENOMEM == ret) {
@@ -805,11 +806,13 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
       size_t nr_await_cqe = wrap_cache.size() - reqs_pending_submission;
       while (nr < nr_await_cqe) {
         // blocking
-        io_uring_wait_cqes(iu, &cqe, nr_await_cqe - nr, nullptr, nullptr);
+        io_uring_wait_cqes(iu, &cqe,
+                           static_cast<unsigned int>(nr_await_cqe - nr),
+                           nullptr, nullptr);
         size_t reaped_cqe_count = 0;
         io_uring_for_each_cqe(iu, head, cqe) { reaped_cqe_count++; }
         if (reaped_cqe_count > 0) {
-          io_uring_cq_advance(iu, reaped_cqe_count);
+          io_uring_cq_advance(iu, static_cast<unsigned int>(reaped_cqe_count));
           nr += reaped_cqe_count;
         }
       }
