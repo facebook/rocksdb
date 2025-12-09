@@ -711,113 +711,147 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
 
   IOStatus ios = IOStatus::OK();
   size_t reqs_off = 0;
+  // Represents request in iu submission queue that have not been submitted yet.
+  // This might happen when system experiences terse memory condition.
+  size_t reqs_pending_submission = 0;
   while ((num_reqs > reqs_off) || !resubmit_rq_list.empty() ||
          !wrap_cache.empty()) {
-    size_t reqs_inflight = wrap_cache.size();
     size_t reqs_outstanding =
-        num_reqs - reqs_off + resubmit_rq_list.size() + reqs_inflight;
+        num_reqs - reqs_off + resubmit_rq_list.size() + wrap_cache.size();
     if (reqs_outstanding > kIoUringDepth) {
       reqs_outstanding = kIoUringDepth;
     }
-    assert(resubmit_rq_list.size() <= reqs_outstanding);
-    assert(reqs_inflight <= reqs_outstanding);
-    size_t reqs_to_submit = reqs_outstanding - reqs_inflight;
-    for (size_t i = 0; i < reqs_to_submit; i++) {
-      WrappedReadRequest* rep_to_submit;
+    assert(reqs_pending_submission <= wrap_cache.size());
+    assert(resubmit_rq_list.size() + wrap_cache.size() <= reqs_outstanding);
+    size_t new_sqe_reqs_count = reqs_outstanding - reqs_pending_submission;
+    for (size_t i = 0; i < new_sqe_reqs_count; i++) {
+      WrappedReadRequest* req;
       if (i < resubmit_rq_list.size()) {
-        rep_to_submit = resubmit_rq_list[i];
+        req = resubmit_rq_list[i];
       } else {
-        rep_to_submit = &req_wraps[reqs_off++];
+        req = &req_wraps[reqs_off++];
       }
-      assert(rep_to_submit->req->len > rep_to_submit->finished_len);
-      rep_to_submit->iov.iov_base =
-          rep_to_submit->req->scratch + rep_to_submit->finished_len;
-      rep_to_submit->iov.iov_len =
-          rep_to_submit->req->len - rep_to_submit->finished_len;
+      assert(req->req->len > req->finished_len);
+      req->iov.iov_base = req->req->scratch + req->finished_len;
+      req->iov.iov_len = req->req->len - req->finished_len;
 
       struct io_uring_sqe* sqe;
       sqe = io_uring_get_sqe(iu);
-      io_uring_prep_readv(
-          sqe, fd_, &rep_to_submit->iov, 1,
-          rep_to_submit->req->offset + rep_to_submit->finished_len);
-      io_uring_sqe_set_data(sqe, rep_to_submit);
-      wrap_cache.emplace(rep_to_submit);
+      io_uring_prep_readv(sqe, fd_, &req->iov, 1,
+                          req->req->offset + req->finished_len);
+      io_uring_sqe_set_data(sqe, req);
+      wrap_cache.emplace(req);
+      ++reqs_pending_submission;
     }
     resubmit_rq_list.clear();
 
     struct io_uring_cqe* cqe = nullptr;
     unsigned head;
-    if (reqs_to_submit > 0) {
-      size_t reqs_submitted = 0;
-      ssize_t err = 0;
-      bool memory_pressure_on_submission = false;
-      do {
-        // MultiRead is synchronous in nature. io_uring_submit_and_wait provides
-        // batching semantics (submit + wait in one syscall), while
-        // io_uring_submit enables async producer/consumer semantics (submit
-        // only, requires separate reaping). We chose batching approach to
-        // reduce syscalls and context switches.
-        ssize_t ret = io_uring_submit_and_wait(
-            iu, static_cast<unsigned int>(reqs_to_submit - reqs_submitted));
-        TEST_SYNC_POINT_CALLBACK(
-            "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
-            &ret);
-        TEST_SYNC_POINT_CALLBACK(
-            "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
-            iu);
-        if (ret < 0) {
-          if (-EINTR == ret || -EAGAIN == ret) {
-            // Submission failed due to interrupted system call. Try again.
-            continue;
-          }
-          if (-ENOMEM == ret) {
-            fprintf(
-                stderr,
-                "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
-                "experienced terse memory condition\n");
-            // Best effort to reclaim resources in terse condition.
-            memory_pressure_on_submission = true;
-          } else {
-            fprintf(stderr,
-                    "PosixRandomAccessFile::MultiRead: "
-                    "io_uring_submit_and_wait returned terminal error: %zd\n",
-                    ret);
-            err = ret;
-          }
-          break;
+    ssize_t err = 0;
+    bool memory_pressure_on_submission = false;
+    size_t reqs_submitted = 0;
+    while (reqs_submitted < reqs_pending_submission) {
+      // MultiRead is synchronous in nature. io_uring_submit_and_wait provides
+      // batching semantics (submit + best effort wait in one syscall), while
+      // io_uring_submit enables async producer/consumer semantics (submit
+      // only, requires separate reaping). We chose batching approach to
+      // reduce the volume of syscalls and context switches.
+      ssize_t ret = io_uring_submit_and_wait(
+          iu, reqs_pending_submission - reqs_submitted);
+      TEST_SYNC_POINT_CALLBACK(
+          "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+          &ret);
+      if (ret < 0) {
+        if (-EINTR == ret || -EAGAIN == ret) {
+          // Submission failed due to interrupted system call. Try again.
+          continue;
         }
-        if (0 == ret) {
-          // This scenario is unexpected for any modern kernel!
-          // We deliberately error out to avoid bugs around infinite loops.
+        if (-ENOMEM == ret) {
+          fprintf(stderr,
+                  "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
+                  "experienced terse memory condition.\n");
+          // Best effort to reclaim resources in terse condition.
+          memory_pressure_on_submission = true;
+        } else {
           fprintf(stderr,
                   "PosixRandomAccessFile::MultiRead: "
-                  "io_uring_submit_and_wait returned 0 submissions!\n");
-          break;
+                  "io_uring_submit_and_wait returned terminal error: %zd.\n",
+                  ret);
+          err = ret;
         }
-        reqs_submitted += static_cast<size_t>(ret);
-      } while (reqs_submitted < reqs_to_submit);
-
-      // Error occurred or IO uring stopped submitting outstanding requests.
-      if (reqs_submitted < reqs_to_submit && !memory_pressure_on_submission) {
-        // Consume all the completed requests in the ring.
-        unsigned int nr = 0;
-        io_uring_for_each_cqe(iu, head, cqe) { nr++; }
-        io_uring_cq_advance(iu, nr);
-        if (err < 0) {
-          return IOStatus::IOError(
-              "io_uring_submit_and_wait() failed with an error " +
-              std::to_string(err));
-        }
-        return IOStatus::IOError("io_uring_submit_and_wait() requested " +
-                                 std::to_string(reqs_to_submit) +
-                                 " but returned " +
-                                 std::to_string(reqs_submitted));
+        break;
       }
+      if (0 == ret) {
+        // This scenario is unexpected for any modern kernel!
+        // We deliberately error out to avoid bugs around infinite loops.
+        fprintf(stderr,
+                "PosixRandomAccessFile::MultiRead: "
+                "io_uring_submit_and_wait returned 0 submissions!\n");
+        break;
+      }
+      reqs_submitted += static_cast<size_t>(ret);
+    };
+    assert(reqs_submitted <= reqs_pending_submission);
+    reqs_pending_submission -= reqs_submitted;
+
+    // Error occurred or IO uring stopped submitting outstanding requests.
+    if (reqs_pending_submission && !memory_pressure_on_submission) {
+      // IO ring is initialized once in thread-local variable and then reused
+      // to handle the consecutive MultiRead API calls. Therefore, it's crucial
+      // to reap all the submitted requests.
+      //
+      // NOTE: Loop will run indefinitely until we reap all the completions!!!
+      size_t nr = 0;
+      size_t nr_await_cqe = wrap_cache.size() - reqs_pending_submission;
+      while (nr < nr_await_cqe) {
+        // blocking
+        io_uring_wait_cqes(iu, &cqe, nr_await_cqe - nr, nullptr, nullptr);
+        size_t reaped_cqe_count = 0;
+        io_uring_for_each_cqe(iu, head, cqe) { reaped_cqe_count++; }
+        if (reaped_cqe_count > 0) {
+          io_uring_cq_advance(iu, reaped_cqe_count);
+          nr += reaped_cqe_count;
+        }
+      }
+
+      TEST_SYNC_POINT_CALLBACK(
+          "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+          iu);
+
+      // While all the submitted completions have been reaped successfully,
+      // IO ring submission queue still contains at least one non-submitted
+      // request. Destroy io_uring (discards unsubmitted SQEs).
+      //
+      // NOTE: This is a rare scenario and should not happen in normal cases.
+      //       Hence, this should NOT materially impact the performance metrics.
+      io_uring_queue_exit(iu);
+      delete iu;
+      thread_local_multi_read_io_urings_->Reset(nullptr);
+
+      if (err < 0) {
+        return IOStatus::IOError(
+            "io_uring_submit_and_wait() failed with an error " +
+            std::to_string(err));
+      }
+      return IOStatus::IOError(
+          "io_uring_submit_and_wait() requested " +
+          std::to_string(reqs_submitted + reqs_pending_submission) +
+          " but returned " + std::to_string(reqs_submitted));
+    }
+
+    if ((0 == reqs_submitted) && wrap_cache.size() > reqs_pending_submission) {
+      // If no requests have been submitted and there is at least one request
+      // pending completion, wait for at least one completion to arrive.
+      // This is a guardrail to prevent the busy CPU loops.
+      //
+      // NOTE: it's not really a tight CPU-burning loop in the traditional sense
+      // as it's naturally throttled by the io_uring_submit_and_wait() syscall.
+      io_uring_wait_cqe(iu, &cqe);
     }
 
     unsigned int nr = 0;
-    io_uring_for_each_cqe(iu, head, cqe) {
-      if (cqe->user_data) {
+    io_uring_for_each_cqe(iu, head, cqe) {  // non-blocking
+      if (cqe->user_data) {  // non-discarded, valid user data only!
         nr++;
         WrappedReadRequest* req_wrap =
             static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
@@ -854,7 +888,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                      GetRequiredBufferAlignment(), req_wrap->finished_len, req,
                      bytes_read, read_again);
 
-        if (bytes_read == 0) {
+        if (0 == bytes_read) {
           if (read_again) {
             Slice tmp_slice;
             req->status =
@@ -870,25 +904,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
         }
       }
     }
-    io_uring_cq_advance(iu, nr);
-    if (nr < reqs_to_submit) {
-      // We can end up here in one of the two scenarios:
-      //
-      // 1) io_uring_submit_and_wait(iu, N) = N
-      // 2) io_uring_submit_and_wait(iu, N) = -ENOMEM
-      //
-      // Even if io_uring_submit_and_wait(iu, N) returned N indicative of the
-      // successful batch submission, it is possible that one or more waits on
-      // those completions got interrupted or otherwise failed. In that case,
-      // wrap_cache will retain the outstanding requests entries capping max #
-      // of requests being (processed + inflight) simultaneously ensuring that
-      // we will attempt to read those completions again in the next iteration.
-      // Therefore, no explicit draining is needed.
-      fprintf(stdout,
-              "PosixRandomAccessFile::MultiRead: "
-              "io_uring_submit_and_wait returned %ld completions "
-              "when %ld were expected\n",
-              (long)nr, (long)reqs_to_submit);
+    if (nr > 0) {
+      io_uring_cq_advance(iu, nr);
     }
   }
   return ios;

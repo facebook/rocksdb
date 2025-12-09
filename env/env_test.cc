@@ -1681,8 +1681,9 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
       [&](void* arg) {
         struct io_uring* iu = static_cast<struct io_uring*>(arg);
         struct io_uring_cqe* cqe;
-        assert(io_uring_wait_cqe(iu, &cqe) == 0);
-        io_uring_cqe_seen(iu, cqe);
+        // CQ should be empty after drain - peek should fail
+        int ret = io_uring_peek_cqe(iu, &cqe);
+        assert(-EAGAIN == ret);  // No CQEs available
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3612,8 +3613,8 @@ TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
   std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
   std::string fname = test::PerThreadDBPath(env_, "testfile_iouring");
 
-  const size_t kSectorSize = 4096;
-  const size_t kNumSectors = 8;
+  constexpr size_t kSectorSize = 4096;
+  constexpr size_t kNumSectors = 8;
 
   // 1. Create & write to a file.
   {
@@ -3679,7 +3680,6 @@ TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
       // For any other error, fail the test.
       ASSERT_OK(s);
     }
-    // IO Uring is supported!
 
     // Do a MultiRead on same sectors while async reads are submitted.
     std::vector<FSReadRequest> multi_reqs(kNumSectors);
