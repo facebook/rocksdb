@@ -2082,7 +2082,7 @@ SHA256_CMD = sha256sum
 
 ZLIB_VER ?= 1.3.1
 ZLIB_SHA256 ?= 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
-ZLIB_DOWNLOAD_BASE ?= http://zlib.net
+ZLIB_DOWNLOAD_BASE ?= https://github.com/madler/zlib/releases/download/v$(ZLIB_VER)
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_DOWNLOAD_BASE ?= http://sourceware.org/pub/bzip2
