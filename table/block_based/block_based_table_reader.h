@@ -575,6 +575,7 @@ class BlockBasedTable : public TableReader {
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
   friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
+  friend class ReadSet;
   friend class IODispatcherTest;
 };
 
