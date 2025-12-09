@@ -25,6 +25,49 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Helper function to create and pin a block from a buffer
+// Used by both ReadSet::PollAndProcessAsyncIO and IODispatcherImpl::Impl
+static Status CreateAndPinBlockFromBuffer(
+    const std::shared_ptr<IOJob>& job, const BlockHandle& block,
+    uint64_t buffer_start_offset, const Slice& buffer_data,
+    CachableEntry<Block>& pinned_block_entry) {
+  auto* rep = job->table->get_rep();
+
+  // Get decompressor
+  UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
+  CachableEntry<DecompressorDict> cached_dict;
+
+  if (rep->uncompression_dict_reader) {
+    Status s = rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+        nullptr, job->job_options.read_options, nullptr, nullptr, &cached_dict);
+    if (!s.ok()) {
+      return s;
+    }
+    if (cached_dict.GetValue()) {
+      decompressor = cached_dict.GetValue()->decompressor_.get();
+    }
+  }
+
+  // Create block from buffer data
+  const auto block_size_with_trailer =
+      BlockBasedTable::BlockSizeWithTrailer(block);
+  const auto block_offset_in_buffer = block.offset() - buffer_start_offset;
+
+  CacheAllocationPtr data = AllocateBlock(
+      block_size_with_trailer, GetMemoryAllocator(rep->table_options));
+  memcpy(data.get(), buffer_data.data() + block_offset_in_buffer,
+         block_size_with_trailer);
+  BlockContents tmp_contents(std::move(data), block.size());
+
+#ifndef NDEBUG
+  tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
+#endif
+
+  return job->table->CreateAndPinBlockInCache<Block_kData>(
+      job->job_options.read_options, block, decompressor, &tmp_contents,
+      &pinned_block_entry.As<Block_kData>());
+}
+
 // State for async IO operations (implementation detail)
 struct AsyncIOState {
   AsyncIOState() : offset(-1) {}
@@ -79,7 +122,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   if (job_->job_options.read_options.async_io) {
     auto it = async_io_map_.find(block_index);
     if (it != async_io_map_.end()) {
-      Status s = PollAndProcessAsyncIO(block_index);
+      Status s = PollAndProcessAsyncIO(it->second);
       if (!s.ok()) {
         return s;
       }
@@ -116,16 +159,8 @@ Status ReadSet::ReadOffset(size_t offset, CachableEntry<Block>* out) {
 }
 
 // Poll and process async IO for a specific block
-Status ReadSet::PollAndProcessAsyncIO(size_t block_index) {
-  auto it = async_io_map_.find(block_index);
-  if (it == async_io_map_.end()) {
-    return Status::InvalidArgument("No async IO in progress for this block");
-  }
-
-  // IMPORTANT: Hold a copy of the shared_ptr, not a reference,
-  // because we'll be erasing from async_io_map_ later which could
-  // invalidate the reference
-  auto async_state = it->second;
+Status ReadSet::PollAndProcessAsyncIO(
+    const std::shared_ptr<AsyncIOState>& async_state) {
   auto* rep = job_->table->get_rep();
 
   // Poll for IO completion using FileSystem Poll API
@@ -152,43 +187,9 @@ Status ReadSet::PollAndProcessAsyncIO(size_t block_index) {
     const size_t idx = async_state->block_indices[i];
     const auto& block_handle = async_state->blocks[i];
 
-    // Get decompressor
-    UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
-    CachableEntry<DecompressorDict> cached_dict;
-
-    if (rep->uncompression_dict_reader) {
-      Status s =
-          rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-              nullptr, job_->job_options.read_options, nullptr, nullptr,
-              &cached_dict);
-      if (!s.ok()) {
-        return s;
-      }
-      if (cached_dict.GetValue()) {
-        decompressor = cached_dict.GetValue()->decompressor_.get();
-      }
-    }
-
-    // Create block from buffer
-    const auto block_size_with_trailer =
-        BlockBasedTable::BlockSizeWithTrailer(block_handle);
-    const auto block_offset_in_buffer =
-        block_handle.offset() - async_state->offset;
-
-    CacheAllocationPtr data = AllocateBlock(
-        block_size_with_trailer, GetMemoryAllocator(rep->table_options));
-    memcpy(data.get(), buffer_data.data() + block_offset_in_buffer,
-           block_size_with_trailer);
-    BlockContents tmp_contents(std::move(data), block_handle.size());
-
-#ifndef NDEBUG
-    tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
-#endif
-
-    Status s = job_->table->CreateAndPinBlockInCache<Block_kData>(
-        job_->job_options.read_options, block_handle, decompressor,
-        &tmp_contents, &pinned_blocks_[idx].As<Block_kData>());
-
+    Status s =
+        CreateAndPinBlockFromBuffer(job_, block_handle, async_state->offset,
+                                    buffer_data, pinned_blocks_[idx]);
     if (!s.ok()) {
       return s;
     }
@@ -217,90 +218,12 @@ Status ReadSet::SyncRead(size_t block_index) {
   const auto& block_handle = job_->block_handles[block_index];
   auto* rep = job_->table->get_rep();
 
-  // Try to lookup and pin the block again (maybe it was added to cache by
-  // another thread)
-  Status s = job_->table->LookupAndPinBlocksInCache<Block_kData>(
-      job_->job_options.read_options, block_handle,
-      &pinned_blocks_[block_index].As<Block_kData>());
-
-  if (s.ok() && pinned_blocks_[block_index].GetValue()) {
-    return Status::OK();
-  }
-
-  // Block not in cache - perform synchronous read
-  IOOptions io_opts;
-  s = rep->file->PrepareIOOptions(job_->job_options.read_options, io_opts);
-  if (!s.ok()) {
-    return s;
-  }
-
-  const bool direct_io = rep->file->use_direct_io();
-  const auto block_size_with_trailer =
-      BlockBasedTable::BlockSizeWithTrailer(block_handle);
-
-  // Setup read request
-  FSReadRequest read_req;
-  read_req.offset = block_handle.offset();
-  read_req.len = block_size_with_trailer;
-
-  std::unique_ptr<char[]> buf;
-  AlignedBuf aligned_buf;
-
-  if (direct_io) {
-    read_req.scratch = nullptr;
-  } else {
-    buf.reset(new char[block_size_with_trailer]);
-    read_req.scratch = buf.get();
-  }
-
-  // Perform synchronous read
-  s = rep->file->Read(io_opts, read_req.offset, read_req.len, &read_req.result,
-                      read_req.scratch, direct_io ? &aligned_buf : nullptr);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (!read_req.status.ok()) {
-    return read_req.status;
-  }
-
-  // Determine which buffer to use
-  const Slice buffer_data =
-      direct_io ? Slice(static_cast<const char*>(aligned_buf.get()),
-                        read_req.result.size())
-                : Slice(buf.get(), read_req.result.size());
-
-  // Get decompressor
-  UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
-  CachableEntry<DecompressorDict> cached_dict;
-
-  if (rep->uncompression_dict_reader) {
-    s = rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr, job_->job_options.read_options, nullptr, nullptr,
-        &cached_dict);
-    if (!s.ok()) {
-      return s;
-    }
-    if (cached_dict.GetValue()) {
-      decompressor = cached_dict.GetValue()->decompressor_.get();
-    }
-  }
-
-  // Create block from buffer data
-  CacheAllocationPtr data = AllocateBlock(
-      block_size_with_trailer, GetMemoryAllocator(rep->table_options));
-  memcpy(data.get(), buffer_data.data(), block_size_with_trailer);
-  BlockContents tmp_contents(std::move(data), block_handle.size());
-
-#ifndef NDEBUG
-  tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
-#endif
-
-  s = job_->table->CreateAndPinBlockInCache<Block_kData>(
-      job_->job_options.read_options, block_handle, decompressor, &tmp_contents,
-      &pinned_blocks_[block_index].As<Block_kData>());
-
-  return s;
+  return job_->table->RetrieveBlock<Block_kData>(
+      /*prefetch_buffer=*/nullptr, job_->job_options.read_options, block_handle,
+      rep->decompressor.get(), &pinned_blocks_[block_index].As<Block_kData>(),
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr,
+      /*for_compaction=*/false, /*use_cache=*/true,
+      /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 }
 
 struct IODispatcherImpl::Impl {
@@ -329,12 +252,6 @@ struct IODispatcherImpl::Impl {
       const std::shared_ptr<ReadSet>& read_set,
       std::vector<FSReadRequest>& read_reqs,
       const std::vector<std::vector<size_t>>& coalesced_block_indices);
-
-  Status CreateAndPinBlockFromBuffer(const std::shared_ptr<IOJob>& job,
-                                     const BlockHandle& block,
-                                     uint64_t buffer_start_offset,
-                                     const Slice& buffer_data,
-                                     CachableEntry<Block>& pinned_block_entry);
 };
 
 IODispatcherImpl::Impl::Impl() {}
@@ -591,47 +508,6 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   }
 
   return Status::OK();
-}
-
-Status IODispatcherImpl::Impl::CreateAndPinBlockFromBuffer(
-    const std::shared_ptr<IOJob>& job, const BlockHandle& block,
-    uint64_t buffer_start_offset, const Slice& buffer_data,
-    CachableEntry<Block>& pinned_block_entry) {
-  auto* rep = job->table->get_rep();
-
-  // Get decompressor
-  UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
-  CachableEntry<DecompressorDict> cached_dict;
-
-  if (rep->uncompression_dict_reader) {
-    Status s = rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr, job->job_options.read_options, nullptr, nullptr, &cached_dict);
-    if (!s.ok()) {
-      return s;
-    }
-    if (cached_dict.GetValue()) {
-      decompressor = cached_dict.GetValue()->decompressor_.get();
-    }
-  }
-
-  // Create block from buffer data
-  const auto block_size_with_trailer =
-      BlockBasedTable::BlockSizeWithTrailer(block);
-  const auto block_offset_in_buffer = block.offset() - buffer_start_offset;
-
-  CacheAllocationPtr data = AllocateBlock(
-      block_size_with_trailer, GetMemoryAllocator(rep->table_options));
-  memcpy(data.get(), buffer_data.data() + block_offset_in_buffer,
-         block_size_with_trailer);
-  BlockContents tmp_contents(std::move(data), block.size());
-
-#ifndef NDEBUG
-  tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
-#endif
-
-  return job->table->CreateAndPinBlockInCache<Block_kData>(
-      job->job_options.read_options, block, decompressor, &tmp_contents,
-      &pinned_block_entry.As<Block_kData>());
 }
 
 IODispatcherImpl::IODispatcherImpl() : impl_(new Impl()) {}
