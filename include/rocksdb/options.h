@@ -23,6 +23,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
