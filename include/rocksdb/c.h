@@ -3645,6 +3645,56 @@ rocksdb_compaction_service_options_override_set_comparator(
     rocksdb_compaction_service_options_override_t* override_options,
     rocksdb_comparator_t* comparator);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_merge_operator(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_mergeoperator_t* merge_operator);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_compaction_filter(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_compactionfilter_t* compaction_filter);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_compaction_filter_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_compactionfilterfactory_t* compaction_filter_factory);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_prefix_extractor(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_slicetransform_t* prefix_extractor);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_block_based_table_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_block_based_table_options_t* table_options);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_cuckoo_table_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_cuckoo_table_options_t* table_options);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_add_event_listener(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_eventlistener_t* event_listener);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_statistics(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_options_t* options);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_info_log(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_logger_t* logger);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_option(
+    rocksdb_compaction_service_options_override_t* override_options,
+    const char* key, const char* value);
+
 // Atomic bool management for cancellation
 // Creates an atomic bool that can be used for cancellation.
 // User must call rocksdb_open_and_compact_canceled_destroy() to free it.

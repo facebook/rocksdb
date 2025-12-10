@@ -943,6 +943,92 @@ void rocksdb_compaction_service_options_override_set_comparator(
   }
 }
 
+void rocksdb_compaction_service_options_override_set_merge_operator(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_mergeoperator_t* merge_operator) {
+  if (override_options && merge_operator) {
+    override_options->rep.merge_operator =
+        std::shared_ptr<MergeOperator>(merge_operator);
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_compaction_filter(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_compactionfilter_t* compaction_filter) {
+  if (override_options && compaction_filter) {
+    override_options->rep.compaction_filter = compaction_filter;
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_compaction_filter_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_compactionfilterfactory_t* compaction_filter_factory) {
+  if (override_options && compaction_filter_factory) {
+    override_options->rep.compaction_filter_factory =
+        std::shared_ptr<CompactionFilterFactory>(compaction_filter_factory);
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_prefix_extractor(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_slicetransform_t* prefix_extractor) {
+  if (override_options && prefix_extractor) {
+    override_options->rep.prefix_extractor =
+        std::shared_ptr<const SliceTransform>(prefix_extractor);
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_block_based_table_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_block_based_table_options_t* table_options) {
+  if (override_options && table_options) {
+    override_options->rep.table_factory =
+        std::shared_ptr<TableFactory>(NewBlockBasedTableFactory(table_options->rep));
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_cuckoo_table_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_cuckoo_table_options_t* table_options) {
+  if (override_options && table_options) {
+    override_options->rep.table_factory =
+        std::shared_ptr<TableFactory>(NewCuckooTableFactory(table_options->rep));
+  }
+}
+
+void rocksdb_compaction_service_options_override_add_event_listener(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_eventlistener_t* event_listener) {
+  if (override_options && event_listener) {
+    override_options->rep.listeners.push_back(
+        std::shared_ptr<EventListener>(event_listener));
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_statistics(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_options_t* options) {
+  if (override_options && options) {
+    override_options->rep.statistics = options->rep.statistics;
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_info_log(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_logger_t* logger) {
+  if (override_options && logger) {
+    override_options->rep.info_log = logger->rep;
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_option(
+    rocksdb_compaction_service_options_override_t* override_options,
+    const char* key, const char* value) {
+  if (override_options && key && value) {
+    override_options->rep.options_map[std::string(key)] = std::string(value);
+  }
+}
+
 // Atomic bool management for cancellation
 unsigned char* rocksdb_open_and_compact_canceled_create() {
   return reinterpret_cast<unsigned char*>(new std::atomic<bool>(false));
