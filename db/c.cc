@@ -89,10 +89,12 @@ using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::EventListener;
 using ROCKSDB_NAMESPACE::ExportImportFilesMetaData;
 using ROCKSDB_NAMESPACE::ExternalFileIngestionInfo;
+using ROCKSDB_NAMESPACE::FileChecksumGenFactory;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FlushJobInfo;
 using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory;
 using ROCKSDB_NAMESPACE::HistogramData;
 using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
 using ROCKSDB_NAMESPACE::ImportColumnFamilyOptions;
@@ -112,6 +114,7 @@ using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
 using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
+using ROCKSDB_NAMESPACE::NewSstPartitionerFixedPrefixFactory;
 using ROCKSDB_NAMESPACE::OpenAndCompactOptions;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
@@ -133,9 +136,11 @@ using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileManager;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
 using ROCKSDB_NAMESPACE::SstFileWriter;
+using ROCKSDB_NAMESPACE::SstPartitionerFactory;
 using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::SubcompactionJobInfo;
+using ROCKSDB_NAMESPACE::TableFactory;
 using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
@@ -234,6 +239,15 @@ struct rocksdb_filelock_t {
 };
 struct rocksdb_logger_t {
   std::shared_ptr<Logger> rep;
+};
+struct rocksdb_file_checksum_gen_factory_t {
+  std::shared_ptr<FileChecksumGenFactory> rep;
+};
+struct rocksdb_sst_partitioner_factory_t {
+  std::shared_ptr<SstPartitionerFactory> rep;
+};
+struct rocksdb_table_properties_collector_factory_t {
+  std::shared_ptr<TablePropertiesCollectorFactory> rep;
 };
 struct rocksdb_lru_cache_options_t {
   LRUCacheOptions rep;
@@ -982,8 +996,8 @@ void rocksdb_compaction_service_options_override_set_block_based_table_factory(
     rocksdb_compaction_service_options_override_t* override_options,
     rocksdb_block_based_table_options_t* table_options) {
   if (override_options && table_options) {
-    override_options->rep.table_factory =
-        std::shared_ptr<TableFactory>(NewBlockBasedTableFactory(table_options->rep));
+    override_options->rep.table_factory = std::shared_ptr<TableFactory>(
+        NewBlockBasedTableFactory(table_options->rep));
   }
 }
 
@@ -991,19 +1005,13 @@ void rocksdb_compaction_service_options_override_set_cuckoo_table_factory(
     rocksdb_compaction_service_options_override_t* override_options,
     rocksdb_cuckoo_table_options_t* table_options) {
   if (override_options && table_options) {
-    override_options->rep.table_factory =
-        std::shared_ptr<TableFactory>(NewCuckooTableFactory(table_options->rep));
+    override_options->rep.table_factory = std::shared_ptr<TableFactory>(
+        NewCuckooTableFactory(table_options->rep));
   }
 }
 
-void rocksdb_compaction_service_options_override_add_event_listener(
-    rocksdb_compaction_service_options_override_t* override_options,
-    rocksdb_eventlistener_t* event_listener) {
-  if (override_options && event_listener) {
-    override_options->rep.listeners.push_back(
-        std::shared_ptr<EventListener>(event_listener));
-  }
-}
+// Note: add_event_listener is defined later after rocksdb_eventlistener_t
+// struct
 
 void rocksdb_compaction_service_options_override_set_statistics(
     rocksdb_compaction_service_options_override_t* override_options,
@@ -1026,6 +1034,31 @@ void rocksdb_compaction_service_options_override_set_option(
     const char* key, const char* value) {
   if (override_options && key && value) {
     override_options->rep.options_map[std::string(key)] = std::string(value);
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_file_checksum_gen_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_file_checksum_gen_factory_t* factory) {
+  if (override_options && factory) {
+    override_options->rep.file_checksum_gen_factory = factory->rep;
+  }
+}
+
+void rocksdb_compaction_service_options_override_set_sst_partitioner_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_sst_partitioner_factory_t* factory) {
+  if (override_options && factory) {
+    override_options->rep.sst_partitioner_factory = factory->rep;
+  }
+}
+
+void rocksdb_compaction_service_options_override_add_table_properties_collector_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_table_properties_collector_factory_t* factory) {
+  if (override_options && factory) {
+    override_options->rep.table_properties_collector_factories.push_back(
+        factory->rep);
   }
 }
 
@@ -4053,6 +4086,15 @@ void rocksdb_options_add_eventlistener(rocksdb_options_t* opt,
   opt->rep.listeners.emplace_back(std::shared_ptr<EventListener>(t));
 }
 
+void rocksdb_compaction_service_options_override_add_event_listener(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_eventlistener_t* event_listener) {
+  if (override_options && event_listener) {
+    override_options->rep.listeners.emplace_back(
+        std::shared_ptr<EventListener>(event_listener));
+  }
+}
+
 rocksdb_cuckoo_table_options_t* rocksdb_cuckoo_options_create() {
   return new rocksdb_cuckoo_table_options_t;
 }
@@ -4263,6 +4305,65 @@ rocksdb_logger_t* rocksdb_logger_create_callback_logger(
 }
 
 void rocksdb_logger_destroy(rocksdb_logger_t* logger) { delete logger; }
+
+/* File Checksum Gen Factory */
+
+rocksdb_file_checksum_gen_factory_t*
+rocksdb_file_checksum_gen_crc32c_factory_create() {
+  rocksdb_file_checksum_gen_factory_t* factory =
+      new rocksdb_file_checksum_gen_factory_t;
+  factory->rep = GetFileChecksumGenCrc32cFactory();
+  return factory;
+}
+
+void rocksdb_file_checksum_gen_factory_destroy(
+    rocksdb_file_checksum_gen_factory_t* factory) {
+  delete factory;
+}
+
+void rocksdb_options_set_file_checksum_gen_factory(
+    rocksdb_options_t* opt, rocksdb_file_checksum_gen_factory_t* factory) {
+  if (opt && factory) {
+    opt->rep.file_checksum_gen_factory = factory->rep;
+  }
+}
+
+/* SST Partitioner Factory */
+
+rocksdb_sst_partitioner_factory_t*
+rocksdb_sst_partitioner_fixed_prefix_factory_create(size_t prefix_len) {
+  rocksdb_sst_partitioner_factory_t* factory =
+      new rocksdb_sst_partitioner_factory_t;
+  factory->rep = NewSstPartitionerFixedPrefixFactory(prefix_len);
+  return factory;
+}
+
+void rocksdb_sst_partitioner_factory_destroy(
+    rocksdb_sst_partitioner_factory_t* factory) {
+  delete factory;
+}
+
+void rocksdb_options_set_sst_partitioner_factory(
+    rocksdb_options_t* opt, rocksdb_sst_partitioner_factory_t* factory) {
+  if (opt && factory) {
+    opt->rep.sst_partitioner_factory = factory->rep;
+  }
+}
+
+/* Table Properties Collector Factory */
+
+void rocksdb_table_properties_collector_factory_destroy(
+    rocksdb_table_properties_collector_factory_t* factory) {
+  delete factory;
+}
+
+void rocksdb_options_add_table_properties_collector_factory(
+    rocksdb_options_t* opt,
+    rocksdb_table_properties_collector_factory_t* factory) {
+  if (opt && factory) {
+    opt->rep.table_properties_collector_factories.push_back(factory->rep);
+  }
+}
 
 void rocksdb_options_set_env(rocksdb_options_t* opt, rocksdb_env_t* env) {
   opt->rep.env = (env ? env->rep : nullptr);

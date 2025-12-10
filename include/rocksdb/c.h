@@ -86,6 +86,12 @@ typedef struct rocksdb_compactionfiltercontext_t
     rocksdb_compactionfiltercontext_t;
 typedef struct rocksdb_compactionfilterfactory_t
     rocksdb_compactionfilterfactory_t;
+typedef struct rocksdb_file_checksum_gen_factory_t
+    rocksdb_file_checksum_gen_factory_t;
+typedef struct rocksdb_sst_partitioner_factory_t
+    rocksdb_sst_partitioner_factory_t;
+typedef struct rocksdb_table_properties_collector_factory_t
+    rocksdb_table_properties_collector_factory_t;
 typedef struct rocksdb_comparator_t rocksdb_comparator_t;
 typedef struct rocksdb_dbpath_t rocksdb_dbpath_t;
 typedef struct rocksdb_env_t rocksdb_env_t;
@@ -1471,6 +1477,31 @@ rocksdb_logger_create_callback_logger(int log_level,
                                       void* priv);
 extern ROCKSDB_LIBRARY_API void rocksdb_logger_destroy(
     rocksdb_logger_t* logger);
+
+/* File Checksum Gen Factory */
+extern ROCKSDB_LIBRARY_API rocksdb_file_checksum_gen_factory_t*
+rocksdb_file_checksum_gen_crc32c_factory_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_file_checksum_gen_factory_destroy(
+    rocksdb_file_checksum_gen_factory_t* factory);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_file_checksum_gen_factory(
+    rocksdb_options_t*, rocksdb_file_checksum_gen_factory_t*);
+
+/* SST Partitioner Factory */
+extern ROCKSDB_LIBRARY_API rocksdb_sst_partitioner_factory_t*
+rocksdb_sst_partitioner_fixed_prefix_factory_create(size_t prefix_len);
+extern ROCKSDB_LIBRARY_API void rocksdb_sst_partitioner_factory_destroy(
+    rocksdb_sst_partitioner_factory_t* factory);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_sst_partitioner_factory(
+    rocksdb_options_t*, rocksdb_sst_partitioner_factory_t*);
+
+/* Table Properties Collector Factory */
+extern ROCKSDB_LIBRARY_API void
+rocksdb_table_properties_collector_factory_destroy(
+    rocksdb_table_properties_collector_factory_t* factory);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_add_table_properties_collector_factory(
+    rocksdb_options_t*, rocksdb_table_properties_collector_factory_t*);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
@@ -3694,6 +3725,21 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_compaction_service_options_override_set_option(
     rocksdb_compaction_service_options_override_t* override_options,
     const char* key, const char* value);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_file_checksum_gen_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_file_checksum_gen_factory_t* factory);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_set_sst_partitioner_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_sst_partitioner_factory_t* factory);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_service_options_override_add_table_properties_collector_factory(
+    rocksdb_compaction_service_options_override_t* override_options,
+    rocksdb_table_properties_collector_factory_t* factory);
 
 // Atomic bool management for cancellation
 // Creates an atomic bool that can be used for cancellation.
