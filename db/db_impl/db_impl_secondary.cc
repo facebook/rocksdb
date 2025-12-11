@@ -1215,7 +1215,7 @@ Status DBImplSecondary::PrepareCompactionProgressState() {
                                                  scan_result);
     }
 
-    ROCKS_LOG_INFO(
+    ROCKS_LOG_DEBUG(
         immutable_db_options_.info_log,
         "Loaded compaction progress with %zu subcompaction(s) from %s",
         compaction_progress_.size(), compaction_progress_file_path.c_str());
@@ -1741,9 +1741,9 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
         "" /* temp_file_path */, final_file_path, compaction_progress_writer);
   }
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Finalized compaction progress writer onto %s",
-                 final_file_path.c_str());
+  ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                  "Finalized compaction progress writer onto %s",
+                  final_file_path.c_str());
 
   return Status::OK();
 }

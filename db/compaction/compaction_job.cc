@@ -2088,16 +2088,26 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   }
 
   // LIMITATION: Compaction progress persistence disabled for file boundaries
-  // contaning range deletions. Range deletions can span file boundaries, making
-  // it difficult to ensure adjacent output tables have different
-  // user keys. See the last check for why different users keys of adjacent
-  // output tables are needed
+  // containing range deletions. Range deletions can span file boundaries,
+  // making it difficult to ensure adjacent output tables have different user
+  // keys. See the last check for why different users keys of adjacent output
+  // tables are needed
   const ValueType next_table_min_internal_key_type =
       ExtractValueType(next_table_min_internal_key);
   const ValueType prev_iter_output_internal_key_type =
       prev_iter_output_internal_key.user_key.empty()
           ? ValueType::kTypeValue
           : prev_iter_output_internal_key.type;
+
+  // Range deletes truncated to align with file boundaries may be output by the
+  // compaction iterator with `ValueType::kTypeMaxValid` instead of the original
+  // type.
+  if ((next_table_min_internal_key_type == ValueType::kTypeRangeDeletion ||
+       next_table_min_internal_key_type == ValueType::kTypeMaxValid) ||
+      (prev_iter_output_internal_key_type == ValueType::kTypeRangeDeletion ||
+       prev_iter_output_internal_key_type == ValueType::kTypeMaxValid)) {
+    return false;
+  }
 
   // LIMITATION: Compaction progress persistence disabled when adjacent output
   // tables share the same user key at boundaries. This ensures a simple Seek()
