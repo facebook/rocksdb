@@ -2424,6 +2424,7 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
   bool enable_cancel_ = false;
   std::atomic<int> stop_count_{0};
   std::atomic<bool> cancel_{false};
+  SequenceNumber cancel_before_seqno = kMaxSequenceNumber;
 
   void SetUp() override {
     CompactionJobTestBase::SetUp();
@@ -2437,7 +2438,9 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
           if (enable_cancel_) {
             ParsedInternalKey parsed_key;
             if (ParseInternalKey(pair->second, &parsed_key, true).ok()) {
-              if (parsed_key.user_key == kCancelBeforeThisKey) {
+              if (parsed_key.user_key == kCancelBeforeThisKey &&
+                  (cancel_before_seqno == kMaxSequenceNumber ||
+                   parsed_key.sequence == cancel_before_seqno)) {
                 cancel_.store(true);
               }
             }
@@ -2665,7 +2668,7 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
       const std::initializer_list<mock::KVPair>& input_file_2,
       uint64_t last_sequence, const std::vector<uint64_t>& snapshots,
       const std::string& expected_next_key_to_compact,
-      const std::vector<std::string>& expected_input_keys, bool exists_progress,
+      const std::vector<std::string>& expected_input_keys,
       bool cancelled_past_mid_point = false) {
     std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
@@ -2701,7 +2704,7 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
 
     // Resume compaction
     CompactionProgress compaction_progress;
-    if (exists_progress) {
+    if (expected_next_key_to_compact != "") {
       compaction_progress.push_back(
           ReadAndParseProgress(compaction_progress_file));
     }
@@ -2774,35 +2777,43 @@ TEST_F(ResumableCompactionJobTest, BasicProgressResume) {
       4U /* last_sequence */, {} /* snapshots */,
       kCancelBeforeThisKey /* expected_next_key_to_compact */,
       {"a", "b", "bb", kCancelBeforeThisKey} /* expected_input_keys */,
-      true /* exists_progress */, true /* cancelled_past_mid_point*/);
+      true /* cancelled_past_mid_point */);
 }
 
 TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSameKey) {
   NewDB();
 
+  // `cancel_before_seqno` is set to 0U to force cancellation after
+  // `kCancelBeforeThisKey@1` instead of `kCancelBeforeThisKey@2`.
+  // The seqno is 0 because `kCancelBeforeThisKey@1` will have its sequence
+  // number zeroed during compaction while `kCancelBeforeThisKey@2` won't be
+  cancel_before_seqno = 0U;
   RunCancelAndResumeTest(
       {{KeyStr(kCancelBeforeThisKey, 1U, kTypeValue),
         "val1"}} /* input_file_1 */,
-      {{KeyStr(kCancelBeforeThisKey, 2U, kTypeValue),
-        "val2"}} /* input_file_2 */,
-      2U /* last_sequence */, {1U} /* snapshots */,
+      {{KeyStr(kCancelBeforeThisKey, 2U, kTypeValue), "val11"},
+       {KeyStr("d", 3U, kTypeValue), "val2"}} /* input_file_2 */,
+      3U /* last_sequence */, {1U} /* snapshots */,
       "" /* expected_next_key_to_compact */,
-      {kCancelBeforeThisKey, kCancelBeforeThisKey} /* expected_input_keys */,
-      false /* exists_progress */);
+      {kCancelBeforeThisKey, kCancelBeforeThisKey,
+       "d"} /* expected_input_keys */);
 }
 
 TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeleteRange) {
   NewDB();
 
   RunCancelAndResumeTest(
-      {{KeyStr(kCancelBeforeThisKey, 1U, kTypeValue),
-        "val1"}} /* input_file_1 */,
-      {{KeyStr(kCancelBeforeThisKey, 2U, kTypeRangeDeletion),
-        "val2"}} /* input_file_2 */,
-      2U /* last_sequence */, {1U} /* snapshots */,
-      "" /* expected_next_key_to_compact */,
-      {kCancelBeforeThisKey, kCancelBeforeThisKey} /* expected_input_keys */,
-      false /* exists_progress */);
+      {{KeyStr("a", 1U, kTypeValue), "val1"},
+       {KeyStr("b", 2U, kTypeValue), "val2"},
+       {KeyStr(kCancelBeforeThisKey, 3U, kTypeValue),
+        "val3"}} /* input_file_1 */,
+      {{KeyStr(kCancelBeforeThisKey, 4U, kTypeRangeDeletion),
+        "range_deletion_end_key"},
+       {KeyStr("d", 5U, kTypeValue), "val4"}} /* input_file_2 */,
+      5U /* last_sequence */, {3U} /* snapshots */,
+      "b" /* expected_next_key_to_compact */,
+      {"a", "b", kCancelBeforeThisKey, kCancelBeforeThisKey,
+       "d"} /* expected_input_keys */);
 }
 
 TEST_F(ResumableCompactionJobTest, NoProgressResumeOnMerge) {
@@ -2817,8 +2828,7 @@ TEST_F(ResumableCompactionJobTest, NoProgressResumeOnMerge) {
         "val4"}} /* input_file_2 */,
       4U /* last_sequence */, {} /* snapshots */,
       "bb" /* expected_next_key_to_compact */,
-      {"a", "b", "bb", kCancelBeforeThisKey} /* expected_input_keys */,
-      true /* exists_progress */);
+      {"a", "b", "bb", kCancelBeforeThisKey} /* expected_input_keys */);
 }
 
 TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSingleDelete) {
@@ -2834,8 +2844,7 @@ TEST_F(ResumableCompactionJobTest, NoProgressResumeOnSingleDelete) {
       5U /* last_sequence */, {3U} /* snapshots */,
       "b" /* expected_next_key_to_compact */,
       {"a", "b", kCancelBeforeThisKey, kCancelBeforeThisKey,
-       "d"} /* expected_input_keys */,
-      true /* exists_progress */);
+       "d"} /* expected_input_keys */);
 }
 
 TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeletionAtBottom) {
@@ -2851,8 +2860,7 @@ TEST_F(ResumableCompactionJobTest, NoProgressResumeOnDeletionAtBottom) {
       5U /* last_sequence */, {3U} /* snapshots */,
       "b" /* expected_next_key_to_compact */,
       {"a", "b", kCancelBeforeThisKey, kCancelBeforeThisKey,
-       "d"} /* expected_input_keys */,
-      true /* exists_progress */);
+       "d"} /* expected_input_keys */);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
