@@ -1480,11 +1480,11 @@ CompactionJob::CreateFileHandlers(SubcompactionState* sub_compact,
   const CompactionFileCloseFunc close_file_func =
       [this, sub_compact, start_user_key, end_user_key](
           const Status& status,
-          const ParsedInternalKey& prev_table_last_internal_key,
+          const ParsedInternalKey& prev_iter_output_internal_key,
           const Slice& next_table_min_key, const CompactionIterator* c_iter,
           CompactionOutputs& outputs) {
         return this->FinishCompactionOutputFile(
-            status, prev_table_last_internal_key, next_table_min_key,
+            status, prev_iter_output_internal_key, next_table_min_key,
             start_user_key, end_user_key, c_iter, sub_compact, outputs);
       };
 
@@ -1499,8 +1499,8 @@ Status CompactionJob::ProcessKeyValue(
   const uint64_t kRecordStatsEvery = 1000;
   [[maybe_unused]] const std::optional<const Slice> end = sub_compact->end;
 
-  IterKey last_output_key;
-  ParsedInternalKey last_output_ikey;
+  IterKey prev_iter_output_key;
+  ParsedInternalKey prev_iter_output_internal_key;
 
   TEST_SYNC_POINT_CALLBACK(
       "CompactionJob::ProcessKeyValueCompaction()::Processing",
@@ -1551,9 +1551,9 @@ Status CompactionJob::ProcessKeyValue(
     // and `close_file_func`.
     // TODO: it would be better to have the compaction file open/close moved
     // into `CompactionOutputs` which has the output file information.
-    status =
-        sub_compact->AddToOutput(*c_iter, use_proximal_output, open_file_func,
-                                 close_file_func, last_output_ikey);
+    status = sub_compact->AddToOutput(*c_iter, use_proximal_output,
+                                      open_file_func, close_file_func,
+                                      prev_iter_output_internal_key);
     if (!status.ok()) {
       break;
     }
@@ -1562,9 +1562,10 @@ Status CompactionJob::ProcessKeyValue(
                              static_cast<void*>(const_cast<std::atomic<bool>*>(
                                  &manual_compaction_canceled_)));
 
-    last_output_key.SetInternalKey(c_iter->key(), &last_output_ikey);
-    last_output_ikey.sequence = ikey.sequence;
-    last_output_ikey.type = ikey.type;
+    prev_iter_output_key.SetInternalKey(c_iter->key(),
+                                        &prev_iter_output_internal_key);
+    prev_iter_output_internal_key.sequence = ikey.sequence;
+    prev_iter_output_internal_key.type = ikey.type;
     c_iter->Next();
 
 #ifndef NDEBUG
@@ -1871,7 +1872,7 @@ void CompactionJob::RecordDroppedKeys(
 
 Status CompactionJob::FinishCompactionOutputFile(
     const Status& input_status,
-    const ParsedInternalKey& prev_table_last_internal_key,
+    const ParsedInternalKey& prev_iter_output_internal_key,
     const Slice& next_table_min_key, const Slice* comp_start_user_key,
     const Slice* comp_end_user_key, const CompactionIterator* c_iter,
     SubcompactionState* sub_compact, CompactionOutputs& outputs) {
@@ -2049,7 +2050,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
 
   if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact, c_iter,
-                                                  prev_table_last_internal_key,
+                                                  prev_iter_output_internal_key,
                                                   next_table_min_key, meta)) {
     UpdateSubcompactionProgress(c_iter, next_table_min_key, sub_compact);
     s = PersistSubcompactionProgress(sub_compact);
@@ -2060,10 +2061,10 @@ Status CompactionJob::FinishCompactionOutputFile(
 
 bool CompactionJob::ShouldUpdateSubcompactionProgress(
     const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
-    const ParsedInternalKey& prev_table_last_internal_key,
+    const ParsedInternalKey& prev_iter_output_internal_key,
     const Slice& next_table_min_internal_key, const FileMetaData* meta) const {
   const auto* cfd = sub_compact->compaction->column_family_data();
-  // No need to update when the output will not get persisted
+  // No need to update when the progress will not get persisted
   if (compaction_progress_writer_ == nullptr) {
     return false;
   }
@@ -2087,19 +2088,24 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   }
 
   // LIMITATION: Compaction progress persistence disabled for file boundaries
-  // contaning range deletions. Range deletions can span file boundaries, making
-  // it difficult (but possible) to ensure adjacent output tables have different
-  // user keys. See the last check for why different users keys of adjacent
-  // output tables are needed
+  // containing range deletions. Range deletions can span file boundaries,
+  // making it difficult to ensure adjacent output tables have different user
+  // keys. See the last check for why different users keys of adjacent output
+  // tables are needed
   const ValueType next_table_min_internal_key_type =
       ExtractValueType(next_table_min_internal_key);
-  const ValueType prev_table_last_internal_key_type =
-      prev_table_last_internal_key.user_key.empty()
+  const ValueType prev_iter_output_internal_key_type =
+      prev_iter_output_internal_key.user_key.empty()
           ? ValueType::kTypeValue
-          : prev_table_last_internal_key.type;
+          : prev_iter_output_internal_key.type;
 
-  if (next_table_min_internal_key_type == ValueType::kTypeRangeDeletion ||
-      prev_table_last_internal_key_type == ValueType::kTypeRangeDeletion) {
+  // Range deletes truncated to align with file boundaries may be output by the
+  // compaction iterator with `ValueType::kTypeMaxValid` instead of the original
+  // type.
+  if ((next_table_min_internal_key_type == ValueType::kTypeRangeDeletion ||
+       next_table_min_internal_key_type == ValueType::kTypeMaxValid) ||
+      (prev_iter_output_internal_key_type == ValueType::kTypeRangeDeletion ||
+       prev_iter_output_internal_key_type == ValueType::kTypeMaxValid)) {
     return false;
   }
 
@@ -2109,9 +2115,9 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   const Slice next_table_min_user_key =
       ExtractUserKey(next_table_min_internal_key);
   const Slice prev_table_last_user_key =
-      prev_table_last_internal_key.user_key.empty()
+      prev_iter_output_internal_key.user_key.empty()
           ? Slice()
-          : prev_table_last_internal_key.user_key;
+          : prev_iter_output_internal_key.user_key;
 
   if (cfd->user_comparator()->EqualWithoutTimestamp(next_table_min_user_key,
                                                     prev_table_last_user_key)) {
