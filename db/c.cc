@@ -934,6 +934,38 @@ rocksdb_compaction_service_options_override_create() {
   return new rocksdb_compaction_service_options_override_t;
 }
 
+rocksdb_compaction_service_options_override_t*
+rocksdb_compaction_service_options_override_create_from_options(
+    rocksdb_options_t* options) {
+  if (!options) {
+    return nullptr;
+  }
+
+  rocksdb_compaction_service_options_override_t* override_opts =
+      new rocksdb_compaction_service_options_override_t;
+
+  // Copy all relevant options from rocksdb_options_t
+  override_opts->rep.env = options->rep.env;
+  override_opts->rep.file_checksum_gen_factory =
+      options->rep.file_checksum_gen_factory;
+  override_opts->rep.comparator = options->rep.comparator;
+  override_opts->rep.merge_operator = options->rep.merge_operator;
+  override_opts->rep.compaction_filter = options->rep.compaction_filter;
+  override_opts->rep.compaction_filter_factory =
+      options->rep.compaction_filter_factory;
+  override_opts->rep.prefix_extractor = options->rep.prefix_extractor;
+  override_opts->rep.table_factory = options->rep.table_factory;
+  override_opts->rep.sst_partitioner_factory =
+      options->rep.sst_partitioner_factory;
+  override_opts->rep.listeners = options->rep.listeners;
+  override_opts->rep.statistics = options->rep.statistics;
+  override_opts->rep.info_log = options->rep.info_log;
+  override_opts->rep.table_properties_collector_factories =
+      options->rep.table_properties_collector_factories;
+
+  return override_opts;
+}
+
 void rocksdb_compaction_service_options_override_destroy(
     rocksdb_compaction_service_options_override_t* override_options) {
   if (override_options) {
