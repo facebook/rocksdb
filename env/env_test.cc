@@ -1670,11 +1670,11 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
 
   bool io_uring_submit_and_wait_called = false;
   SyncPoint::GetInstance()->SetCallBack(
-      "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+      "PosixRandomAccessFile::MultiRead:io_uring_sq_ready:return1",
       [&](void* arg) {
         io_uring_submit_and_wait_called = true;
-        ssize_t* ret = static_cast<ssize_t*>(arg);
-        (*ret)--;
+        unsigned* ret = static_cast<unsigned*>(arg);
+        *ret = 1;
       });
   SyncPoint::GetInstance()->SetCallBack(
       "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
