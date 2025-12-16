@@ -692,6 +692,8 @@ ts_params = {
     # Below flag is randomly picked once and kept consistent in following runs.
     "persist_user_defined_timestamps": random.choice([0, 1, 1]),
     "use_merge": 0,
+    # Causing failures and not yet compatible
+    "use_multiscan": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
     "ingest_external_file_one_in": 0,
