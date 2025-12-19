@@ -52,7 +52,13 @@ Status WalManager::GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos,
   VectorWalPtr logs;
   s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile, need_seqnos);
 
-  if (!include_archived || !s.ok()) {
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!include_archived) {
+    // Return only the live logs without archived logs
+    files = std::move(logs);
     return s;
   }
 
