@@ -16,6 +16,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -94,6 +95,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+using ScanOptionsMap = std::unordered_map<size_t, MultiScanArgs>;
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
@@ -978,7 +981,8 @@ class LevelIterator final : public InternalIterator {
           nullptr,
       bool allow_unprepared_value = false,
       std::unique_ptr<TruncatedRangeDelIterator>*** range_tombstone_iter_ptr_ =
-          nullptr)
+          nullptr,
+      Statistics* db_statistics = nullptr, SystemClock* clock = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -1003,7 +1007,9 @@ class LevelIterator final : public InternalIterator {
         allow_unprepared_value_(allow_unprepared_value),
         is_next_read_sequential_(false),
         to_return_sentinel_(false),
-        scan_opts_(nullptr) {
+        scan_opts_(nullptr),
+        db_statistics_(db_statistics),
+        clock_(clock) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
     if (range_tombstone_iter_ptr_) {
@@ -1011,7 +1017,15 @@ class LevelIterator final : public InternalIterator {
     }
   }
 
-  ~LevelIterator() override { delete file_iter_.Set(nullptr); }
+  ~LevelIterator() override {
+    delete file_iter_.Set(nullptr);
+    // Clean up any prepared iterators that weren't used
+    for (auto& entry : prepared_iters_) {
+      delete entry.second;
+    }
+    prepared_iters_.clear();
+    assert(prepared_iters_.size() == 0);
+  }
 
   // Seek to the first file with a key >= target.
   // If range_tombstone_iter_ is not nullptr, then we pretend that file
@@ -1099,10 +1113,133 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
-    scan_opts_ = scan_opts;
-    if (file_iter_.iter()) {
-      file_iter_.Prepare(scan_opts_);
+  inline bool FileHasMultiScanArg(size_t file_index) {
+    if (file_to_scan_opts_.get()) {
+      auto it = file_to_scan_opts_->find(file_index);
+      if (it != file_to_scan_opts_->end()) {
+        return !it->second.empty();
+      }
+    }
+    return false;
+  }
+
+  MultiScanArgs& GetMultiScanArgForFile(size_t file_index) {
+    auto multi_scan_args_it = file_to_scan_opts_->find(file_index);
+    if (multi_scan_args_it == file_to_scan_opts_->end()) {
+      auto ret = file_to_scan_opts_->emplace(
+          file_index, MultiScanArgs(user_comparator_.user_comparator()));
+      multi_scan_args_it = ret.first;
+      assert(ret.second);
+    }
+    return multi_scan_args_it->second;
+  }
+
+  void Prepare(const MultiScanArgs* so) override {
+    // We assume here that scan_opts is sorted such that
+    // scan_opts[0].range.start < scan_opts[1].range.start, and non
+    // overlapping
+    if (so == nullptr) {
+      return;
+    }
+
+    scan_opts_ = so;
+
+    // Verify comparator is consistent
+    assert(so->GetComparator() == user_comparator_.user_comparator());
+
+    file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
+    for (size_t k = 0; k < scan_opts_->size(); k++) {
+      const ScanOptions& opt = scan_opts_->GetScanRanges().at(k);
+      auto start = opt.range.start;
+      auto end = opt.range.limit;
+
+      if (!start.has_value()) {
+        continue;
+      }
+
+      // We can capture this case in the future, but for now lets skip this.
+      if (!end.has_value()) {
+        continue;
+      }
+
+      const size_t timestamp_size =
+          user_comparator_.user_comparator()->timestamp_size();
+      InternalKey istart, iend;
+      if (timestamp_size == 0) {
+        istart =
+            InternalKey(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+        // end key is exclusive for multiscan
+        iend = InternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+      } else {
+        std::string start_key_with_ts, end_key_with_ts;
+        AppendKeyWithMaxTimestamp(&start_key_with_ts, start.value(),
+                                  timestamp_size);
+        AppendKeyWithMaxTimestamp(&end_key_with_ts, end.value(),
+                                  timestamp_size);
+        istart = InternalKey(start_key_with_ts, kMaxSequenceNumber,
+                             kValueTypeForSeek);
+        // end key is exclusive for multiscan
+        iend =
+            InternalKey(end_key_with_ts, kMaxSequenceNumber, kValueTypeForSeek);
+      }
+
+      // TODO: This needs to be optimized, right now we iterate twice, which
+      // we dont need to. We can do this in N rather than 2N.
+      size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
+      size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
+
+      // We need to check the relevant cases
+      // Cases:
+      // 1. [  S        E  ]
+      // 2. [  S  ]  [  E  ]
+      // 3. [  S  ] ...... [  E  ]
+      for (auto i = fstart; i <= fend; i++) {
+        if (i < flevel_->num_files) {
+          // FindFile only compares against the largest_key, so we need this
+          // additional check to ensure the scan range overlaps the file
+          if (icomparator_.InternalKeyComparator::Compare(
+                  iend.Encode(), flevel_->files[i].smallest_key) < 0) {
+            continue;
+          }
+          auto const metadata = flevel_->files[i].file_metadata;
+          if (metadata->FileIsStandAloneRangeTombstone()) {
+            // Skip stand alone range deletion files.
+            continue;
+          }
+          auto& args = GetMultiScanArgForFile(i);
+          args.insert(start.value(), end.value(), opt.property_bag);
+        }
+      }
+    }
+
+    StopWatch timer(clock_, db_statistics_, MULTISCAN_PREPARE_ITERATORS);
+
+    // Propagate multiscan configs
+    for (auto& file_to_arg : *file_to_scan_opts_) {
+      file_to_arg.second.CopyConfigFrom(*so);
+      assert(OverlapRange(*file_to_arg.second.GetScanRanges().begin(),
+                          file_to_arg.first) &&
+             OverlapRange(*file_to_arg.second.GetScanRanges().rbegin(),
+                          file_to_arg.first));
+    }
+
+    if (so->use_async_io) {
+      auto before = file_index_;
+      // Pre-create and prepare only relevant file iterators
+      for (auto& file_to_arg : *file_to_scan_opts_) {
+        size_t file_index = file_to_arg.first;
+
+        file_index_ = file_index;
+        // Create iterator for this file
+        auto iter = NewFileIterator();
+        if (iter != nullptr) {
+          // If we have async enabled, lets prepare all our iterators.
+          iter->Prepare(&file_to_arg.second);
+          // Store the prepared iterator
+          prepared_iters_[file_index] = iter;
+        }
+      }
+      file_index_ = before;
     }
   }
 
@@ -1178,6 +1315,10 @@ class LevelIterator final : public InternalIterator {
     }
   }
 
+#ifndef NDEBUG
+  bool OverlapRange(const ScanOptions& opts, size_t file_index);
+#endif
+
   TableCache* table_cache_;
   const ReadOptions& read_options_;
   const FileOptions& file_options_;
@@ -1231,7 +1372,16 @@ class LevelIterator final : public InternalIterator {
   bool prefix_exhausted_ = false;
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
-  const std::vector<ScanOptions>* scan_opts_;
+  const MultiScanArgs* scan_opts_ = nullptr;
+
+  Statistics* db_statistics_ = nullptr;
+  SystemClock* clock_ = nullptr;
+
+  // Our stored scan_opts for each prefix
+  std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
+
+  // Map to store pre-created iterators by file index
+  std::unordered_map<size_t, InternalIterator*> prepared_iters_;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1272,6 +1422,14 @@ void LevelIterator::Seek(const Slice& target) {
   }
 
   if (file_iter_.iter() != nullptr) {
+    if (scan_opts_) {
+      // At this point, we only know that the seek target is < largest_key
+      // in the file. We need to check whether there is actual overlap.
+      const FdWithKeyRange& cur_file = flevel_->files[file_index_];
+      if (KeyReachedUpperBound(cur_file.smallest_key)) {
+        return;
+      }
+    }
     file_iter_.Seek(target);
     // Status::TryAgain indicates asynchronous request for retrieval of data
     // blocks has been submitted. So it should return at this point and Seek
@@ -1494,7 +1652,31 @@ bool LevelIterator::SkipEmptyFileForward() {
     // LevelIterator::Seek*, it should also call Seek* into the corresponding
     // range tombstone iterator.
     if (file_iter_.iter() != nullptr) {
-      file_iter_.SeekToFirst();
+      // If we are doing prepared scan opts then we should seek to the values
+      // specified by the scan opts
+
+      if (scan_opts_ && FileHasMultiScanArg(file_index_)) {
+        const ScanOptions& opts =
+            GetMultiScanArgForFile(file_index_).GetScanRanges().front();
+        if (opts.range.start.has_value()) {
+          InternalKey target;
+          const size_t ts_size =
+              user_comparator_.user_comparator()->timestamp_size();
+          if (ts_size == 0) {
+            target = InternalKey(opts.range.start.value(), kMaxSequenceNumber,
+                                 kValueTypeForSeek);
+          } else {
+            std::string seek_key;
+            AppendKeyWithMaxTimestamp(&seek_key, opts.range.start.value(),
+                                      ts_size);
+            target =
+                InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
+          }
+          file_iter_.Seek(target.Encode());
+        }
+      } else {
+        file_iter_.SeekToFirst();
+      }
       if (range_tombstone_iter_) {
         if (*range_tombstone_iter_) {
           (*range_tombstone_iter_)->SeekToFirst();
@@ -1536,18 +1718,25 @@ void LevelIterator::SkipEmptyFileBackward() {
   }
 }
 
+#ifndef NDEBUG
+bool LevelIterator::OverlapRange(const ScanOptions& opts, size_t file_index) {
+  return (user_comparator_.CompareWithoutTimestamp(
+              opts.range.start.value(), /*a_has_ts=*/false,
+              ExtractUserKey(flevel_->files[file_index].largest_key),
+              /*b_has_ts=*/true) <= 0 &&
+          user_comparator_.CompareWithoutTimestamp(
+              opts.range.limit.value(), /*a_has_ts=*/false,
+              ExtractUserKey(flevel_->files[file_index].smallest_key),
+              /*b_has_ts=*/true) > 0);
+}
+#endif
+
 void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (pinned_iters_mgr_ && iter) {
     iter->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
-  // Since this is a new table iterator, no need to call Prepare() if
-  // scan_opts_ is null
-  if (iter && scan_opts_) {
-    file_iter_.Prepare(scan_opts_);
-  }
-
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
     file_iter_.UpdateReadaheadState(old_iter);
@@ -1577,11 +1766,29 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
+      if (!prepared_iters_.empty()) {
+        auto prepared_it = prepared_iters_.find(file_index_);
+        if (prepared_it != prepared_iters_.end()) {
+          InternalIterator* iter = prepared_it->second;
+          prepared_iters_.erase(prepared_it);
+          SetFileIterator(iter);
+          return;
+        }
+      }
+
       InternalIterator* iter = NewFileIterator();
+      if (FileHasMultiScanArg(file_index_)) {
+        auto& args = GetMultiScanArgForFile(file_index_);
+        assert(OverlapRange(*args.GetScanRanges().begin(), file_index_) &&
+               OverlapRange(*args.GetScanRanges().rbegin(), file_index_));
+        iter->Prepare(&args);
+      }
+
       SetFileIterator(iter);
     }
   }
 }
+
 }  // anonymous namespace
 
 Status Version::GetTableProperties(const ReadOptions& read_options,
@@ -1882,6 +2089,79 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
   }
 }
 
+void Version::GetColumnFamilyMetaData(
+    const GetColumnFamilyMetaDataOptions& options,
+    ColumnFamilyMetaData* cf_meta) {
+  assert(cf_meta);
+  assert(cfd_);
+
+  cf_meta->name = cfd_->GetName();
+  cf_meta->size = 0;
+  cf_meta->file_count = 0;
+  cf_meta->levels.clear();
+  cf_meta->blob_file_size = 0;
+  cf_meta->blob_file_count = 0;
+  cf_meta->blob_files.clear();
+
+  const auto& ioptions = cfd_->ioptions();
+  auto* vstorage = storage_info();
+
+  int first_level = (options.level >= 0) ? options.level : 0;
+  int last_level =
+      (options.level >= 0) ? options.level + 1 : cfd_->NumberLevels();
+
+  InternalKey ikey_start, ikey_end;
+  const InternalKey* begin = nullptr;
+  const InternalKey* end = nullptr;
+
+  if (options.range.start.has_value()) {
+    ikey_start = InternalKey(options.range.start.value(), kMaxSequenceNumber,
+                             kValueTypeForSeek);
+    begin = &ikey_start;
+  }
+
+  if (options.range.limit.has_value()) {
+    ikey_end = InternalKey(options.range.limit.value(), kMaxSequenceNumber,
+                           kValueTypeForSeek);
+    end = &ikey_end;
+  }
+
+  for (int l = first_level; l < last_level; ++l) {
+    uint64_t level_size = 0;
+    std::vector<SstFileMetaData> files;
+    std::vector<FileMetaData*> overlapping_files;
+    vstorage->GetOverlappingInputs(l, begin, end, &overlapping_files);
+
+    for (const auto& file : overlapping_files) {
+      uint32_t path_id = file->fd.GetPathId();
+      const auto& file_path = (path_id < ioptions.cf_paths.size())
+                                  ? ioptions.cf_paths[path_id].path
+                                  : ioptions.cf_paths.back().path;
+      const uint64_t file_number = file->fd.GetNumber();
+      files.emplace_back(
+          MakeTableFileName("", file_number), file_number, file_path,
+          file->fd.GetFileSize(), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
+          file->largest.user_key().ToString(),
+          file->stats.num_reads_sampled.load(std::memory_order_relaxed),
+          file->being_compacted, file->temperature,
+          file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
+          file->TryGetFileCreationTime(), file->epoch_number,
+          file->file_checksum, file->file_checksum_func_name);
+      files.back().num_entries = file->num_entries;
+      files.back().num_deletions = file->num_deletions;
+      files.back().smallest = file->smallest.Encode().ToString();
+      files.back().largest = file->largest.Encode().ToString();
+      level_size += file->fd.GetFileSize();
+      cf_meta->file_count++;
+    }
+    if (!files.empty()) {
+      cf_meta->levels.emplace_back(l, level_size, std::move(files));
+      cf_meta->size += level_size;
+    }
+  }
+}
+
 uint64_t Version::GetSstFilesSize() {
   uint64_t sst_files_size = 0;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
@@ -1966,7 +2246,7 @@ InternalIterator* Version::TEST_GetLevelIterator(
       cfd_->internal_stats()->GetFileReadHist(level),
       TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
       nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
-      allow_unprepared_value, &tombstone_iter_ptr);
+      allow_unprepared_value, &tombstone_iter_ptr, db_statistics_, clock_);
   if (read_options.ignore_range_deletions) {
     merge_iter_builder->AddIterator(level_iter);
   } else {
@@ -2106,7 +2386,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
         /*range_del_agg=*/nullptr,
         /*compaction_boundaries=*/nullptr, allow_unprepared_value,
-        &tombstone_iter_ptr);
+        &tombstone_iter_ptr, db_statistics_, clock_);
     if (read_options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(level_iter);
     } else {
@@ -2163,7 +2443,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         mutable_cf_options_, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        &range_del_agg, nullptr, false));
+        &range_del_agg, nullptr, false, nullptr, db_statistics_, clock_));
     status = OverlapWithIterator(ucmp, smallest_user_key, largest_user_key,
                                  iter.get(), overlap);
   }
@@ -2741,9 +3021,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT,
                      mget_tasks.size());
           // Collect all results so far
-          std::vector<Status> statuses = folly::coro::blockingWait(
-              folly::coro::collectAllRange(std::move(mget_tasks))
-                  .scheduleOn(&range->context()->executor()));
+          std::vector<Status> statuses =
+              folly::coro::blockingWait(co_withExecutor(
+                  &range->context()->executor(),
+                  folly::coro::collectAllRange(std::move(mget_tasks))));
           if (s.ok()) {
             for (Status stat : statuses) {
               if (!stat.ok()) {
@@ -3028,9 +3309,10 @@ Status Version::MultiGetAsync(
         assert(waiting.size());
         RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
-        std::vector<Status> statuses = folly::coro::blockingWait(
-            folly::coro::collectAllRange(std::move(mget_tasks))
-                .scheduleOn(&range->context()->executor()));
+        std::vector<Status> statuses =
+            folly::coro::blockingWait(co_withExecutor(
+                &range->context()->executor(),
+                folly::coro::collectAllRange(std::move(mget_tasks))));
         mget_tasks.clear();
         if (s.ok()) {
           for (Status stat : statuses) {
@@ -3466,7 +3748,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
-  int max_output_level = MaxOutputLevel(immutable_options.allow_ingest_behind);
+  int max_output_level =
+      MaxOutputLevel(immutable_options.cf_allow_ingest_behind ||
+                     immutable_options.allow_ingest_behind);
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -3507,8 +3791,13 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
 
       if (compaction_style_ == kCompactionStyleFIFO) {
-        score = static_cast<double>(total_size) /
-                mutable_cf_options.compaction_options_fifo.max_table_files_size;
+        auto max_table_files_size =
+            mutable_cf_options.compaction_options_fifo.max_table_files_size;
+        if (max_table_files_size == 0) {
+          // avoid divide 0
+          max_table_files_size = 1;
+        }
+        score = static_cast<double>(total_size) / max_table_files_size;
         if (score < 1 &&
             mutable_cf_options.compaction_options_fifo.allow_compaction) {
           score = std::max(
@@ -3646,6 +3935,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction(max_output_level);
   ComputeBottommostFilesMarkedForCompaction(
+      immutable_options.cf_allow_ingest_behind ||
       immutable_options.allow_ingest_behind);
   ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   ComputeFilesMarkedForPeriodicCompaction(
@@ -4335,7 +4625,8 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range, InternalKey** next_smallest) const {
+    bool expand_range, const FileMetaData* starting_l0_file,
+    InternalKey** next_smallest) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
@@ -4368,7 +4659,19 @@ void VersionStorageInfo::GetOverlappingInputs(
 
   // index stores the file index need to check.
   std::list<size_t> index;
-  for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
+  size_t start_index = 0;
+  if (starting_l0_file != nullptr) {
+    uint64_t starting_file_number = starting_l0_file->fd.GetNumber();
+    for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
+      if (level_files_brief_[level].files[i].fd.GetNumber() ==
+          starting_file_number) {
+        start_index = i;
+        break;
+      }
+    }
+    assert(start_index < level_files_brief_[level].num_files);
+  }
+  for (size_t i = start_index; i < level_files_brief_[level].num_files; i++) {
     index.emplace_back(i);
   }
 
@@ -4643,8 +4946,7 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
   if (restart_epoch) {
     cfd->ResetNextEpochNumber();
 
-    bool reserve_epoch_num_for_file_ingested_behind =
-        cfd->ioptions().allow_ingest_behind;
+    bool reserve_epoch_num_for_file_ingested_behind = cfd->AllowIngestBehind();
     if (reserve_epoch_num_for_file_ingested_behind) {
       uint64_t reserved_epoch_number = cfd->NewEpochNumber();
       assert(reserved_epoch_number ==
@@ -4652,7 +4954,8 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
       ROCKS_LOG_INFO(cfd->ioptions().info_log.get(),
                      "[%s]CF has reserved epoch number %" PRIu64
                      " for files ingested "
-                     "behind since `Options::allow_ingest_behind` is true",
+                     "behind since `Options::allow_ingest_behind` or "
+                     "`Options::cf_allow_ingest_behind` is true",
                      cfd->GetName().c_str(), reserved_epoch_number);
     }
   }
@@ -5155,6 +5458,7 @@ void AtomicGroupReadBuffer::Clear() {
 
 VersionSet::VersionSet(
     const std::string& dbname, const ImmutableDBOptions* _db_options,
+    const MutableDBOptions& mutable_db_options,
     const FileOptions& storage_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
     BlockCacheTracer* const block_cache_tracer,
@@ -5183,6 +5487,7 @@ VersionSet::VersionSet(
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
+      last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
@@ -5190,7 +5495,9 @@ VersionSet::VersionSet(
       offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)),
       error_handler_(error_handler),
       unchanging_(unchanging),
-      closed_(false) {}
+      closed_(false) {
+  UpdatedMutableDbOptions(mutable_db_options, /*mu=*/nullptr);
+}
 
 Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
   Status s;
@@ -5264,6 +5571,15 @@ void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
+
+    // Clear TableCache to prevent use-after-free: Reset() deletes old
+    // ColumnFamilySet but reuses table_cache_, which may contain
+    // BlockBasedTable entries with dangling references to deleted CFD's
+    // ioptions.
+    if (table_cache_) {
+      table_cache_->EraseUnRefEntries();
+    }
+
     // db_id becomes the source of truth after DBImpl::Recover():
     // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
     // Note: we may not be able to recover db_id from MANIFEST if
@@ -5286,9 +5602,36 @@ void VersionSet::Reset() {
   current_version_number_ = 0;
   manifest_writers_.clear();
   manifest_file_size_ = 0;
+  last_compacted_manifest_file_size_ = 0;
+  TuneMaxManifestFileSize();
   obsolete_files_.clear();
   obsolete_manifests_.clear();
   wals_.Reset();
+}
+
+void VersionSet::UpdatedMutableDbOptions(
+    const MutableDBOptions& updated_options, InstrumentedMutex* mu) {
+  // Must be holding mutex if not called during initialization
+  if (mu) {
+    mu->AssertHeld();
+  } else {
+    // manifest_file_size_ must be 0 if called from the constructor
+    assert(manifest_file_size_ == 0);
+  }
+  file_options_.writable_file_max_buffer_size =
+      updated_options.writable_file_max_buffer_size;
+  min_max_manifest_file_size_ = updated_options.max_manifest_file_size;
+  max_manifest_space_amp_pct_ = static_cast<unsigned>(
+      std::max(updated_options.max_manifest_space_amp_pct, 0));
+  manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
+  TuneMaxManifestFileSize();
+}
+
+void VersionSet::TuneMaxManifestFileSize() {
+  tuned_max_manifest_file_size_ =
+      std::max(min_max_manifest_file_size_,
+               last_compacted_manifest_file_size_ *
+                   (100U + max_manifest_space_amp_pct_) / 100U);
 }
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
@@ -5373,8 +5716,8 @@ Status VersionSet::ProcessManifestWrites(
         // the preceding version edits in the same atomic group, and update
         // their `remaining_entries_` member variable because we are NOT going
         // to write the version edits' of dropped CF to the MANIFEST. If we
-        // don't update, then Recover can report corrupted atomic group because
-        // the `remaining_entries_` do not match.
+        // don't update, then Recover can report corrupted atomic group
+        // because the `remaining_entries_` do not match.
         if (!batch_edits.empty()) {
           if (batch_edits.back()->IsInAtomicGroup() &&
               batch_edits.back()->GetRemainingEntries() > 0) {
@@ -5534,10 +5877,11 @@ Status VersionSet::ProcessManifestWrites(
   }
 #endif  // NDEBUG
 
+  uint64_t prev_manifest_file_size = manifest_file_size_;
   assert(pending_manifest_file_number_ == 0);
   if (!skip_manifest_write &&
       (!descriptor_log_ ||
-       manifest_file_size_ > db_options_->max_manifest_file_size)) {
+       prev_manifest_file_size >= tuned_max_manifest_file_size_)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {
@@ -5577,6 +5921,8 @@ Status VersionSet::ProcessManifestWrites(
   IOStatus manifest_io_status;
   manifest_io_status.PermitUncheckedError();
   std::unique_ptr<log::Writer> new_desc_log_ptr;
+  // Save before releasing mu
+  uint64_t manifest_preallocation_size = manifest_preallocation_size_;
   if (skip_manifest_write) {
     if (s.ok()) {
       constexpr bool update_stats = true;
@@ -5620,16 +5966,13 @@ Status VersionSet::ProcessManifestWrites(
       // This is fine because everything inside of this block is serialized --
       // only one thread can be here at the same time
       // create new manifest file
-      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
-                     pending_manifest_file_number_);
       std::string descriptor_fname =
           DescriptorFileName(dbname_, pending_manifest_file_number_);
       std::unique_ptr<FSWritableFile> descriptor_file;
       io_s = NewWritableFile(fs_.get(), descriptor_fname, &descriptor_file,
                              opt_file_opts);
       if (io_s.ok()) {
-        descriptor_file->SetPreallocationBlockSize(
-            db_options_->manifest_preallocation_size);
+        descriptor_file->SetPreallocationBlockSize(manifest_preallocation_size);
         FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
@@ -5679,10 +6022,12 @@ Status VersionSet::ProcessManifestWrites(
 #ifndef NDEBUG
         if (batch_edits.size() > 1 && batch_edits.size() - 1 == idx) {
           TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:"
+              "0",
               nullptr);
           TEST_SYNC_POINT(
-              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:1");
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:"
+              "1");
         }
         ++idx;
 #endif /* !NDEBUG */
@@ -5719,8 +6064,8 @@ Status VersionSet::ProcessManifestWrites(
           file_options_.temperature, dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
-        // Quarantine old manifest file in case new manifest file's CURRENT file
-        // wasn't created successfully and the old manifest is needed.
+        // Quarantine old manifest file in case new manifest file's CURRENT
+        // file wasn't created successfully and the old manifest is needed.
         limbo_descriptor_log_file_number.push_back(manifest_file_number_);
         files_to_quarantine_if_commit_fail.push_back(
             &limbo_descriptor_log_file_number);
@@ -5730,6 +6075,13 @@ Status VersionSet::ProcessManifestWrites(
     if (s.ok()) {
       // find offset in manifest file where this version is stored.
       new_manifest_file_size = raw_desc_log_ptr->file()->GetFileSize();
+      if (new_descriptor_log) {
+        ROCKS_LOG_INFO(db_options_->info_log,
+                       "Created manifest %" PRIu64
+                       ", compacted+appended from %" PRIu64 " to %" PRIu64 "\n",
+                       pending_manifest_file_number_, prev_manifest_file_size,
+                       new_manifest_file_size);
+      }
     }
 
     if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
@@ -5778,6 +6130,8 @@ Status VersionSet::ProcessManifestWrites(
     descriptor_log_ = std::move(new_desc_log_ptr);
     obsolete_manifests_.emplace_back(
         DescriptorFileName("", manifest_file_number_));
+    last_compacted_manifest_file_size_ = new_manifest_file_size;
+    TuneMaxManifestFileSize();
   }
 
   // Install the new versions
@@ -5860,21 +6214,21 @@ Status VersionSet::ProcessManifestWrites(
     // that renaming tmp file to CURRENT failed.
     //
     // On local POSIX-compliant FS, the CURRENT must point to the original
-    // MANIFEST. We can delete the new MANIFEST for simplicity, but we can also
-    // keep it. Future recovery will ignore this MANIFEST. It's also ok for the
-    // process not to crash and continue using the db. Any future LogAndApply()
-    // call will switch to a new MANIFEST and update CURRENT, still ignoring
-    // this one.
+    // MANIFEST. We can delete the new MANIFEST for simplicity, but we can
+    // also keep it. Future recovery will ignore this MANIFEST. It's also ok
+    // for the process not to crash and continue using the db. Any future
+    // LogAndApply() call will switch to a new MANIFEST and update CURRENT,
+    // still ignoring this one.
     //
     // On non-local FS, it is
     // possible that the rename operation succeeded on the server (remote)
     // side, but the client somehow returns a non-ok status to RocksDB. Note
     // that this does not violate atomicity. Should we delete the new MANIFEST
     // successfully, a subsequent recovery attempt will likely see the CURRENT
-    // pointing to the new MANIFEST, thus fail. We will not be able to open the
-    // DB again. Therefore, if manifest operations succeed, we should keep the
-    // the new MANIFEST. If the process proceeds, any future LogAndApply() call
-    // will switch to a new MANIFEST and update CURRENT. If user tries to
+    // pointing to the new MANIFEST, thus fail. We will not be able to open
+    // the DB again. Therefore, if manifest operations succeed, we should keep
+    // the the new MANIFEST. If the process proceeds, any future LogAndApply()
+    // call will switch to a new MANIFEST and update CURRENT. If user tries to
     // re-open the DB,
     // a) CURRENT points to the new MANIFEST, and the new MANIFEST is present.
     // b) CURRENT points to the original MANIFEST, and the original MANIFEST
@@ -6003,9 +6357,9 @@ Status VersionSet::LogAndApply(
     first_writer.cv.Wait();
   }
   if (first_writer.done) {
-    // All non-CF-manipulation operations can be grouped together and committed
-    // to MANIFEST. They should all have finished. The status code is stored in
-    // the first manifest writer.
+    // All non-CF-manipulation operations can be grouped together and
+    // committed to MANIFEST. They should all have finished. The status code
+    // is stored in the first manifest writer.
 #ifndef NDEBUG
     for (const auto& writer : writers) {
       assert(writer.done);
@@ -6059,8 +6413,8 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   assert(!edit->HasLastSequence());
   edit->SetLastSequence(*max_last_sequence);
   if (edit->IsColumnFamilyDrop()) {
-    // if we drop column family, we have to make sure to save max column family,
-    // so that we don't reuse existing ID
+    // if we drop column family, we have to make sure to save max column
+    // family, so that we don't reuse existing ID
     edit->SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
   }
 }
@@ -6349,7 +6703,8 @@ void VersionSet::RecoverEpochNumbers() {
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // Read "CURRENT" file, which contains a pointer to the current manifest file
+  // Read "CURRENT" file, which contains a pointer to the current manifest
+  // file
   std::string manifest_path;
   uint64_t manifest_file_number;
   Status s = GetCurrentManifestPath(dbname, fs, /*is_retry=*/false,
@@ -6411,17 +6766,19 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   const ReadOptions read_options;
   const WriteOptions write_options;
 
-  ImmutableDBOptions db_options(*options);
+  ImmutableDBOptions imm_db_options(*options);
+  MutableDBOptions mutable_db_options(*options);
   ColumnFamilyOptions cf_options(*options);
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
-                      nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
+  VersionSet versions(dbname, &imm_db_options, mutable_db_options, file_options,
+                      tc.get(), &wb, &wc, nullptr /*BlockCacheTracer*/,
+                      nullptr /*IOTracer*/,
                       /*db_id*/ "",
                       /*db_session_id*/ "", options->daily_offpeak_time_utc,
-                      /*error_handler_*/ nullptr, /*read_only=*/false);
+                      /*error_handler_*/ nullptr, /*unchanging=*/false);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -6504,9 +6861,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 
 // Get the checksum information including the checksum and checksum function
 // name of all SST and blob files in VersionSet. Store the information in
-// FileChecksumList which contains a map from file number to its checksum info.
-// If DB is not running, make sure call VersionSet::Recover() to load the file
-// metadata from Manifest to VersionSet before calling this function.
+// FileChecksumList which contains a map from file number to its checksum
+// info. If DB is not running, make sure call VersionSet::Recover() to load
+// the file metadata from Manifest to VersionSet before calling this function.
 Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   // Clean the previously stored checksum information if any.
   Status s;
@@ -6648,8 +7005,8 @@ Status VersionSet::WriteCurrentStateToManifest(
   // WARNING: This method doesn't hold a mutex!!
 
   // This is done without DB mutex lock held, but only within single-threaded
-  // LogAndApply. Column family manipulations can only happen within LogAndApply
-  // (the same single thread), so we're safe to iterate.
+  // LogAndApply. Column family manipulations can only happen within
+  // LogAndApply (the same single thread), so we're safe to iterate.
 
   assert(io_s.ok());
   if (db_options_->write_dbid_to_manifest) {
@@ -6683,9 +7040,9 @@ Status VersionSet::WriteCurrentStateToManifest(
   }
 
   // New manifest should rollover the WAL deletion record from previous
-  // manifest. Otherwise, when an addition record of a deleted WAL gets added to
-  // this new manifest later (which can happens in e.g, SyncWAL()), this new
-  // manifest creates an illusion that such WAL hasn't been deleted.
+  // manifest. Otherwise, when an addition record of a deleted WAL gets added
+  // to this new manifest later (which can happens in e.g, SyncWAL()), this
+  // new manifest creates an illusion that such WAL hasn't been deleted.
   VersionEdit wal_deletions;
   wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
   std::string wal_deletions_record;
@@ -6817,9 +7174,9 @@ Status VersionSet::WriteCurrentStateToManifest(
 // TODO(aekmekji): in CompactionJob::GenSubcompactionBoundaries(), this
 // function is called repeatedly with consecutive pairs of slices. For example
 // if the slice list is [a, b, c, d] this function is called with arguments
-// (a,b) then (b,c) then (c,d). Knowing this, an optimization is possible where
-// we avoid doing binary search for the keys b and c twice and instead somehow
-// maintain state of where they first appear in the files.
+// (a,b) then (b,c) then (c,d). Knowing this, an optimization is possible
+// where we avoid doing binary search for the keys b and c twice and instead
+// somehow maintain state of where they first appear in the files.
 uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
                                      const ReadOptions& read_options,
                                      Version* v, const Slice& start,
@@ -6840,19 +7197,20 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   }
 
   // Outline of the optimization that uses options.files_size_error_margin.
-  // When approximating the files total size that is used to store a keys range,
-  // we first sum up the sizes of the files that fully fall into the range.
-  // Then we sum up the sizes of all the files that may intersect with the range
-  // (this includes all files in L0 as well). Then, if total_intersecting_size
-  // is smaller than total_full_size * options.files_size_error_margin - we can
-  // infer that the intersecting files have a sufficiently negligible
-  // contribution to the total size, and we can approximate the storage required
-  // for the keys in range as just half of the intersecting_files_size.
-  // E.g., if the value of files_size_error_margin is 0.1, then the error of the
-  // approximation is limited to only ~10% of the total size of files that fully
-  // fall into the keys range. In such case, this helps to avoid a costly
-  // process of binary searching the intersecting files that is required only
-  // for a more precise calculation of the total size.
+  // When approximating the files total size that is used to store a keys
+  // range, we first sum up the sizes of the files that fully fall into the
+  // range. Then we sum up the sizes of all the files that may intersect with
+  // the range (this includes all files in L0 as well). Then, if
+  // total_intersecting_size is smaller than total_full_size *
+  // options.files_size_error_margin - we can infer that the intersecting
+  // files have a sufficiently negligible contribution to the total size, and
+  // we can approximate the storage required for the keys in range as just
+  // half of the intersecting_files_size. E.g., if the value of
+  // files_size_error_margin is 0.1, then the error of the approximation is
+  // limited to only ~10% of the total size of files that fully fall into the
+  // keys range. In such case, this helps to avoid a costly process of binary
+  // searching the intersecting files that is required only for a more precise
+  // calculation of the total size.
 
   autovector<FdWithKeyRange*, 32> first_files;
   autovector<FdWithKeyRange*, 16> last_files;
@@ -6924,10 +7282,11 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
     total_intersecting_size += file_ptr->fd.GetFileSize();
   }
 
-  // Now scan all the first & last files at each level, and estimate their size.
-  // If the total_intersecting_size is less than X% of the total_full_size - we
-  // want to approximate the result in order to avoid the costly binary search
-  // inside ApproximateSize. We use half of file size as an approximation below.
+  // Now scan all the first & last files at each level, and estimate their
+  // size. If the total_intersecting_size is less than X% of the
+  // total_full_size - we want to approximate the result in order to avoid the
+  // costly binary search inside ApproximateSize. We use half of file size as
+  // an approximation below.
 
   const double margin = options.files_size_error_margin;
   if (margin > 0 && total_intersecting_size <
@@ -7195,7 +7554,8 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
-            c->boundaries(which), false, &tombstone_iter_ptr);
+            c->boundaries(which), false, &tombstone_iter_ptr,
+            db_options_->statistics.get(), clock_);
         range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
       }
     }
@@ -7470,12 +7830,13 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
 }
 
 ReactiveVersionSet::ReactiveVersionSet(
-    const std::string& dbname, const ImmutableDBOptions* _db_options,
+    const std::string& dbname, const ImmutableDBOptions* imm_db_options,
+    const MutableDBOptions& mutable_db_options,
     const FileOptions& _file_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
     const std::shared_ptr<IOTracer>& io_tracer)
-    : VersionSet(dbname, _db_options, _file_options, table_cache,
-                 write_buffer_manager, write_controller,
+    : VersionSet(dbname, imm_db_options, mutable_db_options, _file_options,
+                 table_cache, write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
                  /*error_handler=*/nullptr, /*unchanging=*/false) {}
@@ -7599,8 +7960,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
     }
   } else if (s.IsPathNotFound()) {
     // This can happen if the primary switches to a new MANIFEST after the
-    // secondary reads the CURRENT file but before the secondary actually tries
-    // to open the MANIFEST.
+    // secondary reads the CURRENT file but before the secondary actually
+    // tries to open the MANIFEST.
     s = Status::TryAgain(
         "The primary may have switched to a new MANIFEST and deleted the old "
         "one.");

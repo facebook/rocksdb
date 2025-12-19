@@ -54,7 +54,9 @@ Status CompactionOutputs::Finish(
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
+  stats_.bytes_written_pre_comp += builder_->PreCompressionSize();
   stats_.num_output_files = static_cast<int>(outputs_.size());
+  worker_cpu_micros_ += builder_->GetWorkerCPUMicros();
 
   return s;
 }
@@ -276,7 +278,11 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   }
 
   // reach the max file size
-  if (current_output_file_size_ >= compaction_->max_output_file_size()) {
+  uint64_t estimated_file_size = current_output_file_size_;
+  if (compaction_->mutable_cf_options().target_file_size_is_upper_bound) {
+    estimated_file_size += builder_->EstimatedTailSize();
+  }
+  if (estimated_file_size >= compaction_->max_output_file_size()) {
     return true;
   }
 
@@ -357,7 +363,8 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
 Status CompactionOutputs::AddToOutput(
     const CompactionIterator& c_iter,
     const CompactionFileOpenFunc& open_file_func,
-    const CompactionFileCloseFunc& close_file_func) {
+    const CompactionFileCloseFunc& close_file_func,
+    const ParsedInternalKey& prev_iter_output_internal_key) {
   Status s;
   bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
   if (is_range_del && compaction_->bottommost_level()) {
@@ -368,7 +375,8 @@ Status CompactionOutputs::AddToOutput(
   }
   const Slice& key = c_iter.key();
   if (ShouldStopBefore(c_iter) && HasBuilder()) {
-    s = close_file_func(*this, c_iter.InputStatus(), key);
+    s = close_file_func(c_iter.InputStatus(), prev_iter_output_internal_key,
+                        key, &c_iter, *this);
     if (!s.ok()) {
       return s;
     }

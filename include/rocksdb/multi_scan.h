@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 
@@ -72,6 +73,8 @@ class Scan {
 
   explicit Scan(Iterator* db_iter) : db_iter_(db_iter) {}
 
+  void Reset(Iterator* db_iter) { db_iter_ = db_iter; }
+
   ScanIterator begin() { return ScanIterator(db_iter_); }
 
   std::nullptr_t end() { return nullptr; }
@@ -94,7 +97,13 @@ class Scan {
 
     ScanIterator() : db_iter_(nullptr), valid_(false) {}
 
-    ~ScanIterator() { assert(status_.ok()); }
+    ~ScanIterator() {
+      if (!status_.ok()) {
+        fprintf(stderr, "ScanIterator status: %s\n",
+                status_.ToString().c_str());
+        assert(false);
+      }
+    }
 
     ScanIterator& operator++() {
       if (!valid_) {
@@ -149,12 +158,12 @@ class Scan {
 // A Status exception is thrown if there is an error.
 class MultiScan {
  public:
-  MultiScan(const std::vector<ScanOptions>& scan_opts,
-            std::unique_ptr<Iterator>&& db_iter)
-      : scan_opts_(scan_opts), db_iter_(std::move(db_iter)) {}
+  MultiScan(const ReadOptions& read_options, const MultiScanArgs& scan_opts,
+            DB* db, ColumnFamilyHandle* cfh);
 
-  explicit MultiScan(std::unique_ptr<Iterator>&& db_iter)
-      : db_iter_(std::move(db_iter)) {}
+  explicit MultiScan(const Comparator* comp,
+                     std::unique_ptr<Iterator>&& db_iter)
+      : scan_opts_(comp), db_iter_(std::move(db_iter)) {}
 
   class MultiScanIterator {
    public:
@@ -168,11 +177,23 @@ class MultiScan {
     using difference_type = int;
     using iterator_category = std::input_iterator_tag;
 
-    MultiScanIterator(const std::vector<ScanOptions>& scan_opts,
-                      Iterator* db_iter)
-        : scan_opts_(scan_opts), idx_(0), db_iter_(db_iter), scan_(db_iter_) {
+    MultiScanIterator(const std::vector<ScanOptions>& scan_opts, DB* db,
+                      ColumnFamilyHandle* cfh, ReadOptions& read_options,
+                      Slice* upper_bound, std::unique_ptr<Iterator>& db_iter)
+        : scan_opts_(scan_opts),
+          db_(db),
+          cfh_(cfh),
+          read_options_(read_options),
+          upper_bound_(upper_bound),
+          idx_(0),
+          db_iter_(db_iter),
+          scan_(db_iter_.get()) {
       if (scan_opts_.empty()) {
         throw std::logic_error("Zero scans in multi-scan");
+      }
+      status_ = db_iter_->status();
+      if (!status_.ok()) {
+        throw MultiScanException(status_);
       }
       db_iter_->Seek(*scan_opts_[idx_].range.start);
       status_ = db_iter_->status();
@@ -181,28 +202,9 @@ class MultiScan {
       }
     }
 
-    explicit MultiScanIterator(const std::vector<ScanOptions>& scan_opts)
-        : scan_opts_(scan_opts),
-          idx_(scan_opts_.size()),
-          db_iter_(nullptr),
-          scan_(nullptr) {}
-
     ~MultiScanIterator() { assert(status_.ok()); }
 
-    MultiScanIterator& operator++() {
-      if (idx_ >= scan_opts_.size()) {
-        throw std::logic_error("Index out of range");
-      }
-      idx_++;
-      if (idx_ < scan_opts_.size()) {
-        db_iter_->Seek(*scan_opts_[idx_].range.start);
-        status_ = db_iter_->status();
-        if (!status_.ok()) {
-          throw MultiScanException(status_);
-        }
-      }
-      return *this;
-    }
+    MultiScanIterator& operator++();
 
     bool operator==(std::nullptr_t /*other*/) const {
       return idx_ >= scan_opts_.size();
@@ -217,20 +219,29 @@ class MultiScan {
 
    private:
     const std::vector<ScanOptions>& scan_opts_;
+    DB* db_;
+    ColumnFamilyHandle* cfh_;
+    ReadOptions& read_options_;
+    Slice* upper_bound_;
     size_t idx_;
-    Iterator* db_iter_;
+    std::unique_ptr<Iterator>& db_iter_;
     Status status_;
     Scan scan_;
   };
 
   MultiScanIterator begin() {
-    return MultiScanIterator(scan_opts_, db_iter_.get());
+    return MultiScanIterator(scan_opts_.GetScanRanges(), db_, cfh_,
+                             read_options_, &upper_bound_, db_iter_);
   }
 
   std::nullptr_t end() { return nullptr; }
 
  private:
-  const std::vector<ScanOptions> scan_opts_;
+  ReadOptions read_options_;
+  const MultiScanArgs scan_opts_;
+  DB* db_;
+  ColumnFamilyHandle* cfh_;
+  Slice upper_bound_;
   std::unique_ptr<Iterator> db_iter_;
 };
 

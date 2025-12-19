@@ -24,6 +24,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/unique_id_impl.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -35,6 +36,7 @@ struct TableReaderOptions {
   TableReaderOptions(
       const ImmutableOptions& _ioptions,
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
+      UnownedPtr<CompressionManager> _compression_manager,
       const EnvOptions& _env_options,
       const InternalKeyComparator& _internal_comparator,
       uint8_t _block_protection_bytes_per_key, bool _skip_filters = false,
@@ -46,6 +48,7 @@ struct TableReaderOptions {
       uint64_t _tail_size = 0, bool _user_defined_timestamps_persisted = true)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
+        compression_manager(_compression_manager),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
@@ -64,6 +67,9 @@ struct TableReaderOptions {
 
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
+  // NOTE: the compression manager is not saved, just potentially a decompressor
+  // from it, so we don't need a shared_ptr copy
+  UnownedPtr<CompressionManager> compression_manager;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
@@ -207,6 +213,9 @@ class TableBuilder {
     return NumEntries() == 0 && GetTableProperties().num_range_deletions == 0;
   }
 
+  // Size of the file before its content is compressed.
+  virtual uint64_t PreCompressionSize() const { return 0; }
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
@@ -215,6 +224,11 @@ class TableBuilder {
   // FileSize() cannot estimate final SST size, e.g. parallel compression
   // is enabled.
   virtual uint64_t EstimatedFileSize() const { return FileSize(); }
+
+  // Estimated tail size of the SST file generated so far. The "tail" refers to
+  // all blocks written after data blocks (index + filter). This value helps
+  // estimate the total file size when deciding when to cut files.
+  virtual uint64_t EstimatedTailSize() const { return 0; }
 
   virtual uint64_t GetTailSize() const { return 0; }
 
@@ -236,6 +250,11 @@ class TableBuilder {
   virtual void SetSeqnoTimeTableProperties(
       const SeqnoToTimeMapping& /*relevant_mapping*/,
       uint64_t /*oldest_ancestor_time*/) {}
+
+  // If this builder used CPU work from threads other than the caller, return
+  // the CPU microseconds used. 0 = no work outside calling thread, or not
+  // supported.
+  virtual uint64_t GetWorkerCPUMicros() const { return 0; }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,7 +10,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
-#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -1186,705 +1185,6 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   ASSERT_EQ(index, keys_cf.size());
 }
 
-TEST_F(DBTest2, PresetCompressionDict) {
-  // Verifies that compression ratio improves when dictionary is enabled, and
-  // improves even further when the dictionary is trained by ZSTD.
-  const size_t kBlockSizeBytes = 4 << 10;
-  const size_t kL0FileBytes = 128 << 10;
-  const size_t kApproxPerBlockOverheadBytes = 50;
-  const int kNumL0Files = 5;
-
-  Options options;
-  // Make sure to use any custom env that the test is configured with.
-  options.env = CurrentOptions().env;
-  options.allow_concurrent_memtable_write = false;
-  options.arena_block_size = kBlockSizeBytes;
-  options.create_if_missing = true;
-  options.disable_auto_compactions = true;
-  options.level0_file_num_compaction_trigger = kNumL0Files;
-  options.memtable_factory.reset(
-      test::NewSpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
-  options.num_levels = 2;
-  options.target_file_size_base = kL0FileBytes;
-  options.target_file_size_multiplier = 2;
-  options.write_buffer_size = kL0FileBytes;
-  BlockBasedTableOptions table_options;
-  table_options.block_size = kBlockSizeBytes;
-  std::vector<CompressionType> compression_types;
-  if (Zlib_Supported()) {
-    compression_types.push_back(kZlibCompression);
-  }
-#if LZ4_VERSION_NUMBER >= 10400  // r124+
-  compression_types.push_back(kLZ4Compression);
-  compression_types.push_back(kLZ4HCCompression);
-#endif  // LZ4_VERSION_NUMBER >= 10400
-  if (ZSTD_Supported()) {
-    compression_types.push_back(kZSTD);
-  }
-
-  enum DictionaryTypes : int {
-    kWithoutDict,
-    kWithDict,
-    kWithZSTDfinalizeDict,
-    kWithZSTDTrainedDict,
-    kDictEnd,
-  };
-
-  for (auto compression_type : compression_types) {
-    options.compression = compression_type;
-    size_t bytes_without_dict = 0;
-    size_t bytes_with_dict = 0;
-    size_t bytes_with_zstd_finalize_dict = 0;
-    size_t bytes_with_zstd_trained_dict = 0;
-    for (int i = kWithoutDict; i < kDictEnd; i++) {
-      // First iteration: compress without preset dictionary
-      // Second iteration: compress with preset dictionary
-      // Third iteration (zstd only): compress with zstd-trained dictionary
-      //
-      // To make sure the compression dictionary has the intended effect, we
-      // verify the compressed size is smaller in successive iterations. Also in
-      // the non-first iterations, verify the data we get out is the same data
-      // we put in.
-      switch (i) {
-        case kWithoutDict:
-          options.compression_opts.max_dict_bytes = 0;
-          options.compression_opts.zstd_max_train_bytes = 0;
-          break;
-        case kWithDict:
-          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
-          options.compression_opts.zstd_max_train_bytes = 0;
-          break;
-        case kWithZSTDfinalizeDict:
-          if (compression_type != kZSTD ||
-              !ZSTD_FinalizeDictionarySupported()) {
-            continue;
-          }
-          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
-          options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
-          options.compression_opts.use_zstd_dict_trainer = false;
-          break;
-        case kWithZSTDTrainedDict:
-          if (compression_type != kZSTD || !ZSTD_TrainDictionarySupported()) {
-            continue;
-          }
-          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
-          options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
-          options.compression_opts.use_zstd_dict_trainer = true;
-          break;
-        default:
-          assert(false);
-      }
-
-      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-      CreateAndReopenWithCF({"pikachu"}, options);
-      Random rnd(301);
-      std::string seq_datas[10];
-      for (int j = 0; j < 10; ++j) {
-        seq_datas[j] =
-            rnd.RandomString(kBlockSizeBytes - kApproxPerBlockOverheadBytes);
-      }
-
-      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
-      for (int j = 0; j < kNumL0Files; ++j) {
-        for (size_t k = 0; k < kL0FileBytes / kBlockSizeBytes + 1; ++k) {
-          auto key_num = j * (kL0FileBytes / kBlockSizeBytes) + k;
-          ASSERT_OK(Put(1, Key(static_cast<int>(key_num)),
-                        seq_datas[(key_num / 10) % 10]));
-        }
-        ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
-        ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
-      }
-      ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
-                                            true /* disallow_trivial_move */));
-      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
-      ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
-
-      // Get the live sst files size
-      size_t total_sst_bytes = TotalSize(1);
-      if (i == kWithoutDict) {
-        bytes_without_dict = total_sst_bytes;
-      } else if (i == kWithDict) {
-        bytes_with_dict = total_sst_bytes;
-      } else if (i == kWithZSTDfinalizeDict) {
-        bytes_with_zstd_finalize_dict = total_sst_bytes;
-      } else if (i == kWithZSTDTrainedDict) {
-        bytes_with_zstd_trained_dict = total_sst_bytes;
-      }
-
-      for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
-           j++) {
-        ASSERT_EQ(seq_datas[(j / 10) % 10], Get(1, Key(static_cast<int>(j))));
-      }
-      if (i == kWithDict) {
-        ASSERT_GT(bytes_without_dict, bytes_with_dict);
-      } else if (i == kWithZSTDTrainedDict) {
-        // In zstd compression, it is sometimes possible that using a finalized
-        // dictionary does not get as good a compression ratio as raw content
-        // dictionary. But using a dictionary should always get better
-        // compression ratio than not using one.
-        ASSERT_TRUE(bytes_with_dict > bytes_with_zstd_finalize_dict ||
-                    bytes_without_dict > bytes_with_zstd_finalize_dict);
-      } else if (i == kWithZSTDTrainedDict) {
-        // In zstd compression, it is sometimes possible that using a trained
-        // dictionary does not get as good a compression ratio as without
-        // training.
-        // But using a dictionary (with or without training) should always get
-        // better compression ratio than not using one.
-        ASSERT_TRUE(bytes_with_dict > bytes_with_zstd_trained_dict ||
-                    bytes_without_dict > bytes_with_zstd_trained_dict);
-      }
-
-      DestroyAndReopen(options);
-    }
-  }
-}
-
-TEST_F(DBTest2, PresetCompressionDictLocality) {
-  if (!ZSTD_Supported()) {
-    return;
-  }
-  // Verifies that compression dictionary is generated from local data. The
-  // verification simply checks all output SSTs have different compression
-  // dictionaries. We do not verify effectiveness as that'd likely be flaky in
-  // the future.
-  const int kNumEntriesPerFile = 1 << 10;  // 1KB
-  const int kNumBytesPerEntry = 1 << 10;   // 1KB
-  const int kNumFiles = 4;
-  Options options = CurrentOptions();
-  options.compression = kZSTD;
-  options.compression_opts.max_dict_bytes = 1 << 14;        // 16KB
-  options.compression_opts.zstd_max_train_bytes = 1 << 18;  // 256KB
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
-  BlockBasedTableOptions table_options;
-  table_options.cache_index_and_filter_blocks = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-
-  Random rnd(301);
-  for (int i = 0; i < kNumFiles; ++i) {
-    for (int j = 0; j < kNumEntriesPerFile; ++j) {
-      ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j),
-                    rnd.RandomString(kNumBytesPerEntry)));
-    }
-    ASSERT_OK(Flush());
-    MoveFilesToLevel(1);
-    ASSERT_EQ(NumTableFilesAtLevel(1), i + 1);
-  }
-
-  // Store all the dictionaries generated during a full compaction.
-  std::vector<std::string> compression_dicts;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
-      [&](void* arg) {
-        compression_dicts.emplace_back(static_cast<Slice*>(arg)->ToString());
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  CompactRangeOptions compact_range_opts;
-  compact_range_opts.bottommost_level_compaction =
-      BottommostLevelCompaction::kForceOptimized;
-  ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
-
-  // Dictionary compression should not be so good as to compress four totally
-  // random files into one. If it does then there's probably something wrong
-  // with the test.
-  ASSERT_GT(NumTableFilesAtLevel(1), 1);
-
-  // Furthermore, there should be one compression dictionary generated per file.
-  // And they should all be different from each other.
-  ASSERT_EQ(NumTableFilesAtLevel(1),
-            static_cast<int>(compression_dicts.size()));
-  for (size_t i = 1; i < compression_dicts.size(); ++i) {
-    std::string& a = compression_dicts[i - 1];
-    std::string& b = compression_dicts[i];
-    size_t alen = a.size();
-    size_t blen = b.size();
-    ASSERT_TRUE(alen != blen || memcmp(a.data(), b.data(), alen) != 0);
-  }
-}
-
-class PresetCompressionDictTest
-    : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
- public:
-  PresetCompressionDictTest()
-      : DBTestBase("db_test2", false /* env_do_fsync */),
-        compression_type_(std::get<0>(GetParam())),
-        bottommost_(std::get<1>(GetParam())) {}
-
- protected:
-  const CompressionType compression_type_;
-  const bool bottommost_;
-};
-
-INSTANTIATE_TEST_CASE_P(
-    DBTest2, PresetCompressionDictTest,
-    ::testing::Combine(::testing::ValuesIn(GetSupportedDictCompressions()),
-                       ::testing::Bool()));
-
-TEST_P(PresetCompressionDictTest, Flush) {
-  // Verifies that dictionary is generated and written during flush only when
-  // `ColumnFamilyOptions::compression` enables dictionary. Also verifies the
-  // size of the dictionary is within expectations according to the limit on
-  // buffering set by `CompressionOptions::max_dict_buffer_bytes`.
-  const size_t kValueLen = 256;
-  const size_t kKeysPerFile = 1 << 10;
-  const size_t kDictLen = 16 << 10;
-  const size_t kBlockLen = 4 << 10;
-
-  Options options = CurrentOptions();
-  if (bottommost_) {
-    options.bottommost_compression = compression_type_;
-    options.bottommost_compression_opts.enabled = true;
-    options.bottommost_compression_opts.max_dict_bytes = kDictLen;
-    options.bottommost_compression_opts.max_dict_buffer_bytes = kBlockLen;
-  } else {
-    options.compression = compression_type_;
-    options.compression_opts.max_dict_bytes = kDictLen;
-    options.compression_opts.max_dict_buffer_bytes = kBlockLen;
-  }
-  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kKeysPerFile));
-  options.statistics = CreateDBStatistics();
-  BlockBasedTableOptions bbto;
-  bbto.block_size = kBlockLen;
-  bbto.cache_index_and_filter_blocks = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  Reopen(options);
-
-  Random rnd(301);
-  for (size_t i = 0; i <= kKeysPerFile; ++i) {
-    ASSERT_OK(Put(Key(static_cast<int>(i)), rnd.RandomString(kValueLen)));
-  }
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-
-  // We can use `BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT` to detect whether a
-  // compression dictionary exists since dictionaries would be preloaded when
-  // the flush finishes.
-  if (bottommost_) {
-    // Flush is never considered bottommost. This should change in the future
-    // since flushed files may have nothing underneath them, like the one in
-    // this test case.
-    ASSERT_EQ(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        0);
-  } else {
-    ASSERT_GT(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        0);
-    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-    // number of bytes needs to be adjusted in case the cached block is in
-    // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD) {
-      // Although we limited buffering to `kBlockLen`, there may be up to two
-      // blocks of data included in the dictionary since we only check limit
-      // after each block is built.
-      ASSERT_LE(TestGetTickerCount(options,
-                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-                2 * kBlockLen);
-    }
-  }
-}
-
-TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
-  // Verifies that dictionary is generated and written during compaction to
-  // non-bottommost level only when `ColumnFamilyOptions::compression` enables
-  // dictionary. Also verifies the size of the dictionary is within expectations
-  // according to the limit on buffering set by
-  // `CompressionOptions::max_dict_buffer_bytes`.
-  const size_t kValueLen = 256;
-  const size_t kKeysPerFile = 1 << 10;
-  const size_t kDictLen = 16 << 10;
-  const size_t kBlockLen = 4 << 10;
-
-  Options options = CurrentOptions();
-  if (bottommost_) {
-    options.bottommost_compression = compression_type_;
-    options.bottommost_compression_opts.enabled = true;
-    options.bottommost_compression_opts.max_dict_bytes = kDictLen;
-    options.bottommost_compression_opts.max_dict_buffer_bytes = kBlockLen;
-  } else {
-    options.compression = compression_type_;
-    options.compression_opts.max_dict_bytes = kDictLen;
-    options.compression_opts.max_dict_buffer_bytes = kBlockLen;
-  }
-  options.disable_auto_compactions = true;
-  options.statistics = CreateDBStatistics();
-  BlockBasedTableOptions bbto;
-  bbto.block_size = kBlockLen;
-  bbto.cache_index_and_filter_blocks = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  Reopen(options);
-
-  Random rnd(301);
-  for (size_t j = 0; j <= kKeysPerFile; ++j) {
-    ASSERT_OK(Put(Key(static_cast<int>(j)), rnd.RandomString(kValueLen)));
-  }
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-
-  for (int i = 0; i < 2; ++i) {
-    for (size_t j = 0; j <= kKeysPerFile; ++j) {
-      ASSERT_OK(Put(Key(static_cast<int>(j)), rnd.RandomString(kValueLen)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_EQ("2,0,1", FilesPerLevel(0));
-
-  uint64_t prev_compression_dict_bytes_inserted =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
-  // This L0->L1 compaction merges the two L0 files into L1. The produced L1
-  // file is not bottommost due to the existing L2 file covering the same key-
-  // range.
-  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
-  ASSERT_EQ("0,1,1", FilesPerLevel(0));
-  // We can use `BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT` to detect whether a
-  // compression dictionary exists since dictionaries would be preloaded when
-  // the compaction finishes.
-  if (bottommost_) {
-    ASSERT_EQ(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted);
-  } else {
-    ASSERT_GT(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted);
-    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-    // number of bytes needs to be adjusted in case the cached block is in
-    // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD) {
-      // Although we limited buffering to `kBlockLen`, there may be up to two
-      // blocks of data included in the dictionary since we only check limit
-      // after each block is built.
-      ASSERT_LE(TestGetTickerCount(options,
-                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-                prev_compression_dict_bytes_inserted + 2 * kBlockLen);
-    }
-  }
-}
-
-TEST_P(PresetCompressionDictTest, CompactBottommost) {
-  // Verifies that dictionary is generated and written during compaction to
-  // non-bottommost level only when either `ColumnFamilyOptions::compression` or
-  // `ColumnFamilyOptions::bottommost_compression` enables dictionary. Also
-  // verifies the size of the dictionary is within expectations according to the
-  // limit on buffering set by `CompressionOptions::max_dict_buffer_bytes`.
-  const size_t kValueLen = 256;
-  const size_t kKeysPerFile = 1 << 10;
-  const size_t kDictLen = 16 << 10;
-  const size_t kBlockLen = 4 << 10;
-
-  Options options = CurrentOptions();
-  if (bottommost_) {
-    options.bottommost_compression = compression_type_;
-    options.bottommost_compression_opts.enabled = true;
-    options.bottommost_compression_opts.max_dict_bytes = kDictLen;
-    options.bottommost_compression_opts.max_dict_buffer_bytes = kBlockLen;
-  } else {
-    options.compression = compression_type_;
-    options.compression_opts.max_dict_bytes = kDictLen;
-    options.compression_opts.max_dict_buffer_bytes = kBlockLen;
-  }
-  options.disable_auto_compactions = true;
-  options.statistics = CreateDBStatistics();
-  BlockBasedTableOptions bbto;
-  bbto.block_size = kBlockLen;
-  bbto.cache_index_and_filter_blocks = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  Reopen(options);
-
-  Random rnd(301);
-  for (int i = 0; i < 2; ++i) {
-    for (size_t j = 0; j <= kKeysPerFile; ++j) {
-      ASSERT_OK(Put(Key(static_cast<int>(j)), rnd.RandomString(kValueLen)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_EQ("2", FilesPerLevel(0));
-
-  uint64_t prev_compression_dict_bytes_inserted =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
-  CompactRangeOptions cro;
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_EQ("0,1", FilesPerLevel(0));
-  ASSERT_GT(
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-      prev_compression_dict_bytes_inserted);
-  // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-  // number of bytes needs to be adjusted in case the cached block is in ZSTD's
-  // digested dictionary format.
-  if (compression_type_ != kZSTD) {
-    // Although we limited buffering to `kBlockLen`, there may be up to two
-    // blocks of data included in the dictionary since we only check limit after
-    // each block is built.
-    ASSERT_LE(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted + 2 * kBlockLen);
-  }
-}
-
-class CompactionCompressionListener : public EventListener {
- public:
-  explicit CompactionCompressionListener(Options* db_options)
-      : db_options_(db_options) {}
-
-  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
-    // Figure out last level with files
-    int bottommost_level = 0;
-    for (int level = 0; level < db->NumberLevels(); level++) {
-      std::string files_at_level;
-      ASSERT_TRUE(
-          db->GetProperty("rocksdb.num-files-at-level" + std::to_string(level),
-                          &files_at_level));
-      if (files_at_level != "0") {
-        bottommost_level = level;
-      }
-    }
-
-    if (db_options_->bottommost_compression != kDisableCompressionOption &&
-        ci.output_level == bottommost_level) {
-      ASSERT_EQ(ci.compression, db_options_->bottommost_compression);
-    } else if (db_options_->compression_per_level.size() != 0) {
-      ASSERT_EQ(ci.compression,
-                db_options_->compression_per_level[ci.output_level]);
-    } else {
-      ASSERT_EQ(ci.compression, db_options_->compression);
-    }
-    max_level_checked = std::max(max_level_checked, ci.output_level);
-  }
-
-  int max_level_checked = 0;
-  const Options* db_options_;
-};
-
-enum CompressionFailureType {
-  kTestCompressionFail,
-  kTestDecompressionFail,
-  kTestDecompressionCorruption
-};
-
-class CompressionFailuresTest
-    : public DBTest2,
-      public testing::WithParamInterface<std::tuple<
-          CompressionFailureType, CompressionType, uint32_t, uint32_t>> {
- public:
-  CompressionFailuresTest() {
-    std::tie(compression_failure_type_, compression_type_,
-             compression_max_dict_bytes_, compression_parallel_threads_) =
-        GetParam();
-  }
-
-  CompressionFailureType compression_failure_type_ = kTestCompressionFail;
-  CompressionType compression_type_ = kNoCompression;
-  uint32_t compression_max_dict_bytes_ = 0;
-  uint32_t compression_parallel_threads_ = 0;
-};
-
-INSTANTIATE_TEST_CASE_P(
-    DBTest2, CompressionFailuresTest,
-    ::testing::Combine(::testing::Values(kTestCompressionFail,
-                                         kTestDecompressionFail,
-                                         kTestDecompressionCorruption),
-                       ::testing::ValuesIn(GetSupportedCompressions()),
-                       ::testing::Values(0, 10), ::testing::Values(1, 4)));
-
-TEST_P(CompressionFailuresTest, CompressionFailures) {
-  if (compression_type_ == kNoCompression) {
-    return;
-  }
-
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = 2;
-  options.max_bytes_for_level_base = 1024;
-  options.max_bytes_for_level_multiplier = 2;
-  options.num_levels = 7;
-  options.max_background_compactions = 1;
-  options.target_file_size_base = 512;
-
-  BlockBasedTableOptions table_options;
-  table_options.block_size = 512;
-  table_options.verify_compression = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-  options.compression = compression_type_;
-  options.compression_opts.parallel_threads = compression_parallel_threads_;
-  options.compression_opts.max_dict_bytes = compression_max_dict_bytes_;
-  options.bottommost_compression_opts.parallel_threads =
-      compression_parallel_threads_;
-  options.bottommost_compression_opts.max_dict_bytes =
-      compression_max_dict_bytes_;
-
-  if (compression_failure_type_ == kTestCompressionFail) {
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "CompressData:TamperWithReturnValue", [](void* arg) {
-          bool* ret = static_cast<bool*>(arg);
-          *ret = false;
-        });
-  } else if (compression_failure_type_ == kTestDecompressionFail) {
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UncompressBlockData:TamperWithReturnValue", [](void* arg) {
-          Status* ret = static_cast<Status*>(arg);
-          ASSERT_OK(*ret);
-          *ret = Status::Corruption("kTestDecompressionFail");
-        });
-  } else if (compression_failure_type_ == kTestDecompressionCorruption) {
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UncompressBlockData:"
-        "TamperWithDecompressionOutput",
-        [](void* arg) {
-          BlockContents* contents = static_cast<BlockContents*>(arg);
-          // Ensure uncompressed data != original data
-          const size_t len = contents->data.size() + 1;
-          std::unique_ptr<char[]> fake_data(new char[len]());
-          *contents = BlockContents(std::move(fake_data), len);
-        });
-  }
-
-  std::map<std::string, std::string> key_value_written;
-
-  const int kKeySize = 5;
-  const int kValUnitSize = 16;
-  const int kValSize = 256;
-  Random rnd(405);
-
-  Status s = Status::OK();
-
-  DestroyAndReopen(options);
-  // Write 10 random files
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 5; j++) {
-      std::string key = rnd.RandomString(kKeySize);
-      // Ensure good compression ratio
-      std::string valueUnit = rnd.RandomString(kValUnitSize);
-      std::string value;
-      for (int k = 0; k < kValSize; k += kValUnitSize) {
-        value += valueUnit;
-      }
-      s = Put(key, value);
-      if (compression_failure_type_ == kTestCompressionFail) {
-        key_value_written[key] = value;
-        ASSERT_OK(s);
-      }
-    }
-    s = Flush();
-    if (compression_failure_type_ == kTestCompressionFail) {
-      ASSERT_OK(s);
-    }
-    s = dbfull()->TEST_WaitForCompact();
-    if (compression_failure_type_ == kTestCompressionFail) {
-      ASSERT_OK(s);
-    }
-    if (i == 4) {
-      // Make compression fail at the mid of table building
-      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-    }
-  }
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-  if (compression_failure_type_ == kTestCompressionFail) {
-    // Should be kNoCompression, check content consistency
-    std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
-    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
-      std::string key = db_iter->key().ToString();
-      std::string value = db_iter->value().ToString();
-      ASSERT_NE(key_value_written.find(key), key_value_written.end());
-      ASSERT_EQ(key_value_written[key], value);
-      key_value_written.erase(key);
-    }
-    ASSERT_OK(db_iter->status());
-    ASSERT_EQ(0, key_value_written.size());
-  } else if (compression_failure_type_ == kTestDecompressionFail) {
-    ASSERT_EQ(std::string(s.getState()),
-              "Could not decompress: kTestDecompressionFail");
-  } else if (compression_failure_type_ == kTestDecompressionCorruption) {
-    ASSERT_EQ(std::string(s.getState()),
-              "Decompressed block did not match pre-compression block");
-  }
-}
-
-TEST_F(DBTest2, CompressionOptions) {
-  if (!Zlib_Supported() || !Snappy_Supported()) {
-    return;
-  }
-
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = 2;
-  options.max_bytes_for_level_base = 100;
-  options.max_bytes_for_level_multiplier = 2;
-  options.num_levels = 7;
-  options.max_background_compactions = 1;
-
-  CompactionCompressionListener* listener =
-      new CompactionCompressionListener(&options);
-  options.listeners.emplace_back(listener);
-
-  const int kKeySize = 5;
-  const int kValSize = 20;
-  Random rnd(301);
-
-  std::vector<uint32_t> compression_parallel_threads = {1, 4};
-
-  std::map<std::string, std::string> key_value_written;
-
-  for (int iter = 0; iter <= 2; iter++) {
-    listener->max_level_checked = 0;
-
-    if (iter == 0) {
-      // Use different compression algorithms for different levels but
-      // always use Zlib for bottommost level
-      options.compression_per_level = {kNoCompression,     kNoCompression,
-                                       kNoCompression,     kSnappyCompression,
-                                       kSnappyCompression, kSnappyCompression,
-                                       kZlibCompression};
-      options.compression = kNoCompression;
-      options.bottommost_compression = kZlibCompression;
-    } else if (iter == 1) {
-      // Use Snappy except for bottommost level use ZLib
-      options.compression_per_level = {};
-      options.compression = kSnappyCompression;
-      options.bottommost_compression = kZlibCompression;
-    } else if (iter == 2) {
-      // Use Snappy everywhere
-      options.compression_per_level = {};
-      options.compression = kSnappyCompression;
-      options.bottommost_compression = kDisableCompressionOption;
-    }
-
-    for (auto num_threads : compression_parallel_threads) {
-      options.compression_opts.parallel_threads = num_threads;
-      options.bottommost_compression_opts.parallel_threads = num_threads;
-
-      DestroyAndReopen(options);
-      // Write 10 random files
-      for (int i = 0; i < 10; i++) {
-        for (int j = 0; j < 5; j++) {
-          std::string key = rnd.RandomString(kKeySize);
-          std::string value = rnd.RandomString(kValSize);
-          key_value_written[key] = value;
-          ASSERT_OK(Put(key, value));
-        }
-        ASSERT_OK(Flush());
-        ASSERT_OK(dbfull()->TEST_WaitForCompact());
-      }
-
-      // Make sure that we wrote enough to check all 7 levels
-      ASSERT_EQ(listener->max_level_checked, 6);
-
-      // Make sure database content is the same as key_value_written
-      std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
-      for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
-        std::string key = db_iter->key().ToString();
-        std::string value = db_iter->value().ToString();
-        ASSERT_NE(key_value_written.find(key), key_value_written.end());
-        ASSERT_EQ(key_value_written[key], value);
-        key_value_written.erase(key);
-      }
-      ASSERT_OK(db_iter->status());
-      ASSERT_EQ(0, key_value_written.size());
-    }
-  }
-}
-
 class CompactionStallTestListener : public EventListener {
  public:
   CompactionStallTestListener()
@@ -3010,7 +2310,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
       "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
         // CompactFiles() relies on manual_compactions_paused to
-        // determine if thie compaction should be paused or not
+        // determine if this compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
       });
@@ -3122,6 +2422,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
+
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
@@ -5421,6 +4722,103 @@ TEST_F(DBTest2, TestCompactFiles) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBTest2, TestCancelCompactFiles) {
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.env = env_;
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_EQ(db_->NumberLevels(handle), 2);
+
+  ROCKSDB_NAMESPACE::SstFileWriter sst_file_writer{
+      ROCKSDB_NAMESPACE::EnvOptions(), options};
+
+  // ingest large SST files
+  std::vector<std::string> external_sst_file_names;
+  int key_counter = 0;
+  const int num_keys_per_file = 100000;
+  const int num_files = 10;
+  for (int i = 0; i < num_files; ++i) {
+    std::string file_name =
+        dbname_ + "/test_compact_files" + std::to_string(i) + ".sst_t";
+    external_sst_file_names.push_back(file_name);
+    ASSERT_OK(sst_file_writer.Open(file_name));
+    for (int j = 0; j < num_keys_per_file; ++j) {
+      ASSERT_OK(sst_file_writer.Put(Key(j + num_keys_per_file * key_counter),
+                                    std::to_string(j)));
+    }
+    key_counter += 1;
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  ASSERT_OK(db_->IngestExternalFile(handle, external_sst_file_names,
+                                    IngestExternalFileOptions()));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_EQ(files.size(), num_files);
+
+  // Test that 0 compactions happen - canceled is set to True initially
+  CompactionOptions compaction_options;
+  std::atomic<bool> canceled(true);
+  compaction_options.canceled = &canceled;
+
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+
+  // Test cancellation before the check to cancel compaction happens -
+  // compaction should not occur
+  bool disable_compaction = false;
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCancelCompactFiles:SuccessfulCompaction", [&](void* arg) {
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        if (disable_compaction) {
+          db_->DisableManualCompaction();
+          ASSERT_EQ(1, paused->load(std::memory_order_acquire));
+        } else {
+          compaction_options.canceled->store(true, std::memory_order_release);
+          ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        }
+      });
+
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+
+  // DisableManualCompaction() should successfully cancel compaction
+  disable_compaction = true;
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+  // unlike CompactRange, value of compaction_options.canceled will be
+  // unaffected by calling DisableManualCompactions()
+  ASSERT_FALSE(compaction_options.canceled->load());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  db_->EnableManualCompaction();
+
+  // Test cancelation after the check to cancel compaction - compaction should
+  // occur, leaving only 1 file
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactFilesImpl:0", [&](void* /*arg*/) {
+        compaction_options.canceled->store(true, std::memory_order_release);
+      });
+
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ASSERT_OK(db_->CompactFiles(compaction_options, handle, files, 1));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 1);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(DBTest2, MultiDBParallelOpenTest) {
   const int kNumDbs = 2;
   Options options = CurrentOptions();
@@ -5807,6 +5205,7 @@ TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
   options.max_manifest_file_size = 10;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_EQ(2, handles_.size());
@@ -6498,6 +5897,7 @@ TEST_P(RenameCurrentTest, Flush) {
   Destroy(last_options_);
   Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("key", "value"));
@@ -6517,6 +5917,7 @@ TEST_P(RenameCurrentTest, Compaction) {
   Destroy(last_options_);
   Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("a", "a_value"));
@@ -6665,15 +6066,9 @@ TEST_F(DBTest2, VariousFileTemperatures) {
   };
 
   // We don't have enough non-unknown temps to confidently distinguish that
-  // a specific setting caused a specific outcome, in a single run. This is a
-  // reasonable work-around without blowing up test time. Only returns
-  // non-unknown temperatures.
-  auto RandomTemp = [] {
-    static std::vector<Temperature> temps = {
-        Temperature::kHot, Temperature::kWarm, Temperature::kCold};
-    return temps[Random::GetTLSInstance()->Uniform(
-        static_cast<int>(temps.size()))];
-  };
+  // a specific setting caused a specific outcome, in a single run. Using
+  // RandomKnownTemperature() is a reasonable work-around without blowing up
+  // test time.
 
   auto test_fs = std::make_shared<MyTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
@@ -6689,22 +6084,22 @@ TEST_F(DBTest2, VariousFileTemperatures) {
       options.env = env.get();
       test_fs->Reset();
       if (use_optimize) {
-        test_fs->optimize_manifest_temperature = RandomTemp();
+        test_fs->optimize_manifest_temperature = RandomKnownTemperature();
         test_fs->expected_manifest_temperature =
             test_fs->optimize_manifest_temperature;
-        test_fs->optimize_wal_temperature = RandomTemp();
+        test_fs->optimize_wal_temperature = RandomKnownTemperature();
         test_fs->expected_wal_temperature = test_fs->optimize_wal_temperature;
       }
       if (use_temp_options) {
-        options.metadata_write_temperature = RandomTemp();
+        options.metadata_write_temperature = RandomKnownTemperature();
         test_fs->expected_manifest_temperature =
             options.metadata_write_temperature;
         test_fs->expected_other_metadata_temperature =
             options.metadata_write_temperature;
-        options.wal_write_temperature = RandomTemp();
+        options.wal_write_temperature = RandomKnownTemperature();
         test_fs->expected_wal_temperature = options.wal_write_temperature;
-        options.last_level_temperature = RandomTemp();
-        options.default_write_temperature = RandomTemp();
+        options.last_level_temperature = RandomKnownTemperature();
+        options.default_write_temperature = RandomKnownTemperature();
       }
 
       DestroyAndReopen(options);
@@ -8068,10 +7463,26 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   FlushOptions fopts;
   fopts.wait = true;
   Random rnd(test::RandomSeed());
+
+  // Write 4 files into the default column family.
   for (int i = 0; i < 4; i++) {
     ASSERT_OK(db->Put(wopts, Key(i), rnd.RandomString(100)));
     ASSERT_OK(db->Flush(fopts));
   }
+
+  // Create a new column family, write 1 file into it and drop it.
+  ColumnFamilyHandle* cf;
+  ASSERT_OK(
+      db->CreateColumnFamily(ColumnFamilyOptions(), "soon_to_be_deleted", &cf));
+  ASSERT_OK(db->Put(wopts, cf, "some_key", "some_value"));
+  ASSERT_OK(db->Flush(fopts, cf));
+
+  // Drop column family should generate corresponding version edit
+  // in manifest, which we expect to be correctly interpreted by
+  // GetFileChecksumsFromCurrentManifest API after db close.
+  ASSERT_OK(db->DropColumnFamily(cf));
+  delete cf;
+  cf = nullptr;
 
   // Obtain rich files metadata for source of truth.
   std::vector<LiveFileMetaData> live_files;

@@ -106,7 +106,11 @@ class SubcompactionState {
     subcompaction_job_info.subcompaction_job_id = static_cast<int>(sub_job_id);
     subcompaction_job_info.base_input_level = c->start_level();
     subcompaction_job_info.output_level = c->output_level();
+    subcompaction_job_info.compaction_reason = c->compaction_reason();
+    subcompaction_job_info.compression = c->output_compression();
     subcompaction_job_info.stats = compaction_job_stats;
+    subcompaction_job_info.blob_compression_type =
+        c->mutable_cf_options().blob_compression_type;
   }
 
   SubcompactionState() = delete;
@@ -187,6 +191,14 @@ class SubcompactionState {
     return &compaction_outputs_.stats_;
   }
 
+  uint64_t GetWorkerCPUMicros() const {
+    uint64_t rv = compaction_outputs_.GetWorkerCPUMicros();
+    if (compaction->SupportsPerKeyPlacement()) {
+      rv += proximal_level_outputs_.GetWorkerCPUMicros();
+    }
+    return rv;
+  }
+
   CompactionRangeDelAggregator* RangeDelAgg() const {
     return range_del_agg_.get();
   }
@@ -196,10 +208,20 @@ class SubcompactionState {
     return range_del_agg_ && !range_del_agg_->IsEmpty();
   }
 
+  void SetSubcompactionProgress(
+      const SubcompactionProgress& subcompaction_progress) {
+    subcompaction_progress_ = subcompaction_progress;
+  }
+
+  SubcompactionProgress& GetSubcompactionProgressRef() {
+    return subcompaction_progress_;
+  }
+
   // Add compaction_iterator key/value to the `Current` output group.
   Status AddToOutput(const CompactionIterator& iter, bool use_proximal_output,
                      const CompactionFileOpenFunc& open_file_func,
-                     const CompactionFileCloseFunc& close_file_func);
+                     const CompactionFileCloseFunc& close_file_func,
+                     const ParsedInternalKey& prev_iter_output_internal_key);
 
   // Close all compaction output files, both output_to_proximal_level outputs
   // and normal outputs.
@@ -229,6 +251,8 @@ class SubcompactionState {
   CompactionOutputs proximal_level_outputs_;
   CompactionOutputs* current_outputs_ = &compaction_outputs_;
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_;
+
+  SubcompactionProgress subcompaction_progress_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

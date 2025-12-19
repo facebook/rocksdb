@@ -66,11 +66,11 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
       active_mem_(active_mem),
-      memtable_seqno_lb_((active_mem_ && !active_mem_->IsEmpty())
-                             ? active_mem_->GetFirstSequenceNumber()
-                             : kMaxSequenceNumber),
-      memtable_op_scan_flush_trigger_(
-          mutable_cf_options.memtable_op_scan_flush_trigger),
+      memtable_seqno_lb_(kMaxSequenceNumber),
+      memtable_op_scan_flush_trigger_(0),
+      avg_op_scan_flush_trigger_(0),
+      iter_step_since_seek_(1),
+      mem_hidden_op_scanned_since_seek_(0),
       direction_(kForward),
       valid_(false),
       current_entry_is_merged_(false),
@@ -98,6 +98,25 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   // prefix_seek_opt_in_only should force total_order_seek whereever the caller
   // is duplicating the original ReadOptions
   assert(!ioptions.prefix_seek_opt_in_only || read_options.total_order_seek);
+  if (active_mem_) {
+    // FIXME: GetEarliestSequenceNumber() may return a seqno that is one smaller
+    // than the smallest seqno in the memtable. This violates its comment and
+    // entries with that seqno may not be in the active memtable. Before it's
+    // fixed, we use GetFirstSequenceNumber() for more accurate result.
+    memtable_seqno_lb_ = active_mem_->IsEmpty()
+                             ? active_mem_->GetEarliestSequenceNumber()
+                             : active_mem_->GetFirstSequenceNumber();
+    memtable_op_scan_flush_trigger_ =
+        mutable_cf_options.memtable_op_scan_flush_trigger;
+    if (memtable_op_scan_flush_trigger_) {
+      // avg_op_scan_flush_trigger_ requires memtable_op_scan_flush_trigger_ > 0
+      avg_op_scan_flush_trigger_ =
+          mutable_cf_options.memtable_avg_op_scan_flush_trigger;
+    }
+  } else {
+    // memtable_op_scan_flush_trigger_ and avg_op_scan_flush_trigger_ are
+    // initialized to 0(disabled) as default.
+  }
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
@@ -159,6 +178,7 @@ void DBIter::Next() {
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
   num_internal_keys_skipped_ = 0;
+  iter_step_since_seek_++;
   bool ok = true;
   if (direction_ == kReverse) {
     is_key_seqnum_zero_ = false;
@@ -373,8 +393,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // to one.
   bool reseek_done = false;
 
-  uint64_t mem_ops_scanned = 0;
-  bool marked_for_flush = false;
+  uint64_t mem_hidden_op_scanned = 0;
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
     // but we need to save the previous value to be used in the loop.
@@ -431,12 +450,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-        if (memtable_op_scan_flush_trigger_ && active_mem_ &&
-            ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
-            ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
-          active_mem_->MarkForFlush();
-          marked_for_flush = true;
-        }
+        MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
@@ -458,12 +472,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                                       !iter_.iter()->IsKeyPinned() /* copy */);
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              if (memtable_op_scan_flush_trigger_ && active_mem_ &&
-                  ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
-                  ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
-                active_mem_->MarkForFlush();
-                marked_for_flush = true;
-              }
+              MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
             }
             break;
           case kTypeValue:
@@ -502,7 +511,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
             valid_ = true;
             return true;
-            break;
           case kTypeMerge:
             if (!PrepareValueInternal()) {
               return false;
@@ -514,7 +522,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             current_entry_is_merged_ = true;
             valid_ = true;
             return MergeValuesNewToOld();  // Go to a different state machine
-            break;
           default:
             valid_ = false;
             status_ = Status::Corruption(
@@ -1115,7 +1122,6 @@ bool DBIter::FindValueForCurrentKey() {
         }
         return true;
       }
-      break;
     case kTypeValue:
     case kTypeValuePreferredSeqno:
       SetValueAndColumnsFromPlain(pinned_value_);
@@ -1559,10 +1565,114 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   }
 }
 
+Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
+  if (multiscan_opts.empty()) {
+    return Status::InvalidArgument("Empty MultiScanArgs");
+  }
+
+  const std::vector<ScanOptions>& scan_opts = multiscan_opts.GetScanRanges();
+  const bool has_limit = scan_opts.front().range.limit.has_value();
+  if (!has_limit && scan_opts.size() > 1) {
+    return Status::InvalidArgument("Scan has no upper bound");
+  }
+
+  for (size_t i = 0; i < scan_opts.size(); ++i) {
+    const auto& scan_range = scan_opts[i].range;
+    if (!scan_range.start.has_value()) {
+      return Status::InvalidArgument("Scan has no start key at index " +
+                                     std::to_string(i));
+    }
+
+    if (scan_range.limit.has_value()) {
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false,
+              scan_range.limit.value(), /*b_has_ts=*/false) >= 0) {
+        return Status::InvalidArgument(
+            "Scan start key is large or equal than limit at index " +
+            std::to_string(i));
+      }
+    }
+
+    if (i > 0) {
+      if (!scan_range.limit.has_value()) {
+        // multiple scan without limit scan ranges
+        return Status::InvalidArgument("Scan has no upper bound at index " +
+                                       std::to_string(i));
+      }
+
+      const auto& last_end_key = scan_opts[i - 1].range.limit.value();
+      if (user_comparator_.CompareWithoutTimestamp(
+              scan_range.start.value(), /*a_has_ts=*/false, last_end_key,
+              /*b_has_ts=*/false) < 0) {
+        return Status::InvalidArgument("Overlapping ranges at index " +
+                                       std::to_string(i));
+      }
+    }
+  }
+  return Status::OK();
+}
+
+void DBIter::Prepare(const MultiScanArgs& scan_opts) {
+  status_ = ValidateScanOptions(scan_opts);
+  if (!status_.ok()) {
+    return;
+  }
+  std::optional<MultiScanArgs> new_scan_opts;
+  new_scan_opts.emplace(scan_opts);
+  scan_opts_.swap(new_scan_opts);
+  scan_index_ = 0;
+  if (!scan_opts.empty()) {
+    iter_.Prepare(&scan_opts_.value());
+  } else {
+    iter_.Prepare(nullptr);
+  }
+}
+
 void DBIter::Seek(const Slice& target) {
   PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
+
+  if (scan_opts_.has_value()) {
+    // Validate the seek target is as expected in the previously prepared range
+    auto const& scan_ranges = scan_opts_.value().GetScanRanges();
+    if (scan_index_ >= scan_ranges.size()) {
+      status_ = Status::InvalidArgument(
+          "Seek called after exhausting all of the scan ranges");
+      valid_ = false;
+      return;
+    }
+
+    // Validate start key of next prepare range matches the seek target
+    auto const& range = scan_ranges[scan_index_];
+    auto const& start = range.range.start;
+    assert(start.has_value());
+    if (user_comparator_.CompareWithoutTimestamp(target, *start) != 0) {
+      status_ = Status::InvalidArgument(
+          "Seek target does not match the start of the next prepared range at "
+          "index " +
+          std::to_string(scan_index_));
+      valid_ = false;
+      return;
+    }
+
+    // validate the upper bound is set to the same value of limit, if limit
+    // exists
+    auto const& limit = range.range.limit;
+    if (limit.has_value()) {
+      if (iterate_upper_bound_ == nullptr ||
+          user_comparator_.CompareWithoutTimestamp(
+              limit.value(), *iterate_upper_bound_) != 0) {
+        status_ = Status::InvalidArgument(
+            "Upper bound is not set to the same limit value of the next "
+            "prepared range at index " +
+            std::to_string(scan_index_));
+        valid_ = false;
+        return;
+      }
+    }
+    scan_index_++;
+  }
 
   if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?
@@ -1588,6 +1698,7 @@ void DBIter::Seek(const Slice& target) {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
   {
@@ -1664,6 +1775,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
   {
@@ -1725,6 +1837,7 @@ void DBIter::SeekToFirst() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
 
@@ -1788,6 +1901,7 @@ void DBIter::SeekToLast() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
 

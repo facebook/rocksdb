@@ -83,14 +83,20 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   bool IsEmpty() const override;
 
+  uint64_t PreCompressionSize() const override;
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
-  // Estimated size of the file generated so far. This is used when
-  // FileSize() cannot estimate final SST size, e.g. parallel compression
-  // is enabled.
+  // Estimated size of the file generated so far (based on data blocks, this
+  // estimate does not include meta blocks). This is used when FileSize() cannot
+  // estimate final SST size, e.g. parallel compression is enabled.
   uint64_t EstimatedFileSize() const override;
+
+  // Estimated tail size of the SST file generated so far. The "tail" refers to
+  // all blocks written after data blocks (index + filter).
+  uint64_t EstimatedTailSize() const override;
 
   // Get the size of the "tail" part of a SST file. "Tail" refers to
   // all blocks after data blocks till the end of the SST file.
@@ -110,21 +116,41 @@ class BlockBasedTableBuilder : public TableBuilder {
   void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
                                    uint64_t oldest_ancestor_time) override;
 
+  uint64_t GetWorkerCPUMicros() const override;
+
  private:
-  bool ok() const { return status().ok(); }
+  bool ok() const;
 
-  // Transition state from buffered to unbuffered. See `Rep::State` API comment
-  // for details of the states.
+  // Transition state from buffered to unbuffered if the conditions are met. See
+  // `Rep::State` API comment for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
-  void EnterUnbuffered();
+  void MaybeEnterUnbuffered(const Slice* first_key_in_next_block);
 
-  // Compress and write block content to the file.
+  // Try to keep some parallel-specific code separate to improve hot code
+  // locality for non-parallel case
+  void EmitBlock(std::string& uncompressed,
+                 const Slice& last_key_in_current_block,
+                 const Slice* first_key_in_next_block);
+  void EmitBlockForParallel(std::string& uncompressed,
+                            const Slice& last_key_in_current_block,
+                            const Slice* first_key_in_next_block);
+
+  // Compress and write block content to the file, from a single-threaded
+  // context
+  // @skip_delta_encoding : This is set to non null for data blocks, so that
+  //     caller would know whether the index entry of this data block should
+  //     skip delta encoding or not
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
-                  BlockType block_type);
+                  BlockType block_type, bool* skip_delta_encoding = nullptr);
   // Directly write data to the file.
-  void WriteMaybeCompressedBlock(
+  void WriteMaybeCompressedBlock(const Slice& block_contents, CompressionType,
+                                 BlockHandle* handle, BlockType block_type,
+                                 const Slice* uncompressed_block_data = nullptr,
+                                 bool* skip_delta_encoding = nullptr);
+  IOStatus WriteMaybeCompressedBlockImpl(
       const Slice& block_contents, CompressionType, BlockHandle* handle,
-      BlockType block_type, const Slice* uncompressed_block_data = nullptr);
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr,
+      bool* skip_delta_encoding = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -152,51 +178,38 @@ class BlockBasedTableBuilder : public TableBuilder {
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
-  Rep* rep_;
-
+  std::unique_ptr<Rep> rep_;
+  struct WorkingAreaPair;
   struct ParallelCompressionRep;
 
   // Advanced operation: flush any buffered key/value pairs to file.
   // Can be used to ensure that two adjacent entries never live in
   // the same data block.  Most clients should not need to use this method.
   // REQUIRES: Finish(), Abandon() have not been called
-  void Flush();
+  void Flush(const Slice* first_key_in_next_block);
 
   // Some compression libraries fail when the uncompressed size is bigger than
   // int. If uncompressed size is bigger than kCompressionSizeLimit, don't
   // compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 
-  // Get blocks from mem-table walking thread, compress them and
-  // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(const CompressionContext& compression_ctx,
-                         UncompressionContext* verify_ctx);
+  // Code for a "parallel compression" worker thread, which can really do SST
+  // writes and block compressions alternately.
+  void BGWorker(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
   // compression type
-  void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
-                              bool is_data_block,
-                              const CompressionContext& compression_ctx,
-                              UncompressionContext* verify_ctx,
-                              std::string* compressed_output,
-                              CompressionType* result_compression_type,
-                              Status* out_status);
+  Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
+                                bool is_data_block,
+                                WorkingAreaPair& working_area,
+                                GrowableBuffer* compressed_output,
+                                CompressionType* result_compression_type);
 
-  // Get compressed blocks from BGWorkCompression and write them into SST
-  void BGWorkWriteMaybeCompressedBlock();
+  // If configured, start worker threads for parallel compression
+  void MaybeStartParallelCompression();
 
-  // Initialize parallel compression context and
-  // start BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
-  void StartParallelCompression();
-
-  // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
-  void StopParallelCompression();
+  // Stop worker threads for parallel compression
+  void StopParallelCompression(bool abort);
 };
-
-#ifndef NDEBUG
-// 0 == disable the hack
-// > 0 => counter for rotating through compression types
-extern RelaxedAtomic<uint64_t> g_hack_mixed_compression_in_block_based_table;
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE

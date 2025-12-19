@@ -9,10 +9,6 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 
-#ifdef FAILED
-#undef FAILED
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 class LDBCommandExecuteResult {

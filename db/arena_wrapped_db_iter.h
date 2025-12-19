@@ -98,7 +98,7 @@ class ArenaWrappedDBIter : public Iterator {
 
   bool PrepareValue() override { return db_iter_->PrepareValue(); }
 
-  void Prepare(const std::vector<ScanOptions>& scan_opts) override {
+  void Prepare(const MultiScanArgs& scan_opts) override {
     db_iter_->Prepare(scan_opts);
   }
 

@@ -42,6 +42,7 @@ using MinIterHeap =
     std::priority_queue<InternalIterator*, std::vector<InternalIterator*>,
                         MinIterComparator>;
 
+// TODO: name to TailingIterator
 /**
  * ForwardIterator is a special type of iterator that only supports Seek()
  * and Next(). It is expected to perform better than TailingIterator by

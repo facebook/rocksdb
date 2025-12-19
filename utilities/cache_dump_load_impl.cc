@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 // DBs and we may only want to dump out the blocks belonging to certain DB(s).
 // Therefore, a filter is need to decide if the key of the block satisfy the
 // requirement.
-Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
+Status CacheDumperImpl::SetDumpFilter(const std::vector<DB*>& db_list) {
   Status s = Status::OK();
   dump_all_keys_ = false;
   for (size_t i = 0; i < db_list.size(); i++) {

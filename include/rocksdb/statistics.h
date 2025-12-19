@@ -440,13 +440,20 @@ enum Tickers : uint32_t {
   REMOTE_COMPACT_READ_BYTES,
   REMOTE_COMPACT_WRITE_BYTES,
 
+  // Bytes of output files successfully resumed during compaction
+  REMOTE_COMPACT_RESUMED_BYTES,
+
   // Tiered storage related statistics
   HOT_FILE_READ_BYTES,
   WARM_FILE_READ_BYTES,
+  COOL_FILE_READ_BYTES,
   COLD_FILE_READ_BYTES,
+  ICE_FILE_READ_BYTES,
   HOT_FILE_READ_COUNT,
   WARM_FILE_READ_COUNT,
+  COOL_FILE_READ_COUNT,
   COLD_FILE_READ_COUNT,
+  ICE_FILE_READ_COUNT,
 
   // Last level and non-last level read statistics
   LAST_LEVEL_READ_BYTES,
@@ -516,6 +523,7 @@ enum Tickers : uint32_t {
   // Number of FIFO compactions that drop files based on different reasons
   FIFO_MAX_SIZE_COMPACTIONS,
   FIFO_TTL_COMPACTIONS,
+  FIFO_CHANGE_TEMPERATURE_COMPACTIONS,
 
   // Number of bytes prefetched during user initiated scan
   PREFETCH_BYTES,
@@ -534,6 +542,15 @@ enum Tickers : uint32_t {
   // file system option after detecting a checksum mismatch
   FILE_READ_CORRUPTION_RETRY_COUNT,
   FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
+
+  // Counter for the number of times a WBWI is ingested into the DB. This
+  // happens when IngestWriteBatchWithIndex() is used and when large
+  // transaction optimization is enabled through
+  // TransactionOptions::large_txn_commit_optimize_threshold.
+  NUMBER_WBWI_INGEST,
+
+  // Failure to load the UDI during SST table open
+  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT,
 
   TICKER_ENUM_MAX
 };
@@ -671,6 +688,12 @@ enum Histograms : uint32_t {
   // Number of bytes for RocksDB's prefetching contents (as opposed to file
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+
+  // Number of operations per transaction.
+  NUM_OP_PER_TRANSACTION,
+
+  // MultiScan Prefill iterator Prepare cost
+  MULTISCAN_PREPARE_ITERATORS,
 
   HISTOGRAM_ENUM_MAX
 };

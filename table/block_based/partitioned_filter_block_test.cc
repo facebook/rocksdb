@@ -27,7 +27,7 @@ class MockedBlockBasedTable : public BlockBasedTable {
   MockedBlockBasedTable(Rep* rep, PartitionedIndexBuilder* pib)
       : BlockBasedTable(rep, /*block_cache_tracer=*/nullptr) {
     // Initialize what Open normally does as much as necessary for the test
-    rep->index_key_includes_seq = pib->seperator_is_key_plus_seq();
+    rep->index_key_includes_seq = pib->separator_is_key_plus_seq();
     rep->index_value_is_full = !pib->get_use_value_delta_encoding();
   }
 };
@@ -315,7 +315,8 @@ class PartitionedFilterBlockTest
         std::string(*InternalKey(user_key, 0, ValueType::kTypeValue).rep());
     BlockHandle dont_care_block_handle(1, 1);
     std::string scratch;
-    builder->AddIndexEntry(key, nullptr, dont_care_block_handle, &scratch);
+    builder->AddIndexEntry(key, nullptr, dont_care_block_handle, &scratch,
+                           false);
   }
 
   void CutABlock(PartitionedIndexBuilder* builder, const std::string& user_key,
@@ -327,7 +328,8 @@ class PartitionedFilterBlockTest
     BlockHandle dont_care_block_handle(1, 1);
     Slice slice = Slice(next_key.data(), next_key.size());
     std::string scratch;
-    builder->AddIndexEntry(key, &slice, dont_care_block_handle, &scratch);
+    builder->AddIndexEntry(key, &slice, dont_care_block_handle, &scratch,
+                           false);
   }
 
   int CountNumOfIndexPartitions(PartitionedIndexBuilder* builder) {

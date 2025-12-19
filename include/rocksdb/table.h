@@ -44,6 +44,7 @@ class TableReader;
 class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
+class UserDefinedIndexFactory;
 
 // Types of checksums to use for checking integrity of logical blocks within
 // files. All checksums currently use 32 bits of checking power (1 in 4B
@@ -439,10 +440,13 @@ struct BlockBasedTableOptions {
   // versions of RocksDB able to read partitioned filters are able to read
   // decoupled partitioned filters.)
   //
-  // decouple_partitioned_filters = false is the original behavior, because of
-  // limitations in the initial implementation, and the new behavior
-  // decouple_partitioned_filters = true is expected to become the new default.
-  bool decouple_partitioned_filters = false;
+  // decouple_partitioned_filters = true is the new default. This option is now
+  // DEPRECATED and might be ignored and/or removed in a future release.
+  //
+  // NOTE: decouple_partitioned_filters = false with partition_filters = true
+  // disables parallel compression (CompressionOptions::parallel_threads
+  // sanitized to 1).
+  bool decouple_partitioned_filters = true;
 
   // Option to generate Bloom/Ribbon filters that minimize memory
   // internal fragmentation.
@@ -492,7 +496,24 @@ struct BlockBasedTableOptions {
   // Because filters only impact performance and are not data-critical, an
   // SST file can be opened and used without filters if (a) the filter
   // policy name or schema is unrecognized, or (b) filter_policy is nullptr.
+  // See filter_policy regarding filters.
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+
+  // EXPERIMENTAL
+  //
+  // If non-nullptr, use the specified factory to build user-defined index.
+  // This allows users to define their own index format and build the index
+  // during table building.
+  //
+  // NOTE: UserDefinedIndexFactory currently disables parallel compression
+  // (CompressionOptions::parallel_threads sanitized to 1).
+  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
+
+  // EXPERIMENTAL
+  //
+  // Return an error Status if a user_defined_index_factory is configured,
+  // but there's no corresponding UDI block in the SST file being opened.
+  bool fail_if_no_udi_on_open = false;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
@@ -561,6 +582,10 @@ struct BlockBasedTableOptions {
   // misplaced within or between files is as likely to fail checksum
   // verification as random corruption. Also checksum-protects SST footer.
   // Can be read by RocksDB versions >= 8.6.0.
+  // 7 -- Support for custom compression algorithms with a CompressionManager
+  // using a non-built-in CompatibilityName(). See `compression_manager` in
+  // ColumnFamilyOptions. Also changes the format of TableProperties field
+  // `compression_name`. Can be read by RocksDB versions >= 10.4.0.
   //
   // Using the default setting of format_version is strongly recommended, so
   // that available enhancements are adopted eventually and automatically. The
@@ -577,6 +602,30 @@ struct BlockBasedTableOptions {
 
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
+
+  // Align data blocks on super block alignment. Avoid a data block split across
+  // super block boundaries. Works with/without compression.
+  //
+  // Here a "super block" refers to an aligned unit of underlying Filesystem
+  // storage for which there is an extra cost when a random read involves two
+  // such super blocks instead of just one. Configuring that size here suggests
+  // inserting padding in the SST file to avoid a single SST block splitting
+  // across two super blocks. Only power-of-two sizes are supported. See also
+  // super_block_alignment_space_overhead_ratio. Default to 0, which means super
+  // block alignment is disabled.
+  //
+  // Super block alignment size. Default to 0, which means super block alignment
+  // is disabled. If it is enabled, it needs to be a power of 2 and higher than
+  // block size.
+  size_t super_block_alignment_size = 0;
+
+  // This option constrols the storage space overhead of super block alignment.
+  // It is used to calculate the max padding size allowed for super block
+  // alignment. It is calculated in this way. If super_block_alignment_size is
+  // 2MB, and super_block_alignment_overhead_ratio is 128, then the max padding
+  // size allowed for super block alignment is 2MB / 128 = 16KB.
+  // Note that, when it is set to 0, super block alignment is disabled.
+  size_t super_block_alignment_space_overhead_ratio = 128;
 
   // This enum allows trading off increased index size for improved iterator
   // seek performance in some situations, particularly when block cache is

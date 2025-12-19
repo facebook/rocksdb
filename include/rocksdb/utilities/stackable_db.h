@@ -292,7 +292,7 @@ class StackableDB : public DB {
   using DB::NewMultiScan;
   std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& opts, ColumnFamilyHandle* column_family,
-      const std::vector<ScanOptions>& scan_opts) override {
+      const MultiScanArgs& scan_opts) override {
     return db_->NewMultiScan(opts, column_family, scan_opts);
   }
 
@@ -423,7 +423,11 @@ class StackableDB : public DB {
 
   Status SyncWAL() override { return db_->SyncWAL(); }
 
+  using DB::FlushWAL;
   Status FlushWAL(bool sync) override { return db_->FlushWAL(sync); }
+  Status FlushWAL(const FlushWALOptions& options) override {
+    return db_->FlushWAL(options);
+  }
 
   Status LockWAL() override { return db_->LockWAL(); }
 
@@ -450,6 +454,12 @@ class StackableDB : public DB {
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
+  }
+
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               const GetColumnFamilyMetaDataOptions& options,
+                               ColumnFamilyMetaData* metadata) override {
+    db_->GetColumnFamilyMetaData(column_family, options, metadata);
   }
 
   using DB::StartBlockCacheTrace;

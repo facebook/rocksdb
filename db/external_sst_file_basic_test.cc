@@ -16,6 +16,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/defer.h"
+#include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 
@@ -260,55 +261,6 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   s = sst_file_writer.DeleteRange(Key(100), Key(200));
   ASSERT_NOK(s) << s.ToString();
 
-  DestroyAndReopen(options);
-
-  SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
-       "ExternalSSTFileBasicTest.LiveWriteStart"},
-      {"WriteThread::JoinBatchGroup:Wait",
-       "DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2"},
-  });
-  SyncPoint::GetInstance()->EnableProcessing();
-  PerfContext* write_thread_perf_context;
-  std::thread write_thread([&] {
-    TEST_SYNC_POINT("ExternalSSTFileBasicTest.LiveWriteStart");
-    SetPerfLevel(kEnableWait);
-    write_thread_perf_context = get_perf_context();
-    write_thread_perf_context->Reset();
-    ASSERT_OK(db_->Put(WriteOptions(), "bar", "v2"));
-    ASSERT_GT(write_thread_perf_context->write_thread_wait_nanos, 0);
-    // Test sync points were used to make sure this live write enter write
-    // thread after the file ingestion entered write thread. So by the time this
-    // live write finishes, the latest seqno is 1 means file ingestion used
-    // seqno 0.
-    ASSERT_EQ(db_->GetLatestSequenceNumber(), 1U);
-  });
-
-  // Add file using file path
-  SetPerfLevel(kEnableTimeExceptForMutex);
-  PerfContext* perf_ctx = get_perf_context();
-  perf_ctx->Reset();
-  s = DeprecatedAddFile({file1});
-  ASSERT_GT(perf_context.file_ingestion_nanos, 0);
-  ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
-  ASSERT_OK(s) << s.ToString();
-  for (int k = 0; k < 100; k++) {
-    ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
-  }
-
-  write_thread.join();
-  SyncPoint::GetInstance()->DisableProcessing();
-
-  // Re-ingest the file just to check the perf context not enabled at and below
-  // kEnableWait.
-  SetPerfLevel(kEnableWait);
-  perf_ctx->Reset();
-  IngestExternalFileOptions opts;
-  opts.allow_global_seqno = true;
-  opts.allow_blocking_flush = true;
-  ASSERT_OK(db_->IngestExternalFile({file1}, opts));
-  ASSERT_EQ(perf_context.file_ingestion_nanos, 0);
-  ASSERT_EQ(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
@@ -395,7 +347,8 @@ class ChecksumVerifyHelper {
 
   Status GetSingleFileChecksumAndFuncName(
       const std::string& file_path, std::string* file_checksum,
-      std::string* file_checksum_func_name) {
+      std::string* file_checksum_func_name,
+      const std::string& requested_func_name = {}) {
     Status s;
     EnvOptions soptions;
     std::unique_ptr<SequentialFile> file_reader;
@@ -413,6 +366,8 @@ class ChecksumVerifyHelper {
       return Status::OK();
     } else {
       FileChecksumGenContext gen_context;
+      gen_context.file_name = file_path;
+      gen_context.requested_checksum_func_name = requested_func_name;
       std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
           file_checksum_gen_factory->CreateFileChecksumGenerator(gen_context);
       *file_checksum_func_name = file_checksum_gen->Name();
@@ -488,10 +443,50 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
+namespace {
+class VariousFileChecksumGenerator : public FileChecksumGenCrc32c {
+ public:
+  explicit VariousFileChecksumGenerator(const std::string& name)
+      : FileChecksumGenCrc32c({}), name_(name) {}
+
+  const char* Name() const override { return name_.c_str(); }
+
+  std::string GetChecksum() const override {
+    return FileChecksumGenCrc32c::GetChecksum() + "_" + name_;
+  }
+
+ private:
+  const std::string name_;
+};
+
+class VariousFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    static RelaxedAtomic<int> counter{0};
+    if (Slice(context.requested_checksum_func_name).starts_with("Various")) {
+      return std::make_unique<VariousFileChecksumGenerator>(
+          context.requested_checksum_func_name);
+    } else if (context.requested_checksum_func_name.empty()) {
+      // Lacking a specific request, use a different function name for each
+      // result.
+      return std::make_unique<VariousFileChecksumGenerator>(
+          "Various" + std::to_string(counter.FetchAddRelaxed(1)));
+    } else {
+      return nullptr;
+    }
+  }
+
+  static const char* kClassName() { return "VariousFileChecksumGenFactory"; }
+  const char* Name() const override { return kClassName(); }
+};
+}  // namespace
+
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   Options old_options = CurrentOptions();
   Options options = CurrentOptions();
-  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.file_checksum_gen_factory =
+      std::make_shared<VariousFileChecksumGenFactory>();
   const ImmutableCFOptions ioptions(options);
   ChecksumVerifyHelper checksum_helper(options);
 
@@ -512,7 +507,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file1_info.largest_key, Key(1099));
   std::string file_checksum1, file_checksum_func_name1;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file1, &file_checksum1, &file_checksum_func_name1));
+      file1, &file_checksum1, &file_checksum_func_name1,
+      file1_info.file_checksum_func_name));
   ASSERT_EQ(file1_info.file_checksum, file_checksum1);
   ASSERT_EQ(file1_info.file_checksum_func_name, file_checksum_func_name1);
 
@@ -531,7 +527,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file2_info.largest_key, Key(1299));
   std::string file_checksum2, file_checksum_func_name2;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file2, &file_checksum2, &file_checksum_func_name2));
+      file2, &file_checksum2, &file_checksum_func_name2,
+      file2_info.file_checksum_func_name));
   ASSERT_EQ(file2_info.file_checksum, file_checksum2);
   ASSERT_EQ(file2_info.file_checksum_func_name, file_checksum_func_name2);
 
@@ -550,7 +547,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file3_info.largest_key, Key(1499));
   std::string file_checksum3, file_checksum_func_name3;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file3, &file_checksum3, &file_checksum_func_name3));
+      file3, &file_checksum3, &file_checksum_func_name3,
+      file3_info.file_checksum_func_name));
   ASSERT_EQ(file3_info.file_checksum, file_checksum3);
   ASSERT_EQ(file3_info.file_checksum_func_name, file_checksum_func_name3);
 
@@ -569,7 +567,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file4_info.largest_key, Key(1799));
   std::string file_checksum4, file_checksum_func_name4;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file4, &file_checksum4, &file_checksum_func_name4));
+      file4, &file_checksum4, &file_checksum_func_name4,
+      file4_info.file_checksum_func_name));
   ASSERT_EQ(file4_info.file_checksum, file_checksum4);
   ASSERT_EQ(file4_info.file_checksum_func_name, file_checksum_func_name4);
 
@@ -588,7 +587,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file5_info.largest_key, Key(1999));
   std::string file_checksum5, file_checksum_func_name5;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file5, &file_checksum5, &file_checksum_func_name5));
+      file5, &file_checksum5, &file_checksum_func_name5,
+      file5_info.file_checksum_func_name));
   ASSERT_EQ(file5_info.file_checksum, file_checksum5);
   ASSERT_EQ(file5_info.file_checksum_func_name, file_checksum_func_name5);
 
@@ -607,7 +607,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file6_info.largest_key, Key(2199));
   std::string file_checksum6, file_checksum_func_name6;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file6, &file_checksum6, &file_checksum_func_name6));
+      file6, &file_checksum6, &file_checksum_func_name6,
+      file6_info.file_checksum_func_name));
   ASSERT_EQ(file6_info.file_checksum, file_checksum6);
   ASSERT_EQ(file6_info.file_checksum_func_name, file_checksum_func_name6);
 
@@ -677,18 +678,23 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   }
   ASSERT_OK(env_->FileExists(file2));
 
-  // Enable verify_file_checksum option
-  // No checksum information is provided, generate it when ingesting
-  std::vector<std::string> checksum, checksum_func;
-  s = AddFileWithFileChecksum({file3}, checksum, checksum_func, true, false,
-                              false, false);
+  // Enable verify_file_checksum option. No checksum information is provided,
+  // so it is generated when ingesting. The configured checksum factory will
+  // use a different function than before.
+  s = AddFileWithFileChecksum({file3}, {}, {}, true, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files2;
   dbfull()->GetLiveFilesMetaData(&live_files2);
   for (const auto& f : live_files2) {
     if (set1.find(f.name) == set1.end()) {
-      ASSERT_EQ(f.file_checksum, file_checksum3);
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name3);
+      // Recomputed checksum, different function
+      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name3);
+      std::string cur_checksum3, cur_checksum_func_name3;
+      ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+          dbname_ + f.name, &cur_checksum3, &cur_checksum_func_name3,
+          f.file_checksum_func_name));
+      EXPECT_EQ(f.file_checksum, cur_checksum3);
+      EXPECT_EQ(f.file_checksum_func_name, cur_checksum_func_name3);
       set1.insert(f.name);
     }
   }
@@ -702,8 +708,9 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_NOK(s) << s.ToString();
 
   // Does not enable verify_file_checksum options
-  // Checksum function name matches, store the checksum being ingested.
-  s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4},
+  // Checksum function name is recognized, so store the checksum being ingested.
+  std::string file_checksum_func_name4alt = "VariousABCD";
+  s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4alt},
                               false, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files3;
@@ -712,7 +719,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_FALSE(f.file_checksum == file_checksum4);
       ASSERT_EQ(f.file_checksum, "asd");
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name4);
+      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name4alt);
       set1.insert(f.name);
     }
   }
@@ -721,7 +728,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
 
   // enable verify_file_checksum options, DB enable checksum, and enable
   // write_global_seq. So the checksum stored is different from the one
-  // ingested due to the sequence number changes.
+  // ingested due to the sequence number changes. The checksum function name
+  // may also change since the checksum is recomputed.
   s = AddFileWithFileChecksum({file5}, {file_checksum5},
                               {file_checksum_func_name5}, true, false, false,
                               true);
@@ -730,11 +738,14 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   dbfull()->GetLiveFilesMetaData(&live_files4);
   for (const auto& f : live_files4) {
     if (set1.find(f.name) == set1.end()) {
+      // Recomputed checksum, different function
+      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name5);
       std::string cur_checksum5, cur_checksum_func_name5;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-          dbname_ + f.name, &cur_checksum5, &cur_checksum_func_name5));
-      ASSERT_EQ(f.file_checksum, cur_checksum5);
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name5);
+          dbname_ + f.name, &cur_checksum5, &cur_checksum_func_name5,
+          f.file_checksum_func_name));
+      EXPECT_EQ(f.file_checksum, cur_checksum5);
+      EXPECT_EQ(f.file_checksum_func_name, cur_checksum_func_name5);
       set1.insert(f.name);
     }
   }
@@ -742,18 +753,22 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(env_->FileExists(file5));
 
   // Does not enable verify_file_checksum options and also the ingested file
-  // checksum information is empty. DB will generate and store the checksum
-  // in Manifest.
-  std::vector<std::string> files_c6, files_name6;
-  s = AddFileWithFileChecksum({file6}, files_c6, files_name6, false, false,
-                              false, false);
+  // checksum information is empty. DB will generate and store file checksum
+  // in Manifest, which could be different from the previous invocation.
+  s = AddFileWithFileChecksum({file6}, {}, {}, false, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files6;
   dbfull()->GetLiveFilesMetaData(&live_files6);
   for (const auto& f : live_files6) {
     if (set1.find(f.name) == set1.end()) {
-      ASSERT_EQ(f.file_checksum, file_checksum6);
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name6);
+      // Recomputed checksum, different function
+      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name6);
+      std::string cur_checksum6, cur_checksum_func_name6;
+      ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+          dbname_ + f.name, &cur_checksum6, &cur_checksum_func_name6,
+          f.file_checksum_func_name));
+      EXPECT_EQ(f.file_checksum, cur_checksum6);
+      EXPECT_EQ(f.file_checksum_func_name, cur_checksum_func_name6);
       set1.insert(f.name);
     }
   }
@@ -2552,7 +2567,14 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     options.default_write_temperature = Temperature::kHot;
     SstFileWriter sst_file_writer(EnvOptions(), options);
     options.level0_file_num_compaction_trigger = 2;
-    options.allow_ingest_behind = (mode == "ingest_behind");
+    bool cf_option = Random::GetTLSInstance()->OneIn(2);
+    SCOPED_TRACE(std::string("Use ") + (cf_option ? "CF" : "DB") +
+                 " option for ingest behind");
+    if (cf_option) {
+      options.cf_allow_ingest_behind = (mode == "ingest_behind");
+    } else {
+      options.allow_ingest_behind = (mode == "ingest_behind");
+    }
     Reopen(options);
     Defer destroyer([&]() { Destroy(options); });
 

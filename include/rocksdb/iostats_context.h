@@ -32,22 +32,34 @@ struct FileIOByTemperature {
   uint64_t hot_file_bytes_read;
   // the number of bytes read to Temperature::kWarm file
   uint64_t warm_file_bytes_read;
+  // the number of bytes read to Temperature::kCool file
+  uint64_t cool_file_bytes_read;
   // the number of bytes read to Temperature::kCold file
   uint64_t cold_file_bytes_read;
+  // the number of bytes read to Temperature::kIce file
+  uint64_t ice_file_bytes_read;
   // total number of reads to Temperature::kHot file
   uint64_t hot_file_read_count;
   // total number of reads to Temperature::kWarm file
   uint64_t warm_file_read_count;
+  // total number of reads to Temperature::kCool file
+  uint64_t cool_file_read_count;
   // total number of reads to Temperature::kCold file
   uint64_t cold_file_read_count;
+  // total number of reads to Temperature::kIce file
+  uint64_t ice_file_read_count;
   // reset all the statistics to 0.
   void Reset() {
     hot_file_bytes_read = 0;
     warm_file_bytes_read = 0;
+    cool_file_bytes_read = 0;
     cold_file_bytes_read = 0;
+    ice_file_bytes_read = 0;
     hot_file_read_count = 0;
     warm_file_read_count = 0;
+    cool_file_read_count = 0;
     cold_file_read_count = 0;
+    ice_file_read_count = 0;
   }
 };
 

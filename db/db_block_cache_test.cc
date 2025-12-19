@@ -506,6 +506,8 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   table_options.prepopulate_block_cache =
       BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  // Include a compression dictionary block
+  options.compression_opts.max_dict_bytes = 123;
   DestroyAndReopen(options);
 
   std::string value(kValueSize, 'a');
@@ -537,6 +539,9 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
                 options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));
     }
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+
+    // Including compression dict
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_MISS));
   }
 
   // Verify compaction not counted
@@ -824,68 +829,78 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   const int kNumEntriesPerFile = 128;
   const int kNumBytesPerEntry = 1024;
 
-  // Try all the available libraries that support dictionary compression
-  std::vector<CompressionType> compression_types;
-  if (Zlib_Supported()) {
-    compression_types.push_back(kZlibCompression);
-  }
-  if (LZ4_Supported()) {
-    compression_types.push_back(kLZ4Compression);
-    compression_types.push_back(kLZ4HCCompression);
-  }
-  if (ZSTD_Supported()) {
-    compression_types.push_back(kZSTD);
-  }
+  std::vector<CompressionType> dict_compressions =
+      GetSupportedDictCompressions();
   Random rnd(301);
-  for (auto compression_type : compression_types) {
-    Options options = CurrentOptions();
-    options.bottommost_compression = compression_type;
-    options.bottommost_compression_opts.max_dict_bytes = 4096;
-    options.bottommost_compression_opts.enabled = true;
-    options.create_if_missing = true;
-    options.num_levels = 2;
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
-    BlockBasedTableOptions table_options;
-    table_options.cache_index_and_filter_blocks = true;
-    table_options.block_cache.reset(new MockCache());
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
+  // Format version before and after compression handling changes
+  for (int format_version : {6, 7}) {
+    // Test all supported compression types because (at least historically)
+    // dictionary compression could be enabled and a dictionary block saved
+    // but ignored by some compression types. Ensure we at least don't crash
+    // or return corruption for those.
+    for (auto compression_type : GetSupportedCompressions()) {
+      // Extra handling checks only for types actually supporting dictionary
+      // compression.
+      bool dict_supported =
+          std::count(dict_compressions.begin(), dict_compressions.end(),
+                     compression_type) > 0;
 
-    RecordCacheCountersForCompressionDict(options);
+      Options options = CurrentOptions();
+      options.bottommost_compression = compression_type;
+      options.bottommost_compression_opts.max_dict_bytes = 4096;
+      options.bottommost_compression_opts.enabled = true;
+      options.create_if_missing = true;
+      options.num_levels = 2;
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
+      BlockBasedTableOptions table_options;
+      table_options.cache_index_and_filter_blocks = true;
+      table_options.block_cache.reset(new MockCache());
+      table_options.format_version = format_version;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      DestroyAndReopen(options);
 
-    for (int i = 0; i < kNumFiles; ++i) {
-      ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
-      for (int j = 0; j < kNumEntriesPerFile; ++j) {
-        std::string value = rnd.RandomString(kNumBytesPerEntry);
-        ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
+      RecordCacheCountersForCompressionDict(options);
+
+      for (int i = 0; i < kNumFiles; ++i) {
+        ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
+        for (int j = 0; j < kNumEntriesPerFile; ++j) {
+          std::string value = rnd.RandomString(kNumBytesPerEntry);
+          ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
+        }
+        ASSERT_OK(Flush());
       }
-      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+      ASSERT_EQ(0, NumTableFilesAtLevel(0));
+      ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
+
+      if (dict_supported) {
+        // Compression dictionary blocks are preloaded.
+        CheckCacheCountersForCompressionDict(
+            options, kNumFiles /* expected_compression_dict_misses */,
+            0 /* expected_compression_dict_hits */,
+            kNumFiles /* expected_compression_dict_inserts */);
+      }
+
+      // Seek to a key in a file. It should cause the SST's dictionary
+      // meta-block to be read.
+      RecordCacheCounters(options);
+      RecordCacheCountersForCompressionDict(options);
+      ReadOptions read_options;
+      ASSERT_NE("NOT_FOUND", Get(Key(kNumFiles * kNumEntriesPerFile - 1)));
+
+      if (dict_supported) {
+        // Two block hits: index and dictionary since they are prefetched
+        // One block missed/added: data block
+        CheckCacheCounters(options, 1 /* expected_misses */,
+                           2 /* expected_hits */, 1 /* expected_inserts */,
+                           0 /* expected_failures */);
+        CheckCacheCountersForCompressionDict(
+            options, 0 /* expected_compression_dict_misses */,
+            1 /* expected_compression_dict_hits */,
+            0 /* expected_compression_dict_inserts */);
+      }
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, NumTableFilesAtLevel(0));
-    ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
-
-    // Compression dictionary blocks are preloaded.
-    CheckCacheCountersForCompressionDict(
-        options, kNumFiles /* expected_compression_dict_misses */,
-        0 /* expected_compression_dict_hits */,
-        kNumFiles /* expected_compression_dict_inserts */);
-
-    // Seek to a key in a file. It should cause the SST's dictionary meta-block
-    // to be read.
-    RecordCacheCounters(options);
-    RecordCacheCountersForCompressionDict(options);
-    ReadOptions read_options;
-    ASSERT_NE("NOT_FOUND", Get(Key(kNumFiles * kNumEntriesPerFile - 1)));
-    // Two block hits: index and dictionary since they are prefetched
-    // One block missed/added: data block
-    CheckCacheCounters(options, 1 /* expected_misses */, 2 /* expected_hits */,
-                       1 /* expected_inserts */, 0 /* expected_failures */);
-    CheckCacheCountersForCompressionDict(
-        options, 0 /* expected_compression_dict_misses */,
-        1 /* expected_compression_dict_hits */,
-        0 /* expected_compression_dict_inserts */);
   }
 }
 

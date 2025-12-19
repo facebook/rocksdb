@@ -59,6 +59,8 @@ class TestRandomAccessFile : public RandomAccessFile {
 
   Status MultiRead(ReadRequest* reqs, size_t num_reqs) override;
 
+  Status GetFileSize(uint64_t* file_size) override;
+
  private:
   std::unique_ptr<RandomAccessFile> target_;
   FaultInjectionTestEnv* env_;

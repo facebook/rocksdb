@@ -424,7 +424,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_options,
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
-      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
+      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+      bool require_max_output_level = false);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -597,6 +598,11 @@ class ColumnFamilyData {
 
   int GetUnflushedMemTableCountForWriteStallCheck() const {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
+  }
+
+  // thread-safe, DB mutex not needed.
+  bool AllowIngestBehind() const {
+    return ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind;
   }
 
  private:

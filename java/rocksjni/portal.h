@@ -5254,6 +5254,8 @@ class TickerTypeJni {
         return -0x2F;
       case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
         return -0x30;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_RESUMED_BYTES:
+        return -0x5F;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
         return -0x31;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
@@ -5332,6 +5334,20 @@ class TickerTypeJni {
         return -0x56;
       case ROCKSDB_NAMESPACE::Tickers::FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT:
         return -0x57;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS:
+        return -0x58;
+      case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES:
+        return -0x59;
+      case ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT:
+        return -0x5A;
+      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES:
+        return -0x5B;
+      case ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT:
+        return -0x5C;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_WBWI_INGEST:
+        return -0x5D;
+      case ROCKSDB_NAMESPACE::Tickers::SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT:
+        return -0x5E;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5713,6 +5729,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
       case -0x30:
         return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
+      case -0x5F:
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_RESUMED_BYTES;
       case -0x31:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
       case -0x32:
@@ -5794,6 +5812,21 @@ class TickerTypeJni {
       case -0x57:
         return ROCKSDB_NAMESPACE::Tickers::
             FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT;
+      case -0x58:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS;
+      case -0x59:
+        return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_BYTES;
+      case -0x5A:
+        return ROCKSDB_NAMESPACE::Tickers::ICE_FILE_READ_COUNT;
+      case -0x5B:
+        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_BYTES;
+      case -0x5C:
+        return ROCKSDB_NAMESPACE::Tickers::COOL_FILE_READ_COUNT;
+      case -0x5D:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_WBWI_INGEST;
+      case -0x5E:
+        return ROCKSDB_NAMESPACE::Tickers::
+            SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -9211,7 +9244,7 @@ class BlockBasedTableOptionsJni
     }
 
     jmethodID method_id_init =
-        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZBBJD)V");
+        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZJJBBJD)V");
     if (method_id_init == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -9256,6 +9289,9 @@ class BlockBasedTableOptionsJni
         table_factory_options->format_version,
         table_factory_options->enable_index_compression,
         table_factory_options->block_align,
+        static_cast<jlong>(table_factory_options->super_block_alignment_size),
+        static_cast<jlong>(
+            table_factory_options->super_block_alignment_space_overhead_ratio),
         IndexShorteningModeJni::toJavaIndexShorteningMode(
             table_factory_options->index_shortening),
         FilterPolicyJni::toJavaIndexType(filter_policy_type),

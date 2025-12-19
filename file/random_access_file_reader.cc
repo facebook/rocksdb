@@ -80,11 +80,23 @@ inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
         RecordTick(stats, WARM_FILE_READ_BYTES, size);
         RecordTick(stats, WARM_FILE_READ_COUNT, 1);
         break;
+      case Temperature::kCool:
+        IOSTATS_ADD(file_io_stats_by_temperature.cool_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.cool_file_read_count, 1);
+        RecordTick(stats, COOL_FILE_READ_BYTES, size);
+        RecordTick(stats, COOL_FILE_READ_COUNT, 1);
+        break;
       case Temperature::kCold:
         IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, size);
         IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);
         RecordTick(stats, COLD_FILE_READ_BYTES, size);
         RecordTick(stats, COLD_FILE_READ_COUNT, 1);
+        break;
+      case Temperature::kIce:
+        IOSTATS_ADD(file_io_stats_by_temperature.ice_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.ice_file_read_count, 1);
+        RecordTick(stats, ICE_FILE_READ_BYTES, size);
+        RecordTick(stats, ICE_FILE_READ_COUNT, 1);
         break;
       default:
         break;
@@ -106,11 +118,14 @@ IOStatus RandomAccessFileReader::Create(
 
 IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                                       size_t n, Slice* result, char* scratch,
-                                      AlignedBuf* aligned_buf) const {
+                                      AlignedBuf* aligned_buf,
+                                      IODebugContext* dbg) const {
   (void)aligned_buf;
   const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read:IODebugContext",
+                           const_cast<void*>(static_cast<void*>(dbg)));
 
   // To be paranoid: modify scratch a little bit, so in case underlying
   // FileSystem doesn't fill the buffer but return success and `scratch` returns
@@ -175,7 +190,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
           io_s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
-                             &tmp, buf.Destination(), nullptr);
+                             &tmp, buf.Destination(), dbg);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
@@ -237,7 +252,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == n);
           io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
-                             scratch + pos, nullptr);
+                             scratch + pos, dbg);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
@@ -311,7 +326,8 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
 IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
                                            FSReadRequest* read_reqs,
                                            size_t num_reqs,
-                                           AlignedBuf* aligned_buf) const {
+                                           AlignedBuf* aligned_buf,
+                                           IODebugContext* dbg) const {
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
@@ -420,8 +436,10 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           remaining_bytes -= request_bytes;
         }
       }
-      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts,
-                              /*IODebugContext*=*/nullptr);
+      TEST_SYNC_POINT_CALLBACK(
+          "RandomAccessFileReader::MultiRead:IODebugContext",
+          const_cast<void*>(static_cast<void*>(dbg)));
+      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, dbg);
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
@@ -475,18 +493,28 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
 }
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
-                                                  IOOptions& opts) const {
+                                                  IOOptions& opts,
+                                                  IODebugContext* dbg) const {
   if (clock_ != nullptr) {
-    return PrepareIOFromReadOptions(ro, clock_, opts);
+    return PrepareIOFromReadOptions(ro, clock_, opts, dbg);
   } else {
-    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
+    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts,
+                                    dbg);
   }
 }
 
+// Notes for when direct_io is enabled:
+// Unless req.offset, req.len, req.scratch are all already aligned,
+// RandomAccessFileReader will creats aligned requests and aligned buffer for
+// the request. User should only provide either req.scratch or aligned_buf. If
+// only req.scratch is provided, result will be copied from allocated aligned
+// buffer to req.scratch. If only alignd_buf is provided, it will be set to
+// the ailgned buf allocated by RandomAccessFileReader and saves a copy.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
-    void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf) {
+    void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
+    IODebugContext* dbg) {
   IOStatus s;
   // Create a callback and populate info.
   auto read_async_callback =
@@ -532,14 +560,14 @@ IOStatus RandomAccessFileReader::ReadAsync(
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
-                         read_async_info, io_handle, del_fn, nullptr /*dbg*/);
+                         read_async_info, io_handle, del_fn, dbg);
   } else {
     StopWatch sw(clock_, stats_, hist_type_,
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
-                         io_handle, del_fn, nullptr /*dbg*/);
+                         io_handle, del_fn, dbg);
   }
   RecordTick(stats_, READ_ASYNC_MICROS, elapsed);
 

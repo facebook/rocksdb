@@ -497,6 +497,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           ikey.sequence <= latest_snapshot_
               ? CompactionFilter::Decision::kKeep
               : FilterMerge(orig_ikey.user_key, value_slice);
+      // FIXME: should also check for kRemove here
       if (filter != CompactionFilter::Decision::kRemoveAndSkipUntil &&
           range_del_agg != nullptr &&
           range_del_agg->ShouldDelete(

@@ -110,23 +110,48 @@ void GetInternalTblPropCollFactory(
   }
 }
 
+Status CheckCompressionSupportedWithManager(
+    CompressionType type, UnownedPtr<CompressionManager> mgr) {
+  if (mgr) {
+    if (!mgr->SupportsCompressionType(type)) {
+      return Status::NotSupported("Compression type " +
+                                  CompressionTypeToString(type) +
+                                  " is not recognized/supported by this "
+                                  "version of CompressionManager " +
+                                  mgr->GetId());
+    }
+  } else {
+    if (!CompressionTypeSupported(type)) {
+      if (type <= kLastBuiltinCompression) {
+        return Status::InvalidArgument("Compression type " +
+                                       CompressionTypeToString(type) +
+                                       " is not linked with the binary.");
+      } else {
+        return Status::NotSupported(
+            "Compression type " + CompressionTypeToString(type) +
+            " is not recognized/supported by built-in CompressionManager.");
+      }
+    }
+  }
+  return Status::OK();
+}
+
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   if (!cf_options.compression_per_level.empty()) {
     for (size_t level = 0; level < cf_options.compression_per_level.size();
          ++level) {
-      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
-        return Status::InvalidArgument(
-            "Compression type " +
-            CompressionTypeToString(cf_options.compression_per_level[level]) +
-            " is not linked with the binary.");
+      Status s = CheckCompressionSupportedWithManager(
+          cf_options.compression_per_level[level],
+          cf_options.compression_manager.get());
+      if (!s.ok()) {
+        return s;
       }
     }
   } else {
-    if (!CompressionTypeSupported(cf_options.compression)) {
-      return Status::InvalidArgument(
-          "Compression type " +
-          CompressionTypeToString(cf_options.compression) +
-          " is not linked with the binary.");
+    Status s = CheckCompressionSupportedWithManager(
+        cf_options.compression, cf_options.compression_manager.get());
+    if (!s.ok()) {
+      return s;
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
@@ -255,7 +280,8 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.compaction_style == kCompactionStyleUniversal &&
-      db_options.allow_ingest_behind && result.num_levels < 3) {
+      (db_options.allow_ingest_behind || result.cf_allow_ingest_behind) &&
+      result.num_levels < 3) {
     result.num_levels = 3;
   }
 
@@ -448,13 +474,21 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
     result.preclude_last_level_data_seconds = 0;
   }
 
-  if (read_only && result.memtable_op_scan_flush_trigger != 0) {
-    ROCKS_LOG_WARN(db_options.info_log.get(),
-                   "option memtable_op_scan_flush_trigger is sanitized to "
-                   "0(disabled) for read only DB.");
-    result.memtable_op_scan_flush_trigger = 0;
+  if (read_only) {
+    if (result.memtable_op_scan_flush_trigger) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "option memtable_op_scan_flush_trigger is sanitized to "
+                     "0(disabled) for read only DB.");
+      result.memtable_op_scan_flush_trigger = 0;
+    }
+    if (result.memtable_avg_op_scan_flush_trigger) {
+      ROCKS_LOG_WARN(
+          db_options.info_log.get(),
+          "option memtable_avg_op_scan_flush_trigger is sanitized to "
+          "0(disabled) for read only DB.");
+      result.memtable_avg_op_scan_flush_trigger = 0;
+    }
   }
-
   return result;
 }
 
@@ -1209,10 +1243,12 @@ Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
-    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
+    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+    bool require_max_output_level) {
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
-      snapshot_checker, current_->storage_info(), log_buffer);
+      snapshot_checker, current_->storage_info(), log_buffer,
+      require_max_output_level);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
@@ -1296,7 +1332,7 @@ Compaction* ColumnFamilyData::CompactRange(
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
     uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
-  auto* result = compaction_picker_->CompactRange(
+  auto* result = compaction_picker_->PickCompactionForCompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
@@ -1598,6 +1634,8 @@ Status ColumnFamilyData::SetOptions(
   Status s = GetColumnFamilyOptionsFromMap(config_opts, cf_opts, options_map,
                                            &cf_opts);
   if (s.ok()) {
+    // FIXME: we should call SanitizeOptions() too or consolidate it with
+    // ValidateOptions().
     s = ValidateOptions(db_opts, cf_opts);
   }
   if (s.ok()) {

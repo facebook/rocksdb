@@ -386,7 +386,7 @@ class DBImpl : public DB {
   using DB::NewMultiScan;
   std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
-      const std::vector<ScanOptions>& scan_opts) override;
+      const MultiScanArgs& scan_opts) override;
 
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -484,9 +484,12 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   Status FlushWAL(bool sync) override {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    return FlushWAL(WriteOptions(), sync);
+    FlushWALOptions options;
+    options.sync = sync;
+    return FlushWAL(options);
   }
+
+  Status FlushWAL(const FlushWALOptions& options) override;
 
   virtual Status FlushWAL(const WriteOptions& write_options, bool sync);
   bool WALBufferIsEmpty();
@@ -568,6 +571,11 @@ class DBImpl : public DB {
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               ColumnFamilyMetaData* metadata) override;
+
+  // Get column family metadata with filtering based on key range and level
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               const GetColumnFamilyMetaDataOptions& options,
                                ColumnFamilyMetaData* metadata) override;
 
   void GetAllColumnFamilyMetaData(
@@ -803,10 +811,6 @@ class DBImpl : public DB {
   // make sure not to compact any keys that would prevent a write-conflict from
   // being detected.
   const Snapshot* GetSnapshotForWriteConflictBoundary();
-
-  // checks if all live files exist on file system and that their file sizes
-  // match to our in-memory records
-  virtual Status CheckConsistency();
 
   // max_file_num_to_ignore allows bottom level compaction to filter out newly
   // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
@@ -1090,10 +1094,7 @@ class DBImpl : public DB {
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
-  void GetSnapshotContext(JobContext* job_context,
-                          std::vector<SequenceNumber>* snapshot_seqs,
-                          SequenceNumber* earliest_write_conflict_snapshot,
-                          SnapshotChecker** snapshot_checker);
+  void InitSnapshotContext(JobContext* job_context);
 
   // Not thread-safe.
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
@@ -1289,6 +1290,12 @@ class DBImpl : public DB {
   // For the background timer job
   void RecordSeqnoToTimeMapping();
 
+  // Compactions rely on an event triggers like flush/compaction/SetOptions.
+  // We need to trigger periodic compactions even when there is no such trigger.
+  // This function checks and schedules available compactions and will run
+  // periodically.
+  void TriggerPeriodicCompaction();
+
   // REQUIRES: DB mutex held
   std::pair<SequenceNumber, uint64_t> GetSeqnoToTimeSample() const;
 
@@ -1388,6 +1395,9 @@ class DBImpl : public DB {
   // WriteToWAL need different synchronization: wal_empty_, alive_wal_files_,
   // logs_, cur_wal_number_. Refer to the definition of each variable below for
   // more description.
+  //
+  // Protects access to most ColumnFamilyData methods, see more in comment for
+  // each method.
   //
   // `mutex_` can be a hot lock in some workloads, so it deserves dedicated
   // cachelines.
@@ -1955,12 +1965,19 @@ class DBImpl : public DB {
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
+    // TODO(hx235): consider using std::shared_ptr for easier ownership
+    // management
     Compaction* compaction;
     // caller retains ownership of `manual_compaction_state` as it is reused
     // across background compactions.
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
+    // If true, `compaction` is picked temporarily to express compaction intent
+    // and will be released before re-picking a real compaction based on the
+    // updated LSM shape when thread associated with `compaction` is ready to
+    // run
+    bool need_repick;
   };
 
   struct CompactionArg {
@@ -2051,14 +2068,13 @@ class DBImpl : public DB {
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
   // installs a new super version for the column family.
-  Status FlushMemTableToOutputFile(
-      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-      bool* madeProgress, JobContext* job_context, FlushReason flush_reason,
-      SuperVersionContext* superversion_context,
-      std::vector<SequenceNumber>& snapshot_seqs,
-      SequenceNumber earliest_write_conflict_snapshot,
-      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
-      Env::Priority thread_pri);
+  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
+                                   const MutableCFOptions& mutable_cf_options,
+                                   bool* madeProgress, JobContext* job_context,
+                                   FlushReason flush_reason,
+                                   SuperVersionContext* superversion_context,
+                                   LogBuffer* log_buffer,
+                                   Env::Priority thread_pri);
 
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
@@ -2385,6 +2401,14 @@ class DBImpl : public DB {
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
 
+  // Helper function to perform trivial move by updating manifest metadata
+  // without rewriting data files. This is called when IsTrivialMove() is true.
+  // REQUIRES: mutex held
+  // Returns: Status of the trivial move operation
+  Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
+                            bool& compaction_released, size_t& moved_files,
+                            size_t& moved_bytes);
+
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
                            bool track);
@@ -2460,6 +2484,8 @@ class DBImpl : public DB {
                          bool* flush_rescheduled_to_retain_udt,
                          Env::Priority thread_pri);
 
+  Compaction* CreateIntendedCompactionForwardedToBottomPriorityPool(
+      Compaction* c);
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
@@ -2577,7 +2603,7 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
-  void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
+  void UpdateFIFOCompactionStatus(const std::unique_ptr<Compaction>& c);
 
   // May open and read table files for table property.
   // Should not be called while holding mutex_.
@@ -2727,6 +2753,11 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       ErrorIteratorFuncType error_iterator_func);
 
+  bool ShouldPickCompaction(bool is_prepicked,
+                            const PrepickedCompaction* prepicked_compaction);
+
+  void ResetBottomPriCompactionIntent(ColumnFamilyData* cfd,
+                                      std::unique_ptr<Compaction>& c);
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_ = nullptr;
 

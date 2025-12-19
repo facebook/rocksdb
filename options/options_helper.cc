@@ -99,13 +99,15 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
   options.keep_log_file_num = immutable_db_options.keep_log_file_num;
   options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
-  options.max_manifest_file_size = immutable_db_options.max_manifest_file_size;
+  options.max_manifest_file_size = mutable_db_options.max_manifest_file_size;
+  options.max_manifest_space_amp_pct =
+      mutable_db_options.max_manifest_space_amp_pct;
   options.table_cache_numshardbits =
       immutable_db_options.table_cache_numshardbits;
   options.WAL_ttl_seconds = immutable_db_options.WAL_ttl_seconds;
   options.WAL_size_limit_MB = immutable_db_options.WAL_size_limit_MB;
   options.manifest_preallocation_size =
-      immutable_db_options.manifest_preallocation_size;
+      mutable_db_options.manifest_preallocation_size;
   options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
   options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
   options.use_direct_reads = immutable_db_options.use_direct_reads;
@@ -232,6 +234,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
   cf_opts->paranoid_memory_checks = moptions.paranoid_memory_checks;
+  cf_opts->memtable_veirfy_per_key_checksum_on_seek =
+      moptions.memtable_veirfy_per_key_checksum_on_seek;
   cf_opts->bottommost_file_compaction_delay =
       moptions.bottommost_file_compaction_delay;
 
@@ -250,6 +254,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->max_compaction_bytes = moptions.max_compaction_bytes;
   cf_opts->target_file_size_base = moptions.target_file_size_base;
   cf_opts->target_file_size_multiplier = moptions.target_file_size_multiplier;
+  cf_opts->target_file_size_is_upper_bound =
+      moptions.target_file_size_is_upper_bound;
   cf_opts->max_bytes_for_level_base = moptions.max_bytes_for_level_base;
   cf_opts->max_bytes_for_level_multiplier =
       moptions.max_bytes_for_level_multiplier;
@@ -267,6 +273,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
 
   cf_opts->compaction_options_fifo = moptions.compaction_options_fifo;
   cf_opts->compaction_options_universal = moptions.compaction_options_universal;
+
+  cf_opts->verify_output_flags = moptions.verify_output_flags;
 
   // Blob file related options
   cf_opts->enable_blob_files = moptions.enable_blob_files;
@@ -293,6 +301,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->compression_opts = moptions.compression_opts;
   cf_opts->bottommost_compression = moptions.bottommost_compression;
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
+  cf_opts->compression_manager = moptions.compression_manager;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
   cf_opts->compression_per_level = moptions.compression_per_level;
   cf_opts->last_level_temperature = moptions.last_level_temperature;
@@ -301,6 +310,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->uncache_aggressiveness = moptions.uncache_aggressiveness;
   cf_opts->memtable_op_scan_flush_trigger =
       moptions.memtable_op_scan_flush_trigger;
+  cf_opts->memtable_avg_op_scan_flush_trigger =
+      moptions.memtable_avg_op_scan_flush_trigger;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -336,6 +347,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;
+  cf_opts->cf_allow_ingest_behind = ioptions.cf_allow_ingest_behind;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
@@ -361,10 +373,9 @@ std::map<CompactionStopStyle, std::string>
         {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
 
 std::map<Temperature, std::string> OptionsHelper::temperature_to_string = {
-    {Temperature::kUnknown, "kUnknown"},
-    {Temperature::kHot, "kHot"},
-    {Temperature::kWarm, "kWarm"},
-    {Temperature::kCold, "kCold"}};
+    {Temperature::kUnknown, "kUnknown"}, {Temperature::kHot, "kHot"},
+    {Temperature::kWarm, "kWarm"},       {Temperature::kCool, "kCool"},
+    {Temperature::kCold, "kCold"},       {Temperature::kIce, "kIce"}};
 
 std::unordered_map<std::string, ChecksumType>
     OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
@@ -383,6 +394,133 @@ std::unordered_map<std::string, CompressionType>
         {"kLZ4HCCompression", kLZ4HCCompression},
         {"kXpressCompression", kXpressCompression},
         {"kZSTD", kZSTD},
+        {"kCustomCompression80", kCustomCompression80},
+        {"kCustomCompression81", kCustomCompression81},
+        {"kCustomCompression82", kCustomCompression82},
+        {"kCustomCompression83", kCustomCompression83},
+        {"kCustomCompression84", kCustomCompression84},
+        {"kCustomCompression85", kCustomCompression85},
+        {"kCustomCompression86", kCustomCompression86},
+        {"kCustomCompression87", kCustomCompression87},
+        {"kCustomCompression88", kCustomCompression88},
+        {"kCustomCompression89", kCustomCompression89},
+        {"kCustomCompression8A", kCustomCompression8A},
+        {"kCustomCompression8B", kCustomCompression8B},
+        {"kCustomCompression8C", kCustomCompression8C},
+        {"kCustomCompression8D", kCustomCompression8D},
+        {"kCustomCompression8E", kCustomCompression8E},
+        {"kCustomCompression8F", kCustomCompression8F},
+        {"kCustomCompression90", kCustomCompression90},
+        {"kCustomCompression91", kCustomCompression91},
+        {"kCustomCompression92", kCustomCompression92},
+        {"kCustomCompression93", kCustomCompression93},
+        {"kCustomCompression94", kCustomCompression94},
+        {"kCustomCompression95", kCustomCompression95},
+        {"kCustomCompression96", kCustomCompression96},
+        {"kCustomCompression97", kCustomCompression97},
+        {"kCustomCompression98", kCustomCompression98},
+        {"kCustomCompression99", kCustomCompression99},
+        {"kCustomCompression9A", kCustomCompression9A},
+        {"kCustomCompression9B", kCustomCompression9B},
+        {"kCustomCompression9C", kCustomCompression9C},
+        {"kCustomCompression9D", kCustomCompression9D},
+        {"kCustomCompression9E", kCustomCompression9E},
+        {"kCustomCompression9F", kCustomCompression9F},
+        {"kCustomCompressionA0", kCustomCompressionA0},
+        {"kCustomCompressionA1", kCustomCompressionA1},
+        {"kCustomCompressionA2", kCustomCompressionA2},
+        {"kCustomCompressionA3", kCustomCompressionA3},
+        {"kCustomCompressionA4", kCustomCompressionA4},
+        {"kCustomCompressionA5", kCustomCompressionA5},
+        {"kCustomCompressionA6", kCustomCompressionA6},
+        {"kCustomCompressionA7", kCustomCompressionA7},
+        {"kCustomCompressionA8", kCustomCompressionA8},
+        {"kCustomCompressionA9", kCustomCompressionA9},
+        {"kCustomCompressionAA", kCustomCompressionAA},
+        {"kCustomCompressionAB", kCustomCompressionAB},
+        {"kCustomCompressionAC", kCustomCompressionAC},
+        {"kCustomCompressionAD", kCustomCompressionAD},
+        {"kCustomCompressionAE", kCustomCompressionAE},
+        {"kCustomCompressionAF", kCustomCompressionAF},
+        {"kCustomCompressionB0", kCustomCompressionB0},
+        {"kCustomCompressionB1", kCustomCompressionB1},
+        {"kCustomCompressionB2", kCustomCompressionB2},
+        {"kCustomCompressionB3", kCustomCompressionB3},
+        {"kCustomCompressionB4", kCustomCompressionB4},
+        {"kCustomCompressionB5", kCustomCompressionB5},
+        {"kCustomCompressionB6", kCustomCompressionB6},
+        {"kCustomCompressionB7", kCustomCompressionB7},
+        {"kCustomCompressionB8", kCustomCompressionB8},
+        {"kCustomCompressionB9", kCustomCompressionB9},
+        {"kCustomCompressionBA", kCustomCompressionBA},
+        {"kCustomCompressionBB", kCustomCompressionBB},
+        {"kCustomCompressionBC", kCustomCompressionBC},
+        {"kCustomCompressionBD", kCustomCompressionBD},
+        {"kCustomCompressionBE", kCustomCompressionBE},
+        {"kCustomCompressionBF", kCustomCompressionBF},
+        {"kCustomCompressionC0", kCustomCompressionC0},
+        {"kCustomCompressionC1", kCustomCompressionC1},
+        {"kCustomCompressionC2", kCustomCompressionC2},
+        {"kCustomCompressionC3", kCustomCompressionC3},
+        {"kCustomCompressionC4", kCustomCompressionC4},
+        {"kCustomCompressionC5", kCustomCompressionC5},
+        {"kCustomCompressionC6", kCustomCompressionC6},
+        {"kCustomCompressionC7", kCustomCompressionC7},
+        {"kCustomCompressionC8", kCustomCompressionC8},
+        {"kCustomCompressionC9", kCustomCompressionC9},
+        {"kCustomCompressionCA", kCustomCompressionCA},
+        {"kCustomCompressionCB", kCustomCompressionCB},
+        {"kCustomCompressionCC", kCustomCompressionCC},
+        {"kCustomCompressionCD", kCustomCompressionCD},
+        {"kCustomCompressionCE", kCustomCompressionCE},
+        {"kCustomCompressionCF", kCustomCompressionCF},
+        {"kCustomCompressionD0", kCustomCompressionD0},
+        {"kCustomCompressionD1", kCustomCompressionD1},
+        {"kCustomCompressionD2", kCustomCompressionD2},
+        {"kCustomCompressionD3", kCustomCompressionD3},
+        {"kCustomCompressionD4", kCustomCompressionD4},
+        {"kCustomCompressionD5", kCustomCompressionD5},
+        {"kCustomCompressionD6", kCustomCompressionD6},
+        {"kCustomCompressionD7", kCustomCompressionD7},
+        {"kCustomCompressionD8", kCustomCompressionD8},
+        {"kCustomCompressionD9", kCustomCompressionD9},
+        {"kCustomCompressionDA", kCustomCompressionDA},
+        {"kCustomCompressionDB", kCustomCompressionDB},
+        {"kCustomCompressionDC", kCustomCompressionDC},
+        {"kCustomCompressionDD", kCustomCompressionDD},
+        {"kCustomCompressionDE", kCustomCompressionDE},
+        {"kCustomCompressionDF", kCustomCompressionDF},
+        {"kCustomCompressionE0", kCustomCompressionE0},
+        {"kCustomCompressionE1", kCustomCompressionE1},
+        {"kCustomCompressionE2", kCustomCompressionE2},
+        {"kCustomCompressionE3", kCustomCompressionE3},
+        {"kCustomCompressionE4", kCustomCompressionE4},
+        {"kCustomCompressionE5", kCustomCompressionE5},
+        {"kCustomCompressionE6", kCustomCompressionE6},
+        {"kCustomCompressionE7", kCustomCompressionE7},
+        {"kCustomCompressionE8", kCustomCompressionE8},
+        {"kCustomCompressionE9", kCustomCompressionE9},
+        {"kCustomCompressionEA", kCustomCompressionEA},
+        {"kCustomCompressionEB", kCustomCompressionEB},
+        {"kCustomCompressionEC", kCustomCompressionEC},
+        {"kCustomCompressionED", kCustomCompressionED},
+        {"kCustomCompressionEE", kCustomCompressionEE},
+        {"kCustomCompressionEF", kCustomCompressionEF},
+        {"kCustomCompressionF0", kCustomCompressionF0},
+        {"kCustomCompressionF1", kCustomCompressionF1},
+        {"kCustomCompressionF2", kCustomCompressionF2},
+        {"kCustomCompressionF3", kCustomCompressionF3},
+        {"kCustomCompressionF4", kCustomCompressionF4},
+        {"kCustomCompressionF5", kCustomCompressionF5},
+        {"kCustomCompressionF6", kCustomCompressionF6},
+        {"kCustomCompressionF7", kCustomCompressionF7},
+        {"kCustomCompressionF8", kCustomCompressionF8},
+        {"kCustomCompressionF9", kCustomCompressionF9},
+        {"kCustomCompressionFA", kCustomCompressionFA},
+        {"kCustomCompressionFB", kCustomCompressionFB},
+        {"kCustomCompressionFC", kCustomCompressionFC},
+        {"kCustomCompressionFD", kCustomCompressionFD},
+        {"kCustomCompressionFE", kCustomCompressionFE},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 
 const std::vector<CompressionType>& GetSupportedCompressions() {
@@ -565,7 +703,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
-      break;
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
@@ -833,10 +970,9 @@ std::unordered_map<std::string, CompactionStopStyle>
 
 std::unordered_map<std::string, Temperature>
     OptionsHelper::temperature_string_map = {
-        {"kUnknown", Temperature::kUnknown},
-        {"kHot", Temperature::kHot},
-        {"kWarm", Temperature::kWarm},
-        {"kCold", Temperature::kCold}};
+        {"kUnknown", Temperature::kUnknown}, {"kHot", Temperature::kHot},
+        {"kWarm", Temperature::kWarm},       {"kCool", Temperature::kCool},
+        {"kCold", Temperature::kCold},       {"kIce", Temperature::kIce}};
 
 std::unordered_map<std::string, PrepopulateBlobCache>
     OptionsHelper::prepopulate_blob_cache_string_map = {
@@ -908,7 +1044,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
                                        : value;
 
     if (opt_ptr == nullptr) {
-      return Status::NotFound("Could not find option", opt_name);
+      return Status::NotFound("Nullptr option", opt_name);
     } else if (parse_func_ != nullptr) {
       ConfigOptions copy = config_options;
       copy.invoke_prepare_options = false;

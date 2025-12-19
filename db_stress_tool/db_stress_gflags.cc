@@ -467,7 +467,9 @@ DEFINE_uint64(blob_file_size,
 DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");
-
+DEFINE_string(compression_manager, "mixed",
+              "Ability to change compression manager specified in "
+              "simple_mixed_manager.h (mixed -> roundRobin)");
 DEFINE_bool(enable_blob_garbage_collection,
             ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                 .enable_blob_garbage_collection,
@@ -535,6 +537,9 @@ DEFINE_uint32(use_timed_put_one_in, 0,
 DEFINE_string(file_temperature_age_thresholds, "",
               "See CompactionOptionsFIFO::file_temperature_age_thresholds. "
               "empty == unset");
+
+DEFINE_bool(allow_trivial_copy_when_change_temperature, true,
+            "Allow kChangeTemperature to do trivial copy");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -719,6 +724,10 @@ DEFINE_uint64(txn_write_policy, 0,
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
               "changed across crashes.");
 
+DEFINE_bool(use_per_key_point_lock_mgr, true,
+            "Use PointLockManager(false) or PerKeyPointLockManager(true) in "
+            "TransactionDB.");
+
 DEFINE_bool(use_optimistic_txn, false, "Use OptimisticTransactionDB.");
 DEFINE_uint64(occ_validation_policy, 1,
               "Optimistic Concurrency Control Validation Policy for "
@@ -839,8 +848,23 @@ DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
 
-DEFINE_bool(enable_remote_compaction, false,
-            "Enable (simulated) Remote Compaction");
+DEFINE_int32(
+    remote_compaction_worker_threads, 2,
+    "Remote Compaction Worker Thread count. If 0, remote compaction is "
+    "disabled");
+
+DEFINE_int32(remote_compaction_worker_interval, 10,
+             "Remote Compaction Worker Thread dequeue tasks every N "
+             "milliseconds. (Default: 10ms)");
+
+DEFINE_bool(remote_compaction_failure_fall_back_to_local, true,
+            "If true, remote compaction failures will be ignored and "
+            "compactions will fall back to local and retried");
+
+DEFINE_int32(allow_resumption_one_in, 0,
+             "If non-zero, enable resumable compaction with 1/N probability "
+             "for each OpenAndCompact call.Requires "
+             "remote_compaction_worker_threads > 0");
 
 DEFINE_uint32(ingest_wbwi_one_in, 0,
               "If set, will call"
@@ -954,7 +978,11 @@ DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
-DEFINE_uint64(max_manifest_file_size, 16384, "Maximum size of a MANIFEST file");
+DEFINE_uint64(max_manifest_file_size, 16384,
+              "Maximum size of a MANIFEST file (without auto-tuning)");
+
+DEFINE_int32(max_manifest_space_amp_pct, 500,
+             "Max manifest space amp percentage for auto-tuning");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
@@ -1413,6 +1441,17 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "BlockBasedTableOptions.block_align");
 
+DEFINE_uint64(
+    super_block_alignment_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_alignment_size,
+    "BlockBasedTableOptions.super_block_alignment_size");
+
+DEFINE_uint64(
+    super_block_alignment_space_overhead_ratio,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .super_block_alignment_space_overhead_ratio,
+    "BlockBasedTableOptions.super_block_alignment_space_overhead_ratio");
+
 DEFINE_uint32(
     lowest_used_cache_tier,
     static_cast<uint32_t>(ROCKSDB_NAMESPACE::Options().lowest_used_cache_tier),
@@ -1465,9 +1504,36 @@ DEFINE_bool(paranoid_memory_checks,
             ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
 
+DEFINE_bool(
+    memtable_veirfy_per_key_checksum_on_seek,
+    ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
+    "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
+
+// Compaction on deletion trigger flags
+DEFINE_bool(enable_compaction_on_deletion_trigger, false,
+            "Enable CompactOnDeletionCollectorFactory for stress testing "
+            "deletion-triggered compaction scenarios.");
+
+DEFINE_uint64(compaction_on_deletion_min_file_size, 32 * 1024,
+              "Minimum file size (in bytes) for deletion-triggered compaction. "
+              "Files smaller than this will not trigger compaction even if "
+              "deletion ratio is exceeded. Default: 32KB");
+
+DEFINE_int32(compaction_on_deletion_trigger_count, 50,
+             "Number of deletions that triggers compaction when deletion "
+             "ratio is exceeded. Default: 50");
+
+DEFINE_int32(compaction_on_deletion_window_size, 100,
+             "Size of the sliding window for tracking deletions. "
+             "Default: 100");
+
+DEFINE_double(compaction_on_deletion_ratio, 0.5,
+              "Deletion ratio threshold for triggering compaction. "
+              "Default: 0.5 (50%)");
 
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,
@@ -1478,5 +1544,23 @@ DEFINE_uint32(
     memtable_op_scan_flush_trigger,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_op_scan_flush_trigger,
     "Sets CF option memtable_op_scan_flush_trigger.");
+
+DEFINE_uint32(
+    memtable_avg_op_scan_flush_trigger,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
+    "Sets CF option memtable_avg_op_scan_flush_trigger.");
+
+DEFINE_bool(
+    universal_reduce_file_locking,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions()
+        .compaction_options_universal.reduce_file_locking,
+    "Sets "
+    "ColumnFamilyOptions().compaciton_options_universal.reduce_file_locking.");
+
+DEFINE_bool(use_multiscan, false,
+            "If set, use the batched MultiScan API for scans.");
+
+DEFINE_bool(multiscan_use_async_io, false,
+            "If set, enable async_io for MultiScan operations.");
 
 #endif  // GFLAGS

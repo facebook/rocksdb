@@ -243,7 +243,7 @@ class PosixFileSystem : public FileSystem {
       // Use mmap when virtual address-space is plentiful.
       uint64_t size;
       IOOptions opts;
-      s = GetFileSize(fname, opts, &size, nullptr);
+      s = GetFileSizeOnOpenedFile(fd, fname, &size);
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
@@ -270,7 +270,10 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
+          !IsIOUringEnabled() ? nullptr
+                              : thread_local_async_read_io_urings_.get(),
+          !IsIOUringEnabled() ? nullptr
+                              : thread_local_multi_read_io_urings_.get()
 #endif
               ));
     }
@@ -324,7 +327,7 @@ class PosixFileSystem : public FileSystem {
     }
     uint64_t initial_file_size = 0;
     if (reopen) {
-      s = GetFileSize(fname, IOOptions(), &initial_file_size, nullptr);
+      s = GetFileSizeOnOpenedFile(fd, fname, &initial_file_size);
       if (!s.ok()) {
         close(fd);
         return s;
@@ -509,7 +512,7 @@ class PosixFileSystem : public FileSystem {
     uint64_t size;
     if (status.ok()) {
       IOOptions opts;
-      status = GetFileSize(fname, opts, &size, nullptr);
+      status = GetFileSizeOnOpenedFile(fd, fname, &size);
     }
     void* base = nullptr;
     if (status.ok()) {
@@ -671,7 +674,7 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus GetFileSize(const std::string& fname, const IOOptions& /*opts*/,
                        uint64_t* size, IODebugContext* /*dbg*/) override {
-    struct stat sbuf;
+    struct stat sbuf {};
     if (stat(fname.c_str(), &sbuf) != 0) {
       *size = 0;
       return IOError("while stat a file for size", fname, errno);
@@ -868,7 +871,6 @@ class PosixFileSystem : public FileSystem {
       IOOptions opts;
       return CreateDirIfMissing(*result, opts, nullptr);
     }
-    return IOStatus::OK();
   }
 
   IOStatus GetFreeSpace(const std::string& fname, const IOOptions& /*opts*/,
@@ -975,6 +977,22 @@ class PosixFileSystem : public FileSystem {
  private:
   bool forceMmapOff_ = false;  // do we override Env options?
 
+  // This is a faster API comparing to the public method that uses stat to get
+  // file size. However this API only works on opened file.
+  IOStatus GetFileSizeOnOpenedFile(const int fd, const std::string& name,
+                                   uint64_t* size) {
+    struct stat sb {};
+    *size = 0;
+    // Get file information using fstat
+    if (fstat(fd, &sb) == -1) {
+      return IOError(
+          "while fstat a file for size with fd " + std::to_string(fd), name,
+          errno);
+    }
+    *size = sb.st_size;
+    return IOStatus::OK();
+  }
+
 #ifdef OS_LINUX
   // Get the minimum "linux system limit" (i.e, the largest I/O size that the OS
   // can issue to block devices under a directory, also known as
@@ -1072,8 +1090,9 @@ class PosixFileSystem : public FileSystem {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
-    if (thread_local_io_urings_) {
-      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (thread_local_async_read_io_urings_) {
+      iu = static_cast<struct io_uring*>(
+          thread_local_async_read_io_urings_->Get());
     }
 
     // Init failed, platform doesn't support io_uring.
@@ -1092,8 +1111,10 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          // abort as it shouldn't be in indeterminate state and there is no
-          // good way currently to handle this error.
+          fprintf(stderr, "Poll: io_uring_wait_cqe failed: %ld", (long)ret);
+          if (ret == -EINTR || ret == -EAGAIN) {
+            continue;  // Retry
+          }
           abort();
         }
 
@@ -1136,7 +1157,7 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
 #else
     (void)io_handles;
-    return IOStatus::NotSupported("Poll");
+    return IOStatus::NotSupported("Poll not implemented");
 #endif
   }
 
@@ -1144,8 +1165,9 @@ class PosixFileSystem : public FileSystem {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
-    if (thread_local_io_urings_) {
-      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (thread_local_async_read_io_urings_) {
+      iu = static_cast<struct io_uring*>(
+          thread_local_async_read_io_urings_->Get());
     }
 
     // Init failed, platform doesn't support io_uring.
@@ -1195,8 +1217,10 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          // abort as it shouldn't be in indeterminate state and there is no
-          // good way currently to handle this error.
+          fprintf(stderr, "AbortIO: io_uring_wait_cqe failed: %ld", (long)ret);
+          if (ret == -EINTR || ret == -EAGAIN) {
+            continue;  // Retry
+          }
           abort();
         }
         assert(cqe != nullptr);
@@ -1253,11 +1277,13 @@ class PosixFileSystem : public FileSystem {
       supported_ops |= (1 << FSSupportedOps::kAsyncIO);
     }
 #endif
+    supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
-  std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
+  std::unique_ptr<ThreadLocalPtr> thread_local_async_read_io_urings_;
+  std::unique_ptr<ThreadLocalPtr> thread_local_multi_read_io_urings_;
 #endif
 
   size_t page_size_;
@@ -1317,7 +1343,8 @@ PosixFileSystem::PosixFileSystem()
   // io_uring can be created.
   struct io_uring* new_io_uring = CreateIOUring();
   if (new_io_uring != nullptr) {
-    thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
+    thread_local_async_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
+    thread_local_multi_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
     delete new_io_uring;
   }
 #endif

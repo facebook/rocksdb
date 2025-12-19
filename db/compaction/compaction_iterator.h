@@ -145,7 +145,8 @@ class CompactionIterator {
     }
 
     bool allow_ingest_behind() const override {
-      return compaction_->immutable_options().allow_ingest_behind;
+      return compaction_->immutable_options().cf_allow_ingest_behind ||
+             compaction_->immutable_options().allow_ingest_behind;
     }
 
     bool allow_mmap_reads() const override {
@@ -182,17 +183,27 @@ class CompactionIterator {
     const Compaction* compaction_;
   };
 
-  // @param must_count_input_entries  if true, `NumInputEntryScanned()` will
-  // return the number of input keys scanned. If false, `NumInputEntryScanned()`
-  // will return this number if no Seek was called on `input`. User should call
-  // `HasNumInputEntryScanned()` first in this case.
+  // @param must_count_input_entries Controls input entry counting accuracy vs
+  // performance:
+  //   - If true: `NumInputEntryScanned()` always returns the exact count of
+  //   input keys
+  //     scanned. The iterator will use sequential `Next()` calls instead of
+  //     `Seek()` to maintain count accuracy as `Seek()` will not count the
+  //     skipped input entries, which is slower but guarantees correctness.
+  //   - If false: `NumInputEntryScanned()` returns the count only if no
+  //   `Seek()` operations
+  //     were performed on the input iterator. When compaction filters request
+  //     skipping ranges of keys or other optimizations trigger seek operations,
+  //     the count becomes unreliable. Always call `HasNumInputEntryScanned()`
+  //     first to verify if the count is accurate before using
+  //     `NumInputEntryScanned()`.
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
       SequenceNumber earliest_snapshot,
       SequenceNumber earliest_write_conflict_snapshot,
       SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
-      Env* env, bool report_detailed_time, bool expect_valid_internal_key,
+      Env* env, bool report_detailed_time,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
@@ -212,7 +223,7 @@ class CompactionIterator {
                      SequenceNumber earliest_write_conflict_snapshot,
                      SequenceNumber job_snapshot,
                      const SnapshotChecker* snapshot_checker, Env* env,
-                     bool report_detailed_time, bool expect_valid_internal_key,
+                     bool report_detailed_time,
                      CompactionRangeDelAggregator* range_del_agg,
                      BlobFileBuilder* blob_file_builder,
                      bool allow_data_in_errors,
@@ -254,7 +265,21 @@ class CompactionIterator {
   }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   bool HasNumInputEntryScanned() const { return input_.HasNumItered(); }
+
+  // This method should only be used when `HasNumInputEntryScanned()` returns
+  // true, unless `must_count_input_entries=true` was specified during iterator
+  // creation (which ensures the count is always accurate).
   uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
+
+  // Returns true if the current valid key was already scanned/counted during
+  // a lookahead operation in a previous iteration.
+  //
+  // REQUIRED: Valid() must be true
+  bool IsCurrentKeyAlreadyScanned() const {
+    assert(Valid());
+    return at_next_ || merge_out_iter_.Valid();
+  }
+
   Status InputStatus() const { return input_.status(); }
 
   bool IsDeleteRangeSentinelKey() const { return is_range_del_; }
@@ -347,7 +372,6 @@ class CompactionIterator {
   Env* env_;
   SystemClock* clock_;
   const bool report_detailed_time_;
-  const bool expect_valid_internal_key_;
   CompactionRangeDelAggregator* range_del_agg_;
   BlobFileBuilder* blob_file_builder_;
   std::unique_ptr<CompactionProxy> compaction_;
@@ -417,13 +441,15 @@ class CompactionIterator {
   // NextFromInput()).
   ParsedInternalKey ikey_;
 
-  // Stores whether ikey_.user_key is valid. If set to false, the user key is
-  // not compared against the current key in the underlying iterator.
+  // Stores whether current_user_key_ is valid. If so, current_user_key_
+  // stores the user key of the last key seen by the iterator.
+  // If false, treat the next key to read as a new user key.
   bool has_current_user_key_ = false;
   // If false, the iterator holds a copy of the current compaction iterator
   // output (or current key in the underlying iterator during NextFromInput()).
   bool at_next_ = false;
 
+  // A copy of the current internal key.
   IterKey current_key_;
   Slice current_user_key_;
   std::string curr_ts_;
@@ -433,8 +459,9 @@ class CompactionIterator {
   // True if the iterator has already returned a record for the current key.
   bool has_outputted_key_ = false;
 
-  // truncated the value of the next key and output it without applying any
-  // compaction rules.  This is used for outputting a put after a single delete.
+  // Truncate the value of the next key and output it without applying any
+  // compaction rules. This is an optimization for outputting a put after
+  // a single delete. See more in `NextFromInput()` under Optimization 3.
   bool clear_and_output_next_key_ = false;
 
   MergeOutputIterator merge_out_iter_;

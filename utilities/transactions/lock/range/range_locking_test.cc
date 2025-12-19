@@ -5,21 +5,18 @@
 
 #ifndef OS_WIN
 
-#include <algorithm>
 #include <functional>
+#include <iomanip>
 #include <string>
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
-#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "utilities/transactions/lock/point/point_lock_manager_test.h"
-#include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/transaction_test.h"
+#include "utilities/transactions/lock/point/any_lock_manager_test.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 using std::string;
 

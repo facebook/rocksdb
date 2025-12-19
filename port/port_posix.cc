@@ -220,8 +220,9 @@ int GetMaxOpenFiles() {
     return std::numeric_limits<int>::max();
   }
   return static_cast<int>(no_files_limit.rlim_cur);
-#endif
+#else
   return -1;
+#endif
 }
 
 void* cacheline_aligned_alloc(size_t size) {

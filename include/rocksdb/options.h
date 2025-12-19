@@ -32,7 +32,7 @@
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 
-#ifdef max
+#ifdef max  // ODR-SAFE
 #undef max
 #endif
 
@@ -57,6 +57,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+class UserDefinedIndexFactory;
 
 struct Options;
 struct DbPath;
@@ -232,6 +233,14 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
   // different options for compression algorithms
   CompressionOptions compression_opts;
+
+  // EXPERIMENTAL
+  // Customized compression through a callback interface. When non-nullptr,
+  // supersedes the above compression options, except that the above options are
+  // still processed as they historically would be and passed to
+  // CompressionManager::GetCompressorForSST as hints or suggestions. See
+  // advanced_compression.h
+  std::shared_ptr<CompressionManager> compression_manager;
 
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
@@ -464,6 +473,12 @@ struct CompactionServiceJobInfo {
   std::string db_name;
   std::string db_id;
   std::string db_session_id;
+
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+
   uint64_t job_id;  // job_id is only unique within the current DB and session,
                     // restart DB will reset the job_id. `db_id` and
                     // `db_session_id` could help you build unique id across
@@ -483,8 +498,10 @@ struct CompactionServiceJobInfo {
   // the output level of the compaction.
   int output_level;
 
+  CompactionServiceJobInfo() {}
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
-                           std::string db_session_id_, uint64_t job_id_,
+                           std::string db_session_id_, uint32_t cf_id_,
+                           std::string cf_name_, uint64_t job_id_,
                            Env::Priority priority_,
                            CompactionReason compaction_reason_,
                            bool is_full_compaction_, bool is_manual_compaction_,
@@ -493,6 +510,8 @@ struct CompactionServiceJobInfo {
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
+        cf_id(cf_id_),
+        cf_name(std::move(cf_name_)),
         job_id(job_id_),
         priority(priority_),
         compaction_reason(compaction_reason_),
@@ -591,12 +610,20 @@ struct DBOptions {
   // checksums. True also enters a read-only mode when a DB write fails;
   // see DB::Resume().
   //
+  // When set to true, the DB will fail to open if any SST files fail to open
+  // e.g. due to incorrect file size or corrupted footer.
+  //
+  // When set to false, when there are files corrupted, the DB will still be
+  // opened, and the healthy ones could still be accessed, while corrupted one
+  // will not
+  //
   // As most workloads value data correctness over availability, this option
   // is on by default. Note that the name of this old option is potentially
   // misleading, and other options and operations go further in proactive
   // checking for corruption, including
   // * paranoid_file_checks
   // * paranoid_memory_checks
+  // * memtable_veirfy_per_key_checksum_on_seek
   // * DB::VerifyChecksum()
   //
   // Default: true
@@ -931,11 +958,66 @@ struct DBOptions {
   // Default: 0
   size_t recycle_log_file_num = 0;
 
-  // manifest file is rolled over on reaching this limit.
-  // The older manifest file be deleted.
-  // The default value is 1GB so that the manifest file can grow, but not
-  // reach the limit of storage capacity.
+  // The manifest file is rolled over on reaching this limit AND the
+  // space amp limit described in max_manifest_space_amp_pct. More trade-off
+  // details there.
+  //
+  // NOTE: this option used to be a hard limit, but that made this a dangerous
+  // tuning parameter for optimizing manifest file size because the best
+  // size really depends on the DB size and average SST file size (and other
+  // settings). Now it is essentially a minimum for the auto-tuned max manifest
+  // file size.
+  //
+  // Until the max_manifest_space_amp_pct feature is fully validated to show a
+  // smaller default here like 1MB is appropriate, the default value is 1GB to
+  // match historical behavior (without it being a hard limit in case of giant
+  // compacted manifest size).
+  //
+  // This option is mutable with SetDBOptions(), taking effect on the next
+  // manifest write (e.g. completed DB compaction or flush).
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
+
+  // This option mostly replaces max_manifest_file_size to control an auto-tuned
+  // balance of manifest write amplification and space amplification. A new
+  // manifest file is created with the "compacted" contents of the old one when
+  //  current_manifest_size
+  //    >
+  //  max(max_manifest_file_size,
+  //      est_compacted_manifest_size * (1 + max_manifest_space_amp_pct/100))
+  //
+  // where est_compacted_manifest_size is an estimate of how big a new compacted
+  // version of the current manifest would be. Currently, the estimate used is
+  // the last newly-written manifest, in its "compacted" form.
+  //
+  // Space amplification in the manifest file might be less of a concern for
+  // primary storage space and more of a concern for DB recover time and size of
+  // backup files that aren't incremental between backups. To minimize manifest
+  // churn on initial DB population, setting max_manifest_file_size to something
+  // not too small, like 1MB, should suffice. Similarly, write amp on the
+  // manifest file is likely not a direct concern but completed compactions and
+  // flushes cannot (currently) be committed while the (relatively small)
+  // manifest file is being compacted. Manifest compactions should not
+  // interfere with user write latency or throughput unless the DB is
+  // chronically stalling or close to stalling writes already.
+  //
+  // For this option to have a meaningful effect, it is recommended to set
+  // max_manifest_file_size to something modest like 1MB. Then we can interpret
+  // values for this option as follows, starting with minimum space amp and
+  // maximum write amp:
+  // * 0 - Every manifest write (flush, compaction, etc.) generates a whole new
+  // manifest. Only useful for testing.
+  // * very small - Doesn't take many manifest writes to generate a whole new
+  // manifest.
+  // * 100 - In a DB with pretty consistent number of SST files, etc., achieves
+  // about 1.0 write amp (writing about 2x the theoretical minimum) and a max of
+  // about 1.0 space amp (manifest up to 2x the compacted size).
+  // * 500 - Recommended and default: 0.2 write amp and up to roughly 5.0 space
+  // amp.
+  // * 10000 - 0.01 write amp and up to 100 space amp on the manifest.
+  //
+  // This option is mutable with SetDBOptions(), taking effect on the next
+  // manifest write (e.g. completed DB compaction or flush).
+  int max_manifest_space_amp_pct = 500;
 
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
@@ -1280,12 +1362,13 @@ struct DBOptions {
   // Default: false
   bool skip_stats_update_on_db_open = false;
 
-  // If true, then DB::Open() will not fetch and check sizes of all sst files.
-  // This may significantly speed up startup if there are many sst files,
-  // especially when using non-default Env with expensive GetFileSize().
-  // We'll still check that all required sst files exist.
-  // If paranoid_checks is false, this option is ignored, and sst files are
-  // not checked at all.
+  // This option is deprecated and marked as no-op. Kept for backward
+  // compatibility until usage is fully removed.
+  // File size check will be performed through a thread
+  // pool during DB Open, when max_open_files is set to -1.
+  // Therefore, the concern of DB Open slowness is eliminated.
+  // Note that when max_open_files is not set to -1, only a subset of files will
+  // be opened and checked during DB Open.
   //
   // Default: false
   bool skip_checking_sst_file_sizes_on_db_open = false;
@@ -1334,16 +1417,11 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
-  // Set this option to true during creation of database if you want
-  // to be able to ingest behind (call IngestExternalFile() skipping keys
-  // that already exist, rather than overwriting matching keys).
-  // Setting this option to true has the following effects:
-  // 1) Disable some internal optimizations around SST file compression.
-  // 2) Reserve the last level for ingested files only.
-  // 3) Compaction will not include any file from the last level.
-  // Note that only Universal Compaction supports allow_ingest_behind.
-  // `num_levels` should be >= 3 if this option is turned on.
+  // DEPRECATED: use ColumnFamilyOptions::cf_allow_ingest_behind instead.
+  // This option might be removed in a future release.
   //
+  // See comment for `ColumnFamilyOptions::cf_allow_ingest_behind` for
+  // detail about the option's functionality and use cases.
   //
   // DEFAULT: false
   // Immutable.
@@ -1754,6 +1832,119 @@ struct ScanOptions {
       : range(_start, _upper_bound) {}
 };
 
+// Container for multiple scan ranges that can be used with MultiScan.
+// This replaces std::vector<ScanOptions> with a more efficient implementation
+// that can merge overlapping ranges.
+class MultiScanArgs {
+ public:
+  // Constructor that takes a comparator
+  explicit MultiScanArgs(const Comparator* comparator) : comp_(comparator) {}
+
+  // Copy Constructor
+  MultiScanArgs(const MultiScanArgs& other) {
+    comp_ = other.comp_;
+    original_ranges_ = other.original_ranges_;
+    io_coalesce_threshold = other.io_coalesce_threshold;
+    max_prefetch_size = other.max_prefetch_size;
+    use_async_io = other.use_async_io;
+  }
+  MultiScanArgs(MultiScanArgs&& other) noexcept
+      : io_coalesce_threshold(other.io_coalesce_threshold),
+        max_prefetch_size(other.max_prefetch_size),
+        use_async_io(other.use_async_io),
+        comp_(other.comp_),
+        original_ranges_(std::move(other.original_ranges_)) {}
+
+  MultiScanArgs& operator=(const MultiScanArgs& other) {
+    comp_ = other.comp_;
+    original_ranges_ = other.original_ranges_;
+    io_coalesce_threshold = other.io_coalesce_threshold;
+    max_prefetch_size = other.max_prefetch_size;
+    use_async_io = other.use_async_io;
+    return *this;
+  }
+
+  MultiScanArgs& operator=(MultiScanArgs&& other) noexcept {
+    if (this != &other) {
+      comp_ = other.comp_;
+      original_ranges_ = std::move(other.original_ranges_);
+      io_coalesce_threshold = other.io_coalesce_threshold;
+      max_prefetch_size = other.max_prefetch_size;
+      use_async_io = other.use_async_io;
+    }
+    return *this;
+  }
+
+  void insert(const Slice& s, const Slice& b) {
+    original_ranges_.emplace_back(s, b);
+  }
+
+  void insert(const Slice& s, const Slice& b,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s, b);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
+  void insert(const Slice& s) { original_ranges_.emplace_back(s); }
+
+  void insert(const Slice& s,
+              const std::optional<std::unordered_map<std::string, std::string>>&
+                  property_bag) {
+    original_ranges_.emplace_back(s);
+    original_ranges_.back().property_bag = property_bag;
+  }
+
+  size_t size() const { return original_ranges_.size(); }
+  bool empty() const { return original_ranges_.empty(); }
+
+  void reserve(size_t size) { original_ranges_.reserve(size); }
+
+  operator std::vector<ScanOptions>*() { return &original_ranges_; }
+
+  operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
+
+  ~MultiScanArgs() {}
+
+  const std::vector<ScanOptions>& GetScanRanges() const {
+    return original_ranges_;
+  }
+
+  const Comparator* GetComparator() const { return comp_; }
+
+  // Copies the configurations (excluding actual scan ranges) from another
+  // MultiScanArgs.
+  void CopyConfigFrom(const MultiScanArgs& other) {
+    io_coalesce_threshold = other.io_coalesce_threshold;
+    max_prefetch_size = other.max_prefetch_size;
+    use_async_io = other.use_async_io;
+  }
+
+  uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
+
+  // Maximum size (in bytes) for the data blocks loaded by a MultiScan.
+  // This limits the amount of I/O and memory usage by pinned data blocks.
+  //
+  // When set to 0 (the default), there is no limit. When the limit is reached,
+  // the iterator will start returning Status::PrefetchLimitReached().
+  //
+  // Note that prefetching happens only once in Prepare(), which is different
+  // from ReadOptions::readahead_size, which applies any time the iterator does
+  // I/O.
+  // Note that this limit is per file and applies to compressed block size.
+  uint64_t max_prefetch_size = 0;
+
+  // Enable async I/O for multi-scan operations
+  // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
+  // When false, it will use synchronous MultiRead().
+  bool use_async_io = false;
+
+ private:
+  // The comparator used for ordering ranges
+  const Comparator* comp_;
+  std::vector<ScanOptions> original_ranges_;
+};
+
 // Options that control read operations
 struct ReadOptions {
   // *** BEGIN options relevant to point lookups as well as scans ***
@@ -2044,6 +2235,17 @@ struct ReadOptions {
   // Default: false
   bool auto_refresh_iterator_with_snapshot = false;
 
+  // EXPERIMENTAL
+  //
+  // Specify an alternate index to use in the SST files instead of the native
+  // block based table index. The table_factory used for the column family
+  // must support building/reading this index.
+  //
+  // Currently, only forward scans are supported. For forward scans, only Seek()
+  // is supported. SeekToFirst() is not supported. If the caller wishes to scan
+  // from start to end, the native index must be used.
+  const UserDefinedIndexFactory* table_index_factory = nullptr;
+
   // *** END options only relevant to iterators or scans ***
 
   // *** BEGIN options for RocksDB internal use only ***
@@ -2052,6 +2254,19 @@ struct ReadOptions {
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
   // *** END options for RocksDB internal use only ***
+
+  // *** BEGIN per-request settings for internal team use only ***
+
+  // TODO: create a new struct for per-request options, potentially including
+  // timestamps in point lookups/scans
+
+  // request_id is a unique id assigned by the application. It is used to allow
+  // us to link file system metrics/logs to rocksDB and application logs. This
+  // request_id may not be unique to each RocksDB api call - it could refer to
+  // an application level request that results in multiple RocksDB api calls
+  const std::string* request_id = nullptr;
+
+  // *** END per-request settings for internal team use only ***
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);
@@ -2164,6 +2379,23 @@ struct FlushOptions {
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
+struct FlushWALOptions {
+  // If true, it calls `SyncWAL()` afterwards.
+  // Default: false
+  bool sync;
+
+  // For IO operations associated with flushing the WAL, charge the internal
+  // rate limiter (see `DBOptions::rate_limiter`) at the specified priority and
+  // pass the priority down to the file system through
+  // `IOOptions::rate_limiter_priority`. The special value `Env::IO_TOTAL`
+  // disables charging the rate limiter.
+  //
+  // Default: `Env::IO_TOTAL`
+  Env::IOPriority rate_limiter_priority;
+
+  FlushWALOptions() : sync(false), rate_limiter_priority(Env::IO_TOTAL) {}
+};
+
 // Create a Logger from provided DBOptions
 Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
@@ -2192,10 +2424,31 @@ struct CompactionOptions {
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions;
 
+  // Allows cancellation of an in-progress manual compaction.
+  //
+  // Cancellation can be delayed waiting on automatic compactions when used
+  // together with `exclusive_manual_compaction == true`.
+  std::atomic<bool>* canceled;
+  // NOTE: Calling DisableManualCompaction() will not override the
+  // canceled variable in CompactionOptions, as it does for CompactRangeOptions
+  // - this is because ManualCompactionState is not used
+
+  // Create output compaction file using this file temperature. If unset, will
+  // default to "last_level_temperature" if output level is last level otherwise
+  // "default_write_temperature"
+  Temperature output_temperature_override = Temperature::kUnknown;
+
+  // Option to optimize the manual compaction by enabling trivial move for non
+  // overlapping files.
+  // Default: false
+  bool allow_trivial_move;
+
   CompactionOptions()
       : compression(kDisableCompressionOption),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
-        max_subcompactions(0) {}
+        max_subcompactions(0),
+        canceled(nullptr),
+        allow_trivial_move(false) {}
 };
 
 // For level based compaction, we can configure if we want to skip/force
@@ -2262,7 +2515,7 @@ struct CompactRangeOptions {
   // Cancellation can be delayed waiting on automatic compactions when used
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
-  // NOTE: Calling DisableManualCompaction() overwrites the uer-provided
+  // NOTE: Calling DisableManualCompaction() overwrites the user-provided
   // canceled variable in CompactRangeOptions.
   // Typically, when CompactRange is being called in one thread (t1) with
   // canceled = false, and DisableManualCompaction is being called in the
@@ -2284,7 +2537,47 @@ struct CompactRangeOptions {
   double blob_garbage_collection_age_cutoff = -1;
 };
 
-// IngestExternalFileOptions is used by IngestExternalFile()
+// IngestExternalFileOptions setting guide:
+//
+// The options in IngestExternalFileOptions interact in complex ways depending
+// on the source and overlap of SST files. Below is a summary of recommended
+// non-default settings for common use cases:
+//
+// 1. Ingesting only SST writer generated non-overlapping SSTs that are not
+// expected to overlap with existing data:
+//    - Optionally set fail_if_not_bottommost_level = true to enforce placement
+//    in the last level. This is better paird with SST partitioner to guarantee
+//    that there are no existing file with keys across the ingesting key range.
+//    - Set allow_blocking_flush to false: Not expecting to overlap with
+//    memtable and cause a flush.
+//    - If snapshot consistency is not expected, set snapshot_consistency to
+//    false and allow_global_seqno to false. allow_global_seqno = false will
+//    fail ingestion if any input file overlap with each other.
+//
+// 2. Ingesting SST writer generated overlapping SSTs:
+//    - order files with older updates first, newer overwrites later.
+//    - Set allow_global_seqno = true since newer files need to be assigned
+//    larger sequence numbers.
+//
+// 3. Ingesting DB generated SSTs: overlapping with target CF data is not
+// allowed. Input files are allowed to contain both DB generated files and SST
+// file writer generated files. They will all be treated as DB generated.
+//    - Set allow_db_generated_files = true.
+//    - Set snapshot_consistency = false: snapshot consistency requires
+// assigning higher sequence number to ingested files. DB generated files
+// don't support global seqno assignment yet.
+//    - Set allow_blocking_flush to false: Not expecting to overlap with
+//    memtable and cause a flush.
+//    - If the source live DB is running, set link_files = true instead of
+//    move_files.
+// 3a) SST files are non-overlapping and all keys have seqno 0: e.g., a
+// temporary RocksDB instance used to sort some data, and compacts all
+// data into the last level before ingestion.
+//    - Optionally set fail_if_not_bottommost_level = true to enforce placement
+//    in the last level.
+// 3b) SST files are overlapping, e.g. ingesting files from one CF to another.
+//    - Ensure older updates are ordered first and newer updates are ordered
+//    later. See more in option comment for allow_db_generated_files.
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
   // The input files will be unlinked after successful ingestion.
@@ -2301,10 +2594,20 @@ struct IngestExternalFileOptions {
   // If set to false, an ingested file keys could appear in existing snapshots
   // that where created before the file was ingested.
   bool snapshot_consistency = true;
-  // If set to false, IngestExternalFile() will fail if the file key range
+  // Enables assiging a global sequence number to each ingested file, i.e.,
+  // all keys in the ingested file will be treated as having this seqno.
+  // If set to false, we will use the sequence numbers in the ingested file
+  // as is, and IngestExternalFile() will fail if the ingested key range
   // overlaps with existing keys or tombstones or output of ongoing compaction
-  // during file ingestion in the DB (the conditions under which a global_seqno
-  // must be assigned to the ingested file).
+  // in the CF (the conditions under which a global seqno must be assigned to
+  // the ingested file).
+  // If the ingested files overlap with each other, we need to assign global
+  // sequence to the ingested files and this option needs to be enabled. One
+  // exception to this is when ingesting DB generated SST files (see option
+  // allow_db_generated_files below). DB generated files do not support
+  // global seqno assignment and can be ingested even if they overlap with
+  // each other. This option has no effect when allow_db_generated_files is
+  // enabled.
   bool allow_global_seqno = true;
   // Normally (true), IngestExternalFile() will trigger and block for flushing
   // memtable(s) if there is overlap between ingested files and memtable(s). If
@@ -2316,8 +2619,8 @@ struct IngestExternalFileOptions {
   // to be skipped rather than overwriting existing data under that key.
   // Use case: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
-  // This option could only be used if the DB has been running
-  // with allow_ingest_behind=true since the dawn of time.
+  // This option could only be used if the CF has been running
+  // with cf_allow_ingest_behind=true since CF creation (or before any write).
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
   // DEPRECATED - Set to true if you would like to write global_seqno to
@@ -2370,18 +2673,53 @@ struct IngestExternalFileOptions {
   //
   // XXX: "bottommost" is obsolete/confusing terminology to refer to last level
   bool fail_if_not_bottommost_level = false;
-  // EXPERIMENTAL
-  // Enables ingestion of files not generated by SstFileWriter. When true:
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  //
+  // Enables special mode of ingestion that allows files generated by a live DB,
+  // instead of SstFileWriter. When true:
   // - Allows files to be ingested when their cf_id doesn't match the CF they
   //   are being ingested into.
+  // - Allows files with any sequence numbers to be ingested.
+  // - Original sequence numbers are preserved (no reassignment).
+  //
   // REQUIREMENTS:
-  // - Ingested files must not overlap with existing keys.
-  // - `write_global_seqno` must be false.
-  // - All keys in ingested files should have sequence number 0. We fail
-  // ingestion if any sequence numbers is non-zero.
-  // WARNING: If a DB contains ingested files generated by another DB/CF,
-  // RepairDB() may not recover these files correctly, potentially leading to
-  // data loss.
+  // - Ingested files must NOT overlap with any existing data in the DB. Since
+  //   no sequence number reassignment is performed on db generated files.
+  //   Ingestion will fail if any overlap is detected. However, input files
+  //   are allowed to overlap with each other when this option is enabled. This
+  //   is useful when ingesting multiple levels of files from a CF, where
+  //   levels naturally overlap with each other.
+  // - CAUTION: If input files overlap with each other, then for any given user
+  //   key appearing in multiple files, earlier files MUST have smaller sequence
+  //   numbers than later files. Later files will be placed at a higher level
+  //   (smaller level number). This is to ensure the LSM invariant where for
+  //   the same key, recent updates are in higher levels. This means that
+  //   if you are ingesting files from multiple levels of a CF, you should
+  //   put files from lower levels first, and files from higher levels later.
+  //   Example for getting files from a CF for ingestion:
+  //
+  // ColumnFamilyMetaData cf_meta;
+  // from_db->GetColumnFamilyMetaData(from_cf, &cf_meta);
+  // // iterate in reverse to start from lowest level
+  // for (auto level_meta = cf_meta.levels.rbegin();
+  //      level_meta != cf_meta.levels.rend(); ++level_meta) {
+  //   // L0 files need to be added in reverse order so we iterate in reverse
+  //   // within a level too
+  //   for (auto file_meta = level_meta->files.rbegin();
+  //        file_meta != level_meta->files.rend(); ++file_meta) {
+  //     // Add file for ingestion
+  //   }
+  // }
+  //
+  //   WARNING: Violating the sequence number ordering requirement will cause
+  //   LSM invariant violations and may lead to incorrect reads or data
+  //   corruption.
+  // - If you would like to enforce that the ingested files do not overlap
+  //   with each other, you can set `fail_if_not_bottommost_level` to true.
+  //   If ingested files overlap with each other, some file will be placed
+  //   above Lmax, failing the ingestion if the option is set.
+  // - `write_global_seqno` must be false (sequence numbers cannot be
+  //    reassigned).
   bool allow_db_generated_files = false;
 
   // Controls whether data and metadata blocks (e.g. index, filter) read during
@@ -2531,6 +2869,43 @@ struct CompactionServiceOptionsOverride {
 struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
+
+  // EXPERIMENTAL
+  //
+  // Controls whether OpenAndCompact() should attempt to resume from previously
+  // persisted compaction progress or start fresh.
+  //
+  // When `allow_resumption = true`:
+  // - OpenAndCompact() attempts to resume from previously persisted compaction
+  //   progress stored in `output_directory`
+  // - During execution, it periodically persists new progress to the same
+  //   directory, allowing future calls to continue from where the previous
+  //   compaction left off.
+  // - Fallback behavior: If resumption cannot be fulfilled (e.g., due to
+  //   corrupted or missing resume state), the system will attempt to start a
+  //   fresh compaction as a best-effort fallback by cleaning related files in
+  //   the `output_directory` to achieve a clean state. If even the fresh
+  //   compaction cannot be started, a non-OK status will be returned.
+  // - Important: Resume attempts will be ineffective if the underlying
+  //   conditions that caused the previous OpenAndCompact() failure still
+  //   persist. The same non-OK status will likely be returned unless the root
+  //   cause has been resolved.
+  // - Progress persistence is sequential and best-effort, triggered upon
+  //   completion of each new output file. If compaction is interrupted while
+  //   creating an output file (before its completion), that partial work will
+  //   need to be redone upon resumption.
+  //
+  // When `allow_resumption = false`:
+  // - OpenAndCompact() starts a fresh compaction from scratch.
+  // - No progress will be saved during execution, so interruptions require
+  //   starting over completely.
+  // - CRITICAL REQUIREMENT: The `output_directory` associated MUST be empty
+  //   before calling OpenAndCompact(). Any existing files (including resume
+  //   state or output files from previous runs) may cause correctness errors.
+  //
+  // Limitation: Currently incompatible with paranoid_file_checks=true. The
+  // option is effectively disabled when `paranoid_file_checks` is enabled.
+  bool allow_resumption = false;
 };
 
 struct LiveFilesStorageInfoOptions {

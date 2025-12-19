@@ -18,11 +18,13 @@
 
 #include <stdint.h>
 
+#include <any>
 #include <chrono>
 #include <cstdarg>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -88,6 +90,7 @@ enum FSSupportedOps {
   kVerifyAndReconstructRead,  // Supports a higher level of data integrity. See
                               // the verify_and_reconstruct_read flag in
                               // IOOptions.
+  kFSPrefetch,                // Supports prefetch operations
 };
 
 // Per-request options that can be passed down to the FileSystem
@@ -220,6 +223,8 @@ struct FileOptions : EnvOptions {
 
 // A structure to pass back some debugging information from the FileSystem
 // implementation to RocksDB in case of an IO error
+// TODO(virajthakur): Update all calls to FS APIs for writes to pass in
+// IODebugContext
 struct IODebugContext {
   // file_path to be filled in by RocksDB in case of an error
   std::string file_path;
@@ -230,8 +235,9 @@ struct IODebugContext {
   // To be set by the FileSystem implementation
   std::string msg;
 
-  // To be set by the underlying FileSystem implementation.
-  std::string request_id;
+  // To be set by the application, to allow tracing logs/metrics from user ->
+  // RocksDB -> FS.
+  const std::string* request_id = nullptr;
 
   // In order to log required information in IO tracing for different
   // operations, Each bit in trace_data stores which corresponding info from
@@ -247,7 +253,39 @@ struct IODebugContext {
   };
   uint64_t trace_data = 0;
 
+  // Arbitrary structure containing cost information about the IO request
+  std::any cost_info;
+
+  // FileSystem implementations can use this mutex to synchronize concurrent
+  // reads/writes as needed (e.g. to update the counters or cost_info field)
+  std::shared_mutex mutex;
+
   IODebugContext() {}
+
+  // Copy constructor
+  IODebugContext(const IODebugContext& other)
+      : file_path(other.file_path),
+        counters(other.counters),
+        msg(other.msg),
+        trace_data(other.trace_data),
+        cost_info(other.cost_info),
+        _request_id(other.request_id ? *other.request_id : "") {
+    request_id = other.request_id ? &_request_id : nullptr;
+  }
+
+  // Copy assignment operator
+  IODebugContext& operator=(const IODebugContext& other) {
+    if (this != &other) {
+      file_path = other.file_path;
+      counters = other.counters;
+      msg = other.msg;
+      trace_data = other.trace_data;
+      cost_info = other.cost_info;
+      _request_id = other.request_id ? *other.request_id : "";
+      request_id = other.request_id ? &_request_id : nullptr;
+    }
+    return *this;
+  }
 
   void AddCounter(std::string& name, uint64_t value) {
     counters.emplace(name, value);
@@ -255,8 +293,8 @@ struct IODebugContext {
 
   // Called by underlying file system to set request_id and log request_id in
   // IOTracing.
-  void SetRequestId(const std::string& _request_id) {
-    request_id = _request_id;
+  void SetRequestId(const std::string* updated_request_id) {
+    request_id = updated_request_id;
     trace_data |= (1 << TraceData::kRequestID);
   }
 
@@ -269,6 +307,12 @@ struct IODebugContext {
     ss << msg;
     return ss.str();
   }
+
+ private:
+  // Private member that allows for safe copying of IODebugContext without any
+  // memory ownership issues. After copying, request_id can point directly to
+  // this field.
+  std::string _request_id;
 };
 
 // A function pointer type for custom destruction of void pointer passed to
@@ -514,7 +558,7 @@ class FileSystem : public Customizable {
   }
 
 // This seems to clash with a macro on Windows, so #undef it here
-#ifdef DeleteFile
+#ifdef DeleteFile  // ODR-SAFE
 #undef DeleteFile
 #endif
   // Delete the named file.
@@ -675,7 +719,7 @@ class FileSystem : public Customizable {
       const ImmutableDBOptions& db_options) const;
 
 // This seems to clash with a macro on Windows, so #undef it here
-#ifdef GetFreeSpace
+#ifdef GetFreeSpace  // ODR-SAFE
 #undef GetFreeSpace
 #endif
 
@@ -728,12 +772,13 @@ class FileSystem : public Customizable {
   //  If async_io is supported by the underlying FileSystem, then supported_ops
   //  will have corresponding bit (i.e FSSupportedOps::kAsyncIO) set to 1.
   //
-  // By default, async_io operation is set and FS should override this API and
-  // set all the operations they support provided in FSSupportedOps (including
-  // async_io).
+  // By default, async_io and prefetch operation are set and FS should override
+  // this API and set all the operations they support provided in FSSupportedOps
+  // (including async_io and prefetch).
   virtual void SupportedOps(int64_t& supported_ops) {
     supported_ops = 0;
     supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+    supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
@@ -1013,6 +1058,14 @@ class FSRandomAccessFile {
   // open.
   virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
 
+  // Get the file size on an open-for-reading file without re-seeking the file's
+  // path in the filesystem. The default implementation returns "not supported"
+  // so that user implementations of FSRandomAccessFile do not need to
+  // immediately implement this function.
+  virtual IOStatus GetFileSize(uint64_t* /*result*/) {
+    return IOStatus::NotSupported("GetFileSize Not Supported");
+  }
+
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
 };
@@ -1113,8 +1166,10 @@ class FSWritableFile {
 
   // Truncate is necessary to trim the file to the correct size
   // before closing. It is not always possible to keep track of the file
-  // size due to whole pages writes. The behavior is undefined if called
-  // with other writes to follow.
+  // size due to whole pages writes. If called with other writes to follow,
+  // the behavior is file system specific. Posix will reseek to the new EOF.
+  // Other file systems may behave differently. Its the caller's
+  // responsibility to check the file system contract.
   virtual IOStatus Truncate(uint64_t /*size*/, const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
@@ -1732,6 +1787,10 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
+  }
+
+  virtual IOStatus GetFileSize(uint64_t* result) override {
+    return target_->GetFileSize(result);
   }
 
  private:

@@ -12,7 +12,6 @@
 #include <string>
 
 #include "db/db_impl/db_impl.h"
-#include "db/range_del_aggregator.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -62,7 +61,8 @@ class DBIter final : public Iterator {
   //
   // @param active_mem Pointer to the active memtable that `internal_iter`
   // is reading from. If not null, the memtable can be marked for flush
-  // according to option mutable_cf_options.memtable_op_scan_flush_trigger.
+  // according to options mutable_cf_options.memtable_op_scan_flush_trigger
+  // and mutable_cf_options.memtable_avg_op_scan_flush_trigger.
   // @param arena_mode If true, the DBIter will be allocated from the arena.
   static DBIter* NewIter(Env* env, const ReadOptions& read_options,
                          const ImmutableOptions& ioptions,
@@ -71,9 +71,9 @@ class DBIter final : public Iterator {
                          InternalIterator* internal_iter,
                          const Version* version, const SequenceNumber& sequence,
                          ReadCallback* read_callback,
+                         ReadOnlyMemTable* active_mem,
                          ColumnFamilyHandleImpl* cfh = nullptr,
                          bool expose_blob_index = false,
-                         ReadOnlyMemTable* active_mem = nullptr,
                          Arena* arena = nullptr) {
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
@@ -145,6 +145,7 @@ class DBIter final : public Iterator {
   void operator=(const DBIter&) = delete;
 
   ~DBIter() override {
+    MarkMemtableForFlushForAvgTrigger();
     ThreadStatus::OperationType cur_op_type =
         ThreadStatusUtil::GetThreadOperation();
     ThreadStatusUtil::SetThreadOperation(
@@ -239,16 +240,8 @@ class DBIter final : public Iterator {
 
   bool PrepareValue() override;
 
-  void Prepare(const std::vector<ScanOptions>& scan_opts) override {
-    std::optional<std::vector<ScanOptions>> new_scan_opts;
-    new_scan_opts.emplace(scan_opts);
-    scan_opts_.swap(new_scan_opts);
-    if (!scan_opts.empty()) {
-      iter_.Prepare(&scan_opts_.value());
-    } else {
-      iter_.Prepare(nullptr);
-    }
-  }
+  void Prepare(const MultiScanArgs& scan_opts) override;
+  Status ValidateScanOptions(const MultiScanArgs& multiscan_opts) const;
 
  private:
   DBIter(Env* _env, const ReadOptions& read_options,
@@ -417,6 +410,36 @@ class DBIter final : public Iterator {
     return true;
   }
 
+  void MarkMemtableForFlushForAvgTrigger() {
+    if (avg_op_scan_flush_trigger_ &&
+        mem_hidden_op_scanned_since_seek_ >= memtable_op_scan_flush_trigger_ &&
+        mem_hidden_op_scanned_since_seek_ >=
+            static_cast<uint64_t>(iter_step_since_seek_) *
+                avg_op_scan_flush_trigger_) {
+      assert(memtable_op_scan_flush_trigger_ > 0);
+      active_mem_->MarkForFlush();
+      avg_op_scan_flush_trigger_ = 0;
+      memtable_op_scan_flush_trigger_ = 0;
+    }
+    iter_step_since_seek_ = 1;
+    mem_hidden_op_scanned_since_seek_ = 0;
+  }
+
+  void MarkMemtableForFlushForPerOpTrigger(uint64_t& mem_hidden_op_scanned) {
+    if (memtable_op_scan_flush_trigger_ &&
+        ikey_.sequence >= memtable_seqno_lb_) {
+      if (++mem_hidden_op_scanned >= memtable_op_scan_flush_trigger_) {
+        active_mem_->MarkForFlush();
+        // Turn off the flush trigger checks.
+        memtable_op_scan_flush_trigger_ = 0;
+        avg_op_scan_flush_trigger_ = 0;
+      }
+      if (avg_op_scan_flush_trigger_) {
+        ++mem_hidden_op_scanned_since_seek_;
+      }
+    }
+  }
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   SystemClock* clock_;
@@ -474,10 +497,14 @@ class DBIter final : public Iterator {
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
-  std::optional<std::vector<ScanOptions>> scan_opts_;
-  ReadOnlyMemTable* active_mem_;
+  std::optional<MultiScanArgs> scan_opts_;
+  size_t scan_index_{0};
+  ReadOnlyMemTable* const active_mem_;
   SequenceNumber memtable_seqno_lb_;
   uint32_t memtable_op_scan_flush_trigger_;
+  uint32_t avg_op_scan_flush_trigger_;
+  uint32_t iter_step_since_seek_;
+  uint32_t mem_hidden_op_scanned_since_seek_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;

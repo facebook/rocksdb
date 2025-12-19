@@ -10,13 +10,12 @@
 #include <memory>
 
 #include "cache/cache_reservation_manager.h"
-#include "cache/lru_cache.h"
 #include "memory/memory_allocator_impl.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "util/compression.h"
-#include "util/mutexlock.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -124,14 +123,9 @@ class CompressedSecondaryCache : public SecondaryCache {
   // Split value into chunks to better fit into jemalloc bins. The chunks
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.
-  CacheValueChunk* SplitValueIntoChunks(const Slice& value,
-                                        CompressionType compression_type,
-                                        size_t& charge);
+  CacheValueChunk* SplitValueIntoChunks(const Slice& value, size_t& charge);
 
-  // After merging chunks, the extra charge for each chunk is removed, so
-  // the charge is recalculated.
-  CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
-                                          size_t& charge);
+  std::string MergeChunksIntoValue(const CacheValueChunk* head);
 
   bool MaybeInsertDummy(const Slice& key);
 
@@ -145,9 +139,11 @@ class CompressedSecondaryCache : public SecondaryCache {
   const Cache::CacheItemHelper* GetHelper(bool enable_custom_split_merge) const;
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
+  std::unique_ptr<Compressor> compressor_;
+  std::shared_ptr<Decompressor> decompressor_;
   mutable port::Mutex capacity_mutex_;
   std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
-  bool disable_cache_;
+  RelaxedAtomic<bool> disable_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

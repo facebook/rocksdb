@@ -1118,7 +1118,7 @@ TEST_F(WritableFileWriterIOPriorityTest, Append) {
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, Pad) {
-  ASSERT_OK(writer_->Pad(IOOptions(), 500));
+  ASSERT_OK(writer_->Pad(IOOptions(), 500, kDefaultPageSize));
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, Flush) {

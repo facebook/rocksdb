@@ -167,6 +167,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.key_largest_seqno != UINT64_MAX) {
     Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
   }
+  if (props.key_smallest_seqno != UINT64_MAX) {
+    Add(TablePropertiesNames::kKeySmallestSeqno, props.key_smallest_seqno);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -253,6 +256,146 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
+Status ParsePropertiesBlock(
+    const ImmutableOptions& ioptions, uint64_t offset, Block& properties_block,
+    std::unique_ptr<TableProperties>& new_table_properties) {
+  std::unique_ptr<MetaBlockIter> iter(properties_block.NewMetaIterator());
+
+  //  All pre-defined properties of type uint64_t
+  std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
+      {TablePropertiesNames::kOriginalFileNumber,
+       &new_table_properties->orig_file_number},
+      {TablePropertiesNames::kDataSize, &new_table_properties->data_size},
+      {TablePropertiesNames::kIndexSize, &new_table_properties->index_size},
+      {TablePropertiesNames::kIndexPartitions,
+       &new_table_properties->index_partitions},
+      {TablePropertiesNames::kTopLevelIndexSize,
+       &new_table_properties->top_level_index_size},
+      {TablePropertiesNames::kIndexKeyIsUserKey,
+       &new_table_properties->index_key_is_user_key},
+      {TablePropertiesNames::kIndexValueIsDeltaEncoded,
+       &new_table_properties->index_value_is_delta_encoded},
+      {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
+      {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
+      {TablePropertiesNames::kRawValueSize,
+       &new_table_properties->raw_value_size},
+      {TablePropertiesNames::kNumDataBlocks,
+       &new_table_properties->num_data_blocks},
+      {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
+      {TablePropertiesNames::kNumFilterEntries,
+       &new_table_properties->num_filter_entries},
+      {TablePropertiesNames::kDeletedKeys,
+       &new_table_properties->num_deletions},
+      {TablePropertiesNames::kMergeOperands,
+       &new_table_properties->num_merge_operands},
+      {TablePropertiesNames::kNumRangeDeletions,
+       &new_table_properties->num_range_deletions},
+      {TablePropertiesNames::kFormatVersion,
+       &new_table_properties->format_version},
+      {TablePropertiesNames::kFixedKeyLen,
+       &new_table_properties->fixed_key_len},
+      {TablePropertiesNames::kColumnFamilyId,
+       &new_table_properties->column_family_id},
+      {TablePropertiesNames::kCreationTime,
+       &new_table_properties->creation_time},
+      {TablePropertiesNames::kOldestKeyTime,
+       &new_table_properties->oldest_key_time},
+      {TablePropertiesNames::kNewestKeyTime,
+       &new_table_properties->newest_key_time},
+      {TablePropertiesNames::kFileCreationTime,
+       &new_table_properties->file_creation_time},
+      {TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+       &new_table_properties->slow_compression_estimated_data_size},
+      {TablePropertiesNames::kFastCompressionEstimatedDataSize,
+       &new_table_properties->fast_compression_estimated_data_size},
+      {TablePropertiesNames::kTailStartOffset,
+       &new_table_properties->tail_start_offset},
+      {TablePropertiesNames::kUserDefinedTimestampsPersisted,
+       &new_table_properties->user_defined_timestamps_persisted},
+      {TablePropertiesNames::kKeyLargestSeqno,
+       &new_table_properties->key_largest_seqno},
+      {TablePropertiesNames::kKeySmallestSeqno,
+       &new_table_properties->key_smallest_seqno},
+  };
+
+  Status s;
+  std::string last_key;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    s = iter->status();
+    if (!s.ok()) {
+      break;
+    }
+
+    auto key = iter->key().ToString();
+    // properties block should be strictly sorted with no duplicate key.
+    if (!last_key.empty() &&
+        BytewiseComparator()->Compare(key, last_key) <= 0) {
+      s = Status::Corruption("properties unsorted");
+      break;
+    }
+    last_key = key;
+
+    auto raw_val = iter->value();
+    auto pos = predefined_uint64_properties.find(key);
+
+    if (key == ExternalSstFilePropertyNames::kGlobalSeqno) {
+      new_table_properties->external_sst_file_global_seqno_offset =
+          offset + iter->ValueOffset();
+    }
+
+    if (pos != predefined_uint64_properties.end()) {
+      if (key == TablePropertiesNames::kDeletedKeys ||
+          key == TablePropertiesNames::kMergeOperands) {
+        // Insert in user-collected properties for API backwards compatibility
+        new_table_properties->user_collected_properties.insert(
+            {key, raw_val.ToString()});
+      }
+      // handle predefined rocksdb properties
+      uint64_t val;
+      if (!GetVarint64(&raw_val, &val)) {
+        // skip malformed value
+        auto error_msg =
+            "Detect malformed value in properties meta-block:"
+            "\tkey: " +
+            key + "\tval: " + raw_val.ToString();
+        ROCKS_LOG_ERROR(ioptions.logger, "%s", error_msg.c_str());
+        continue;
+      }
+      *(pos->second) = val;
+    } else if (key == TablePropertiesNames::kDbId) {
+      new_table_properties->db_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kDbSessionId) {
+      new_table_properties->db_session_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kDbHostId) {
+      new_table_properties->db_host_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kFilterPolicy) {
+      new_table_properties->filter_policy_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kColumnFamilyName) {
+      new_table_properties->column_family_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kComparator) {
+      new_table_properties->comparator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kMergeOperator) {
+      new_table_properties->merge_operator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kPrefixExtractorName) {
+      new_table_properties->prefix_extractor_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kPropertyCollectors) {
+      new_table_properties->property_collectors_names = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kCompression) {
+      new_table_properties->compression_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kCompressionOptions) {
+      new_table_properties->compression_options = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kSequenceNumberTimeMapping) {
+      new_table_properties->seqno_to_time_mapping = raw_val.ToString();
+    } else {
+      // handle user-collected properties
+      new_table_properties->user_collected_properties.insert(
+          {key, raw_val.ToString()});
+    }
+  }
+
+  return s;
+}
+
 // FIXME: should be a parameter for reading table properties to use persistent
 // cache?
 Status ReadTablePropertiesHelper(
@@ -282,7 +425,7 @@ Status ReadTablePropertiesHelper(
       BlockFetcher block_fetcher(
           file, prefetch_buffer, footer, modified_ro, handle, &block_contents,
           ioptions, false /* decompress */, false /*maybe_compressed*/,
-          BlockType::kProperties, UncompressionDict::GetEmptyDict(),
+          BlockType::kProperties, nullptr /*decompressor*/,
           PersistentCacheOptions::kEmpty, memory_allocator);
       s = block_fetcher.ReadBlockContents();
       if (!s.ok()) {
@@ -296,15 +439,16 @@ Status ReadTablePropertiesHelper(
       // If retrying, use a stronger file system read to check and correct
       // data corruption
       IOOptions opts;
-      if (PrepareIOFromReadOptions(ro, ioptions.clock, opts) !=
+      IODebugContext dbg;
+      if (PrepareIOFromReadOptions(ro, ioptions.clock, opts, &dbg) !=
           IOStatus::OK()) {
         return s;
       }
       opts.verify_and_reconstruct_read = true;
       std::unique_ptr<char[]> data(new char[len]);
       Slice result;
-      IOStatus io_s =
-          file->Read(opts, handle.offset(), len, &result, data.get(), nullptr);
+      IOStatus io_s = file->Read(opts, handle.offset(), len, &result,
+                                 data.get(), nullptr, &dbg);
       RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
       if (!io_s.ok()) {
         ROCKS_LOG_INFO(ioptions.info_log,
@@ -324,140 +468,9 @@ Status ReadTablePropertiesHelper(
 
     uint64_t block_size = block_contents.data.size();
     Block properties_block(std::move(block_contents));
-    // Unfortunately, Block::size() might not equal block_contents.data.size(),
-    // and Block hides block_contents
-    std::unique_ptr<MetaBlockIter> iter(properties_block.NewMetaIterator());
-
     std::unique_ptr<TableProperties> new_table_properties{new TableProperties};
-    // All pre-defined properties of type uint64_t
-    std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
-        {TablePropertiesNames::kOriginalFileNumber,
-         &new_table_properties->orig_file_number},
-        {TablePropertiesNames::kDataSize, &new_table_properties->data_size},
-        {TablePropertiesNames::kIndexSize, &new_table_properties->index_size},
-        {TablePropertiesNames::kIndexPartitions,
-         &new_table_properties->index_partitions},
-        {TablePropertiesNames::kTopLevelIndexSize,
-         &new_table_properties->top_level_index_size},
-        {TablePropertiesNames::kIndexKeyIsUserKey,
-         &new_table_properties->index_key_is_user_key},
-        {TablePropertiesNames::kIndexValueIsDeltaEncoded,
-         &new_table_properties->index_value_is_delta_encoded},
-        {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
-        {TablePropertiesNames::kRawKeySize,
-         &new_table_properties->raw_key_size},
-        {TablePropertiesNames::kRawValueSize,
-         &new_table_properties->raw_value_size},
-        {TablePropertiesNames::kNumDataBlocks,
-         &new_table_properties->num_data_blocks},
-        {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
-        {TablePropertiesNames::kNumFilterEntries,
-         &new_table_properties->num_filter_entries},
-        {TablePropertiesNames::kDeletedKeys,
-         &new_table_properties->num_deletions},
-        {TablePropertiesNames::kMergeOperands,
-         &new_table_properties->num_merge_operands},
-        {TablePropertiesNames::kNumRangeDeletions,
-         &new_table_properties->num_range_deletions},
-        {TablePropertiesNames::kFormatVersion,
-         &new_table_properties->format_version},
-        {TablePropertiesNames::kFixedKeyLen,
-         &new_table_properties->fixed_key_len},
-        {TablePropertiesNames::kColumnFamilyId,
-         &new_table_properties->column_family_id},
-        {TablePropertiesNames::kCreationTime,
-         &new_table_properties->creation_time},
-        {TablePropertiesNames::kOldestKeyTime,
-         &new_table_properties->oldest_key_time},
-        {TablePropertiesNames::kNewestKeyTime,
-         &new_table_properties->newest_key_time},
-        {TablePropertiesNames::kFileCreationTime,
-         &new_table_properties->file_creation_time},
-        {TablePropertiesNames::kSlowCompressionEstimatedDataSize,
-         &new_table_properties->slow_compression_estimated_data_size},
-        {TablePropertiesNames::kFastCompressionEstimatedDataSize,
-         &new_table_properties->fast_compression_estimated_data_size},
-        {TablePropertiesNames::kTailStartOffset,
-         &new_table_properties->tail_start_offset},
-        {TablePropertiesNames::kUserDefinedTimestampsPersisted,
-         &new_table_properties->user_defined_timestamps_persisted},
-        {TablePropertiesNames::kKeyLargestSeqno,
-         &new_table_properties->key_largest_seqno},
-    };
-
-    std::string last_key;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      s = iter->status();
-      if (!s.ok()) {
-        break;
-      }
-
-      auto key = iter->key().ToString();
-      // properties block should be strictly sorted with no duplicate key.
-      if (!last_key.empty() &&
-          BytewiseComparator()->Compare(key, last_key) <= 0) {
-        s = Status::Corruption("properties unsorted");
-        break;
-      }
-      last_key = key;
-
-      auto raw_val = iter->value();
-      auto pos = predefined_uint64_properties.find(key);
-
-      if (key == ExternalSstFilePropertyNames::kGlobalSeqno) {
-        new_table_properties->external_sst_file_global_seqno_offset =
-            handle.offset() + iter->ValueOffset();
-      }
-
-      if (pos != predefined_uint64_properties.end()) {
-        if (key == TablePropertiesNames::kDeletedKeys ||
-            key == TablePropertiesNames::kMergeOperands) {
-          // Insert in user-collected properties for API backwards compatibility
-          new_table_properties->user_collected_properties.insert(
-              {key, raw_val.ToString()});
-        }
-        // handle predefined rocksdb properties
-        uint64_t val;
-        if (!GetVarint64(&raw_val, &val)) {
-          // skip malformed value
-          auto error_msg =
-              "Detect malformed value in properties meta-block:"
-              "\tkey: " +
-              key + "\tval: " + raw_val.ToString();
-          ROCKS_LOG_ERROR(ioptions.logger, "%s", error_msg.c_str());
-          continue;
-        }
-        *(pos->second) = val;
-      } else if (key == TablePropertiesNames::kDbId) {
-        new_table_properties->db_id = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kDbSessionId) {
-        new_table_properties->db_session_id = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kDbHostId) {
-        new_table_properties->db_host_id = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kFilterPolicy) {
-        new_table_properties->filter_policy_name = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kColumnFamilyName) {
-        new_table_properties->column_family_name = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kComparator) {
-        new_table_properties->comparator_name = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kMergeOperator) {
-        new_table_properties->merge_operator_name = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kPrefixExtractorName) {
-        new_table_properties->prefix_extractor_name = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kPropertyCollectors) {
-        new_table_properties->property_collectors_names = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kCompression) {
-        new_table_properties->compression_name = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kCompressionOptions) {
-        new_table_properties->compression_options = raw_val.ToString();
-      } else if (key == TablePropertiesNames::kSequenceNumberTimeMapping) {
-        new_table_properties->seqno_to_time_mapping = raw_val.ToString();
-      } else {
-        // handle user-collected properties
-        new_table_properties->user_collected_properties.insert(
-            {key, raw_val.ToString()});
-      }
-    }
+    s = ParsePropertiesBlock(ioptions, handle.offset(), properties_block,
+                             new_table_properties);
 
     // Modified version of BlockFetcher checksum verification
     // (See write_global_seqno comment above)
@@ -567,8 +580,9 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
                                 Footer* footer_out) {
   Footer footer;
   IOOptions opts;
+  IODebugContext dbg;
   Status s;
-  s = file->PrepareIOOptions(read_options, opts);
+  s = file->PrepareIOOptions(read_options, opts, &dbg);
   if (!s.ok()) {
     return s;
   }
@@ -585,7 +599,7 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
   return BlockFetcher(file, prefetch_buffer, footer, read_options,
                       metaindex_handle, metaindex_contents, ioptions,
                       false /* do decompression */, false /*maybe_compressed*/,
-                      BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
+                      BlockType::kMetaIndex, nullptr /*decompressor*/,
                       PersistentCacheOptions::kEmpty, memory_allocator)
       .ReadBlockContents();
 }
@@ -638,8 +652,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   return BlockFetcher(file, prefetch_buffer, footer, read_options, block_handle,
                       contents, ioptions, false /* decompress */,
                       false /*maybe_compressed*/, block_type,
-                      UncompressionDict::GetEmptyDict(),
-                      PersistentCacheOptions::kEmpty, memory_allocator)
+                      nullptr /*decompressor*/, PersistentCacheOptions::kEmpty,
+                      memory_allocator)
       .ReadBlockContents();
 }
 

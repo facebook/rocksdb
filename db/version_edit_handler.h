@@ -80,19 +80,42 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
 
 class FileChecksumRetriever : public VersionEditHandlerBase {
  public:
-  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size,
-                        FileChecksumList& file_checksum_list)
-      : VersionEditHandlerBase(read_options, max_read_size),
-        file_checksum_list_(file_checksum_list) {}
+  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size)
+      : VersionEditHandlerBase(read_options, max_read_size) {}
 
   ~FileChecksumRetriever() override {}
+
+  Status FetchFileChecksumList(FileChecksumList& file_checksum_list);
 
  protected:
   Status ApplyVersionEdit(VersionEdit& edit,
                           ColumnFamilyData** /*unused*/) override;
 
  private:
-  FileChecksumList& file_checksum_list_;
+  // Map from CF to file # to string pair, where first portion of the value
+  // is checksum, and second portion of the value is checksum function name.
+  //
+  // [column family id A]
+  //      |
+  //      |-- [file #1] -> [checksum #1, checksum function name #1]
+  //      |-- [file #2] -> [checksum #2, checksum function name #2]
+  //      |
+  //     ...
+  //      |
+  //      |-- [file #N] -> [checksum #N, checksum function name #N]
+  // [column family id B]
+  //      |
+  //      |-- [file #1] -> [checksum #1, checksum function name #1]
+  //      |
+  //     ...
+  //      |
+  //      |-- [file #M] -> [checksum #M, checksum function name #M]
+  //      |
+  //     ...
+  std::unordered_map<
+      uint32_t,
+      std::unordered_map<uint64_t, std::pair<std::string, std::string>>>
+      cf_file_checksums_;
 };
 
 using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;

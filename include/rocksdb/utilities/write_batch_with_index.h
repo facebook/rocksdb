@@ -236,7 +236,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
                                 Iterator* base_iterator,
                                 const ReadOptions* opts = nullptr);
   // default column family
-  Iterator* NewIteratorWithBase(Iterator* base_iterator);
+  Iterator* NewIteratorWithBase(Iterator* base_iterator,
+                                const ReadOptions* opts = nullptr);
 
   // Similar to DB::Get() but will only read the key from this batch.
   // If the batch does not have enough data to resolve Merge operations,
@@ -378,6 +379,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   };
   const std::unordered_map<uint32_t, CFStat>& GetCFStats() const;
 
+  // The total number of operations issued into this WBWI.
+  size_t GetWBWIOpCount() const;
   bool GetOverwriteKey() const;
 
  private:

@@ -162,7 +162,6 @@ class SstFileManagerImpl : public SstFileManager {
   void Close();
 
   void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) override {
-    stats_ = stats;
     delete_scheduler_.SetStatisticsPtr(stats);
   }
 
@@ -216,7 +215,6 @@ class SstFileManagerImpl : public SstFileManager {
   std::list<ErrorHandler*> error_handler_list_;
   // Pointer to ErrorHandler instance that is currently processing recovery
   ErrorHandler* cur_instance_;
-  std::shared_ptr<Statistics> stats_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

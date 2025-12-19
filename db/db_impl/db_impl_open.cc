@@ -191,12 +191,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
                    "wal_compression is disabled since only zstd is supported");
   }
 
-  if (!result.paranoid_checks) {
-    result.skip_checking_sst_file_sizes_on_db_open = true;
-    ROCKS_LOG_INFO(result.info_log,
-                   "file size check will be skipped during open.");
-  }
-
   return result;
 }
 
@@ -335,7 +329,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
     file->SetPreallocationBlockSize(
-        immutable_db_options_.manifest_preallocation_size);
+        mutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, immutable_db_options_.clock,
         io_tracer_, nullptr /* stats */,
@@ -605,7 +599,7 @@ Status DBImpl::Recover(
         // allow_ingest_behind does not support Level Compaction,
         // and per_key_placement can have infinite compaction loop for Level
         // Compaction. Adjust to_level here just to be safe.
-        if (cfd->ioptions().allow_ingest_behind ||
+        if (cfd->AllowIngestBehind() ||
             moptions.preclude_last_level_data_seconds > 0) {
           to_level -= 1;
         }
@@ -694,9 +688,6 @@ Status DBImpl::Recover(
     s = MaybeUpdateNextFileNumber(recovery_ctx);
   }
 
-  if (immutable_db_options_.paranoid_checks && s.ok()) {
-    s = CheckConsistency();
-  }
   if (s.ok() && !read_only) {
     // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
@@ -1764,8 +1755,12 @@ Status DBImpl::MaybeHandleStopReplayForCorruptionForInconsistency(
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                         "Column family inconsistency: SST file contains data"
                         " beyond the point of corruption.");
-        status = Status::Corruption("SST file is ahead of WALs in CF " +
-                                    cfd->GetName());
+        status = Status::Corruption(
+            "Column family inconsistency: SST file contains data"
+            " beyond the point of corruption in CF " +
+            cfd->GetName() +
+            ". WAL recovery stopped at corruption point, but SST files"
+            " contain newer data.");
         return status;
       }
     }

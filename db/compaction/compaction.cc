@@ -281,12 +281,13 @@ Compaction::Compaction(
     std::vector<CompactionInputFiles> _inputs, int _output_level,
     uint64_t _target_file_size, uint64_t _max_compaction_bytes,
     uint32_t _output_path_id, CompressionType _compression,
-    CompressionOptions _compression_opts, Temperature _output_temperature,
-    uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
+    CompressionOptions _compression_opts,
+    Temperature _output_temperature_override, uint32_t _max_subcompactions,
+    std::vector<FileMetaData*> _grandparents,
     std::optional<SequenceNumber> _earliest_snapshot,
-    const SnapshotChecker* _snapshot_checker, bool _manual_compaction,
-    const std::string& _trim_ts, double _score, bool _deletion_compaction,
-    bool l0_files_might_overlap, CompactionReason _compaction_reason,
+    const SnapshotChecker* _snapshot_checker,
+    CompactionReason _compaction_reason, const std::string& _trim_ts,
+    double _score, bool l0_files_might_overlap,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
     double _blob_garbage_collection_age_cutoff)
     : input_vstorage_(vstorage),
@@ -303,8 +304,10 @@ Compaction::Compaction(
       output_path_id_(_output_path_id),
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
-      output_temperature_(_output_temperature),
-      deletion_compaction_(_deletion_compaction),
+      output_temperature_override_(_output_temperature_override),
+      deletion_compaction_(_compaction_reason == CompactionReason::kFIFOTtl ||
+                           _compaction_reason ==
+                               CompactionReason::kFIFOMaxSize),
       l0_files_might_overlap_(l0_files_might_overlap),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
@@ -321,7 +324,8 @@ Compaction::Compaction(
               ? false
               : IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
-      is_manual_compaction_(_manual_compaction),
+      is_manual_compaction_(_compaction_reason ==
+                            CompactionReason::kManualCompaction),
       trim_ts_(_trim_ts),
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason),
@@ -349,9 +353,6 @@ Compaction::Compaction(
                                       immutable_options_, start_level_,
                                       output_level_)) {
   MarkFilesBeingCompacted(true);
-  if (is_manual_compaction_) {
-    compaction_reason_ = CompactionReason::kManualCompaction;
-  }
   if (max_subcompactions_ == 0) {
     max_subcompactions_ = _mutable_db_options.max_subcompactions;
   }
@@ -647,6 +648,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
     return true;
   } else if (output_level_ != 0 &&
              cfd_->ioptions().compaction_style == kCompactionStyleLevel) {
+    // TODO: apply the optimization here to other compaction styles and
+    // compaction/flush to L0.
     // Maybe use binary search to find right entry instead of linear search?
     const Comparator* user_cmp = cfd_->user_comparator();
     for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
@@ -1124,6 +1127,19 @@ void Compaction::FilterInputsForCompactionIterator() {
     DoGenerateLevelFilesBrief(&input_levels_[level],
                               non_start_level_input_files[level - 1], &arena_);
   }
+}
+
+Temperature Compaction::GetOutputTemperature(bool is_proximal_level) const {
+  if (output_temperature_override_ != Temperature::kUnknown) {
+    return output_temperature_override_;
+  }
+
+  if (is_last_level() && !is_proximal_level &&
+      mutable_cf_options_.last_level_temperature != Temperature::kUnknown) {
+    return mutable_cf_options_.last_level_temperature;
+  }
+
+  return mutable_cf_options_.default_write_temperature;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

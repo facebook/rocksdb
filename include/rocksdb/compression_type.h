@@ -18,14 +18,148 @@ namespace ROCKSDB_NAMESPACE {
 enum CompressionType : unsigned char {
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
-  kNoCompression = 0x0,
-  kSnappyCompression = 0x1,
-  kZlibCompression = 0x2,
-  kBZip2Compression = 0x3,
-  kLZ4Compression = 0x4,
-  kLZ4HCCompression = 0x5,
-  kXpressCompression = 0x6,
-  kZSTD = 0x7,
+  kNoCompression = 0x00,
+  kSnappyCompression = 0x01,
+  kZlibCompression = 0x02,
+  kBZip2Compression = 0x03,
+  kLZ4Compression = 0x04,
+  kLZ4HCCompression = 0x05,
+  kXpressCompression = 0x06,
+  kZSTD = 0x07,
+  kLastBuiltinCompression = kZSTD,
+
+  // Reserved for future use: up to 0x7F
+
+  // For use by user custom CompressionManagers
+  kCustomCompression80 = 0x80,
+  kFirstCustomCompression = kCustomCompression80,
+  kCustomCompression81 = 0x81,
+  kCustomCompression82 = 0x82,
+  kCustomCompression83 = 0x83,
+  kCustomCompression84 = 0x84,
+  kCustomCompression85 = 0x85,
+  kCustomCompression86 = 0x86,
+  kCustomCompression87 = 0x87,
+  kCustomCompression88 = 0x88,
+  kCustomCompression89 = 0x89,
+  kCustomCompression8A = 0x8A,
+  kCustomCompression8B = 0x8B,
+  kCustomCompression8C = 0x8C,
+  kCustomCompression8D = 0x8D,
+  kCustomCompression8E = 0x8E,
+  kCustomCompression8F = 0x8F,
+  kCustomCompression90 = 0x90,
+  kCustomCompression91 = 0x91,
+  kCustomCompression92 = 0x92,
+  kCustomCompression93 = 0x93,
+  kCustomCompression94 = 0x94,
+  kCustomCompression95 = 0x95,
+  kCustomCompression96 = 0x96,
+  kCustomCompression97 = 0x97,
+  kCustomCompression98 = 0x98,
+  kCustomCompression99 = 0x99,
+  kCustomCompression9A = 0x9A,
+  kCustomCompression9B = 0x9B,
+  kCustomCompression9C = 0x9C,
+  kCustomCompression9D = 0x9D,
+  kCustomCompression9E = 0x9E,
+  kCustomCompression9F = 0x9F,
+  kCustomCompressionA0 = 0xA0,
+  kCustomCompressionA1 = 0xA1,
+  kCustomCompressionA2 = 0xA2,
+  kCustomCompressionA3 = 0xA3,
+  kCustomCompressionA4 = 0xA4,
+  kCustomCompressionA5 = 0xA5,
+  kCustomCompressionA6 = 0xA6,
+  kCustomCompressionA7 = 0xA7,
+  kCustomCompressionA8 = 0xA8,
+  kCustomCompressionA9 = 0xA9,
+  kCustomCompressionAA = 0xAA,
+  kCustomCompressionAB = 0xAB,
+  kCustomCompressionAC = 0xAC,
+  kCustomCompressionAD = 0xAD,
+  kCustomCompressionAE = 0xAE,
+  kCustomCompressionAF = 0xAF,
+  kCustomCompressionB0 = 0xB0,
+  kCustomCompressionB1 = 0xB1,
+  kCustomCompressionB2 = 0xB2,
+  kCustomCompressionB3 = 0xB3,
+  kCustomCompressionB4 = 0xB4,
+  kCustomCompressionB5 = 0xB5,
+  kCustomCompressionB6 = 0xB6,
+  kCustomCompressionB7 = 0xB7,
+  kCustomCompressionB8 = 0xB8,
+  kCustomCompressionB9 = 0xB9,
+  kCustomCompressionBA = 0xBA,
+  kCustomCompressionBB = 0xBB,
+  kCustomCompressionBC = 0xBC,
+  kCustomCompressionBD = 0xBD,
+  kCustomCompressionBE = 0xBE,
+  kCustomCompressionBF = 0xBF,
+  kCustomCompressionC0 = 0xC0,
+  kCustomCompressionC1 = 0xC1,
+  kCustomCompressionC2 = 0xC2,
+  kCustomCompressionC3 = 0xC3,
+  kCustomCompressionC4 = 0xC4,
+  kCustomCompressionC5 = 0xC5,
+  kCustomCompressionC6 = 0xC6,
+  kCustomCompressionC7 = 0xC7,
+  kCustomCompressionC8 = 0xC8,
+  kCustomCompressionC9 = 0xC9,
+  kCustomCompressionCA = 0xCA,
+  kCustomCompressionCB = 0xCB,
+  kCustomCompressionCC = 0xCC,
+  kCustomCompressionCD = 0xCD,
+  kCustomCompressionCE = 0xCE,
+  kCustomCompressionCF = 0xCF,
+  kCustomCompressionD0 = 0xD0,
+  kCustomCompressionD1 = 0xD1,
+  kCustomCompressionD2 = 0xD2,
+  kCustomCompressionD3 = 0xD3,
+  kCustomCompressionD4 = 0xD4,
+  kCustomCompressionD5 = 0xD5,
+  kCustomCompressionD6 = 0xD6,
+  kCustomCompressionD7 = 0xD7,
+  kCustomCompressionD8 = 0xD8,
+  kCustomCompressionD9 = 0xD9,
+  kCustomCompressionDA = 0xDA,
+  kCustomCompressionDB = 0xDB,
+  kCustomCompressionDC = 0xDC,
+  kCustomCompressionDD = 0xDD,
+  kCustomCompressionDE = 0xDE,
+  kCustomCompressionDF = 0xDF,
+  kCustomCompressionE0 = 0xE0,
+  kCustomCompressionE1 = 0xE1,
+  kCustomCompressionE2 = 0xE2,
+  kCustomCompressionE3 = 0xE3,
+  kCustomCompressionE4 = 0xE4,
+  kCustomCompressionE5 = 0xE5,
+  kCustomCompressionE6 = 0xE6,
+  kCustomCompressionE7 = 0xE7,
+  kCustomCompressionE8 = 0xE8,
+  kCustomCompressionE9 = 0xE9,
+  kCustomCompressionEA = 0xEA,
+  kCustomCompressionEB = 0xEB,
+  kCustomCompressionEC = 0xEC,
+  kCustomCompressionED = 0xED,
+  kCustomCompressionEE = 0xEE,
+  kCustomCompressionEF = 0xEF,
+  kCustomCompressionF0 = 0xF0,
+  kCustomCompressionF1 = 0xF1,
+  kCustomCompressionF2 = 0xF2,
+  kCustomCompressionF3 = 0xF3,
+  kCustomCompressionF4 = 0xF4,
+  kCustomCompressionF5 = 0xF5,
+  kCustomCompressionF6 = 0xF6,
+  kCustomCompressionF7 = 0xF7,
+  kCustomCompressionF8 = 0xF8,
+  kCustomCompressionF9 = 0xF9,
+  kCustomCompressionFA = 0xFA,
+  kCustomCompressionFB = 0xFB,
+  kCustomCompressionFC = 0xFC,
+  kCustomCompressionFD = 0xFD,
+  kCustomCompressionFE = 0xFE,
+  kLastCustomCompression = kCustomCompressionFE,
 
   // kDisableCompressionOption is used to disable some compression options.
   kDisableCompressionOption = 0xff,
@@ -92,11 +226,15 @@ struct CompressionOptions {
   // The training data will be used to generate a dictionary of max_dict_bytes.
   uint32_t zstd_max_train_bytes = 0;
 
-  // Number of threads for parallel compression.
-  // Parallel compression is enabled only if threads > 1.
-  // THE FEATURE IS STILL EXPERIMENTAL
+  // Number of threads for parallel compression for each running flush or
+  // compaction job. Parallel compression is enabled only if threads > 1. Not
+  // recommended for lightweight compression algorithms such as Snappy, LZ4, and
+  // obviously kNoCompression because there is unlikely to be a throughput gain.
   //
-  // This option is valid only when BlockBasedTable is used.
+  // This option is valid only when BlockBasedTable is used and is disabled
+  // (sanitized to 1) with any of these:
+  // * User-defined index (UserDefinedIndexFactory)
+  // * partition_filters == true && decouple_partitioned_filters == false
   //
   // When parallel compression is enabled, SST size file sizes might be
   // more inflated compared to the target size, because more data of unknown
@@ -175,9 +313,10 @@ struct CompressionOptions {
     max_compressed_bytes_per_kb = static_cast<int>(1024.0 / min_ratio + 0.5);
   }
 
-#if __cplusplus >= 202002L
   bool operator==(const CompressionOptions& rhs) const = default;
-#endif
 };
+
+// See advanced_compression.h
+class CompressionManager;
 
 }  // namespace ROCKSDB_NAMESPACE

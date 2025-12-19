@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJI)J
+ * Signature: (ZZZZBBDBZJJJIIIJZZZJZZIIZZJJBJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv *, jclass, jboolean jcache_index_and_filter_blocks,
@@ -63,8 +63,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean jwhole_key_filtering, jboolean jverify_compression,
     jint jread_amp_bytes_per_bit, jint jformat_version,
     jboolean jenable_index_compression, jboolean jblock_align,
-    jbyte jindex_shortening, jlong jblock_cache_size,
-    jint jblock_cache_num_shard_bits) {
+    jlong jsuper_block_alignment_size,
+    jlong jsuper_block_alignment_space_overhead_ratio, jbyte jindex_shortening,
+    jlong jblock_cache_size, jint jblock_cache_num_shard_bits) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
   options.cache_index_and_filter_blocks =
       static_cast<bool>(jcache_index_and_filter_blocks);
@@ -136,6 +137,10 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.enable_index_compression =
       static_cast<bool>(jenable_index_compression);
   options.block_align = static_cast<bool>(jblock_align);
+  options.super_block_alignment_size =
+      static_cast<size_t>(jsuper_block_alignment_size);
+  options.super_block_alignment_space_overhead_ratio =
+      static_cast<size_t>(jsuper_block_alignment_space_overhead_ratio);
   options.index_shortening =
       ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(
           jindex_shortening);

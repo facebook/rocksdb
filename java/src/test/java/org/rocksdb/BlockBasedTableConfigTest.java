@@ -378,6 +378,20 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
+  public void superBlockAlignmentSize() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setSuperBlockAlignmentSize(1024 * 1024);
+    assertThat(blockBasedTableConfig.superBlockAlignmentSize()).isEqualTo(1024 * 1024);
+  }
+
+  @Test
+  public void superBlockAlignmentSpaceOverheadRatio() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setSuperBlockAlignmentSpaceOverheadRatio(4096);
+    assertThat(blockBasedTableConfig.superBlockAlignmentSpaceOverheadRatio()).isEqualTo(4096);
+  }
+
+  @Test
   public void indexShortening() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setIndexShortening(IndexShorteningMode.kShortenSeparatorsAndSuccessor);

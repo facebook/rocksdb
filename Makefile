@@ -148,10 +148,8 @@ ifeq ($(USE_COROUTINES), 1)
 	USE_FOLLY = 1
 	# glog/logging.h requires HAVE_CXX11_ATOMIC
 	OPT += -DUSE_COROUTINES -DHAVE_CXX11_ATOMIC
-	ROCKSDB_CXX_STANDARD = c++2a
 	USE_RTTI = 1
 ifneq ($(USE_CLANG), 1)
-	ROCKSDB_CXX_STANDARD = c++20
 	PLATFORM_CXXFLAGS += -fcoroutines
 endif
 endif
@@ -296,6 +294,28 @@ ifeq ($(V), 1)
 $(info $(shell uname -a))
 $(info $(shell $(CC) --version))
 $(info $(shell $(CXX) --version))
+endif
+
+# ccache support
+# Set USE_CCACHE=1 to enable ccache, or let it auto-detect
+ifndef USE_CCACHE
+  CCACHE := $(shell which ccache 2>/dev/null)
+  ifneq ($(CCACHE),)
+    USE_CCACHE := 1
+  else
+    USE_CCACHE := 0
+  endif
+endif
+
+ifeq ($(USE_CCACHE), 1)
+  CCACHE := $(shell which ccache 2>/dev/null)
+  ifneq ($(CCACHE),)
+    $(info Using ccache: $(CCACHE))
+    CC := $(CCACHE) $(CC)
+    CXX := $(CCACHE) $(CXX)
+  else
+    $(warning ccache requested but not found in PATH)
+  endif
 endif
 
 missing_make_config_paths := $(shell				\
@@ -448,83 +468,7 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
-# This provides a Makefile simulation of a Meta-internal folly integration.
-# It is not validated for general use.
-#
-# USE_FOLLY links the build targets with libfolly.a. The latter could be
-# built using 'make build_folly', or built externally and specified in
-# the CXXFLAGS and EXTRA_LDFLAGS env variables. The build_detect_platform
-# script tries to detect if an external folly dependency has been specified.
-# If not, it exports FOLLY_PATH to the path of the installed Folly and
-# dependency libraries.
-#
-# USE_FOLLY_LITE cherry picks source files from Folly to include in the
-# RocksDB library. Its faster and has fewer dependencies on 3rd party
-# libraries, but with limited functionality. For example, coroutine
-# functionality is not available.
-ifeq ($(USE_FOLLY),1)
-ifeq ($(USE_FOLLY_LITE),1)
-$(error Please specify only one of USE_FOLLY and USE_FOLLY_LITE)
-endif
-ifneq ($(strip $(FOLLY_PATH)),)
-	BOOST_PATH = $(shell (ls -d $(FOLLY_PATH)/../boost*))
-	DBL_CONV_PATH = $(shell (ls -d $(FOLLY_PATH)/../double-conversion*))
-	GFLAGS_PATH = $(shell (ls -d $(FOLLY_PATH)/../gflags*))
-	GLOG_PATH = $(shell (ls -d $(FOLLY_PATH)/../glog*))
-	LIBEVENT_PATH = $(shell (ls -d $(FOLLY_PATH)/../libevent*))
-	XZ_PATH = $(shell (ls -d $(FOLLY_PATH)/../xz*))
-	LIBSODIUM_PATH = $(shell (ls -d $(FOLLY_PATH)/../libsodium*))
-	FMT_PATH = $(shell (ls -d $(FOLLY_PATH)/../fmt*))
-
-	# For some reason, glog and fmt libraries are under either lib or lib64
-	GLOG_LIB_PATH = $(shell (ls -d $(GLOG_PATH)/lib*))
-	FMT_LIB_PATH = $(shell (ls -d $(FMT_PATH)/lib*))
-
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(BOOST_PATH)/include -I$(DBL_CONV_PATH)/include -I$(GLOG_PATH)/include -I$(LIBEVENT_PATH)/include -I$(XZ_PATH)/include -I$(LIBSODIUM_PATH)/include -I$(FOLLY_PATH)/include -I$(FMT_PATH)/include
-		PLATFORM_CXXFLAGS += -I$(BOOST_PATH)/include -I$(DBL_CONV_PATH)/include -I$(GLOG_PATH)/include -I$(LIBEVENT_PATH)/include -I$(XZ_PATH)/include -I$(LIBSODIUM_PATH)/include -I$(FOLLY_PATH)/include -I$(FMT_PATH)/include
-	else
-		PLATFORM_CCFLAGS += -isystem $(BOOST_PATH)/include -isystem $(DBL_CONV_PATH)/include -isystem $(GLOG_PATH)/include -isystem $(LIBEVENT_PATH)/include -isystem $(XZ_PATH)/include -isystem $(LIBSODIUM_PATH)/include -isystem $(FOLLY_PATH)/include -isystem $(FMT_PATH)/include
-		PLATFORM_CXXFLAGS += -isystem $(BOOST_PATH)/include -isystem $(DBL_CONV_PATH)/include -isystem $(GLOG_PATH)/include -isystem $(LIBEVENT_PATH)/include -isystem $(XZ_PATH)/include -isystem $(LIBSODIUM_PATH)/include -isystem $(FOLLY_PATH)/include -isystem $(FMT_PATH)/include
-	endif
-
-	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
-	# in the command line
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(FMT_LIB_PATH)/libfmt.a $(GLOG_LIB_PATH)/libglog.so $(GFLAGS_PATH)/lib/libgflags.so.2.2 $(LIBEVENT_PATH)/lib/libevent-2.1.so -ldl
-	PLATFORM_LDFLAGS += -Wl,-rpath=$(GFLAGS_PATH)/lib -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(LIBEVENT_PATH)/lib -Wl,-rpath=$(LIBSODIUM_PATH)/lib -Wl,-rpath=$(LIBEVENT_PATH)/lib
-endif
-	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-endif
-
-ifeq ($(USE_FOLLY_LITE),1)
-	# Path to the Folly source code and include files
-	FOLLY_DIR = ./third-party/folly
-ifneq ($(strip $(BOOST_SOURCE_PATH)),)
-	BOOST_INCLUDE = $(shell (ls -d $(BOOST_SOURCE_PATH)/boost*/))
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(BOOST_INCLUDE)
-		PLATFORM_CXXFLAGS += -I$(BOOST_INCLUDE)
-	else
-		PLATFORM_CCFLAGS += -isystem $(BOOST_INCLUDE)
-		PLATFORM_CXXFLAGS += -isystem $(BOOST_INCLUDE)
-	endif
-endif  # BOOST_SOURCE_PATH
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
-		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
-	else
-		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
-		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
-	endif
-	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-# TODO: fix linking with fbcode compiler config
-	PLATFORM_LDFLAGS += -lglog
-endif
+include folly.mk
 
 ifdef TEST_CACHE_LINE_SIZE
   PLATFORM_CCFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
@@ -638,13 +582,14 @@ endif
 TEST_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES)) $(GTEST)
 BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(BENCH_LIB_SOURCES))
 CACHE_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(CACHE_BENCH_LIB_SOURCES))
+POINT_LOCK_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(POINT_LOCK_BENCH_LIB_SOURCES))
 TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
 # Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
-ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
+ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(POINT_LOCK_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES) $(ROCKSDB_PLUGIN_TESTS)
 
@@ -683,7 +628,8 @@ am__v_CCH_1 =
 # user build settings
 %.h.pub: %.h # .h.pub not actually created, so re-checked on each invocation
 	$(AM_V_CCH) cd include/ && echo '#include "$(patsubst include/%,%,$<)"' | \
-	  $(CXX) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	  $(CXX) -std=$(or $(ROCKSDB_CXX_STANDARD),c++20) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	build_tools/check-public-header.sh $<
 
 check-headers: $(HEADER_OK_FILES)
 
@@ -1345,6 +1291,9 @@ block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_tr
 cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
+point_lock_bench: $(OBJ_DIR)/utilities/transactions/lock/point/point_lock_bench.o $(POINT_LOCK_BENCH_OBJECTS) $(LIBRARY)
+	$(AM_LINK)
+
 persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
 	$(AM_LINK)
 
@@ -1355,6 +1304,9 @@ filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_stress_compression_manager: $(OBJ_DIR)/db_stress_tool/db_stress_compression_manager.o $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
@@ -1422,13 +1374,13 @@ agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) 
 stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-cassandra_functional_test: $(OBJ_DIR)/utilities/cassandra/cassandra_functional_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+cassandra_functional_test: $(OBJ_DIR)/utilities/cassandra/cassandra_functional_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-cassandra_row_merge_test: $(OBJ_DIR)/utilities/cassandra/cassandra_row_merge_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+cassandra_row_merge_test: $(OBJ_DIR)/utilities/cassandra/cassandra_row_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 cassandra_serialize_test: $(OBJ_DIR)/utilities/cassandra/cassandra_serialize_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1489,6 +1441,12 @@ db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_etc3_test: $(OBJ_DIR)/db/db_etc3_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+compression_test: $(OBJ_DIR)/util/compression_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_logical_block_size_cache_test: $(OBJ_DIR)/db/db_logical_block_size_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1875,6 +1833,9 @@ heap_test: $(OBJ_DIR)/util/heap_test.o $(TEST_LIBRARY) $(LIBRARY)
 point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+point_lock_manager_stress_test: utilities/transactions/lock/point/point_lock_manager_stress_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2034,6 +1995,9 @@ wide_column_serialization_test: $(OBJ_DIR)/db/wide/wide_column_serialization_tes
 wide_columns_helper_test: $(OBJ_DIR)/db/wide/wide_columns_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+interval_test: $(OBJ_DIR)/util/interval_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
@@ -2144,14 +2108,14 @@ ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_DOWNLOAD_BASE ?= http://sourceware.org/pub/bzip2
-SNAPPY_VER ?= 1.2.1
-SNAPPY_SHA256 ?= 736aeb64d86566d2236ddffa2865ee5d7a82d26c9016b36218fcc27ea4f09f86
+SNAPPY_VER ?= 1.2.2
+SNAPPY_SHA256 ?= 90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
-LZ4_VER ?= 1.9.4
-LZ4_SHA256 ?= 0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b
+LZ4_VER ?= 1.10.0
+LZ4_SHA256 ?= 537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.5.5
-ZSTD_SHA256 ?= 98e9c3d949d1b924e28e01eccb7deed865eefebf25c2f21c702e5cd5b63b85e1
+ZSTD_VER ?= 1.5.7
+ZSTD_SHA256 ?= 37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
@@ -2242,7 +2206,7 @@ libsnappy.a: snappy-$(SNAPPY_VER).tar.gz
 	-rm -rf snappy-$(SNAPPY_VER)
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
-	cd snappy-$(SNAPPY_VER)/build && CFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DSNAPPY_BUILD_BENCHMARKS=OFF -DSNAPPY_BUILD_TESTS=OFF --compile-no-warning-as-error ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
+	cd snappy-$(SNAPPY_VER)/build && CFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DSNAPPY_BUILD_BENCHMARKS=OFF -DSNAPPY_BUILD_TESTS=OFF ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
 lz4-$(LZ4_VER).tar.gz:
@@ -2372,27 +2336,27 @@ rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 
 
 rocksdbjavastaticdockerx86:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_x86-be --platform linux/386 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_x86-be --platform linux/386 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_x86-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerx86_64:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_x64-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_x64-be --platform linux/amd64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_x64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_ppc64le-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_ppc64le-be --platform linux/ppc64le --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerarm64v8:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_arm64v8-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_arm64v8-be --platform linux/aarch64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockers390x:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_s390x-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:ubuntu18_s390x-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_s390x-be --platform linux/s390x --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:ubuntu18_s390x-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerriscv64:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_riscv64-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:ubuntu20_riscv64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_riscv64-be --platform linux/riscv64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:ubuntu20_riscv64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerx86musl:
 	mkdir -p java/target
@@ -2400,19 +2364,19 @@ rocksdbjavastaticdockerx86musl:
 
 rocksdbjavastaticdockerx86_64musl:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_x64-musl-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_x64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_x64-musl-be --platform linux/amd64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_x64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerppc64lemusl:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_ppc64le-musl-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_ppc64le-musl-be --platform linux/ppc64le --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerarm64v8musl:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_arm64v8-musl-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_arm64v8-musl-be --platform linux/aarch64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockers390xmusl:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_s390x-musl-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_s390x-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_s390x-musl-be --platform linux/s390x --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:alpine3_s390x-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 
@@ -2467,8 +2431,8 @@ jtest_run:
 jtest: rocksdbjava
 	cd java;$(MAKE) sample test
 
-jpmd: rocksdbjava rocksdbjavageneratepom
-	cd java;$(MAKE) pmd
+jpmd: rocksdbjavageneratepom
+	cd java;$(MAKE) java java_test pmd
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;
@@ -2477,38 +2441,6 @@ commit_prereq:
 	echo "TODO: bring this back using parts of old precommit_checker.py and rocksdb-lego-determinator"
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-
-# For public CI runs, checkout folly in a way that can build with RocksDB.
-# This is mostly intended as a test-only simulation of Meta-internal folly
-# integration.
-checkout_folly:
-	if [ -e third-party/folly ]; then \
-		cd third-party/folly && ${GIT_COMMAND} fetch origin; \
-	else \
-		cd third-party && ${GIT_COMMAND} clone https://github.com/facebook/folly.git; \
-	fi
-	@# Pin to a particular version for public CI, so that PR authors don't
-	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 8e8186f67de7a23d3a07366946b1617343927d84
-	@# NOTE: this hack is required for clang in some cases
-	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
-	@# NOTE: this hack is required for gcc in some cases
-	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
-	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
-	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost
-
-CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
-
-build_folly:
-	FOLLY_INST_PATH=`cd third-party/folly; $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
-	if [ "$$FOLLY_INST_PATH" ]; then \
-		rm -rf $${FOLLY_INST_PATH}/../../*; \
-	else \
-		echo "Please run checkout_folly first"; \
-		false; \
-	fi
-	cd third-party/folly && \
-		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing

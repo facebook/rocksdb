@@ -80,7 +80,8 @@ class FileChecksumGenFactory : public Customizable {
       const ConfigOptions& options, const std::string& value,
       std::shared_ptr<FileChecksumGenFactory>* result);
 
-  // Create a new FileChecksumGenerator.
+  // Create a new FileChecksumGenerator. Recommended to return nullptr if the
+  // requested function name is not recognized.
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenContext& context) = 0;
 

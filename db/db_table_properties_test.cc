@@ -787,6 +787,46 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
   }
 }
 
+TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key3", "value3"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  {
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_EQ(1U, props.size());
+
+    auto table_props = props.begin()->second;
+
+    ASSERT_TRUE(table_props->HasKeyLargestSeqno());
+    ASSERT_TRUE(table_props->HasKeySmallestSeqno());
+
+    ASSERT_EQ(table_props->key_largest_seqno,
+              table_props->key_smallest_seqno + 2);
+    ASSERT_GT(table_props->key_largest_seqno, 0U);
+    ASSERT_GT(table_props->key_smallest_seqno, 0U);
+  }
+
+  // Becomes zero after compaction
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_EQ(1U, props.size());
+
+    auto table_props = props.begin()->second;
+    ASSERT_TRUE(table_props->HasKeyLargestSeqno());
+    ASSERT_TRUE(table_props->HasKeySmallestSeqno());
+
+    ASSERT_EQ(table_props->key_largest_seqno, table_props->key_smallest_seqno);
+    ASSERT_EQ(table_props->key_largest_seqno, 0U);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
                         ::testing::Values("kCompactionStyleLevel",
                                           "kCompactionStyleUniversal"));

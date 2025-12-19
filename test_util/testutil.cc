@@ -91,9 +91,9 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
   return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
 }
 
-Slice CompressibleString(Random* rnd, double compressed_fraction, int len,
+Slice CompressibleString(Random* rnd, double compressed_to_fraction, int len,
                          std::string* dst) {
-  int raw = static_cast<int>(len * compressed_fraction);
+  int raw = static_cast<int>(len * compressed_to_fraction);
   if (raw < 1) {
     raw = 1;
   }
@@ -311,7 +311,6 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->track_and_verify_wals = rnd->Uniform(2);
   db_opt->verify_sst_unique_id_in_manifest = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
-  db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);

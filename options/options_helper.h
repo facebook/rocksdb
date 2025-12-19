@@ -72,6 +72,9 @@ std::unique_ptr<Configurable> CFOptionsAsConfigurable(
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map);
 
+Status GetStringFromCompressionType(std::string* compression_str,
+                                    CompressionType compression_type);
+
 struct OptionsHelper {
   static const std::string kCFOptionsName /*= "ColumnFamilyOptions"*/;
   static const std::string kDBOptionsName /*= "DBOptions" */;

@@ -250,7 +250,7 @@ class MergeHelper {
   // Parallel with keys_; stores the operands
   mutable MergeContext merge_context_;
 
-  StopWatchNano filter_timer_;
+  StopWatchNano<> filter_timer_;
   uint64_t total_filter_time_;
   Statistics* stats_;
 
@@ -307,7 +307,7 @@ class MergeOutputIterator {
 
   Slice key() { return Slice(*it_keys_); }
   Slice value() { return Slice(*it_values_); }
-  bool Valid() { return it_keys_ != merge_helper_->keys().rend(); }
+  bool Valid() const { return it_keys_ != merge_helper_->keys().rend(); }
 
  private:
   const MergeHelper* merge_helper_;

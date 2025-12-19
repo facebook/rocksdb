@@ -135,21 +135,6 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   Destroy(options);
 }
 
-// Check that we don't crash when opening DB with
-// DBOptions::skip_checking_sst_file_sizes_on_db_open = true.
-TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
-  ASSERT_OK(Put("pika", "choo"));
-  ASSERT_OK(Flush());
-
-  // Just open the DB with the option set to true and check that we don't crash.
-  Options options;
-  options.env = env_;
-  options.skip_checking_sst_file_sizes_on_db_open = true;
-  Reopen(options);
-
-  ASSERT_EQ("choo", Get("pika"));
-}
-
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
   // deleted when it's part of move compaction
@@ -1748,45 +1733,6 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
-  Options options = CurrentOptions();
-  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
-  options.env = env.get();
-  options.disable_auto_compactions = true;
-  options.compression = kNoCompression;
-  options.enable_blob_files = true;
-  options.blob_file_size = 32;  // create one blob per file
-  options.skip_checking_sst_file_sizes_on_db_open = true;
-
-  DestroyAndReopen(options);
-  // Generate 5 files in L0
-  for (int i = 0; i < 5; i++) {
-    for (int j = 0; j < 10; j++) {
-      std::string val = "val_file_" + std::to_string(i);
-      ASSERT_OK(Put(Key(j), val));
-    }
-    ASSERT_OK(Flush());
-  }
-  Close();
-
-  bool is_get_file_size_called = false;
-  SyncPoint::GetInstance()->SetCallBack(
-      "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
-        std::string* filename = static_cast<std::string*>(arg);
-        if (filename->find(".blob") != std::string::npos) {
-          is_get_file_size_called = true;
-        }
-      });
-
-  SyncPoint::GetInstance()->EnableProcessing();
-  Reopen(options);
-  ASSERT_FALSE(is_get_file_size_called);
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  Destroy(options);
-}
-
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -1989,6 +1935,70 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBSSTTest, SstGetFileSizeFails) {
+  // Build an SST file
+  ASSERT_OK(Put("x", "zaphod"));
+  ASSERT_OK(Flush());
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(1U, metadata.size());
+  std::string filename = dbname_ + metadata[0].name;
+
+  // Prepare for fault injection
+  std::shared_ptr<FaultInjectionTestFS> fault_fs =
+      std::make_shared<FaultInjectionTestFS>(
+          CurrentOptions().env->GetFileSystem());
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.env = fault_fs_env.get();
+  options.paranoid_checks = false;  // don't check file sizes on open
+
+  for (int i = 0; i < 4; i++) {
+    SCOPED_TRACE("Iteration = " + std::to_string(i));
+    fault_fs->SetFailRandomAccessGetFileSizeSst(false);
+    fault_fs->SetFailFilesystemGetFileSizeSst(false);
+    Close();
+
+    if (i == 1) {
+      // Just FSRandomAccessFile::GetFileSize fails, which should be worked
+      // around
+      fault_fs->SetFailRandomAccessGetFileSizeSst(true);
+    } else if (i == 2) {
+      // FileSystem::GetFileSize fails, which should be worked around if
+      // FSRandomAccessFile::GetFileSize is supported
+      fault_fs->SetFailFilesystemGetFileSizeSst(true);
+    } else if (i == 3) {
+      // Both GetFileSize APIs fail with an IOError
+      fault_fs->SetFailRandomAccessGetFileSizeSst(true);
+      fault_fs->SetFailFilesystemGetFileSizeSst(true);
+    }
+
+    ASSERT_OK(TryReopen(options));
+    std::string value;
+    Status get_status = db_->Get({}, "x", &value);
+    if (i < 2) {
+      ASSERT_OK(get_status);
+    } else if (i == 2) {
+      if (encrypted_env_) {
+        // Can't recover because RandomAccessFile::GetFileSize is not supported
+        // on EncryptedEnv
+        // Fail with propagated IOError. (Not Corruption nor NotSupported!)
+        ASSERT_EQ(get_status.code(), Status::Code::kIOError);
+        ASSERT_STREQ(get_status.getState(), "FileSystem::GetFileSize failed");
+      } else {
+        // Never sees the FileSystem::GetFileSize failure
+        ASSERT_OK(get_status);
+      }
+    } else {
+      ASSERT_EQ(i, 3);
+      // Fail with propagated IOError. (Not Corruption nor NotSupported!)
+      ASSERT_EQ(get_status.code(), Status::Code::kIOError);
+      ASSERT_STREQ(get_status.getState(), "FileSystem::GetFileSize failed");
+    }
+  }
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

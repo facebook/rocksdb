@@ -635,4 +635,22 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
   filter->SetTtl(ttl);
 }
 
+Status DBWithTTLImpl::GetTtl(ColumnFamilyHandle* h, int32_t* ttl) {
+  if (h == nullptr || ttl == nullptr) {
+    return Status::InvalidArgument(
+        "column family handle or ttl cannot be null");
+  }
+  std::shared_ptr<TtlCompactionFilterFactory> filter;
+  Options opts;
+  opts = GetOptions(h);
+  filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
+      opts.compaction_filter_factory);
+  if (!filter) {
+    return Status::InvalidArgument(
+        "TTLCompactionFilterFactory is not set for TTLDB");
+  }
+  *ttl = filter->GetTtl();
+  return Status::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

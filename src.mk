@@ -80,6 +80,7 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
+  db/multi_scan.cc						\
   db/output_validator.cc                                        \
   db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
@@ -237,6 +238,7 @@ LIB_SOURCES =                                                   \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
   util/async_file_reader.cc					                            \
+  util/auto_tune_compressor.cc                                           \
   util/build_version.cc                                         \
   util/cleanable.cc                                             \
   util/coding.cc                                                \
@@ -256,6 +258,7 @@ LIB_SOURCES =                                                   \
   util/ribbon_config.cc                                         \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
+  util/simple_mixed_compressor.cc                               \
   util/status.cc                                                \
   util/stderr_logger.cc                                         \
   util/string_util.cc                                           \
@@ -364,6 +367,7 @@ RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
 
 TOOL_LIB_SOURCES =                                              \
+  db_stress_tool/db_stress_compression_manager.cc               \
   tools/io_tracer_parser_tool.cc                                \
   tools/ldb_cmd.cc                                              \
   tools/ldb_tool.cc                                             \
@@ -382,19 +386,23 @@ BENCH_LIB_SOURCES =                                             \
   tools/tool_hooks.cc                                           \
   tools/simulated_hybrid_file_system.cc                         \
 
-CACHE_BENCH_LIB_SOURCES =					                              \
+CACHE_BENCH_LIB_SOURCES =                                       \
   cache/cache_bench_tool.cc                                     \
+
+POINT_LOCK_BENCH_LIB_SOURCES =                                  \
+  utilities/transactions/lock/point/point_lock_bench_tool.cc    \
 
 STRESS_LIB_SOURCES =                                           \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
+  db_stress_tool/db_stress_compaction_service.cc               \
+  db_stress_tool/db_stress_compression_manager.cc              \
   db_stress_tool/db_stress_driver.cc                           \
   db_stress_tool/db_stress_filters.cc                          \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
-  db_stress_tool/db_stress_stat.cc                             \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/db_stress_wide_merge_operator.cc              \
@@ -486,6 +494,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_clip_test.cc                                                    \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
+  db/db_etc3_test.cc                                                    \
   db/db_flush_test.cc                                                   \
   db/db_follower_test.cc						                                    \
   db/db_readonly_with_timestamp_test.cc                                 \
@@ -591,6 +600,7 @@ TEST_MAIN_SOURCES =                                                     \
   table/table_test.cc                                                   \
   table/block_fetcher_test.cc                                           \
   test_util/testutil_test.cc                                            \
+  util/compression_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/io_tracer_parser_test.cc                                        \
   tools/ldb_cmd_test.cc                                                 \
@@ -609,6 +619,7 @@ TEST_MAIN_SOURCES =                                                     \
   util/file_reader_writer_test.cc                                       \
   util/hash_test.cc                                                     \
   util/heap_test.cc                                                     \
+  util/interval_test.cc                                                 \
   util/random_test.cc                                                   \
   util/rate_limiter_test.cc                                             \
   util/repeatable_thread_test.cc                                        \
@@ -645,6 +656,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/lock/range/range_locking_test.cc               \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/lock/point/point_lock_manager_test.cc          \
+  utilities/transactions/lock/point/point_lock_manager_stress_test.cc   \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/transactions/write_committed_transaction_ts_test.cc         \

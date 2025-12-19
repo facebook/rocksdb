@@ -145,7 +145,6 @@ class LevelCompactionBuilder {
   int parent_index_ = -1;
   int base_index_ = -1;
   double start_level_score_ = 0;
-  bool is_manual_ = false;
   bool is_l0_trivial_move_ = false;
   CompactionInputFiles start_level_inputs_;
   std::vector<CompactionInputFiles> compaction_inputs_;
@@ -558,12 +557,11 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionType(vstorage_, mutable_cf_options_, output_level_,
                          vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
-      mutable_cf_options_.default_write_temperature,
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_),
       /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
-      is_manual_,
-      /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
-      l0_files_might_overlap, compaction_reason_);
+      compaction_reason_,
+      /* trim_ts */ "", start_level_score_, l0_files_might_overlap);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -978,7 +976,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /*existing_snapshots */,
     const SnapshotChecker* /*snapshot_checker*/, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer) {
+    LogBuffer* log_buffer, bool /* require_max_output_level*/) {
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_,
                                  mutable_db_options);

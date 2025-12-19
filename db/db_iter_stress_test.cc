@@ -532,7 +532,7 @@ TEST_F(DBIteratorStressTest, StressTest) {
                       env_, ropt, ImmutableOptions(options),
                       MutableCFOptions(options), BytewiseComparator(),
                       internal_iter, /*version=*/nullptr, sequence,
-                      nullptr /*read_callback*/));
+                      nullptr /*read_callback*/, /*active_mem=*/nullptr));
                 }
 
                 // Do a random operation. It's important to do it on ref_it

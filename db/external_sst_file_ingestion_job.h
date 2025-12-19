@@ -180,6 +180,9 @@ struct IngestedFileInfo : public KeyRangeInfo {
   // the user key's format in the external file matches the column family's
   // setting.
   bool user_defined_timestamps_persisted = true;
+
+  SequenceNumber largest_seqno = kMaxSequenceNumber;
+  SequenceNumber smallest_seqno = kMaxSequenceNumber;
 };
 
 // A batch of files.
@@ -230,7 +233,7 @@ class ExternalSstFileIngestionJob {
         directories_(directories),
         event_logger_(event_logger),
         job_start_time_(clock_->NowMicros()),
-        consumed_seqno_count_(0),
+        max_assigned_seqno_(0),
         io_tracer_(io_tracer) {
     assert(directories != nullptr);
     assert(cfd_);
@@ -287,8 +290,16 @@ class ExternalSstFileIngestionJob {
     return files_to_ingest_;
   }
 
-  // How many sequence numbers did we consume as part of the ingestion job?
-  int ConsumedSequenceNumbersCount() const { return consumed_seqno_count_; }
+  // Return the maximum assigned sequence number for all files in this job.
+  // When allow_db_generated_files = false, we may assign global sequence
+  // numbers to ingested files. The global sequence numbers are sequence numbers
+  // following versions_->LastSequence().
+  // When allow_db_generated_files = true, we ingest files that already have
+  // sequence numbers assigned. max_assigned_seqno_ will be the max sequence
+  // number among ingested files.
+  SequenceNumber MaxAssignedSequenceNumber() const {
+    return max_assigned_seqno_;
+  }
 
  private:
   Status ResetTableReader(const std::string& external_file,
@@ -349,7 +360,7 @@ class ExternalSstFileIngestionJob {
       std::optional<int> prev_batch_uppermost_level);
 
   // File that we want to ingest behind always goes to the lowest level;
-  // we just check that it fits in the level, that DB allows ingest_behind,
+  // we just check that it fits in the level, that the CF allows ingest_behind,
   // and that we don't have 0 seqnums at the upper levels.
   // REQUIRES: Mutex held
   Status CheckLevelForIngestedBehindFile(IngestedFileInfo* file_to_ingest);
@@ -368,6 +379,13 @@ class ExternalSstFileIngestionJob {
   // Helper method to sync given file.
   template <typename TWritableFile>
   Status SyncIngestedFile(TWritableFile* file);
+
+  // Helper function to obtain the smallest and largest sequence number from a
+  // file. When OK is returned, file_to_ingest->smallest_seqno and
+  // file_to_ingest->largest_seqno will be updated.
+  Status GetSeqnoBoundaryForFile(TableReader* table_reader, SuperVersion* sv,
+                                 IngestedFileInfo* file_to_ingest,
+                                 bool allow_data_in_errors);
 
   // Create equivalent `Compaction` objects to this file ingestion job
   // , which will be used to check range conflict with other ongoing
@@ -395,7 +413,7 @@ class ExternalSstFileIngestionJob {
   EventLogger* event_logger_;
   VersionEdit edit_;
   uint64_t job_start_time_;
-  int consumed_seqno_count_;
+  SequenceNumber max_assigned_seqno_;
   // Set in ExternalSstFileIngestionJob::Prepare(), if true all files are
   // ingested in L0
   bool files_overlap_{false};

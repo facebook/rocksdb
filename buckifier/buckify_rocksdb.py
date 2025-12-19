@@ -135,6 +135,9 @@ def generate_buck(repo_path, deps_map):
 
     BUCK = TARGETSBuilder("%s/BUCK" % repo_path, extra_argv)
 
+    # Add oncall("rocksdb_point_of_contact") at the top
+    BUCK.add_oncall("rocksdb_point_of_contact")
+
     # rocksdb_lib
     BUCK.add_library(
         "rocksdb_lib",
@@ -206,6 +209,12 @@ def generate_buck(repo_path, deps_map):
         src_mk.get("CACHE_BENCH_LIB_SOURCES", []),
         [":rocksdb_lib"],
     )
+    # rocksdb_point_lock_bench_tools_lib
+    BUCK.add_library(
+        "rocksdb_point_lock_bench_tools_lib",
+        src_mk.get("POINT_LOCK_BENCH_LIB_SOURCES", []),
+        [":rocksdb_lib"],
+    )
     # rocksdb_stress_lib
     BUCK.add_rocksdb_library(
         "rocksdb_stress_lib",
@@ -228,6 +237,12 @@ def generate_buck(repo_path, deps_map):
     # cache_bench binary
     BUCK.add_binary(
         "cache_bench", ["cache/cache_bench.cc"], [":rocksdb_cache_bench_tools_lib"]
+    )
+    # point_lock_bench binary
+    BUCK.add_binary(
+        "point_lock_bench",
+        ["utilities/transactions/lock/point/point_lock_bench.cc"],
+        [":rocksdb_point_lock_bench_tools_lib"]
     )
     # bench binaries
     for src in src_mk.get("MICROBENCH_SOURCES", []):

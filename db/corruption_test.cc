@@ -556,6 +556,74 @@ TEST_F(CorruptionTest, TableFileFooterNotMagic) {
   ASSERT_TRUE(s.ToString().find(".sst") != std::string::npos);
 }
 
+TEST_F(CorruptionTest, DBOpenWithWrongFileSize) {
+  // Validate that when paranoid flag is true, DB::Open() fails if one of the
+  // file corrupted. Validate that when paranoid flag is false, DB::Open()
+  // succeed if one of the file corrupted, and the healthy file is readable.
+  CloseDb();
+
+  const std::string test_cf_name = "test_cf";
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
+  cf_descs.emplace_back(test_cf_name, ColumnFamilyOptions());
+
+  {
+    options_.create_missing_column_families = true;
+    std::vector<ColumnFamilyHandle*> cfhs;
+    ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+    assert(db_ != nullptr);  // suppress false clang-analyze report
+
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[0], "k", "v"));
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[1], "k1", "v1"));
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[0], "k2", "v2"));
+    for (auto* cfh : cfhs) {
+      delete cfh;
+    }
+    DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+    ASSERT_OK(dbi->TEST_FlushMemTable());
+
+    // ********************************************
+    // Corrupt the file by making the file bigger
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    std::string filename = dbname_ + metadata[0].name;
+    const auto& fs = options_.env->GetFileSystem();
+    {
+      std::unique_ptr<FSWritableFile> f;
+      ASSERT_OK(fs->ReopenWritableFile(filename, FileOptions(), &f, nullptr));
+      ASSERT_OK(f->Append("blahblah", IOOptions(), nullptr));
+      ASSERT_OK(f->Close(IOOptions(), nullptr));
+    }
+    CloseDb();
+  }
+
+  // DB failed to open due to one of the file is corrupted, as paranoid flag is
+  // true
+  options_.paranoid_checks = true;
+  std::vector<ColumnFamilyHandle*> cfhs;
+  auto s = DB::Open(options_, dbname_, cf_descs, &cfhs, &db_);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
+
+  // DB opened successfully, as paranoid flag is false, validate the one that is
+  // healthy is still accessible
+  options_.paranoid_checks = false;
+  ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+  assert(db_ != nullptr);  // suppress false clang-analyze report
+
+  std::string v;
+  ASSERT_OK(db_->Get(ReadOptions(), cfhs[1], "k1", &v));
+  ASSERT_EQ(v, "v1");
+
+  // Validate the default column family is corrupted
+  Check(0, 0);
+  s = db_->Get(ReadOptions(), cfhs[0], "k1", &v);
+  ASSERT_TRUE(s.IsCorruption());
+
+  delete cfhs[1];
+  delete cfhs[0];
+}
+
 TEST_F(CorruptionTest, TableFileWrongSize) {
   Build(100);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
@@ -579,13 +647,16 @@ TEST_F(CorruptionTest, TableFileWrongSize) {
   // DB actually accepts this without paranoid checks, relying on size
   // recorded in manifest to locate the SST footer.
   options_.paranoid_checks = false;
-  options_.skip_checking_sst_file_sizes_on_db_open = false;
   Reopen();
-  Check(100, 100);
+  // As footer could not be extraced, file is completely unreadable
+  Check(0, 0);
+  std::string v;
+  auto s = db_->Get(ReadOptions(), "k1", &v);
+  ASSERT_TRUE(s.IsCorruption());
 
   // But reports the issue with paranoid checks
   options_.paranoid_checks = true;
-  Status s = TryReopen();
+  s = TryReopen();
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
 

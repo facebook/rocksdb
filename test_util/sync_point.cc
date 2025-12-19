@@ -79,4 +79,8 @@ void SetupSyncPointsToMockDirectIO() {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 #endif
 }
+
+#ifndef NDEBUG
+std::atomic<int> g_throw_on_testable_assertion_failure{0};
+#endif  // NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
