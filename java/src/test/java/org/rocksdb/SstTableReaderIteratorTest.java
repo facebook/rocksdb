@@ -270,19 +270,19 @@ public class SstTableReaderIteratorTest {
   @Test
   public void testReadTableForwardIteratorWithLimits() throws RocksDBException {
     SstFileReaderIterator iterator = null;
+    String lowerBound = "key1point5";
+    String upperBound = "key3";
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options options =
              new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
          final SstFileReader reader = new SstFileReader(options);
-         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo()) {
+         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo();
+         Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
+         Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));) {
 
       final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
       final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
       // Open the sst file and iterator
-      String lowerBound = "key1point5";
-      String upperBound = "key3";
-      Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
-      Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));
       reader.open(sstFile.getAbsolutePath());
       iterator = reader.newTableIterator(lowerSliceBound, upperSliceBound);
       iterator.seekToFirst();
@@ -304,19 +304,20 @@ public class SstTableReaderIteratorTest {
   @Test
   public void testReadTableReverseIteratorWithLimits() throws RocksDBException {
     SstFileReaderIterator iterator = null;
+    String lowerBound = "key1point5";
+    String upperBound = "key3";
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options options =
              new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
          final SstFileReader reader = new SstFileReader(options);
-         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo()) {
+         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo();
+         Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
+         Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));) {
 
       final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
       final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
       // Open the sst file and iterator
-      String lowerBound = "key1point5";
-      String upperBound = "key3";
-      Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
-      Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));
+
       reader.open(sstFile.getAbsolutePath());
       iterator = reader.newTableIterator(lowerSliceBound, upperSliceBound);
       iterator.seekToLast();
