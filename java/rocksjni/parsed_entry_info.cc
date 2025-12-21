@@ -40,18 +40,17 @@ void JNICALL Java_org_rocksdb_ParsedEntryInfo_parseEntry(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   auto *parsed_entry_info =
       reinterpret_cast<ROCKSDB_NAMESPACE::ParsedEntryInfo *>(handle);
-  jbyte *target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env,
-           "Memory allocation failed in RocksDB JNI function");
+  jbyte* target = new jbyte[len];
+  env->GetByteArrayRegion(jtarget, 0, len, target);
+  if (env->ExceptionCheck()) {
     return;
   }
-  char* charCopy = new char[len];
-  std::memcpy(charCopy, target, len);
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
   ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char *>(target), len);
-  ROCKSDB_NAMESPACE::ParseEntry(target_slice, options->comparator,
+  ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::ParseEntry(target_slice, options->comparator,
                                 parsed_entry_info, true);
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -66,10 +65,14 @@ void JNICALL Java_org_rocksdb_ParsedEntryInfo_parseEntryDirect(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   auto *parsed_entry_info =
       reinterpret_cast<ROCKSDB_NAMESPACE::ParsedEntryInfo *>(handle);
-  auto parse = [&parsed_entry_info,
+  auto parse = [&env, &parsed_entry_info,
                 &options](ROCKSDB_NAMESPACE::Slice &target_slice) {
-    ROCKSDB_NAMESPACE::ParseEntry(target_slice, options->comparator,
+    ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::ParseEntry(target_slice, options->comparator,
                                   parsed_entry_info);
+    if (!s.ok()) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+      return;
+    }
   };
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(parse, env, jbuffer, jbuffer_off,
                                           jbuffer_len);
@@ -87,10 +90,15 @@ void JNICALL Java_org_rocksdb_ParsedEntryInfo_parseEntryByteArray(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   auto *parsed_entry_info =
       reinterpret_cast<ROCKSDB_NAMESPACE::ParsedEntryInfo *>(handle);
-  auto parse = [&parsed_entry_info,
+  auto parse = [&env, &parsed_entry_info,
                 &options](ROCKSDB_NAMESPACE::Slice &target_slice) {
-    ROCKSDB_NAMESPACE::ParseEntry(target_slice, options->comparator,
+    ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::ParseEntry(target_slice, options->comparator,
                                   parsed_entry_info);
+    if (!s.ok()) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+      return true;
+    }
+    return false;
   };
   ROCKSDB_NAMESPACE::JniUtil::k_op_indirect(parse, env, jtarget, joff, jlen);
 }

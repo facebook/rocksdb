@@ -2485,7 +2485,7 @@ class JniUtil {
    *
    * from `op` and used for RocksDB->Delete etc.
    */
-  static void k_op_indirect(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
+  static void k_op_indirect(std::function<bool(ROCKSDB_NAMESPACE::Slice&)> op,
                             JNIEnv* env, jbyteArray jkey, jint jkey_off,
                             jint jkey_len) {
     if (jkey == nullptr || env->GetArrayLength(jkey) < (jkey_off + jkey_len)) {
@@ -2493,22 +2493,25 @@ class JniUtil {
                                                        "Invalid key argument");
       return;
     }
-    const std::unique_ptr<char[]> target(new char[jkey_len]);
+    char* target = new char[jkey_len];
     if (target == nullptr) {
       ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env,
            "Memory allocation failed in RocksDB JNI function");
       return;
     }
     env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
-                            reinterpret_cast<jbyte*>(target.get()));
+                            reinterpret_cast<jbyte*>(target));
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::ThrowNew(env,
            "Failed to get byte array region: Out of bounds or invalid array.");
       return;
     }
-    ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jkey_len);
-    return op(target_slice);
+    ROCKSDB_NAMESPACE::Slice target_slice(target, jkey_len);
+    bool release_copy = op(target_slice);
+    if (release_copy) {
+      delete[] target;
+    }
   }
 
   template <class T>
