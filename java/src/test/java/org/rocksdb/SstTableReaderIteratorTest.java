@@ -8,7 +8,7 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertFalse;
 import static org.rocksdb.SstFileReaderTest.newSstFile;
 import static org.rocksdb.util.ByteBufferAllocator.DIRECT;
 import static org.rocksdb.util.ByteBufferAllocator.HEAP;
@@ -18,8 +18,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
-import org.junit.Rule;
+import java.util.Queue;
+import java.util.Stack;
+import java.util.stream.Collectors;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
@@ -30,10 +35,12 @@ import org.rocksdb.util.ByteBufferAllocator;
 
 @RunWith(Parameterized.class)
 public class SstTableReaderIteratorTest {
-  private static final String SST_FILE_NAME = "test.sst";
 
+  private static File sstFile;
+  private static List<KeyValueWithOp> kvs;
 
-  @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
+  @ClassRule
+  public static TemporaryFolder parentFolder = new TemporaryFolder();
 
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> parameters() {
@@ -45,14 +52,40 @@ public class SstTableReaderIteratorTest {
     });
   }
 
-  @Parameterized.Parameter(0)
-  public String name;
+  public SstTableReaderIteratorTest(String name, ByteBufferAllocator userByteBufferAllocator,
+      ByteBufferAllocator internalByteBufferAllocator) throws RocksDBException, IOException {
+    this.name = name;
+    this.userByteBufferAllocator = userByteBufferAllocator;
+    this.internalByteBufferAllocator = internalByteBufferAllocator;
+  }
 
-  @Parameterized.Parameter(1)
-  public ByteBufferAllocator userByteBufferAllocator;
+  @BeforeClass
+  public static void setUp() throws Exception {
+    kvs = new ArrayList<>();
+    sstFile = createSstFileWithKeys(kvs);
+  }
 
-  @Parameterized.Parameter(2)
-  public ByteBufferAllocator internalByteBufferAllocator;
+
+  private static File createSstFileWithKeys(List<KeyValueWithOp> keyValues) throws IOException,
+      RocksDBException {
+    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key11", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key12", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key21", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key22", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key31", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key32", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key33", "value33_merge", OpType.MERGE));
+    return newSstFile(parentFolder, keyValues);
+  }
+
+  private final String name;
+
+  private final ByteBufferAllocator userByteBufferAllocator;
+
+  private final ByteBufferAllocator internalByteBufferAllocator;
 
   private void assertInternalKey(final Options options, final ParsedEntryInfo parsedEntryInfo,
       final SstFileReaderIterator sstFileReaderIterator, final ByteBuffer internalKey, ByteBuffer userKey,
@@ -73,7 +106,7 @@ public class SstTableReaderIteratorTest {
     assertThat(userKey.remaining()).isEqualTo(expectedUserKeyBytes.length);
     byte[] dst = new byte[expectedUserKeyBytes.length];
     userKey.get(dst);
-    assertArrayEquals(expectedUserKeyBytes, dst);
+    assertEquals(new String(expectedUserKeyBytes), new String(dst));
     assertEquals(expectedEntryType, parsedEntryInfo.getEntryType());
     internalKey.clear();
     userKey.clear();
@@ -127,20 +160,7 @@ public class SstTableReaderIteratorTest {
   }
 
   @Test
-  public void readSstFileTableIterator() throws RocksDBException, IOException {
-    final List<KeyValueWithOp> keyValues = new ArrayList<>();
-    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
-    keyValues.add(new KeyValueWithOp("key11", "", OpType.DELETE));
-    keyValues.add(new KeyValueWithOp("key12", "", OpType.DELETE));
-    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
-    keyValues.add(new KeyValueWithOp("key21", "", OpType.DELETE));
-    keyValues.add(new KeyValueWithOp("key22", "", OpType.DELETE));
-    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.PUT));
-    keyValues.add(new KeyValueWithOp("key31", "", OpType.DELETE));
-    keyValues.add(new KeyValueWithOp("key32", "", OpType.DELETE));
-    keyValues.add(new KeyValueWithOp("key33", "value33_merge", OpType.MERGE));
-
-    final File sstFile = newSstFile(parentFolder, keyValues);
+  public void readSstFileTableIterator() throws RocksDBException {
     SstFileReaderIterator iterator = null;
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options options =
@@ -149,7 +169,6 @@ public class SstTableReaderIteratorTest {
          final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo()) {
       // Open the sst file and iterator
       reader.open(sstFile.getAbsolutePath());
-      final ReadOptions readOptions = new ReadOptions();
       iterator = reader.newTableIterator();
 
       // Use the iterator to read sst file
@@ -245,6 +264,74 @@ public class SstTableReaderIteratorTest {
       if (iterator != null) {
         iterator.close();
       }
+    }
+  }
+
+  @Test
+  public void testReadTableForwardIteratorWithLimits() throws RocksDBException {
+    SstFileReaderIterator iterator = null;
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options options =
+             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+         final SstFileReader reader = new SstFileReader(options);
+         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo()) {
+
+      final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
+      final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
+      // Open the sst file and iterator
+      String lowerBound = "key1point5";
+      String upperBound = "key3";
+      Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
+      Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));
+      reader.open(sstFile.getAbsolutePath());
+      iterator = reader.newTableIterator(lowerSliceBound, upperSliceBound);
+      iterator.seekToFirst();
+      Queue<KeyValueWithOp> expectedKeys = kvs.stream()
+          .filter(kv -> lowerBound.compareTo(kv.getKey()) <= 0 &&
+              upperBound.compareTo(kv.getKey()) > 0).collect(Collectors.toCollection(LinkedList::new));
+      while (!expectedKeys.isEmpty()) {
+        KeyValueWithOp expectedKey = expectedKeys.poll();
+        assertThat(iterator.isValid()).isTrue();
+        assertInternalKey(options, parsedEntryInfo, iterator, internalKeyByteBuffer, userByteBuffer,
+            expectedKey.getKey(), expectedKey.getOpType().getEntryType());
+        assertArrayEquals(expectedKey.getValue().getBytes(), iterator.value());
+        iterator.next();
+      }
+      assertFalse(iterator.isValid());
+    }
+  }
+
+  @Test
+  public void testReadTableReverseIteratorWithLimits() throws RocksDBException {
+    SstFileReaderIterator iterator = null;
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options options =
+             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+         final SstFileReader reader = new SstFileReader(options);
+         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo()) {
+
+      final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
+      final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
+      // Open the sst file and iterator
+      String lowerBound = "key1point5";
+      String upperBound = "key3";
+      Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
+      Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));
+      reader.open(sstFile.getAbsolutePath());
+      iterator = reader.newTableIterator(lowerSliceBound, upperSliceBound);
+      iterator.seekToLast();
+      Stack<KeyValueWithOp> expectedKeys = kvs.stream()
+          .filter(kv -> lowerBound.compareTo(kv.getKey()) <= 0 &&
+              upperBound.compareTo(kv.getKey()) > 0).collect(Collectors.toCollection(Stack::new));
+      while (!expectedKeys.isEmpty()) {
+        KeyValueWithOp expectedKey = expectedKeys.pop();
+        assertThat(iterator.isValid()).isTrue();
+        assertInternalKey(options, parsedEntryInfo, iterator, internalKeyByteBuffer, userByteBuffer,
+            expectedKey.getKey(), expectedKey.getOpType().getEntryType());
+        assertArrayEquals(expectedKey.getValue().getBytes(), iterator.value());
+        iterator.prev();
+      }
+      assertFalse(iterator.isValid());
     }
   }
 }

@@ -8,6 +8,9 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
+import static org.rocksdb.EntryType.kEntryDelete;
+import static org.rocksdb.EntryType.kEntryMerge;
+import static org.rocksdb.EntryType.kEntryPut;
 
 import java.io.File;
 import java.io.IOException;
@@ -62,7 +65,23 @@ public class SstFileReaderTest {
 
   @Parameterized.Parameter(1) public ByteBufferAllocator byteBufferAllocator;
 
-  enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES }
+  enum OpType {
+    PUT(kEntryPut),
+    PUT_BYTES(kEntryPut),
+    MERGE(kEntryMerge),
+    MERGE_BYTES(kEntryMerge),
+    DELETE(kEntryDelete),
+    DELETE_BYTES(kEntryDelete);
+
+    private final EntryType entryType;
+
+    private OpType(EntryType entryType) {
+      this.entryType = entryType;
+    }
+    public EntryType getEntryType() {
+      return entryType;
+    }
+  }
 
   static File newSstFile(TemporaryFolder parentFolder, final List<KeyValueWithOp> keyValues)
       throws IOException, RocksDBException {
@@ -126,10 +145,10 @@ public class SstFileReaderTest {
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options options =
              new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
-         final SstFileReader reader = new SstFileReader(options)) {
+         final SstFileReader reader = new SstFileReader(options);
+         final ReadOptions readOptions = new ReadOptions()) {
       // Open the sst file and iterator
       reader.open(sstFile.getAbsolutePath());
-      final ReadOptions readOptions = new ReadOptions();
       final SstFileReaderIterator iterator = reader.newIterator(readOptions);
 
       // Use the iterator to read sst file

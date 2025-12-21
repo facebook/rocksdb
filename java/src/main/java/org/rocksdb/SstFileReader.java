@@ -40,9 +40,25 @@ public class SstFileReader extends RocksObject {
    *
    * @return instance of iterator object.
    */
+  public SstFileReaderIterator newTableIterator(final Slice fromKey, final Slice toKey) {
+    assert (isOwningHandle() && (fromKey == null || fromKey.isOwningHandle()) &&
+        (toKey == null || toKey.isOwningHandle()));
+    final long iter = newTableIterator0(nativeHandle_, fromKey != null, fromKey.getNativeHandle(),
+        toKey != null, toKey.getNativeHandle());
+    return new SstFileReaderIterator(this, iter);
+  }
+
+  /**
+   * Returns an iterator that will iterate on all keys(including tombstones) in the default
+   * column family including both keys in the DB and uncommitted keys in this
+   * transaction.
+   * Caller is responsible for deleting the returned Iterator.
+   *
+   * @return instance of iterator object.
+   */
   public SstFileReaderIterator newTableIterator() {
     assert (isOwningHandle());
-    final long iter = newTableIterator(nativeHandle_);
+    final long iter = newTableIterator1(nativeHandle_);
     return new SstFileReaderIterator(this, iter);
   }
 
@@ -85,7 +101,9 @@ public class SstFileReader extends RocksObject {
   }
   private static native void disposeInternalJni(final long handle);
   private static native long newIterator(final long handle, final long readOptionsHandle);
-  private static native long newTableIterator(final long handle);
+  private static native long newTableIterator0(final long handle, final boolean hasFromKey,
+      final long readOptionsHandle, final boolean hasToKey, final long toKeyHandle);
+  private static native long newTableIterator1(final long handle);
   private static native void open(final long handle, final String filePath) throws RocksDBException;
 
   private static native long newSstFileReader(final long optionsHandle);
