@@ -40,7 +40,7 @@ public class SstFileReader extends RocksObject {
    *
    * @return instance of iterator object.
    */
-  public SstFileReaderIterator newTableIterator(final Slice fromKey, final Slice toKey) {
+  public SstFileReaderIterator newTableIterator(final AbstractSlice<?> fromKey, final AbstractSlice<?> toKey) {
     assert (isOwningHandle() && (fromKey == null || fromKey.isOwningHandle()) &&
         (toKey == null || toKey.isOwningHandle()));
     final long iter = newTableIterator0(nativeHandle_, fromKey != null, fromKey.getNativeHandle(),

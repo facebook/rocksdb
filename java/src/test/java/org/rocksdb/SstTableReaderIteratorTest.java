@@ -272,14 +272,30 @@ public class SstTableReaderIteratorTest {
     SstFileReaderIterator iterator = null;
     String lowerBound = "key1point5";
     String upperBound = "key3";
+    ByteBuffer lowerBoundBuffer = ByteBuffer.allocateDirect(128);
+    ByteBuffer upperBoundBuffer = ByteBuffer.allocateDirect(128);
+    lowerBoundBuffer.putInt(10294);
+    upperBoundBuffer.putInt(15948);
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options options =
              new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
          final SstFileReader reader = new SstFileReader(options);
          final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo();
-         Slice lowerSliceBound = new Slice(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
-         Slice upperSliceBound = new Slice(TypeUtil.getInternalKey(upperBound.getBytes(), options));) {
-
+         DirectSlice lowerSliceBound = new DirectSlice(lowerBoundBuffer);
+         DirectSlice upperSliceBound = new DirectSlice(upperBoundBuffer)) {
+      lowerBoundBuffer.put(TypeUtil.getInternalKey(lowerBound.getBytes(), options));
+      upperBoundBuffer.put(TypeUtil.getInternalKey(upperBound.getBytes(), options));
+      lowerBoundBuffer.flip();
+      upperBoundBuffer.flip();
+      lowerBoundBuffer.position(4);
+      upperBoundBuffer.position(4);
+      lowerSliceBound.removePrefix(4);
+      upperSliceBound.removePrefix(4);
+      lowerSliceBound.setLength(lowerBoundBuffer.remaining());
+      upperSliceBound.setLength(upperBoundBuffer.remaining());
+      ByteBuffer tempBuffer = lowerSliceBound.data();
+      System.out.println(lowerSliceBound.data().position() + " " + lowerBoundBuffer.position() + " " +
+          lowerSliceBound.data().limit() + " " + lowerBoundBuffer.limit());
       final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
       final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
       // Open the sst file and iterator
