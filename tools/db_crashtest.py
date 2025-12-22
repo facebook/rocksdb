@@ -72,7 +72,6 @@ def early_argument_parsing_before_main():
 
 
 def apply_random_seed_per_iteration():
-    global per_iteration_random_seed_override
     per_iteration_random_seed = get_random_seed(per_iteration_random_seed_override)
     print(f"Use random seed for iteration {per_iteration_random_seed}")
     random.seed(per_iteration_random_seed)
@@ -469,7 +468,6 @@ def get_dbname(test_name):
         dbname = tempfile.mkdtemp(prefix=test_dir_name)
     else:
         dbname = test_tmpdir + "/" + test_dir_name
-        global is_remote_db
         if not is_remote_db:
             shutil.rmtree(dbname, True)
             if cleanup_cmd is not None:
@@ -493,7 +491,6 @@ def setup_expected_values_dir():
     expected_dir_prefix = "rocksdb_crashtest_expected_"
     test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
 
-    global is_remote_db
     if not is_remote_db and (test_exp_tmpdir is None or test_exp_tmpdir == ""):
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
@@ -518,7 +515,6 @@ def setup_multiops_txn_key_spaces_file():
     key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
     test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
 
-    global is_remote_db
     if not is_remote_db and (test_exp_tmpdir is None or test_exp_tmpdir == ""):
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
@@ -536,7 +532,6 @@ def setup_multiops_txn_key_spaces_file():
 
 
 def is_direct_io_supported(dbname):
-    global is_remote_db
     if is_remote_db:
         return False
     else:
@@ -1387,7 +1382,6 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
 
 
 def cleanup_after_success(dbname):
-    global is_remote_db
     if not is_remote_db:
         shutil.rmtree(dbname, True)
     if cleanup_cmd is not None:
@@ -1674,10 +1668,8 @@ def main():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
     # unknown_args are passed directly to db_stress
 
-    global remain_args
     args, unknown_args = parser.parse_known_args(remain_args)
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    global is_remote_db
     if test_tmpdir is not None and not is_remote_db:
         isdir = False
         try:
