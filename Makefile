@@ -390,8 +390,6 @@ ifdef COMPILE_WITH_TSAN
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
 	PROFILING_FLAGS =
-	# LUA is not supported under TSAN
-	LUA_PATH =
 	# Limit keys for crash test under TSAN to avoid error:
 	# "ThreadSanitizer: DenseSlabAllocator overflow. Dying."
 	CRASH_TEST_EXT_ARGS += --max_key=1000000
@@ -508,32 +506,6 @@ ifndef DISABLE_WARNING_AS_ERROR
 endif
 
 
-ifdef LUA_PATH
-
-ifndef LUA_INCLUDE
-LUA_INCLUDE=$(LUA_PATH)/include
-endif
-
-LUA_INCLUDE_FILE=$(LUA_INCLUDE)/lualib.h
-
-ifeq ("$(wildcard $(LUA_INCLUDE_FILE))", "")
-# LUA_INCLUDE_FILE does not exist
-$(error Cannot find lualib.h under $(LUA_INCLUDE).  Try to specify both LUA_PATH and LUA_INCLUDE manually)
-endif
-LUA_FLAGS = -I$(LUA_INCLUDE) -DLUA -DLUA_COMPAT_ALL
-CFLAGS += $(LUA_FLAGS)
-CXXFLAGS += $(LUA_FLAGS)
-
-ifndef LUA_LIB
-LUA_LIB = $(LUA_PATH)/lib/liblua.a
-endif
-ifeq ("$(wildcard $(LUA_LIB))", "") # LUA_LIB does not exist
-$(error $(LUA_LIB) does not exist.  Try to specify both LUA_PATH and LUA_LIB manually)
-endif
-EXEC_LDFLAGS += $(LUA_LIB)
-
-endif
-
 ifeq ($(NO_THREEWAY_CRC32C), 1)
 	CXXFLAGS += -DNO_THREEWAY_CRC32C
 endif
@@ -604,8 +576,8 @@ ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/|secondary_index/')
-	PUBLIC_HEADERS_TO_CHECK := $(shell $(FIND) include/ -type f -name '*.h' | grep -E -v 'lua/')
+	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|range_tree/|secondary_index/')
+	PUBLIC_HEADERS_TO_CHECK := $(shell $(FIND) include/ -type f -name '*.h')
 else
 	DEV_HEADERS_TO_CHECK :=
 	PUBLIC_HEADERS_TO_CHECK :=
