@@ -293,9 +293,6 @@ public class SstTableReaderIteratorTest {
       upperSliceBound.removePrefix(4);
       lowerSliceBound.setLength(lowerBoundBuffer.remaining());
       upperSliceBound.setLength(upperBoundBuffer.remaining());
-      ByteBuffer tempBuffer = lowerSliceBound.data();
-      System.out.println(lowerSliceBound.data().position() + " " + lowerBoundBuffer.position() + " " +
-          lowerSliceBound.data().limit() + " " + lowerBoundBuffer.limit());
       final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
       final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
       // Open the sst file and iterator
@@ -333,7 +330,6 @@ public class SstTableReaderIteratorTest {
       final ByteBuffer userByteBuffer = userByteBufferAllocator.allocate(128);
       final ByteBuffer internalKeyByteBuffer = internalByteBufferAllocator.allocate(128);
       // Open the sst file and iterator
-
       reader.open(sstFile.getAbsolutePath());
       iterator = reader.newTableIterator(lowerSliceBound, upperSliceBound);
       iterator.seekToLast();
