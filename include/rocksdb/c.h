@@ -3663,7 +3663,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_compaction_service_options_override_t*
 rocksdb_compaction_service_options_override_create(void);
 
 extern ROCKSDB_LIBRARY_API rocksdb_compaction_service_options_override_t*
-rocksdb_compaction_service_options_override_create_from_options(rocksdb_options_t* option);
+rocksdb_compaction_service_options_override_create_from_options(
+    rocksdb_options_t* option);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_compaction_service_options_override_destroy(
