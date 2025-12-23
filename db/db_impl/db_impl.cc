@@ -1255,6 +1255,7 @@ Status DBImpl::SetOptions(
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
 
+#ifndef NDEBUG
       for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
         auto cfd = column_family_datas[i];
         assert(new_options_copy[i] == cfd->GetLatestMutableCFOptions());
@@ -1263,6 +1264,7 @@ Status DBImpl::SetOptions(
         assert(cfd->GetCurrentMutableCFOptions() ==
                cfd->current()->GetMutableCFOptions());
       }
+#endif
     }
   }
   sv_context.Clean();
