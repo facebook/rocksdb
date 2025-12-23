@@ -426,7 +426,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Cache::Handle* cache_handle() { return cache_handle_; }
 
  protected:
-  std::unique_ptr<InternalKeyComparator> icmp_;
+  InternalKeyComparator icmp_;
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
@@ -528,17 +528,15 @@ class BlockIter : public InternalIteratorBase<TValue> {
                       uint32_t block_restart_interval) {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
-
-    icmp_ = std::make_unique<InternalKeyComparator>(raw_ucmp);
+    assert(raw_ucmp != nullptr);
+    icmp_ = InternalKeyComparator(raw_ucmp);
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;
     current_ = restarts_;
     restart_index_ = num_restarts_;
     global_seqno_ = global_seqno;
-    if (raw_ucmp != nullptr) {
-      ts_sz_ = raw_ucmp->timestamp_size();
-    }
+    ts_sz_ = raw_ucmp->timestamp_size();
     pad_min_timestamp_ = ts_sz_ > 0 && !user_defined_timestamp_persisted;
     block_contents_pinned_ = block_contents_pinned;
     cache_handle_ = nullptr;
@@ -622,14 +620,15 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // comparator is used for the block contents, the LHS argument is the current
   // key with global seqno applied, and the RHS argument is `other`.
   int CompareCurrentKey(const Slice& other) {
+    assert(icmp_.user_comparator() != nullptr);
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
-      return icmp_->user_comparator()->Compare(raw_key_.GetUserKey(), other);
+      return icmp_.user_comparator()->Compare(raw_key_.GetUserKey(), other);
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
-      return icmp_->Compare(raw_key_.GetInternalKey(), other);
+      return icmp_.Compare(raw_key_.GetInternalKey(), other);
     }
-    return icmp_->Compare(raw_key_.GetInternalKey(), global_seqno_, other,
-                          kDisableGlobalSequenceNumber);
+    return icmp_.Compare(raw_key_.GetInternalKey(), global_seqno_, other,
+                         kDisableGlobalSequenceNumber);
   }
 
  private:
