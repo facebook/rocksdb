@@ -15,6 +15,7 @@
 
 #include "db/version_edit.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -716,6 +717,16 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index,
     size_t total_size = initial_file->fd.GetFileSize();
     CompactionInputFiles output_level_inputs;
     output_level_inputs.level = output_level_;
+
+#ifndef NDEBUG
+    ROCKS_LOG_DEBUG(ioptions_.logger,
+                    "[%s] TryExtendNonL0TrivialMove: start_index=%d, "
+                    "initial_file=%" PRIu64
+                    ", start_level=%d, output_level=%d, only_expand_right=%d",
+                    cf_name_.c_str(), start_index, initial_file->fd.GetNumber(),
+                    start_level_, output_level_, only_expand_right);
+#endif  // NDEBUG
+
     // Expand towards right
     for (int i = start_index + 1;
          i < static_cast<int>(level_files.size()) &&
@@ -723,12 +734,34 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index,
          i++) {
       FileMetaData* next_file = level_files[i];
       if (next_file->being_compacted) {
+#ifndef NDEBUG
+        ROCKS_LOG_DEBUG(ioptions_.logger,
+                        "[%s] TryExtendNonL0TrivialMove: RIGHT STOP - "
+                        "file %" PRIu64 " is being_compacted",
+                        cf_name_.c_str(), next_file->fd.GetNumber());
+#endif  // NDEBUG
         break;
       }
       vstorage_->GetOverlappingInputs(output_level_, &(initial_file->smallest),
                                       &(next_file->largest),
                                       &output_level_inputs.files);
       if (!output_level_inputs.empty()) {
+#ifndef NDEBUG
+        std::string overlapping_files;
+        for (const auto* f : output_level_inputs.files) {
+          if (!overlapping_files.empty()) overlapping_files += ", ";
+          overlapping_files += std::to_string(f->fd.GetNumber());
+        }
+        ROCKS_LOG_DEBUG(ioptions_.logger,
+                        "[%s] TryExtendNonL0TrivialMove: RIGHT STOP - "
+                        "file %" PRIu64
+                        " would overlap with %zu output level files: [%s], "
+                        "query range smallest=[%s], largest=[%s]",
+                        cf_name_.c_str(), next_file->fd.GetNumber(),
+                        output_level_inputs.size(), overlapping_files.c_str(),
+                        initial_file->smallest.DebugString(true).c_str(),
+                        next_file->largest.DebugString(true).c_str());
+#endif  // NDEBUG
         break;
       }
       if (i < static_cast<int>(level_files.size()) - 1 &&
@@ -740,27 +773,86 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index,
         TEST_SYNC_POINT_CALLBACK(
             "LevelCompactionBuilder::TryExtendNonL0TrivialMove:NoCleanCut",
             nullptr);
+#ifndef NDEBUG
+        ROCKS_LOG_DEBUG(ioptions_.logger,
+                        "[%s] TryExtendNonL0TrivialMove: RIGHT STOP - "
+                        "no clean cut: file %" PRIu64
+                        " largest=[%s], "
+                        "next file %" PRIu64 " smallest=[%s] (same user key)",
+                        cf_name_.c_str(), next_file->fd.GetNumber(),
+                        next_file->largest.DebugString(true).c_str(),
+                        level_files[i + 1]->fd.GetNumber(),
+                        level_files[i + 1]->smallest.DebugString(true).c_str());
+#endif  // NDEBUG
         // Not a clean up after adding the next file. Skip.
         break;
       }
       total_size += next_file->fd.GetFileSize();
       if (total_size > mutable_cf_options_.max_compaction_bytes) {
+#ifndef NDEBUG
+        ROCKS_LOG_DEBUG(ioptions_.logger,
+                        "[%s] TryExtendNonL0TrivialMove: RIGHT STOP - "
+                        "total_size=%" PRIu64
+                        " exceeds max_compaction_bytes=%" PRIu64
+                        " at file %" PRIu64,
+                        cf_name_.c_str(), static_cast<uint64_t>(total_size),
+                        mutable_cf_options_.max_compaction_bytes,
+                        next_file->fd.GetNumber());
+#endif  // NDEBUG
         break;
       }
+#ifndef NDEBUG
+      ROCKS_LOG_DEBUG(ioptions_.logger,
+                      "[%s] TryExtendNonL0TrivialMove: RIGHT ADD file %" PRIu64
+                      ", total_size=%" PRIu64 ", num_files=%zu",
+                      cf_name_.c_str(), next_file->fd.GetNumber(),
+                      static_cast<uint64_t>(total_size),
+                      start_level_inputs_.size() + 1);
+#endif  // NDEBUG
       start_level_inputs_.files.push_back(next_file);
     }
+
+#ifndef NDEBUG
+    if (start_level_inputs_.size() >= kMaxMultiTrivialMove) {
+      ROCKS_LOG_DEBUG(ioptions_.logger,
+                      "[%s] TryExtendNonL0TrivialMove: RIGHT STOP - "
+                      "reached max files (%zu)",
+                      cf_name_.c_str(), kMaxMultiTrivialMove);
+    }
+#endif  // NDEBUG
+
     // Expand towards left
     if (!only_expand_right) {
       for (int i = start_index - 1;
            i >= 0 && start_level_inputs_.size() < kMaxMultiTrivialMove; i--) {
         FileMetaData* next_file = level_files[i];
         if (next_file->being_compacted) {
+#ifndef NDEBUG
+          ROCKS_LOG_DEBUG(ioptions_.logger,
+                          "[%s] TryExtendNonL0TrivialMove: LEFT STOP - "
+                          "file %" PRIu64 " is being_compacted",
+                          cf_name_.c_str(), next_file->fd.GetNumber());
+#endif  // NDEBUG
           break;
         }
         vstorage_->GetOverlappingInputs(output_level_, &(next_file->smallest),
                                         &(initial_file->largest),
                                         &output_level_inputs.files);
         if (!output_level_inputs.empty()) {
+#ifndef NDEBUG
+          std::string overlapping_files;
+          for (const auto* f : output_level_inputs.files) {
+            if (!overlapping_files.empty()) overlapping_files += ", ";
+            overlapping_files += std::to_string(f->fd.GetNumber());
+          }
+          ROCKS_LOG_DEBUG(ioptions_.logger,
+                          "[%s] TryExtendNonL0TrivialMove: LEFT STOP - "
+                          "file %" PRIu64
+                          " would overlap with %zu output level files: [%s]",
+                          cf_name_.c_str(), next_file->fd.GetNumber(),
+                          output_level_inputs.size(),
+                          overlapping_files.c_str());
+#endif  // NDEBUG
           break;
         }
         if (i > 0 && compaction_picker_->icmp()
@@ -768,18 +860,59 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index,
                              ->CompareWithoutTimestamp(
                                  next_file->smallest.user_key(),
                                  level_files[i - 1]->largest.user_key()) == 0) {
-          // Not a clean up after adding the next file. Skip.
+#ifndef NDEBUG
+          ROCKS_LOG_DEBUG(
+              ioptions_.logger,
+              "[%s] TryExtendNonL0TrivialMove: LEFT STOP - "
+              "no clean cut: file %" PRIu64
+              " smallest=[%s], "
+              "prev file %" PRIu64 " largest=[%s] (same user key)",
+              cf_name_.c_str(), next_file->fd.GetNumber(),
+              next_file->smallest.DebugString(true).c_str(),
+              level_files[i - 1]->fd.GetNumber(),
+              level_files[i - 1]->largest.DebugString(true).c_str());
+#endif  // NDEBUG
+        // Not a clean up after adding the next file. Skip.
           break;
         }
         total_size += next_file->fd.GetFileSize();
         if (total_size > mutable_cf_options_.max_compaction_bytes) {
+#ifndef NDEBUG
+          ROCKS_LOG_DEBUG(ioptions_.logger,
+                          "[%s] TryExtendNonL0TrivialMove: LEFT STOP - "
+                          "total_size=%" PRIu64
+                          " exceeds max_compaction_bytes=%" PRIu64,
+                          cf_name_.c_str(), static_cast<uint64_t>(total_size),
+                          mutable_cf_options_.max_compaction_bytes);
+#endif  // NDEBUG
           break;
         }
+#ifndef NDEBUG
+        ROCKS_LOG_DEBUG(
+            ioptions_.logger,
+            "[%s] TryExtendNonL0TrivialMove: LEFT ADD file %" PRIu64,
+            cf_name_.c_str(), next_file->fd.GetNumber());
+#endif  // NDEBUG
         // keep `files` sorted in increasing order by key range
         start_level_inputs_.files.insert(start_level_inputs_.files.begin(),
                                          next_file);
       }
     }
+
+#ifndef NDEBUG
+    std::string final_files;
+    for (const auto* f : start_level_inputs_.files) {
+      if (!final_files.empty()) final_files += ", ";
+      final_files += std::to_string(f->fd.GetNumber());
+    }
+    ROCKS_LOG_DEBUG(ioptions_.logger,
+                    "[%s] TryExtendNonL0TrivialMove: RESULT - %zu files: [%s], "
+                    "returning %s",
+                    cf_name_.c_str(), start_level_inputs_.size(),
+                    final_files.c_str(),
+                    start_level_inputs_.size() > 1 ? "true" : "false");
+#endif  // NDEBUG
+
     return start_level_inputs_.size() > 1;
   }
   return false;
