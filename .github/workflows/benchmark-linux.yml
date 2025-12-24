@@ -9,7 +9,7 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on: ubuntu-latest # FIXME: change this back to self-hosted when ready
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/build-for-benchmarks"
     - uses: "./.github/actions/perform-benchmarks"
     - uses: "./.github/actions/post-benchmarks"

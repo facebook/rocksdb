@@ -13,7 +13,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0 # Need full repo history
         fetch-tags: true
@@ -37,7 +37,7 @@ jobs:
     env:
       TEST_TMPDIR: "/tmp/rocksdb_test_tmp"
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
@@ -52,7 +52,7 @@ jobs:
       CC: clang-18
       CXX: clang++-18
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/build-folly"
@@ -66,7 +66,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/cache-folly"
@@ -84,7 +84,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - run: "DEBUG_LEVEL=0 make -j20 build_folly"
@@ -98,14 +98,14 @@ jobs:
       CMAKE_GENERATOR: Visual Studio 17 2022
       CMAKE_PORTABLE: AVX2
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/windows-build-steps"
   build-linux-arm-test-full:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu-arm
     steps:
-      - uses: actions/checkout@v4.1.0
+      - uses: actions/checkout@v6
       - uses: "./.github/actions/pre-steps"
       - run: sudo apt-get update && sudo apt-get install -y build-essential libgflags-dev
       - run: make V=1 J=4 -j4 check
@@ -115,7 +115,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu-arm
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: sudo apt-get update && sudo apt-get install -y build-essential libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
     - run: sudo mount -o remount,size=16G /dev/shm
@@ -132,7 +132,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - name: Build examples
       run: make V=1 -j4 static_lib && cd examples && make V=1 -j4
@@ -145,7 +145,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - name: Build rocksdb lib
       run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j4 static_lib
@@ -160,7 +160,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 -DCMAKE_CXX_FLAGS=-DGLOG_USE_GLOG_EXPORT .. && make VERBOSE=1 -j20 && ctest -j20)"
