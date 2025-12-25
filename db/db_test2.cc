@@ -15,6 +15,7 @@
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
+#include "env/composite_env_wrapper.h"
 #include "env/fs_readonly.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -92,6 +93,84 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
       DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
   // With create_if_missing false, there should not be a dir in the file system
   ASSERT_NOK(env_->FileExists(dbname));
+}
+
+TEST_F(DBTest2, SkipDirectoryScanOnReadOnlyOpen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  auto base_fs = env_->GetFileSystem();
+  auto no_readdir_fs = std::make_shared<test::NoReaddirFS>(base_fs);
+  std::unique_ptr<Env> custom_env(new CompositeEnvWrapper(env_, no_readdir_fs));
+
+  Options ro_options = CurrentOptions();
+  ro_options.env = custom_env.get();
+  DB* db_ptr = nullptr;
+  ASSERT_NOK(DB::OpenForReadOnly(ro_options, dbname_, &db_ptr));
+
+  // getdents64() should be skipped.
+  ro_options.skip_directory_scan_on_readonly_db_open = true;
+  ASSERT_OK(DB::OpenForReadOnly(ro_options, dbname_, &db_ptr));
+
+  std::string value;
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "key2", &value));
+  ASSERT_EQ("value2", value);
+
+  delete db_ptr;
+}
+
+TEST_F(DBTest2, SkipDirectoryScanUnflushedDataNotVisible) {
+  Options options = CurrentOptions();
+
+  options.create_if_missing = true;
+  options.write_buffer_size = 64 << 20;
+  options.max_write_buffer_number = 10;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Write a key, then flush. Write another key, don't flush to make
+  // sure its resident in the WAL.
+  ASSERT_OK(Put("flushed_key", "flushed_value"));
+  ASSERT_OK(Flush());
+
+  WriteOptions wo;
+  wo.disableWAL = false;
+  ASSERT_OK(db_->Put(wo, "unflushed_key", "unflushed_value"));
+
+  Close();
+
+  // Open read-only with skip_directory_scan_on_readonly_db_open = true
+  // The unflushed data should not be visible (WAL not replayed).
+  Options ro_options = CurrentOptions();
+  ro_options.skip_directory_scan_on_readonly_db_open = true;
+  DB* db_ptr = nullptr;
+  ASSERT_OK(DB::OpenForReadOnly(ro_options, dbname_, &db_ptr));
+
+  std::string value;
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "flushed_key", &value));
+  ASSERT_EQ("flushed_value", value);
+  ASSERT_TRUE(db_ptr->Get(ReadOptions(), "unflushed_key", &value).IsNotFound());
+
+  delete db_ptr;
+
+  // Set skip_directory_scan_on_readonly_db_open to false, WAL should be found
+  // and replayed.
+  ro_options.skip_directory_scan_on_readonly_db_open = false;
+  ASSERT_OK(DB::OpenForReadOnly(ro_options, dbname_, &db_ptr));
+
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "flushed_key", &value));
+  ASSERT_EQ("flushed_value", value);
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "unflushed_key", &value));
+  ASSERT_EQ("unflushed_value", value);
+
+  delete db_ptr;
 }
 
 class PartitionedIndexTestListener : public EventListener {

@@ -263,6 +263,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    skip_checking_sst_file_sizes_on_db_open),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"skip_directory_scan_on_readonly_db_open",
+         {offsetof(struct ImmutableDBOptions,
+                   skip_directory_scan_on_readonly_db_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"new_table_reader_for_compaction_inputs",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -769,6 +774,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
       skip_checking_sst_file_sizes_on_db_open(
           options.skip_checking_sst_file_sizes_on_db_open),
+      skip_directory_scan_on_readonly_db_open(
+          options.skip_directory_scan_on_readonly_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
       allow_2pc(options.allow_2pc),
       row_cache(options.row_cache),
