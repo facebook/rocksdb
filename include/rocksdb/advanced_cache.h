@@ -318,7 +318,7 @@ class Cache : public Customizable {
   // REQUIRES: handle must have been returned by a method on *this.
   virtual bool Release(Handle* handle, bool erase_if_last_ref = false) = 0;
 
-  // Return the object assiciated with a handle returned by a successful
+  // Return the object associated with a handle returned by a successful
   // Lookup(). For historical reasons, this is also known at the "value"
   // associated with the key.
   // REQUIRES: handle must not have been released yet.

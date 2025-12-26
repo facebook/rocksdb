@@ -1503,7 +1503,7 @@ TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
         /*context*/ this, Cache::Priority::LOW);
     ASSERT_EQ(handle1, nullptr);
 
-    // k1 promotion can fail with strict_capacit_limit=true, but Lookup still
+    // k1 promotion can fail with strict_capacity_limit=true, but Lookup still
     // succeeds using a standalone handle
     handle1 = cache->Lookup(k1.AsSlice(), GetHelper(),
                             /*context*/ this, Cache::Priority::LOW);
@@ -1680,7 +1680,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
-  // inserted to the block cache. Thefore, block_1 is evicted from block
+  // inserted to the block cache. Therefore, block_1 is evicted from block
   // cache and successfully inserted to the secondary cache. Here are 2
   // lookups in the secondary cache for block_1 and block_2.
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -1721,7 +1721,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
   // This Get needs to access block_1, since block_1 is not in block cache
-  // there is one econdary cache lookup. Then, block_1 is cached in the
+  // there is one secondary cache lookup. Then, block_1 is cached in the
   // block cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 5u);
@@ -1785,7 +1785,7 @@ TEST_P(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   std::string v = Get(Key(0));
   ASSERT_EQ(1000, v.size());
   // Since the block cache is large enough, all the blocks are cached. we
-  // do not need to lookup the seondary cache.
+  // do not need to lookup the secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
@@ -2150,7 +2150,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   ASSERT_OK(Flush());
   Compact("a", "z");
 
-  // do th eread for all the key value pairs, so all the blocks should be in
+  // do the read for all the key value pairs, so all the blocks should be in
   // cache
   uint32_t start_insert = cache->GetInsertCount();
   uint32_t start_lookup = cache->GetLookupcount();
@@ -2464,7 +2464,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   std::string v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
 
-  // Check the data in first block. Cache miss, direclty read from SST file.
+  // Check the data in first block. Cache miss, directly read from SST file.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
@@ -2598,7 +2598,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 }
 
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
-// cache. We diable the secondary cache option for DB2.
+// cache. We disable the secondary cache option for DB2.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
