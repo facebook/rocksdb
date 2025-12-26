@@ -463,17 +463,6 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   options.max_bytes_for_level_base = 4 * 1024 * 1024;
   options.max_bytes_for_level_multiplier = 2;
 
-  // Enable CompactOnDeletionCollectorFactory to mark files with tombstones for
-  // compaction. Trigger compaction when >= 100 deletions in any 1000
-  // consecutive entries, or when deletion ratio >= 0.25 across the whole file
-  options.table_properties_collector_factories.push_back(
-      NewCompactOnDeletionCollectorFactory(
-          1000,  // sliding_window_size (N)
-          100,   // deletion_trigger (D)
-          0.25,  // deletion_ratio (optional, 0 to disable)
-          0      // min_file_size (optional, 0 means no minimum)
-          ));
-
   ASSERT_OK(db_->CreateColumnFamily(options, "new_cf", &cfh));
 
   std::string ts_buf;
