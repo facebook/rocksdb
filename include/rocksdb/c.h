@@ -134,10 +134,13 @@ typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
 typedef struct rocksdb_transactiondb_options_t rocksdb_transactiondb_options_t;
 typedef struct rocksdb_transactiondb_t rocksdb_transactiondb_t;
 typedef struct rocksdb_transaction_options_t rocksdb_transaction_options_t;
+typedef struct rocksdb_optimistictransactiondb_options_t
+    rocksdb_optimistictransactiondb_options_t;
 typedef struct rocksdb_optimistictransactiondb_t
     rocksdb_optimistictransactiondb_t;
 typedef struct rocksdb_optimistictransaction_options_t
     rocksdb_optimistictransaction_options_t;
+typedef struct rocksdb_occ_lock_buckets_t rocksdb_occ_lock_buckets_t;
 typedef struct rocksdb_transaction_t rocksdb_transaction_t;
 typedef struct rocksdb_checkpoint_t rocksdb_checkpoint_t;
 typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
@@ -3272,12 +3275,16 @@ rocksdb_transactiondb_checkpoint_object_create(rocksdb_transactiondb_t* txn_db,
                                                char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
-rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options,
-                                     const char* name, char** errptr);
+rocksdb_optimistictransactiondb_open(
+    const rocksdb_options_t* options,
+    const rocksdb_optimistictransactiondb_options_t* occ_options,
+    const char* name, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open_column_families(
-    const rocksdb_options_t* options, const char* name, int num_column_families,
+    const rocksdb_options_t* options,
+    const rocksdb_optimistictransactiondb_options_t* occ_options,
+    const char* name, int num_column_families,
     const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr);
@@ -3358,6 +3365,40 @@ rocksdb_transaction_options_set_max_write_batch_size(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_options_set_skip_prepare(
     rocksdb_transaction_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_options_t*
+rocksdb_optimistictransactiondb_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_options_destroy(
+    rocksdb_optimistictransactiondb_options_t* opt);
+
+// Maps to ROCKSDB_NAMESPACE::OccValidationPolicy.
+enum {
+  rocksdb_validation_policy_validate_serial = 0,
+  rocksdb_validation_policy_validate_parallel = 1,
+};
+extern ROCKSDB_LIBRARY_API void
+rocksdb_optimistictransactiondb_options_set_validate_policy(
+    rocksdb_optimistictransactiondb_options_t* opt, int validation_policy);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(
+    rocksdb_optimistictransactiondb_options_t* opt, uint32_t occ_lock_buckets);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_optimistictransactiondb_options_set_shared_lock_buckets(
+    rocksdb_optimistictransactiondb_options_t* opt,
+    rocksdb_occ_lock_buckets_t* buckets);
+
+extern ROCKSDB_LIBRARY_API rocksdb_occ_lock_buckets_t*
+rocksdb_occ_lock_buckets_create(size_t bucket_count,
+                                unsigned char cache_aligned);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_occ_lock_buckets_destroy(
+    rocksdb_occ_lock_buckets_t* opt);
+
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_occ_lock_buckets_approximate_memory_usage(rocksdb_occ_lock_buckets_t*);
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransaction_options_t*
 rocksdb_optimistictransaction_options_create(void);

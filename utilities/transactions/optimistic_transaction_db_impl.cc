@@ -39,12 +39,19 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
 Status OptimisticTransactionDB::Open(const Options& options,
                                      const std::string& dbname,
                                      OptimisticTransactionDB** dbptr) {
+  return Open(options, OptimisticTransactionDBOptions(), dbname, dbptr);
+}
+
+Status OptimisticTransactionDB::Open(
+    const Options& options, const OptimisticTransactionDBOptions& occ_options,
+    const std::string& dbname, OptimisticTransactionDB** dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
-  Status s = Open(db_options, dbname, column_families, &handles, dbptr);
+  Status s =
+      Open(db_options, occ_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to

@@ -103,6 +103,7 @@ using ROCKSDB_NAMESPACE::LevelMetaData;
 using ROCKSDB_NAMESPACE::LiveFileMetaData;
 using ROCKSDB_NAMESPACE::Logger;
 using ROCKSDB_NAMESPACE::LRUCacheOptions;
+using ROCKSDB_NAMESPACE::MakeSharedOccLockBuckets;
 using ROCKSDB_NAMESPACE::MemoryAllocator;
 using ROCKSDB_NAMESPACE::MemoryUtil;
 using ROCKSDB_NAMESPACE::MemTableInfo;
@@ -112,8 +113,11 @@ using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
 using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
+using ROCKSDB_NAMESPACE::OccLockBuckets;
+using ROCKSDB_NAMESPACE::OccValidationPolicy;
 using ROCKSDB_NAMESPACE::OpenAndCompactOptions;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
+using ROCKSDB_NAMESPACE::OptimisticTransactionDBOptions;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
 using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
@@ -316,6 +320,12 @@ struct rocksdb_checkpoint_t {
 };
 struct rocksdb_optimistictransactiondb_t {
   OptimisticTransactionDB* rep;
+};
+struct rocksdb_optimistictransactiondb_options_t {
+  OptimisticTransactionDBOptions rep;
+};
+struct rocksdb_occ_lock_buckets_t {
+  std::shared_ptr<OccLockBuckets> rep;
 };
 struct rocksdb_optimistictransaction_options_t {
   OptimisticTransactionOptions rep;
@@ -7203,6 +7213,51 @@ void rocksdb_transaction_options_set_skip_prepare(
   opt->rep.skip_prepare = v;
 }
 
+rocksdb_optimistictransactiondb_options_t*
+rocksdb_optimistictransactiondb_options_create(void) {
+  return new rocksdb_optimistictransactiondb_options_t;
+}
+
+void rocksdb_optimistictransactiondb_options_destroy(
+    rocksdb_optimistictransactiondb_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_optimistictransactiondb_options_set_validate_policy(
+    rocksdb_optimistictransactiondb_options_t* opt, int validation_policy) {
+  opt->rep.validate_policy =
+      static_cast<OccValidationPolicy>(validation_policy);
+}
+
+void rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(
+    rocksdb_optimistictransactiondb_options_t* opt, uint32_t occ_lock_buckets) {
+  opt->rep.occ_lock_buckets = occ_lock_buckets;
+}
+
+void rocksdb_optimistictransactiondb_options_set_shared_lock_buckets(
+    rocksdb_optimistictransactiondb_options_t* opt,
+    rocksdb_occ_lock_buckets_t* buckets) {
+  if (buckets) {
+    opt->rep.shared_lock_buckets = buckets->rep;
+  }
+}
+
+rocksdb_occ_lock_buckets_t* rocksdb_occ_lock_buckets_create(
+    size_t bucket_count, unsigned char cache_aligned) {
+  rocksdb_occ_lock_buckets_t* result = new rocksdb_occ_lock_buckets_t;
+  result->rep = MakeSharedOccLockBuckets(bucket_count, cache_aligned);
+  return result;
+}
+
+void rocksdb_occ_lock_buckets_destroy(rocksdb_occ_lock_buckets_t* buckets) {
+  delete buckets;
+}
+
+size_t rocksdb_occ_lock_buckets_approximate_memory_usage(
+    rocksdb_occ_lock_buckets_t* buckets) {
+  return buckets->rep->ApproximateMemoryUsage();
+}
+
 rocksdb_optimistictransaction_options_t*
 rocksdb_optimistictransaction_options_create() {
   return new rocksdb_optimistictransaction_options_t;
@@ -8070,10 +8125,20 @@ rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(
 }
 
 rocksdb_optimistictransactiondb_t* rocksdb_optimistictransactiondb_open(
-    const rocksdb_options_t* options, const char* name, char** errptr) {
+    const rocksdb_options_t* options,
+    const rocksdb_optimistictransactiondb_options_t* occ_options,
+    const char* name, char** errptr) {
   OptimisticTransactionDB* otxn_db;
-  if (SaveError(errptr, OptimisticTransactionDB::Open(
-                            options->rep, std::string(name), &otxn_db))) {
+
+  // Default construct OptimisticTransactionDB to gather defaults
+  // when occ_options is set to null by the caller.
+  OptimisticTransactionDBOptions occ_opts;
+  if (occ_options) {
+    occ_opts = occ_options->rep;
+  }
+  if (SaveError(errptr,
+                OptimisticTransactionDB::Open(options->rep, occ_opts,
+                                              std::string(name), &otxn_db))) {
     return nullptr;
   }
   rocksdb_optimistictransactiondb_t* result =
@@ -8084,10 +8149,18 @@ rocksdb_optimistictransactiondb_t* rocksdb_optimistictransactiondb_open(
 
 rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open_column_families(
-    const rocksdb_options_t* db_options, const char* name,
-    int num_column_families, const char* const* column_family_names,
+    const rocksdb_options_t* db_options,
+    const rocksdb_optimistictransactiondb_options_t* occ_options,
+    const char* name, int num_column_families,
+    const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
+  // Default construct OptimisticTransactionDB to gather defaults
+  // when occ_options is set to null by the caller.
+  OptimisticTransactionDBOptions occ_opts;
+  if (occ_options) {
+    occ_opts = occ_options->rep;
+  }
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
     column_families.emplace_back(
@@ -8097,9 +8170,10 @@ rocksdb_optimistictransactiondb_open_column_families(
 
   OptimisticTransactionDB* otxn_db;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr, OptimisticTransactionDB::Open(
-                            DBOptions(db_options->rep), std::string(name),
-                            column_families, &handles, &otxn_db))) {
+  if (SaveError(errptr,
+                OptimisticTransactionDB::Open(
+                    DBOptions(db_options->rep), occ_opts, std::string(name),
+                    column_families, &handles, &otxn_db))) {
     return nullptr;
   }
 
