@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <set>
+
 #include "db/compaction/compaction.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -342,6 +344,205 @@ TEST_F(TimestampCompatibleCompactionTest, EmptyCompactionOutput) {
   cro.full_history_ts_low = &ts;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+}
+
+TEST_F(TimestampCompatibleCompactionTest, SeqnoZeroingWithUDT) {
+  // This test validates that seqno is only zeroed when the timestamp is older
+  // than full_history_ts_low_. Before the fix, seqno was incorrectly zeroed
+  // even when UDT was enabled but timestamp wasn't old enough.
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Track seqno zeroing events and which keys are zeroed
+  std::set<std::string> zeroed_keys;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        auto* ikey = static_cast<ParsedInternalKey*>(arg);
+        ASSERT_EQ(0, ikey->sequence);
+        // Extract user key without timestamp (last 8 bytes)
+        Slice user_key_with_ts = ikey->user_key;
+        std::string user_key =
+            user_key_with_ts.ToString().substr(0, user_key_with_ts.size() - 8);
+        zeroed_keys.insert(user_key);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Case 1: Test that seqno is NOT zeroed when full_history_ts_low is not set
+  // Write a key with timestamp 100
+  std::string ts_str = Timestamp(100);
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", ts_str, "value1"));
+  ASSERT_OK(Flush());
+
+  zeroed_keys.clear();
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+  // With UDT enabled and no full_history_ts_low, seqno should NOT be zeroed
+  ASSERT_TRUE(zeroed_keys.empty());
+
+  // Case 2: Test that seqno IS zeroed when timestamp < full_history_ts_low
+  // Write a new key with timestamp 200
+  ts_str = Timestamp(200);
+  ASSERT_OK(db_->Put(WriteOptions(), "key2", ts_str, "value2"));
+  ASSERT_OK(Flush());
+
+  zeroed_keys.clear();
+  {
+    // Set full_history_ts_low to 300, so ts < 300 should be zeroed
+    std::string full_history_ts_low = Timestamp(300);
+    Slice ts_slice = full_history_ts_low;
+    CompactRangeOptions cro;
+    cro.full_history_ts_low = &ts_slice;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+  // key1 (ts=100) and key2 (ts=200) both have ts < 300, so both should be
+  // zeroed
+  ASSERT_EQ(2u, zeroed_keys.size());
+  ASSERT_TRUE(zeroed_keys.count("key1") > 0);
+  ASSERT_TRUE(zeroed_keys.count("key2") > 0);
+
+  // Case 3: Write a new key with timestamp >= full_history_ts_low
+  // and verify it is NOT zeroed while old keys are re-zeroed
+  ts_str = Timestamp(500);
+  ASSERT_OK(db_->Put(WriteOptions(), "key3", ts_str, "value3"));
+  ASSERT_OK(Flush());
+
+  zeroed_keys.clear();
+  {
+    // Set full_history_ts_low to 400
+    // key1 (ts=100) and key2 (ts=200) have ts < 400, will be re-processed
+    // key3 (ts=500) has ts >= 400, should NOT be zeroed
+    std::string full_history_ts_low = Timestamp(400);
+    Slice ts_slice = full_history_ts_low;
+    CompactRangeOptions cro;
+    cro.full_history_ts_low = &ts_slice;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+  // key3 should NOT appear in zeroed_keys since ts=500 >= 400
+  ASSERT_TRUE(zeroed_keys.count("key3") == 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify data is still readable
+  std::string value;
+  ts_str = Timestamp(600);
+  Slice read_ts = ts_str;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts;
+  ASSERT_OK(db_->Get(read_opts, "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_OK(db_->Get(read_opts, "key2", &value));
+  ASSERT_EQ("value2", value);
+  ASSERT_OK(db_->Get(read_opts, "key3", &value));
+  ASSERT_EQ("value3", value);
+}
+
+TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
+  // This test validate tombstones accumulated at bottommost level due to UDT is
+  // cleaned up properly, avoiding high space amplification.
+
+  // Create a new column family with UDT enabled
+  Options options = GetDefaultOptions();
+  ColumnFamilyHandle* cfh = nullptr;
+  options = GetDefaultOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.num_levels = 7;
+  options.level0_file_num_compaction_trigger = 10;
+  options.persist_user_defined_timestamps = true;
+  options.comparator = BytewiseComparatorWithU64Ts();
+  options.target_file_size_base = 2 * 1024 * 1024;
+  options.max_bytes_for_level_base = 4 * 1024 * 1024;
+  options.max_bytes_for_level_multiplier = 2;
+
+  ASSERT_OK(db_->CreateColumnFamily(options, "new_cf", &cfh));
+
+  std::string ts_buf;
+  uint64_t timestamp = 1000;
+  constexpr auto kBatchSize = 1000;
+  constexpr auto kTotalRecords = 100000;
+
+  int record_count = 0;
+  auto kValueSize = 1024;
+
+  Random rnd(0);
+  while (record_count < kTotalRecords) {
+    // Create rows with timestamp
+    for (int i = 0; i < kBatchSize; i++) {
+      timestamp = 1000 + record_count + i;
+      ts_buf = "";
+      PutFixed64(&ts_buf, timestamp);
+      Slice ts(ts_buf);
+      // generate a random value, so that they are not easily compressable
+      auto value = rnd.RandomString(kValueSize);
+      ASSERT_OK(
+          db_->Put(WriteOptions(), cfh, Key(record_count + i), ts, value));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+
+    // Create a snapshot for read, then release it, so that
+    // oldest_snapshot_seqnum_ is advanced periodically
+    auto snapshot = db_->GetSnapshot();
+    ReadOptions read_options;
+    std::string read_ts_buf = "";
+    timestamp = 1000 + record_count + kBatchSize;
+    PutFixed64(&read_ts_buf, timestamp);
+    Slice read_ts(read_ts_buf);
+    read_options.timestamp = &read_ts;
+    read_options.snapshot = snapshot;
+    std::string value;
+    ASSERT_OK(db_->Get(read_options, cfh, Key(record_count), &value, &ts_buf));
+    db_->ReleaseSnapshot(snapshot);
+
+    // Delete all of the rows created
+    for (int i = 0; i < kBatchSize; i++) {
+      timestamp = 2000 + record_count + i;
+      ts_buf = "";
+      PutFixed64(&ts_buf, timestamp);
+      Slice ts(ts_buf);
+      ASSERT_OK(db_->Delete(WriteOptions(), cfh, Key(record_count + i), ts));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+    record_count += kBatchSize;
+
+    // Advance full_history_ts_low with some delay periodically
+    timestamp = 1000 + record_count - kBatchSize;
+    ts_buf = "";
+    PutFixed64(&ts_buf, timestamp);
+    ASSERT_OK(db_->IncreaseFullHistoryTsLow(cfh, ts_buf));
+
+    constexpr bool debug = false;
+    if (debug) {
+      // Print stats from time to time
+      if (record_count % (kTotalRecords / 10) == 0) {
+        std::string cf_stats;
+        ASSERT_TRUE(db_->GetProperty(cfh, "rocksdb.cfstats-no-file-histogram",
+                                     &cf_stats));
+        printf("%s\n", cf_stats.c_str());
+        printf("db path %s\n", dbname_.c_str());
+        printf("completed record count %d\n", record_count);
+        printf("completed record percentage %f%%\n",
+               100 * (float)record_count / kTotalRecords);
+      }
+    }
+  }
+
+  // Validate CF size is less than 20% of the total data created to validate the
+  // tombstones has collapsed
+  uint64_t cf_size = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(cfh, DB::Properties::kTotalSstFilesSize, &cf_size));
+  ASSERT_LE(cf_size, 0.2 * kTotalRecords * kValueSize);
+
+  delete cfh;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
