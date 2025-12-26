@@ -1190,6 +1190,10 @@ Status DBImpl::SetOptions(
     return Status::InvalidArgument("empty input");
   }
 
+  if (column_families.empty()) {
+    return Status::OK();
+  }
+
   autovector<ColumnFamilyData*> column_family_datas;
   for (const auto cf : column_families) {
     column_family_datas.push_back(
