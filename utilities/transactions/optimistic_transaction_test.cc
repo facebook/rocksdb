@@ -59,18 +59,12 @@ class OptimisticTransactionTest
                        const OptimisticTransactionDBOptions& occ_opts,
                        const std::string& dbname,
                        std::unique_ptr<OptimisticTransactionDB>* txn_db) {
-    ColumnFamilyOptions cf_options(options);
-    std::vector<ColumnFamilyDescriptor> column_families;
-    std::vector<ColumnFamilyHandle*> handles;
-    column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
     OptimisticTransactionDB* raw_txn_db = nullptr;
-    Status s = OptimisticTransactionDB::Open(
-        options, occ_opts, dbname, column_families, &handles, &raw_txn_db);
+    Status s =
+        OptimisticTransactionDB::Open(options, occ_opts, dbname, &raw_txn_db);
     ASSERT_OK(s);
     ASSERT_NE(raw_txn_db, nullptr);
     txn_db->reset(raw_txn_db);
-    ASSERT_EQ(handles.size(), 1);
-    delete handles[0];
   }
 
  private:
@@ -2675,6 +2669,60 @@ TEST(OccLockBucketsTest, CacheAligned) {
   // Save at least one byte per bucket
   ASSERT_LE(buckets_unaligned->ApproximateMemoryUsage() + 100,
             buckets_aligned->ApproximateMemoryUsage());
+}
+
+TEST(OptimisticTransactionDBOpenTest, SimpleOpenWithoutOccOptions) {
+  Options options;
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath("optimistic_txn_db_open_test");
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  // Open with simple overload (no occ_options, uses defaults).
+  OptimisticTransactionDB* raw_txn_db = nullptr;
+  ASSERT_OK(OptimisticTransactionDB::Open(options, dbname, &raw_txn_db));
+  ASSERT_NE(raw_txn_db, nullptr);
+  std::unique_ptr<OptimisticTransactionDB> txn_db(raw_txn_db);
+
+  WriteOptions write_options;
+  Transaction* txn = txn_db->BeginTransaction(write_options);
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->Put("key", "value"));
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(txn_db->Close());
+  txn_db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST(OptimisticTransactionDBOpenTest, SimpleOpenWithOccOptions) {
+  Options options;
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath("optimistic_txn_db_open_test2");
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  // Open with OptimisticTransactionDBOptions-supported overload, no CF
+  // parameters.
+  OptimisticTransactionDBOptions custom_occ_opts;
+  custom_occ_opts.occ_lock_buckets = 1 << 10;
+  custom_occ_opts.validate_policy = OccValidationPolicy::kValidateParallel;
+
+  OptimisticTransactionDB* raw_txn_db = nullptr;
+  ASSERT_OK(OptimisticTransactionDB::Open(options, custom_occ_opts, dbname,
+                                          &raw_txn_db));
+  ASSERT_NE(raw_txn_db, nullptr);
+  std::unique_ptr<OptimisticTransactionDB> txn_db(raw_txn_db);
+
+  WriteOptions write_options;
+  Transaction* txn = txn_db->BeginTransaction(write_options);
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->Put("key", "value"));
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(txn_db->Close());
+  txn_db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -90,6 +90,11 @@ class OptimisticTransactionDB : public StackableDB {
   static Status Open(const Options& options, const std::string& dbname,
                      OptimisticTransactionDB** dbptr);
 
+  static Status Open(const Options& options,
+                     const OptimisticTransactionDBOptions& occ_options,
+                     const std::string& dbname,
+                     OptimisticTransactionDB** dbptr);
+
   static Status Open(const DBOptions& db_options, const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,

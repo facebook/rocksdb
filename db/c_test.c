@@ -4195,7 +4195,8 @@ int main(int argc, char** argv) {
     rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(db_options, 1);
     rocksdb_options_set_allow_concurrent_memtable_write(db_options, 1);
-    otxn_db = rocksdb_optimistictransactiondb_open(db_options, dbname, &err);
+    otxn_db =
+        rocksdb_optimistictransactiondb_open(db_options, NULL, dbname, &err);
     otxn_options = rocksdb_optimistictransaction_options_create();
     rocksdb_transaction_t* txn1 = rocksdb_optimistictransaction_begin(
         otxn_db, woptions, otxn_options, NULL);
@@ -4295,7 +4296,7 @@ int main(int argc, char** argv) {
     rocksdb_options_set_error_if_exists(cf_options, 0);
     rocksdb_column_family_handle_t* cf_handles[3];
     otxn_db = rocksdb_optimistictransactiondb_open_column_families(
-        db_options, dbname, 3, cf_names, cf_opts, cf_handles, &err);
+        db_options, NULL, dbname, 3, cf_names, cf_opts, cf_handles, &err);
     CheckNoError(err);
     rocksdb_transaction_t* txn_cf = rocksdb_optimistictransaction_begin(
         otxn_db, woptions, otxn_options, NULL);
@@ -4314,6 +4315,89 @@ int main(int argc, char** argv) {
     rocksdb_destroy_db(db_options, dbname, &err);
     rocksdb_options_destroy(db_options);
     rocksdb_optimistictransaction_options_destroy(otxn_options);
+    CheckNoError(err);
+  }
+
+  StartPhase("optimistic_transaction_db_options");
+  {
+    rocksdb_optimistictransactiondb_options_t* occ_opts =
+        rocksdb_optimistictransactiondb_options_create();
+    CheckCondition(occ_opts != NULL);
+    rocksdb_optimistictransactiondb_options_destroy(occ_opts);
+
+    // Open with custom occ_lock_buckets to reduce memory.
+    occ_opts = rocksdb_optimistictransactiondb_options_create();
+    rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(occ_opts,
+                                                                 1 << 10);
+    rocksdb_optimistictransactiondb_options_set_validate_policy(
+        occ_opts, rocksdb_validation_policy_validate_parallel);
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    rocksdb_options_set_allow_concurrent_memtable_write(db_options, 1);
+
+    otxn_db = rocksdb_optimistictransactiondb_open(db_options, occ_opts, dbname,
+                                                   &err);
+    CheckNoError(err);
+
+    // Verify transactions work with custom options
+    otxn_options = rocksdb_optimistictransaction_options_create();
+    rocksdb_transaction_t* txn1 = rocksdb_optimistictransaction_begin(
+        otxn_db, woptions, otxn_options, NULL);
+    rocksdb_transaction_put(txn1, "key1", 4, "val1", 4, &err);
+    CheckNoError(err);
+    rocksdb_transaction_commit(txn1, &err);
+    CheckNoError(err);
+    rocksdb_transaction_destroy(txn1);
+
+    rocksdb_optimistictransaction_options_destroy(otxn_options);
+    rocksdb_optimistictransactiondb_close(otxn_db);
+    rocksdb_optimistictransactiondb_options_destroy(occ_opts);
+    rocksdb_destroy_db(db_options, dbname, &err);
+    CheckNoError(err);
+
+    // Create custom OccLockBuckets.
+    rocksdb_occ_lock_buckets_t* buckets =
+        rocksdb_occ_lock_buckets_create(500, 0);
+    CheckCondition(buckets != NULL);
+    size_t mem_usage =
+        rocksdb_occ_lock_buckets_approximate_memory_usage(buckets);
+    CheckCondition(mem_usage > 0);
+
+    // Test cache-aligned OccLockBuckets creation.
+    rocksdb_occ_lock_buckets_t* buckets_aligned =
+        rocksdb_occ_lock_buckets_create(500, 1);
+    size_t mem_usage_aligned =
+        rocksdb_occ_lock_buckets_approximate_memory_usage(buckets_aligned);
+
+    // Memory usage should be > 0, and possibly greater than non-cache-aligned.
+    CheckCondition(mem_usage_aligned >= mem_usage);
+
+    rocksdb_occ_lock_buckets_destroy(buckets_aligned);
+
+    occ_opts = rocksdb_optimistictransactiondb_options_create();
+    rocksdb_optimistictransactiondb_options_set_shared_lock_buckets(occ_opts,
+                                                                    buckets);
+
+    otxn_db = rocksdb_optimistictransactiondb_open(db_options, occ_opts, dbname,
+                                                   &err);
+    CheckNoError(err);
+
+    // Verify transactions work with shared buckets
+    otxn_options = rocksdb_optimistictransaction_options_create();
+    rocksdb_transaction_t* txn2 = rocksdb_optimistictransaction_begin(
+        otxn_db, woptions, otxn_options, NULL);
+    rocksdb_transaction_put(txn2, "key2", 4, "val2", 4, &err);
+    CheckNoError(err);
+    rocksdb_transaction_commit(txn2, &err);
+    CheckNoError(err);
+    rocksdb_transaction_destroy(txn2);
+
+    rocksdb_optimistictransaction_options_destroy(otxn_options);
+    rocksdb_optimistictransactiondb_close(otxn_db);
+    rocksdb_optimistictransactiondb_options_destroy(occ_opts);
+    rocksdb_occ_lock_buckets_destroy(buckets);
+    rocksdb_destroy_db(db_options, dbname, &err);
     CheckNoError(err);
   }
 
