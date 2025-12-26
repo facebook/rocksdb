@@ -458,7 +458,7 @@ class DBImpl : public DB {
 
   using DB::SetOptions;
   Status SetOptions(
-      ColumnFamilyHandle* column_family,
+      const std::vector<ColumnFamilyHandle*>& column_families,
       const std::unordered_map<std::string, std::string>& options_map) override;
 
   Status SetDBOptions(
