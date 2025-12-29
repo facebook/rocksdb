@@ -375,8 +375,8 @@ TEST_F(WalManagerTest, DeleteWALFile) {
 
   // Create the file with some content
   std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(env_->GetFileSystem()->NewWritableFile(
-      log_file_path, FileOptions(), &file, nullptr));
+  ASSERT_OK(env_->GetFileSystem()->NewWritableFile(log_file_path, FileOptions(),
+                                                   &file, nullptr));
 
   std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), log_file_path, FileOptions()));
@@ -395,7 +395,8 @@ TEST_F(WalManagerTest, DeleteWALFile) {
 
   // Populate the read_first_record_cache by reading the file
   SequenceNumber seq;
-  ASSERT_OK(wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, log_number, &seq));
+  ASSERT_OK(
+      wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, log_number, &seq));
   ASSERT_EQ(seq, 100U);
 
   // Call DeleteFile
@@ -426,8 +427,8 @@ TEST_F(WalManagerTest, ArchiveWALFile) {
 
   // Create the file with some content
   std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(env_->GetFileSystem()->NewWritableFile(
-      log_file_path, FileOptions(), &file, nullptr));
+  ASSERT_OK(env_->GetFileSystem()->NewWritableFile(log_file_path, FileOptions(),
+                                                   &file, nullptr));
 
   std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), log_file_path, FileOptions()));
