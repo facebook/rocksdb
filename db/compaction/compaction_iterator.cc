@@ -1316,7 +1316,8 @@ void CompactionIterator::PrepareOutput() {
         current_key_.UpdateInternalKey(0, ikey_.type);
         zeroed_seqno = true;
       } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {
-        // We can also zero out timestamp for better compression.
+        // For UDT, the seqno and timestamp could only be zeroed out after the
+        // key is below history_ts_low_.
         // For the same user key (excluding timestamp), the timestamp-based
         // history can be collapsed to save some space if the timestamp is
         // older than *full_history_ts_low_.
