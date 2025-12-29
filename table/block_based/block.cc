@@ -440,8 +440,8 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (icmp_->user_comparator()->Compare(raw_key_.GetUserKey(),
-                                        target_user_key) != 0) {
+  if (icmp_.user_comparator()->Compare(raw_key_.GetUserKey(),
+                                       target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;
   }
