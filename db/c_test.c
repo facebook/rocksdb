@@ -4717,7 +4717,84 @@ int main(int argc, char** argv) {
     rocksdb_compaction_service_options_override_set_comparator(override_opts,
                                                                cmp);
 
+    // Test file checksum gen factory
+    rocksdb_file_checksum_gen_factory_t* checksum_factory =
+        rocksdb_file_checksum_gen_crc32c_factory_create();
+    CheckCondition(checksum_factory != NULL);
+    rocksdb_compaction_service_options_override_set_file_checksum_gen_factory(
+        override_opts, checksum_factory);
+
+    // Test SST partitioner factory
+    rocksdb_sst_partitioner_factory_t* partitioner_factory =
+        rocksdb_sst_partitioner_fixed_prefix_factory_create(4);
+    CheckCondition(partitioner_factory != NULL);
+    rocksdb_compaction_service_options_override_set_sst_partitioner_factory(
+        override_opts, partitioner_factory);
+
+    // Test merge operator
+    rocksdb_compaction_service_options_override_set_merge_operator(
+        override_opts, NULL);
+
+    // Test compaction filter
+    rocksdb_compaction_service_options_override_set_compaction_filter(
+        override_opts, NULL);
+
+    // Test prefix extractor
+    rocksdb_compaction_service_options_override_set_prefix_extractor(
+        override_opts, NULL);
+
+    // Test table factory - block based
+    rocksdb_block_based_table_options_t* table_opts =
+        rocksdb_block_based_options_create();
+    rocksdb_compaction_service_options_override_set_block_based_table_factory(
+        override_opts, table_opts);
+    rocksdb_block_based_options_destroy(table_opts);
+
+    // Test statistics via options
+    rocksdb_options_t* stats_opts = rocksdb_options_create();
+    rocksdb_options_enable_statistics(stats_opts);
+    rocksdb_compaction_service_options_override_set_statistics(override_opts,
+                                                               stats_opts);
+    rocksdb_options_destroy(stats_opts);
+
+    // Test info log
+    rocksdb_logger_t* logger =
+        rocksdb_logger_create_stderr_logger(1, "test_prefix");
+    rocksdb_compaction_service_options_override_set_info_log(override_opts,
+                                                             logger);
+    rocksdb_logger_destroy(logger);
+
+    // Test options map
+    rocksdb_compaction_service_options_override_set_option(
+        override_opts, "max_bytes_for_level_base", "67108864");
+
+    // Cleanup
+    rocksdb_file_checksum_gen_factory_destroy(checksum_factory);
+    rocksdb_sst_partitioner_factory_destroy(partitioner_factory);
     rocksdb_compaction_service_options_override_destroy(override_opts);
+  }
+
+  StartPhase("factory_options_on_regular_options");
+  {
+    // Test that the new factory types work with regular rocksdb_options_t
+    rocksdb_options_t* test_opts = rocksdb_options_create();
+
+    // Test file checksum gen factory on regular options
+    rocksdb_file_checksum_gen_factory_t* checksum_factory =
+        rocksdb_file_checksum_gen_crc32c_factory_create();
+    CheckCondition(checksum_factory != NULL);
+    rocksdb_options_set_file_checksum_gen_factory(test_opts, checksum_factory);
+
+    // Test SST partitioner factory on regular options
+    rocksdb_sst_partitioner_factory_t* partitioner_factory =
+        rocksdb_sst_partitioner_fixed_prefix_factory_create(8);
+    CheckCondition(partitioner_factory != NULL);
+    rocksdb_options_set_sst_partitioner_factory(test_opts, partitioner_factory);
+
+    // Cleanup
+    rocksdb_file_checksum_gen_factory_destroy(checksum_factory);
+    rocksdb_sst_partitioner_factory_destroy(partitioner_factory);
+    rocksdb_options_destroy(test_opts);
   }
 
   StartPhase("remote_compaction_null_callback_handling");
