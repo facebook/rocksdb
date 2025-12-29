@@ -1638,10 +1638,24 @@ class DB {
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
-
+  // Apply a set of options to a set of column families.
   virtual Status SetOptions(
-      const std::vector<ColumnFamilyHandle*>& /*column_families*/,
-      const std::unordered_map<std::string, std::string>& /*opts_map*/) {
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::unordered_map<std::string, std::string>& opts_map) {
+    std::unordered_map<ColumnFamilyHandle*,
+                       std::unordered_map<std::string, std::string>>
+        column_families_opts_map;
+    column_families_opts_map.reserve(column_families.size());
+    for (auto* cf : column_families) {
+      column_families_opts_map[cf] = opts_map;
+    }
+    return SetOptions(column_families_opts_map);
+  }
+  // Allow customizing the options for each column family.
+  virtual Status SetOptions(
+      const std::unordered_map<ColumnFamilyHandle*,
+                               std::unordered_map<std::string, std::string>>&
+      /*column_families_opts_map*/) {
     return Status::NotSupported("Not implemented");
   }
 

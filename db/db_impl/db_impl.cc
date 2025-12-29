@@ -1177,27 +1177,33 @@ FSDirectory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
 }
 
 Status DBImpl::SetOptions(
-    const std::vector<ColumnFamilyHandle*>& column_families,
-    const std::unordered_map<std::string, std::string>& options_map) {
+    const std::unordered_map<ColumnFamilyHandle*,
+                             std::unordered_map<std::string, std::string>>&
+        column_families_opts_map) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;
 
-  if (options_map.empty()) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "SetOptions() on %zu column families, empty input",
-                   column_families.size());
-    return Status::InvalidArgument("empty input");
-  }
-
-  if (column_families.empty()) {
+  if (column_families_opts_map.empty()) {
     return Status::OK();
   }
 
-  autovector<ColumnFamilyData*> column_family_datas;
-  for (const auto cf : column_families) {
+  for (const auto& cf_opts : column_families_opts_map) {
+    if (cf_opts.second.empty()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "SetOptions() on column family [%s], empty input",
+                     cf_opts.first->GetName().c_str());
+      return Status::InvalidArgument("empty input");
+    }
+  }
+
+  autovector<std::pair<ColumnFamilyData*,
+                       const std::unordered_map<std::string, std::string>*>>
+      column_family_datas;
+  for (const auto& cf_opts : column_families_opts_map) {
     column_family_datas.push_back(
-        static_cast_with_check<ColumnFamilyHandleImpl>(cf)->cfd());
+        {static_cast_with_check<ColumnFamilyHandleImpl>(cf_opts.first)->cfd(),
+         &cf_opts.second});
   }
 
   InstrumentedMutexLock ol(&options_mutex_);
@@ -1228,9 +1234,11 @@ Status DBImpl::SetOptions(
     VersionEdit dummy_edit;
     dummy_edit.MarkNoManifestWriteDummy();
     TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
-    for (auto cfd : column_family_datas) {
+    for (const auto& cfd_opts : column_family_datas) {
+      const auto cfd = cfd_opts.first;
+      const auto options_map_ptr = cfd_opts.second;
       auto pre_cb = [&]() -> Status {
-        Status cb_s = cfd->SetOptions(db_options, options_map);
+        Status cb_s = cfd->SetOptions(db_options, *options_map_ptr);
         if (cb_s.ok()) {
           new_options_copy.emplace_back(cfd->GetLatestMutableCFOptions());
         }
@@ -1252,8 +1260,8 @@ Status DBImpl::SetOptions(
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      for (auto cfd : column_family_datas) {
-        InstallSuperVersionForConfigChange(cfd, &sv_context);
+      for (const auto& cfd_opts : column_family_datas) {
+        InstallSuperVersionForConfigChange(cfd_opts.first, &sv_context);
       }
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
@@ -1261,7 +1269,7 @@ Status DBImpl::SetOptions(
 
 #ifndef NDEBUG
       for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
-        auto cfd = column_family_datas[i];
+        const auto cfd = column_family_datas[i].first;
         assert(new_options_copy[i] == cfd->GetLatestMutableCFOptions());
         assert(cfd->GetLatestMutableCFOptions() ==
                cfd->GetCurrentMutableCFOptions());
@@ -1273,33 +1281,49 @@ Status DBImpl::SetOptions(
   }
   sv_context.Clean();
 
-  if (s.ok() && (options_map.count("preserve_internal_time_seconds") > 0 ||
-                 options_map.count("preclude_last_level_data_seconds") > 0)) {
-    s = RegisterRecordSeqnoTimeWorker();
+  if (s.ok()) {
+    bool needs_seqno_worker = false;
+    for (const auto& cf_opts : column_families_opts_map) {
+      if (cf_opts.second.count("preserve_internal_time_seconds") > 0 ||
+          cf_opts.second.count("preclude_last_level_data_seconds") > 0) {
+        needs_seqno_worker = true;
+        break;
+      }
+    }
+    if (needs_seqno_worker) {
+      s = RegisterRecordSeqnoTimeWorker();
+    }
   }
 
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "SetOptions() on [%zu] column families, inputs:",
+                 column_family_datas.size());
   for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
-    auto cfd = column_family_datas[i];
-    ROCKS_LOG_INFO(
-        immutable_db_options_.info_log,
-        "SetOptions() on column family [%s], inputs:", cfd->GetName().c_str());
-    for (const auto& o : options_map) {
+    const auto cfd = column_family_datas[i].first;
+    const auto options_map_ptr = column_family_datas[i].second;
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Column family [%s]:", cfd->GetName().c_str());
+    for (const auto& o : *options_map_ptr) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s: %s\n",
                      o.first.c_str(), o.second.c_str());
     }
-    if (s.ok()) {
+  }
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "SetOptions() succeeded, new RocksDB options:");
+    for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
+      const auto cfd = column_family_datas[i].first;
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "[%s] SetOptions() succeeded", cfd->GetName().c_str());
+                     "Column family [%s]:", cfd->GetName().c_str());
       new_options_copy[i].Dump(immutable_db_options_.info_log.get());
-      if (!persist_options_status.ok()) {
-        // NOTE: WriteOptionsFile already logs on failure
-        s = persist_options_status;
-      }
-    } else {
-      persist_options_status.PermitUncheckedError();  // less important
-      ROCKS_LOG_WARN(immutable_db_options_.info_log, "[%s] SetOptions() failed",
-                     cfd->GetName().c_str());
     }
+    if (!persist_options_status.ok()) {
+      // NOTE: WriteOptionsFile already logs on failure
+      s = persist_options_status;
+    }
+  } else {
+    persist_options_status.PermitUncheckedError();  // less important
+    ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetOptions() failed");
   }
   LogFlush(immutable_db_options_.info_log);
   return s;
