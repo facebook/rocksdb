@@ -317,40 +317,89 @@ struct ClockHandle : public ClockHandleBasicData {
   // | acquire counter      | release counter     | hit bit | state marker |
   // -----------------------------------------------------------------------
 
-  // For reading or updating counters in meta word.
-  static constexpr uint8_t kCounterNumBits = 30;
-  static constexpr uint64_t kCounterMask = (uint64_t{1} << kCounterNumBits) - 1;
+  struct SlotMeta : public BitFields<uint64_t, SlotMeta> {
+    // For reading or updating counters in meta word.
+    static constexpr uint8_t kCounterNumBits = 30;
+    // Number of times the a reference has been acquired (or attempted)
+    // since last reset by eviction processing
+    using AcquireCounter =
+        UnsignedBitField<SlotMeta, kCounterNumBits, NoPrevBitField>;
+    // Number of times the a reference has been released (or attempted)
+    // since last reset by eviction processing
+    using ReleaseCounter =
+        UnsignedBitField<SlotMeta, kCounterNumBits, AcquireCounter>;
+    // Metadata bit in support of secondary cache
+    using HitFlag = BoolBitField<SlotMeta, ReleaseCounter>;
+    // Occupied means any state other than empty
+    using OccupiedFlag = BoolBitField<SlotMeta, HitFlag>;
+    // Shareable means the entry is reference counted (visible or invisible)
+    // (only set if also occupied)
+    using ShareableFlag = BoolBitField<SlotMeta, OccupiedFlag>;
+    // Visible is only set if also shareable (invisible can't be found by
+    // Lookup)
+    using VisibleFlag = BoolBitField<SlotMeta, ShareableFlag>;
 
-  static constexpr uint8_t kAcquireCounterShift = 0;
-  static constexpr uint64_t kAcquireIncrement = uint64_t{1}
-                                                << kAcquireCounterShift;
-  static constexpr uint8_t kReleaseCounterShift = kCounterNumBits;
-  static constexpr uint64_t kReleaseIncrement = uint64_t{1}
-                                                << kReleaseCounterShift;
+    // Convenience functions
+    uint32_t GetAcquireCounter() const { return Get<AcquireCounter>(); }
+    void SetAcquireCounter(uint32_t val) { Set<AcquireCounter>(val); }
+    uint32_t GetReleaseCounter() const { return Get<ReleaseCounter>(); }
+    void SetReleaseCounter(uint32_t val) { Set<ReleaseCounter>(val); }
+    uint32_t GetRefcount() const {
+      return Get<AcquireCounter>() - Get<ReleaseCounter>();
+    }
+    bool GetHit() const { return Get<HitFlag>(); }
+    void SetHit(bool val) { Set<HitFlag>(val); }
 
-  // For setting the hit bit
-  static constexpr uint8_t kHitBitShift = 2U * kCounterNumBits;
-  static constexpr uint64_t kHitBitMask = uint64_t{1} << kHitBitShift;
+    // Some distinct states for the various state flags
+    bool IsEmpty() const {
+      bool rv = !Get<OccupiedFlag>();
+      if (rv) {
+        assert(!Get<ShareableFlag>());
+        assert(!Get<VisibleFlag>());
+      }
+      return rv;
+    }
 
-  // For reading or updating the state marker in meta word
-  static constexpr uint8_t kStateShift = kHitBitShift + 1;
+    bool IsUnderConstruction() const {
+      bool rv = Get<OccupiedFlag>() && !Get<ShareableFlag>();
+      if (rv) {
+        assert(!Get<VisibleFlag>());
+      }
+      return rv;
+    }
+    void SetUnderConstruction() {
+      Set<OccupiedFlag>(true);
+      Set<ShareableFlag>(false);
+      Set<VisibleFlag>(false);
+    }
 
-  // Bits contribution to state marker.
-  // Occupied means any state other than empty
-  static constexpr uint8_t kStateOccupiedBit = 0b100;
-  // Shareable means the entry is reference counted (visible or invisible)
-  // (only set if also occupied)
-  static constexpr uint8_t kStateShareableBit = 0b010;
-  // Visible is only set if also shareable
-  static constexpr uint8_t kStateVisibleBit = 0b001;
+    bool IsShareable() const { return Get<ShareableFlag>(); }
+    bool IsInvisible() const {
+      bool rv = Get<ShareableFlag>() && !Get<VisibleFlag>();
+      if (rv) {
+        assert(Get<OccupiedFlag>());
+      }
+      return rv;
+    }
+    void SetInvisible() {
+      Set<OccupiedFlag>(true);
+      Set<ShareableFlag>(true);
+      Set<VisibleFlag>(false);
+    }
 
-  // Complete state markers (not shifted into full word)
-  static constexpr uint8_t kStateEmpty = 0b000;
-  static constexpr uint8_t kStateConstruction = kStateOccupiedBit;
-  static constexpr uint8_t kStateInvisible =
-      kStateOccupiedBit | kStateShareableBit;
-  static constexpr uint8_t kStateVisible =
-      kStateOccupiedBit | kStateShareableBit | kStateVisibleBit;
+    bool IsVisible() const {
+      bool rv = Get<ShareableFlag>() && Get<VisibleFlag>();
+      if (rv) {
+        assert(Get<OccupiedFlag>());
+      }
+      return rv;
+    }
+    void SetVisible() {
+      Set<OccupiedFlag>(true);
+      Set<ShareableFlag>(true);
+      Set<VisibleFlag>(true);
+    }
+  };
 
   // Constants for initializing the countdown clock. (Countdown clock is only
   // in effect with zero refs, acquire counter == release counter, and in that
@@ -364,7 +413,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // TODO: make these coundown values tuning parameters for eviction?
 
   // See above. Mutable for read reference counting.
-  mutable AcqRelAtomic<uint64_t> meta{};
+  mutable AcqRelBitFieldsAtomic<SlotMeta> meta{};
 };  // struct ClockHandle
 
 class BaseClockTable {
@@ -431,9 +480,9 @@ class BaseClockTable {
   bool IsEvictionEffortExceeded(const BaseClockTable::EvictionData& data) const;
 #ifndef NDEBUG
   // Acquire N references
-  void TEST_RefN(ClockHandle& handle, size_t n);
+  void TEST_RefN(ClockHandle& handle, uint32_t n);
   // Helper for TEST_ReleaseN
-  void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
+  void TEST_ReleaseNMinus1(ClockHandle* handle, uint32_t n);
 #endif
 
  private:  // fns
@@ -586,7 +635,7 @@ class FixedHyperClockTable : public BaseClockTable {
   bool GrowIfNeeded(size_t new_occupancy, InsertState& state);
 
   HandleImpl* DoInsert(const ClockHandleBasicData& proto,
-                       uint64_t initial_countdown, bool take_ref,
+                       uint32_t initial_countdown, bool take_ref,
                        InsertState& state);
 
   // Runs the clock eviction algorithm trying to reclaim at least
@@ -614,7 +663,7 @@ class FixedHyperClockTable : public BaseClockTable {
   }
 
   // Release N references
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+  void TEST_ReleaseN(HandleImpl* handle, uint32_t n);
 #endif
 
   // The load factor p is a real number in (0, 1) such that at all
@@ -897,7 +946,7 @@ class AutoHyperClockTable : public BaseClockTable {
   bool GrowIfNeeded(size_t new_occupancy, InsertState& state);
 
   HandleImpl* DoInsert(const ClockHandleBasicData& proto,
-                       uint64_t initial_countdown, bool take_ref,
+                       uint32_t initial_countdown, bool take_ref,
                        InsertState& state);
 
   // Runs the clock eviction algorithm trying to reclaim at least
@@ -925,7 +974,7 @@ class AutoHyperClockTable : public BaseClockTable {
   }
 
   // Release N references
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+  void TEST_ReleaseN(HandleImpl* handle, uint32_t n);
 #endif
 
   // Maximum ratio of number of occupied slots to number of usable slots. The
@@ -1130,8 +1179,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
     return table_.TEST_MutableOccupancyLimit();
   }
   // Acquire/release N references
-  void TEST_RefN(HandleImpl* handle, size_t n);
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+  void TEST_RefN(HandleImpl* handle, uint32_t n);
+  void TEST_ReleaseN(HandleImpl* handle, uint32_t n);
 #endif
 
  private:  // data

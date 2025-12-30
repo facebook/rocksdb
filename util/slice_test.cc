@@ -622,6 +622,29 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(after.Get<Field3>(), true);
     ASSERT_EQ(state.Get<Field4>(), 3U);
 
+    auto transform2a = Field2::And(true) + Field3::And(false);
+    acqrel.Apply(transform2a, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2b = Field2::And(false) + Field3::And(true);
+    acqrel.Apply(transform2b, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2c = Field2::Or(true) + Field3::Or(false);
+    acqrel.Apply(transform2c, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2d = Field2::Or(false) + Field3::Or(true);
+    acqrel.Apply(transform2d, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
     auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
                       Field4::MinusTransformPromiseNoUnderflow(3U);
     acqrel.Apply(transform3, &before, &after);
@@ -634,6 +657,17 @@ TEST(BitFieldsTest, BitFields) {
                       Field4::PlusTransformPromiseNoOverflow(31U);
     acqrel.Apply(transform4, &before, &after);
     ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    auto transform4a =
+        Field1::AndTransform(8192U + 4096U) + Field4::AndTransform(15U);
+    acqrel.Apply(transform4a, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 8192U);
+    ASSERT_EQ(after.Get<Field4>(), 15U);
+
+    auto transform4b = Field1::OrTransform(127U) + Field4::OrTransform(16U);
+    acqrel.Apply(transform4b, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 8192U + 127U);
     ASSERT_EQ(after.Get<Field4>(), 31U);
 
     // Unmodified
