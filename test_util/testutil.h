@@ -143,6 +143,11 @@ const Comparator* BytewiseComparatorWithU64TsWrapper();
 // A wrapper api for getting the ComparatorWithU64Ts<ReverseBytewiseComparator>
 const Comparator* ReverseBytewiseComparatorWithU64TsWrapper();
 
+// A comparator with signed 64-bit timestamp (int64_t).
+// The minimum timestamp is std::numeric_limits<int64_t>::min()
+// and the maximum timestamp is std::numeric_limits<int64_t>::max().
+const Comparator* BytewiseComparatorWithS64TsWrapper();
+
 class StringSink : public FSWritableFile {
  public:
   std::string contents_;

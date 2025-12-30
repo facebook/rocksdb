@@ -163,6 +163,85 @@ const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
   return user_comparator;
 }
 
+namespace {
+// Comparator with signed 64-bit integer timestamp.
+// The minimum timestamp is std::numeric_limits<int64_t>::min()
+// and the maximum timestamp is std::numeric_limits<int64_t>::max().
+class ComparatorWithS64TsImpl : public Comparator {
+ public:
+  ComparatorWithS64TsImpl() : Comparator(/*ts_sz=*/sizeof(int64_t)) {}
+
+  static const char* kClassName() {
+    return "rocksdb.test.BytewiseComparator.s64ts";
+  }
+
+  const char* Name() const override { return kClassName(); }
+
+  void FindShortSuccessor(std::string*) const override {}
+  void FindShortestSeparator(std::string*, const Slice&) const override {}
+
+  int Compare(const Slice& a, const Slice& b) const override {
+    int ret = CompareWithoutTimestamp(a, b);
+    if (ret != 0) {
+      return ret;
+    }
+    // Compare timestamp.
+    // For the same user key with different timestamps, larger (newer) timestamp
+    // comes first.
+    return -CompareTimestamp(ExtractTimestampFromUserKey(a, timestamp_size()),
+                             ExtractTimestampFromUserKey(b, timestamp_size()));
+  }
+
+  Slice GetMaxTimestamp() const override {
+    // std::numeric_limits<int64_t>::max() in little-endian
+    static const char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\x7f";
+    return Slice(kTsMax, sizeof(int64_t));
+  }
+
+  Slice GetMinTimestamp() const override {
+    // std::numeric_limits<int64_t>::min() in little-endian
+    static const char kTsMin[] = "\x00\x00\x00\x00\x00\x00\x00\x80";
+    return Slice(kTsMin, sizeof(int64_t));
+  }
+
+  std::string TimestampToString(const Slice& timestamp) const override {
+    assert(timestamp.size() == sizeof(int64_t));
+    int64_t ts = static_cast<int64_t>(DecodeFixed64(timestamp.data()));
+    return std::to_string(ts);
+  }
+
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                              bool b_has_ts) const override {
+    const size_t ts_sz = timestamp_size();
+    assert(!a_has_ts || a.size() >= ts_sz);
+    assert(!b_has_ts || b.size() >= ts_sz);
+    Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
+    Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
+    return lhs.compare(rhs);
+  }
+
+  int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
+    assert(ts1.size() == sizeof(int64_t));
+    assert(ts2.size() == sizeof(int64_t));
+    int64_t lhs = static_cast<int64_t>(DecodeFixed64(ts1.data()));
+    int64_t rhs = static_cast<int64_t>(DecodeFixed64(ts2.data()));
+    if (lhs < rhs) {
+      return -1;
+    } else if (lhs > rhs) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+};
+}  // anonymous namespace
+
+const Comparator* BytewiseComparatorWithS64TsWrapper() {
+  static ComparatorWithS64TsImpl s64ts_comparator;
+  return &s64ts_comparator;
+}
+
 void CorruptKeyType(InternalKey* ikey) {
   std::string keystr = ikey->Encode().ToString();
   keystr[keystr.size() - 8] = kTypeLogData;
