@@ -3868,6 +3868,75 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   ASSERT_OK(iter->status());
 }
 
+TEST_F(DBBasicTest, BestEffortRecoveryFailureWithTableCacheUseAfterFree) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  // Force multiple manifest files
+  options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
+
+  DestroyAndReopen(options);
+
+  // Disable file deletions to preserve old manifest files for
+  // best-efforts recovery to succeed
+  ASSERT_OK(db_->DisableFileDeletions());
+
+  // Create multiple SST files to populate TableCache during
+  // best-efforts recovery
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i),
+                  std::string(1000, static_cast<char>('a' + i))));
+    ASSERT_OK(Flush());
+  }
+
+  // Verify we have multiple manifest files
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  int manifest_count = 0;
+  for (const auto& file : files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      manifest_count++;
+    }
+  }
+  ASSERT_GE(manifest_count, 2);
+
+  // Inject corruption after TableCache is populated (count > 3), but only once
+  // (injected flag) to allow best-effort recovery to trigger retry and succeed.
+  // This coerce the bug: first recovery caches SSTs with reference to column
+  // family's options in table cache and retry deletes column family so the
+  // reference becomes dangling.
+  int count = 0;
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        count++;
+        if (count > 3 && !injected) {
+          ASSERT_NE(nullptr, arg);
+          *(static_cast<Status*>(arg)) =
+              Status::Corruption("Injected corruption");
+          injected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.best_efforts_recovery = true;
+
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (int i = 0; i < 10; i++) {
+    std::string value;
+    // Without the fix, ASAN detects use-after-free when accessing cached SST
+    // files that hold dangling references to deleted ioptions.
+    s = db_->Get(ReadOptions(), "key" + std::to_string(i), &value);
+    ASSERT_TRUE(s.ok() || s.IsNotFound());
+  }
+}
+
 TEST_F(DBBasicTest, DisableTrackWal) {
   // If WAL tracking was enabled, and then disabled during reopen,
   // the previously tracked WALs should be removed from MANIFEST.

@@ -5,6 +5,7 @@ import argparse
 import math
 import os
 import random
+import shlex
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import time
 
 per_iteration_random_seed_override = 0
 remain_argv = None
+is_remote_db = False
 
 
 def get_random_seed(override):
@@ -22,7 +24,19 @@ def get_random_seed(override):
         return override
 
 
-def setup_random_seed_before_main():
+def quote_arg_for_display(arg):
+    """
+    Quote only the value after '=' for shell display.
+    This makes the printed command safe to copy/paste into a Unix shell.
+    Note: shlex is Unix-focused; Non-Unix shell users may need to adjust quoting after copying.
+    """
+    if "=" not in arg:
+        return arg
+    flag, value = arg.split("=", 1)
+    return f"{flag}={shlex.quote(value)}"
+
+
+def early_argument_parsing_before_main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--initial_random_seed_override",
@@ -45,21 +59,28 @@ def setup_random_seed_before_main():
     init_random_seed = get_random_seed(args.initial_random_seed_override)
     global per_iteration_random_seed_override
     per_iteration_random_seed_override = args.per_iteration_random_seed_override
+    global is_remote_db
+    # Set is_remote_db if remain_args has a non-empty --env_uri= argument
+    for arg in remain_args:
+        parts = arg.split("=", 1)
+        if parts[0] == "--env_uri" and len(parts) > 1 and parts[1]:
+            is_remote_db = True
+            break
 
     print(f"Start with random seed {init_random_seed}")
     random.seed(init_random_seed)
 
 
 def apply_random_seed_per_iteration():
-    global per_iteration_random_seed_override
     per_iteration_random_seed = get_random_seed(per_iteration_random_seed_override)
     print(f"Use random seed for iteration {per_iteration_random_seed}")
     random.seed(per_iteration_random_seed)
 
 
 # Random seed has to be setup before the rest of the script, so that the random
-# value selected in the global variable uses the random seed specified
-setup_random_seed_before_main()
+# value selected in the global variable uses the random seed specified. More
+# arguments can also be parsed early.
+early_argument_parsing_before_main()
 
 # params overwrite priority:
 #   for default:
@@ -428,6 +449,7 @@ default_params = {
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
+# except on remote filesystem
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
@@ -446,15 +468,16 @@ def get_dbname(test_name):
         dbname = tempfile.mkdtemp(prefix=test_dir_name)
     else:
         dbname = test_tmpdir + "/" + test_dir_name
-        shutil.rmtree(dbname, True)
-        if cleanup_cmd is not None:
-            print("Running DB cleanup command - %s\n" % cleanup_cmd)
-            # Ignore failure
-            os.system(cleanup_cmd)
-        try:
-            os.mkdir(dbname)
-        except OSError:
-            pass
+        if not is_remote_db:
+            shutil.rmtree(dbname, True)
+            if cleanup_cmd is not None:
+                print("Running DB cleanup command - %s\n" % cleanup_cmd)
+                # Ignore failure
+                os.system(cleanup_cmd)
+            try:
+                os.mkdir(dbname)
+            except OSError:
+                pass
     return dbname
 
 
@@ -468,9 +491,7 @@ def setup_expected_values_dir():
     expected_dir_prefix = "rocksdb_crashtest_expected_"
     test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
 
-    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
-    # specified.
-    if test_exp_tmpdir is None or test_exp_tmpdir == "":
+    if not is_remote_db and (test_exp_tmpdir is None or test_exp_tmpdir == ""):
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
     if test_exp_tmpdir is None or test_exp_tmpdir == "":
@@ -494,9 +515,7 @@ def setup_multiops_txn_key_spaces_file():
     key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
     test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
 
-    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
-    # specified.
-    if test_exp_tmpdir is None or test_exp_tmpdir == "":
+    if not is_remote_db and (test_exp_tmpdir is None or test_exp_tmpdir == ""):
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
     if test_exp_tmpdir is None or test_exp_tmpdir == "":
@@ -513,12 +532,15 @@ def setup_multiops_txn_key_spaces_file():
 
 
 def is_direct_io_supported(dbname):
-    with tempfile.NamedTemporaryFile(dir=dbname) as f:
-        try:
-            os.open(f.name, os.O_DIRECT)
-        except BaseException:
-            return False
-        return True
+    if is_remote_db:
+        return False
+    else:
+        with tempfile.NamedTemporaryFile(dir=dbname) as f:
+            try:
+                os.open(f.name, os.O_DIRECT)
+            except BaseException:
+                return False
+            return True
 
 
 blackbox_default_params = {
@@ -679,6 +701,8 @@ ts_params = {
     # Below flag is randomly picked once and kept consistent in following runs.
     "persist_user_defined_timestamps": random.choice([0, 1, 1]),
     "use_merge": 0,
+    # Causing failures and not yet compatible
+    "use_multiscan": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
     "ingest_external_file_one_in": 0,
@@ -1311,7 +1335,6 @@ def gen_cmd(params, unknown_params):
                 "stress_cmd",
                 "test_tiered_storage",
                 "cleanup_cmd",
-                "skip_tmpdir_check",
                 "print_stderr_separately",
                 "verify_timeout",
             }
@@ -1324,7 +1347,10 @@ def gen_cmd(params, unknown_params):
 
 def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-    print("Running db_stress with pid=%d: %s\n\n" % (child.pid, " ".join(cmd)))
+    print(
+        "Running db_stress with pid=%d: %s\n\n"
+        % (child.pid, " ".join(quote_arg_for_display(arg) for arg in cmd))
+    )
     pid = child.pid
 
     try:
@@ -1356,7 +1382,8 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
 
 
 def cleanup_after_success(dbname):
-    shutil.rmtree(dbname, True)
+    if not is_remote_db:
+        shutil.rmtree(dbname, True)
     if cleanup_cmd is not None:
         print("Running DB cleanup command - %s\n" % cleanup_cmd)
         ret = os.system(cleanup_cmd)
@@ -1586,14 +1613,9 @@ def whitebox_crash_main(args, unknown_args):
         # try different modes.
         if time.time() > half_time:
             cleanup_after_success(dbname)
-            try:
-                os.mkdir(dbname)
-            except OSError:
-                pass
             if expected_values_dir is not None:
                 shutil.rmtree(expected_values_dir, True)
                 os.mkdir(expected_values_dir)
-
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
@@ -1623,7 +1645,6 @@ def main():
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
-    parser.add_argument("--skip_tmpdir_check", action="store_true")
     parser.add_argument("--print_stderr_separately", action="store_true", default=False)
 
     all_params = dict(
@@ -1647,10 +1668,9 @@ def main():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
     # unknown_args are passed directly to db_stress
 
-    global remain_args
     args, unknown_args = parser.parse_known_args(remain_args)
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is not None and not args.skip_tmpdir_check:
+    if test_tmpdir is not None and not is_remote_db:
         isdir = False
         try:
             isdir = os.path.isdir(test_tmpdir)

@@ -317,9 +317,6 @@ struct FileMetaData {
   void UpdateBoundariesForRange(const InternalKey& start,
                                 const InternalKey& end, SequenceNumber seqno,
                                 const InternalKeyComparator& icmp) {
-    assert(ExtractValueType(start.Encode()) < kTypeMaxValid);
-    assert(ExtractValueType(end.Encode()) < kTypeMaxValid);
-
     if (smallest.size() == 0 || icmp.Compare(start, smallest) < 0) {
       smallest = start;
     }
@@ -560,16 +557,19 @@ struct SubcompactionProgress {
       Slice key_slice(next_internal_key_to_compact);
       if (ParseInternalKey(key_slice, &parsed_key, false /* log_err_key */)
               .ok()) {
-        oss << "user_key=\"" << parsed_key.user_key.ToString(false /* hex */)
-            << "\" (hex:" << parsed_key.user_key.ToString(true /* hex */)
-            << ")";
+        oss << "user_key(hex)=" << parsed_key.user_key.ToString(true /* hex */);
         oss << ", seq=";
         if (parsed_key.sequence == kMaxSequenceNumber) {
           oss << "kMaxSequenceNumber";
         } else {
           oss << parsed_key.sequence;
         }
-        oss << ", type=" << static_cast<int>(parsed_key.type);
+        oss << ", type=";
+        if (parsed_key.type == kValueTypeForSeek) {
+          oss << "kValueTypeForSeek";
+        } else {
+          oss << static_cast<int>(parsed_key.type);
+        }
       } else {
         oss << "raw=" << key_slice.ToString(true /* hex */);
       }

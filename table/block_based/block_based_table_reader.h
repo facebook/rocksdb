@@ -208,7 +208,8 @@ class BlockBasedTable : public TableReader {
   size_t ApproximateMemoryUsage() const override;
 
   // convert SST file to a human readable form
-  Status DumpTable(WritableFile* out_file) override;
+  Status DumpTable(WritableFile* out_file,
+                   bool show_sequence_number_type = false) override;
 
   Status VerifyChecksum(const ReadOptions& readOptions,
                         TableReaderCaller caller,
@@ -549,9 +550,11 @@ class BlockBasedTable : public TableReader {
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(std::ostream& out_stream);
-  Status DumpDataBlocks(std::ostream& out_stream);
+  Status DumpDataBlocks(std::ostream& out_stream,
+                        bool show_sequence_number_type = false);
   void DumpKeyValue(const Slice& key, const Slice& value,
-                    std::ostream& out_stream);
+                    std::ostream& out_stream,
+                    bool show_sequence_number_type = false);
 
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.

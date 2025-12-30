@@ -21,7 +21,8 @@ class SstFileDumper {
                          bool verify_checksum, bool output_hex,
                          bool decode_blob_index,
                          const EnvOptions& soptions = EnvOptions(),
-                         bool silent = false);
+                         bool silent = false,
+                         bool show_sequence_number_type = false);
 
   // read_num_limit limits the total number of keys read. If read_num_limit = 0,
   // then there is no limit. If read_num_limit = 0 or
@@ -79,6 +80,7 @@ class SstFileDumper {
   Temperature file_temp_;
   bool output_hex_;
   bool decode_blob_index_;
+  bool show_sequence_number_type_;
   EnvOptions soptions_;
   // less verbose in stdout/stderr
   bool silent_;

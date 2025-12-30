@@ -652,8 +652,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
             std::to_string(async_state->offset) + " and async callback " +
             std::to_string(req.offset));
       }
-    } else {
-      assert(async_state->status.IsAborted());
     }
   }
 

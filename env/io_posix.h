@@ -11,6 +11,16 @@
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #include <sys/uio.h>
+
+// Compatibility defines for io_uring flags that may not be present in older
+// kernel headers. These values are fixed and won't change, so it's safe to
+// define them even if the running kernel doesn't support them.
+#ifndef IORING_SETUP_SINGLE_ISSUER
+#define IORING_SETUP_SINGLE_ISSUER (1U << 12)
+#endif
+#ifndef IORING_SETUP_DEFER_TASKRUN
+#define IORING_SETUP_DEFER_TASKRUN (1U << 13)
+#endif
 #endif
 #include <unistd.h>
 
@@ -297,9 +307,9 @@ inline void DeleteIOUring(void* p) {
   delete iu;
 }
 
-inline struct io_uring* CreateIOUring() {
+inline struct io_uring* CreateIOUring(unsigned int flags = 0) {
   struct io_uring* new_io_uring = new struct io_uring;
-  int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
+  int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, flags);
   if (ret) {
     delete new_io_uring;
     new_io_uring = nullptr;
@@ -315,7 +325,8 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   bool use_direct_io_;
   size_t logical_sector_size_;
 #if defined(ROCKSDB_IOURING_PRESENT)
-  ThreadLocalPtr* thread_local_io_urings_;
+  ThreadLocalPtr* thread_local_async_read_io_urings_;
+  ThreadLocalPtr* thread_local_multi_read_io_urings_;
 #endif
 
  public:
@@ -323,7 +334,8 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                         size_t logical_block_size, const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
-                        ThreadLocalPtr* thread_local_io_urings
+                        ThreadLocalPtr* thread_local_async_read_io_urings,
+                        ThreadLocalPtr* thread_local_multi_read_io_urings
 #endif
   );
   virtual ~PosixRandomAccessFile();

@@ -831,7 +831,6 @@ fi
 if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
-echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
 if test -n "$USE_FOLLY"; then
   echo "USE_FOLLY=$USE_FOLLY" >> "$OUTPUT"
 fi

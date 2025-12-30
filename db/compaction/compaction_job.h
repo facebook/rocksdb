@@ -430,7 +430,7 @@ class CompactionJob {
 
   Status FinishCompactionOutputFile(
       const Status& input_status,
-      const ParsedInternalKey& prev_table_last_internal_key,
+      const ParsedInternalKey& prev_iter_output_internal_key,
       const Slice& next_table_min_key, const Slice* comp_start_user_key,
       const Slice* comp_end_user_key, const CompactionIterator* c_iter,
       SubcompactionState* sub_compact, CompactionOutputs& outputs);
@@ -545,7 +545,7 @@ class CompactionJob {
 
   bool ShouldUpdateSubcompactionProgress(
       const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
-      const ParsedInternalKey& prev_table_last_internal_key,
+      const ParsedInternalKey& prev_iter_output_internal_key,
       const Slice& next_table_min_internal_key, const FileMetaData* meta) const;
 
   void UpdateSubcompactionProgress(const CompactionIterator* c_iter,

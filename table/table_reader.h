@@ -179,7 +179,8 @@ class TableReader {
   }
 
   // convert db file to a human readable form
-  virtual Status DumpTable(WritableFile* /*out_file*/) {
+  virtual Status DumpTable(WritableFile* /*out_file*/,
+                           bool /*show_sequence_number_type*/ = false) {
     return Status::NotSupported("DumpTable() not supported");
   }
 

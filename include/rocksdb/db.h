@@ -1105,9 +1105,12 @@ class DB {
   // details. For optimal performance, ensure that either all entries in
   // scan_opts specify the range limit, or none of them do.
   //
-  // NOTE: iterate_upper_bound in ReadOptions will be ignored. Instead, the
-  // range.limit in ScanOptions is consulted to determine the upper bound key,
-  // if specified.
+  // NOTE: NOT YET SUPPORTED in DBs using user timestamp (see
+  // Comparator::timestamp_size())
+  //
+  // NOTE: iterate_upper_bound in ReadOptions will
+  // be ignored. Instead, the range.limit in ScanOptions is consulted to
+  // determine the upper bound key, if specified.
   //
   // Example usage -
   //  std::vector<ScanOptions> scans{{.start = Slice("bar")},
