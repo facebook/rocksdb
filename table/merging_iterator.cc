@@ -1671,7 +1671,10 @@ InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
 MergeIteratorBuilder::MergeIteratorBuilder(
     const InternalKeyComparator* comparator, Arena* a, bool prefix_seek_mode,
     const Slice* iterate_upper_bound)
-    : first_iter(nullptr), use_merging_iter(false), arena(a) {
+    : first_iter(nullptr),
+      use_merging_iter(false),
+      first_iter_is_memtable(false),
+      arena(a) {
   auto mem = arena->AllocateAligned(sizeof(MergingIterator));
   merge_iter = new (mem) MergingIterator(comparator, nullptr, 0, true,
                                          prefix_seek_mode, iterate_upper_bound);
@@ -1686,7 +1689,10 @@ MergeIteratorBuilder::~MergeIteratorBuilder() {
   }
 }
 
-void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
+void MergeIteratorBuilder::AddIterator(InternalIterator* iter,
+                                       bool is_memtable_iter) {
+  assert(!is_memtable_iter || (is_memtable_iter && !first_iter_is_memtable));
+  first_iter_is_memtable = is_memtable_iter;
   if (!use_merging_iter && first_iter != nullptr) {
     merge_iter->AddIterator(first_iter);
     use_merging_iter = true;
@@ -1700,13 +1706,15 @@ void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
 }
 
 void MergeIteratorBuilder::AddPointAndTombstoneIterator(
-    InternalIterator* point_iter,
+    InternalIterator* point_iter, bool is_memtable_iter,
     std::unique_ptr<TruncatedRangeDelIterator>&& tombstone_iter,
     std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr) {
   // tombstone_iter_ptr != nullptr means point_iter is a LevelIterator.
   bool add_range_tombstone = tombstone_iter ||
                              !merge_iter->range_tombstone_iters_.empty() ||
                              tombstone_iter_ptr;
+  assert(!is_memtable_iter || (is_memtable_iter && !first_iter_is_memtable));
+  first_iter_is_memtable = is_memtable_iter;
   if (!use_merging_iter && (add_range_tombstone || first_iter)) {
     use_merging_iter = true;
     if (first_iter) {
@@ -1746,7 +1754,8 @@ InternalIterator* MergeIteratorBuilder::Finish(ArenaWrappedDBIter* db_iter) {
     for (auto& p : range_del_iter_ptrs_) {
       *(p.second) = &(merge_iter->range_tombstone_iters_[p.first]);
     }
-    if (db_iter && !merge_iter->range_tombstone_iters_.empty()) {
+    if (db_iter && !merge_iter->range_tombstone_iters_.empty() &&
+        first_iter_is_memtable) {
       // memtable is always the first level
       db_iter->SetMemtableRangetombstoneIter(
           &merge_iter->range_tombstone_iters_.front());
