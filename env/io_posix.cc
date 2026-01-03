@@ -1886,11 +1886,12 @@ IOStatus PosixRandomRWFile::Fsync(const IOOptions& /*opts*/,
 
 IOStatus PosixRandomRWFile::Close(const IOOptions& /*opts*/,
                                   IODebugContext* /*dbg*/) {
+  IOStatus s = IOStatus::OK();
   if (close(fd_) < 0) {
-    return IOError("While close random read/write file", filename_, errno);
+    s = IOError("While close random read/write file", filename_, errno);
   }
   fd_ = -1;
-  return IOStatus::OK();
+  return s;
 }
 
 PosixMemoryMappedFileBuffer::~PosixMemoryMappedFileBuffer() {
@@ -1934,9 +1935,8 @@ IOStatus PosixDirectory::Close(const IOOptions& /*opts*/,
   IOStatus s = IOStatus::OK();
   if (close(fd_) < 0) {
     s = IOError("While closing directory ", directory_name_, errno);
-  } else {
-    fd_ = -1;
   }
+  fd_ = -1;
   return s;
 }
 
