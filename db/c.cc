@@ -3050,6 +3050,15 @@ class H : public WriteBatch::Handler {
   }
 };
 
+class HL : public WriteBatch::Handler {
+ public:
+  void* state_;
+  void (*log_data_)(void*, const char* d, size_t dlen);
+  void LogData(const Slice& data) override {
+    (*log_data_)(state_, data.data(), data.size());
+  }
+};
+
 class HCF : public WriteBatch::Handler {
  public:
   void* state_;
@@ -3085,6 +3094,16 @@ void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
   handler.state_ = state;
   handler.put_ = put;
   handler.deleted_ = deleted;
+  b->rep.Iterate(&handler);
+}
+
+void rocksdb_writebatch_iterate_log(rocksdb_writebatch_t* b, void* state,
+                                    void (*log_data)(void*, const char* d,
+                                                     size_t dlen)
+) {
+  HL handler;
+  handler.state_ = state;
+  handler.log_data_ = log_data;
   b->rep.Iterate(&handler);
 }
 
