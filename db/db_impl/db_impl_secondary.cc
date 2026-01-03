@@ -1008,6 +1008,10 @@ Status DBImplSecondary::ParseCompactionProgressFile(
     return s;
   }
 
+  if (!reader_status.ok()) {
+    return reader_status;
+  }
+
   if (progress_builder.HasAccumulatedSubcompactionProgress()) {
     compaction_progress->clear();
     compaction_progress->push_back(
