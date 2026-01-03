@@ -12,10 +12,14 @@
 
 #include "include/org_rocksdb_BlockBasedTableConfig.h"
 #include "include/org_rocksdb_PlainTableConfig.h"
-#include "portal.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/portal/checksum_type_jni.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/data_block_index_type_jni.h"
+#include "rocksjni/portal/index_shortening_mode_jni.h"
+#include "rocksjni/portal/index_type_jni.h"
 
 /*
  * Class:     org_rocksdb_PlainTableConfig

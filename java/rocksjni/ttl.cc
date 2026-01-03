@@ -18,7 +18,8 @@
 #include "include/org_rocksdb_TtlDB.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 /*
  * Class:     org_rocksdb_TtlDB
