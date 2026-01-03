@@ -1079,6 +1079,155 @@ TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
 INSTANTIATE_TEST_CASE_P(CheckpointDestroyTest, CheckpointDestroyTest,
                         ::testing::Values(true, false));
 
+// Test that when WAL size exceeds log_size_for_flush threshold, a flush is
+// triggered during checkpoint creation.
+TEST_F(CheckpointTest, CheckpointLogSizeThresholdTriggersFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  Reopen(options);
+
+  // Write enough data to create significant WAL
+  const uint64_t log_size_threshold = 1;  // 1 byte - extremely small threshold
+  std::string large_value(500, 'x');      // 500 byte value
+  for (int i = 0; i < 100; i++) {
+    std::string key = "key_" + std::to_string(i);
+    ASSERT_OK(Put(key, large_value));
+  }
+  // Total: ~50KB of data, well above 1 byte threshold
+
+  // Use SyncPoints to verify flush is triggered - check both atomic and
+  // non-atomic paths
+  std::atomic<bool> flush_triggered{false};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushAllColumnFamilies:1",
+      [&](void* /*arg*/) { flush_triggered.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+      [&](void* /*arg*/) { flush_triggered.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create checkpoint with small threshold - should trigger flush
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, log_size_threshold));
+  delete checkpoint;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify flush was triggered since WAL size > threshold
+  ASSERT_TRUE(flush_triggered.load())
+      << "Flush should be triggered when WAL size exceeds log_size_for_flush";
+
+  // Count WAL files in checkpoint directory
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(snapshot_name_, &files));
+  uint64_t total_wal_size = 0;
+  for (const auto& file : files) {
+    uint64_t number = 0;
+    FileType type = kWalFile;
+    WalFileType log_type;
+    if (ParseFileName(file, &number, &type, &log_type) && type == kWalFile) {
+      uint64_t file_size = 0;
+      ASSERT_OK(
+          env_->GetFileSize(snapshot_name_ + "/" + file, &file_size));
+      total_wal_size += file_size;
+    }
+  }
+
+  // When flush is triggered, checkpoint should have minimal/no WAL data
+  // because memtable contents are flushed to SST files
+  EXPECT_EQ(total_wal_size, 0)
+      << "Checkpoint WAL should be empty when flush is triggered "
+      << "(log_size_for_flush=" << log_size_threshold << ")";
+
+  // Verify checkpoint contains all data (it was flushed to SST)
+  Options snapshot_options = CurrentOptions();
+  snapshot_options.create_if_missing = false;
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(snapshot_options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  for (int i = 0; i < 100; i++) {
+    std::string key = "key_" + std::to_string(i);
+    std::string value;
+    ASSERT_OK(snapshot_db->Get(read_opts, key, &value));
+    ASSERT_EQ(large_value, value);
+  }
+  delete snapshot_db;
+}
+
+// Test that when WAL size is below log_size_for_flush threshold, no flush
+// occurs and WAL files are included in the checkpoint.
+TEST_F(CheckpointTest, CheckpointLogSizeThresholdNoFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  Reopen(options);
+
+  // Write a small amount of data
+  std::string value(100, 'x');
+  for (int i = 0; i < 10; i++) {
+    std::string key = "key_" + std::to_string(i);
+    ASSERT_OK(Put(key, value));
+  }
+  // Total: ~1KB of data
+
+  // Use SyncPoint to verify flush is NOT triggered
+  std::atomic<bool> flush_triggered{false};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTable:FlushMemTableFinished",
+      [&](void* /*arg*/) { flush_triggered.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create checkpoint with large threshold (1MB) - should NOT trigger flush
+  const uint64_t log_size_threshold = 1024 * 1024;  // 1MB
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, log_size_threshold));
+  delete checkpoint;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify flush was NOT triggered (WAL size < threshold)
+  ASSERT_FALSE(flush_triggered.load())
+      << "Flush should NOT be triggered when WAL size is below "
+         "log_size_for_flush";
+
+  // Count WAL files in checkpoint directory - should have WAL data
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(snapshot_name_, &files));
+  uint64_t total_wal_size = 0;
+  for (const auto& file : files) {
+    uint64_t number = 0;
+    FileType type = kWalFile;
+    WalFileType log_type;
+    if (ParseFileName(file, &number, &type, &log_type) && type == kWalFile) {
+      uint64_t file_size = 0;
+      ASSERT_OK(
+          env_->GetFileSize(snapshot_name_ + "/" + file, &file_size));
+      total_wal_size += file_size;
+    }
+  }
+
+  // Checkpoint should have WAL data since no flush occurred
+  EXPECT_GT(total_wal_size, 0)
+      << "Checkpoint should have WAL when flush is not triggered";
+
+  // Verify checkpoint contains all data (recovered from WAL)
+  Options snapshot_options = CurrentOptions();
+  snapshot_options.create_if_missing = false;
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(snapshot_options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  for (int i = 0; i < 10; i++) {
+    std::string key = "key_" + std::to_string(i);
+    std::string get_value;
+    ASSERT_OK(snapshot_db->Get(read_opts, key, &get_value));
+    ASSERT_EQ(value, get_value);
+  }
+  delete snapshot_db;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
