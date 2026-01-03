@@ -644,7 +644,7 @@ using TypedHandle = SharedCache::TypedHandle;
 
 TEST_P(CacheTest, SetCapacity) {
   if (IsHyperClock()) {
-    // TODO: update test & code for limited supoort
+    // TODO: update test & code for limited support
     ROCKSDB_GTEST_BYPASS(
         "HyperClockCache doesn't support arbitrary capacity "
         "adjustments.");

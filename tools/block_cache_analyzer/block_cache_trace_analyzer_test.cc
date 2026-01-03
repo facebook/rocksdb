@@ -88,7 +88,7 @@ class BlockCacheTracerTest : public testing::Test {
       case 4:
         return TableReaderCaller::kUserIterator;
     }
-    // This cannot happend.
+    // This cannot happen.
     assert(false);
     return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
