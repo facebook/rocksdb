@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "c.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
@@ -406,7 +407,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   uint32_t uncache_aggressiveness = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
-  ColumnFamilyOptions();
+  ROCKSDB_LIBRARY_API ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
   explicit ColumnFamilyOptions(const Options& options);
 
@@ -1186,7 +1187,7 @@ struct DBOptions {
   bool use_adaptive_mutex = false;
 
   // Create DBOptions with default values for all fields
-  DBOptions();
+  ROCKSDB_LIBRARY_API DBOptions();
   // Create DBOptions from Options
   explicit DBOptions(const Options& options);
 
