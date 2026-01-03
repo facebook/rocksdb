@@ -864,6 +864,9 @@ struct FSReadRequest {
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
+  // Number of additional bytes that can be returned, beyond `len` bytes
+  size_t additional_read_size = 0;
+
   // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
   // The lifecycle of scratch will be until IO is completed.
@@ -1001,6 +1004,12 @@ class FSRandomAccessFile {
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
+  // Default of 0 for when block size concept does not apply
+  // This method is not necessary if our FSReadRequest contains an option to
+  // allow a variable amount of additional data to be sent along the response
+  // (unrelated to the block size)
+  virtual size_t GetBlockSize() const { return 0; }
 
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
