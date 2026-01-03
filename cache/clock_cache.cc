@@ -210,7 +210,7 @@ inline bool ClockUpdate(ClockHandle& h, BaseClockTable::EvictionData* data,
 // motivates only checking for release counter in high state, not both in high
 // state.)
 inline void CorrectNearOverflow(SlotMeta old_meta,
-                                AcqRelBitFieldsAtomic<SlotMeta>& meta) {
+                                BitFieldsAtomic<SlotMeta>& meta) {
   // We clear both top-most counter bits at the same time.
   constexpr uint32_t kCounterTopBit = uint32_t{1}
                                       << (SlotMeta::kCounterNumBits - 1);
@@ -1924,7 +1924,7 @@ class AutoHyperClockTable::ChainRewriteLock {
     }
   }
 
-  AcqRelBitFieldsAtomic<NextWithShift>* head_ptr_;
+  BitFieldsAtomic<NextWithShift>* head_ptr_;
   NextWithShift saved_head_;
 };
 

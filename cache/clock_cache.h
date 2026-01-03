@@ -413,7 +413,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // TODO: make these coundown values tuning parameters for eviction?
 
   // See above. Mutable for read reference counting.
-  mutable AcqRelBitFieldsAtomic<SlotMeta> meta{};
+  mutable BitFieldsAtomic<SlotMeta> meta{};
 };  // struct ClockHandle
 
 class BaseClockTable {
@@ -538,13 +538,13 @@ class BaseClockTable {
   // TODO: is this separation needed if we don't do background evictions?
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
-  AcqRelAtomic<size_t> occupancy_{};
+  Atomic<size_t> occupancy_{};
 
   // Memory usage by entries tracked by the cache (including standalone)
-  AcqRelAtomic<size_t> usage_{};
+  Atomic<size_t> usage_{};
 
   // Part of usage by standalone entries (not in table)
-  AcqRelAtomic<size_t> standalone_usage_{};
+  Atomic<size_t> standalone_usage_{};
 
   // Maximum total charge of all elements stored in the table.
   // (Relaxed: eventual consistency/update is OK)
@@ -899,8 +899,8 @@ class AutoHyperClockTable : public BaseClockTable {
 
     // See above. The head pointer is logically independent of the rest of
     // the entry, including the chain next pointer.
-    AcqRelBitFieldsAtomic<NextWithShift> head_next_with_shift{kUnusedMarker};
-    AcqRelBitFieldsAtomic<NextWithShift> chain_next_with_shift{kUnusedMarker};
+    BitFieldsAtomic<NextWithShift> head_next_with_shift{kUnusedMarker};
+    BitFieldsAtomic<NextWithShift> chain_next_with_shift{kUnusedMarker};
 
     // For supporting CreateStandalone and some fallback cases.
     inline bool IsStandalone() const {
@@ -1056,7 +1056,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // To maximize parallelization of Grow() operations, this field is only
   // updated opportunistically after Grow() operations and in DoInsert() where
   // it is found to be out-of-date. See CatchUpLengthInfoNoWait().
-  AcqRelAtomic<uint64_t> length_info_;
+  Atomic<uint64_t> length_info_;
 
   // An already-computed version of the usable length times the max load
   // factor. Could be slightly out of date but GrowIfNeeded()/Grow() handle

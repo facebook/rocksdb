@@ -590,7 +590,7 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(after.Get<Field5>(), 0U);
   }
   {
-    AcqRelBitFieldsAtomic<MyState> acqrel{state};
+    BitFieldsAtomic<MyState> acqrel{state};
     ASSERT_EQ(state, acqrel.Load());
     acqrel.Store(state2);
     ASSERT_EQ(state2, acqrel.Load());

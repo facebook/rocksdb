@@ -318,7 +318,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // simplify the interesting interleavings that have to be considered and
   // accommodated.
   struct State : public BitFields<uint64_t, State> {};
-  ALIGN_AS(CACHE_LINE_SIZE) AcqRelBitFieldsAtomic<State> atomic_state;
+  ALIGN_AS(CACHE_LINE_SIZE) BitFieldsAtomic<State> atomic_state;
 
   // The first field is a bit for each ring buffer slot (max 32) for whether
   // that slot is ready to be claimed for writing by a worker thread. Because

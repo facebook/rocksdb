@@ -19,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 // fields into atomic variables to reduce the need for locking in concurrent
 // code and/or to simplify reasoning on and accommodation of different
 // interesting, bug-prone interleavings. Convenient atomic wrappers
-// (RelaxedAtomic, AcqRelAtomic) are provided below to aid usage with atomics,
+// (RelaxedAtomic, Atomic) are provided below to aid usage with atomics,
 // especially for CAS updates, but it is even possible to combine operations on
 // multiple bit fields into a single non-CAS atomic operation using Transforms
 // below.
@@ -333,10 +333,11 @@ struct UnsignedBitField {
   }
 };
 
-// A handy wrapper for a relaxed atomic on some BitFields type (unlike
-// RelaxedAtomic for arithmetic types). For encapsulation, usual arithmetic
-// atomic operations are only available by calling Apply[Relaxed]() on
-// Transforms returned from field classes. Extending an example from BitFields:
+// A handy wrapper for a relaxed atomic on some BitFields type, like
+// RelaxedAtomic but without direct arithmetic operations. For encapsulation,
+// usual arithmetic atomic operations are only available by calling
+// ApplyRelaxed() on Transforms returned from field classes. Extending an
+// example from BitFields:
 //
 // auto transform = Field2::ClearTransform() + Field4::ClearTransform();
 // MyState old_state;
@@ -421,14 +422,15 @@ class RelaxedBitFieldsAtomic {
 };
 
 // A handy wrapper for an aquire-release atomic (also relaxed semantics
-// available) on some BitFields type. See RelaxedBitFieldsAtomic for more info.
+// available) on some BitFields type. See RelaxedBitFieldsAtomic and
+// Atomic in atomic.h for more info.
 template <typename BitFieldsT>
-class AcqRelBitFieldsAtomic : public RelaxedBitFieldsAtomic<BitFieldsT> {
+class BitFieldsAtomic : public RelaxedBitFieldsAtomic<BitFieldsT> {
  public:
   using Base = RelaxedBitFieldsAtomic<BitFieldsT>;
   using U = typename BitFieldsT::U;
 
-  explicit AcqRelBitFieldsAtomic(BitFieldsT initial = {}) : Base(initial) {}
+  explicit BitFieldsAtomic(BitFieldsT initial = {}) : Base(initial) {}
 
   void Store(BitFieldsT desired) {
     Base::v_.store(desired.underlying, std::memory_order_release);
