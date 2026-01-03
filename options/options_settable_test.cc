@@ -438,6 +438,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_mmap_reads=false;"
                              "use_direct_reads=false;"
                              "use_direct_io_for_flush_and_compaction=false;"
+                             "use_direct_io_for_wal=false;"
                              "max_log_file_size=4607;"
                              "advise_random_on_open=true;"
                              "enable_pipelined_write=false;"
