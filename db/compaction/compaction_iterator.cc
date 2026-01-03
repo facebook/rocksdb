@@ -1316,15 +1316,16 @@ void CompactionIterator::PrepareOutput() {
         current_key_.UpdateInternalKey(0, ikey_.type);
         zeroed_seqno = true;
       } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {
-        // For UDT, the seqno and timestamp could only be zeroed out after the
-        // key is below history_ts_low_.
+        // For UDT, after the timestamp of the key is below
+        // *full_history_ts_low_, the seqno will be zeroed out, and timestamp
+        // will be collapsed to minimum timestamp value taken from the
+        // comparator.
         // For the same user key (excluding timestamp), the timestamp-based
         // history can be collapsed to save some space if the timestamp is
         // older than *full_history_ts_low_.
-        const std::string kTsMin(timestamp_size_, static_cast<char>(0));
-        const Slice ts_slice = kTsMin;
-        ikey_.SetTimestamp(ts_slice);
-        current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
+        auto min_ts = cmp_->GetMinTimestamp();
+        ikey_.SetTimestamp(min_ts);
+        current_key_.UpdateInternalKey(0, ikey_.type, &min_ts);
         zeroed_seqno = true;
       }
 

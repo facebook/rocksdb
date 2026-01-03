@@ -545,6 +545,88 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   delete cfh;
 }
 
+TEST_F(TimestampCompatibleCompactionTest, SeqnoZeroingWithSignedS64Ts) {
+  // This test validates that when using a signed 64-bit timestamp comparator,
+  // the collapsed timestamp value is std::numeric_limits<int64_t>::min()
+  // instead of all zeros (which would be 0 for signed integers).
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithS64TsWrapper();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Verify the comparator returns the correct min/max timestamps
+  const Comparator* cmp = options.comparator;
+  Slice min_ts = cmp->GetMinTimestamp();
+  Slice max_ts = cmp->GetMaxTimestamp();
+  ASSERT_EQ(min_ts.size(), sizeof(int64_t));
+  ASSERT_EQ(max_ts.size(), sizeof(int64_t));
+
+  // Verify min timestamp is std::numeric_limits<int64_t>::min()
+  int64_t min_ts_value = static_cast<int64_t>(DecodeFixed64(min_ts.data()));
+  ASSERT_EQ(min_ts_value, std::numeric_limits<int64_t>::min());
+
+  // Verify max timestamp is std::numeric_limits<int64_t>::max()
+  int64_t max_ts_value = static_cast<int64_t>(DecodeFixed64(max_ts.data()));
+  ASSERT_EQ(max_ts_value, std::numeric_limits<int64_t>::max());
+
+  // Helper function to create signed timestamp
+  auto SignedTimestamp = [](int64_t ts) {
+    std::string ret;
+    PutFixed64(&ret, static_cast<uint64_t>(ts));
+    return ret;
+  };
+
+  // Track the collapsed timestamps
+  std::vector<int64_t> collapsed_timestamps;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        auto* ikey = static_cast<ParsedInternalKey*>(arg);
+        ASSERT_EQ(0, ikey->sequence);
+        // Extract timestamp (last 8 bytes of user key)
+        Slice user_key = ikey->user_key;
+        ASSERT_GE(user_key.size(), sizeof(int64_t));
+        Slice ts_slice(user_key.data() + user_key.size() - sizeof(int64_t),
+                       sizeof(int64_t));
+        int64_t ts = static_cast<int64_t>(DecodeFixed64(ts_slice.data()));
+        collapsed_timestamps.push_back(ts);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write a key with a positive timestamp
+  std::string ts_str = SignedTimestamp(1000);
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", ts_str, "value1"));
+  ASSERT_OK(Flush());
+
+  // Compact with full_history_ts_low set to trigger timestamp collapsing
+  collapsed_timestamps.clear();
+  {
+    std::string full_history_ts_low = SignedTimestamp(2000);
+    Slice ts_slice = full_history_ts_low;
+    CompactRangeOptions cro;
+    cro.full_history_ts_low = &ts_slice;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+
+  // Verify the timestamp was collapsed to std::numeric_limits<int64_t>::min()
+  ASSERT_EQ(1u, collapsed_timestamps.size());
+  ASSERT_EQ(std::numeric_limits<int64_t>::min(), collapsed_timestamps[0]);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify data is still readable
+  std::string value;
+  ts_str = SignedTimestamp(3000);
+  Slice read_ts = ts_str;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts;
+  ASSERT_OK(db_->Get(read_opts, "key1", &value));
+  ASSERT_EQ("value1", value);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

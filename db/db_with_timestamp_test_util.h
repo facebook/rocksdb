@@ -105,6 +105,13 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
       }
       return 0;
     }
+
+    Slice GetMinTimestamp() const override {
+      // 16 bytes is enough for the test purpose
+      static const char kTsMin[] =
+          "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+      return Slice(kTsMin, timestamp_size());
+    }
   };
 
   std::string Timestamp(uint64_t low, uint64_t high);
