@@ -2889,16 +2889,8 @@ Status DBImpl::WaitForFlushMemTables(
 
 Status DBImpl::EnableAutoCompaction(
     const std::vector<ColumnFamilyHandle*>& column_family_handles) {
-  Status s;
-  for (auto cf_ptr : column_family_handles) {
-    Status status =
-        this->SetOptions(cf_ptr, {{"disable_auto_compactions", "false"}});
-    if (!status.ok()) {
-      s = status;
-    }
-  }
-
-  return s;
+  return SetOptions(column_family_handles,
+                    {{"disable_auto_compactions", "false"}});
 }
 
 // NOTE: Calling DisableManualCompaction() may overwrite the
