@@ -767,7 +767,7 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       // It can be when Reseek is from block cache (which doesn't clear the
       // buffers in FilePrefetchBuffer but clears block handles from queue) and
       // reseek also lies within the buffer. So Next will get data from
-      // exisiting buffers untill this callback is made to prefetch additional
+      // existing buffers until this callback is made to prefetch additional
       // data. All handles need to be added to the queue starting from
       // index_iter_.
       assert(index_iter_->Valid());
@@ -1046,7 +1046,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
 
 void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   assert(multi_scan_ && multi_scan_status_.ok());
-  // This is a MultiScan and Preapre() has been called.
+  // This is a MultiScan and Prepare() has been called.
 
   // Reset out of bound on seek, if it is out of bound again, it will be set
   // properly later in the code path
@@ -1153,7 +1153,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
       // This should never happen, the reason is that the
       // multi_scan_->next_scan_idx is set to a non zero value is due to a seek
       // target larger or equal to the start key of multi_scan_->next_scan_idx-1
-      // happended earlier. If a seek happens before the start key of
+      // happened earlier. If a seek happens before the start key of
       // multi_scan_->next_scan_idx-1, it would seek a key that is less than
       // what was seeked before.
       assert(!seek_target_before_previous_prepared_range);

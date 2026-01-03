@@ -93,8 +93,8 @@ struct BufferInfo {
   //
   // For example - if end offset of previous buffer was 100 and because of
   // readahead_size optimization, end_offset was trimmed to 60. Then for next
-  // prefetch call, start_offset should be intialized to 100 i.e  start_offset =
-  // buf->initial_end_offset_.
+  // prefetch call, start_offset should be initialized to 100 i.e  start_offset
+  // = buf->initial_end_offset_.
   uint64_t initial_end_offset_ = 0;
 
   bool IsDataBlockInBuffer(uint64_t offset, size_t length) {
@@ -155,7 +155,7 @@ enum class FilePrefetchBufferUsage {
 // When reusing the file system allocated buffer, overlap_buf_ is used if the
 // main buffer only contains part of the requested data. It is returned to
 // the caller after the remaining data is fetched.
-// If num_buffers_ > 1, then the data is prefetched asynchronosuly in the
+// If num_buffers_ > 1, then the data is prefetched asynchronously in the
 // buffers whenever the data is consumed from the buffers and that buffer is
 // freed.
 // If num_buffers > 1, then requested data can be overlapping between 2 buffers.

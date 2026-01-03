@@ -669,7 +669,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
     MoveFilesToLevel(level);
   }
   Close();
-  std::vector<int> buff_prefectch_level_count = {0, 0, 0};
+  std::vector<int> buff_prefetch_level_count = {0, 0, 0};
   ASSERT_OK(TryReopen(options));
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
@@ -707,7 +707,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         iter->Next();
       }
 
-      buff_prefectch_level_count[level] = buff_prefetch_count;
+      buff_prefetch_level_count[level] = buff_prefetch_count;
       if (support_prefetch && !use_direct_io) {
         if (level == 0) {
           ASSERT_FALSE(fs->IsPrefetchCalled());
@@ -728,7 +728,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
   }
 
   if (!support_prefetch) {
-    ASSERT_GT(buff_prefectch_level_count[1], buff_prefectch_level_count[2]);
+    ASSERT_GT(buff_prefetch_level_count[1], buff_prefetch_level_count[2]);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -814,7 +814,7 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
                                       "{initial_auto_readahead_size=0;}"}}));
           break;
         case 1:
-          // intial_auto_readahead_size and max_auto_readahead_size are set
+          // initial_auto_readahead_size and max_auto_readahead_size are set
           // same so readahead_size remains same.
           ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
                                       "{initial_auto_readahead_size=4096;max_"
@@ -1081,7 +1081,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
   }
   {
     /*
-     * Reesek keys from Single Data Block.
+     * Reseek keys from Single Data Block.
      */
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     iter->Seek(BuildKey(0));
@@ -1116,9 +1116,8 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     ASSERT_TRUE(iter->Valid());
     iter->Seek(BuildKey(1008));
     ASSERT_TRUE(iter->Valid());
-    iter->Seek(
-        BuildKey(996));  // Reseek won't prefetch any data and
-                         // readahead_size will be initiallized to 8*1024.
+    iter->Seek(BuildKey(996));  // Reseek won't prefetch any data and
+                                // readahead_size will be initialized to 8*1024.
     ASSERT_TRUE(iter->Valid());
     iter->Seek(BuildKey(992));
     ASSERT_TRUE(iter->Valid());
@@ -1590,7 +1589,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         // Params are as follows -
         // Param 0 - TableOptions::index_shortening
-        // Param 2 - ReadOptinos::auto_readahead_size
+        // Param 2 - ReadOptions::auto_readahead_size
         ::testing::Values(
             BlockBasedTableOptions::IndexShorteningMode::kNoShortening,
             BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators,
@@ -3303,7 +3302,7 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 8192);
 
-  // Now read some data with length doesn't align with aligment and it needs
+  // Now read some data with length doesn't align with alignment and it needs
   // prefetching. Read from 16000 with length 10000 (i.e. requested end offset -
   // 26000).
   ASSERT_TRUE(
