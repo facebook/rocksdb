@@ -101,4 +101,10 @@ public class BloomFilter extends Filter {
   }
 
   private static native long createNewBloomFilter(final double bitsKeyKey);
+
+  @Override
+  public String toString() {
+    return "BloomFilter{"
+        + "bitsPerKey=" + bitsPerKey + '}';
+  }
 }
