@@ -1404,6 +1404,7 @@ class BuiltinDecompressorV2SnappyOnly final : public BuiltinDecompressorV2 {
     args.uncompressed_size = uncompressed_length;
     return Status::OK();
 #else
+    (void)args;
     return Status::NotSupported("Snappy not supported in this build");
 #endif
   }
