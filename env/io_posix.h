@@ -127,6 +127,7 @@ struct Posix_IOHandle {
         use_direct_io(_use_direct_io),
         alignment(_alignment),
         is_finished(false),
+        is_aborted(false),
         req_count(0) {}
 
   struct iovec iov;
@@ -140,6 +141,7 @@ struct Posix_IOHandle {
   size_t alignment;
   bool is_finished;
   // req_count is used by AbortIO API to keep track of number of requests.
+  bool is_aborted;
   uint32_t req_count;
 };
 
