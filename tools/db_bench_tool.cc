@@ -1952,8 +1952,7 @@ class BaseDistribution {
   unsigned int Generate() {
     auto val = Get();
     if (NeedTruncate()) {
-      val = std::max(min_value_size_, val);
-      val = std::min(max_value_size_, val);
+      val = std::clamp(val, min_value_size_, max_value_size_);
     }
     return val;
   }
