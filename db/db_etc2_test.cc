@@ -35,7 +35,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+  DBTest2() : DBTestBase("db_etc2_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTest2, OpenForReadOnly) {

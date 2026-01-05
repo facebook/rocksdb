@@ -4996,8 +4996,8 @@ cpp_unittest_wrapper(name="db_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="db_test2",
-            srcs=["db/db_test2.cc"],
+cpp_unittest_wrapper(name="db_etc2_test",
+            srcs=["db/db_etc2_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

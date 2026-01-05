@@ -1173,8 +1173,9 @@ clean-rocks:
 	rm -f ${LIBNAME}*.so* ${LIBNAME}*.a
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
-	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
+	find . -regextype awk \
+	       -regex '.*/[.].*' -prune -o \
+	       -type f -regex '.*[.]([oda]|gcda|gcno)' -exec rm -f {} \;
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -1412,7 +1413,7 @@ db_encryption_test: $(OBJ_DIR)/db/db_encryption_test.o $(TEST_LIBRARY) $(LIBRARY
 db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
+db_etc2_test: $(OBJ_DIR)/db/db_etc2_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_etc3_test: $(OBJ_DIR)/db/db_etc3_test.o $(TEST_LIBRARY) $(LIBRARY)
