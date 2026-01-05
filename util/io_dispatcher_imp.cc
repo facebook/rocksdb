@@ -148,14 +148,37 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
 }
 
 Status ReadSet::ReadOffset(size_t offset, CachableEntry<Block>* out) {
-  for (size_t i = 0; i < job_->block_handles.size(); i++) {
-    const auto& handle = job_->block_handles[i];
-    if (offset >= handle.offset() &&
-        (offset < (handle.offset() + handle.size()))) {
-      return ReadIndex(i, out);
-    }
+  if (sorted_block_indices_.empty()) {
+    return Status::InvalidArgument("ReadSet not initialized");
   }
-  return Status::InvalidArgument();
+
+  // Use binary search on the sorted index to find the block containing offset.
+  // sorted_block_indices_ contains original indices sorted by block offset.
+  const auto& block_handles = job_->block_handles;
+
+  // Binary search for the first block whose offset is > offset, then back up
+  auto it = std::upper_bound(sorted_block_indices_.begin(),
+                             sorted_block_indices_.end(), offset,
+                             [&block_handles](size_t off, size_t idx) {
+                               return off < block_handles[idx].offset();
+                             });
+
+  // If it == begin(), offset is before all blocks
+  if (it == sorted_block_indices_.begin()) {
+    return Status::InvalidArgument("Offset not found in any block");
+  }
+
+  // Back up to the candidate block (largest offset <= our offset)
+  --it;
+  size_t candidate_idx = *it;
+  const auto& handle = block_handles[candidate_idx];
+
+  // Check if offset falls within this block
+  if (offset >= handle.offset() && offset < (handle.offset() + handle.size())) {
+    return ReadIndex(candidate_idx, out);
+  }
+
+  return Status::InvalidArgument("Offset not found in any block");
 }
 
 // Poll and process async IO for a specific block
@@ -269,6 +292,18 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Initialize ReadSet
   rs->job_ = job;
   rs->pinned_blocks_.resize(job->block_handles.size());
+
+  // Build sorted index for O(log n) ReadOffset lookups via binary search.
+  // sorted_block_indices_[i] = original index of i-th smallest block by offset.
+  rs->sorted_block_indices_.resize(job->block_handles.size());
+  for (size_t i = 0; i < job->block_handles.size(); ++i) {
+    rs->sorted_block_indices_[i] = i;
+  }
+  std::sort(rs->sorted_block_indices_.begin(), rs->sorted_block_indices_.end(),
+            [&job](size_t a, size_t b) {
+              return job->block_handles[a].offset() <
+                     job->block_handles[b].offset();
+            });
 
   // Step 1: Check cache and pin cached blocks
   std::vector<size_t> block_indices_to_read;

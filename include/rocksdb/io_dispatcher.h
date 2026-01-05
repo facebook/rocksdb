@@ -2,6 +2,7 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+
 #pragma once
 
 #include <atomic>
@@ -152,6 +153,11 @@ class ReadSet {
 
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;
+
+  // Sorted index for binary search in ReadOffset.
+  // sorted_block_indices_[i] is the original index of the i-th smallest block
+  // by offset. Built once during SubmitJob for O(log n) ReadOffset lookups.
+  std::vector<size_t> sorted_block_indices_;
 
   // Map from block index to async IO state for blocks being read
   // asynchronously. Multiple block indices may map to the same async state when

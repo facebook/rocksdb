@@ -5,9 +5,8 @@
 
 #include "rocksdb/io_dispatcher.h"
 
-#include <chrono>
 #include <memory>
-#include <thread>
+#include <mutex>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -24,6 +23,144 @@
 extern "C" bool RocksDbIOUringEnable() { return true; }
 
 namespace ROCKSDB_NAMESPACE {
+
+// Represents a single read operation recorded by the tracking file system
+struct ReadOp {
+  enum Type { kMultiRead, kReadAsync };
+  Type type;
+  // For MultiRead: contains all (offset, len) pairs in the request
+  // For ReadAsync: contains a single (offset, len) pair
+  std::vector<std::pair<uint64_t, size_t>> requests;
+};
+
+// Forward declaration
+class ReadTrackingFS;
+
+// Wrapper around FSRandomAccessFile that tracks read operations
+class ReadTrackingRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ReadTrackingRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
+                               ReadTrackingFS* fs)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override;
+
+ private:
+  ReadTrackingFS* fs_;
+};
+
+// FileSystem wrapper that tracks all read operations for verification
+class ReadTrackingFS : public FileSystemWrapper {
+ public:
+  explicit ReadTrackingFS(const std::shared_ptr<FileSystem>& target)
+      : FileSystemWrapper(target) {}
+
+  static const char* kClassName() { return "ReadTrackingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (s.ok()) {
+      result->reset(new ReadTrackingRandomAccessFile(std::move(file), this));
+    }
+    return s;
+  }
+
+  // Record a MultiRead operation
+  void RecordMultiRead(const std::vector<std::pair<uint64_t, size_t>>& reqs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ReadOp op;
+    op.type = ReadOp::kMultiRead;
+    op.requests = reqs;
+    read_ops_.push_back(std::move(op));
+  }
+
+  // Record a ReadAsync operation
+  void RecordReadAsync(uint64_t offset, size_t len) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ReadOp op;
+    op.type = ReadOp::kReadAsync;
+    op.requests.push_back({offset, len});
+    read_ops_.push_back(std::move(op));
+  }
+
+  // Get all recorded read operations
+  std::vector<ReadOp> GetReadOps() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return read_ops_;
+  }
+
+  // Clear recorded read operations
+  void ClearReadOps() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    read_ops_.clear();
+  }
+
+  // Get count of MultiRead operations
+  size_t GetMultiReadCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    size_t count = 0;
+    for (const auto& op : read_ops_) {
+      if (op.type == ReadOp::kMultiRead) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Get count of ReadAsync operations
+  size_t GetReadAsyncCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    size_t count = 0;
+    for (const auto& op : read_ops_) {
+      if (op.type == ReadOp::kReadAsync) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::vector<ReadOp> read_ops_;
+};
+
+IOStatus ReadTrackingRandomAccessFile::MultiRead(FSReadRequest* reqs,
+                                                 size_t num_reqs,
+                                                 const IOOptions& options,
+                                                 IODebugContext* dbg) {
+  // Record the read operation before executing it
+  std::vector<std::pair<uint64_t, size_t>> recorded_reqs;
+  recorded_reqs.reserve(num_reqs);
+  for (size_t i = 0; i < num_reqs; i++) {
+    recorded_reqs.push_back({reqs[i].offset, reqs[i].len});
+  }
+  fs_->RecordMultiRead(recorded_reqs);
+
+  // Delegate to underlying file
+  return target()->MultiRead(reqs, num_reqs, options, dbg);
+}
+
+IOStatus ReadTrackingRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
+  // Record the read operation before executing it
+  fs_->RecordReadAsync(req.offset, req.len);
+
+  // Delegate to underlying file
+  return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+}
 
 class IODispatcherTest : public DBTestBase {
  public:
@@ -79,7 +216,8 @@ class IODispatcherTest : public DBTestBase {
 
   std::string test_dir_{};
   Env* env_{};
-  std::shared_ptr<FileSystem> fs_;
+  std::shared_ptr<FileSystem> base_fs_;
+  std::shared_ptr<ReadTrackingFS> tracking_fs_;
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 
@@ -87,8 +225,9 @@ class IODispatcherTest : public DBTestBase {
     SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_based_table_reader_test");
     env_ = Env::Default();
-    fs_ = FileSystem::Default();
-    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+    base_fs_ = FileSystem::Default();
+    tracking_fs_ = std::make_shared<ReadTrackingFS>(base_fs_);
+    ASSERT_OK(base_fs_->CreateDir(test_dir_, IOOptions(), nullptr));
   }
 
   void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
@@ -99,7 +238,7 @@ class IODispatcherTest : public DBTestBase {
     EnvOptions env_options;
     FileOptions foptions;
     std::unique_ptr<FSWritableFile> file;
-    ASSERT_OK(fs_->NewWritableFile(path, foptions, &file, nullptr));
+    ASSERT_OK(base_fs_->NewWritableFile(path, foptions, &file, nullptr));
     writer->reset(new WritableFileWriter(std::move(file), path, env_options));
   }
 
@@ -108,7 +247,8 @@ class IODispatcherTest : public DBTestBase {
                      Statistics* stats = nullptr) {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
-    ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
+    // Use tracking_fs_ to record read operations
+    ASSERT_OK(tracking_fs_->NewRandomAccessFile(path, opt, &f, nullptr));
     reader->reset(new RandomAccessFileReader(std::move(f), path,
                                              env_->GetSystemClock().get(),
                                              /*io_tracer=*/nullptr,
@@ -254,10 +394,8 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
   ASSERT_OK(s);
   ASSERT_NE(read_set, nullptr);
 
-  // Wait for job to complete
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
   // Read blocks using the new ReadSet API and verify they are valid
+  // ReadIndex will poll for async IO completion internally, no need to sleep
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
     Status read_status = read_set->ReadIndex(i, &block);
@@ -303,10 +441,8 @@ TEST_F(IODispatcherTest, MultipleSSTFiles) {
     read_sets.push_back(read_set);
   }
 
-  // Wait for all jobs to complete
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
   // Verify all ReadSets can read their blocks successfully
+  // ReadIndex will poll for async IO completion internally, no need to sleep
   for (size_t i = 0; i < read_sets.size(); ++i) {
     for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
       CachableEntry<Block> block;
@@ -337,10 +473,7 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   ASSERT_OK(s);
   ASSERT_NE(read_set, nullptr);
 
-  // Wait longer to ensure all async IO completes
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-  // Read all blocks
+  // Read all blocks - ReadIndex handles polling for async IO completion
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
     Status read_status = read_set->ReadIndex(i, &block);
@@ -352,7 +485,6 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   std::shared_ptr<ReadSet> read_set2;
   s = dispatcher->SubmitJob(job, &read_set2);
   ASSERT_OK(s);
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
@@ -372,13 +504,14 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
 }
 
 TEST_F(IODispatcherTest, AsyncAndSyncRead) {
-  // This test verifies that when async IO completes before blocks are read,
-  // all reads are served asynchronously with no synchronous reads.
+  // This test verifies the difference between async_io=true and async_io=false
+  // by checking the statistics after reading all blocks.
 
-  std::unique_ptr<BlockBasedTable> table;
-  std::vector<BlockHandle> block_handles;
   for (auto async : {true, false}) {
     std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
     Status s = CreateAndOpenSST(40, &table, &block_handles);
     ASSERT_OK(s);
     ASSERT_NE(table, nullptr);
@@ -397,13 +530,7 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
     ASSERT_OK(s);
     ASSERT_NE(read_set, nullptr);
 
-    // Wait longer to ensure all async IO completes
-    // The IODispatcher should prefetch all blocks asynchronously
-    if (async) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-
-    // Now read all blocks - they should all come from completed async IO
+    // Read all blocks - ReadIndex handles polling for async IO internally
     for (size_t i = 0; i < block_handles.size(); ++i) {
       CachableEntry<Block> block;
       Status read_status = read_set->ReadIndex(i, &block);
@@ -415,7 +542,7 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
       ASSERT_GT(block_ptr->size(), 0);
     }
 
-    // Verify statistics: NO synchronous reads should have occurred
+    // Verify statistics
     uint64_t num_sync = read_set->GetNumSyncReads();
     uint64_t num_async = read_set->GetNumAsyncReads();
     uint64_t num_cache = read_set->GetNumCacheHits();
@@ -423,6 +550,16 @@ TEST_F(IODispatcherTest, AsyncAndSyncRead) {
     // Total reads should equal number of blocks
     uint64_t total_reads = num_sync + num_async + num_cache;
     EXPECT_EQ(total_reads, block_handles.size());
+
+    // When async_io is true, we expect async reads to be used
+    // When async_io is false, we expect sync reads to be used
+    if (async) {
+      EXPECT_GT(num_async, 0) << "Expected async reads when async_io=true";
+      EXPECT_EQ(num_sync, 0) << "Expected no sync reads when async_io=true";
+    } else {
+      EXPECT_GT(num_sync, 0) << "Expected sync reads when async_io=false";
+      EXPECT_EQ(num_async, 0) << "Expected no async reads when async_io=false";
+    }
   }
 }
 
@@ -559,6 +696,278 @@ TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
       << "Expected pinned usage to return to initial value after ReadSet "
       << "destruction, but initial=" << initial_pinned_usage
       << " final=" << final_pinned_usage;
+}
+
+// Test that verifies the exact sequence of reads issued by the IO dispatcher.
+// This uses the ReadTrackingFS to capture all read operations and verify
+// that async_io=true uses ReadAsync while async_io=false uses MultiRead.
+TEST_F(IODispatcherTest, VerifyReadSequence) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(20, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GE(block_handles.size(), 10);
+
+  // Clear any reads from table opening
+  tracking_fs_->ClearReadOps();
+
+  // Test 1: Synchronous reads should use MultiRead
+  {
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.async_io = false;
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    ASSERT_NE(read_set, nullptr);
+
+    // Read all blocks
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      CachableEntry<Block> block;
+      Status read_status = read_set->ReadIndex(i, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+
+    // Verify that MultiRead was used for sync reads
+    auto read_ops = tracking_fs_->GetReadOps();
+    ASSERT_GT(tracking_fs_->GetMultiReadCount(), 0)
+        << "Expected MultiRead to be called for sync reads";
+    ASSERT_EQ(tracking_fs_->GetReadAsyncCount(), 0)
+        << "Expected no ReadAsync calls for sync reads";
+
+    // Verify MultiRead requests cover all blocks
+    size_t total_blocks_in_multireads = 0;
+    for (const auto& op : read_ops) {
+      if (op.type == ReadOp::kMultiRead) {
+        // Each MultiRead request may contain multiple coalesced blocks
+        total_blocks_in_multireads += op.requests.size();
+      }
+    }
+    // Note: blocks may be coalesced, so we check that reads were issued
+    ASSERT_GT(total_blocks_in_multireads, 0);
+  }
+
+  // Clear reads and test async mode
+  tracking_fs_->ClearReadOps();
+
+  // Test 2: Async reads should use ReadAsync
+  {
+    // Create a new table to avoid cache hits
+    std::unique_ptr<BlockBasedTable> table2;
+    std::vector<BlockHandle> block_handles2;
+    s = CreateAndOpenSST(20, &table2, &block_handles2);
+    ASSERT_OK(s);
+
+    tracking_fs_->ClearReadOps();
+
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles2;
+    job->table = table2.get();
+    job->job_options.read_options.async_io = true;
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    ASSERT_NE(read_set, nullptr);
+
+    // Verify that ReadAsync was used
+    ASSERT_GT(tracking_fs_->GetReadAsyncCount(), 0)
+        << "Expected ReadAsync to be called for async reads";
+    ASSERT_EQ(tracking_fs_->GetMultiReadCount(), 0)
+        << "Expected no MultiRead calls for async reads";
+
+    // Read blocks - ReadIndex will poll for async IO completion internally
+    for (size_t i = 0; i < block_handles2.size(); ++i) {
+      CachableEntry<Block> block;
+      Status read_status = read_set->ReadIndex(i, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+  }
+}
+
+// Test that verifies the coalescing logic: adjacent blocks within the
+// coalesce threshold should be combined into a single read request.
+TEST_F(IODispatcherTest, VerifyCoalescing) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  // Get many blocks so we can test coalescing behavior
+  Status s = CreateAndOpenSST(50, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GE(block_handles.size(), 20);
+
+  tracking_fs_->ClearReadOps();
+
+  // Test coalescing with sync reads (uses MultiRead)
+  {
+    auto job = std::make_shared<IOJob>();
+    // Use a subset of adjacent blocks
+    std::vector<BlockHandle> adjacent_blocks;
+    for (size_t i = 0; i < 10 && i < block_handles.size(); ++i) {
+      adjacent_blocks.push_back(block_handles[i]);
+    }
+    job->block_handles = adjacent_blocks;
+    job->table = table.get();
+    job->job_options.read_options.async_io = false;
+    // Set a large coalesce threshold so all adjacent blocks are combined
+    job->job_options.io_coalesce_threshold = 1024 * 1024;  // 1MB
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+
+    for (size_t i = 0; i < adjacent_blocks.size(); ++i) {
+      CachableEntry<Block> block;
+      Status read_status = read_set->ReadIndex(i, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+
+    // With a large coalesce threshold and adjacent blocks, we expect
+    // all blocks to be coalesced into a single MultiRead request
+    auto read_ops = tracking_fs_->GetReadOps();
+    size_t multiread_count = 0;
+    size_t total_requests_in_multireads = 0;
+    for (const auto& op : read_ops) {
+      if (op.type == ReadOp::kMultiRead) {
+        multiread_count++;
+        total_requests_in_multireads += op.requests.size();
+      }
+    }
+
+    // Adjacent blocks should be coalesced into a single read request
+    // (assuming they're within the coalesce threshold)
+    EXPECT_EQ(multiread_count, 1)
+        << "Expected 1 MultiRead call with coalesced blocks";
+    EXPECT_EQ(total_requests_in_multireads, 1)
+        << "Expected all adjacent blocks to be coalesced into 1 request";
+  }
+
+  tracking_fs_->ClearReadOps();
+
+  // Test with zero coalesce threshold and non-adjacent blocks
+  // Non-adjacent blocks (with gaps) should NOT be coalesced with threshold=0
+  {
+    // Create new table to avoid cache hits
+    std::unique_ptr<BlockBasedTable> table2;
+    std::vector<BlockHandle> block_handles2;
+    s = CreateAndOpenSST(50, &table2, &block_handles2);
+    ASSERT_OK(s);
+    ASSERT_GE(block_handles2.size(), 20);
+
+    tracking_fs_->ClearReadOps();
+
+    auto job = std::make_shared<IOJob>();
+    // Skip every other block to create gaps between requested blocks
+    // This ensures there are gaps that won't be bridged with threshold=0
+    std::vector<BlockHandle> non_adjacent_blocks;
+    for (size_t i = 0;
+         i < block_handles2.size() && non_adjacent_blocks.size() < 5; i += 2) {
+      non_adjacent_blocks.push_back(block_handles2[i]);
+    }
+    job->block_handles = non_adjacent_blocks;
+    job->table = table2.get();
+    job->job_options.read_options.async_io = false;
+    // Set zero coalesce threshold - blocks with gaps should not be coalesced
+    job->job_options.io_coalesce_threshold = 0;
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+
+    for (size_t i = 0; i < non_adjacent_blocks.size(); ++i) {
+      CachableEntry<Block> block;
+      Status read_status = read_set->ReadIndex(i, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+
+    // With zero coalesce threshold and non-adjacent blocks (with gaps),
+    // each block should be a separate request
+    auto read_ops = tracking_fs_->GetReadOps();
+    size_t total_requests_in_multireads = 0;
+    for (const auto& op : read_ops) {
+      if (op.type == ReadOp::kMultiRead) {
+        total_requests_in_multireads += op.requests.size();
+      }
+    }
+
+    // Each non-adjacent block should be a separate request since there are
+    // gaps between them and threshold=0 means no gap tolerance
+    EXPECT_EQ(total_requests_in_multireads, non_adjacent_blocks.size())
+        << "Expected each non-adjacent block to be a separate request with "
+           "zero coalesce threshold";
+  }
+}
+
+// Test that verifies the read request offsets and lengths match the
+// expected block handles.
+TEST_F(IODispatcherTest, VerifyReadRequestDetails) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(10, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_NE(table, nullptr);
+  ASSERT_GE(block_handles.size(), 5);
+
+  tracking_fs_->ClearReadOps();
+
+  // Use just a few non-adjacent blocks to avoid coalescing
+  std::vector<BlockHandle> test_blocks;
+  // Pick every other block to ensure they're not adjacent
+  for (size_t i = 0; i < block_handles.size(); i += 2) {
+    test_blocks.push_back(block_handles[i]);
+  }
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_blocks;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+  // Small coalesce threshold to minimize coalescing for this test
+  job->job_options.io_coalesce_threshold = 0;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+
+  for (size_t i = 0; i < test_blocks.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+  }
+
+  // Verify the read requests match the block handles
+  auto read_ops = tracking_fs_->GetReadOps();
+  std::unordered_set<uint64_t> expected_offsets;
+  for (const auto& handle : test_blocks) {
+    expected_offsets.insert(handle.offset());
+  }
+
+  std::unordered_set<uint64_t> actual_offsets;
+  for (const auto& op : read_ops) {
+    if (op.type == ReadOp::kMultiRead) {
+      for (const auto& req : op.requests) {
+        actual_offsets.insert(req.first);
+      }
+    }
+  }
+
+  // Verify all expected offsets were read
+  for (const auto& expected : expected_offsets) {
+    EXPECT_TRUE(actual_offsets.count(expected) > 0)
+        << "Expected read at offset " << expected << " but it was not found";
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
