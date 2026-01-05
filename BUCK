@@ -4846,6 +4846,12 @@ cpp_unittest_wrapper(name="db_encryption_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_etc2_test",
+            srcs=["db/db_etc2_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_etc3_test",
             srcs=["db/db_etc3_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -4992,12 +4998,6 @@ cpp_unittest_wrapper(name="db_tailing_iter_test",
 
 cpp_unittest_wrapper(name="db_test",
             srcs=["db/db_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
-cpp_unittest_wrapper(name="db_etc2_test",
-            srcs=["db/db_etc2_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
