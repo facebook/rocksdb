@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -70,7 +75,7 @@ static Status CreateAndPinBlockFromBuffer(
 
 // State for async IO operations (implementation detail)
 struct AsyncIOState {
-  AsyncIOState() : offset(-1) {}
+  AsyncIOState() : offset(static_cast<uint64_t>(-1)) {}
   ~AsyncIOState() { read_req.status.PermitUncheckedError(); }
 
   AsyncIOState(const AsyncIOState&) = delete;
@@ -106,15 +111,12 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
     return Status::InvalidArgument("Block index out of range");
   }
 
-  // Case 1: Block is already in cache (from initial cache lookup)
+  // Case 1: Block is already available (from cache or sync read during
+  // SubmitJob)
   if (pinned_blocks_[block_index].GetValue()) {
     *out = std::move(pinned_blocks_[block_index]);
-    // We only bump this if we are in async_io mode, as this means we have not
-    // yet polled, and its in the cache, meaning we didn't put this in the
-    // cache.
-    if (job_->job_options.read_options.async_io) {
-      num_async_reads_++;
-    }
+    // Note: Statistics for this block were already counted during SubmitJob
+    // (either as cache hit or sync read)
     return Status::OK();
   }
 
@@ -122,11 +124,15 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   if (job_->job_options.read_options.async_io) {
     auto it = async_io_map_.find(block_index);
     if (it != async_io_map_.end()) {
-      Status s = PollAndProcessAsyncIO(it->second);
-      if (!s.ok()) {
+      // Get the number of blocks in this coalesced async request BEFORE polling
+      // (since PollAndProcessAsyncIO will remove entries from the map)
+      size_t num_blocks_in_request = it->second->block_indices.size();
+
+      if (Status s = PollAndProcessAsyncIO(it->second); !s.ok()) {
         return s;
       }
-      num_async_reads_++;
+      // Count all blocks that were read in this async request
+      num_async_reads_ += num_blocks_in_request;
 
       // After polling, the block should be in pinned_blocks_
       if (pinned_blocks_[block_index].GetValue()) {
@@ -253,6 +259,12 @@ struct IODispatcherImpl::Impl {
   Impl();
   ~Impl();
 
+  // Non-copyable and non-movable
+  Impl(const Impl&) = delete;
+  Impl& operator=(const Impl&) = delete;
+  Impl(Impl&&) = delete;
+  Impl& operator=(Impl&&) = delete;
+
   Status SubmitJob(const std::shared_ptr<IOJob>& job,
                    std::shared_ptr<ReadSet>* read_set);
 
@@ -328,10 +340,15 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Step 2: Prepare IO requests for blocks not in cache
   if (block_indices_to_read.empty()) {
-    // All blocks found in cache
+    // All blocks found in cache - count them as cache hits
+    rs->num_cache_hits_ = job->block_handles.size();
     *read_set = std::move(rs);
     return Status::OK();
   }
+
+  // Count cache hits (blocks that were found in cache during lookup above)
+  rs->num_cache_hits_ =
+      job->block_handles.size() - block_indices_to_read.size();
 
   // Prepare read requests - coalesce adjacent blocks
   std::vector<FSReadRequest> read_reqs;
@@ -483,9 +500,9 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   // Get file and IO options
   auto* rep = job->table->get_rep();
   IOOptions io_opts;
-  Status s =
-      rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
-  if (!s.ok()) {
+  if (Status s =
+          rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
+      !s.ok()) {
     return s;
   }
 
@@ -514,9 +531,10 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
 
   // Execute MultiRead
   AlignedBuf aligned_buf;
-  s = rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
-                           direct_io ? &aligned_buf : nullptr);
-  if (!s.ok()) {
+  if (Status s =
+          rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
+                               direct_io ? &aligned_buf : nullptr);
+      !s.ok()) {
     return s;
   }
 
@@ -532,12 +550,11 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
     for (const auto& block_idx : coalesced_block_indices[i]) {
       const auto& block_handle = job->block_handles[block_idx];
 
-      s = CreateAndPinBlockFromBuffer(job, block_handle, read_req.offset,
-                                      read_req.result,
-                                      read_set->pinned_blocks_[block_idx]);
-
-      if (!s.ok()) {
-        return s;
+      Status create_status = CreateAndPinBlockFromBuffer(
+          job, block_handle, read_req.offset, read_req.result,
+          read_set->pinned_blocks_[block_idx]);
+      if (!create_status.ok()) {
+        return create_status;
       }
     }
   }
