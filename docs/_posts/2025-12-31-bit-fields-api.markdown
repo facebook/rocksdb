@@ -5,7 +5,7 @@ author: pdillinger
 category: blog
 ---
 
-Modern concurrent data structures increasingly rely on [atomic operations](https://en.cppreference.com/w/cpp/atomic/atomic) to avoid the overhead of locking. A valuable but under-utilized technique for maximizing the effectiveness of atomic operations is [bit packing](https://en.wikipedia.org/wiki/Bit_field)---fitting multiple logical fields into a single atomic variable. However, language support for bit packing does not guarantee dense packing, and manually managing bit manipulation quickly becomes error-prone, especially when dealing with complex state machines.
+Modern concurrent data structures increasingly rely on [atomic operations](https://en.cppreference.com/w/cpp/atomic/atomic) to avoid the overhead of locking. A valuable but under-utilized technique for maximizing the effectiveness of atomic operations is [bit packing](https://en.wikipedia.org/wiki/Bit_field)---fitting multiple logical fields into a single atomic variable for algorithmic simplicity and efficiency. However, language support for bit packing does not guarantee dense packing, and manually managing bit manipulation quickly becomes error-prone, especially when dealing with complex state machines.
 
 To address this in RocksDB, we have developed a reusable **BitFields API**, a type-safe, zero-overhead abstraction for bit packing in C++. This works in conjunction with clean wrappers for `std::atomic` for powerful and relatively safe bit-packing of atomic data. For broader use, a [variant of the code](https://github.com/facebook/folly/pull/2549) has been proposed for adding to folly.
 
@@ -224,7 +224,7 @@ These wrappers complement the BitFields atomic wrappers by providing the same or
 
 ## Real-World Usage in RocksDB
 
-The BitFields API was developed along with the revamped parallel compression in RocksDB, but with the intention to also clean up the HyperClockCache (HCC) implementation. With that migration complete, we can see the benefits.
+The BitFields API was developed along with the revamped parallel compression in RocksDB, but with the intention to also clean up the HyperClockCache (HCC) implementation. With that migration complete, we can see the benefits. Specifically, **by packing more of the state machine into a single atomic value, the parallel algorithms became both simpler and more efficient.** Concurrent algorithms that could have blown up in their state space with elaborate interleavings between threads trying not to block each other, e.g. because of multi-step consensus on work assignments, were instead able to quickly and more easily make progress, e.g. with atomically clear work assignments.
 
 ### Before: Manual Bit Manipulation
 
@@ -272,7 +272,7 @@ We hope the proposed folly version is accepted to make the BitFields API availab
 
 ## Conclusion
 
-The BitFields API demonstrates that zero-overhead abstractions can significantly improve code quality without sacrificing performance. By providing type safety, self-documentation, and convenience features around bit manipulation and atomic operations, it makes lock-free programming more accessible and maintainable.
+The BitFields API demonstrates that zero-overhead abstractions can significantly improve code quality without sacrificing performance. By providing type safety, self-documentation, and convenience features around bit manipulation and atomic operations, it makes lock-free programming more accessible and maintainable. Bit-packed atomics are arguably essential for *slaying the complexity dragon* of efficient lock-free and low-lock algorithms, because they reduce explosion in algorithm states.
 
 For RocksDB specifically, the migration to BitFields has made the HyperClockCache implementation substantially easier to understand and modify, while maintaining the same high-performance characteristics. Combined with the recent [parallel compression revamp](/blog/2025/10/08/parallel-compression-revamp.html), these improvements showcase our ongoing commitment to writing clean, efficient, and maintainable code.
 
