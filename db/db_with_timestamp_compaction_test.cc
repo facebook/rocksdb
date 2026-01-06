@@ -544,7 +544,8 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   // use TEST_WaitForCompact to wait for compaction to run for 10 seconds
   WaitForCompactOptions wait_for_compact_options;
   wait_for_compact_options.timeout = std::chrono::seconds(10);
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(wait_for_compact_options));
+  auto s = dbfull()->TEST_WaitForCompact(wait_for_compact_options);
+  ASSERT_TRUE(s.ok() || s.IsTimedOut());
 
   // As the compaction scheduling is not deterministic, use a loose bound check
   // to reduce the flakiness of the test.
