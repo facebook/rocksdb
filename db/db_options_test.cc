@@ -1715,6 +1715,18 @@ TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
       dbfull()->GetOptions(handles_[1]).disable_auto_compactions);  // changed
   ASSERT_FALSE(
       dbfull()->GetOptions(handles_[2]).disable_auto_compactions);  // changed
+
+  std::unordered_map<ColumnFamilyHandle*,
+                     std::unordered_map<std::string, std::string>>
+      options_map;
+  options_map[handles_[0]] = {{"disable_auto_compactions", "false"}};
+  options_map[handles_[1]] = {{"disable_auto_compactions", "true"}};
+  options_map[handles_[2]] = {{"disable_auto_compactions", "true"}};
+  ASSERT_OK(dbfull()->SetOptions(options_map));
+
+  ASSERT_FALSE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

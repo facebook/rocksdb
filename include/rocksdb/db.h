@@ -1638,7 +1638,8 @@ class DB {
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
-  // Apply a set of options to a set of column families.
+  // Shortcut where you want to apply the same options to multiple column
+  // families. Beneficial for avoiding reserialization of OPTIONS file.
   virtual Status SetOptions(
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::unordered_map<std::string, std::string>& opts_map) {
@@ -1651,7 +1652,9 @@ class DB {
     }
     return SetOptions(column_families_opts_map);
   }
-  // Allow customizing the options for each column family.
+  // SetOptions with potentially different options per column family. It is
+  // typically better to batch all option changes together as the OPTIONS file
+  // is written to once per SetOptions call.
   virtual Status SetOptions(
       const std::unordered_map<ColumnFamilyHandle*,
                                std::unordered_map<std::string, std::string>>&

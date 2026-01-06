@@ -1235,8 +1235,8 @@ Status DBImpl::SetOptions(
     dummy_edit.MarkNoManifestWriteDummy();
     TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
     for (const auto& cfd_opts : column_family_datas) {
-      const auto cfd = cfd_opts.first;
-      const auto options_map_ptr = cfd_opts.second;
+      auto* cfd = cfd_opts.first;
+      const auto* options_map_ptr = cfd_opts.second;
       auto pre_cb = [&]() -> Status {
         Status cb_s = cfd->SetOptions(db_options, *options_map_ptr);
         if (cb_s.ok()) {
@@ -1254,6 +1254,9 @@ Status DBImpl::SetOptions(
         error_handler_.SetBGError(versions_->io_status(),
                                   BackgroundErrorReason::kManifestWrite);
       }
+      if (!s.ok()) {
+        break;
+      }
     }
 
     if (s.ok()) {
@@ -1268,8 +1271,8 @@ Status DBImpl::SetOptions(
       bg_cv_.SignalAll();
 
 #ifndef NDEBUG
-      for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
-        const auto cfd = column_family_datas[i].first;
+      for (size_t i = 0; i < column_family_datas.size(); ++i) {
+        auto* cfd = column_family_datas[i].first;
         assert(new_options_copy[i] == cfd->GetLatestMutableCFOptions());
         assert(cfd->GetLatestMutableCFOptions() ==
                cfd->GetCurrentMutableCFOptions());
@@ -1298,23 +1301,24 @@ Status DBImpl::SetOptions(
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "SetOptions() on [%zu] column families, inputs:",
                  column_family_datas.size());
-  for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
-    const auto cfd = column_family_datas[i].first;
-    const auto options_map_ptr = column_family_datas[i].second;
+  for (size_t i = 0; i < column_family_datas.size(); ++i) {
+    const auto* cfd = column_family_datas[i].first;
+    const auto* options_map_ptr = column_family_datas[i].second;
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Column family [%s]:", cfd->GetName().c_str());
+                   "Set options on column family [%s] (%zu/%zu), inputs:",
+                   cfd->GetName().c_str(), i, column_family_datas.size());
     for (const auto& o : *options_map_ptr) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s: %s\n",
                      o.first.c_str(), o.second.c_str());
     }
   }
   if (s.ok()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "SetOptions() succeeded, new RocksDB options:");
-    for (uint64_t i = 0; i < column_family_datas.size(); ++i) {
-      const auto cfd = column_family_datas[i].first;
+    for (size_t i = 0; i < column_family_datas.size(); ++i) {
+      const auto* cfd = column_family_datas[i].first;
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Column family [%s]:", cfd->GetName().c_str());
+                     "Set options on column family [%s] (%zu/%zu) succeeded, "
+                     "updated CF options:",
+                     cfd->GetName().c_str(), i, column_family_datas.size());
       new_options_copy[i].Dump(immutable_db_options_.info_log.get());
     }
     if (!persist_options_status.ok()) {
@@ -1323,7 +1327,8 @@ Status DBImpl::SetOptions(
     }
   } else {
     persist_options_status.PermitUncheckedError();  // less important
-    ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetOptions() failed");
+    ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetOptions() failed: %s",
+                   s.ToString().c_str());
   }
   LogFlush(immutable_db_options_.info_log);
   return s;
