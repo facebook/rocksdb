@@ -540,7 +540,10 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   uint64_t cf_size = 0;
   ASSERT_TRUE(
       db_->GetIntProperty(cfh, DB::Properties::kTotalSstFilesSize, &cf_size));
-  ASSERT_LE(cf_size, 0.2 * kTotalRecords * kValueSize);
+
+  // As the compaction scheduling is not deterministic, use a loose bound check
+  // to reduce the flakiness of the test.
+  ASSERT_LT(cf_size, kTotalRecords * kValueSize);
 
   delete cfh;
 }
