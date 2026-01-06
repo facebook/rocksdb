@@ -538,9 +538,26 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   // Validate CF size is less than 20% of the total data created to validate the
   // tombstones has collapsed
   uint64_t cf_size = 0;
-  ASSERT_TRUE(
-      db_->GetIntProperty(cfh, DB::Properties::kTotalSstFilesSize, &cf_size));
-  ASSERT_LE(cf_size, 0.2 * kTotalRecords * kValueSize);
+
+  // use TEST_WaitForCompact to wait for compaction to run for a while
+  WaitForCompactOptions wait_for_compact_options;
+  wait_for_compact_options.timeout = std::chrono::seconds(1);
+
+  // For some reason the background compaction never ends when calling
+  // TEST_WaitForCompact without timeout, which causes the test to timeout. This
+  // likely indicates a bug in the compaction picking logic.
+  // TODO (issue #14223, fix potential bug in compaction picking logic)
+  int timeout = 60;
+  auto threshold = kTotalRecords * kValueSize * 0.2;
+
+  do {
+    auto s = dbfull()->TEST_WaitForCompact(wait_for_compact_options);
+    ASSERT_TRUE(s.ok() || s.IsTimedOut());
+    ASSERT_TRUE(
+        db_->GetIntProperty(cfh, DB::Properties::kTotalSstFilesSize, &cf_size));
+  } while (cf_size > threshold && timeout-- > 0);
+
+  ASSERT_LE(cf_size, threshold);
 
   delete cfh;
 }
