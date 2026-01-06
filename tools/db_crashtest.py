@@ -474,10 +474,7 @@ def get_dbname(test_name):
                 print("Running DB cleanup command - %s\n" % cleanup_cmd)
                 # Ignore failure
                 os.system(cleanup_cmd)
-            try:
-                os.mkdir(dbname)
-            except OSError:
-                pass
+            os.makedirs(dbname, exist_ok=True)
     return dbname
 
 
@@ -535,6 +532,8 @@ def is_direct_io_supported(dbname):
     if is_remote_db:
         return False
     else:
+        # Note: db dir might be removed on check_mode change. Re-create it
+        os.makedirs(dbname, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=dbname) as f:
             try:
                 os.open(f.name, os.O_DIRECT)
