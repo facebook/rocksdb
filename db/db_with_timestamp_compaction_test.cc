@@ -541,9 +541,14 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   ASSERT_TRUE(
       db_->GetIntProperty(cfh, DB::Properties::kTotalSstFilesSize, &cf_size));
 
+  // use TEST_WaitForCompact to wait for compaction to run for 5 seconds
+  WaitForCompactOptions wait_for_compact_options;
+  wait_for_compact_options.timeout = std::chrono::seconds(5);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(wait_for_compact_options));
+
   // As the compaction scheduling is not deterministic, use a loose bound check
   // to reduce the flakiness of the test.
-  ASSERT_LT(cf_size, kTotalRecords * kValueSize);
+  ASSERT_LT(cf_size, 0.5 * kTotalRecords * kValueSize);
 
   delete cfh;
 }
