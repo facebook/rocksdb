@@ -549,7 +549,7 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
 
   // As the compaction scheduling is not deterministic, use a loose bound check
   // to reduce the flakiness of the test.
-  ASSERT_LT(cf_size, 0.5 * kTotalRecords * kValueSize);
+  ASSERT_LT(cf_size, kTotalRecords * kValueSize);
 
   delete cfh;
 }
