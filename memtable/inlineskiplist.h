@@ -372,7 +372,7 @@ struct InlineSkipList<Comparator>::Node {
  private:
   // next_[0] is the lowest level link (level 0).  Higher levels are
   // stored _earlier_, so level 1 is at next_[-1].
-  AcqRelAtomic<Node*> next_[1];
+  Atomic<Node*> next_[1];
 };
 
 template <class Comparator>
@@ -813,7 +813,7 @@ char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
-  auto prefix = sizeof(AcqRelAtomic<Node*>) * (height - 1);
+  auto prefix = sizeof(Atomic<Node*>) * (height - 1);
 
   // prefix is space for the height - 1 pointers that we store before
   // the Node instance (next_[-(height - 1) .. -1]).  Node starts at

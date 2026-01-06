@@ -1613,7 +1613,7 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
       return s;
     }
 
-    AcqRelAtomic<uint32_t> syncs_before_failure_{UINT32_MAX};
+    Atomic<uint32_t> syncs_before_failure_{UINT32_MAX};
 
    protected:
     class MyTestWritableFile : public FSWritableFileOwnerWrapper {
