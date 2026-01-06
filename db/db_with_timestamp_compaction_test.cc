@@ -543,6 +543,10 @@ TEST_F(TimestampCompatibleCompactionTest, UdtTombstoneCollapsingTest) {
   WaitForCompactOptions wait_for_compact_options;
   wait_for_compact_options.timeout = std::chrono::seconds(1);
 
+  // For some reason the background compaction never ends when calling
+  // TEST_WaitForCompact without timeout, which causes the test to timeout. This
+  // likely indicates a bug in the compaction picking logic.
+  // TODO (issue #14223, fix potential bug in compaction picking logic)
   int timeout = 60;
   auto threshold = kTotalRecords * kValueSize * 0.2;
 
