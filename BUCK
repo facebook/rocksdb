@@ -268,6 +268,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/dynamic_bloom.cc",
         "util/file_checksum_helper.cc",
         "util/hash.cc",
+        "util/io_dispatcher_imp.cc",
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
@@ -5210,6 +5211,12 @@ cpp_unittest_wrapper(name="inlineskiplist_test",
 
 cpp_unittest_wrapper(name="interval_test",
             srcs=["util/interval_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="io_dispatcher_test",
+            srcs=["util/io_dispatcher_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
