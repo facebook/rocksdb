@@ -3277,34 +3277,32 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
       Slice input = metaindex_iter->value();
       Status handle_status = block_handle.DecodeFrom(&input);
 
+      if (!handle_status.ok()) {
+        out_stream << "  Skip the block with type "
+                   << metaindex_iter->key().ToString()
+                   << " due to error: " << handle_status.ToString() << "\n\n";
+        continue;
+      }
+
       if (metaindex_iter->key() == kPropertiesBlockName) {
         out_stream << "  Properties block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
-        if (handle_status.ok()) {
-          DumpBlockChecksumInfo(block_handle, ro, "Properties block",
-                                out_stream);
-        }
+        DumpBlockChecksumInfo(block_handle, ro, "Properties block", out_stream);
       } else if (metaindex_iter->key() == kCompressionDictBlockName) {
         out_stream << "  Compression dictionary block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
-        if (handle_status.ok()) {
-          DumpBlockChecksumInfo(block_handle, ro,
-                                "Compression dictionary block", out_stream);
-        }
+        DumpBlockChecksumInfo(block_handle, ro, "Compression dictionary block",
+                              out_stream);
       } else if (strstr(metaindex_iter->key().ToString().c_str(),
                         "filter.rocksdb.") != nullptr) {
         out_stream << "  Filter block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
-        if (handle_status.ok()) {
-          DumpBlockChecksumInfo(block_handle, ro, "Filter block", out_stream);
-        }
+        DumpBlockChecksumInfo(block_handle, ro, "Filter block", out_stream);
       } else if (metaindex_iter->key() == kRangeDelBlockName) {
         out_stream << "  Range deletion block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
-        if (handle_status.ok()) {
-          DumpBlockChecksumInfo(block_handle, ro, "Range deletion block",
-                                out_stream);
-        }
+        DumpBlockChecksumInfo(block_handle, ro, "Range deletion block",
+                              out_stream);
       }
     }
     out_stream << "\n";
