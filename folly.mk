@@ -118,12 +118,14 @@ checkout_folly:
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
 	@# Use gnu.org mirrors to improve download speed (ftp.gnu.org is often super slow)
 	cd third-party/folly && perl -pi -e 's/ftp.gnu.org/ftpmirror.gnu.org/' `git grep -l ftp.gnu.org` README.md
+	@# Use kernel.org mirror for autoconf (ftpmirror.gnu.org can be unreliable)
+	cd third-party/folly && perl -pi -e 's|ftpmirror.gnu.org/gnu/autoconf|mirrors.kernel.org/gnu/autoconf|g' build/fbcode_builder/manifests/autoconf
 	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
 	cd third-party/folly && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 
-FOLLY_BUILD_FLAGS = --no-tests --allow-system-packages
+FOLLY_BUILD_FLAGS = --no-tests
 # NOTE: To avoid ODR violations, we must build folly in debug mode iff
 # building RocksDB in debug mode.
 ifneq ($(DEBUG_LEVEL),0)
