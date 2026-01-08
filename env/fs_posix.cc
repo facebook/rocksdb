@@ -167,7 +167,6 @@ class PosixFileSystem : public FileSystem {
     result->reset();
     int fd = -1;
     int flags = cloexec_flags(O_RDONLY, &options);
-    FILE* file = nullptr;
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
@@ -187,26 +186,16 @@ class PosixFileSystem : public FileSystem {
 
     SetFD_CLOEXEC(fd, &options);
 
-    if (options.use_direct_reads && !options.use_mmap_reads) {
 #ifdef OS_MACOSX
+    if (options.use_direct_reads && !options.use_mmap_reads) {
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
         return IOError("While fcntl NoCache", fname, errno);
       }
-#endif
-    } else {
-      do {
-        IOSTATS_TIMER_GUARD(open_nanos);
-        file = fdopen(fd, "r");
-      } while (file == nullptr && errno == EINTR);
-      if (file == nullptr) {
-        close(fd);
-        return IOError("While opening file for sequentially read", fname,
-                       errno);
-      }
     }
+#endif
     result->reset(new PosixSequentialFile(
-        fname, file, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
+        fname, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
         options));
     return IOStatus::OK();
   }

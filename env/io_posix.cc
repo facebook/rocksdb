@@ -205,11 +205,10 @@ bool IsSyncFileRangeSupported(int fd) {
 /*
  * PosixSequentialFile
  */
-PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
+PosixSequentialFile::PosixSequentialFile(const std::string& fname,
                                          int fd, size_t logical_block_size,
                                          const EnvOptions& options)
     : filename_(fname),
-      file_(file),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
       logical_sector_size_(logical_block_size) {
@@ -217,13 +216,8 @@ PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
 }
 
 PosixSequentialFile::~PosixSequentialFile() {
-  if (!use_direct_io()) {
-    assert(file_);
-    fclose(file_);
-  } else {
-    assert(fd_);
-    close(fd_);
-  }
+  assert(fd_ >= 0);
+  close(fd_);
 }
 
 IOStatus PosixSequentialFile::Read(size_t n, const IOOptions& /*opts*/,
@@ -232,22 +226,27 @@ IOStatus PosixSequentialFile::Read(size_t n, const IOOptions& /*opts*/,
   assert(result != nullptr && !use_direct_io());
   IOStatus s;
   size_t r = 0;
-  do {
-    clearerr(file_);
-    r = fread_unlocked(scratch, 1, n, file_);
-  } while (r == 0 && ferror(file_) && errno == EINTR);
-  *result = Slice(scratch, r);
-  if (r < n) {
-    if (feof(file_)) {
-      // We leave status as ok if we hit the end of the file
-      // We also clear the error so that the reads can continue
-      // if a new data is written to the file
-      clearerr(file_);
-    } else {
-      // A partial read with an error: return a non-ok status
+  while (r < n) {
+    const ssize_t q = read(fd_, &scratch[r], n - r);
+
+    // Retry read if interrupted
+    if (q == -1 && errno == EINTR) continue;
+
+    // Advance write count and read again
+    if (q > 0) {
+      r += q;
+      continue;
+    }
+
+    // If error on read, return a non-ok status
+    if (q < 0) {
       s = IOError("While reading file sequentially", filename_, errno);
     }
+
+    // Treat end of file as ok; exit loop regardless
+    break;
   }
+  *result = Slice(scratch, r);
   return s;
 }
 
@@ -292,7 +291,7 @@ IOStatus PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
 }
 
 IOStatus PosixSequentialFile::Skip(uint64_t n) {
-  if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {
+  if (lseek(fd_, static_cast<off_t>(n), SEEK_CUR) == static_cast<off_t>(-1)) {
     return IOError("While fseek to skip " + std::to_string(n) + " bytes",
                    filename_, errno);
   }
