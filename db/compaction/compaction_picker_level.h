@@ -26,7 +26,8 @@ class LevelCompactionPicker : public CompactionPicker {
       const std::vector<SequenceNumber>& /* existing_snapshots */,
       const SnapshotChecker* /* snapshot_checker */,
       VersionStorageInfo* vstorage, LogBuffer* log_buffer,
-      bool /*require_max_output_level*/ = false) override;
+      bool /*require_max_output_level*/ = false,
+      const std::string& full_history_ts_low = "") override;
 
   bool NeedsCompaction(const VersionStorageInfo* vstorage) const override;
 };

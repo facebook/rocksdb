@@ -49,8 +49,10 @@ Status CompactionOutputs::Finish(
     meta->fd.file_size = current_bytes;
     meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
-    meta->user_defined_timestamps_persisted = static_cast<bool>(
-        builder_->GetTableProperties().user_defined_timestamps_persisted);
+    const TableProperties& tp = builder_->GetTableProperties();
+    meta->user_defined_timestamps_persisted =
+        static_cast<bool>(tp.user_defined_timestamps_persisted);
+    ExtractTimestampFromTableProperties(tp, meta);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;

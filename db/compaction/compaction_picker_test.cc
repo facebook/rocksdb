@@ -165,6 +165,13 @@ class CompactionPickerTestBase : public testing::Test {
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     // oldest_ancester_time is only used if newest_key_time is not available
     f->oldest_ancester_time = oldest_ancestor_time;
+    // Set min/max timestamps for UDT support
+    if (!ts_of_smallest.empty()) {
+      f->min_timestamp = ts_of_smallest.ToString();
+    }
+    if (!ts_of_largest.empty()) {
+      f->max_timestamp = ts_of_largest.ToString();
+    }
     TableProperties tp;
     tp.newest_key_time = newest_key_time;
     f->fd.table_reader = new mock::MockTableReader(mock::KVVector{}, tp);
@@ -195,6 +202,11 @@ class CompactionPickerTestBase : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
+    UpdateVersionStorageInfoWithTsLow(/*full_history_ts_low=*/"");
+  }
+
+  void UpdateVersionStorageInfoWithTsLow(
+      const std::string& full_history_ts_low) {
     if (temp_vstorage_) {
       VersionBuilder builder(FileOptions(), &ioptions_, nullptr,
                              vstorage_.get(), nullptr);
@@ -202,7 +214,8 @@ class CompactionPickerTestBase : public testing::Test {
       vstorage_ = std::move(temp_vstorage_);
     }
     vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
-    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                      full_history_ts_low);
     vstorage_->SetFinalized();
   }
 
@@ -2726,7 +2739,7 @@ TEST_F(CompactionPickerTest, CompactRangeMaxCompactionBytes) {
           /*compact_range_options*/ {}, /*begin=*/nullptr, /*end=*/nullptr,
           &manual_end_ptr, &manual_conflict,
           /*max_file_num_to_ignore=*/std::numeric_limits<uint64_t>::max(),
-          /*trim_ts=*/""));
+          /*trim_ts=*/"", /*full_history_ts_low=*/""));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_levels());
   ASSERT_EQ(2, compaction->output_level());
@@ -3463,7 +3476,8 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
       ASSERT_EQ(1U, compaction->num_input_files(1));
     }
 
-    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                      /*full_history_ts_low=*/"");
     // After recomputing the compaction score, only one marked file will remain
     random_index = 0;
     std::unique_ptr<Compaction> compaction2(
@@ -3662,7 +3676,8 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
           cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
           ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(),
           nullptr, nullptr, &manual_end, &manual_conflict,
-          std::numeric_limits<uint64_t>::max(), ""));
+          std::numeric_limits<uint64_t>::max(), "",
+          /*full_history_ts_low=*/""));
 
   ASSERT_TRUE(compaction);
 
@@ -4761,6 +4776,209 @@ TEST_F(CompactionPickerTest, StandaloneRangeDeletionOnlyPicksOlderFiles) {
   ASSERT_EQ(4, compaction->level(1));
   ASSERT_EQ(1U, compaction->num_input_files(1));
   ASSERT_EQ(10U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+// Tests for full_history_ts_low parameter in compaction picker.
+// The full_history_ts_low parameter is used to control bottommost file marking
+// for compaction when user-defined timestamps (UDT) are enabled.
+
+// Level compaction tests for full_history_ts_low:
+// These tests verify that bottommost files are correctly marked/unmarked
+// for compaction based on their max timestamp relative to full_history_ts_low.
+
+TEST_F(CompactionPickerU64TsTest,
+       BottommostNotMarkedWhenTimestampAboveFullHistoryTsLow) {
+  // Test that bottommost files are NOT marked for compaction when their
+  // max timestamp is >= full_history_ts_low. This prevents infinite
+  // compaction loops where timestamp could not be collapsed.
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  // Create timestamps: file has max_ts = 1000, full_history_ts_low = 500
+  // Since 1000 >= 500, the file should NOT be marked for compaction.
+  std::string ts_small;
+  PutFixed64(&ts_small, 500);  // min timestamp
+  std::string ts_large;
+  PutFixed64(&ts_large, 1000);  // max timestamp
+
+  // Add a file at bottommost level (level 5) with seqno that would normally
+  // qualify for bottommost compaction (seqno < oldest_snapshot)
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/10, /*largest_seq=*/40,
+      /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 500);
+
+  // Use the helper that passes full_history_ts_low to ComputeCompactionScore
+  UpdateVersionStorageInfoWithTsLow(full_history_ts_low);
+
+  // Update oldest snapshot so the seqno condition is met
+  // (file's largest_seqno=40 < oldest_snapshot_seqnum=50)
+  vstorage_->UpdateOldestSnapshot(
+      /*oldest_snapshot_seqnum=*/50,
+      /*allow_ingest_behind=*/false,
+      /*ucmp=*/ucmp_, full_history_ts_low);
+
+  // File's max_ts (1000) >= full_history_ts_low (500), so it should NOT
+  // be marked for bottommost compaction
+  ASSERT_TRUE(vstorage_->BottommostFilesMarkedForCompaction().empty());
+}
+
+TEST_F(CompactionPickerU64TsTest,
+       BottommostMarkedWhenTimestampBelowFullHistoryTsLow) {
+  // Test that bottommost files ARE marked for compaction when their
+  // max timestamp is < full_history_ts_low.
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  // Create timestamps: file has max_ts = 100, full_history_ts_low = 500
+  // Since 100 < 500, the file SHOULD be marked for compaction.
+  std::string ts_small;
+  PutFixed64(&ts_small, 50);  // min timestamp
+  std::string ts_large;
+  PutFixed64(&ts_large, 100);  // max timestamp
+
+  // Add a file at bottommost level (level 5) with seqno that qualifies
+  // for bottommost compaction (seqno < oldest_snapshot)
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/10, /*largest_seq=*/40,
+      /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 500);
+
+  // Use the helper that passes full_history_ts_low to ComputeCompactionScore
+  UpdateVersionStorageInfoWithTsLow(full_history_ts_low);
+
+  // Update oldest snapshot so the seqno condition is met
+  vstorage_->UpdateOldestSnapshot(
+      /*oldest_snapshot_seqnum=*/50,
+      /*allow_ingest_behind=*/false,
+      /*ucmp=*/ucmp_, full_history_ts_low);
+
+  // File's max_ts (100) < full_history_ts_low (500), so it SHOULD be
+  // marked for bottommost compaction
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction().size());
+  ASSERT_EQ(5, vstorage_->BottommostFilesMarkedForCompaction()[0].first);
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction()[0]
+                    .second->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerU64TsTest,
+       BottommostNotMarkedWithEmptyFullHistoryTsLow) {
+  // Test that when full_history_ts_low is empty, files are still marked
+  // based on seqno condition (backward compatibility behavior).
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  std::string ts_small;
+  PutFixed64(&ts_small, 500);
+  std::string ts_large;
+  PutFixed64(&ts_large, 1000);
+
+  // Add a file at bottommost level with seqno < oldest_snapshot
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/10, /*largest_seq=*/40,
+      /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+  // Update version storage with empty full_history_ts_low
+  UpdateVersionStorageInfo();
+
+  // Update oldest snapshot with empty full_history_ts_low
+  vstorage_->UpdateOldestSnapshot(
+      /*oldest_snapshot_seqnum=*/50,
+      /*allow_ingest_behind=*/false,
+      /*ucmp=*/ucmp_,
+      /*full_history_ts_low=*/"");
+
+  // With empty full_history_ts_low, the timestamp check is skipped
+  // (has_udt=false). File should be marked based on seqno condition only.
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction().size());
+}
+
+TEST_F(CompactionPickerU64TsTest, LevelPickCompactionWithFullHistoryTsLow) {
+  // Test that level compaction correctly passes full_history_ts_low
+  // and picks compaction appropriately
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  std::string ts1;
+  PutFixed64(&ts1, 100);
+  std::string ts2;
+  PutFixed64(&ts2, 200);
+
+  // Add two L0 files to trigger compaction
+  Add(0, 1U, "100", "200", /*file_size=*/1U, /*path_id=*/0,
+      /*smallest_seq=*/100, /*largest_seq=*/100,
+      /*compensated_file_size=*/0,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+  Add(0, 2U, "150", "250", /*file_size=*/1U, /*path_id=*/0,
+      /*smallest_seq=*/200, /*largest_seq=*/200,
+      /*compensated_file_size=*/0,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+
+  UpdateVersionStorageInfo();
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 150);
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /*snapshot_checker=*/nullptr, vstorage_.get(),
+      &log_buffer_, /*require_max_output_level=*/false, full_history_ts_low));
+
+  // Compaction should be picked for L0 files
+  ASSERT_NE(nullptr, compaction);
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(0, compaction->start_level());
+}
+
+TEST_F(CompactionPickerU64TsTest, UniversalPickCompactionWithFullHistoryTsLow) {
+  // Test that universal compaction correctly accepts full_history_ts_low
+  constexpr uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  NewVersionStorage(1, kCompactionStyleUniversal);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  std::string ts1;
+  PutFixed64(&ts1, 100);
+  std::string ts2;
+  PutFixed64(&ts2, 200);
+
+  // Add files to trigger universal compaction
+  Add(0, 1U, "100", "200", kFileSize, /*path_id=*/0,
+      /*smallest_seq=*/100, /*largest_seq=*/100,
+      /*compensated_file_size=*/kFileSize,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+  Add(0, 2U, "150", "250", kFileSize, /*path_id=*/0,
+      /*smallest_seq=*/200, /*largest_seq=*/200,
+      /*compensated_file_size=*/kFileSize,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+
+  UpdateVersionStorageInfo();
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 150);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /*snapshot_checker=*/nullptr,
+          vstorage_.get(), &log_buffer_, /*require_max_output_level=*/false,
+          full_history_ts_low));
+
+  // Universal compaction should be picked
+  ASSERT_NE(nullptr, compaction);
+  ASSERT_EQ(2U, compaction->num_input_files(0));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

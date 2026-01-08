@@ -24,7 +24,8 @@ class FIFOCompactionPicker : public CompactionPicker {
       const std::vector<SequenceNumber>& /* existing_snapshots */,
       const SnapshotChecker* /* snapshot_checker */,
       VersionStorageInfo* version, LogBuffer* log_buffer,
-      bool /* require_max_output_level*/ = false) override;
+      bool /* require_max_output_level*/ = false,
+      const std::string& /* full_history_ts_low */ = "") override;
 
   Compaction* PickCompactionForCompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
@@ -33,7 +34,8 @@ class FIFOCompactionPicker : public CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts) override;
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+      const std::string& full_history_ts_low) override;
 
   // The maximum allowed output level.  Always returns 0.
   int MaxOutputLevel() const override { return 0; }
