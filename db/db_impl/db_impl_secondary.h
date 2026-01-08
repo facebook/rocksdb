@@ -216,9 +216,9 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::SetOptions;
   Status SetOptions(
-      ColumnFamilyHandle* /*cfd*/,
-      const std::unordered_map<std::string, std::string>& /*options_map*/)
-      override {
+      const std::unordered_map<ColumnFamilyHandle*,
+                               std::unordered_map<std::string, std::string>>&
+      /*column_families_opts_map*/) override {
     // Currently not supported because changing certain options may cause
     // flush/compaction and/or write to MANIFEST.
     return Status::NotSupported("Not supported operation in secondary mode.");

@@ -1689,6 +1689,46 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
   ASSERT_EQ(Get("x"), "x");
 }
 
+TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = CurrentOptions().env;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // Create two additional column families
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+
+  // Verify initial state - auto compaction should be disabled
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
+
+  // Set options on multiple column families at once
+  ASSERT_OK(dbfull()->SetOptions({handles_[1], handles_[2]},
+                                 {{"disable_auto_compactions", "false"}}));
+
+  ASSERT_TRUE(
+      dbfull()->GetOptions(handles_[0]).disable_auto_compactions);  // unchanged
+  ASSERT_FALSE(
+      dbfull()->GetOptions(handles_[1]).disable_auto_compactions);  // changed
+  ASSERT_FALSE(
+      dbfull()->GetOptions(handles_[2]).disable_auto_compactions);  // changed
+
+  std::unordered_map<ColumnFamilyHandle*,
+                     std::unordered_map<std::string, std::string>>
+      options_map;
+  options_map[handles_[0]] = {{"disable_auto_compactions", "false"}};
+  options_map[handles_[1]] = {{"disable_auto_compactions", "true"}};
+  options_map[handles_[2]] = {{"disable_auto_compactions", "true"}};
+  ASSERT_OK(dbfull()->SetOptions(options_map));
+
+  ASSERT_FALSE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
