@@ -71,6 +71,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly

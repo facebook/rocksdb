@@ -116,12 +116,131 @@ checkout_folly:
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# const mismatch
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
-	@# Use gnu.org mirrors to improve download speed (ftp.gnu.org is often super slow)
-	cd third-party/folly && perl -pi -e 's/ftp.gnu.org/ftpmirror.gnu.org/' `git grep -l ftp.gnu.org` README.md
-	@# Use kernel.org mirror for autoconf (ftpmirror.gnu.org can be unreliable)
-	cd third-party/folly && perl -pi -e 's|ftpmirror.gnu.org/gnu/autoconf|mirrors.kernel.org/gnu/autoconf|g' build/fbcode_builder/manifests/autoconf
+	@# Restore cached downloads and handle unreliable mirrors with fallback
+	@cd third-party/folly && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
+		mkdir -p "$$DOWNLOAD_DIR" && \
+		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
+		mkdir -p "$$CACHE_DIR" && \
+		echo "Restoring cached downloads..." && \
+		for f in "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip 2>/dev/null; do \
+			[ -f "$$f" ] && cp -n "$$f" "$$DOWNLOAD_DIR/" 2>/dev/null || true; \
+		done && \
+		echo "Handling known unreliable downloads with fallback mirrors..." && \
+		$(PYTHON) - "$$DOWNLOAD_DIR" "$$CACHE_DIR" build/fbcode_builder/manifests <<'PYTHON_SCRIPT'
+import sys, os, hashlib, subprocess, re, configparser
+
+download_dir, cache_dir, manifests_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# Fallback mirror patterns for known unreliable hosts
+# Maps URL pattern to list of alternative mirror base URLs
+MIRROR_FALLBACKS = {
+    "ftp.gnu.org/gnu/": [
+        "https://mirrors.kernel.org/gnu/",
+        "https://ftpmirror.gnu.org/gnu/",
+        "https://ftp.gnu.org/gnu/",
+    ],
+    "ftpmirror.gnu.org/gnu/": [
+        "https://mirrors.kernel.org/gnu/",
+        "https://ftpmirror.gnu.org/gnu/",
+        "https://ftp.gnu.org/gnu/",
+    ],
+}
+
+# Packages known to have unreliable mirrors
+PACKAGES_TO_CHECK = ["autoconf", "automake", "libtool"]
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    try:
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except:
+        return None
+
+def parse_manifest(manifest_path):
+    """Parse a getdeps manifest file to extract download info."""
+    config = configparser.ConfigParser()
+    try:
+        config.read(manifest_path)
+        if 'download' in config:
+            return {
+                'url': config['download'].get('url', ''),
+                'sha256': config['download'].get('sha256', ''),
+            }
+    except:
+        pass
+    return None
+
+def get_fallback_mirrors(url):
+    """Get fallback mirror URLs for a given URL."""
+    for pattern, mirrors in MIRROR_FALLBACKS.items():
+        if pattern in url:
+            # Extract the path after the pattern
+            path_start = url.find(pattern) + len(pattern)
+            path = url[path_start:]
+            return [mirror + path for mirror in mirrors]
+    return [url]  # No fallback, use original
+
+for package in PACKAGES_TO_CHECK:
+    manifest_path = os.path.join(manifests_dir, package)
+    if not os.path.exists(manifest_path):
+        continue
+
+    info = parse_manifest(manifest_path)
+    if not info or not info['url'] or not info['sha256']:
+        continue
+
+    # Determine filename from URL
+    url = info['url']
+    expected_sha256 = info['sha256']
+    url_filename = os.path.basename(url)
+
+    # getdeps uses format: {package}-{filename}
+    filename = f"{package}-{url_filename}"
+    filepath = os.path.join(download_dir, filename)
+    cache_path = os.path.join(cache_dir, filename)
+
+    # Check if already valid
+    if os.path.exists(filepath) and sha256_file(filepath) == expected_sha256:
+        print(f"  {filename}: OK (already downloaded)")
+        continue
+
+    # Check cache
+    if os.path.exists(cache_path) and sha256_file(cache_path) == expected_sha256:
+        print(f"  {filename}: OK (from cache)")
+        subprocess.run(['cp', cache_path, filepath], check=True)
+        continue
+
+    # Try fallback mirrors
+    mirrors = get_fallback_mirrors(url)
+    for mirror_url in mirrors:
+        print(f"  {filename}: trying {mirror_url}...")
+        try:
+            subprocess.run(['wget', '-q', '-O', filepath, mirror_url], check=True, timeout=120)
+            if sha256_file(filepath) == expected_sha256:
+                print(f"  {filename}: OK (downloaded)")
+                subprocess.run(['cp', filepath, cache_path], check=False)
+                break
+            else:
+                os.remove(filepath)
+        except:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+    else:
+        print(f"  {filename}: WARNING - all mirrors failed")
+PYTHON_SCRIPT
 	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
 	cd third-party/folly && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
+	@# Update cache with any new downloads
+	@cd third-party/folly && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
+		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
+		for f in "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip 2>/dev/null; do \
+			[ -f "$$f" ] && cp -n "$$f" "$$CACHE_DIR/" 2>/dev/null || true; \
+		done
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 
