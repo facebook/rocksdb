@@ -1,0 +1,21 @@
+name: cache-getdeps-downloads
+description: Cache getdeps downloads to avoid unreliable mirrors and speed up builds
+outputs:
+  cache-hit:
+    description: Whether the cache was hit
+    value: ${{ steps.cache-downloads.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+  - name: Cache getdeps downloads
+    id: cache-downloads
+    uses: actions/cache@v4
+    with:
+      # Use a fixed path that we control - folly.mk will sync with getdeps downloads dir
+      path: /tmp/rocksdb-getdeps-cache
+      # Use a rolling cache key - the cache accumulates downloads over time
+      # The key includes a weekly timestamp to ensure periodic refresh
+      key: getdeps-downloads-${{ runner.os }}-${{ runner.arch }}-week-${{ github.run_id }}
+      restore-keys: |
+        getdeps-downloads-${{ runner.os }}-${{ runner.arch }}-week-
+        getdeps-downloads-${{ runner.os }}-${{ runner.arch }}-
