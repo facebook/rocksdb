@@ -123,7 +123,7 @@ checkout_folly:
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 
-FOLLY_BUILD_FLAGS = --no-tests
+FOLLY_BUILD_FLAGS = --no-tests --allow-system-packages
 # NOTE: To avoid ODR violations, we must build folly in debug mode iff
 # building RocksDB in debug mode.
 ifneq ($(DEBUG_LEVEL),0)
