@@ -102,6 +102,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly
@@ -120,6 +121,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
@@ -133,6 +135,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly
