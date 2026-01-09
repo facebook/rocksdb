@@ -10,6 +10,7 @@
 
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Footer;
@@ -27,10 +28,12 @@ inline MemoryAllocator* GetMemoryAllocator(
 // Assumes block has a trailer past `data + block_size` as in format.h.
 // `file_name` provided for generating diagnostic message in returned status.
 // `offset` might be required for proper verification (also used for message).
+// `block_type` is included in the error message to provide context about
+// which type of block failed checksum verification.
 //
 // Returns Status::OK() on checksum match, or Status::Corruption() on checksum
 // mismatch.
 Status VerifyBlockChecksum(const Footer& footer, const char* data,
                            size_t block_size, const std::string& file_name,
-                           uint64_t offset);
+                           uint64_t offset, BlockType block_type);
 }  // namespace ROCKSDB_NAMESPACE
