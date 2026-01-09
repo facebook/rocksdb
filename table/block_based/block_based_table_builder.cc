@@ -842,6 +842,9 @@ struct BlockBasedTableBuilder::Rep {
 
   // A compressor for blocks in general, without dictionary compression
   std::unique_ptr<Compressor> basic_compressor;
+  // Built-in compressors for compression size sampling
+  std::unique_ptr<Compressor> fast_sample_compressor;
+  std::unique_ptr<Compressor> slow_sample_compressor;
   // A compressor for data blocks, which might be tuned differently and might
   // use dictionary compression (when applicable). See ~Rep() for some details.
   UnownedPtr<Compressor> data_block_compressor = nullptr;
@@ -1160,6 +1163,26 @@ struct BlockBasedTableBuilder::Rep {
               data_block_verify_decompressor->ObtainWorkingArea(
                   data_block_compressor->GetPreferredCompressionType());
         }
+      }
+    }
+
+    if (sample_for_compression > 0) {
+      auto builtin = GetBuiltinCompressionManager(
+          GetCompressFormatForVersion(table_opt.format_version));
+      if (builtin->SupportsCompressionType(kLZ4Compression)) {
+        fast_sample_compressor = builtin->GetCompressor({}, kLZ4Compression);
+      } else if (builtin->SupportsCompressionType(kSnappyCompression)) {
+        fast_sample_compressor = builtin->GetCompressor({}, kSnappyCompression);
+      }
+      if (builtin->SupportsCompressionType(kZSTD)) {
+        slow_sample_compressor = builtin->GetCompressor({}, kZSTD);
+      } else if (builtin->SupportsCompressionType(kZlibCompression)) {
+        slow_sample_compressor = builtin->GetCompressor({}, kZlibCompression);
+      }
+      if (fast_sample_compressor == nullptr &&
+          slow_sample_compressor == nullptr) {
+        // Disable because we can't do it
+        sample_for_compression = 0;
       }
     }
 
@@ -1586,51 +1609,43 @@ void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
   if (r->sample_for_compression > 0 &&
       Random::GetTLSInstance()->OneIn(
           static_cast<int>(r->sample_for_compression))) {
-    std::string sampled_output_fast;
-    std::string sampled_output_slow;
+    GrowableBuffer sampled_output;
+    sampled_output.ResetForSize(uncompressed_block_data.size());
+    size_t fast_size = uncompressed_block_data.size();
+    size_t slow_size = uncompressed_block_data.size();
 
     // Sampling with a fast compression algorithm
-    if (LZ4_Supported() || Snappy_Supported()) {
-      CompressionType c =
-          LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
-      CompressionOptions options;
-      CompressionContext context(c, options);
-      CompressionInfo info_tmp(options, context,
-                               CompressionDict::GetEmptyDict(), c);
-
-      OLD_CompressData(
-          uncompressed_block_data, info_tmp,
-          GetCompressFormatForVersion(r->table_options.format_version),
-          &sampled_output_fast);
+    if (r->fast_sample_compressor) {
+      CompressionType result_type = kNoCompression;
+      Status s = r->fast_sample_compressor->CompressBlock(
+          uncompressed_block_data, sampled_output.data(), &fast_size,
+          &result_type, /*working_area=*/nullptr);
+      if (!s.ok() || result_type == kNoCompression) {
+        // For accounting, fall back on no compression
+        fast_size = uncompressed_block_data.size();
+      }
     }
 
     // Sampling with a slow but high-compression algorithm
-    if (ZSTD_Supported() || Zlib_Supported()) {
-      CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
-      CompressionOptions options;
-      CompressionContext context(c, options);
-      CompressionInfo info_tmp(options, context,
-                               CompressionDict::GetEmptyDict(), c);
-
-      OLD_CompressData(
-          uncompressed_block_data, info_tmp,
-          GetCompressFormatForVersion(r->table_options.format_version),
-          &sampled_output_slow);
+    if (r->slow_sample_compressor) {
+      CompressionType result_type = kNoCompression;
+      Status s = r->slow_sample_compressor->CompressBlock(
+          uncompressed_block_data, sampled_output.data(), &slow_size,
+          &result_type, /*working_area=*/nullptr);
+      if (!s.ok() || result_type == kNoCompression) {
+        // For accounting, fall back on no compression
+        slow_size = uncompressed_block_data.size();
+      }
     }
 
-    if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
-      // Currently compression sampling is only enabled for data block.
-      r->sampled_input_data_bytes.FetchAddRelaxed(
-          uncompressed_block_data.size());
-      r->sampled_output_slow_data_bytes.FetchAddRelaxed(
-          sampled_output_slow.size());
-      r->sampled_output_fast_data_bytes.FetchAddRelaxed(
-          sampled_output_fast.size());
-    }
+    // NOTE: Currently compression sampling is only enabled for data block.
+    r->sampled_input_data_bytes.FetchAddRelaxed(uncompressed_block_data.size());
+    r->sampled_output_slow_data_bytes.FetchAddRelaxed(slow_size);
+    r->sampled_output_fast_data_bytes.FetchAddRelaxed(fast_size);
 
-    NotifyCollectTableCollectorsOnBlockAdd(
-        r->table_properties_collectors, uncompressed_block_data.size(),
-        sampled_output_slow.size(), sampled_output_fast.size());
+    NotifyCollectTableCollectorsOnBlockAdd(r->table_properties_collectors,
+                                           uncompressed_block_data.size(),
+                                           slow_size, fast_size);
   } else {
     NotifyCollectTableCollectorsOnBlockAdd(
         r->table_properties_collectors, uncompressed_block_data.size(),
