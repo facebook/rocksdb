@@ -3241,6 +3241,17 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
                 "--------------------------------------\n";
   out_stream << "  " << rep_->footer.ToString() << "\n";
 
+  // Output Checksum Type Legend
+  out_stream << "Block Checksum Type Legend:\n"
+                "--------------------------------------\n";
+  out_stream << "  0 = kNoChecksum\n";
+  out_stream << "  1 = kCRC32c\n";
+  out_stream << "  2 = kxxHash\n";
+  out_stream << "  3 = kxxHash64\n";
+  out_stream << "  4 = kXXH3\n";
+  out_stream << "  (This file uses checksum type: "
+             << static_cast<int>(rep_->footer.checksum_type()) << ")\n\n";
+
   // Output MetaIndex
   out_stream << "Metaindex Details:\n"
                 "--------------------------------------\n";
@@ -3251,25 +3262,47 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
   Status s = ReadMetaIndexBlock(ro, nullptr /* prefetch_buffer */, &metaindex,
                                 &metaindex_iter);
   if (s.ok()) {
+    // Print metaindex block checksum
+    DumpBlockChecksumInfo(rep_->footer.metaindex_handle(), ro,
+                          "Metaindex block", out_stream);
+
     for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
          metaindex_iter->Next()) {
       s = metaindex_iter->status();
       if (!s.ok()) {
         return s;
       }
+      // Parse block handle from metaindex value
+      BlockHandle block_handle;
+      Slice input = metaindex_iter->value();
+      Status handle_status = block_handle.DecodeFrom(&input);
+
+      if (!handle_status.ok()) {
+        out_stream << "  Skip the block with type "
+                   << metaindex_iter->key().ToString()
+                   << " due to error: " << handle_status.ToString() << "\n\n";
+        continue;
+      }
+
       if (metaindex_iter->key() == kPropertiesBlockName) {
         out_stream << "  Properties block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Properties block", out_stream);
       } else if (metaindex_iter->key() == kCompressionDictBlockName) {
         out_stream << "  Compression dictionary block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Compression dictionary block",
+                              out_stream);
       } else if (strstr(metaindex_iter->key().ToString().c_str(),
                         "filter.rocksdb.") != nullptr) {
         out_stream << "  Filter block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Filter block", out_stream);
       } else if (metaindex_iter->key() == kRangeDelBlockName) {
         out_stream << "  Range deletion block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Range deletion block",
+                              out_stream);
       }
     }
     out_stream << "\n";
@@ -3346,11 +3379,61 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
   return Status::OK();
 }
 
+void BlockBasedTable::DumpBlockChecksumInfo(const BlockHandle& block_handle,
+                                            const ReadOptions& read_options,
+                                            const char* block_name,
+                                            std::ostream& out_stream) const {
+  if (rep_->footer.GetBlockTrailerSize() == 0) {
+    return;
+  }
+
+  size_t block_size = static_cast<size_t>(block_handle.size());
+  size_t block_size_with_trailer = block_size + kBlockTrailerSize;
+  std::unique_ptr<char[]> raw_block(new char[block_size_with_trailer]);
+  Slice raw_block_slice;
+  IOOptions opts;
+  IODebugContext dbg;
+  IOStatus io_s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
+  if (io_s.ok()) {
+    io_s = rep_->file->Read(opts, block_handle.offset(),
+                            block_size_with_trailer, &raw_block_slice,
+                            raw_block.get(), /*aligned_buf=*/nullptr, &dbg);
+  }
+  if (io_s.ok() && raw_block_slice.size() == block_size_with_trailer) {
+    const char* data = raw_block_slice.data();
+    uint8_t compression_type_byte = static_cast<uint8_t>(data[block_size]);
+    uint32_t stored_checksum = DecodeFixed32(data + block_size + 1);
+    uint32_t modifier = ChecksumModifierForContext(
+        rep_->footer.base_context_checksum(), block_handle.offset());
+    uint32_t actual_checksum = stored_checksum - modifier;
+    out_stream << "  " << block_name << " checksum type: "
+               << static_cast<int>(rep_->footer.checksum_type())
+               << "  checksum value: 0x" << std::hex << actual_checksum
+               << std::dec << "  offset: " << block_handle.offset()
+               << "  size: " << block_size << "  compression type: "
+               << static_cast<int>(compression_type_byte) << "\n";
+  } else {
+    out_stream << "  ERROR: Failed to read " << block_name << " checksum info";
+    if (!io_s.ok()) {
+      out_stream << " - " << io_s.ToString();
+    } else if (raw_block_slice.size() != block_size_with_trailer) {
+      out_stream << " - read " << raw_block_slice.size() << " bytes, expected "
+                 << block_size_with_trailer;
+    }
+    out_stream << "\n";
+  }
+}
+
 Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   out_stream << "Index Details:\n"
                 "--------------------------------------\n";
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+
+  // Print index block checksum information
+  DumpBlockChecksumInfo(rep_->index_handle, read_options, "Index block",
+                        out_stream);
+
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(read_options, /*disable_prefix_seek=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
@@ -3433,6 +3516,10 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream,
 
     out_stream << "Data Block # " << block_id << " @ "
                << blockhandles_iter->value().handle.ToString(true) << "\n";
+
+    // Read block checksum information
+    DumpBlockChecksumInfo(bh, read_options, "Data block", out_stream);
+
     out_stream << "--------------------------------------\n";
 
     std::unique_ptr<InternalIterator> datablock_iter;

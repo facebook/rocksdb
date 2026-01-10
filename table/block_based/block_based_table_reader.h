@@ -555,6 +555,10 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     std::ostream& out_stream,
                     bool show_sequence_number_type = false);
+  void DumpBlockChecksumInfo(const BlockHandle& block_handle,
+                             const ReadOptions& read_options,
+                             const char* block_name,
+                             std::ostream& out_stream) const;
 
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.
