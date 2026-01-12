@@ -64,7 +64,8 @@ class BlobFileReader {
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
-                 SystemClock* clock, Statistics* statistics);
+                 SystemClock* clock, Statistics* statistics,
+                 const Comparator* user_comparator);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -92,7 +93,8 @@ class BlobFileReader {
                              AlignedBuf* aligned_buf);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
-                           uint64_t value_size);
+                           uint64_t value_size,
+                           const Comparator* user_comparator);
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
@@ -106,6 +108,7 @@ class BlobFileReader {
   CompressionType compression_type_;
   SystemClock* clock_;
   Statistics* statistics_;
+  const Comparator* user_comparator_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
