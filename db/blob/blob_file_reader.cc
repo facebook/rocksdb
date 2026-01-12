@@ -17,10 +17,10 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "table/format.h"
 #include "table/multiget_context.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
-#include "util/crc32c.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -69,9 +69,16 @@ Status BlobFileReader::Create(
     }
   }
 
-  blob_file_reader->reset(
-      new BlobFileReader(std::move(file_reader), file_size, compression_type,
-                         immutable_options.clock, statistics));
+  std::shared_ptr<Decompressor> decompressor;
+  if (compression_type != kNoCompression) {
+    // The blob format has always used compression format 2
+    decompressor = GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
+        compression_type);
+  }
+
+  blob_file_reader->reset(new BlobFileReader(
+      std::move(file_reader), file_size, compression_type,
+      std::move(decompressor), immutable_options.clock, statistics));
 
   return Status::OK();
 }
@@ -282,11 +289,13 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
-    CompressionType compression_type, SystemClock* clock,
+    CompressionType compression_type,
+    std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
     Statistics* statistics)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
       compression_type_(compression_type),
+      decompressor_(std::move(decompressor)),
       clock_(clock),
       statistics_(statistics) {
   assert(file_reader_);
@@ -375,8 +384,9 @@ Status BlobFileReader::GetBlob(
   const Slice value_slice(record_slice.data() + adjustment, value_size);
 
   {
-    const Status s = UncompressBlobIfNeeded(
-        value_slice, compression_type, allocator, clock_, statistics_, result);
+    const Status s = UncompressBlobIfNeeded(value_slice, compression_type,
+                                            decompressor_.get(), allocator,
+                                            clock_, statistics_, result);
     if (!s.ok()) {
       return s;
     }
@@ -524,9 +534,9 @@ void BlobFileReader::MultiGetBlob(
 
     // Uncompress blob if needed
     Slice value_slice(record_slice.data() + adjustments[i], req->len);
-    *req->status =
-        UncompressBlobIfNeeded(value_slice, compression_type_, allocator,
-                               clock_, statistics_, &blob_reqs[i].second);
+    *req->status = UncompressBlobIfNeeded(
+        value_slice, compression_type_, decompressor_.get(), allocator, clock_,
+        statistics_, &blob_reqs[i].second);
     if (req->status->ok()) {
       total_bytes += record_slice.size();
     }
@@ -583,8 +593,8 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
 
 Status BlobFileReader::UncompressBlobIfNeeded(
     const Slice& value_slice, CompressionType compression_type,
-    MemoryAllocator* allocator, SystemClock* clock, Statistics* statistics,
-    std::unique_ptr<BlobContents>* result) {
+    Decompressor* decompressor, MemoryAllocator* allocator, SystemClock* clock,
+    Statistics* statistics, std::unique_ptr<BlobContents>* result) {
   assert(result);
 
   if (compression_type == kNoCompression) {
@@ -593,31 +603,33 @@ Status BlobFileReader::UncompressBlobIfNeeded(
     return Status::OK();
   }
 
-  UncompressionContext context(compression_type);
-  UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                         compression_type);
+  assert(decompressor);
 
-  size_t uncompressed_size = 0;
-  constexpr uint32_t compression_format_version = 2;
+  Decompressor::Args args;
+  args.compression_type = compression_type;
+  args.compressed_data = value_slice;
 
-  CacheAllocationPtr output;
+  Status s = decompressor->ExtractUncompressedSize(args);
+  if (!s.ok()) {
+    return Status::Corruption(s.ToString());
+  }
+
+  CacheAllocationPtr output = AllocateBlock(args.uncompressed_size, allocator);
 
   {
     PERF_TIMER_GUARD(blob_decompress_time);
     StopWatch stop_watch(clock, statistics, BLOB_DB_DECOMPRESSION_MICROS);
-    output = OLD_UncompressData(info, value_slice.data(), value_slice.size(),
-                                &uncompressed_size, compression_format_version,
-                                allocator);
+    s = decompressor->DecompressBlock(args, output.get());
   }
 
   TEST_SYNC_POINT_CALLBACK(
-      "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", &output);
+      "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", &s);
 
-  if (!output) {
-    return Status::Corruption("Unable to uncompress blob");
+  if (!s.ok()) {
+    return Status::Corruption(s.ToString());
   }
 
-  result->reset(new BlobContents(std::move(output), uncompressed_size));
+  result->reset(new BlobContents(std::move(output), args.uncompressed_size));
 
   return Status::OK();
 }

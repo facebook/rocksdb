@@ -829,9 +829,10 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
 
   if (compression_failure_type_ == kTestCompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "CompressData:TamperWithReturnValue", [](void* arg) {
-          bool* ret = static_cast<bool*>(arg);
-          *ret = false;
+        "BlockBasedTableBuilder::CompressAndVerifyBlock:TamperWithResultType",
+        [](void* arg) {
+          CompressionType* ret = static_cast<CompressionType*>(arg);
+          *ret = kNoCompression;
         });
   } else if (compression_failure_type_ == kTestDecompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

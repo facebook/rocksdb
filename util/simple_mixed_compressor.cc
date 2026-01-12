@@ -15,8 +15,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // MultiCompressorWrapper implementation
-MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
-                                               CompressionDict&& dict)
+MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts)
     : opts_(opts) {
   // TODO: make the compression manager a field
   auto builtInManager = GetBuiltinV2CompressionManager();
@@ -27,7 +26,6 @@ MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
     }
     compressors_.push_back(builtInManager->GetCompressor(opts, type));
   }
-  (void)dict;
 }
 
 size_t MultiCompressorWrapper::GetMaxSampleSizeIfWantDict(

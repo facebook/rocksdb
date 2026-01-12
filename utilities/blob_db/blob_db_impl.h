@@ -234,8 +234,8 @@ class BlobDBImpl : public BlobDB {
                             PinnableSlice* value,
                             CompressionType* compression_type);
 
-  Slice GetCompressedSlice(const Slice& raw,
-                           std::string* compression_output) const;
+  Status CompressBlob(const Slice& raw,
+                      GrowableBuffer* compression_output) const;
 
   Status DecompressSlice(const Slice& compressed_value,
                          CompressionType compression_type,
@@ -507,6 +507,8 @@ class BlobDBImpl : public BlobDB {
   int disable_file_deletions_ = 0;
 
   uint32_t debug_level_;
+
+  std::unique_ptr<Compressor> blob_compressor_;
 };
 
 Decompressor& BlobDecompressor();

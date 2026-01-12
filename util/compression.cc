@@ -1776,4 +1776,31 @@ const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager() {
 // END built-in implementation of customization interface
 // ***********************************************************************
 
+Status LegacyForceBuiltinCompression(Compressor& builtin_compressor, Slice from,
+                                     GrowableBuffer* to) {
+  // For legacy cases that store compressed data even when it's larger than the
+  // uncompressed data (!!!), we need a reliable upper bound on the compressed
+  // size. This is based on consulting various algorithms documentation etc.
+  // and adding ~4 bytes for encoded uncompressed size.
+  size_t upper_bound = from.size() + (from.size() >> 7) + 132;
+  to->ResetForSize(upper_bound);
+  CompressionType actual_type = kNoCompression;
+  Status s =
+      builtin_compressor.CompressBlock(from, to->data(), &to->MutableSize(),
+                                       &actual_type, /*working_area=*/nullptr);
+  TEST_SYNC_POINT_CALLBACK("LegacyForceBuiltinCompression:TamperWithStatus",
+                           &s);
+
+  if (!s.ok()) {
+    return s;
+  }
+  if (actual_type == kNoCompression) {
+    // abort in debug builds
+    assert(actual_type != kNoCompression);
+    return Status::Corruption("Compression unexpectedly declined or aborted");
+  }
+  assert(actual_type == builtin_compressor.GetPreferredCompressionType());
+  return Status::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

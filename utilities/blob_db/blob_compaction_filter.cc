@@ -123,10 +123,14 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
     return Decision::kIOError;
   }
   Slice new_blob_value(*new_value);
-  std::string compression_output;
+  GrowableBuffer compressed_output;
   if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-    new_blob_value =
-        blob_db_impl->GetCompressedSlice(new_blob_value, &compression_output);
+    Status s = blob_db_impl->CompressBlob(new_blob_value, &compressed_output);
+    if (!s.ok()) {
+      // Best approximation
+      return Decision::kIOError;
+    }
+    new_blob_value = compressed_output.AsSlice();
   }
   uint64_t new_blob_file_number = 0;
   uint64_t new_blob_offset = 0;
@@ -336,7 +340,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   assert(blob_db_impl->bdb_options_.enable_garbage_collection);
 
   BlobIndex blob_index;
-  const Status s = blob_index.DecodeFrom(existing_value);
+  Status s = blob_index.DecodeFrom(existing_value);
   if (!s.ok()) {
     gc_stats_.SetError();
     return BlobDecision::kCorruption;
@@ -369,7 +373,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
-  std::string compression_output;
+  GrowableBuffer compressed_output;
   if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
@@ -387,9 +391,11 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
       }
     }
     if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-      blob_db_impl->GetCompressedSlice(blob, &compression_output);
-      blob = PinnableSlice(&compression_output);
-      blob.PinSelf();
+      s = blob_db_impl->CompressBlob(blob, &compressed_output);
+      if (!s.ok()) {
+        return BlobDecision::kCorruption;
+      }
+      blob.PinSelf(compressed_output.AsSlice());
     }
   }
 
