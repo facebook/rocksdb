@@ -390,6 +390,9 @@ TEST_P(PrefetchTest, Basic) {
       buff_prefetch_count = 0;
     }
   }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
 
@@ -3454,7 +3457,12 @@ class FSBufferPrefetchTest
     stats_ = CreateDBStatistics();
   }
 
-  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+  void TearDown() override {
+    // needed for FSBufferPrefetchUnalignedReads which has early returns
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    EXPECT_OK(DestroyDir(env_, test_dir_));
+  }
 
   void Write(const std::string& fname, const std::string& content) {
     std::unique_ptr<FSWritableFile> f;
@@ -3723,6 +3731,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
                          stats.get());
 
   int overlap_buffer_write_ct = 0;
+  // cleared by FSBufferPrefetchTest::TearDown so it happens for early returns
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
       [&](void* /*arg*/) { overlap_buffer_write_ct++; });
