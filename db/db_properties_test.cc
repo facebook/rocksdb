@@ -1562,13 +1562,9 @@ TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
       ASSERT_TRUE(user_props.find(BlockCountingTablePropertiesCollector::
                                       kNumSampledBlocksPropertyName) !=
                   user_props.end());
-      ASSERT_EQ(
-          user_props.at(BlockCountingTablePropertiesCollector::
-                            kNumSampledBlocksPropertyName),
-          std::to_string(sample_for_compression && (fast_sampling_supported ||
-                                                    slow_sampling_supported)
-                             ? 1
-                             : 0));
+      ASSERT_EQ(user_props.at(BlockCountingTablePropertiesCollector::
+                                  kNumSampledBlocksPropertyName),
+                std::to_string(sample_for_compression ? 1 : 0));
       if (sample_for_compression) {
         EXPECT_GT(props.fast_compression_estimated_data_size, 0);
         EXPECT_GT(props.slow_compression_estimated_data_size, 0);
