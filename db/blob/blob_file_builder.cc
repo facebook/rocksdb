@@ -281,7 +281,8 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   Status s;
   StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                        BLOB_DB_COMPRESSION_MICROS);
-  s = LegacyForceBuiltinCompression(*blob_compressor_, *blob, compressed_blob);
+  s = LegacyForceBuiltinCompression(*blob_compressor_, &blob_compressor_wa_,
+                                    *blob, compressed_blob);
   if (!s.ok()) {
     return s;
   }

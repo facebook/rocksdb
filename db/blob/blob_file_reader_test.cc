@@ -77,8 +77,9 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
         GetBuiltinV2CompressionManager()->GetCompressor({}, compression);
 
     for (size_t i = 0; i < num; ++i) {
-      ASSERT_OK(LegacyForceBuiltinCompression(*compressor, blobs[i],
-                                              &compressed_blobs[i]));
+      ASSERT_OK(LegacyForceBuiltinCompression(*compressor,
+                                              /*working_area=*/nullptr,
+                                              blobs[i], &compressed_blobs[i]));
       blobs_to_write[i] = compressed_blobs[i];
       blob_sizes[i] = compressed_blobs[i].size();
     }

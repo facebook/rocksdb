@@ -1837,8 +1837,10 @@ const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
 // compressed data even when larger than the uncompressed, this is a convenient
 // wrapper to support that, with a compressor from BuiltinCompressionManager and
 // a GrowableBuffer.
-Status LegacyForceBuiltinCompression(Compressor& builtin_compressor, Slice from,
-                                     GrowableBuffer* to);
+Status LegacyForceBuiltinCompression(
+    Compressor& builtin_compressor,
+    Compressor::ManagedWorkingArea* working_area, Slice from,
+    GrowableBuffer* to);
 
 // Records the compression type for subsequent WAL records.
 class CompressionTypeRecord {

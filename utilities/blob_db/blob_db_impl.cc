@@ -1166,8 +1166,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
 Status BlobDBImpl::CompressBlob(const Slice& raw,
                                 GrowableBuffer* compression_output) const {
   StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  return LegacyForceBuiltinCompression(*blob_compressor_, raw,
-                                       compression_output);
+  return LegacyForceBuiltinCompression(
+      *blob_compressor_, /*working_area=*/nullptr, raw, compression_output);
 }
 
 Decompressor& BlobDecompressor() {
