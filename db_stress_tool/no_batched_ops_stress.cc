@@ -1911,6 +1911,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // same key space but does not acquire stress test level mutex. So it is
       // possible RocksDB returns deadlock or timeout. Return OK() for these
       // cases
+      pending_expected_value.Rollback();
       return Status::OK();
     }
 
