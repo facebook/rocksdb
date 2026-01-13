@@ -36,6 +36,7 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
+#include "db/dbformat.h"
 #include "db/version_set.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_env_wrapper.h"
@@ -668,6 +669,23 @@ inline std::string Key(int64_t val) {
   }
 
   return key;
+}
+
+// Helper function to strip user-defined timestamp from a key if timestamps
+// are enabled. This is used when comparing or parsing iterator keys that
+// include the timestamp suffix.
+inline Slice MaybeStripTimestamp(const Slice& key) {
+  if (FLAGS_user_timestamp_size > 0) {
+    return StripTimestampFromUserKey(key, FLAGS_user_timestamp_size);
+  }
+  return key;
+}
+
+// Helper function to get the user key portion as a string, stripping the
+// timestamp if user-defined timestamps are enabled. This is suitable for
+// passing to GetIntVal() when parsing iterator keys.
+inline std::string GetUserKeyForParsing(const Slice& key) {
+  return MaybeStripTimestamp(key).ToString();
 }
 
 // Given a string key, map it to an index into the expected values buffer
