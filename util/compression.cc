@@ -1789,6 +1789,10 @@ Status LegacyForceBuiltinCompression(
   // bytes.)
   size_t n = from.size();
   size_t upper_bound = ((19 * n) >> 4) + 604;
+  // The upper bound has only been established considering built-in compression
+  // types through kZSTD. (Might need updating if this fails.)
+  assert(builtin_compressor.GetPreferredCompressionType() <= kZSTD);
+
   to->ResetForSize(upper_bound);
   CompressionType actual_type = kNoCompression;
   Status s = builtin_compressor.CompressBlock(
