@@ -1179,11 +1179,8 @@ struct BlockBasedTableBuilder::Rep {
       } else if (builtin->SupportsCompressionType(kZlibCompression)) {
         slow_sample_compressor = builtin->GetCompressor({}, kZlibCompression);
       }
-      if (fast_sample_compressor == nullptr &&
-          slow_sample_compressor == nullptr) {
-        // Disable because we can't do it
-        sample_for_compression = 0;
-      }
+      // NOTE: even if both sampling compressors are nullptr, we still populate
+      // the table properties with placeholder info
     }
 
     switch (table_options.prepopulate_block_cache) {
