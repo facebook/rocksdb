@@ -137,7 +137,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb" "10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb")
+declare -a db_forward_with_options_refs=("10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -145,7 +145,7 @@ declare -a db_forward_no_options_refs=() # N/A at the moment
 # To check for SST ingestion backward compatibility (new version reading
 # data from old) (ldb ingest_extern_sst added in 5.16.x, back-ported to
 # 5.14.x, 5.15.x)
-declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb")
+declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb" "8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb")
 # To check for SST ingestion forward compatibility (old version reading
 # data from new) as well as backward compatibility
 declare -a ext_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}")

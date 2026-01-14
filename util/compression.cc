@@ -1632,10 +1632,13 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
       return nullptr;
     } else if (types_begin + 1 == types_end &&
                *types_begin == kSnappyCompression) {
+      // Exclusively Snappy
       return GetSnappyDecompressor();
-    } else if (std::find(types_begin, types_end, kZSTD)) {
+    } else if (std::find(types_begin, types_end, kZSTD) != types_end) {
+      // Includes ZSTD
       return GetZstdDecompressor();
     } else {
+      // Everything else
       return GetGeneralDecompressor();
     }
   }

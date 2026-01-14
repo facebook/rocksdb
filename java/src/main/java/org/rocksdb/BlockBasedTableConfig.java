@@ -37,7 +37,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     wholeKeyFiltering = true;
     verifyCompression = false;
     readAmpBytesPerBit = 0;
-    formatVersion = 6;
+    formatVersion = 7;
     enableIndexCompression = true;
     blockAlign = false;
     superBlockAlignmentSize = 0;

@@ -433,8 +433,9 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     ROCKSDB_NAMESPACE::TablePropertiesCollection all_tables_props;
     ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
     for (const auto& name_and_table_props : all_tables_props) {
-      ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
-                name_and_table_props.second->compression_name);
+      // As of format_version 7, more elaborate information is encoded into the
+      // compression_name property
+      ASSERT_EQ("BuiltinV2;02;", name_and_table_props.second->compression_name);
     }
     delete db;
   }
