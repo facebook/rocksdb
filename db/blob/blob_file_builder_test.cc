@@ -457,11 +457,12 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
-  SyncPoint::GetInstance()->SetCallBack("CompressData:TamperWithReturnValue",
-                                        [](void* arg) {
-                                          bool* ret = static_cast<bool*>(arg);
-                                          *ret = false;
-                                        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LegacyForceBuiltinCompression:TamperWithStatus", [](void* arg) {
+        Status* ret = static_cast<Status*>(arg);
+        ASSERT_OK(*ret);
+        *ret = Status::Corruption("Tampered result");
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr char key[] = "1";
@@ -469,7 +470,7 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
 
   std::string blob_index;
 
-  ASSERT_TRUE(builder.Add(key, value, &blob_index).IsCorruption());
+  ASSERT_EQ(builder.Add(key, value, &blob_index).code(), Status::kCorruption);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

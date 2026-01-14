@@ -10,12 +10,14 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/types.h"
+#include "util/aligned_buffer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -76,7 +78,8 @@ class BlobFileBuilder {
  private:
   bool IsBlobFileOpen() const;
   Status OpenBlobFileIfNeeded();
-  Status CompressBlobIfNeeded(Slice* blob, std::string* compressed_blob) const;
+  Status CompressBlobIfNeeded(Slice* blob,
+                              GrowableBuffer* compressed_blob) const;
   Status WriteBlobToFile(const Slice& key, const Slice& blob,
                          uint64_t* blob_file_number, uint64_t* blob_offset);
   Status CloseBlobFile();
@@ -91,6 +94,8 @@ class BlobFileBuilder {
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;
+  std::unique_ptr<Compressor> blob_compressor_;
+  mutable Compressor::ManagedWorkingArea blob_compressor_wa_;
   PrepopulateBlobCache prepopulate_blob_cache_;
   const FileOptions* file_options_;
   const WriteOptions* write_options_;

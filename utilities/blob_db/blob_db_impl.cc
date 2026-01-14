@@ -41,10 +41,6 @@
 #include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/blob_db/blob_db_listener.h"
 
-namespace {
-int kBlockBasedTableVersionFormat = 2;
-}  // end namespace
-
 namespace ROCKSDB_NAMESPACE::blob_db {
 
 bool BlobFileComparator::operator()(
@@ -87,7 +83,10 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       live_sst_size_(0),
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
-      debug_level_(0) {
+      debug_level_(0),
+      // NOTE: returns nullptr for kNoCompression
+      blob_compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
+          CompressionOptions{}, bdb_options_.compression)) {
   clock_ = env_->GetSystemClock().get();
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
@@ -1087,18 +1086,32 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
       RecordTick(statistics_, BLOB_DB_WRITE_INLINED_TTL);
     }
   } else {
-    std::string compression_output;
-    Slice value_compressed = GetCompressedSlice(value, &compression_output);
+    GrowableBuffer compression_output;
+    Slice value_maybe_compressed;
+    if (blob_compressor_) {
+      assert(bdb_options_.compression != kNoCompression);
+      assert(bdb_options_.compression ==
+             blob_compressor_->GetPreferredCompressionType());
+      s = CompressBlob(value, &compression_output);
+      if (!s.ok()) {
+        return s;
+      }
+      value_maybe_compressed = compression_output.AsSlice();
+    } else {
+      assert(bdb_options_.compression == kNoCompression);
+      value_maybe_compressed = value;
+    }
 
     std::string headerbuf;
-    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value_compressed,
+    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value_maybe_compressed,
                                        expiration);
 
     // Check DB size limit before selecting blob file to
     // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
     // done before calling SelectBlobFile().
     s = CheckSizeAndEvictBlobFiles(
-        write_options, headerbuf.size() + key.size() + value_compressed.size());
+        write_options,
+        headerbuf.size() + key.size() + value_maybe_compressed.size());
     if (!s.ok()) {
       return s;
     }
@@ -1112,8 +1125,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
     if (s.ok()) {
       assert(blob_file != nullptr);
       assert(blob_file->GetCompressionType() == bdb_options_.compression);
-      s = AppendBlob(write_options, blob_file, headerbuf, key, value_compressed,
-                     expiration, &index_entry);
+      s = AppendBlob(write_options, blob_file, headerbuf, key,
+                     value_maybe_compressed, expiration, &index_entry);
     }
     if (s.ok()) {
       if (expiration != kNoExpiration) {
@@ -1150,26 +1163,16 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
   return s;
 }
 
-Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
-                                     std::string* compression_output) const {
-  if (bdb_options_.compression == kNoCompression) {
-    return raw;
-  }
+Status BlobDBImpl::CompressBlob(const Slice& raw,
+                                GrowableBuffer* compression_output) const {
   StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  CompressionType type = bdb_options_.compression;
-  CompressionOptions opts;
-  CompressionContext context(type, opts);
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type);
-  OLD_CompressData(raw, info,
-                   GetCompressFormatForVersion(kBlockBasedTableVersionFormat),
-                   compression_output);
-  return *compression_output;
+  return LegacyForceBuiltinCompression(
+      *blob_compressor_, /*working_area=*/nullptr, raw, compression_output);
 }
 
 Decompressor& BlobDecompressor() {
-  static auto mgr = GetBuiltinCompressionManager(
-      GetCompressFormatForVersion(kBlockBasedTableVersionFormat));
-  static auto decompressor = mgr->GetDecompressor();
+  static auto decompressor =
+      GetBuiltinV2CompressionManager()->GetDecompressor();
 
   return *decompressor;
 }

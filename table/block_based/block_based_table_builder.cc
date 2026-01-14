@@ -1911,6 +1911,10 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
       assert(type == kNoCompression ||
              r->table_options.verify_compression == (verify_decomp != nullptr));
 
+      TEST_SYNC_POINT_CALLBACK(
+          "BlockBasedTableBuilder::CompressAndVerifyBlock:TamperWithResultType",
+          &type);
+
       // Some of the compression algorithms are known to be unreliable. If
       // the verify_compression flag is set then try to de-compress the
       // compressed data and compare to the input.

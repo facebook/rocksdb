@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/autovector.h"
@@ -64,7 +65,8 @@ class BlobFileReader {
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
-                 SystemClock* clock, Statistics* statistics);
+                 std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
+                 Statistics* statistics);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -96,6 +98,7 @@ class BlobFileReader {
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
+                                       Decompressor* decompressor,
                                        MemoryAllocator* allocator,
                                        SystemClock* clock,
                                        Statistics* statistics,
@@ -104,6 +107,7 @@ class BlobFileReader {
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
+  std::shared_ptr<Decompressor> decompressor_;
   SystemClock* clock_;
   Statistics* statistics_;
 };

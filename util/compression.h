@@ -27,7 +27,7 @@
 #include "rocksdb/options.h"
 #include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
-#include "util/atomic.h"
+#include "util/aligned_buffer.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -1830,6 +1830,17 @@ const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
 // ***********************************************************************
 // END built-in implementation of customization interface
 // ***********************************************************************
+
+// The new compression APIs intentionally make it difficult to generate
+// compressed data larger than the original. (It is better to store the
+// uncompressed version in that case.) For legacy cases that must store
+// compressed data even when larger than the uncompressed, this is a convenient
+// wrapper to support that, with a compressor from BuiltinCompressionManager and
+// a GrowableBuffer.
+Status LegacyForceBuiltinCompression(
+    Compressor& builtin_compressor,
+    Compressor::ManagedWorkingArea* working_area, Slice from,
+    GrowableBuffer* to);
 
 // Records the compression type for subsequent WAL records.
 class CompressionTypeRecord {

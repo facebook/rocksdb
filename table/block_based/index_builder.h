@@ -20,6 +20,7 @@
 #include "table/block_based/block_builder.h"
 #include "table/block_based/flush_block_policy_impl.h"
 #include "table/format.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The interface for building index.
