@@ -47,6 +47,7 @@
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -2930,12 +2931,18 @@ class Benchmark {
     return true;
   }
 
-  inline bool CompressSlice(const CompressionInfo& compression_info,
-                            const Slice& input, std::string* compressed) {
-    constexpr uint32_t compress_format_version = 2;
-
-    return OLD_CompressData(input, compression_info, compress_format_version,
-                            compressed);
+  std::unique_ptr<Compressor> GetCompressor() {
+    CompressionOptions opts;
+    opts.level = FLAGS_compression_level;
+    // TODO: inter-operate with FLAGS_compression_manager
+    auto compressor = GetBuiltinV2CompressionManager()->GetCompressor(
+        opts, FLAGS_compression_type_e);
+    if (compressor &&
+        compressor->GetPreferredCompressionType() != FLAGS_compression_type_e) {
+      // For benchmarking, don't fall back on a different compression type
+      compressor.reset();
+    }
+    return compressor;
   }
 
   void PrintHeader(const Options& options) {
@@ -3021,18 +3028,30 @@ class Benchmark {
       // The test string should not be too small.
       const int len = FLAGS_block_size;
       std::string input_str(len, 'y');
-      std::string compressed;
-      CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e, opts);
-      CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e);
-      bool result = CompressSlice(info, Slice(input_str), &compressed);
-
-      if (!result) {
-        fprintf(stdout, "WARNING: %s compression is not enabled\n",
-                compression);
-      } else if (compressed.size() >= input_str.size()) {
-        fprintf(stdout, "WARNING: %s compression is not effective\n",
+      auto compressor = GetCompressor();
+      if (compressor) {
+        GrowableBuffer compressed;
+        compressed.ResetForSize(input_str.size());
+        CompressionType actual_type = kNoCompression;
+        auto working_area = compressor->ObtainWorkingArea();
+        Status s = compressor->CompressBlock(
+            Slice(input_str), compressed.data(), &compressed.MutableSize(),
+            &actual_type, &working_area);
+        if (!s.ok()) {
+          fprintf(stdout, "WARNING: compression test run failure: %s\n",
+                  s.ToString().c_str());
+        } else if (actual_type == kNoCompression) {
+          fprintf(stdout,
+                  "WARNING: %s compression is not effective or declined\n",
+                  compression);
+        } else if (actual_type != FLAGS_compression_type_e) {
+          fprintf(
+              stdout,
+              "WARNING: using %s compression in place of %s (unsupported?)\n",
+              CompressionTypeToString(actual_type).c_str(), compression);
+        }
+      } else {
+        fprintf(stdout, "WARNING: %s compression is not available\n",
                 compression);
       }
     }
@@ -4248,24 +4267,37 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
-    bool ok = true;
-    std::string compressed;
-    CompressionOptions opts;
-    opts.level = FLAGS_compression_level;
-    CompressionContext context(FLAGS_compression_type_e, opts);
-    CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         FLAGS_compression_type_e);
+    Status s;
+
+    auto compressor = GetCompressor();
+    if (!compressor) {
+      thread->stats.AddMessage("(compression type not supported)");
+      return;
+    }
+    auto working_area = compressor->ObtainWorkingArea();
+
+    GrowableBuffer compressed;
     // Compress 1G
-    while (ok && bytes < int64_t(1) << 30) {
-      compressed.clear();
-      ok = CompressSlice(info, input, &compressed);
+    while (bytes < int64_t(1) << 30) {
+      compressed.ResetForSize(input.size());
+      CompressionType actual_type = kNoCompression;
+      s = compressor->CompressBlock(input, compressed.data(),
+                                    &compressed.MutableSize(), &actual_type,
+                                    &working_area);
+      if (UNLIKELY(!s.ok())) {
+        break;
+      }
+      if (UNLIKELY(actual_type == kNoCompression)) {
+        s = Status::Aborted("Unable to compress smaller than input");
+        break;
+      }
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kCompress);
     }
 
-    if (!ok) {
-      thread->stats.AddMessage("(compression failure)");
+    if (!s.ok()) {
+      thread->stats.AddMessage("(compression failure: " + s.ToString() + ")");
     } else {
       char buf[340];
       snprintf(buf, sizeof(buf), "(output: %.1f%%)",
@@ -4278,37 +4310,59 @@ class Benchmark {
   void Uncompress(ThreadState* thread) {
     RandomGenerator gen;
     Slice input = gen.Generate(FLAGS_block_size);
-    std::string compressed;
 
-    CompressionOptions compression_opts;
-    compression_opts.level = FLAGS_compression_level;
-    CompressionContext compression_ctx(FLAGS_compression_type_e,
-                                       compression_opts);
-    CompressionInfo compression_info(compression_opts, compression_ctx,
-                                     CompressionDict::GetEmptyDict(),
-                                     FLAGS_compression_type_e);
-    UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
-    UncompressionInfo uncompression_info(uncompression_ctx,
-                                         UncompressionDict::GetEmptyDict(),
-                                         FLAGS_compression_type_e);
+    auto compressor = GetCompressor();
+    if (!compressor) {
+      thread->stats.AddMessage("(compression type not supported)");
+      return;
+    }
 
-    bool ok = CompressSlice(compression_info, input, &compressed);
+    // Compress the input first
+    GrowableBuffer compressed;
+    compressed.ResetForSize(input.size());
+    CompressionType actual_type = kNoCompression;
+    Status s = compressor->CompressBlock(
+        input, compressed.data(), &compressed.MutableSize(), &actual_type,
+        /*working_area=*/nullptr);
+    if (!s.ok()) {
+      thread->stats.AddMessage("(compression failure: " + s.ToString() + ")");
+      return;
+    }
+    if (actual_type != FLAGS_compression_type_e) {
+      thread->stats.AddMessage("(failed to compress smaller than input)");
+      return;
+    }
+
+    // TODO: inter-operate with FLAGS_compression_manager
+    auto decompressor =
+        GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
+            actual_type);
+    auto decomp_working_area = decompressor->ObtainWorkingArea(actual_type);
+
     int64_t bytes = 0;
-    size_t uncompressed_size = 0;
-    while (ok && bytes < 1024 * 1048576) {
-      constexpr uint32_t compress_format_version = 2;
+    while (bytes < 1024 * 1048576) {
+      Decompressor::Args args;
+      args.compression_type = actual_type;
+      args.compressed_data = compressed.AsSlice();
+      args.working_area = &decomp_working_area;
 
-      CacheAllocationPtr uncompressed = OLD_UncompressData(
-          uncompression_info, compressed.data(), compressed.size(),
-          &uncompressed_size, compress_format_version);
+      s = decompressor->ExtractUncompressedSize(args);
+      if (UNLIKELY(!s.ok())) {
+        break;
+      }
 
-      ok = uncompressed.get() != nullptr;
+      CacheAllocationPtr uncompressed = AllocateBlock(args.uncompressed_size,
+                                                      /*allocator=*/nullptr);
+      s = decompressor->DecompressBlock(args, uncompressed.get());
+      if (UNLIKELY(!s.ok())) {
+        break;
+      }
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kUncompress);
     }
 
-    if (!ok) {
-      thread->stats.AddMessage("(compression failure)");
+    if (!s.ok()) {
+      thread->stats.AddMessage("(decompression failure: " + s.ToString() + ")");
     } else {
       thread->stats.AddBytes(bytes);
     }
