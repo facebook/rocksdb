@@ -1792,6 +1792,9 @@ DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false,
             "if use kHashSearch instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
+DEFINE_string(index_search_type, "binary_search",
+              "Search algorithm for reading index blocks: binary_search or "
+              "interpolation_search.");
 DEFINE_string(merge_operator, "",
               "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -4498,6 +4501,17 @@ class Benchmark {
         block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+      }
+
+      if (FLAGS_index_search_type == "binary_search") {
+        block_based_options.index_search_type = BlockBasedTableOptions::kBinary;
+      } else if (FLAGS_index_search_type == "interpolation_search") {
+        block_based_options.index_search_type =
+            BlockBasedTableOptions::kInterpolation;
+      } else {
+        fprintf(stderr, "Unknown index_search_type: %s\n",
+                FLAGS_index_search_type.c_str());
+        db_bench_exit(1);
       }
       block_based_options.decouple_partitioned_filters =
           FLAGS_decouple_partitioned_filters;

@@ -184,6 +184,12 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearchWithFirstKey",
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
 
+static std::unordered_map<std::string, BlockBasedTableOptions::IndexSearchType>
+    block_base_table_index_search_type_string_map = {
+        {"kBinary", BlockBasedTableOptions::IndexSearchType::kBinary},
+        {"kInterpolation",
+         BlockBasedTableOptions::IndexSearchType::kInterpolation}};
+
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>
     block_base_table_data_block_index_type_string_map = {
@@ -261,6 +267,10 @@ static struct BlockBasedTableTypeInfo {
         {"index_type", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexType>(
                            offsetof(struct BlockBasedTableOptions, index_type),
                            &block_base_table_index_type_string_map)},
+        {"index_search_type",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::IndexSearchType>(
+             offsetof(struct BlockBasedTableOptions, index_search_type),
+             &block_base_table_index_search_type_string_map)},
         {"hash_index_allow_collision",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
         {"data_block_index_type",
