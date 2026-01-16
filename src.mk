@@ -495,6 +495,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_clip_test.cc                                                    \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
+  db/db_etc2_test.cc                                                    \
   db/db_etc3_test.cc                                                    \
   db/db_flush_test.cc                                                   \
   db/db_follower_test.cc						                                    \
@@ -521,7 +522,6 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_table_properties_test.cc                                        \
   db/db_tailing_iter_test.cc                                            \
   db/db_test.cc                                                         \
-  db/db_test2.cc                                                        \
   db/db_logical_block_size_cache_test.cc                                \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \

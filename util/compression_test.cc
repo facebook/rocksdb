@@ -520,7 +520,7 @@ class PresetCompressionDictTest
       public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
  public:
   PresetCompressionDictTest()
-      : DBTestBase("db_test2", false /* env_do_fsync */),
+      : DBTestBase("db_etc2_test", false /* env_do_fsync */),
         compression_type_(std::get<0>(GetParam())),
         bottommost_(std::get<1>(GetParam())) {}
 
