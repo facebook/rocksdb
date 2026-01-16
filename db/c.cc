@@ -3042,11 +3042,18 @@ class H : public WriteBatch::Handler {
   void* state_;
   void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
   void (*deleted_)(void*, const char* k, size_t klen);
+  void (*log_data_)(void*, const char* blob, size_t blob_len);
+
   void Put(const Slice& key, const Slice& value) override {
     (*put_)(state_, key.data(), key.size(), value.data(), value.size());
   }
   void Delete(const Slice& key) override {
     (*deleted_)(state_, key.data(), key.size());
+  }
+  void LogData(const Slice& blob) override {
+    if (log_data_) {
+      (*log_data_)(state_, blob.data(), blob.size());
+    }
   }
 };
 
@@ -3058,6 +3065,8 @@ class HCF : public WriteBatch::Handler {
   void (*deleted_cf_)(void*, uint32_t cfid, const char* k, size_t klen);
   void (*merge_cf_)(void*, uint32_t cfid, const char* k, size_t klen,
                     const char* v, size_t vlen);
+  void (*log_data_)(void*, const char* blob, size_t blob_len);
+
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override {
     (*put_cf_)(state_, column_family_id, key.data(), key.size(), value.data(),
@@ -3074,6 +3083,11 @@ class HCF : public WriteBatch::Handler {
                  value.size());
     return Status::OK();
   }
+  void LogData(const Slice& blob) override {
+    if (log_data_) {
+      (*log_data_)(state_, blob.data(), blob.size());
+    }
+  }
 };
 
 void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
@@ -3085,6 +3099,20 @@ void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
   handler.state_ = state;
   handler.put_ = put;
   handler.deleted_ = deleted;
+  handler.log_data_ = nullptr;
+  b->rep.Iterate(&handler);
+}
+
+void rocksdb_writebatch_iterate_ld(
+    rocksdb_writebatch_t* b, void* state,
+    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void*, const char* k, size_t klen),
+    void (*log_data)(void*, const char* blob, size_t blob_len)) {
+  H handler;
+  handler.state_ = state;
+  handler.put_ = put;
+  handler.deleted_ = deleted;
+  handler.log_data_ = log_data;
   b->rep.Iterate(&handler);
 }
 
@@ -3100,6 +3128,24 @@ void rocksdb_writebatch_iterate_cf(
   handler.put_cf_ = put_cf;
   handler.deleted_cf_ = deleted_cf;
   handler.merge_cf_ = merge_cf;
+  handler.log_data_ = nullptr;
+  b->rep.Iterate(&handler);
+}
+
+void rocksdb_writebatch_iterate_cf_ld(
+    rocksdb_writebatch_t* b, void* state,
+    void (*put_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                   const char* v, size_t vlen),
+    void (*deleted_cf)(void*, uint32_t cfid, const char* k, size_t klen),
+    void (*merge_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                     const char* v, size_t vlen),
+    void (*log_data)(void*, const char* blob, size_t blob_len)) {
+  HCF handler;
+  handler.state_ = state;
+  handler.put_cf_ = put_cf;
+  handler.deleted_cf_ = deleted_cf;
+  handler.merge_cf_ = merge_cf;
+  handler.log_data_ = log_data;
   b->rep.Iterate(&handler);
 }
 
