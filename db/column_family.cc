@@ -1248,7 +1248,7 @@ Compaction* ColumnFamilyData::PickCompaction(
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
       snapshot_checker, current_->storage_info(), log_buffer,
-      require_max_output_level, GetFullHistoryTsLow());
+      GetFullHistoryTsLow(), require_max_output_level);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }

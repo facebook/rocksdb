@@ -56,7 +56,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     files_.push_back(f);
   }
 
@@ -172,7 +173,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kNullUniqueId64x2, compensated_range_deletion_size, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     vstorage_.AddFile(level, f);
   }
 
@@ -1350,7 +1352,8 @@ class VersionSetTestBase {
           Temperature::kUnknown, info.oldest_blob_file_number, 0, 0,
           info.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
           kNullUniqueId64x2, 0, 0,
-          /* user_defined_timestamps_persisted */ true);
+          /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+          /* max timestamp */ "");
       if (info.file_missing) {
         ASSERT_OK(fs_->DeleteFile(fname, IOOptions(), nullptr));
       }
@@ -3944,7 +3947,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -4005,7 +4009,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

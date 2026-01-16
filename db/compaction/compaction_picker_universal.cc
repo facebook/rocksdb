@@ -605,8 +605,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
     const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, bool require_max_output_level,
-    const std::string& full_history_ts_low) {
+    LogBuffer* log_buffer, const std::string& full_history_ts_low,
+    bool require_max_output_level) {
   UniversalCompactionBuilder builder(
       ioptions_, icmp_, cf_name, mutable_cf_options, mutable_db_options,
       existing_snapshots, snapshot_checker, vstorage, this, log_buffer,

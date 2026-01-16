@@ -1725,29 +1725,6 @@ class VersionBuilder::Rep {
           file_meta->table_reader_handle = handle;
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->get_cache().Value(handle);
-
-          // Populate min/max timestamps from table properties for backward
-          // compatibility with older files that may not have these fields in
-          // FileMetaData. This allows the compaction picker to access
-          // timestamps directly from the FileMetaData fields.
-          if (file_meta->fd.table_reader != nullptr) {
-            auto table_props = file_meta->fd.table_reader->GetTableProperties();
-            if (table_props != nullptr) {
-              const auto& props = table_props->user_collected_properties;
-              if (file_meta->min_timestamp.empty()) {
-                auto it = props.find("rocksdb.timestamp_min");
-                if (it != props.end()) {
-                  file_meta->min_timestamp = it->second;
-                }
-              }
-              if (file_meta->max_timestamp.empty()) {
-                auto it = props.find("rocksdb.timestamp_max");
-                if (it != props.end()) {
-                  file_meta->max_timestamp = it->second;
-                }
-              }
-            }
-          }
         }
       }
     });

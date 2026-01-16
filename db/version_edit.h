@@ -297,8 +297,8 @@ struct FileMetaData {
                UniqueId64x2 _unique_id,
                const uint64_t _compensated_range_deletion_size,
                uint64_t _tail_size, bool _user_defined_timestamps_persisted,
-               const std::string& _min_timestamp = "",
-               const std::string& _max_timestamp = "")
+               const std::string& _min_timestamp,
+               const std::string& _max_timestamp)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),

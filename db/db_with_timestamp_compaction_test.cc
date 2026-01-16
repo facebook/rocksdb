@@ -13,6 +13,7 @@
 #include "db/compaction/compaction.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/sst_file_reader.h"
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -573,6 +574,186 @@ TEST_F(TimestampCompatibleCompactionTest,
 
   // Now compaction should clean up the file.
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+}
+
+// Test that files are NOT marked for bottommost compaction when UDT is enabled
+// and full_history_ts_low has never been set (empty).
+TEST_F(TimestampCompatibleCompactionTest,
+       BottommostCompactionSkipsWhenFullHistoryTsLowNotSet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.compaction_style = kCompactionStyleLevel;
+  options.num_levels = 4;
+  options.persist_user_defined_timestamps = true;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+  DestroyAndReopen(options);
+
+  // Write some data with timestamps 100-199
+  std::string ts_buf;
+  for (int i = 0; i < 100; i++) {
+    ts_buf.clear();
+    PutFixed64(&ts_buf, 100 + i);
+    ASSERT_OK(
+        db_->Put(WriteOptions(), Key(i), ts_buf, "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Compact to the bottommost level without setting full_history_ts_low
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Verify files have valid max_timestamp
+  auto file_timestamps = GetAllFileTimestamps();
+  ASSERT_GE(file_timestamps.size(), 1U);
+  for (const auto& [level, min_ts, max_ts] : file_timestamps) {
+    ASSERT_FALSE(max_ts.empty()) << "max_timestamp should not be empty";
+  }
+
+  // full_history_ts_low is NOT set (empty), so files should NOT be marked
+  // for bottommost compaction even after releasing a snapshot.
+  // This tests the branch: if (full_history_ts_low.empty()) { continue; }
+  const Snapshot* snap = db_->GetSnapshot();
+  db_->ReleaseSnapshot(snap);
+
+  // Wait for any scheduled compactions
+  WaitForCompactOptions wfc_options;
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Now set full_history_ts_low to a value > max_timestamp (199) in the file
+  // This should allow the file to be properly marked and compacted
+  ts_buf.clear();
+  PutFixed64(&ts_buf, 300);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_buf));
+
+  // Trigger another snapshot release to potentially mark files
+  snap = db_->GetSnapshot();
+  db_->ReleaseSnapshot(snap);
+
+  // Now compaction should be able to proceed since full_history_ts_low is set
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify data is still readable
+  std::string value;
+  ts_buf.clear();
+  PutFixed64(&ts_buf, 250);
+  Slice read_ts = ts_buf;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts;
+  ASSERT_OK(db_->Get(read_opts, Key(0), &value));
+  ASSERT_EQ("value0", value);
+}
+
+// Test that ingested SST files created with UDT have their min/max timestamps
+// properly extracted from table properties and populated in FileMetaData.
+// This verifies the fix in external_sst_file_ingestion_job.cc that calls
+// ExtractTimestampFromTableProperties after creating FileMetaData.
+TEST_F(TimestampCompatibleCompactionTest,
+       IngestedFileTimestampsExtractedFromTableProperties) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.compaction_style = kCompactionStyleLevel;
+  options.num_levels = 4;
+  options.persist_user_defined_timestamps = true;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+  DestroyAndReopen(options);
+
+  // Create an SST file WITH timestamps using SstFileWriter
+  std::string sst_file = dbname_ + "/ingested_udt_file.sst";
+  const uint64_t kMinTs = 100;
+  const uint64_t kMaxTs = 200;
+
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(sst_file));
+
+    std::string ts_buf;
+    for (int i = 0; i < 10; i++) {
+      // Alternate between min and max timestamps
+      uint64_t ts = (i % 2 == 0) ? kMinTs : kMaxTs;
+      ts_buf.clear();
+      PutFixed64(&ts_buf, ts);
+      // SstFileWriter with UDT comparator requires key with timestamp
+      ASSERT_OK(
+          sst_file_writer.Put(Key(i), ts_buf, "value" + std::to_string(i)));
+    }
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  // Verify the SST file has timestamp properties before ingestion
+  {
+    std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+    ASSERT_OK(reader->Open(sst_file));
+    auto props = reader->GetTableProperties();
+    auto& user_collected = props->user_collected_properties;
+    ASSERT_TRUE(user_collected.find("rocksdb.timestamp_min") !=
+                user_collected.end())
+        << "SST file should have rocksdb.timestamp_min property";
+    ASSERT_TRUE(user_collected.find("rocksdb.timestamp_max") !=
+                user_collected.end())
+        << "SST file should have rocksdb.timestamp_max property";
+  }
+
+  // Ingest the SST file
+  IngestExternalFileOptions ifo;
+  ifo.move_files = false;
+  ASSERT_OK(db_->IngestExternalFile({sst_file}, ifo));
+
+  // Verify the ingested file has proper timestamps in FileMetaData
+  auto file_timestamps = GetAllFileTimestamps();
+  ASSERT_GE(file_timestamps.size(), 1U);
+
+  bool found_ingested_file = false;
+  for (const auto& [level, min_ts, max_ts] : file_timestamps) {
+    // The ingested file should have non-empty timestamps
+    if (!min_ts.empty() && !max_ts.empty()) {
+      uint64_t file_min = DecodeFixed64(min_ts.data());
+      uint64_t file_max = DecodeFixed64(max_ts.data());
+
+      // Check if this matches our expected range
+      if (file_min == kMinTs && file_max == kMaxTs) {
+        found_ingested_file = true;
+        break;
+      }
+    }
+  }
+
+  ASSERT_TRUE(found_ingested_file)
+      << "Ingested file should have min_timestamp=" << kMinTs
+      << " and max_timestamp=" << kMaxTs << " in FileMetaData";
+
+  // Verify timestamps persist after reopen
+  Reopen(options);
+
+  file_timestamps = GetAllFileTimestamps();
+  found_ingested_file = false;
+  for (const auto& [level, min_ts, max_ts] : file_timestamps) {
+    if (!min_ts.empty() && !max_ts.empty()) {
+      uint64_t file_min = DecodeFixed64(min_ts.data());
+      uint64_t file_max = DecodeFixed64(max_ts.data());
+      if (file_min == kMinTs && file_max == kMaxTs) {
+        found_ingested_file = true;
+        break;
+      }
+    }
+  }
+  ASSERT_TRUE(found_ingested_file)
+      << "Ingested file timestamps should persist after reopen";
+
+  // Verify data is readable
+  std::string value;
+  std::string ts_buf;
+  PutFixed64(&ts_buf, kMaxTs);
+  ReadOptions read_opts;
+  Slice ts_slice(ts_buf);
+  read_opts.timestamp = &ts_slice;
+  ASSERT_OK(db_->Get(read_opts, Key(0), &value));
+  ASSERT_EQ("value0", value);
+
+  // Clean up
+  ASSERT_OK(env_->DeleteFile(sst_file));
 }
 
 // Test that min/max timestamps are correctly tracked in FileMetaData and

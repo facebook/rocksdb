@@ -4091,7 +4091,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           in_file->unique_id,
           in_file->compensated_range_deletion_size,
           in_file->tail_size,
-          in_file->user_defined_timestamps_persisted};
+          in_file->user_defined_timestamps_persisted,
+          in_file->min_timestamp,
+          in_file->max_timestamp};
 
       out_files.push_back(std::move(out_file_metadata));
     }

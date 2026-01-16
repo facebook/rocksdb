@@ -980,8 +980,8 @@ Compaction* LevelCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /*existing_snapshots */,
     const SnapshotChecker* /*snapshot_checker*/, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, bool /* require_max_output_level*/,
-    const std::string& full_history_ts_low) {
+    LogBuffer* log_buffer, const std::string& full_history_ts_low,
+    bool /* require_max_output_level*/) {
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_,
                                  mutable_db_options, full_history_ts_low);

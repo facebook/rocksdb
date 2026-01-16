@@ -4567,8 +4567,7 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
   // full_history_ts_low. If not, the compaction won't be able to collapse the
   // timestamp to clean up the tombstone , so marking the file would be futile
   // and could cause an infinite compaction loop.
-  const bool has_udt =
-      ucmp && ucmp->timestamp_size() > 0 && !full_history_ts_low.empty();
+  const bool has_udt = ucmp && ucmp->timestamp_size() > 0;
 
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
@@ -4579,15 +4578,21 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
         if (has_udt) {
           const std::string& max_ts = level_and_file.second->max_timestamp;
           // If max_timestamp is empty, the file could come from very old
-          // version which does not have timestamp in table property. In that
-          // case, conservatively skip it to avoid infinite compaction loops.
-          if (max_ts.empty()) {
-            continue;
-          }
-          Slice ts_low_slice(full_history_ts_low);
-          // If max timestamp >= full_history_ts_low, skip this file
-          if (ucmp->CompareTimestamp(Slice(max_ts), ts_low_slice) >= 0) {
-            continue;
+          // version which does not have timestamp. In that case, we should pick
+          // the file for compaction. After compaction, the file will have
+          // max_timestamp set propertly.
+          if (!max_ts.empty()) {
+            // If full_history_ts_low is empty, it means it was never set, which
+            // means its value is 0. Therefore, it would be always smaller than
+            // max_timestamp
+            if (full_history_ts_low.empty()) {
+              continue;
+            }
+            // If max timestamp >= full_history_ts_low, skip this file
+            if (ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) >=
+                0) {
+              continue;
+            }
           }
         }
 
