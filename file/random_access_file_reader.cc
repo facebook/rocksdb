@@ -66,41 +66,53 @@ inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
   }
 
   // record for temperature file
-  if (file_temperature != Temperature::kUnknown) {
-    switch (file_temperature) {
-      case Temperature::kHot:
-        IOSTATS_ADD(file_io_stats_by_temperature.hot_file_bytes_read, size);
-        IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, 1);
-        RecordTick(stats, HOT_FILE_READ_BYTES, size);
-        RecordTick(stats, HOT_FILE_READ_COUNT, 1);
-        break;
-      case Temperature::kWarm:
-        IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, size);
-        IOSTATS_ADD(file_io_stats_by_temperature.warm_file_read_count, 1);
-        RecordTick(stats, WARM_FILE_READ_BYTES, size);
-        RecordTick(stats, WARM_FILE_READ_COUNT, 1);
-        break;
-      case Temperature::kCool:
-        IOSTATS_ADD(file_io_stats_by_temperature.cool_file_bytes_read, size);
-        IOSTATS_ADD(file_io_stats_by_temperature.cool_file_read_count, 1);
-        RecordTick(stats, COOL_FILE_READ_BYTES, size);
-        RecordTick(stats, COOL_FILE_READ_COUNT, 1);
-        break;
-      case Temperature::kCold:
-        IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, size);
-        IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);
-        RecordTick(stats, COLD_FILE_READ_BYTES, size);
-        RecordTick(stats, COLD_FILE_READ_COUNT, 1);
-        break;
-      case Temperature::kIce:
-        IOSTATS_ADD(file_io_stats_by_temperature.ice_file_bytes_read, size);
-        IOSTATS_ADD(file_io_stats_by_temperature.ice_file_read_count, 1);
-        RecordTick(stats, ICE_FILE_READ_BYTES, size);
-        RecordTick(stats, ICE_FILE_READ_COUNT, 1);
-        break;
-      default:
-        break;
-    }
+  switch (file_temperature) {
+    case Temperature::kHot:
+      IOSTATS_ADD(file_io_stats_by_temperature.hot_file_bytes_read, size);
+      IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, 1);
+      RecordTick(stats, HOT_FILE_READ_BYTES, size);
+      RecordTick(stats, HOT_FILE_READ_COUNT, 1);
+      break;
+    case Temperature::kWarm:
+      IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, size);
+      IOSTATS_ADD(file_io_stats_by_temperature.warm_file_read_count, 1);
+      RecordTick(stats, WARM_FILE_READ_BYTES, size);
+      RecordTick(stats, WARM_FILE_READ_COUNT, 1);
+      break;
+    case Temperature::kCool:
+      IOSTATS_ADD(file_io_stats_by_temperature.cool_file_bytes_read, size);
+      IOSTATS_ADD(file_io_stats_by_temperature.cool_file_read_count, 1);
+      RecordTick(stats, COOL_FILE_READ_BYTES, size);
+      RecordTick(stats, COOL_FILE_READ_COUNT, 1);
+      break;
+    case Temperature::kCold:
+      IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, size);
+      IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);
+      RecordTick(stats, COLD_FILE_READ_BYTES, size);
+      RecordTick(stats, COLD_FILE_READ_COUNT, 1);
+      break;
+    case Temperature::kIce:
+      IOSTATS_ADD(file_io_stats_by_temperature.ice_file_bytes_read, size);
+      IOSTATS_ADD(file_io_stats_by_temperature.ice_file_read_count, 1);
+      RecordTick(stats, ICE_FILE_READ_BYTES, size);
+      RecordTick(stats, ICE_FILE_READ_COUNT, 1);
+      break;
+    case Temperature::kUnknown:
+      if (is_last_level) {
+        IOSTATS_ADD(file_io_stats_by_temperature.unknown_last_level_bytes_read,
+                    size);
+        IOSTATS_ADD(file_io_stats_by_temperature.unknown_last_level_read_count,
+                    1);
+      } else {
+        IOSTATS_ADD(
+            file_io_stats_by_temperature.unknown_non_last_level_bytes_read,
+            size);
+        IOSTATS_ADD(
+            file_io_stats_by_temperature.unknown_non_last_level_read_count, 1);
+      }
+      break;
+    default:
+      break;
   }
 }
 
