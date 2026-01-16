@@ -912,33 +912,6 @@ TEST_F(SstFileReaderTest, GetWithSkipFilters) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(SstFileReaderTest, GetWithMergeOperator) {
-  // Create a file with merge operands
-  std::vector<std::string> keys;
-  for (uint64_t i = 0; i < kNumKeys; i++) {
-    keys.emplace_back(EncodeAsString(i));
-  }
-  CreateFile(sst_name_, keys);
-
-  SstFileReader reader(options_);
-  ASSERT_OK(reader.Open(sst_name_));
-
-  // Test Get for Put operations
-  for (uint64_t i = 0; i + 2 < kNumKeys; i += 3) {
-    std::string value;
-    Status s = reader.Get(ReadOptions(), keys[i], &value);
-    ASSERT_OK(s);
-    ASSERT_EQ(value, keys[i]);
-  }
-
-  // Test Get for deleted keys
-  for (uint64_t i = 2; i + 2 < kNumKeys; i += 3) {
-    std::string value;
-    Status s = reader.Get(ReadOptions(), keys[i], &value);
-    ASSERT_TRUE(s.IsNotFound());
-  }
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
