@@ -618,7 +618,6 @@ TEST_F(TimestampCompatibleCompactionTest,
   db_->ReleaseSnapshot(snap);
 
   // Wait for any scheduled compactions
-  WaitForCompactOptions wfc_options;
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Now set full_history_ts_low to a value > max_timestamp (199) in the file
