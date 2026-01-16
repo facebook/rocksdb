@@ -57,6 +57,27 @@ class SstFileReader {
   // A Corruption status is returned if they do not match.
   Status VerifyNumEntries(const ReadOptions& /*read_options*/);
 
+  // Retrieve the value associated with a given key from the SST file.
+  // This method performs a point lookup using the underlying table reader's
+  // Get implementation, which utilizes bloom filters (if present) to optimize
+  // the lookup.
+  //
+  // Parameters:
+  //   read_options: Options for the read operation. Must have io_activity set
+  //                 to kUnknown.
+  //   key: The user key to search for.
+  //   value: Output parameter that will be populated with the value if found.
+  //          Must not be nullptr.
+  //   skip_filters: If true, skip bloom filter checks even if they exist.
+  //                 Default is false.
+  //
+  // Returns:
+  //   Status::OK() if the key is found and value is populated.
+  //   Status::NotFound() if the key does not exist in the SST file.
+  //   Other error status if an error occurs during the lookup.
+  Status Get(const ReadOptions& read_options, const Slice& key,
+             std::string* value, bool skip_filters = false);
+
  private:
   struct Rep;
   std::unique_ptr<Rep> rep_;

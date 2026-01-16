@@ -242,4 +242,60 @@ Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
   return s;
 }
 
+Status SstFileReader::Get(const ReadOptions& read_options, const Slice& key,
+                          std::string* value, bool skip_filters) {
+  assert(read_options.io_activity == Env::IOActivity::kUnknown);
+  assert(value != nullptr);
+
+  Rep* r = rep_.get();
+
+  // Use a PinnableSlice to avoid unnecessary copies
+  PinnableSlice pinnable_val(value);
+  assert(!pinnable_val.IsPinned());
+
+  // Prepare the internal key for lookup
+  LookupKey lkey(key, 0);
+
+  bool value_found = true;
+  SequenceNumber seq = 0;
+
+  // Create GetContext for the lookup operation
+  MergeContext merge_context;
+  GetContext get_context(
+      r->ioptions.user_comparator,
+      r->ioptions.merge_operator.get(),
+      r->ioptions.logger,
+      /*statistics*/ nullptr,
+      /*init_state*/ GetContext::kNotFound,
+      /*user_key*/ lkey.user_key(),
+      /*value*/ &pinnable_val,
+      /*columns=*/ nullptr,
+      /*value_found*/ &value_found,
+      &merge_context,
+      /*do_merge=*/ true,
+      /*max_covering_tombstone_seq=*/ nullptr,
+      r->ioptions.clock,
+      /*seq*/ &seq,
+      /*pinned_iters_mgr=*/ nullptr,
+      /*callback=*/ nullptr,
+      /*is_blob_index=*/ nullptr,
+      /*tracing_get_id=*/ 0,
+      /*blob_fetcher=*/ nullptr);
+
+  // Perform the Get operation on the underlying table reader
+  Status s = r->table_reader->Get(read_options, lkey.internal_key(),
+                                  &get_context,
+                                  r->moptions.prefix_extractor.get(),
+                                  skip_filters);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (get_context.State() == GetContext::kFound && value_found) {
+    value->assign(pinnable_val.data(), pinnable_val.size());
+    return Status::OK();
+  }
+  return Status::NotFound();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
