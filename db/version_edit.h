@@ -276,6 +276,14 @@ struct FileMetaData {
   // false, it's explicitly written to Manifest.
   bool user_defined_timestamps_persisted = true;
 
+  // Minimum user-defined timestamp in the file. Empty if no UDT or unknown.
+  // This is populated from the table properties "rocksdb.timestamp_min".
+  std::string min_timestamp;
+
+  // Maximum user-defined timestamp in the file. Empty if no UDT or unknown.
+  // This is populated from the table properties "rocksdb.timestamp_max".
+  std::string max_timestamp;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -288,7 +296,9 @@ struct FileMetaData {
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
                const uint64_t _compensated_range_deletion_size,
-               uint64_t _tail_size, bool _user_defined_timestamps_persisted)
+               uint64_t _tail_size, bool _user_defined_timestamps_persisted,
+               const std::string& _min_timestamp,
+               const std::string& _max_timestamp)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -303,7 +313,9 @@ struct FileMetaData {
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)),
         tail_size(_tail_size),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
+        min_timestamp(_min_timestamp),
+        max_timestamp(_max_timestamp) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -386,7 +398,8 @@ struct FileMetaData {
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     usage += smallest.size() + largest.size() + file_checksum.size() +
-             file_checksum_func_name.size();
+             file_checksum_func_name.size() + min_timestamp.size() +
+             max_timestamp.size();
     return usage;
   }
 
@@ -737,17 +750,19 @@ class VersionEdit {
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
                const uint64_t compensated_range_deletion_size,
-               uint64_t tail_size, bool user_defined_timestamps_persisted) {
+               uint64_t tail_size, bool user_defined_timestamps_persisted,
+               const std::string& min_timestamp = "",
+               const std::string& max_timestamp = "") {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
-        FileMetaData(file, file_path_id, file_size, smallest, largest,
-                     smallest_seqno, largest_seqno, marked_for_compaction,
-                     temperature, oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, epoch_number, file_checksum,
-                     file_checksum_func_name, unique_id,
-                     compensated_range_deletion_size, tail_size,
-                     user_defined_timestamps_persisted));
+        FileMetaData(
+            file, file_path_id, file_size, smallest, largest, smallest_seqno,
+            largest_seqno, marked_for_compaction, temperature,
+            oldest_blob_file_number, oldest_ancester_time, file_creation_time,
+            epoch_number, file_checksum, file_checksum_func_name, unique_id,
+            compensated_range_deletion_size, tail_size,
+            user_defined_timestamps_persisted, min_timestamp, max_timestamp));
     files_to_quarantine_.push_back(file);
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);

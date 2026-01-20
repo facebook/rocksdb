@@ -39,7 +39,7 @@ class UniversalCompactionBuilder {
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
       UniversalCompactionPicker* picker, LogBuffer* log_buffer,
-      bool require_max_output_level)
+      bool require_max_output_level, const std::string& full_history_ts_low)
       : ioptions_(ioptions),
         icmp_(icmp),
         cf_name_(cf_name),
@@ -50,7 +50,8 @@ class UniversalCompactionBuilder {
         log_buffer_(log_buffer),
         require_max_output_level_(require_max_output_level),
         allow_ingest_behind_(ioptions.cf_allow_ingest_behind ||
-                             ioptions.allow_ingest_behind) {
+                             ioptions.allow_ingest_behind),
+        full_history_ts_low_(full_history_ts_low) {
     assert(icmp_);
     const auto* ucmp = icmp_->user_comparator();
     assert(ucmp);
@@ -450,6 +451,7 @@ class UniversalCompactionBuilder {
   std::map<uint64_t, size_t> file_marked_for_compaction_to_sorted_run_index_;
   bool require_max_output_level_;
   bool allow_ingest_behind_;
+  const std::string& full_history_ts_low_;
 
   std::vector<UniversalCompactionBuilder::SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, int last_level,
@@ -595,16 +597,20 @@ bool UniversalCompactionPicker::NeedsCompaction(
   return false;
 }
 
+// TODO leverage full_history_ts_low in universal compaction picking. It could
+// help reduce the same infinite compaction loop issue found in level
+// compaction.
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
     const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, bool require_max_output_level) {
+    LogBuffer* log_buffer, const std::string& full_history_ts_low,
+    bool require_max_output_level) {
   UniversalCompactionBuilder builder(
       ioptions_, icmp_, cf_name, mutable_cf_options, mutable_db_options,
       existing_snapshots, snapshot_checker, vstorage, this, log_buffer,
-      require_max_output_level);
+      require_max_output_level, full_history_ts_low);
   return builder.PickCompaction();
 }
 
@@ -825,7 +831,8 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   RecordInHistogram(ioptions_.stats, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
 
   picker_->RegisterCompaction(c);
-  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                    full_history_ts_low_);
 
   TEST_SYNC_POINT_CALLBACK("UniversalCompactionBuilder::PickCompaction:Return",
                            c);

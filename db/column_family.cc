@@ -1248,7 +1248,7 @@ Compaction* ColumnFamilyData::PickCompaction(
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
       snapshot_checker, current_->storage_info(), log_buffer,
-      require_max_output_level);
+      GetFullHistoryTsLow(), require_max_output_level);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
@@ -1336,7 +1336,7 @@ Compaction* ColumnFamilyData::CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore, trim_ts);
+      max_file_num_to_ignore, trim_ts, GetFullHistoryTsLow());
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }

@@ -61,14 +61,16 @@ class LevelCompactionBuilder {
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
                          const ImmutableOptions& ioptions,
-                         const MutableDBOptions& mutable_db_options)
+                         const MutableDBOptions& mutable_db_options,
+                         const std::string& full_history_ts_low)
       : cf_name_(cf_name),
         vstorage_(vstorage),
         compaction_picker_(compaction_picker),
         log_buffer_(log_buffer),
         mutable_cf_options_(mutable_cf_options),
         ioptions_(ioptions),
-        mutable_db_options_(mutable_db_options) {}
+        mutable_db_options_(mutable_db_options),
+        full_history_ts_low_(full_history_ts_low) {}
 
   // Pick and return a compaction.
   Compaction* PickCompaction();
@@ -155,6 +157,7 @@ class LevelCompactionBuilder {
   const MutableCFOptions& mutable_cf_options_;
   const ImmutableOptions& ioptions_;
   const MutableDBOptions& mutable_db_options_;
+  const std::string& full_history_ts_low_;
   // Pick a path ID to place a newly generated file, with its level
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
                             const MutableCFOptions& mutable_cf_options,
@@ -571,7 +574,8 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here
-  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                    full_history_ts_low_);
   return c;
 }
 
@@ -976,10 +980,11 @@ Compaction* LevelCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /*existing_snapshots */,
     const SnapshotChecker* /*snapshot_checker*/, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, bool /* require_max_output_level*/) {
+    LogBuffer* log_buffer, const std::string& full_history_ts_low,
+    bool /* require_max_output_level*/) {
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_,
-                                 mutable_db_options);
+                                 mutable_db_options, full_history_ts_low);
   return builder.PickCompaction();
 }
 }  // namespace ROCKSDB_NAMESPACE

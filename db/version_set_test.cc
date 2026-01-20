@@ -56,7 +56,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     files_.push_back(f);
   }
 
@@ -172,7 +173,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kNullUniqueId64x2, compensated_range_deletion_size, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     vstorage_.AddFile(level, f);
   }
 
@@ -391,7 +393,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Only L0 hits compaction.
   ASSERT_EQ(vstorage_.CompactionScoreLevel(0), 0);
 }
@@ -421,7 +424,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Although L2 and l3 have higher unadjusted compaction score, considering
   // a relatively large L0 being compacted down soon, L4 is picked up for
   // compaction.
@@ -453,7 +457,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ASSERT_EQ(2, vstorage_.base_level());
   ASSERT_EQ(20000U, vstorage_.MaxBytesForLevel(2));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Although L2 has higher unadjusted compaction score, considering
   // a relatively large L0 being compacted down soon, L3 is picked up for
   // compaction.
@@ -483,7 +488,8 @@ TEST_F(VersionStorageInfoTest, DrainUnnecessaryLevel) {
   ASSERT_EQ(1, vstorage_.base_level());
   ASSERT_EQ(1000, vstorage_.MaxBytesForLevel(1));
   ASSERT_EQ(10100, vstorage_.MaxBytesForLevel(3));
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
 
   // Tests that levels 1 and 3 are eligible for compaction.
   // Levels 1 and 3 are much smaller than target size,
@@ -1346,7 +1352,8 @@ class VersionSetTestBase {
           Temperature::kUnknown, info.oldest_blob_file_number, 0, 0,
           info.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
           kNullUniqueId64x2, 0, 0,
-          /* user_defined_timestamps_persisted */ true);
+          /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+          /* max timestamp */ "");
       if (info.file_missing) {
         ASSERT_OK(fs_->DeleteFile(fname, IOOptions(), nullptr));
       }
@@ -3940,7 +3947,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -4001,7 +4009,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

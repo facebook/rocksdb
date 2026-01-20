@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
@@ -699,9 +700,13 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),  // orders files ingested to L0
         file->file_checksum, file->file_checksum_func_name, file->unique_id, 0,
-        tail_size, file->user_defined_timestamps_persisted);
+        tail_size, file->user_defined_timestamps_persisted, "", "");
     f_metadata.temperature = file->file_temperature;
     f_metadata.marked_for_compaction = marked_for_compaction;
+    // Extract min/max timestamps from table properties for UDT support.
+    // This ensures ingested files have proper timestamp ranges in FileMetaData,
+    // similar to files created by flush and compaction.
+    ExtractTimestampFromTableProperties(file->table_properties, &f_metadata);
     edit_.AddFile(file->picked_level, f_metadata);
 
     *batch_uppermost_level =

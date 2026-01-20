@@ -419,12 +419,19 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
   return c;
 }
 
+// The full_history_ts_low parameter is used to control bottommost file marking
+// for compaction when user-defined timestamps (UDT) are enabled.
+
+// TODO leverage full_history_ts_low for FIFO compaction, by trigggerring
+// compaction early for data that has already expired to achieve the goal of TTL
+// enforced compliance.
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /* existing_snapshots */,
     const SnapshotChecker* /* snapshot_checker */, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, bool /* require_max_output_level*/) {
+    LogBuffer* log_buffer, const std::string& /* full_history_ts_low */,
+    bool /* require_max_output_level*/) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
@@ -449,7 +456,8 @@ Compaction* FIFOCompactionPicker::PickCompactionForCompactRange(
     const CompactRangeOptions& /*compact_range_options*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
     InternalKey** compaction_end, bool* /*manual_conflict*/,
-    uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/) {
+    uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/,
+    const std::string& full_history_ts_low) {
 #ifdef NDEBUG
   (void)input_level;
   (void)output_level;
@@ -458,10 +466,10 @@ Compaction* FIFOCompactionPicker::PickCompactionForCompactRange(
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.logger);
-  Compaction* c =
-      PickCompaction(cf_name, mutable_cf_options, mutable_db_options,
-                     /*existing_snapshots*/ {}, /*snapshot_checker*/ nullptr,
-                     vstorage, &log_buffer);
+  Compaction* c = PickCompaction(
+      cf_name, mutable_cf_options, mutable_db_options,
+      /*existing_snapshots*/ {}, /*snapshot_checker*/ nullptr, vstorage,
+      &log_buffer, full_history_ts_low, /* require_max_output_level */ false);
   log_buffer.FlushBufferToLog();
   return c;
 }

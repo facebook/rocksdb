@@ -26,7 +26,8 @@ class UniversalCompactionPicker : public CompactionPicker {
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer, bool require_max_output_level = false) override;
+      LogBuffer* log_buffer, const std::string& full_history_ts_low,
+      bool require_max_output_level = false) override;
   int MaxOutputLevel() const override { return NumberLevels() - 1; }
 
   bool NeedsCompaction(const VersionStorageInfo* vstorage) const override;

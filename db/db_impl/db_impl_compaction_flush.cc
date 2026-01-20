@@ -1449,7 +1449,8 @@ Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
                         f->file_creation_time, f->epoch_number,
                         f->file_checksum, f->file_checksum_func_name,
                         f->unique_id, f->compensated_range_deletion_size,
-                        f->tail_size, f->user_defined_timestamps_persisted);
+                        f->tail_size, f->user_defined_timestamps_persisted,
+                        f->min_timestamp, f->max_timestamp);
       moved_bytes += static_cast<size_t>(c.input(l, i)->fd.GetFileSize());
       ROCKS_LOG_BUFFER(
           log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
@@ -1645,8 +1646,8 @@ Status DBImpl::CompactFilesImpl(
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here.
-  version->storage_info()->ComputeCompactionScore(cfd->ioptions(),
-                                                  c->mutable_cf_options());
+  version->storage_info()->ComputeCompactionScore(
+      cfd->ioptions(), c->mutable_cf_options(), cfd->GetFullHistoryTsLow());
 
   compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
 
@@ -1971,7 +1972,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->oldest_ancester_time, f->file_creation_time, f->epoch_number,
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
           f->compensated_range_deletion_size, f->tail_size,
-          f->user_defined_timestamps_persisted);
+          f->user_defined_timestamps_persisted, f->min_timestamp,
+          f->max_timestamp);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -3831,7 +3833,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
               ->current()
               ->storage_info()
               ->ComputeCompactionScore(c->immutable_options(),
-                                       c->mutable_cf_options());
+                                       c->mutable_cf_options(),
+                                       cfd->GetFullHistoryTsLow());
           EnqueuePendingCompaction(cfd);
 
           c.reset();
@@ -4088,7 +4091,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           in_file->unique_id,
           in_file->compensated_range_deletion_size,
           in_file->tail_size,
-          in_file->user_defined_timestamps_persisted};
+          in_file->user_defined_timestamps_persisted,
+          in_file->min_timestamp,
+          in_file->max_timestamp};
 
       out_files.push_back(std::move(out_file_metadata));
     }
@@ -4393,7 +4398,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           ->current()
           ->storage_info()
           ->ComputeCompactionScore(c->immutable_options(),
-                                   c->mutable_cf_options());
+                                   c->mutable_cf_options(),
+                                   cfd->GetFullHistoryTsLow());
       EnqueuePendingCompaction(cfd);
     }
   }
@@ -4499,7 +4505,7 @@ Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
                      nullptr /* snapshot_checker */, c->compaction_reason());
 
   cfd->compaction_picker()->RegisterCompaction(intended_compaction);
-  vstorage->ComputeCompactionScore(io, mo);
+  vstorage->ComputeCompactionScore(io, mo, cfd->GetFullHistoryTsLow());
   intended_compaction->FinalizeInputInfo(cfd->current());
 
   return intended_compaction;
@@ -4871,7 +4877,8 @@ void DBImpl::ResetBottomPriCompactionIntent(ColumnFamilyData* cfd,
                                             std::unique_ptr<Compaction>& c) {
   c->ReleaseCompactionFiles(Status::OK());
   cfd->current()->storage_info()->ComputeCompactionScore(
-      c->immutable_options(), c->mutable_cf_options());
+      c->immutable_options(), c->mutable_cf_options(),
+      cfd->GetFullHistoryTsLow());
   c.reset();
 }
 

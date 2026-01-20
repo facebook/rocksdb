@@ -4402,7 +4402,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->AllowIngestBehind()) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(
-              oldest_snapshot, /*allow_ingest_behind=*/false);
+              oldest_snapshot, /*allow_ingest_behind=*/false,
+              cfd->ioptions().user_comparator, cfd->GetFullHistoryTsLow());
           if (!cfd->current()
                    ->storage_info()
                    ->BottommostFilesMarkedForCompaction()
@@ -5038,7 +5039,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     }
     if (!deleted_files.empty()) {
       vstorage->ComputeCompactionScore(cfd->ioptions(),
-                                       cfd->GetLatestMutableCFOptions());
+                                       cfd->GetLatestMutableCFOptions(),
+                                       cfd->GetFullHistoryTsLow());
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
@@ -6902,7 +6904,8 @@ void DBImpl::TriggerPeriodicCompaction() {
       if (cfd->GetLatestCFOptions().periodic_compaction_seconds &&
           !cfd->queued_for_compaction()) {
         cfd->current()->storage_info()->ComputeCompactionScore(
-            cfd->ioptions(), cfd->GetLatestMutableCFOptions());
+            cfd->ioptions(), cfd->GetLatestMutableCFOptions(),
+            cfd->GetFullHistoryTsLow());
         EnqueuePendingCompaction(cfd);
         if (cfd->queued_for_compaction()) {
           ROCKS_LOG_INFO(immutable_db_options_.info_log,

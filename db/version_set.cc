@@ -3737,7 +3737,8 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
 
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options,
+    const std::string& full_history_ts_low) {
   double total_downcompact_bytes = 0.0;
   // Historically, score is defined as actual bytes in a level divided by
   // the level's target size, and 1.0 is the threshold for triggering
@@ -3936,7 +3937,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeFilesMarkedForCompaction(max_output_level);
   ComputeBottommostFilesMarkedForCompaction(
       immutable_options.cf_allow_ingest_behind ||
-      immutable_options.allow_ingest_behind);
+          immutable_options.allow_ingest_behind,
+      immutable_options.user_comparator, full_history_ts_low);
   ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   ComputeFilesMarkedForPeriodicCompaction(
       immutable_options, mutable_cf_options.periodic_compaction_seconds,
@@ -4527,17 +4529,20 @@ void VersionStorageInfo::GenerateFileLocationIndex() {
   }
 }
 
-void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum,
-                                              bool allow_ingest_behind) {
+void VersionStorageInfo::UpdateOldestSnapshot(
+    SequenceNumber seqnum, bool allow_ingest_behind, const Comparator* ucmp,
+    const std::string& full_history_ts_low) {
   assert(seqnum >= oldest_snapshot_seqnum_);
   oldest_snapshot_seqnum_ = seqnum;
   if (oldest_snapshot_seqnum_ > bottommost_files_mark_threshold_) {
-    ComputeBottommostFilesMarkedForCompaction(allow_ingest_behind);
+    ComputeBottommostFilesMarkedForCompaction(allow_ingest_behind, ucmp,
+                                              full_history_ts_low);
   }
 }
 
 void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
-    bool allow_ingest_behind) {
+    bool allow_ingest_behind, const Comparator* ucmp,
+    const std::string& full_history_ts_low) {
   bottommost_files_marked_for_compaction_.clear();
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
   if (allow_ingest_behind) {
@@ -4558,12 +4563,39 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
         current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
   }
 
+  // For UDT, we need to check if the file's max timestamp is below
+  // full_history_ts_low. If not, the compaction won't be able to collapse the
+  // timestamp to clean up the tombstone , so marking the file would be futile
+  // and could cause an infinite compaction loop.
+  const bool has_udt = ucmp && ucmp->timestamp_size() > 0;
+
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
         level_and_file.second->fd.largest_seqno != 0) {
       // largest_seqno might be nonzero due to containing the final key in an
       // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
+        if (has_udt) {
+          const std::string& max_ts = level_and_file.second->max_timestamp;
+          // If max_timestamp is empty, the file could come from very old
+          // version which does not have timestamp. In that case, we should pick
+          // the file for compaction. After compaction, the file will have
+          // max_timestamp set propertly.
+          if (!max_ts.empty()) {
+            // If full_history_ts_low is empty, it means it was never set, which
+            // means its value is 0. Therefore, it would be always smaller than
+            // max_timestamp
+            if (full_history_ts_low.empty()) {
+              continue;
+            }
+            // If max timestamp >= full_history_ts_low, skip this file
+            if (ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) >=
+                0) {
+              continue;
+            }
+          }
+        }
+
         if (!needs_delay) {
           bottommost_files_marked_for_compaction_.push_back(level_and_file);
         } else if (creation_time_ub > 0) {
@@ -5639,7 +5671,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
   // compute new compaction score
   v->storage_info()->ComputeCompactionScore(
       column_family_data->ioptions(),
-      column_family_data->GetLatestMutableCFOptions());
+      column_family_data->GetLatestMutableCFOptions(),
+      column_family_data->GetFullHistoryTsLow());
 
   // Mark v finalized
   v->storage_info_.SetFinalized();
@@ -7102,7 +7135,6 @@ Status VersionSet::WriteCurrentStateToManifest(
 
         for (const auto& f : level_files) {
           assert(f);
-
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
@@ -7111,7 +7143,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->file_creation_time, f->epoch_number, f->file_checksum,
                        f->file_checksum_func_name, f->unique_id,
                        f->compensated_range_deletion_size, f->tail_size,
-                       f->user_defined_timestamps_persisted);
+                       f->user_defined_timestamps_persisted, f->min_timestamp,
+                       f->max_timestamp);
         }
       }
 

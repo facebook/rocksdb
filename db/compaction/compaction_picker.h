@@ -65,7 +65,8 @@ class CompactionPicker {
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer, bool require_max_output_level) = 0;
+      LogBuffer* log_buffer, const std::string& full_history_ts_low,
+      bool require_max_output_level = false) = 0;
 
   // The returned Compaction might not include the whole requested range.
   // In that case, compaction_end will be set to the next key that needs
@@ -82,7 +83,8 @@ class CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts);
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+      const std::string& full_history_ts_low);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -284,7 +286,8 @@ class NullCompactionPicker : public CompactionPicker {
       const std::vector<SequenceNumber>& /*existing_snapshots*/,
       const SnapshotChecker* /*snapshot_checker*/,
       VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */,
-      bool /*require_max_output_level*/ = false) override {
+      const std::string& /*full_history_ts_low*/,
+      bool /*require_max_output_level*/) override {
     return nullptr;
   }
 
@@ -298,8 +301,8 @@ class NullCompactionPicker : public CompactionPicker {
       const CompactRangeOptions& /*compact_range_options*/,
       const InternalKey* /*begin*/, const InternalKey* /*end*/,
       InternalKey** /*compaction_end*/, bool* /*manual_conflict*/,
-      uint64_t /*max_file_num_to_ignore*/,
-      const std::string& /*trim_ts*/) override {
+      uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/,
+      const std::string& /*full_history_ts_low*/) override {
     return nullptr;
   }
 
