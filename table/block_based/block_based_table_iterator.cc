@@ -1361,7 +1361,6 @@ Status BlockBasedTableIterator::PollForBlock(size_t idx) {
   AsyncReadState& async_read = multi_scan_->async_states[async_idx->second];
   if (async_read.finished) {
     assert(async_read.io_handle == nullptr);
-    assert(async_read.status.ok());
     return async_read.status;
   }
 
@@ -1373,7 +1372,6 @@ Status BlockBasedTableIterator::PollForBlock(size_t idx) {
       return poll_s;
     }
   }
-  assert(async_read.status.ok());
   if (!async_read.status.ok()) {
     return async_read.status;
   }
