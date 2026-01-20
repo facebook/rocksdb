@@ -66,7 +66,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
 
   std::unique_ptr<Compressor> Clone() const override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override;
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const override;
   Status CompressBlock(Slice uncompressed_data, char* compressed_output,
                        size_t* compressed_output_size,
                        CompressionType* out_compression_type,
@@ -153,12 +153,12 @@ class CostAwareCompressor : public Compressor {
   explicit CostAwareCompressor(const CompressionOptions& opts);
   const char* Name() const override;
   std::unique_ptr<Compressor> Clone() const override;
-  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
+  DictConfig GetDictGuidance(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
   CompressionType GetPreferredCompressionType() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override;
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const override;
 
   Status CompressBlock(Slice uncompressed_data, char* compressed_output,
                        size_t* compressed_output_size,

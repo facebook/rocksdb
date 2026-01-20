@@ -113,9 +113,9 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
 // A convenience function for populating the Compressor* fields; see ~Rep()
 Compressor* MaybeCloneSpecialized(
     Compressor* compressor, CacheEntryRole block_type,
-    Compressor::DictSampleArgs&& dict_samples = {}) {
+    Compressor::DictConfigArgs&& dict_config = Compressor::DictDisabled{}) {
   auto specialized =
-      compressor->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+      compressor->MaybeCloneSpecialized(block_type, std::move(dict_config));
   if (specialized) {
     // Caller is responsible for freeing when distinct
     return specialized.release();
@@ -833,7 +833,8 @@ struct BlockBasedTableBuilder::Rep {
   RelaxedAtomic<uint64_t> sampled_output_fast_data_bytes{0};
   uint32_t compression_parallel_threads;
   int max_compressed_bytes_per_kb;
-  size_t max_dict_sample_bytes = 0;
+  // Dictionary guidance for data blocks (from GetDictGuidance())
+  Compressor::DictConfig data_block_dict_guidance;
 
   // *** Compressors & decompressors - Yes, it seems like a lot here but ***
   // *** these are distinct fields to minimize extra conditionals and    ***
@@ -1122,9 +1123,12 @@ struct BlockBasedTableBuilder::Rep {
         index_block_working_area.compress =
             index_block_compressor->ObtainWorkingArea();
       }
-      max_dict_sample_bytes = basic_compressor->GetMaxSampleSizeIfWantDict(
-          CacheEntryRole::kDataBlock);
-      if (max_dict_sample_bytes > 0) {
+      data_block_dict_guidance =
+          basic_compressor->GetDictGuidance(CacheEntryRole::kDataBlock);
+      if (auto* sampling =
+              std::get_if<Compressor::DictSampling>(&data_block_dict_guidance);
+          sampling != nullptr && sampling->max_sample_bytes > 0) {
+        // Sampling mode: collect samples up to max_sample_bytes
         state = State::kBuffered;
         if (tbo.target_file_size == 0) {
           buffer_limit = tbo.compression_opts.max_dict_buffer_bytes;
@@ -1134,7 +1138,22 @@ struct BlockBasedTableBuilder::Rep {
           buffer_limit = std::min(tbo.target_file_size,
                                   tbo.compression_opts.max_dict_buffer_bytes);
         }
+      } else if (auto* predef = std::get_if<Compressor::DictPreDefined>(
+                     &data_block_dict_guidance);
+                 predef != nullptr && !predef->dict_data.empty()) {
+        // Pre-defined dictionary mode: use it immediately, no buffering
+        data_block_compressor = MaybeCloneSpecialized(
+            basic_compressor.get(), CacheEntryRole::kDataBlock,
+            Compressor::DictPreDefined{std::string{predef->dict_data}});
+        data_block_working_area.compress =
+            data_block_compressor->ObtainWorkingArea();
       } else {
+        assert(std::holds_alternative<Compressor::DictSampling>(
+                   data_block_dict_guidance) ||
+               std::holds_alternative<Compressor::DictPreDefined>(
+                   data_block_dict_guidance) ||
+               std::holds_alternative<Compressor::DictDisabled>(
+                   data_block_dict_guidance));
         // No distinct data block compressor using dictionary, but
         // implementation might still want to specialize for data blocks
         data_block_compressor = MaybeCloneSpecialized(
@@ -2632,14 +2651,18 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
       kPrimeGenerator % static_cast<uint64_t>(kNumBlocksBuffered));
   const size_t kInitSampleIdx = kNumBlocksBuffered / 2;
 
-  Compressor::DictSampleArgs samples;
+  Compressor::DictSamples samples;
   size_t buffer_idx = kInitSampleIdx;
-  for (size_t i = 0; i < kNumBlocksBuffered &&
-                     samples.sample_data.size() < r->max_dict_sample_bytes;
+  // Get max_sample_bytes from the DictSampling guidance
+  auto* sampling =
+      std::get_if<Compressor::DictSampling>(&r->data_block_dict_guidance);
+  assert(sampling != nullptr);
+  size_t max_sample_bytes = sampling->max_sample_bytes;
+  for (size_t i = 0;
+       i < kNumBlocksBuffered && samples.sample_data.size() < max_sample_bytes;
        ++i) {
-    size_t copy_len =
-        std::min(r->max_dict_sample_bytes - samples.sample_data.size(),
-                 r->data_block_buffers[buffer_idx].size());
+    size_t copy_len = std::min(max_sample_bytes - samples.sample_data.size(),
+                               r->data_block_buffers[buffer_idx].size());
     samples.sample_data.append(r->data_block_buffers[buffer_idx], 0, copy_len);
     samples.sample_lens.emplace_back(copy_len);
 

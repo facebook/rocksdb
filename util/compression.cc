@@ -222,9 +222,11 @@ class CompressorWithSimpleDictBase : public CompressorBase {
                                         std::string&& dict_data = {})
       : CompressorBase(opts), dict_data_(std::move(dict_data)) {}
 
-  size_t GetMaxSampleSizeIfWantDict(
-      CacheEntryRole /*block_type*/) const override {
-    return opts_.max_dict_bytes;
+  DictConfig GetDictGuidance(CacheEntryRole /*block_type*/) const override {
+    if (opts_.max_dict_bytes == 0) {
+      return DictDisabled{};
+    }
+    return DictSampling{opts_.max_dict_bytes};
   }
 
   // NOTE: empty dict is equivalent to no dict
@@ -236,13 +238,21 @@ class CompressorWithSimpleDictBase : public CompressorBase {
 
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole /*block_type*/,
-      DictSampleArgs&& dict_samples) const final override {
-    assert(dict_samples.Verify());
-    if (dict_samples.empty()) {
-      // Nothing to specialize on
-      return nullptr;
+      DictConfigArgs&& dict_config) const final override {
+    if (auto* samples = std::get_if<DictSamples>(&dict_config)) {
+      assert(samples->Verify());
+      if (samples->empty()) {
+        return nullptr;
+      }
+      return CloneForDict(std::move(samples->sample_data));
+    } else if (auto* predef = std::get_if<DictPreDefined>(&dict_config)) {
+      if (predef->dict_data.empty()) {
+        return nullptr;
+      }
+      return CloneForDict(std::move(predef->dict_data));
     } else {
-      return CloneForDict(std::move(dict_samples.sample_data));
+      assert(std::holds_alternative<DictDisabled>(dict_config));
+      return nullptr;
     }
   }
 
@@ -858,14 +868,15 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
                                                      std::move(dict_copy));
   }
 
-  size_t GetMaxSampleSizeIfWantDict(
-      CacheEntryRole /*block_type*/) const override {
+  DictConfig GetDictGuidance(CacheEntryRole /*block_type*/) const override {
     if (opts_.max_dict_bytes == 0) {
       // Dictionary compression disabled
-      return 0;
+      return DictDisabled{};
     } else {
-      return opts_.zstd_max_train_bytes > 0 ? opts_.zstd_max_train_bytes
-                                            : opts_.max_dict_bytes;
+      size_t max_sample_bytes = opts_.zstd_max_train_bytes > 0
+                                    ? opts_.zstd_max_train_bytes
+                                    : opts_.max_dict_bytes;
+      return DictSampling{max_sample_bytes};
     }
   }
 
@@ -974,31 +985,49 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
 
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole /*block_type*/,
-      DictSampleArgs&& dict_samples) const override {
-    assert(dict_samples.Verify());
-    if (dict_samples.empty()) {
-      // Nothing to specialize on
+      DictConfigArgs&& dict_config) const override {
+    // Handle DictDisabled
+    // TODO: use holds_alternative
+    if (auto* disabled = std::get_if<DictDisabled>(&dict_config)) {
+      (void)disabled;
       return nullptr;
     }
+
     std::string dict_data;
-    // Migrated from BlockBasedTableBuilder::EnterUnbuffered()
-    if (opts_.zstd_max_train_bytes > 0) {
-      assert(dict_samples.sample_data.size() <= opts_.zstd_max_train_bytes);
-      if (opts_.use_zstd_dict_trainer) {
-        dict_data = ZSTD_TrainDictionary(dict_samples.sample_data,
-                                         dict_samples.sample_lens,
-                                         opts_.max_dict_bytes);
-      } else {
-        dict_data = ZSTD_FinalizeDictionary(dict_samples.sample_data,
-                                            dict_samples.sample_lens,
-                                            opts_.max_dict_bytes, opts_.level);
+
+    // Handle DictPreDefined - use the pre-defined dictionary directly
+    if (auto* predef = std::get_if<DictPreDefined>(&dict_config)) {
+      if (predef->dict_data.empty()) {
+        return nullptr;
       }
-    } else {
-      assert(dict_samples.sample_data.size() <= opts_.max_dict_bytes);
-      // ZSTD "raw content dictionary" - "Any buffer is a valid raw content
-      // dictionary." Or similar for other compressions.
-      dict_data = std::move(dict_samples.sample_data);
+      dict_data = std::move(predef->dict_data);
     }
+
+    // Handle DictSamples - train dictionary from samples
+    if (auto* samples = std::get_if<DictSamples>(&dict_config)) {
+      assert(samples->Verify());
+      if (samples->empty()) {
+        return nullptr;
+      }
+      // Migrated from BlockBasedTableBuilder::EnterUnbuffered()
+      if (opts_.zstd_max_train_bytes > 0) {
+        assert(samples->sample_data.size() <= opts_.zstd_max_train_bytes);
+        if (opts_.use_zstd_dict_trainer) {
+          dict_data = ZSTD_TrainDictionary(
+              samples->sample_data, samples->sample_lens, opts_.max_dict_bytes);
+        } else {
+          dict_data = ZSTD_FinalizeDictionary(
+              samples->sample_data, samples->sample_lens, opts_.max_dict_bytes,
+              opts_.level);
+        }
+      } else {
+        assert(samples->sample_data.size() <= opts_.max_dict_bytes);
+        // ZSTD "raw content dictionary" - "Any buffer is a valid raw content
+        // dictionary." Or similar for other compressions.
+        dict_data = std::move(samples->sample_data);
+      }
+    }
+
     CompressionDict dict{std::move(dict_data), kZSTD, opts_.level};
     return std::make_unique<BuiltinZSTDCompressorV2>(opts_, std::move(dict));
   }
