@@ -113,6 +113,61 @@ class TimestampCompatibleCompactionTest : public DBTestBase {
     ASSERT_EQ(expected_max, reopened_max_ts);
     ASSERT_EQ(file_count_before, GetAllFileTimestamps().size());
   }
+
+  // Helper to create common options for UDT tests with level compaction
+  Options CreateTimestampOptions(bool disable_auto_compactions = false) {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.compaction_style = kCompactionStyleLevel;
+    options.num_levels = 4;
+    options.persist_user_defined_timestamps = true;
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    options.disable_auto_compactions = disable_auto_compactions;
+    return options;
+  }
+
+  // Helper to write test data with alternating timestamps in a range
+  // Writes keys [start_key, end_key) with timestamps alternating between
+  // min_ts and max_ts
+  void WriteDataWithTimestampRange(int start_key, int end_key, uint64_t min_ts,
+                                   uint64_t max_ts) {
+    std::string ts_buf;
+    for (int i = start_key; i < end_key; i++) {
+      ts_buf.clear();
+      uint64_t ts = (i % 2 == 0) ? min_ts : max_ts;
+      PutFixed64(&ts_buf, ts);
+      ASSERT_OK(db_->Put(WriteOptions(), Key(i), ts_buf,
+                         "value" + std::to_string(i)));
+    }
+  }
+
+  // Helper to check if any file has the expected timestamp range
+  bool HasFileWithTimestampRange(uint64_t expected_min, uint64_t expected_max) {
+    auto file_timestamps = GetAllFileTimestamps();
+    for (const auto& [level, min_ts, max_ts] : file_timestamps) {
+      if (!min_ts.empty() && !max_ts.empty()) {
+        uint64_t file_min = DecodeFixed64(min_ts.data());
+        uint64_t file_max = DecodeFixed64(max_ts.data());
+        if (file_min == expected_min && file_max == expected_max) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Helper to verify data is readable with a given timestamp
+  void VerifyDataReadable(int key, const std::string& expected_value,
+                          uint64_t read_ts) {
+    std::string value;
+    std::string ts_buf;
+    PutFixed64(&ts_buf, read_ts);
+    ReadOptions read_opts;
+    Slice ts_slice(ts_buf);
+    read_opts.timestamp = &ts_slice;
+    ASSERT_OK(db_->Get(read_opts, Key(key), &value));
+    ASSERT_EQ(expected_value, value);
+  }
 };
 
 TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
@@ -513,13 +568,8 @@ TEST_F(TimestampCompatibleCompactionTest, SeqnoZeroingWithUDT) {
 // for bottommost compaction, which prevents infinite compaction loops.
 TEST_F(TimestampCompatibleCompactionTest,
        BottommostCompactionRespectsFullHistoryTsLow) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.compaction_style = kCompactionStyleLevel;
-  options.num_levels = 4;
+  Options options = CreateTimestampOptions();
   options.level0_file_num_compaction_trigger = 4;
-  options.persist_user_defined_timestamps = true;
-  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
 
   DestroyAndReopen(options);
 
@@ -580,12 +630,7 @@ TEST_F(TimestampCompatibleCompactionTest,
 // and full_history_ts_low has never been set (empty).
 TEST_F(TimestampCompatibleCompactionTest,
        BottommostCompactionSkipsWhenFullHistoryTsLowNotSet) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.compaction_style = kCompactionStyleLevel;
-  options.num_levels = 4;
-  options.persist_user_defined_timestamps = true;
-  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  Options options = CreateTimestampOptions();
 
   DestroyAndReopen(options);
 
@@ -634,14 +679,7 @@ TEST_F(TimestampCompatibleCompactionTest,
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Verify data is still readable
-  std::string value;
-  ts_buf.clear();
-  PutFixed64(&ts_buf, 250);
-  Slice read_ts = ts_buf;
-  ReadOptions read_opts;
-  read_opts.timestamp = &read_ts;
-  ASSERT_OK(db_->Get(read_opts, Key(0), &value));
-  ASSERT_EQ("value0", value);
+  VerifyDataReadable(0, "value0", 250);
 }
 
 // Test that ingested SST files created with UDT have their min/max timestamps
@@ -650,12 +688,7 @@ TEST_F(TimestampCompatibleCompactionTest,
 // ExtractTimestampFromTableProperties after creating FileMetaData.
 TEST_F(TimestampCompatibleCompactionTest,
        IngestedFileTimestampsExtractedFromTableProperties) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.compaction_style = kCompactionStyleLevel;
-  options.num_levels = 4;
-  options.persist_user_defined_timestamps = true;
-  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  Options options = CreateTimestampOptions();
 
   DestroyAndReopen(options);
 
@@ -701,55 +734,18 @@ TEST_F(TimestampCompatibleCompactionTest,
   ASSERT_OK(db_->IngestExternalFile({sst_file}, ifo));
 
   // Verify the ingested file has proper timestamps in FileMetaData
-  auto file_timestamps = GetAllFileTimestamps();
-  ASSERT_GE(file_timestamps.size(), 1U);
-
-  bool found_ingested_file = false;
-  for (const auto& [level, min_ts, max_ts] : file_timestamps) {
-    // The ingested file should have non-empty timestamps
-    if (!min_ts.empty() && !max_ts.empty()) {
-      uint64_t file_min = DecodeFixed64(min_ts.data());
-      uint64_t file_max = DecodeFixed64(max_ts.data());
-
-      // Check if this matches our expected range
-      if (file_min == kMinTs && file_max == kMaxTs) {
-        found_ingested_file = true;
-        break;
-      }
-    }
-  }
-
-  ASSERT_TRUE(found_ingested_file)
+  ASSERT_TRUE(HasFileWithTimestampRange(kMinTs, kMaxTs))
       << "Ingested file should have min_timestamp=" << kMinTs
       << " and max_timestamp=" << kMaxTs << " in FileMetaData";
 
   // Verify timestamps persist after reopen
   Reopen(options);
 
-  file_timestamps = GetAllFileTimestamps();
-  found_ingested_file = false;
-  for (const auto& [level, min_ts, max_ts] : file_timestamps) {
-    if (!min_ts.empty() && !max_ts.empty()) {
-      uint64_t file_min = DecodeFixed64(min_ts.data());
-      uint64_t file_max = DecodeFixed64(max_ts.data());
-      if (file_min == kMinTs && file_max == kMaxTs) {
-        found_ingested_file = true;
-        break;
-      }
-    }
-  }
-  ASSERT_TRUE(found_ingested_file)
+  ASSERT_TRUE(HasFileWithTimestampRange(kMinTs, kMaxTs))
       << "Ingested file timestamps should persist after reopen";
 
   // Verify data is readable
-  std::string value;
-  std::string ts_buf;
-  PutFixed64(&ts_buf, kMaxTs);
-  ReadOptions read_opts;
-  Slice ts_slice(ts_buf);
-  read_opts.timestamp = &ts_slice;
-  ASSERT_OK(db_->Get(read_opts, Key(0), &value));
-  ASSERT_EQ("value0", value);
+  VerifyDataReadable(0, "value0", kMaxTs);
 
   // Clean up
   ASSERT_OK(env_->DeleteFile(sst_file));
@@ -758,12 +754,7 @@ TEST_F(TimestampCompatibleCompactionTest,
 // Test that min/max timestamps are correctly tracked in FileMetaData and
 // persisted in the manifest during flush.
 TEST_F(TimestampCompatibleCompactionTest, TimestampRangePersistenceFlush) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.compaction_style = kCompactionStyleLevel;
-  options.num_levels = 4;
-  options.persist_user_defined_timestamps = true;
-  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  Options options = CreateTimestampOptions();
 
   DestroyAndReopen(options);
 
@@ -772,15 +763,7 @@ TEST_F(TimestampCompatibleCompactionTest, TimestampRangePersistenceFlush) {
   const uint64_t kMaxTs = 200;
 
   // Write data with specific timestamp range
-  std::string ts_buf;
-  for (int i = 0; i < 50; i++) {
-    ts_buf.clear();
-    // Alternate between min and max range to ensure tracking works
-    uint64_t ts = (i % 2 == 0) ? kMinTs : kMaxTs;
-    PutFixed64(&ts_buf, ts);
-    ASSERT_OK(
-        db_->Put(WriteOptions(), Key(i), ts_buf, "value" + std::to_string(i)));
-  }
+  WriteDataWithTimestampRange(0, 50, kMinTs, kMaxTs);
   ASSERT_OK(Flush());
 
   // First verify table properties have the timestamps
@@ -805,64 +788,33 @@ TEST_F(TimestampCompatibleCompactionTest, TimestampRangePersistenceFlush) {
   VerifyTimestampRangeWithPersistence(options, kMinTs, kMaxTs);
 
   // Verify we can still read the data
-  std::string value;
-  ts_buf.clear();
-  PutFixed64(&ts_buf, kMaxTs);
-  ReadOptions read_opts;
-  Slice ts_slice(ts_buf);
-  read_opts.timestamp = &ts_slice;
-  ASSERT_OK(db_->Get(read_opts, Key(0), &value));
-  ASSERT_EQ("value0", value);
+  VerifyDataReadable(0, "value0", kMaxTs);
 }
 
 // Test that min/max timestamps are correctly merged during compaction
 // and persisted in the manifest.
 TEST_F(TimestampCompatibleCompactionTest, TimestampRangePersistenceCompaction) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.compaction_style = kCompactionStyleLevel;
-  options.num_levels = 4;
-  options.persist_user_defined_timestamps = true;
-  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
-  // Disable auto compaction so we can control when compaction happens
-  options.disable_auto_compactions = true;
+  Options options = CreateTimestampOptions(true /* disable_auto_compactions */);
 
   DestroyAndReopen(options);
 
   // Create multiple L0 files with different timestamp ranges
-  std::string ts_buf;
-
   // File 1: timestamps 100-150
   const uint64_t kFile1MinTs = 100;
   const uint64_t kFile1MaxTs = 150;
-  for (int i = 0; i < 10; i++) {
-    ts_buf.clear();
-    PutFixed64(&ts_buf, (i % 2 == 0) ? kFile1MinTs : kFile1MaxTs);
-    ASSERT_OK(
-        db_->Put(WriteOptions(), Key(i), ts_buf, "value" + std::to_string(i)));
-  }
+  WriteDataWithTimestampRange(0, 10, kFile1MinTs, kFile1MaxTs);
   ASSERT_OK(Flush());
 
   // File 2: timestamps 50-80 (earlier range)
   const uint64_t kFile2MinTs = 50;
   const uint64_t kFile2MaxTs = 80;
-  for (int i = 10; i < 20; i++) {
-    ts_buf.clear();
-    PutFixed64(&ts_buf, (i % 2 == 0) ? kFile2MinTs : kFile2MaxTs);
-    ASSERT_OK(
-        db_->Put(WriteOptions(), Key(i), ts_buf, "value" + std::to_string(i)));
-  }
+  WriteDataWithTimestampRange(10, 20, kFile2MinTs, kFile2MaxTs);
   ASSERT_OK(Flush());
 
   // File 3: timestamps 200-300 (later range)
   const uint64_t kFile3MinTs = 200;
   const uint64_t kFile3MaxTs = 300;
-  for (int i = 20; i < 30; i++) {
-    ts_buf.clear();
-    PutFixed64(&ts_buf, (i % 2 == 0) ? kFile3MinTs : kFile3MaxTs);
-    ASSERT_OK(
-        db_->Put(WriteOptions(), Key(i), ts_buf, "value" + std::to_string(i)));
-  }
+  WriteDataWithTimestampRange(20, 30, kFile3MinTs, kFile3MaxTs);
   ASSERT_OK(Flush());
 
   // Expected combined range: min=50, max=300
@@ -886,18 +838,9 @@ TEST_F(TimestampCompatibleCompactionTest, TimestampRangePersistenceCompaction) {
   VerifyTimestampRangeWithPersistence(options, kExpectedMinTs, kExpectedMaxTs);
 
   // Verify data is still readable
-  std::string value;
-  ts_buf.clear();
-  PutFixed64(&ts_buf, kExpectedMaxTs);
-  ReadOptions read_opts;
-  Slice ts_slice(ts_buf);
-  read_opts.timestamp = &ts_slice;
-  ASSERT_OK(db_->Get(read_opts, Key(0), &value));
-  ASSERT_EQ("value0", value);
-  ASSERT_OK(db_->Get(read_opts, Key(15), &value));
-  ASSERT_EQ("value15", value);
-  ASSERT_OK(db_->Get(read_opts, Key(25), &value));
-  ASSERT_EQ("value25", value);
+  VerifyDataReadable(0, "value0", kExpectedMaxTs);
+  VerifyDataReadable(15, "value15", kExpectedMaxTs);
+  VerifyDataReadable(25, "value25", kExpectedMaxTs);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -256,6 +256,60 @@ class CompactionPickerU64TsTest : public CompactionPickerTestBase {
       : CompactionPickerTestBase(test::BytewiseComparatorWithU64TsWrapper()) {}
 
   ~CompactionPickerU64TsTest() override = default;
+
+ protected:
+  // Helper to create a U64 timestamp string from a uint64_t value
+  static std::string MakeU64Timestamp(uint64_t ts) {
+    std::string result;
+    PutFixed64(&result, ts);
+    return result;
+  }
+
+  // Helper to add a bottommost file with timestamps and setup version storage
+  // for testing bottommost file marking behavior
+  void SetupBottommostFileWithTimestamps(uint64_t min_ts, uint64_t max_ts,
+                                         uint64_t full_history_ts_low_val,
+                                         SequenceNumber oldest_snapshot_seqnum,
+                                         std::string* out_full_history_ts_low) {
+    std::string ts_small = MakeU64Timestamp(min_ts);
+    std::string ts_large = MakeU64Timestamp(max_ts);
+
+    Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+        /*smallest_seq=*/10, /*largest_seq=*/40,
+        /*compensated_file_size=*/1000,
+        /*marked_for_compact=*/false, Temperature::kUnknown,
+        kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+    std::string full_history_ts_low = MakeU64Timestamp(full_history_ts_low_val);
+
+    UpdateVersionStorageInfoWithTsLow(full_history_ts_low);
+
+    vstorage_->UpdateOldestSnapshot(oldest_snapshot_seqnum,
+                                    /*allow_ingest_behind=*/false,
+                                    /*ucmp=*/ucmp_, full_history_ts_low);
+
+    if (out_full_history_ts_low) {
+      *out_full_history_ts_low = full_history_ts_low;
+    }
+  }
+
+  // Helper to add L0 files with timestamps for compaction trigger tests
+  void AddL0FilesWithTimestamps(uint64_t ts1_val, uint64_t ts2_val,
+                                uint64_t file_size = 1U) {
+    std::string ts1 = MakeU64Timestamp(ts1_val);
+    std::string ts2 = MakeU64Timestamp(ts2_val);
+
+    Add(0, 1U, "100", "200", file_size, /*path_id=*/0,
+        /*smallest_seq=*/100, /*largest_seq=*/100,
+        /*compensated_file_size=*/file_size,
+        /*marked_for_compact=*/false, Temperature::kUnknown,
+        kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+    Add(0, 2U, "150", "250", file_size, /*path_id=*/0,
+        /*smallest_seq=*/200, /*largest_seq=*/200,
+        /*compensated_file_size=*/file_size,
+        /*marked_for_compact=*/false, Temperature::kUnknown,
+        kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+  }
 };
 
 TEST_F(CompactionPickerTest, Empty) {
@@ -4794,33 +4848,11 @@ TEST_F(CompactionPickerU64TsTest,
   // compaction loops where timestamp could not be collapsed.
   NewVersionStorage(6, kCompactionStyleLevel);
 
-  // Create timestamps: file has max_ts = 1000, full_history_ts_low = 500
+  // File has max_ts = 1000, full_history_ts_low = 500
   // Since 1000 >= 500, the file should NOT be marked for compaction.
-  std::string ts_small;
-  PutFixed64(&ts_small, 500);  // min timestamp
-  std::string ts_large;
-  PutFixed64(&ts_large, 1000);  // max timestamp
-
-  // Add a file at bottommost level (level 5) with seqno that would normally
-  // qualify for bottommost compaction (seqno < oldest_snapshot)
-  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
-      /*smallest_seq=*/10, /*largest_seq=*/40,
-      /*compensated_file_size=*/1000,
-      /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
-
-  std::string full_history_ts_low;
-  PutFixed64(&full_history_ts_low, 500);
-
-  // Use the helper that passes full_history_ts_low to ComputeCompactionScore
-  UpdateVersionStorageInfoWithTsLow(full_history_ts_low);
-
-  // Update oldest snapshot so the seqno condition is met
-  // (file's largest_seqno=40 < oldest_snapshot_seqnum=50)
-  vstorage_->UpdateOldestSnapshot(
-      /*oldest_snapshot_seqnum=*/50,
-      /*allow_ingest_behind=*/false,
-      /*ucmp=*/ucmp_, full_history_ts_low);
+  SetupBottommostFileWithTimestamps(
+      /*min_ts=*/500, /*max_ts=*/1000, /*full_history_ts_low_val=*/500,
+      /*oldest_snapshot_seqnum=*/50, /*out_full_history_ts_low=*/nullptr);
 
   // File's max_ts (1000) >= full_history_ts_low (500), so it should NOT
   // be marked for bottommost compaction
@@ -4833,32 +4865,11 @@ TEST_F(CompactionPickerU64TsTest,
   // max timestamp is < full_history_ts_low.
   NewVersionStorage(6, kCompactionStyleLevel);
 
-  // Create timestamps: file has max_ts = 100, full_history_ts_low = 500
+  // File has max_ts = 100, full_history_ts_low = 500
   // Since 100 < 500, the file SHOULD be marked for compaction.
-  std::string ts_small;
-  PutFixed64(&ts_small, 50);  // min timestamp
-  std::string ts_large;
-  PutFixed64(&ts_large, 100);  // max timestamp
-
-  // Add a file at bottommost level (level 5) with seqno that qualifies
-  // for bottommost compaction (seqno < oldest_snapshot)
-  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
-      /*smallest_seq=*/10, /*largest_seq=*/40,
-      /*compensated_file_size=*/1000,
-      /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
-
-  std::string full_history_ts_low;
-  PutFixed64(&full_history_ts_low, 500);
-
-  // Use the helper that passes full_history_ts_low to ComputeCompactionScore
-  UpdateVersionStorageInfoWithTsLow(full_history_ts_low);
-
-  // Update oldest snapshot so the seqno condition is met
-  vstorage_->UpdateOldestSnapshot(
-      /*oldest_snapshot_seqnum=*/50,
-      /*allow_ingest_behind=*/false,
-      /*ucmp=*/ucmp_, full_history_ts_low);
+  SetupBottommostFileWithTimestamps(
+      /*min_ts=*/50, /*max_ts=*/100, /*full_history_ts_low_val=*/500,
+      /*oldest_snapshot_seqnum=*/50, /*out_full_history_ts_low=*/nullptr);
 
   // File's max_ts (100) < full_history_ts_low (500), so it SHOULD be
   // marked for bottommost compaction
@@ -4874,10 +4885,8 @@ TEST_F(CompactionPickerU64TsTest,
   // based on seqno condition (backward compatibility behavior).
   NewVersionStorage(6, kCompactionStyleLevel);
 
-  std::string ts_small;
-  PutFixed64(&ts_small, 500);
-  std::string ts_large;
-  PutFixed64(&ts_large, 1000);
+  std::string ts_small = MakeU64Timestamp(500);
+  std::string ts_large = MakeU64Timestamp(1000);
 
   // Add a file at bottommost level with seqno < oldest_snapshot
   Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
@@ -4909,27 +4918,11 @@ TEST_F(CompactionPickerU64TsTest, LevelPickCompactionWithFullHistoryTsLow) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
 
-  std::string ts1;
-  PutFixed64(&ts1, 100);
-  std::string ts2;
-  PutFixed64(&ts2, 200);
-
-  // Add two L0 files to trigger compaction
-  Add(0, 1U, "100", "200", /*file_size=*/1U, /*path_id=*/0,
-      /*smallest_seq=*/100, /*largest_seq=*/100,
-      /*compensated_file_size=*/0,
-      /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
-  Add(0, 2U, "150", "250", /*file_size=*/1U, /*path_id=*/0,
-      /*smallest_seq=*/200, /*largest_seq=*/200,
-      /*compensated_file_size=*/0,
-      /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+  AddL0FilesWithTimestamps(/*ts1_val=*/100, /*ts2_val=*/200);
 
   UpdateVersionStorageInfo();
 
-  std::string full_history_ts_low;
-  PutFixed64(&full_history_ts_low, 150);
+  std::string full_history_ts_low = MakeU64Timestamp(150);
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name_, mutable_cf_options_, mutable_db_options_,
@@ -4950,27 +4943,11 @@ TEST_F(CompactionPickerU64TsTest, UniversalPickCompactionWithFullHistoryTsLow) {
   NewVersionStorage(1, kCompactionStyleUniversal);
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
-  std::string ts1;
-  PutFixed64(&ts1, 100);
-  std::string ts2;
-  PutFixed64(&ts2, 200);
-
-  // Add files to trigger universal compaction
-  Add(0, 1U, "100", "200", kFileSize, /*path_id=*/0,
-      /*smallest_seq=*/100, /*largest_seq=*/100,
-      /*compensated_file_size=*/kFileSize,
-      /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
-  Add(0, 2U, "150", "250", kFileSize, /*path_id=*/0,
-      /*smallest_seq=*/200, /*largest_seq=*/200,
-      /*compensated_file_size=*/kFileSize,
-      /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts1, ts2);
+  AddL0FilesWithTimestamps(/*ts1_val=*/100, /*ts2_val=*/200, kFileSize);
 
   UpdateVersionStorageInfo();
 
-  std::string full_history_ts_low;
-  PutFixed64(&full_history_ts_low, 150);
+  std::string full_history_ts_low = MakeU64Timestamp(150);
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
