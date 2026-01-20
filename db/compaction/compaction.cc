@@ -558,11 +558,36 @@ bool Compaction::IsTrivialMove() const {
   // If start_level_== output_level_, the purpose is to force compaction
   // filter to be applied to that level, and thus cannot be a trivial move.
 
+  const std::string& cf_name = cfd_ ? cfd_->GetName() : "unknown";
+
+  // Log input files being considered for trivial move
+  ROCKS_LOG_INFO(immutable_options_.info_log,
+                 "[%s] [DEBUG_TRIVIALMOVE] Evaluating trivial move L%d->L%d, "
+                 "num_input_levels=%zu",
+                 cf_name.c_str(), start_level_, output_level_,
+                 num_input_levels());
+  if (num_input_levels() > 0) {
+    for (size_t i = 0; i < inputs_[0].size(); i++) {
+      const FileMetaData* f = inputs_[0][i];
+      ROCKS_LOG_INFO(immutable_options_.info_log,
+                     "[%s] [DEBUG_TRIVIALMOVE] Input file #%" PRIu64
+                     " smallest_key=%s largest_key=%s "
+                     "smallest_seqno=%" PRIu64 " largest_seqno=%" PRIu64,
+                     cf_name.c_str(), f->fd.GetNumber(),
+                     f->smallest.DebugString(true).c_str(),
+                     f->largest.DebugString(true).c_str(), f->fd.smallest_seqno,
+                     f->fd.largest_seqno);
+    }
+  }
+
   // Check if start level have files with overlapping ranges
   if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false &&
       l0_files_might_overlap_) {
     // We cannot move files from L0 to L1 if the L0 files in the LSM-tree are
     // overlapping, unless we are sure that files picked in L0 don't overlap.
+    ROCKS_LOG_INFO(immutable_options_.info_log,
+                   "[%s] [DEBUG_TRIVIALMOVE] Rejected: L0 files might overlap",
+                   cf_name.c_str());
     return false;
   }
 
@@ -571,17 +596,29 @@ bool Compaction::IsTrivialMove() const {
        immutable_options_.compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
+    ROCKS_LOG_INFO(immutable_options_.info_log,
+                   "[%s] [DEBUG_TRIVIALMOVE] Rejected: manual compaction with "
+                   "compaction filter",
+                   cf_name.c_str());
     return false;
   }
 
   if (start_level_ == output_level_) {
     // It doesn't make sense if compaction picker picks files just to trivial
     // move to the same level.
+    ROCKS_LOG_INFO(
+        immutable_options_.info_log,
+        "[%s] [DEBUG_TRIVIALMOVE] Rejected: start_level == output_level (%d)",
+        cf_name.c_str(), start_level_);
     return false;
   }
 
   if (compaction_reason_ == CompactionReason::kChangeTemperature) {
     // Changing temperature usually requires rewriting the file.
+    ROCKS_LOG_INFO(
+        immutable_options_.info_log,
+        "[%s] [DEBUG_TRIVIALMOVE] Rejected: temperature change compaction",
+        cf_name.c_str());
     return false;
   }
 
@@ -590,12 +627,25 @@ bool Compaction::IsTrivialMove() const {
   if ((mutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
       (output_level_ != 0) &&
       (cfd_->ioptions().compaction_style == kCompactionStyleUniversal)) {
+    ROCKS_LOG_INFO(
+        immutable_options_.info_log,
+        "[%s] [DEBUG_TRIVIALMOVE] Universal compaction, is_trivial_move=%d",
+        cf_name.c_str(), is_trivial_move_);
     return is_trivial_move_;
   }
 
   if (!(start_level_ != output_level_ && num_input_levels() == 1 &&
         input(0, 0)->fd.GetPathId() == output_path_id() &&
         InputCompressionMatchesOutput())) {
+    ROCKS_LOG_INFO(
+        immutable_options_.info_log,
+        "[%s] [DEBUG_TRIVIALMOVE] Rejected: basic conditions not met "
+        "(num_input_levels=%zu, path_id_match=%d, "
+        "compression_match=%d)",
+        cf_name.c_str(), num_input_levels(),
+        (num_input_levels() > 0 &&
+         input(0, 0)->fd.GetPathId() == output_path_id()),
+        InputCompressionMatchesOutput());
     return false;
   }
 
@@ -610,13 +660,28 @@ bool Compaction::IsTrivialMove() const {
                                             &file_grand_parents);
       const auto compaction_size =
           file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
+      ROCKS_LOG_INFO(immutable_options_.info_log,
+                     "[%s] [DEBUG_TRIVIALMOVE] File #%" PRIu64
+                     " grandparent overlap: %zu files, compaction_size=%" PRIu64
+                     ", max_compaction_bytes=%" PRIu64,
+                     cf_name.c_str(), file->fd.GetNumber(),
+                     file_grand_parents.size(), compaction_size,
+                     max_compaction_bytes_);
       if (compaction_size > max_compaction_bytes_) {
+        ROCKS_LOG_INFO(
+            immutable_options_.info_log,
+            "[%s] [DEBUG_TRIVIALMOVE] Rejected: grandparent overlap too large",
+            cf_name.c_str());
         return false;
       }
 
       if (partitioner.get() != nullptr) {
         if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
                                            file->largest.user_key())) {
+          ROCKS_LOG_INFO(
+              immutable_options_.info_log,
+              "[%s] [DEBUG_TRIVIALMOVE] Rejected: partitioner disallows",
+              cf_name.c_str());
           return false;
         }
       }
@@ -625,9 +690,18 @@ bool Compaction::IsTrivialMove() const {
 
   // PerKeyPlacement compaction should never be trivial move.
   if (SupportsPerKeyPlacement()) {
+    ROCKS_LOG_INFO(immutable_options_.info_log,
+                   "[%s] [DEBUG_TRIVIALMOVE] Rejected: PerKeyPlacement",
+                   cf_name.c_str());
     return false;
   }
 
+  ROCKS_LOG_INFO(
+      immutable_options_.info_log,
+      "[%s] [DEBUG_TRIVIALMOVE] APPROVED: Trivial move L%d->L%d with %zu "
+      "files",
+      cf_name.c_str(), start_level_, output_level_,
+      num_input_levels() > 0 ? inputs_[0].size() : 0);
   return true;
 }
 

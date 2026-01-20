@@ -216,7 +216,7 @@ void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
   assert(initialized);
 }
 
-bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
+bool CompactionPicker::ExpandInputsToCleanCut(const std::string& cf_name,
                                               VersionStorageInfo* vstorage,
                                               CompactionInputFiles* inputs,
                                               InternalKey** next_smallest) {
@@ -232,6 +232,21 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
 
   InternalKey smallest, largest;
 
+  // Log initial files before expansion
+  ROCKS_LOG_INFO(ioptions_.logger,
+                 "[%s] [DEBUG_CLEANCUT] Level=%d Before expansion: %zu files",
+                 cf_name.c_str(), level, inputs->size());
+  for (const auto* f : inputs->files) {
+    ROCKS_LOG_INFO(ioptions_.logger,
+                   "[%s] [DEBUG_CLEANCUT] L%d file #%" PRIu64
+                   " smallest_key=%s largest_key=%s "
+                   "smallest_seqno=%" PRIu64 " largest_seqno=%" PRIu64,
+                   cf_name.c_str(), level, f->fd.GetNumber(),
+                   f->smallest.DebugString(true).c_str(),
+                   f->largest.DebugString(true).c_str(), f->fd.smallest_seqno,
+                   f->fd.largest_seqno);
+  }
+
   // Keep expanding inputs until we are sure that there is a "clean cut"
   // boundary between the files in input and the surrounding files.
   // This will ensure that no parts of a key are lost during compaction.
@@ -245,6 +260,91 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
                                    hint_index, &hint_index, true, nullptr,
                                    next_smallest);
   } while (inputs->size() > old_size);
+
+  // Log files after expansion
+  ROCKS_LOG_INFO(ioptions_.logger,
+                 "[%s] [DEBUG_CLEANCUT] Level=%d After expansion: %zu files",
+                 cf_name.c_str(), level, inputs->size());
+  GetRange(*inputs, &smallest, &largest);
+  ROCKS_LOG_INFO(
+      ioptions_.logger,
+      "[%s] [DEBUG_CLEANCUT] Level=%d Final range: smallest=%s largest=%s",
+      cf_name.c_str(), level, smallest.DebugString(true).c_str(),
+      largest.DebugString(true).c_str());
+
+  // Verify clean cut: check adjacent files don't share user key with boundary
+  // This helps detect potential in-memory corruption of file metadata
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(level);
+  if (!inputs->files.empty() && !level_files.empty()) {
+    // Find first and last input file indices in level
+    int first_input_idx = -1;
+    int last_input_idx = -1;
+    for (size_t i = 0; i < level_files.size(); i++) {
+      if (level_files[i] == inputs->files.front()) {
+        first_input_idx = static_cast<int>(i);
+      }
+      if (level_files[i] == inputs->files.back()) {
+        last_input_idx = static_cast<int>(i);
+      }
+    }
+
+    // Check file before first input (should not share user key)
+    if (first_input_idx > 0) {
+      const FileMetaData* prev_file = level_files[first_input_idx - 1];
+      const FileMetaData* first_file = inputs->files.front();
+      int user_key_cmp = icmp_->user_comparator()->CompareWithoutTimestamp(
+          prev_file->largest.user_key(), first_file->smallest.user_key());
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "[%s] [DEBUG_CLEANCUT] L%d Adjacent check: prev_file #%" PRIu64
+          " largest_user_key=%s vs first_input #%" PRIu64
+          " smallest_user_key=%s, cmp=%d",
+          cf_name.c_str(), level, prev_file->fd.GetNumber(),
+          Slice(prev_file->largest.user_key()).ToString(true).c_str(),
+          first_file->fd.GetNumber(),
+          Slice(first_file->smallest.user_key()).ToString(true).c_str(),
+          user_key_cmp);
+      if (user_key_cmp == 0) {
+        ROCKS_LOG_ERROR(
+            ioptions_.logger,
+            "[%s] [DEBUG_CLEANCUT] ERROR: Adjacent file #%" PRIu64
+            " shares user key with first input file #%" PRIu64
+            " but was not included! Potential clean cut violation or metadata "
+            "corruption!",
+            cf_name.c_str(), prev_file->fd.GetNumber(),
+            first_file->fd.GetNumber());
+      }
+    }
+
+    // Check file after last input (should not share user key)
+    if (last_input_idx >= 0 &&
+        static_cast<size_t>(last_input_idx) < level_files.size() - 1) {
+      const FileMetaData* last_file = inputs->files.back();
+      const FileMetaData* next_file = level_files[last_input_idx + 1];
+      int user_key_cmp = icmp_->user_comparator()->CompareWithoutTimestamp(
+          last_file->largest.user_key(), next_file->smallest.user_key());
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "[%s] [DEBUG_CLEANCUT] L%d Adjacent check: last_input #%" PRIu64
+          " largest_user_key=%s vs next_file #%" PRIu64
+          " smallest_user_key=%s, cmp=%d",
+          cf_name.c_str(), level, last_file->fd.GetNumber(),
+          Slice(last_file->largest.user_key()).ToString(true).c_str(),
+          next_file->fd.GetNumber(),
+          Slice(next_file->smallest.user_key()).ToString(true).c_str(),
+          user_key_cmp);
+      if (user_key_cmp == 0) {
+        ROCKS_LOG_ERROR(
+            ioptions_.logger,
+            "[%s] [DEBUG_CLEANCUT] ERROR: Adjacent file #%" PRIu64
+            " shares user key with last input file #%" PRIu64
+            " but was not included! Potential clean cut violation or metadata "
+            "corruption!",
+            cf_name.c_str(), next_file->fd.GetNumber(),
+            last_file->fd.GetNumber());
+      }
+    }
+  }
 
   // we started off with inputs non-empty and the previous loop only grew
   // inputs. thus, inputs should be non-empty here
