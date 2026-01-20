@@ -461,13 +461,19 @@ def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
 
 
+# Generate a unique run ID for this script execution. This ensures each run
+# gets a unique database directory when TEST_TMPDIR is set, avoiding issues
+# with parameter changes (like use_put_entity_one_in) between runs.
+run_id = str(random.randint(0, 2**63))
+
+
 def get_dbname(test_name):
     test_dir_name = "rocksdb_crashtest_" + test_name
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
         dbname = tempfile.mkdtemp(prefix=test_dir_name)
     else:
-        dbname = test_tmpdir + "/" + test_dir_name
+        dbname = test_tmpdir + "/" + test_dir_name + "_" + run_id
         if not is_remote_db:
             shutil.rmtree(dbname, True)
             if cleanup_cmd is not None:
