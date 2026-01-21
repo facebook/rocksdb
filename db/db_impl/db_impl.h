@@ -3269,8 +3269,7 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 // Fix user-supplied options to be reasonable
 template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
-  if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
-  if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+  *ptr = std::clamp(*ptr, minvalue, maxvalue);
 }
 
 inline Status DBImpl::FailIfCfHasTs(
