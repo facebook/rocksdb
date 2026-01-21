@@ -1077,6 +1077,29 @@ class PosixFileSystem : public FileSystem {
       return false;
     }
   }
+
+  void HandleFinishedIO(struct io_uring_cqe* cqe, Posix_IOHandle* posix_handle) {
+    FSReadRequest req;
+    req.scratch = posix_handle->scratch;
+    req.offset = posix_handle->offset;
+    req.len = posix_handle->len;
+
+    size_t finished_len = 0;
+    size_t bytes_read = 0;
+    bool read_again = false;
+    UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
+                  true /*async_read*/, posix_handle->use_direct_io,
+                  posix_handle->alignment, finished_len, &req, bytes_read,
+                  read_again);
+    posix_handle->is_finished = true;
+    // Reset cqe data to catch any stray reuse of it
+    static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+    io_uring_cqe_seen(posix_handle->iu, cqe);
+    posix_handle->cb(req, posix_handle->cb_arg);
+    (void)finished_len;
+    (void)bytes_read;
+    (void)read_again;
+  }
 #endif  // ROCKSDB_IOURING_PRESENT
 
   // TODO:
@@ -1126,28 +1149,7 @@ class PosixFileSystem : public FileSystem {
         if (posix_handle->iu != iu) {
           return IOStatus::IOError("");
         }
-        // Reset cqe data to catch any stray reuse of it
-        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
-
-        FSReadRequest req;
-        req.scratch = posix_handle->scratch;
-        req.offset = posix_handle->offset;
-        req.len = posix_handle->len;
-
-        size_t finished_len = 0;
-        size_t bytes_read = 0;
-        bool read_again = false;
-        UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
-                     true /*async_read*/, posix_handle->use_direct_io,
-                     posix_handle->alignment, finished_len, &req, bytes_read,
-                     read_again);
-        posix_handle->is_finished = true;
-        io_uring_cqe_seen(iu, cqe);
-        posix_handle->cb(req, posix_handle->cb_arg);
-
-        (void)finished_len;
-        (void)bytes_read;
-        (void)read_again;
+        HandleFinishedIO(cqe, posix_handle);
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           break;
@@ -1205,6 +1207,8 @@ class PosixFileSystem : public FileSystem {
         return IOStatus::IOError("io_uring_submit() requested but returned " +
                                  std::to_string(ret));
       }
+      // Set the flag to indicate that the request is aborted.
+      posix_handle->is_aborted = true;
     }
 
     // After submitting the requests, wait for the requests.
@@ -1232,8 +1236,13 @@ class PosixFileSystem : public FileSystem {
         if (posix_handle->iu != iu) {
           return IOStatus::IOError("");
         }
-        posix_handle->req_count++;
 
+        // If the request is not aborted, it means the request is completed successfully.
+        if (!posix_handle->is_aborted) {
+          HandleFinishedIO(cqe, posix_handle);
+          continue;
+        }
+        posix_handle->req_count++;
         // Reset cqe data to catch any stray reuse of it
         static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
         io_uring_cqe_seen(iu, cqe);
@@ -1249,14 +1258,15 @@ class PosixFileSystem : public FileSystem {
         //
         // Every handle has to wait for 2 requests completion: original one and
         // the cancel request which is tracked by PosixHandle::req_count.
-        if (posix_handle->req_count == 2 &&
-            static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+        if (posix_handle->req_count == 2) {
+          // io_uring cancel requests return out of order
           posix_handle->is_finished = true;
           FSReadRequest req;
           req.status = IOStatus::Aborted();
           posix_handle->cb(req, posix_handle->cb_arg);
-
-          break;
+          if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+            break;
+          }
         }
       }
     }
