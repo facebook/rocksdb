@@ -491,13 +491,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     UnorderedMap<size_t, size_t> block_idx_to_readreq_idx;
     size_t prefetch_max_idx;
 
+    // For tracking wasted prefetch blocks
+    Statistics* statistics;
+    size_t wasted_blocks_count;
+
     MultiScanState(
         const std::shared_ptr<FileSystem>& _fs, const MultiScanArgs* _scan_opts,
         std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
         std::vector<std::string>&& _data_block_separators,
         std::vector<std::tuple<size_t, size_t>>&& _block_index_ranges_per_scan,
         UnorderedMap<size_t, size_t>&& _block_idx_to_readreq_idx,
-        std::vector<AsyncReadState>&& _async_states, size_t _prefetch_max_idx)
+        std::vector<AsyncReadState>&& _async_states, size_t _prefetch_max_idx,
+        Statistics* _statistics)
         : fs(_fs),
           scan_opts(_scan_opts),
           pinned_data_blocks(std::move(_pinned_data_blocks)),
@@ -507,7 +512,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
           cur_data_block_idx(0),
           async_states(std::move(_async_states)),
           block_idx_to_readreq_idx(std::move(_block_idx_to_readreq_idx)),
-          prefetch_max_idx(_prefetch_max_idx) {}
+          prefetch_max_idx(_prefetch_max_idx),
+          statistics(_statistics),
+          wasted_blocks_count(0) {}
 
     ~MultiScanState();
   };
@@ -728,7 +735,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       const MultiScanArgs* multiscan_opts,
       std::vector<FSReadRequest>* read_reqs,
       UnorderedMap<size_t, size_t>* block_idx_to_readreq_idx,
-      std::vector<std::vector<size_t>>* coalesced_block_indices);
+      std::vector<std::vector<size_t>>* coalesced_block_indices,
+      size_t* nonadjacent_coalesced_count, uint64_t* total_prefetch_bytes);
 
   Status ExecuteIO(
       const std::vector<BlockHandle>& scan_block_handles,

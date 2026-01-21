@@ -5289,6 +5289,24 @@ class TickerTypeJni {
         return -0x5D;
       case ROCKSDB_NAMESPACE::Tickers::SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT:
         return -0x5E;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREPARE_CALLS:
+        return -0x60;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREPARE_ERRORS:
+        return -0x61;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_BLOCKS_PREFETCHED:
+        return -0x62;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_BLOCKS_FROM_CACHE:
+        return -0x63;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREFETCH_BYTES:
+        return -0x64;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREFETCH_BLOCKS_WASTED:
+        return -0x65;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_REQUESTS:
+        return -0x66;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_COALESCED_NONADJACENT:
+        return -0x67;
+      case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_SEEK_ERRORS:
+        return -0x68;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5768,6 +5786,24 @@ class TickerTypeJni {
       case -0x5E:
         return ROCKSDB_NAMESPACE::Tickers::
             SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT;
+      case -0x60:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREPARE_CALLS;
+      case -0x61:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREPARE_ERRORS;
+      case -0x62:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_BLOCKS_PREFETCHED;
+      case -0x63:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_BLOCKS_FROM_CACHE;
+      case -0x64:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREFETCH_BYTES;
+      case -0x65:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREFETCH_BLOCKS_WASTED;
+      case -0x66:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_REQUESTS;
+      case -0x67:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_COALESCED_NONADJACENT;
+      case -0x68:
+        return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_SEEK_ERRORS;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5924,6 +5960,10 @@ class HistogramTypeJni {
         return 0x3D;
       case ROCKSDB_NAMESPACE::Histograms::COMPACTION_PREFETCH_BYTES:
         return 0x3F;
+      case ROCKSDB_NAMESPACE::Histograms::MULTISCAN_PREPARE_MICROS:
+        return 0x40;
+      case ROCKSDB_NAMESPACE::Histograms::MULTISCAN_BLOCKS_PER_PREPARE:
+        return 0x41;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6071,6 +6111,10 @@ class HistogramTypeJni {
             TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
       case 0x3F:
         return ROCKSDB_NAMESPACE::Histograms::COMPACTION_PREFETCH_BYTES;
+      case 0x40:
+        return ROCKSDB_NAMESPACE::Histograms::MULTISCAN_PREPARE_MICROS;
+      case 0x41:
+        return ROCKSDB_NAMESPACE::Histograms::MULTISCAN_BLOCKS_PER_PREPARE;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.

@@ -5027,6 +5027,152 @@ TEST_P(DBMultiScanIteratorTest, AsyncPrefetchWithExternalFileIngestion) {
   ASSERT_EQ(total_keys, 400);
   iter.reset();
 }
+
+TEST_P(DBMultiScanIteratorTest, StatisticsTest) {
+  // Test that multi scan statistics are properly recorded
+  auto options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  // Use small block size to ensure multiple blocks
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 256;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Create data across multiple blocks
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(3) << std::setfill('0') << i;
+    // Use larger values to ensure multiple blocks
+    ASSERT_OK(Put("k" + ss.str(), std::string(100, 'v')));
+  }
+  ASSERT_OK(Flush());
+
+  // Reset stats before multi scan
+  ASSERT_OK(options.statistics->Reset());
+
+  // Set up two scan ranges
+  std::vector<std::string> key_ranges({"k010", "k030", "k060", "k080"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+
+  // Iterate through all ranges
+  int count = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        (void)it;
+        count++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  }
+  ASSERT_EQ(count, 40);  // 20 keys per range
+  iter.reset();
+
+  // Check statistics
+  // MULTISCAN_PREPARE_CALLS should be at least 1
+  ASSERT_GE(TestGetTickerCount(options, MULTISCAN_PREPARE_CALLS), 1);
+
+  // MULTISCAN_PREPARE_ERRORS should be 0
+  ASSERT_EQ(TestGetTickerCount(options, MULTISCAN_PREPARE_ERRORS), 0);
+
+  // MULTISCAN_SEEK_ERRORS should be 0
+  ASSERT_EQ(TestGetTickerCount(options, MULTISCAN_SEEK_ERRORS), 0);
+
+  // Blocks should be prefetched or from cache
+  uint64_t blocks_prefetched =
+      TestGetTickerCount(options, MULTISCAN_BLOCKS_PREFETCHED);
+  uint64_t blocks_from_cache =
+      TestGetTickerCount(options, MULTISCAN_BLOCKS_FROM_CACHE);
+  ASSERT_GT(blocks_prefetched + blocks_from_cache, 0);
+
+  // If blocks were prefetched, prefetch bytes and IO requests should be > 0
+  if (blocks_prefetched > 0) {
+    ASSERT_GT(TestGetTickerCount(options, MULTISCAN_PREFETCH_BYTES), 0);
+    uint64_t io_requests = TestGetTickerCount(options, MULTISCAN_IO_REQUESTS);
+    ASSERT_GT(io_requests, 0);
+    ASSERT_LE(io_requests, blocks_prefetched);
+  }
+
+  // Wasted blocks should be 0 since we iterated through everything
+  ASSERT_EQ(TestGetTickerCount(options, MULTISCAN_PREFETCH_BLOCKS_WASTED), 0);
+}
+
+TEST_P(DBMultiScanIteratorTest, StatisticsWastedBlocksTest) {
+  // Test that wasted blocks are tracked when iteration is abandoned early
+  auto options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  // Use small block size to ensure multiple blocks
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 256;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Create data across multiple blocks
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(3) << std::setfill('0') << i;
+    ASSERT_OK(Put("k" + ss.str(), std::string(100, 'v')));
+  }
+  ASSERT_OK(Flush());
+
+  // Reset stats before multi scan
+  ASSERT_OK(options.statistics->Reset());
+
+  // Set up a large scan range
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert("k000", "k099");
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+
+  // Only iterate through a few keys, then abandon
+  int count = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        (void)it;
+        count++;
+        if (count >= 5) {
+          break;  // Abandon iteration early
+        }
+      }
+      if (count >= 5) {
+        break;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  }
+  ASSERT_EQ(count, 5);
+
+  // Destroy iterator to trigger wasted blocks counting
+  iter.reset();
+
+  uint64_t blocks_prefetched =
+      TestGetTickerCount(options, MULTISCAN_BLOCKS_PREFETCHED);
+
+  // If blocks were prefetched, some should be wasted since we abandoned early
+  if (blocks_prefetched > 1) {
+    // We only read a few keys, so there should be wasted blocks
+    ASSERT_GT(TestGetTickerCount(options, MULTISCAN_PREFETCH_BLOCKS_WASTED), 0);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
