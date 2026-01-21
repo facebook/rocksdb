@@ -98,6 +98,19 @@ int db_stress_tool(int argc, char** argv) {
       raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
   db_stress_env = env_wrapper_guard.get();
 
+  // Handle --destroy_db_and_exit early, before other option validation
+  if (FLAGS_destroy_db_and_exit) {
+    s = DbStressDestroyDb(FLAGS_db);
+    if (s.ok()) {
+      fprintf(stdout, "Successfully destroyed db at %s\n", FLAGS_db.c_str());
+      return 0;
+    } else {
+      fprintf(stderr, "Failed to destroy db at %s: %s\n", FLAGS_db.c_str(),
+              s.ToString().c_str());
+      return 1;
+    }
+  }
+
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the

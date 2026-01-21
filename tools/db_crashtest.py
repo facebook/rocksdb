@@ -60,10 +60,10 @@ def early_argument_parsing_before_main():
     global per_iteration_random_seed_override
     per_iteration_random_seed_override = args.per_iteration_random_seed_override
     global is_remote_db
-    # Set is_remote_db if remain_args has a non-empty --env_uri= argument
+    # Set is_remote_db if remain_args has a non-empty --env_uri= or --fs_uri= argument
     for arg in remain_args:
         parts = arg.split("=", 1)
-        if parts[0] == "--env_uri" and len(parts) > 1 and parts[1]:
+        if parts[0] in ["--env_uri", "--fs_uri"] and len(parts) > 1 and parts[1]:
             is_remote_db = True
             break
 
@@ -454,17 +454,10 @@ _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
-cleanup_cmd = None
 
 
 def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
-
-
-# Generate a unique run ID for this script execution. This ensures each run
-# gets a unique database directory when TEST_TMPDIR is set, avoiding issues
-# with parameter changes (like use_put_entity_one_in) between runs.
-run_id = str(random.randint(0, 2**63))
 
 
 def get_dbname(test_name):
@@ -473,13 +466,8 @@ def get_dbname(test_name):
     if test_tmpdir is None or test_tmpdir == "":
         dbname = tempfile.mkdtemp(prefix=test_dir_name)
     else:
-        dbname = test_tmpdir + "/" + test_dir_name + "_" + run_id
+        dbname = test_tmpdir + "/" + test_dir_name
         if not is_remote_db:
-            shutil.rmtree(dbname, True)
-            if cleanup_cmd is not None:
-                print("Running DB cleanup command - %s\n" % cleanup_cmd)
-                # Ignore failure
-                os.system(cleanup_cmd)
             os.makedirs(dbname, exist_ok=True)
     return dbname
 
@@ -1387,13 +1375,18 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
 
 
 def cleanup_after_success(dbname):
-    if not is_remote_db:
-        shutil.rmtree(dbname, True)
-    if cleanup_cmd is not None:
-        print("Running DB cleanup command - %s\n" % cleanup_cmd)
-        ret = os.system(cleanup_cmd)
-        if ret != 0:
-            print("WARNING: DB cleanup returned error %d\n" % ret)
+    # Use db_stress --destroy_db_and_exit, which simplifies remote DB cleanup
+    cleanup_cmd_parts = [stress_cmd, "--destroy_db_and_exit=1", "--db=" + dbname]
+    # Pass through relevant arguments for remote DB access
+    for arg in remain_args:
+        parts = arg.split("=", 1)
+        if parts[0] in ["--env_uri", "--fs_uri"]:
+            cleanup_cmd_parts.append(arg)
+    print("Running DB cleanup command - %s\n" % " ".join(cleanup_cmd_parts))
+    ret = subprocess.call(cleanup_cmd_parts)
+    if ret != 0:
+        print("ERROR: DB cleanup returned error %d\n" % ret)
+        sys.exit(2)
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
@@ -1420,6 +1413,10 @@ def blackbox_crash_main(args, unknown_args):
         )
 
         hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params["interval"])
+
+        # Reset destroy_db_initially after each run (it may have been set by
+        # command line for first run only)
+        cmd_params["destroy_db_initially"] = 0
 
         if not hit_timeout:
             print("Exit Before Killing")
@@ -1563,7 +1560,7 @@ def whitebox_crash_main(args, unknown_args):
                 "`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style."
                 + "\n"
             )
-            additional_opts["destroy_db_initially"] = 1
+            cmd_params["destroy_db_initially"] = 1
         prev_compaction_style = cur_compaction_style
 
         cmd = gen_cmd(
@@ -1588,6 +1585,11 @@ def whitebox_crash_main(args, unknown_args):
         hit_timeout, retncode, stdoutdata, stderrdata = execute_cmd(
             cmd, exit_time - time.time() + 900
         )
+
+        # Reset destroy_db_initially after each run (it may have been set by
+        # command line for first run, or set for various reasons for a step)
+        cmd_params["destroy_db_initially"] = 0
+
         msg = "check_mode={}, kill option={}, exitcode={}\n".format(
             check_mode, additional_opts["kill_random_test"], retncode
         )
@@ -1617,7 +1619,8 @@ def whitebox_crash_main(args, unknown_args):
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
         if time.time() > half_time:
-            cleanup_after_success(dbname)
+            # Set next iteration to destroy DB (works for remote DB)
+            cmd_params["destroy_db_initially"] = 1
             if expected_values_dir is not None:
                 shutil.rmtree(expected_values_dir, True)
                 os.mkdir(expected_values_dir)
@@ -1633,7 +1636,6 @@ def whitebox_crash_main(args, unknown_args):
 
 def main():
     global stress_cmd
-    global cleanup_cmd
 
     parser = argparse.ArgumentParser(
         description="This script runs and kills \
@@ -1649,7 +1651,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action="store_true")
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
-    parser.add_argument("--cleanup_cmd")
+    parser.add_argument("--cleanup_cmd")  # ignore old option for now
     parser.add_argument("--print_stderr_separately", action="store_true", default=False)
 
     all_params = dict(
@@ -1690,8 +1692,6 @@ def main():
 
     if args.stress_cmd:
         stress_cmd = args.stress_cmd
-    if args.cleanup_cmd:
-        cleanup_cmd = args.cleanup_cmd
     if args.test_type == "blackbox":
         blackbox_crash_main(args, unknown_args)
     if args.test_type == "whitebox":

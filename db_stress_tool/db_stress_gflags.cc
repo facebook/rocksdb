@@ -135,6 +135,10 @@ DEFINE_bool(histogram, false, "Print histogram of operation timings");
 DEFINE_bool(destroy_db_initially, true,
             "Destroys the database dir before start if this is true");
 
+DEFINE_bool(destroy_db_and_exit, false,
+            "Destroys the database dir and exits. Useful for cleanup without "
+            "running stress test. Other options are mostly ignored.");
+
 DEFINE_bool(verbose, false, "Verbose");
 
 DEFINE_bool(progress_reports, true,
