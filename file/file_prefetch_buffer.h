@@ -435,12 +435,12 @@ class FilePrefetchBuffer {
 
   Status PrefetchInternal(const IOOptions& opts, RandomAccessFileReader* reader,
                           uint64_t offset, size_t length, size_t readahead_size,
-                          bool& copy_to_third_buffer);
+                          bool for_compaction, bool& copy_to_third_buffer);
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
               RandomAccessFileReader* reader, uint64_t read_len,
-              uint64_t aligned_useful_len, uint64_t start_offset,
-              bool use_fs_buffer);
+              uint64_t aligned_useful_len, uint64_t optional_read_len,
+              uint64_t start_offset, bool use_fs_buffer);
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
@@ -538,6 +538,29 @@ class FilePrefetchBuffer {
     buf->buffer_.SetBuffer(read_req.result, std::move(read_req.fs_scratch));
     buf->offset_ = offset;
     buf->initial_end_offset_ = offset + read_req.result.size();
+    result = read_req.result;
+    return s;
+  }
+
+  // FlexibleRead enables the result size to be in the range of
+  // [len - optional_len, len]
+  IOStatus FlexibleRead(RandomAccessFileReader* reader, const IOOptions& opts,
+                        uint64_t offset, size_t len, size_t optional_len,
+                        char* scratch, Slice& result) {
+    FSReadRequest read_req;
+    read_req.offset = offset;
+    read_req.len = len;
+    read_req.scratch = scratch;
+    assert(optional_len <= len);
+    read_req.optional_len = optional_len;
+    IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    s = read_req.status;
+    if (!s.ok()) {
+      return s;
+    }
     result = read_req.result;
     return s;
   }
