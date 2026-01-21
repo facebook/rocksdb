@@ -131,7 +131,7 @@ Status BlobFileReader::OpenFile(
   assert(file);
 
   if (immutable_options.advise_random_on_open) {
-    file->Hint(FSRandomAccessFile::kRandom);
+    file->Hint(Env::AccessPattern::kRandom);
   }
 
   file_reader->reset(new RandomAccessFileReader(
