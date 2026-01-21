@@ -58,6 +58,7 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 class UserDefinedIndexFactory;
+class IODispatcher;
 
 struct Options;
 struct DbPath;
@@ -1847,11 +1848,13 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    io_dispatcher = other.io_dispatcher;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
         use_async_io(other.use_async_io),
+        io_dispatcher(std::move(other.io_dispatcher)),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
 
@@ -1861,6 +1864,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    io_dispatcher = other.io_dispatcher;
     return *this;
   }
 
@@ -1871,6 +1875,7 @@ class MultiScanArgs {
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
       use_async_io = other.use_async_io;
+      io_dispatcher = std::move(other.io_dispatcher);
     }
     return *this;
   }
@@ -1918,6 +1923,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    io_dispatcher = other.io_dispatcher;
   }
 
   uint64_t io_coalesce_threshold = 16 << 10;  // 16KB by default
@@ -1938,6 +1944,12 @@ class MultiScanArgs {
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
+
+  // Optional IODispatcher for multi-scan operations.
+  // If nullptr (default), a new IODispatcher is created internally.
+  // Users can provide their own IODispatcher for custom IO scheduling
+  // or for testing/monitoring purposes (e.g., to check IO statistics).
+  std::shared_ptr<IODispatcher> io_dispatcher = nullptr;
 
  private:
   // The comparator used for ordering ranges
