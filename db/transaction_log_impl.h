@@ -16,6 +16,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "wal_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -60,6 +61,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const std::string& dir, const ImmutableDBOptions* options,
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
+      WalManager* wal_manager,
       std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
       const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
 
@@ -95,6 +97,13 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   Status OpenLogFile(const WalFile* log_file,
                      std::unique_ptr<SequentialFileReader>* file);
 
+  struct GetLiveWalHandle{
+    WalManager* wm;
+    Status GetLiveWalFiles(SequenceNumber seq_start, VectorWalPtr& live_log_files) const {
+      return  wm->GetLiveWalFiles(seq_start, live_log_files);
+    }
+  } get_live_wal_handle_{};
+
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -110,7 +119,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       current_batch_seq_;  // sequence number at start of current batch
   SequenceNumber current_last_seq_;  // last sequence in the current batch
   // Reads from transaction log only if the writebatch record has been written
-  bool RestrictedRead(Slice* record);
+  bool RestrictedRead(Slice* record, bool& no_new_entry);
   // Seeks to starting_sequence_number_ reading from start_file_index in files_.
   // If strict is set, then must get a batch starting with
   // starting_sequence_number_.
