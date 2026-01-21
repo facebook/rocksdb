@@ -2069,6 +2069,13 @@ struct ReadOptions {
   // never fail a request as incomplete, even on skipping too many keys.
   uint64_t max_skippable_internal_keys = 0;
 
+  // It only takes effect after the `max_skippable_internal_keys` > 0 is configured and 
+  // `max_background_compactions` needs to be greater than 1 to take effect.
+  // When the number of keys skipped in a single query is greater than 'max_skippable_internal_keys_', 
+  // a background thread is triggered to perform a small-scale compact.
+  // Default: false
+  bool need_compact = false;
+
   // `iterate_lower_bound` defines the smallest key at which the backward
   // iterator can return an entry. Once the bound is passed, Valid() will be
   // false. `iterate_lower_bound` is inclusive ie the bound value is a valid

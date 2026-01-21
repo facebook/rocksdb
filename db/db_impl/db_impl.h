@@ -1100,6 +1100,8 @@ class DBImpl : public DB {
   // Not thread-safe.
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
 
+  void MaybeScheduleCompactionRange(const Slice* begin, const Slice* end);
+
   InstrumentedMutex* mutex() const { return &mutex_; }
 
   // Initialize a brand new DB. The DB directory is expected to be empty before
@@ -1989,6 +1991,16 @@ class DBImpl : public DB {
     Env::Priority compaction_pri_;
   };
 
+  struct CompactRangeArg {
+    // caller retains ownership of `db`.
+    DBImpl* db_;
+    // background CompactionRange option
+    CompactRangeOptions options;
+    // this compaction's lowerbound and upperbound
+    const Slice* begin;
+    const Slice* end;
+  };
+
   static bool IsRecoveryFlush(FlushReason flush_reason) {
     return flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
            flush_reason == FlushReason::kErrorRecovery;
@@ -2465,6 +2477,7 @@ class DBImpl : public DB {
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
   static void BGWorkCompaction(void* arg);
+  static void BGWorkCompactRange(void* arg);
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
   static void BGWorkBottomCompaction(void* arg);
@@ -2472,6 +2485,7 @@ class DBImpl : public DB {
   static void BGWorkPurge(void* arg);
   static void UnscheduleCompactionCallback(void* arg);
   static void UnscheduleFlushCallback(void* arg);
+  static void UnscheduleCompactionRangeCallback(void* arg);
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                                 Env::Priority thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
@@ -3039,6 +3053,9 @@ class DBImpl : public DB {
 
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_ = 0;
+
+  // number of background compact range jobs 
+  int bg_compactionrange_scheduled_ = 0;
 
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
