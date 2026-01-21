@@ -593,7 +593,7 @@ struct BlockBasedTableOptions {
   // validation and sufficient time and number of releases have elapsed
   // (6 months recommended) to ensure a clean downgrade/revert path for users
   // who might only upgrade a few times per year.
-  uint32_t format_version = 6;
+  uint32_t format_version = 7;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted

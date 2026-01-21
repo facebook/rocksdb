@@ -583,17 +583,15 @@ TEST_P(PresetCompressionDictTest, Flush) {
     ASSERT_GT(
         TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
         0);
-    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-    // number of bytes needs to be adjusted in case the cached block is in
-    // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD) {
-      // Although we limited buffering to `kBlockLen`, there may be up to two
-      // blocks of data included in the dictionary since we only check limit
-      // after each block is built.
-      ASSERT_LE(TestGetTickerCount(options,
-                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-                2 * kBlockLen);
-    }
+    ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD), 1);
+    // Although we stop buffering after `kBlockLen` bytes, there may be up to
+    // two blocks of data included in the dictionary since we only check limit
+    // after each block is built. And because block cache charges for bytes used
+    // by ZSTD's digested dictionary, we need a larger factor for the memory
+    // overheads in that case.
+    ASSERT_LE(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        (compression_type_ == kZSTD ? 10 : 2) * kBlockLen);
   }
 }
 
@@ -642,8 +640,9 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   }
   ASSERT_EQ("2,0,1", FilesPerLevel(0));
 
-  uint64_t prev_compression_dict_bytes_inserted =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_ADD);
+
   // This L0->L1 compaction merges the two L0 files into L1. The produced L1
   // file is not bottommost due to the existing L2 file covering the same key-
   // range.
@@ -655,22 +654,20 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   if (bottommost_) {
     ASSERT_EQ(
         TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted);
+        0);
   } else {
     ASSERT_GT(
         TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted);
-    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-    // number of bytes needs to be adjusted in case the cached block is in
-    // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD) {
-      // Although we limited buffering to `kBlockLen`, there may be up to two
-      // blocks of data included in the dictionary since we only check limit
-      // after each block is built.
-      ASSERT_LE(TestGetTickerCount(options,
-                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-                prev_compression_dict_bytes_inserted + 2 * kBlockLen);
-    }
+        0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD), 1);
+    // Although we stop buffering after `kBlockLen` bytes, there may be up to
+    // two blocks of data included in the dictionary since we only check limit
+    // after each block is built. And because block cache charges for bytes used
+    // by ZSTD's digested dictionary, we need a larger factor for the memory
+    // overheads in that case.
+    ASSERT_LE(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        (compression_type_ == kZSTD ? 10 : 2) * kBlockLen);
   }
 }
 
@@ -713,25 +710,24 @@ TEST_P(PresetCompressionDictTest, CompactBottommost) {
   }
   ASSERT_EQ("2", FilesPerLevel(0));
 
-  uint64_t prev_compression_dict_bytes_inserted =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_ADD);
+
   CompactRangeOptions cro;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
   ASSERT_GT(
       TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-      prev_compression_dict_bytes_inserted);
-  // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-  // number of bytes needs to be adjusted in case the cached block is in ZSTD's
-  // digested dictionary format.
-  if (compression_type_ != kZSTD) {
-    // Although we limited buffering to `kBlockLen`, there may be up to two
-    // blocks of data included in the dictionary since we only check limit after
-    // each block is built.
-    ASSERT_LE(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted + 2 * kBlockLen);
-  }
+      0);
+  ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD), 1);
+  // Although we stop buffering after `kBlockLen` bytes, there may be up to
+  // two blocks of data included in the dictionary since we only check limit
+  // after each block is built. And because block cache charges for bytes used
+  // by ZSTD's digested dictionary, we need a larger factor for the memory
+  // overheads in that case.
+  ASSERT_LE(
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+      (compression_type_ == kZSTD ? 10 : 2) * kBlockLen);
 }
 
 class CompactionCompressionListener : public EventListener {
