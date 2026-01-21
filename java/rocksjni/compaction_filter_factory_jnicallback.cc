@@ -8,7 +8,8 @@
 
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/abstract_compaction_filter_factory_jni.h"
+#include "rocksjni/portal/jni_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 CompactionFilterFactoryJniCallback::CompactionFilterFactoryJniCallback(

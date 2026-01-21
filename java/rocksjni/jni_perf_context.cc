@@ -6,9 +6,9 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_PerfContext.h"
-#include "portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
+#include "rocksjni/portal/jni_util.h"
 
 void Java_org_rocksdb_PerfContext_reset(JNIEnv*, jobject, jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =

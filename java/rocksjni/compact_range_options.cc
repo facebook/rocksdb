@@ -10,8 +10,8 @@
 
 #include "include/org_rocksdb_CompactRangeOptions.h"
 #include "rocksdb/options.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/bottommost_level_compaction_jni.h"
+#include "rocksjni/portal/compact_range_options_timestamp_jni.h"
 #include "util/coding.h"
 
 /**

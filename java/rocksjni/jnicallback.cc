@@ -10,7 +10,7 @@
 
 #include <assert.h>
 
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/jni_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 JniCallback::JniCallback(JNIEnv* env, jobject jcallback_obj) {

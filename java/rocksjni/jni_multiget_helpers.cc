@@ -8,9 +8,11 @@
 
 #include "rocksjni/jni_multiget_helpers.h"
 
-#include "jni_multiget_helpers.h"
-#include "rocksjni/portal.h"
-
+#include "rocksjni/portal/byte_jni.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/out_of_memory_error_jni.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
+#include "rocksjni/portal/status_jni.h"
 namespace ROCKSDB_NAMESPACE {
 
 bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys) {

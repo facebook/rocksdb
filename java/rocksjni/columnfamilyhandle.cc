@@ -11,7 +11,8 @@
 #include <stdlib.h>
 
 #include "include/org_rocksdb_ColumnFamilyHandle.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/column_family_descriptor_jni.h"
+#include "rocksjni/portal/column_family_options_jni.h"
 
 /*
  * Class:     org_rocksdb_ColumnFamilyHandle

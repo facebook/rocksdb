@@ -10,8 +10,7 @@
 
 #include "include/org_rocksdb_CompactionOptions.h"
 #include "rocksdb/options.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/compression_type_jni.h"
 
 /*
  * Class:     org_rocksdb_CompactionOptions

@@ -8,7 +8,8 @@
 
 #include "rocksjni/table_filter_jnicallback.h"
 
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/abstract_table_filter_jni.h"
+#include "rocksjni/portal/table_properties_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 TableFilterJniCallback::TableFilterJniCallback(JNIEnv* env,

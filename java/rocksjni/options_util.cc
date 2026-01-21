@@ -15,7 +15,17 @@
 #include "include/org_rocksdb_OptionsUtil.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksjni/portal.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksjni/portal/block_based_table_options_jni.h"
+#include "rocksjni/portal/checksum_type_jni.h"
+#include "rocksjni/portal/column_family_descriptor_jni.h"
+#include "rocksjni/portal/column_family_options_jni.h"
+#include "rocksjni/portal/data_block_index_type_jni.h"
+#include "rocksjni/portal/filter_policy_jni.h"
+#include "rocksjni/portal/illegal_argument_exception_jni.h"
+#include "rocksjni/portal/index_shortening_mode_jni.h"
+#include "rocksjni/portal/index_type_jni.h"
+#include "rocksjni/portal/list_jni.h"
 
 void build_column_family_descriptor_list(
     JNIEnv* env, jobject jcfds,
