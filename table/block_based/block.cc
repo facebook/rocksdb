@@ -987,7 +987,7 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
         BinarySeek()(left, right, &mid);
       }
     } else {
-      SeekFunc()(left, right, &mid);
+      seek_func(left, right, &mid);
     }
 
     assert(left < mid && mid <= right);

@@ -816,7 +816,7 @@ class BlockPerKVChecksumTest : public DBTestBase {
 
   template <typename TBlockIter>
   void TestSeekForPrev(std::unique_ptr<TBlockIter>& biter,
-                       size_t& verification_count, std::string k) {
+                       size_t& verification_count, const std::string& k) {
     verification_count = 0;
     biter->SeekForPrev(k);
     ASSERT_GE(verification_count, 1);
