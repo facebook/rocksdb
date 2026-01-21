@@ -265,7 +265,7 @@ struct BlockBasedTableOptions {
 
   // The search algorithm used when seeking to entries in the index block.
   enum IndexSearchType : char {
-    // Standary binary search
+    // Standard binary search
     kBinary = 0x00,
     // Interpolation search, which may be better suited for uniformly
     // distributed keys. This will only be applicable if the comparator is the
