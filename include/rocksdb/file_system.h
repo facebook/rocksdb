@@ -855,6 +855,16 @@ class FSSequentialFile {
 
 using FSAllocationPtr = std::unique_ptr<void, std::function<void(void*)>>;
 
+struct PartialResult {
+  uint64_t offset;
+  Slice result;
+  FSAllocationPtr fs_scratch;
+};
+
+struct ResultChain {
+  std::vector<PartialResult> result_chain;
+};
+
 // A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
   // Input parameter that represents the file offset in bytes.
@@ -915,6 +925,8 @@ struct FSReadRequest {
   // start to the real data. See https://github.com/facebook/rocksdb/pull/13189
   // for more context.
   FSAllocationPtr fs_scratch;
+
+  std::optional<ResultChain> result_chain;
 };
 
 // A file abstraction for randomly reading the contents of a file.
