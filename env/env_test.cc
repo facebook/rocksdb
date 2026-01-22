@@ -3725,6 +3725,200 @@ TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
 #endif
 }
 
+// Helper function to run AbortIO test with parameterized read requests.
+// Each request is specified as {offset, length}.
+// use_direct_io: if true, opens the file with O_DIRECT to bypass page cache.
+// iterations: number of times to repeat the test (useful for race conditions).
+void TestAbortIOWithRequests(
+    Env* env, size_t file_size,
+    const std::vector<std::pair<uint64_t, size_t>>& read_specs,
+    bool use_direct_io = false, int iterations = 1) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  fprintf(stderr,
+          "TestAbortIOWithRequests: file_size=%zu, num_reads=%zu, "
+          "direct_io=%d, iterations=%d\n",
+          file_size, read_specs.size(), use_direct_io, iterations);
+  std::shared_ptr<FileSystem> fs = env->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env, "testfile_abortio");
+
+  constexpr size_t kSectorSize = 4096;
+
+  for (int iter = 0; iter < iterations; iter++) {
+    // 1. Create test file of specified size using direct IO
+    {
+      std::unique_ptr<FSWritableFile> wfile;
+      FileOptions file_opts;
+      file_opts.use_direct_writes = true;
+      ASSERT_OK(fs->NewWritableFile(fname, file_opts, &wfile, nullptr));
+
+      // Round up to full sectors for direct IO writes
+      size_t num_sectors = (file_size + kSectorSize - 1) / kSectorSize;
+      for (size_t i = 0; i < num_sectors; ++i) {
+        auto data = NewAligned(kSectorSize, static_cast<char>(i + 1));
+        Slice slice(data.get(), kSectorSize);
+        ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+      }
+
+      // Truncate to exact file size if not aligned to sector boundary
+      if (file_size % kSectorSize != 0) {
+        ASSERT_OK(wfile->Truncate(file_size, IOOptions(), nullptr));
+      }
+
+      ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+    }
+
+    // 2. Submit ReadAsync requests and immediately abort
+    {
+      FileOptions file_opts;
+      file_opts.use_direct_reads = use_direct_io;
+      std::unique_ptr<FSRandomAccessFile> file;
+      ASSERT_OK(fs->NewRandomAccessFile(fname, file_opts, &file, nullptr));
+
+      const size_t num_reads = read_specs.size();
+      IOOptions opts;
+      std::vector<void*> io_handles(num_reads);
+      std::vector<FSReadRequest> reqs(num_reads);
+      std::vector<std::unique_ptr<char, Deleter>> data;
+      std::vector<size_t> vals;
+      IOHandleDeleter del_fn;
+
+      // Initialize read requests from specs
+      for (size_t i = 0; i < num_reads; i++) {
+        reqs[i].offset = read_specs[i].first;
+        reqs[i].len = read_specs[i].second;
+        data.emplace_back(NewAligned(reqs[i].len, 0));
+        reqs[i].scratch = data.back().get();
+        vals.push_back(i);
+      }
+
+      // Callback
+      std::function<void(FSReadRequest&, void*)> callback =
+          [&](FSReadRequest& req, void* cb_arg) {
+            size_t i = *(reinterpret_cast<size_t*>(cb_arg));
+            reqs[i].status = req.status;
+          };
+
+      // Submit all ReadAsync requests
+      for (size_t i = 0; i < num_reads; i++) {
+        void* cb_arg = static_cast<void*>(&(vals[i]));
+        IOStatus s = file->ReadAsync(reqs[i], opts, callback, cb_arg,
+                                     &(io_handles[i]), &del_fn, nullptr);
+        if (s.IsNotSupported()) {
+          // io_uring not supported, clean up and skip
+          fprintf(stderr,
+                  "WARNING: io_uring not supported, skipping test: %s\n",
+                  s.ToString().c_str());
+          for (size_t j = 0; j < i; j++) {
+            if (io_handles[j]) {
+              del_fn(io_handles[j]);
+            }
+          }
+          ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+          return;
+        }
+        ASSERT_OK(s);
+      }
+
+      // Immediately call AbortIO - this should NOT hang
+      ASSERT_OK(fs->AbortIO(io_handles));
+
+      // Clean up handles
+      for (size_t i = 0; i < num_reads; i++) {
+        if (io_handles[i]) {
+          del_fn(io_handles[i]);
+        }
+      }
+    }
+
+    ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+  }
+
+  fprintf(stderr, "TestAbortIOWithRequests: completed %d iterations\n",
+          iterations);
+#else
+  fprintf(stderr,
+          "TestAbortIOWithRequests: SKIPPED (ROCKSDB_IOURING_PRESENT not "
+          "defined)\n");
+  (void)env;
+  (void)file_size;
+  (void)read_specs;
+  (void)use_direct_io;
+  (void)iterations;
+#endif
+}
+
+// Test overlapping reads at aligned offsets (multiples of 4KB)
+TEST_F(TestAsyncRead, AbortIOOverlappingAligned) {
+  // 4 reads of 16KB each, overlapping by 8KB, all at 4KB-aligned offsets
+  // Read 0: [0, 16KB), Read 1: [8KB, 24KB), Read 2: [16KB, 32KB), Read 3:
+  // [24KB, 40KB)
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {0, 16384},
+      {8192, 16384},
+      {16384, 16384},
+      {24576, 16384},
+  };
+  TestAbortIOWithRequests(env_, 64 * 1024, specs);
+}
+
+// Test reads at unaligned offsets (not multiples of 4KB)
+TEST_F(TestAsyncRead, AbortIOUnalignedOffsets) {
+  // Reads starting at non-4KB-aligned offsets
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {1000, 8192},    // starts at 1000 (unaligned)
+      {5000, 12288},   // starts at 5000 (unaligned), spans multiple sectors
+      {15000, 8192},   // starts at 15000 (unaligned)
+      {25500, 16384},  // starts at 25500 (unaligned)
+  };
+  TestAbortIOWithRequests(env_, 64 * 1024, specs);
+}
+
+// Test mix of aligned and unaligned, various sizes
+TEST_F(TestAsyncRead, AbortIOMixedOffsets) {
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {0, 4096},       // aligned, 1 sector
+      {1500, 8192},    // unaligned, 2 sectors
+      {4096, 20480},   // aligned, 5 sectors
+      {7000, 4096},    // unaligned, spans 2 sectors
+      {16384, 32768},  // aligned, 8 sectors
+      {50000, 8192},   // unaligned
+  };
+  TestAbortIOWithRequests(env_, 128 * 1024, specs);
+}
+
+// Stress test with many concurrent handles
+TEST_F(TestAsyncRead, AbortIOStress) {
+  std::vector<std::pair<uint64_t, size_t>> specs;
+  // 16 overlapping reads with mixed alignment
+  for (int i = 0; i < 16; i++) {
+    uint64_t offset = i * 4000;          // Not aligned to 4KB
+    size_t len = 8192 + (i % 4) * 4096;  // 8KB to 20KB
+    specs.emplace_back(offset, len);
+  }
+  TestAbortIOWithRequests(env_, 256 * 1024, specs);
+}
+
+// Regression test for a fixed bug in AbortIO where out-of-order io_uring
+// completions could cause an infinite hang. The bug occurred when completions
+// for a different handle arrived while waiting for the current handle - the
+// code would consume those completions but not mark the handle as finished,
+// causing a hang when later iterating to that handle.
+//
+// Uses a large read (1MB) followed by a small read (4KB) with Direct I/O to
+// maximize the chance of out-of-order completions. Runs 100 iterations to
+// increase the likelihood of triggering the race condition.
+TEST_F(TestAsyncRead, AbortIOReversedHandles) {
+  // Request 0: LARGE (1MB) at offset 0
+  // Request 1: SMALL (4KB) at offset 1MB
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {0, 1024 * 1024},     // 1MB read
+      {1024 * 1024, 4096},  // 4KB read at 1MB offset
+  };
+  // 2MB file, Direct I/O enabled, 100 iterations
+  TestAbortIOWithRequests(env_, 2 * 1024 * 1024, specs,
+                          /*use_direct_io=*/true, /*iterations=*/100);
+}
+
 struct StaticDestructionTester {
   bool activated = false;
   ~StaticDestructionTester() {
