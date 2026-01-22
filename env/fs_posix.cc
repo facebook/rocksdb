@@ -1249,14 +1249,20 @@ class PosixFileSystem : public FileSystem {
         //
         // Every handle has to wait for 2 requests completion: original one and
         // the cancel request which is tracked by PosixHandle::req_count.
-        if (posix_handle->req_count == 2 &&
-            static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+        // Note: We must mark is_finished and invoke the callback for ANY handle
+        // that reaches req_count == 2, not just the one we're currently waiting
+        // for (io_handles[i]). Otherwise, if completions arrive out of order,
+        // we consume another handle's completions without marking it finished,
+        // causing an infinite hang when we later wait for that handle.
+        if (posix_handle->req_count == 2) {
           posix_handle->is_finished = true;
           FSReadRequest req;
           req.status = IOStatus::Aborted();
           posix_handle->cb(req, posix_handle->cb_arg);
 
-          break;
+          if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+            break;
+          }
         }
       }
     }
