@@ -190,12 +190,22 @@ struct InterpolationSeek {
       return false;
     }
 
+    // With uint128 support, we can avoid expensive floating point division and
+    // instead rely on integer division
+#ifdef HAVE_UINT128_EXTENSION
+    __uint128_t range = right - left;
+    __uint128_t target_delta = target_val - left_val;
+    uint64_t range_delta = right_val - left_val;
+    int64_t offset = static_cast<int64_t>(range * target_delta / range_delta);
+#else
     double ratio = static_cast<double>(target_val - left_val) /
                    static_cast<double>(right_val - left_val);
 
     assert(0 <= ratio && ratio <= 1);
     int64_t range = right - left;
-    *mid = left + static_cast<int64_t>(range * ratio);
+    int64_t offset = static_cast<int64_t>(range * ratio);
+#endif
+    *mid = left + offset;
     if (*mid == left) {
       ++(*mid);
     }
@@ -982,7 +992,8 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
           *index = static_cast<uint32_t>(right);
           return true;
         }
-      } else {
+      }
+      if (seek_failed) {
         // Fallback to binary seek if failed
         BinarySeek()(left, right, &mid);
       }
