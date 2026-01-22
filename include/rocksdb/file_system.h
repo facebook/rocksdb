@@ -750,7 +750,7 @@ class FileSystem : public Customizable {
   // Abort the read IO requests submitted asynchronously. Underlying FS is
   // required to support AbortIO API. AbortIO implementation should ensure that
   // the all the read requests related to io_handles should be aborted and
-  // it shouldn't call the callback for these io_handles.
+  // it should call the callback for these io_handles.
   virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
     return IOStatus::OK();
   }
