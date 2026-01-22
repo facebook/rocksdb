@@ -100,6 +100,7 @@ DECLARE_bool(enable_pipelined_write);
 DECLARE_bool(verify_before_write);
 DECLARE_bool(histogram);
 DECLARE_bool(destroy_db_initially);
+DECLARE_bool(destroy_db_and_exit);
 DECLARE_bool(verbose);
 DECLARE_bool(progress_reports);
 DECLARE_uint64(db_write_buffer_size);
@@ -820,5 +821,10 @@ Status SaveFilesInDirectory(const std::string& src_dirname,
                             const std::string& dst_dirname);
 Status DestroyUnverifiedSubdir(const std::string& dirname);
 Status InitUnverifiedSubdir(const std::string& dirname);
+
+// Destroy the DB at the given path under the env configured for db_stress.
+// Handles both regular DB and BlobDB, and cleans and removes the entire dir.
+Status DbStressDestroyDb(const std::string& db_path);
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
