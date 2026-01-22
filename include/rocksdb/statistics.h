@@ -552,6 +552,27 @@ enum Tickers : uint32_t {
   // Failure to load the UDI during SST table open
   SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT,
 
+  // MultiScan statistics
+  // # of Prepare() calls
+  MULTISCAN_PREPARE_CALLS,
+  // # of Prepare() calls that failed
+  MULTISCAN_PREPARE_ERRORS,
+  // # of data blocks prefetched from storage during MultiScan
+  MULTISCAN_BLOCKS_PREFETCHED,
+  // # of blocks found already in cache during MultiScan Prepare
+  MULTISCAN_BLOCKS_FROM_CACHE,
+  // Total bytes prefetched during MultiScan
+  MULTISCAN_PREFETCH_BYTES,
+  // # of prefetched blocks that were never accessed
+  MULTISCAN_PREFETCH_BLOCKS_WASTED,
+  // # of actual I/O requests issued during MultiScan
+  MULTISCAN_IO_REQUESTS,
+  // # of non-adjacent blocks coalesced into single I/O (within
+  // io_coalesce_threshold)
+  MULTISCAN_IO_COALESCED_NONADJACENT,
+  // # of seeks that failed validation (out of order, etc.)
+  MULTISCAN_SEEK_ERRORS,
+
   TICKER_ENUM_MAX
 };
 
@@ -694,6 +715,11 @@ enum Histograms : uint32_t {
 
   // MultiScan Prefill iterator Prepare cost
   MULTISCAN_PREPARE_ITERATORS,
+
+  // Total Prepare() latency for MultiScan
+  MULTISCAN_PREPARE_MICROS,
+  // Distribution of blocks prefetched per MultiScan Prepare()
+  MULTISCAN_BLOCKS_PER_PREPARE,
 
   HISTOGRAM_ENUM_MAX
 };

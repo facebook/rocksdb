@@ -185,7 +185,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
 
 TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   constexpr int kPeriodSec = 1;
-  constexpr int kEstimatedOneSliceSize = 16000;
+  constexpr int kEstimatedOneSliceSize = 22000;
 
   Options options;
   options.create_if_missing = true;
@@ -277,7 +277,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   // If `slice_count == 0` when new statistics are added, consider increasing
   // `kEstimatedOneSliceSize`
   ASSERT_EQ(slice_count, 1);
-  ASSERT_TRUE(stats_history_size_reopen < 16000 &&
+  ASSERT_TRUE(stats_history_size_reopen < kEstimatedOneSliceSize &&
               stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();

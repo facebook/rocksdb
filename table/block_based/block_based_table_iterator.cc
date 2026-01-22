@@ -920,6 +920,21 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 }
 
 BlockBasedTableIterator::MultiScanState::~MultiScanState() {
+  // Count remaining non-empty blocks as wasted (iterator abandoned before
+  // accessing them). Start from cur_data_block_idx since blocks before that
+  // have already been processed and counted if skipped.
+  for (size_t i = cur_data_block_idx; i < pinned_data_blocks.size(); ++i) {
+    if (!pinned_data_blocks[i].IsEmpty()) {
+      ++wasted_blocks_count;
+    }
+  }
+
+  // Record wasted blocks stat
+  if (wasted_blocks_count > 0 && statistics != nullptr) {
+    RecordTick(statistics, MULTISCAN_PREFETCH_BLOCKS_WASTED,
+               wasted_blocks_count);
+  }
+
   // Abort any pending async IO operations to prevent callback being called
   // after async read states are destructed.
   if (!async_states.empty()) {
@@ -978,13 +993,19 @@ BlockBasedTableIterator::MultiScanState::~MultiScanState() {
 // moving forward.
 void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   assert(!multi_scan_);
+  RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_CALLS);
+  StopWatch sw(table_->get_rep()->ioptions.clock, table_->GetStatistics(),
+               MULTISCAN_PREPARE_MICROS);
+
   if (!index_iter_->status().ok()) {
     multi_scan_status_ = index_iter_->status();
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
     return;
   }
   if (multi_scan_) {
     multi_scan_.reset();
     multi_scan_status_ = Status::InvalidArgument("Prepare already called");
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
     return;
   }
 
@@ -998,6 +1019,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       CollectBlockHandles(scan_opts, &scan_block_handles,
                           &block_index_ranges_per_scan, &data_block_separators);
   if (!multi_scan_status_.ok()) {
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
     return;
   }
 
@@ -1010,8 +1032,17 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       scan_block_handles, multiscan_opts, &block_indices_to_read,
       &pinned_data_blocks_guard, &prefetched_max_idx);
   if (!multi_scan_status_.ok()) {
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
     return;
   }
+
+  // Record cache hit/miss stats
+  size_t blocks_from_cache =
+      scan_block_handles.size() - block_indices_to_read.size();
+  RecordTick(table_->GetStatistics(), MULTISCAN_BLOCKS_FROM_CACHE,
+             blocks_from_cache);
+  RecordTick(table_->GetStatistics(), MULTISCAN_BLOCKS_PREFETCHED,
+             block_indices_to_read.size());
 
   std::vector<AsyncReadState> async_states;
   // Maps from block index into async read request (index into async_states[])
@@ -1019,14 +1050,26 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   if (!block_indices_to_read.empty()) {
     std::vector<FSReadRequest> read_reqs;
     std::vector<std::vector<size_t>> coalesced_block_indices;
+    size_t nonadjacent_coalesced = 0;
+    uint64_t total_prefetch_bytes = 0;
     PrepareIORequests(block_indices_to_read, scan_block_handles, multiscan_opts,
                       &read_reqs, &block_idx_to_readreq_idx,
-                      &coalesced_block_indices);
+                      &coalesced_block_indices, &nonadjacent_coalesced,
+                      &total_prefetch_bytes);
+
+    // Record I/O stats
+    RecordTick(table_->GetStatistics(), MULTISCAN_IO_REQUESTS,
+               read_reqs.size());
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREFETCH_BYTES,
+               total_prefetch_bytes);
+    RecordTick(table_->GetStatistics(), MULTISCAN_IO_COALESCED_NONADJACENT,
+               nonadjacent_coalesced);
 
     multi_scan_status_ =
         ExecuteIO(scan_block_handles, multiscan_opts, coalesced_block_indices,
                   &read_reqs, &async_states, &pinned_data_blocks_guard);
     if (!multi_scan_status_.ok()) {
+      RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
       return;
     }
   }
@@ -1038,7 +1081,11 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       std::move(pinned_data_blocks_guard), std::move(data_block_separators),
       std::move(block_index_ranges_per_scan),
       std::move(block_idx_to_readreq_idx), std::move(async_states),
-      prefetched_max_idx);
+      prefetched_max_idx, table_->GetStatistics());
+
+  // Record histogram for blocks per prepare
+  RecordInHistogram(table_->GetStatistics(), MULTISCAN_BLOCKS_PER_PREPARE,
+                    scan_block_handles.size());
 
   is_index_at_curr_block_ = false;
   block_iter_points_to_real_block_ = false;
@@ -1056,6 +1103,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
   if (!seek_target) {
     // start key must be set for multi-scan
     multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
+    RecordTick(table_->GetStatistics(), MULTISCAN_SEEK_ERRORS);
     return;
   }
 
@@ -1161,6 +1209,7 @@ void BlockBasedTableIterator::SeekMultiScan(const Slice* seek_target) {
         multi_scan_status_ = Status::InvalidArgument(
             "Seek target is before the previous prepared range at index " +
             std::to_string(multi_scan_->next_scan_idx));
+        RecordTick(table_->GetStatistics(), MULTISCAN_SEEK_ERRORS);
         return;
       }
       // It should only be possible to seek a key between the start of current
@@ -1248,6 +1297,7 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
        unpin_block_idx < cur_scan_start_idx; unpin_block_idx++) {
     if (!multi_scan_->pinned_data_blocks[unpin_block_idx].IsEmpty()) {
       multi_scan_->pinned_data_blocks[unpin_block_idx].Reset();
+      ++multi_scan_->wasted_blocks_count;
     }
   }
 
@@ -1263,6 +1313,7 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
     // Unpin the blocks that are passed
     if (!multi_scan_->pinned_data_blocks[block_idx].IsEmpty()) {
       multi_scan_->pinned_data_blocks[block_idx].Reset();
+      ++multi_scan_->wasted_blocks_count;
     }
     block_idx++;
   }
@@ -1303,6 +1354,7 @@ void BlockBasedTableIterator::MultiScanSeekTargetFromBlock(
     if (!multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx]
              .IsEmpty()) {
       multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx].Reset();
+      ++multi_scan_->wasted_blocks_count;
     }
     multi_scan_->cur_data_block_idx++;
   }
@@ -1578,9 +1630,12 @@ void BlockBasedTableIterator::PrepareIORequests(
     const std::vector<BlockHandle>& scan_block_handles,
     const MultiScanArgs* multiscan_opts, std::vector<FSReadRequest>* read_reqs,
     UnorderedMap<size_t, size_t>* block_idx_to_readreq_idx,
-    std::vector<std::vector<size_t>>* coalesced_block_indices) {
+    std::vector<std::vector<size_t>>* coalesced_block_indices,
+    size_t* nonadjacent_coalesced_count, uint64_t* total_prefetch_bytes) {
   assert(coalesced_block_indices->empty());
   coalesced_block_indices->resize(1);
+  *nonadjacent_coalesced_count = 0;
+  *total_prefetch_bytes = 0;
 
   for (const auto& block_idx : block_indices_to_read) {
     if (!coalesced_block_indices->back().empty()) {
@@ -1596,6 +1651,9 @@ void BlockBasedTableIterator::PrepareIORequests(
           last_block_end + multiscan_opts->io_coalesce_threshold) {
         // new IO
         coalesced_block_indices->emplace_back();
+      } else if (current_start > last_block_end) {
+        // Non-adjacent but within threshold, so coalesced
+        ++(*nonadjacent_coalesced_count);
       }
     }
     coalesced_block_indices->back().emplace_back(block_idx);
@@ -1648,6 +1706,7 @@ void BlockBasedTableIterator::PrepareIORequests(
     read_reqs->emplace_back();
     read_reqs->back().offset = start_offset;
     read_reqs->back().len = end_offset - start_offset;
+    *total_prefetch_bytes += read_reqs->back().len;
 
     if (multiscan_opts->use_async_io) {
       for (const auto& block_idx : block_indices) {
