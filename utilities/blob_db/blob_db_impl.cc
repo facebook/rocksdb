@@ -1035,18 +1035,27 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
 Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
-  return PutUntil(options, key, value, kNoExpiration);
+  StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
+  RecordTick(statistics_, BLOB_DB_NUM_PUT);
+  Status s;
+  WriteBatch batch;
+  {
+    // Release write_mutex_ before DB write to avoid race condition with
+    // flush begin listener, which also require write_mutex_ to sync
+    // blob files.
+    MutexLock l(&write_mutex_);
+    s = PutBlobValue(options, key, value, kNoExpiration, &batch);
+  }
+  if (s.ok()) {
+    s = db_->Write(options, &batch);
+  }
+  return s;
 }
 
 Status BlobDBImpl::PutWithTTL(const WriteOptions& options, const Slice& key,
                               const Slice& value, uint64_t ttl) {
   uint64_t now = EpochNow();
   uint64_t expiration = kNoExpiration - now > ttl ? now + ttl : kNoExpiration;
-  return PutUntil(options, key, value, expiration);
-}
-
-Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
-                            const Slice& value, uint64_t expiration) {
   StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_PUT);
   Status s;

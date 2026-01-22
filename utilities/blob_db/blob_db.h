@@ -121,20 +121,6 @@ class BlobDB : public StackableDB {
     return PutWithTTL(options, key, value, ttl);
   }
 
-  // Put with expiration. Key with expiration time equal to
-  // std::numeric_limits<uint64_t>::max() means the key don't expire.
-  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
-                          const Slice& value, uint64_t expiration) = 0;
-  virtual Status PutUntil(const WriteOptions& options,
-                          ColumnFamilyHandle* column_family, const Slice& key,
-                          const Slice& value, uint64_t expiration) {
-    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
-      return Status::NotSupported(
-          "Blob DB doesn't support non-default column family.");
-    }
-    return PutUntil(options, key, value, expiration);
-  }
-
   using ROCKSDB_NAMESPACE::StackableDB::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value,

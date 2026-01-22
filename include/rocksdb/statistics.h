@@ -301,7 +301,7 @@ enum Tickers : uint32_t {
   NUMBER_RATE_LIMITER_DRAINS,
 
   // BlobDB specific stats
-  // # of Put/PutTTL/PutUntil to BlobDB. Only applicable to legacy BlobDB.
+  // # of Put/PutWithTTL to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_NUM_PUT,
   // # of Write to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_NUM_WRITE,
@@ -651,8 +651,7 @@ enum Histograms : uint32_t {
   BLOB_DB_KEY_SIZE,
   // Size of values written to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_VALUE_SIZE,
-  // BlobDB Put/PutWithTTL/PutUntil/Write latency. Only applicable to legacy
-  // BlobDB.
+  // BlobDB Put/PutWithTTL/Write latency. Only applicable to legacy BlobDB.
   BLOB_DB_WRITE_MICROS,
   // BlobDB Get latency. Only applicable to legacy BlobDB.
   BLOB_DB_GET_MICROS,
