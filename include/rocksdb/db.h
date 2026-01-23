@@ -72,7 +72,7 @@ struct ColumnFamilyDescriptor {
       : name(_name), options(_options) {}
 };
 
-class ColumnFamilyHandle {
+class ROCKSDB_API ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
   // Returns the name of the column family associated with the current handle.
