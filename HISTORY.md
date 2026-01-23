@@ -1,6 +1,19 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.11.0 (01/23/2026)
+### Public API Changes
+* New SetOptions API that allows setting options for multiple CFs, avoiding the need to reserialize OPTIONS file for each CF
+* Remove remaining pieces of Lua integration
+
+### Behavior Changes
+* The new default for `BlockBasedTableOptions::format_version` is 7, which has been supported since RocksDB 10.4.0 and is required in order to use CompressionManagers supporting custom compression types.
+
+### Bug Fixes
+* Fixed a small performance bug with `format_version=7` when decompressing formats other than Snappy and ZSTD.
+* Fixed an infinite compaction loop bug with User-Defined Timestamps (UDT) where bottommost files were repeatedly marked for compaction even though their timestamp could not be collapsed.
+* Bugfix for persisted UDT record sequence number zeroing logic.
+
 ## 10.10.0 (12/16/2025)
 ### Bug Fixes
 * Fixed a bug in best-efforts recovery that causes use-after-free crashes when accessing SST files that were cached during the recovery.
