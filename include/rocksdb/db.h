@@ -156,7 +156,7 @@ struct MultiGetOutputMetadata {
   }
 };
 
-class ColumnFamilyHandle {
+class ROCKSDB_API ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
   // Returns the name of the column family associated with the current handle.
