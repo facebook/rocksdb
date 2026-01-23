@@ -15,7 +15,7 @@ This overview gives some simple examples of how RocksDB is used. For the story o
 
 ## Opening A Database
 
-A rocksdb database has a name which corresponds to a file system directory. All of the contents of database are stored in this directory. The following example shows how to open a database, creating it if necessary:
+A rocksdb database has a name that corresponds to a file system directory. All of the contents of database are stored in this directory. The following example shows how to open a database, creating it if necessary:
 
 ```c++
 #include <assert>

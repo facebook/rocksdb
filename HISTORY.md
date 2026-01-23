@@ -232,7 +232,7 @@ system's prefetch) on SST file during compaction read
 
 ### Public API Changes
 * Add `io_buffer_size` to BackupEngineOptions to enable optimal configuration of IO size
-* Clean up all the references to `random_access_max_buffer_size`, related rules and all the clients wrappers. This option has been officially deprecated in 5.4.0.
+* Clean up all the references to `random_access_max_buffer_size`, related rules and all the client's wrappers. This option has been officially deprecated in 5.4.0.
 * Add `file_ingestion_nanos` and `file_ingestion_blocking_live_writes_nanos` in PerfContext to observe file ingestions
 * Offer new DB::Open and variants that use `std::unique_ptr<DB>*` output parameters and deprecate the old versions that use `DB**` output parameters.
 * The DB::DeleteFile API is officially deprecated.
