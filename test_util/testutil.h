@@ -796,9 +796,9 @@ struct CompressorCustomAlg : public CompressorWrapper {
   }
 
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override {
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const override {
     auto clone =
-        wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples));
+        wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_config));
     return std::make_unique<CompressorCustomAlg>(std::move(clone));
   }
 

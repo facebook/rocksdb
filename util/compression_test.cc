@@ -1362,9 +1362,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
 
     std::unique_ptr<Compressor> MaybeCloneSpecialized(
         CacheEntryRole block_type,
-        DictSampleArgs&& dict_samples) const override {
+        DictConfigArgs&& dict_config) const override {
       std::unique_ptr<Compressor> result = std::make_unique<MyCompressor>(
-          wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples)));
+          wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_config)));
       if (block_type == CacheEntryRole::kDataBlock) {
         result = std::make_unique<CheckDataBlockCompressorWrapper>(
             std::move(result));
@@ -2136,6 +2136,232 @@ TEST_F(DBCompressionCostPredictor, CostAwareCompressorManager) {
   // check the predictor is predicting the correct cpu and io cost
   WindowWrite();
   ASSERT_OK(Flush());
+}
+
+// Test pre-defined dictionary compression with a custom CompressionManager
+TEST_F(DBCompressionTest, PreDefinedDictionaryCompression) {
+  if (!ZSTD_Supported()) {
+    ROCKSDB_GTEST_BYPASS("ZSTD compression not supported");
+    return;
+  }
+
+  // A custom compressor that returns a pre-defined dictionary
+  class PreDefinedDictCompressor : public CompressorWrapper {
+   public:
+    explicit PreDefinedDictCompressor(std::unique_ptr<Compressor> wrapped,
+                                      std::string dict_data)
+        : CompressorWrapper(std::move(wrapped)),
+          predefined_dict_(std::move(dict_data)) {}
+
+    const char* Name() const override { return "PreDefinedDictCompressor"; }
+
+    DictConfig GetDictGuidance(CacheEntryRole block_type) const override {
+      if (block_type == CacheEntryRole::kDataBlock &&
+          !predefined_dict_.empty()) {
+        return DictPreDefined{/*copy*/ predefined_dict_};
+      }
+      return DictDisabled{};
+    }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<PreDefinedDictCompressor>(wrapped_->Clone(),
+                                                        predefined_dict_);
+    }
+
+    std::unique_ptr<Compressor> MaybeCloneSpecialized(
+        CacheEntryRole block_type,
+        DictConfigArgs&& dict_config) const override {
+      // Delegate to wrapped compressor for dictionary handling
+      auto specialized =
+          wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_config));
+      if (specialized) {
+        return specialized;
+      }
+      return nullptr;
+    }
+
+   private:
+    std::string predefined_dict_;
+  };
+
+  // Custom CompatibilityName so the builtin compression manager won't be used
+  static const char* kTestCompatibilityName = "PreDefinedDictTest";
+
+  class PreDefinedDictManager : public CompressionManagerWrapper {
+   public:
+    explicit PreDefinedDictManager(std::shared_ptr<CompressionManager> wrapped,
+                                   std::string dict_data)
+        : CompressionManagerWrapper(std::move(wrapped)),
+          predefined_dict_(std::move(dict_data)) {}
+
+    const char* Name() const override { return "PreDefinedDictManager"; }
+
+    const char* CompatibilityName() const override {
+      return kTestCompatibilityName;
+    }
+
+    std::unique_ptr<Compressor> GetCompressorForSST(
+        const FilterBuildingContext& context, const CompressionOptions& opts,
+        CompressionType preferred) override {
+      auto base = wrapped_->GetCompressorForSST(context, opts, preferred);
+      if (base) {
+        return std::make_unique<PreDefinedDictCompressor>(std::move(base),
+                                                          predefined_dict_);
+      }
+      return nullptr;
+    }
+
+   private:
+    std::string predefined_dict_;
+  };
+
+  // A broken manager that ignores the dictionary when decompressing.
+  // This simulates a buggy decompressor that doesn't properly apply the
+  // dictionary, causing ZSTD to produce wrong output when decompressing
+  // dictionary-compressed data.
+  class BrokenDictManager : public CompressionManagerWrapper {
+   public:
+    explicit BrokenDictManager(std::shared_ptr<CompressionManager> wrapped)
+        : CompressionManagerWrapper(std::move(wrapped)) {}
+
+    const char* Name() const override { return "BrokenDictManager"; }
+
+    const char* CompatibilityName() const override {
+      return kTestCompatibilityName;
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressor() override {
+      return std::make_shared<IgnoreDictDecompressor>(
+          wrapped_->GetDecompressor());
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
+        CompressionType optimize_for_type) override {
+      return std::make_shared<IgnoreDictDecompressor>(
+          wrapped_->GetDecompressorOptimizeFor(optimize_for_type));
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressorForTypes(
+        const CompressionType* types_begin,
+        const CompressionType* types_end) override {
+      return std::make_shared<IgnoreDictDecompressor>(
+          wrapped_->GetDecompressorForTypes(types_begin, types_end));
+    }
+
+   private:
+    // A decompressor that stores the dictionary (for GetSerializedDict) but
+    // ignores it during decompression, causing ZSTD to produce garbage
+    class IgnoreDictDecompressor : public DecompressorWrapper {
+     public:
+      explicit IgnoreDictDecompressor(std::shared_ptr<Decompressor> wrapped)
+          : DecompressorWrapper(std::move(wrapped)) {}
+
+      IgnoreDictDecompressor(std::shared_ptr<Decompressor> wrapped,
+                             std::string dict)
+          : DecompressorWrapper(std::move(wrapped)),
+            dict_(std::move(dict)),
+            dict_slice_(dict_) {}
+
+      const char* Name() const override { return "IgnoreDictDecompressor"; }
+
+      const Slice& GetSerializedDict() const override { return dict_slice_; }
+
+      Status MaybeCloneForDict(const Slice& serialized_dict,
+                               std::unique_ptr<Decompressor>* out) override {
+        // Store the dict but don't actually use it for decompression
+        *out = std::make_unique<IgnoreDictDecompressor>(
+            wrapped_,
+            std::string(serialized_dict.data(), serialized_dict.size()));
+        return Status::OK();
+      }
+
+     private:
+      std::string dict_;
+      Slice dict_slice_;
+    };
+  };
+
+  // Create a dictionary that will be heavily referenced. The key insight is
+  // that ZSTD dictionary compression works by finding matches between the input
+  // data and the dictionary content. To force ZSTD to create dictionary
+  // references, we need to use data that contains exact copies of dictionary
+  // content.
+  Random rnd(42);
+
+  // Create a dictionary with recognizable patterns
+  std::string predefined_dict;
+  std::vector<std::string> dict_patterns;
+  for (int i = 0; i < 50; i++) {
+    std::string pattern = rnd.RandomString(200);
+    dict_patterns.push_back(pattern);
+    predefined_dict += pattern;
+  }
+  // Total dict size: 50 * 200 = 10000 bytes
+  size_t kDictSize = predefined_dict.size();
+
+  auto mgr = std::make_shared<PreDefinedDictManager>(
+      GetBuiltinV2CompressionManager(), predefined_dict);
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  options.compression_opts.max_dict_bytes = static_cast<int>(kDictSize);
+  options.compression_manager = mgr;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.enable_index_compression = true;
+  // Need format_version >= 7 for custom CompatibilityName
+  bbto.format_version = 7;
+  // Need dictionary block load statistics
+  bbto.block_cache = NewLRUCache(1 << 20);
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Write data that uses the same patterns from the dictionary.
+  // This forces ZSTD to create back-references to the dictionary.
+  std::vector<std::string> expected_values;
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    // Compose value from random dictionary patterns - same content as dict
+    for (int j = 0; j < 5; j++) {
+      value +=
+          dict_patterns[rnd.Uniform(static_cast<int>(dict_patterns.size()))];
+    }
+    expected_values.push_back(value);
+    ASSERT_OK(Put(Key(i), value));
+  }
+  ASSERT_OK(Flush());
+
+  // Verify dictionary was used by checking that dict bytes were inserted
+  ASSERT_GE(
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+      predefined_dict.size());
+
+  // Read back data and verify correctness
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value, expected_values[i]);
+  }
+
+  // Now re-open with a broken decompressor that ignores dictionary.
+  // This should result in corruption on read because ZSTD will fail to
+  // decompress data that references the missing dictionary content.
+  Close();
+  auto broken_mgr =
+      std::make_shared<BrokenDictManager>(GetBuiltinV2CompressionManager());
+  options.compression_manager = broken_mgr;
+  // New block cache to ensure dictionary is re-loaded, because the
+  // dictionary block in cache is actually associated with a decompressor
+  bbto.block_cache = NewLRUCache(1 << 20);
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_OK(TryReopen(options));
+
+  // Read should fail with corruption because the decompressor ignores
+  // the dictionary, causing ZSTD to produce garbage output
+  std::string value;
+  ASSERT_EQ(db_->Get(ReadOptions(), Key(0), &value).code(),
+            Status::kCorruption);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
