@@ -20,6 +20,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
@@ -624,6 +625,23 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
+  }
+  if (table_options_.index_search_type ==
+      BlockBasedTableOptions::kInterpolation) {
+    // Interpolation search requires BytewiseComparator or
+    // BytewiseComparatorWithU64Ts
+    if (!(cf_opts.comparator == BytewiseComparator() ||
+          cf_opts.comparator == BytewiseComparatorWithU64Ts())) {
+      return Status::InvalidArgument(
+          "Interpolation search requires BytewiseComparator");
+    }
+    // Interpolation search doesn't work when timestamps need to be padded
+    // (i.e., when UDT is enabled but timestamps are not persisted)
+    if (!cf_opts.persist_user_defined_timestamps) {
+      return Status::InvalidArgument(
+          "Interpolation search requires user-defined timestamps to be "
+          "persisted when enabled");
+    }
   }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {

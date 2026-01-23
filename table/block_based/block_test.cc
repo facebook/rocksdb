@@ -594,7 +594,8 @@ class IndexBlockTest
     return test::ShouldPersistUDT(std::get<3>(GetParam()));
   }
   BlockBasedTableOptions::IndexSearchType indexSearchType() const {
-    return std::get<4>(GetParam());
+    return shouldPersistUDT() ? std::get<4>(GetParam())
+                              : BlockBasedTableOptions::kBinary;
   }
 };
 
