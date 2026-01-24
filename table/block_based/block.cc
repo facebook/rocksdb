@@ -1016,7 +1016,7 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
           UpdateRawKeyAndMaybePadMinTimestamp(left_key);
           assert(CompareCurrentKey(target) >= 0);
           *skip_linear_scan = true;
-          *index = 0;
+          *index = static_cast<uint32_t>(left);
           return true;
         }
         if (gt_right) {
