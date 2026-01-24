@@ -164,13 +164,16 @@ struct BinarySeek {
 struct InterpolationSeek {
   static constexpr int64_t kGuardLen = 8;
 
-  inline bool operator()(int64_t left, int64_t right, const Slice& left_key,
+  inline bool operator()(int64_t& left, int64_t right, const Slice& left_key,
                          const Slice& right_key, const Slice& target,
                          size_t shared_prefix_len, int64_t* mid, bool* lte_left,
                          bool* gt_right) const {
     assert(left <= right);
     if (right - left <= kGuardLen) {
       // If the search window is small, fall back to binary search
+      if (left == 0) {
+        left = -1;  // need to re-extend search window to include left = -1
+      }
       return false;
     }
     assert(shared_prefix_len <= left_key.size() &&
@@ -579,7 +582,6 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
       ok = FindRestartPointIndex<DecodeKeyV4, BinarySeek>(seek_key, &index,
                                                           &skip_linear_scan);
     } else {
-      assert(!pad_min_timestamp_);
       ok = FindRestartPointIndex<DecodeKeyV4, InterpolationSeek>(
           seek_key, &index, &skip_linear_scan);
     }
@@ -588,7 +590,6 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
       ok = FindRestartPointIndex<DecodeKey, BinarySeek>(seek_key, &index,
                                                         &skip_linear_scan);
     } else {
-      assert(!pad_min_timestamp_);
       ok = FindRestartPointIndex<DecodeKey, InterpolationSeek>(
           seek_key, &index, &skip_linear_scan);
     }
@@ -981,8 +982,8 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
   while (left != right) {
     int64_t mid = 0;
     if constexpr (std::is_same_v<SeekFunc, InterpolationSeek>) {
-      assert(icmp_.user_comparator() == BytewiseComparator() ||
-             icmp_.user_comparator() == BytewiseComparatorWithU64Ts());
+      assert(ts_sz_ == 0);
+      assert(icmp_.user_comparator() == BytewiseComparator());
 
       if (!seek_failed) {
         Slice left_key;
@@ -1029,9 +1030,6 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
       }
       if (seek_failed) {
         // Fallback to binary seek if failed
-        if (left == 0) {
-          left = -1;  // re-extend search window to include 1st block
-        }
         BinarySeek()(left, right, &mid);
       }
     } else {
