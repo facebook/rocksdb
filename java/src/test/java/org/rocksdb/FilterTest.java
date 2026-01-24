@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.ClassRule;
 import org.junit.Test;
 
@@ -23,16 +25,25 @@ public class FilterTest {
       try(final Filter bloomFilter = new BloomFilter()) {
         blockConfig.setFilterPolicy(bloomFilter);
         options.setTableFormatConfig(blockConfig);
+
+        final Filter policy = blockConfig.filterPolicy();
+        assertThat(policy).isEqualTo(bloomFilter);
       }
 
       try(final Filter bloomFilter = new BloomFilter(10)) {
         blockConfig.setFilterPolicy(bloomFilter);
         options.setTableFormatConfig(blockConfig);
+
+        final Filter policy = blockConfig.filterPolicy();
+        assertThat(policy).isEqualTo(bloomFilter);
       }
 
       try(final Filter bloomFilter = new BloomFilter(10, false)) {
         blockConfig.setFilterPolicy(bloomFilter);
         options.setTableFormatConfig(blockConfig);
+
+        final Filter policy = blockConfig.filterPolicy();
+        assertThat(policy).isEqualTo(bloomFilter);
       }
     }
   }

@@ -45,6 +45,7 @@
 #include "rocksjni/transaction_notifier_jnicallback.h"
 #include "rocksjni/wal_filter_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
+#include "table/block_based/filter_policy_internal.h"
 
 // Remove macro on windows
 #ifdef DELETE
@@ -2908,6 +2909,363 @@ class DBOptionsJni
   }
 };
 
+// The portal class for org.rocksdb.DataBlockIndexType
+class DataBlockIndexTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
+  // C++ ROCKSDB_NAMESPACE::DataBlockIndexType enum
+  static jbyte toJavaDataBlockIndexType(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType&
+          index_type) {
+    switch (index_type) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+          kDataBlockBinarySearch:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+          kDataBlockBinaryAndHash:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DataBlockIndexType enum for
+  // the provided Java org.rocksdb.DataBlockIndexType
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType
+  toCppDataBlockIndexType(jbyte jindex_type) {
+    switch (jindex_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinarySearch;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinaryAndHash;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinarySearch;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.FilterPolicy
+
+enum FilterPolicyTypeJni {
+  kUnknownFilterPolicy = 0x00,
+  kBloomFilterPolicy = 0x01,
+  kRibbonFilterPolicy = 0x02,
+};
+class FilterPolicyJni
+    : public RocksDBNativeClass<
+          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterPolicyJni> {
+ private:
+ public:
+  /**
+   * Get the Java Class org.rocksdb.FilterPolicy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/FilterPolicy");
+  }
+
+  static jbyte toJavaIndexType(const FilterPolicyTypeJni& filter_policy_type) {
+    return static_cast<jbyte>(filter_policy_type);
+  }
+
+  static FilterPolicyTypeJni getFilterPolicyType(
+      const std::string& policy_class_name) {
+    if (policy_class_name == "rocksdb.BuiltinBloomFilter") {
+      return kBloomFilterPolicy;
+    }
+    return kUnknownFilterPolicy;
+  }
+
+  /**
+   * Create a new Java org.rocksdb.Filter object with the
+   * properties as the provided C++ ROCKSDB_NAMESPACE::FilterPolicy
+   * object
+   *
+   * @param env A pointer to the Java environment
+   * @param filter_policy A pointer to ROCKSDB_NAMESPACE::FilterPolicy object
+   *
+   * @return A reference to a Java org.rocksdb.Filter object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(
+      JNIEnv* env, const std::shared_ptr<const FilterPolicy>& filter_policy) {
+    auto filter_policy_typejni = FilterPolicyJni::getFilterPolicyType(
+        filter_policy->CompatibilityName());
+    jclass jclazz = nullptr;
+    jmethodID method_id_init = nullptr;
+    switch (filter_policy_typejni) {
+      case kBloomFilterPolicy:
+        jclazz = RocksDBNativeClass::getJClass(env, "org/rocksdb/BloomFilter");
+        if (jclazz != nullptr) {
+          method_id_init = env->GetMethodID(jclazz, "<init>", "(JD)V");
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (jclazz == nullptr || method_id_init == nullptr) {
+      // not a policy type implemented in Java
+      // OR exception occurred accessing class / constructor
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    auto* sptr_filter =
+        new std::shared_ptr<const ROCKSDB_NAMESPACE::FilterPolicy>(
+            filter_policy);
+
+    double filter_bits = 0.0;
+    if (const ROCKSDB_NAMESPACE::BloomLikeFilterPolicy* bloomlike_filter =
+            static_cast<const BloomLikeFilterPolicy*>(sptr_filter->get())) {
+      filter_bits = bloomlike_filter->GetMillibitsPerKey() / 1000.0;
+    }
+
+    return env->NewObject(jclazz, method_id_init,
+                          GET_CPLUSPLUS_POINTER(sptr_filter), filter_bits);
+  }
+};
+
+// The portal class for org.rocksdb.IndexType
+class IndexTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.IndexType for the provided
+  // C++ ROCKSDB_NAMESPACE::IndexType enum
+  static jbyte toJavaIndexType(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType& index_type) {
+    switch (index_type) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::kBinarySearch:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::kHashSearch:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+          kTwoLevelIndexSearch:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+          kBinarySearchWithFirstKey:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexType enum for the
+  // provided Java org.rocksdb.IndexType
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType toCppIndexType(
+      jbyte jindex_type) {
+    switch (jindex_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kBinarySearch;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kHashSearch;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kTwoLevelIndexSearch;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kBinarySearchWithFirstKey;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kBinarySearch;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.ChecksumType
+class ChecksumTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.ChecksumType for the provided
+  // C++ ROCKSDB_NAMESPACE::ChecksumType enum
+  static jbyte toJavaChecksumType(
+      const ROCKSDB_NAMESPACE::ChecksumType& checksum_type) {
+    switch (checksum_type) {
+      case ROCKSDB_NAMESPACE::ChecksumType::kNoChecksum:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ChecksumType::kCRC32c:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ChecksumType::kxxHash:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::ChecksumType::kxxHash64:
+        return 0x3;
+      case ROCKSDB_NAMESPACE::ChecksumType::kXXH3:
+        return 0x4;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ChecksumType enum for the
+  // provided Java org.rocksdb.ChecksumType
+  static ROCKSDB_NAMESPACE::ChecksumType toCppChecksumType(
+      jbyte jchecksum_type) {
+    switch (jchecksum_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ChecksumType::kNoChecksum;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::ChecksumType::kxxHash;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ChecksumType::kxxHash64;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.IndexShorteningMode
+class IndexShorteningModeJni {
+ public:
+  // Returns the equivalent org.rocksdb.IndexShorteningMode for the provided
+  // C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum
+  static jbyte toJavaIndexShorteningMode(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode&
+          index_shortening_mode) {
+    switch (index_shortening_mode) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kNoShortening:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kShortenSeparators:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kShortenSeparatorsAndSuccessor:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum for
+  // the provided Java org.rocksdb.IndexShorteningMode
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode
+  toCppIndexShorteningMode(jbyte jindex_shortening_mode) {
+    switch (jindex_shortening_mode) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kNoShortening;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparators;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparatorsAndSuccessor;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparators;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.BlockBasedTableOptions
+class BlockBasedTableOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BlockBasedTableOptions*,
+                                BlockBasedTableOptions> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.BlockBasedTableConfig
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+                                         "org/rocksdb/BlockBasedTableConfig");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.BlockBasedTableConfig object with the
+   * properties as the provided C++ ROCKSDB_NAMESPACE::BlockBasedTableOptions
+   * object
+   *
+   * @param env A pointer to the Java environment
+   * @param table_factory_options A pointer to
+   * ROCKSDB_NAMESPACE::BlockBasedTableOptions object
+   *
+   * @return A reference to a Java org.rocksdb.BlockBasedTableConfig object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(
+      JNIEnv* env, const BlockBasedTableOptions* table_factory_options) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID method_id_init = env->GetMethodID(
+        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZBLorg/rocksdb/Filter;)V");
+    if (method_id_init == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jfilter_policy = nullptr;
+    if (table_factory_options->filter_policy) {
+      jfilter_policy = ROCKSDB_NAMESPACE::FilterPolicyJni::construct(
+          env, table_factory_options->filter_policy);
+      if (env->ExceptionCheck()) {
+        return nullptr;
+      }
+    }
+
+    jobject jcfd = env->NewObject(
+        jclazz, method_id_init,
+        table_factory_options->cache_index_and_filter_blocks,
+        table_factory_options->cache_index_and_filter_blocks_with_high_priority,
+        table_factory_options->pin_l0_filter_and_index_blocks_in_cache,
+        table_factory_options->pin_top_level_index_and_filter,
+        IndexTypeJni::toJavaIndexType(table_factory_options->index_type),
+        DataBlockIndexTypeJni::toJavaDataBlockIndexType(
+            table_factory_options->data_block_index_type),
+        table_factory_options->data_block_hash_table_util_ratio,
+        ChecksumTypeJni::toJavaChecksumType(table_factory_options->checksum),
+        table_factory_options->no_block_cache,
+        static_cast<jlong>(table_factory_options->block_size),
+        table_factory_options->block_size_deviation,
+        table_factory_options->block_restart_interval,
+        table_factory_options->index_block_restart_interval,
+        static_cast<jlong>(table_factory_options->metadata_block_size),
+        table_factory_options->partition_filters,
+        table_factory_options->optimize_filters_for_memory,
+        table_factory_options->use_delta_encoding,
+        table_factory_options->whole_key_filtering,
+        table_factory_options->verify_compression,
+        table_factory_options->read_amp_bytes_per_bit,
+        table_factory_options->format_version,
+        table_factory_options->enable_index_compression,
+        table_factory_options->block_align,
+        IndexShorteningModeJni::toJavaIndexShorteningMode(
+            table_factory_options->index_shortening),
+        jfilter_policy);
+
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jcfd;
+  }
+};
+
 // The portal class for org.rocksdb.ColumnFamilyOptions
 class ColumnFamilyOptionsJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyOptions*,
@@ -2946,13 +3304,27 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(J)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>",
+                                     "(JLorg/rocksdb/TableFormatConfig;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(cfo));
+    jobject jtable_format = nullptr;
+    auto* table_factory = cfo->table_factory.get();
+    if (table_factory != nullptr) {
+      auto* table_factory_options =
+          table_factory
+              ->GetOptions<ROCKSDB_NAMESPACE::BlockBasedTableOptions>();
+      if (table_factory_options != nullptr) {
+        jtable_format = ROCKSDB_NAMESPACE::BlockBasedTableOptionsJni::construct(
+            env, table_factory_options);
+      }
+    }
+
+    jobject jcfd =
+        env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(cfo), jtable_format);
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -3629,44 +4001,6 @@ class IteratorJni
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksIterator");
-  }
-};
-
-// The portal class for org.rocksdb.FilterPolicy
-
-enum FilterPolicyTypeJni {
-  kUnknownFilterPolicy = 0x00,
-  kBloomFilterPolicy = 0x01,
-  kRibbonFilterPolicy = 0x02,
-};
-class FilterPolicyJni
-    : public RocksDBNativeClass<
-          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterPolicyJni> {
- private:
- public:
-  /**
-   * Get the Java Class org.rocksdb.FilterPolicy
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/FilterPolicy");
-  }
-
-  static jbyte toJavaIndexType(const FilterPolicyTypeJni& filter_policy_type) {
-    return static_cast<jbyte>(filter_policy_type);
-  }
-
-  static FilterPolicyTypeJni getFilterPolicyType(
-      const std::string& policy_class_name) {
-    if (policy_class_name == "rocksdb.BuiltinBloomFilter") {
-      return kBloomFilterPolicy;
-    }
-    return kUnknownFilterPolicy;
   }
 };
 
@@ -6929,183 +7263,6 @@ class ColumnFamilyDescriptorJni : public JavaClass {
   }
 };
 
-// The portal class for org.rocksdb.IndexType
-class IndexTypeJni {
- public:
-  // Returns the equivalent org.rocksdb.IndexType for the provided
-  // C++ ROCKSDB_NAMESPACE::IndexType enum
-  static jbyte toJavaIndexType(
-      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType& index_type) {
-    switch (index_type) {
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::kBinarySearch:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::kHashSearch:
-        return 0x1;
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-          kTwoLevelIndexSearch:
-        return 0x2;
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-          kBinarySearchWithFirstKey:
-        return 0x3;
-      default:
-        return 0x7F;  // undefined
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexType enum for the
-  // provided Java org.rocksdb.IndexType
-  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType toCppIndexType(
-      jbyte jindex_type) {
-    switch (jindex_type) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-            kBinarySearch;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-            kHashSearch;
-      case 0x2:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-            kTwoLevelIndexSearch;
-      case 0x3:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-            kBinarySearchWithFirstKey;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
-            kBinarySearch;
-    }
-  }
-};
-
-// The portal class for org.rocksdb.DataBlockIndexType
-class DataBlockIndexTypeJni {
- public:
-  // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
-  // C++ ROCKSDB_NAMESPACE::DataBlockIndexType enum
-  static jbyte toJavaDataBlockIndexType(
-      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType&
-          index_type) {
-    switch (index_type) {
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
-          kDataBlockBinarySearch:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
-          kDataBlockBinaryAndHash:
-        return 0x1;
-      default:
-        return 0x7F;  // undefined
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DataBlockIndexType enum for
-  // the provided Java org.rocksdb.DataBlockIndexType
-  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType
-  toCppDataBlockIndexType(jbyte jindex_type) {
-    switch (jindex_type) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
-            kDataBlockBinarySearch;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
-            kDataBlockBinaryAndHash;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
-            kDataBlockBinarySearch;
-    }
-  }
-};
-
-// The portal class for org.rocksdb.ChecksumType
-class ChecksumTypeJni {
- public:
-  // Returns the equivalent org.rocksdb.ChecksumType for the provided
-  // C++ ROCKSDB_NAMESPACE::ChecksumType enum
-  static jbyte toJavaChecksumType(
-      const ROCKSDB_NAMESPACE::ChecksumType& checksum_type) {
-    switch (checksum_type) {
-      case ROCKSDB_NAMESPACE::ChecksumType::kNoChecksum:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::ChecksumType::kCRC32c:
-        return 0x1;
-      case ROCKSDB_NAMESPACE::ChecksumType::kxxHash:
-        return 0x2;
-      case ROCKSDB_NAMESPACE::ChecksumType::kxxHash64:
-        return 0x3;
-      case ROCKSDB_NAMESPACE::ChecksumType::kXXH3:
-        return 0x4;
-      default:
-        return 0x7F;  // undefined
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ChecksumType enum for the
-  // provided Java org.rocksdb.ChecksumType
-  static ROCKSDB_NAMESPACE::ChecksumType toCppChecksumType(
-      jbyte jchecksum_type) {
-    switch (jchecksum_type) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::ChecksumType::kNoChecksum;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
-      case 0x2:
-        return ROCKSDB_NAMESPACE::ChecksumType::kxxHash;
-      case 0x3:
-        return ROCKSDB_NAMESPACE::ChecksumType::kxxHash64;
-      case 0x4:
-        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
-    }
-  }
-};
-
-// The portal class for org.rocksdb.IndexShorteningMode
-class IndexShorteningModeJni {
- public:
-  // Returns the equivalent org.rocksdb.IndexShorteningMode for the provided
-  // C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum
-  static jbyte toJavaIndexShorteningMode(
-      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode&
-          index_shortening_mode) {
-    switch (index_shortening_mode) {
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-          kNoShortening:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-          kShortenSeparators:
-        return 0x1;
-      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-          kShortenSeparatorsAndSuccessor:
-        return 0x2;
-      default:
-        return 0x7F;  // undefined
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum for
-  // the provided Java org.rocksdb.IndexShorteningMode
-  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode
-  toCppIndexShorteningMode(jbyte jindex_shortening_mode) {
-    switch (jindex_shortening_mode) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-            kNoShortening;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-            kShortenSeparators;
-      case 0x2:
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-            kShortenSeparatorsAndSuccessor;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
-            kShortenSeparators;
-    }
-  }
-};
-
 // The portal class for org.rocksdb.Priority
 class PriorityJni {
  public:
@@ -9158,105 +9315,6 @@ class CompactRangeOptionsTimestampJni : public JavaClass {
 
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
     return env->GetMethodID(clazz, "<init>", "(JJ)V");
-  }
-};
-
-// The portal class for org.rocksdb.BlockBasedTableOptions
-class BlockBasedTableOptionsJni
-    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BlockBasedTableOptions*,
-                                BlockBasedTableOptions> {
- public:
-  /**
-   * Get the Java Class org.rocksdb.BlockBasedTableConfig
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-                                         "org/rocksdb/BlockBasedTableConfig");
-  }
-
-  /**
-   * Create a new Java org.rocksdb.BlockBasedTableConfig object with the
-   * properties as the provided C++ ROCKSDB_NAMESPACE::BlockBasedTableOptions
-   * object
-   *
-   * @param env A pointer to the Java environment
-   * @param cfoptions A pointer to ROCKSDB_NAMESPACE::ColumnFamilyOptions object
-   *
-   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
-   * nullptr if an an exception occurs
-   */
-  static jobject construct(
-      JNIEnv* env, const BlockBasedTableOptions* table_factory_options) {
-    jclass jclazz = getJClass(env);
-    if (jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    jmethodID method_id_init =
-        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZJJBBJD)V");
-    if (method_id_init == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return nullptr;
-    }
-
-    FilterPolicyTypeJni filter_policy_type =
-        FilterPolicyTypeJni::kUnknownFilterPolicy;
-    jlong filter_policy_handle = 0L;
-    jdouble filter_policy_config_value = 0.0;
-    if (table_factory_options->filter_policy) {
-      auto filter_policy = table_factory_options->filter_policy.get();
-      filter_policy_type = FilterPolicyJni::getFilterPolicyType(
-          filter_policy->CompatibilityName());
-      if (FilterPolicyTypeJni::kUnknownFilterPolicy != filter_policy_type) {
-        filter_policy_handle = GET_CPLUSPLUS_POINTER(filter_policy);
-      }
-    }
-
-    jobject jcfd = env->NewObject(
-        jclazz, method_id_init,
-        table_factory_options->cache_index_and_filter_blocks,
-        table_factory_options->cache_index_and_filter_blocks_with_high_priority,
-        table_factory_options->pin_l0_filter_and_index_blocks_in_cache,
-        table_factory_options->pin_top_level_index_and_filter,
-        IndexTypeJni::toJavaIndexType(table_factory_options->index_type),
-        DataBlockIndexTypeJni::toJavaDataBlockIndexType(
-            table_factory_options->data_block_index_type),
-        table_factory_options->data_block_hash_table_util_ratio,
-        ChecksumTypeJni::toJavaChecksumType(table_factory_options->checksum),
-        table_factory_options->no_block_cache,
-        static_cast<jlong>(table_factory_options->block_size),
-        table_factory_options->block_size_deviation,
-        table_factory_options->block_restart_interval,
-        table_factory_options->index_block_restart_interval,
-        static_cast<jlong>(table_factory_options->metadata_block_size),
-        table_factory_options->partition_filters,
-        table_factory_options->optimize_filters_for_memory,
-        table_factory_options->use_delta_encoding,
-        table_factory_options->whole_key_filtering,
-        table_factory_options->verify_compression,
-        table_factory_options->read_amp_bytes_per_bit,
-        table_factory_options->format_version,
-        table_factory_options->enable_index_compression,
-        table_factory_options->block_align,
-        static_cast<jlong>(table_factory_options->super_block_alignment_size),
-        static_cast<jlong>(
-            table_factory_options->super_block_alignment_space_overhead_ratio),
-        IndexShorteningModeJni::toJavaIndexShorteningMode(
-            table_factory_options->index_shortening),
-        FilterPolicyJni::toJavaIndexType(filter_policy_type),
-        filter_policy_handle, filter_policy_config_value);
-    if (env->ExceptionCheck()) {
-      return nullptr;
-    }
-
-    return jcfd;
   }
 };
 

@@ -73,6 +73,14 @@ public class ColumnFamilyOptions
   }
 
   /**
+   * Constructor for use by C++ via JNI
+   */
+  ColumnFamilyOptions(final long handle, final TableFormatConfig tableFormatConfig) {
+    super(handle);
+    this.tableFormatConfig_ = tableFormatConfig;
+  }
+
+  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
