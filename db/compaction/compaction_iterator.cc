@@ -7,6 +7,9 @@
 
 #include <iterator>
 #include <limits>
+#include <memory>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_builder.h"
@@ -22,6 +25,113 @@
 #include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// CompactionBlobResolver implementation
+CompactionBlobResolver::CompactionBlobResolver(
+    const Slice& user_key, const std::vector<WideColumn>* columns,
+    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+    BlobFetcher* blob_fetcher, PrefetchBufferCollection* prefetch_buffers,
+    CompactionIterationStats* iter_stats)
+    : user_key_(user_key),
+      columns_(columns),
+      blob_columns_(blob_columns),
+      blob_fetcher_(blob_fetcher),
+      prefetch_buffers_(prefetch_buffers),
+      iter_stats_(iter_stats) {
+  // Build the index map for quick lookup
+  if (blob_columns_ != nullptr) {
+    for (size_t i = 0; i < blob_columns_->size(); ++i) {
+      blob_column_index_map_[(*blob_columns_)[i].first] = i;
+    }
+  }
+}
+
+void CompactionBlobResolver::Reset(
+    const Slice& user_key, const std::vector<WideColumn>* columns,
+    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns) {
+  user_key_ = user_key;
+  columns_ = columns;
+  blob_columns_ = blob_columns;
+
+  // Clear the cache and rebuild the index map
+  resolved_cache_.clear();
+  blob_column_index_map_.clear();
+
+  if (blob_columns_ != nullptr) {
+    for (size_t i = 0; i < blob_columns_->size(); ++i) {
+      blob_column_index_map_[(*blob_columns_)[i].first] = i;
+    }
+  }
+}
+
+Status CompactionBlobResolver::ResolveColumn(size_t column_index,
+                                             Slice* resolved_value) {
+  if (columns_ == nullptr || column_index >= columns_->size()) {
+    return Status::InvalidArgument("Column index out of bounds");
+  }
+
+  // Check if this is a blob column
+  auto it = blob_column_index_map_.find(column_index);
+  if (it == blob_column_index_map_.end()) {
+    // Not a blob column - return the inline value directly
+    *resolved_value = (*columns_)[column_index].value();
+    return Status::OK();
+  }
+
+  // Check if we've already resolved this column
+  auto cache_it = resolved_cache_.find(column_index);
+  if (cache_it != resolved_cache_.end()) {
+    *resolved_value = Slice(cache_it->second);
+    return Status::OK();
+  }
+
+  // Need to fetch the blob
+  if (blob_fetcher_ == nullptr) {
+    return Status::NotSupported("Blob fetcher not available");
+  }
+
+  const size_t blob_col_idx = it->second;
+  const BlobIndex& blob_index = (*blob_columns_)[blob_col_idx].second;
+
+  FilePrefetchBuffer* prefetch_buffer =
+      prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                              blob_index.file_number())
+                        : nullptr;
+
+  uint64_t bytes_read = 0;
+  PinnableSlice& cached_value = resolved_cache_[column_index];
+
+  Status s = blob_fetcher_->FetchBlob(user_key_, blob_index, prefetch_buffer,
+                                      &cached_value, &bytes_read);
+  if (!s.ok()) {
+    resolved_cache_.erase(column_index);
+    return s;
+  }
+
+  if (iter_stats_ != nullptr) {
+    ++iter_stats_->num_blobs_read;
+    iter_stats_->total_blob_bytes_read += bytes_read;
+  }
+
+  *resolved_value = Slice(cached_value);
+  return Status::OK();
+}
+
+bool CompactionBlobResolver::IsBlobColumn(size_t column_index) const {
+  if (columns_ == nullptr || column_index >= columns_->size()) {
+    return false;
+  }
+  return blob_column_index_map_.find(column_index) !=
+         blob_column_index_map_.end();
+}
+
+size_t CompactionBlobResolver::NumColumns() const {
+  if (columns_ == nullptr) {
+    return 0;
+  }
+  return columns_->size();
+}
+
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -310,6 +420,12 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       const WideColumns* existing_col = nullptr;
 
       WideColumns existing_columns;
+      std::unique_ptr<CompactionBlobResolver> blob_resolver;
+
+      // Storage for entity columns and blob column info (needed for blob
+      // resolver lifetime)
+      std::vector<WideColumn> entity_columns_storage;
+      std::vector<std::pair<size_t, BlobIndex>> blob_columns_storage;
 
       if (ikey_.type != kTypeWideColumnEntity) {
         if (!blob_value_.empty()) {
@@ -318,14 +434,41 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           existing_val = &value_;
         }
       } else {
-        Slice value_copy = value_;
-        const Status s =
-            WideColumnSerialization::Deserialize(value_copy, existing_columns);
+        // Check if entity has blob columns that need resolution
+        if (WideColumnSerialization::HasBlobColumns(value_)) {
+          // Entity has blob columns - use lazy loading via resolver
+          Slice input_copy = value_;
+          Status s = WideColumnSerialization::DeserializeColumns(
+              input_copy, &entity_columns_storage, &blob_columns_storage);
+          if (!s.ok()) {
+            status_ = s;
+            validity_info_.Invalidate();
+            return false;
+          }
 
-        if (!s.ok()) {
-          status_ = s;
-          validity_info_.Invalidate();
-          return false;
+          // Build existing_columns with raw values (blob columns have blob
+          // index as value, not the actual blob data)
+          for (size_t i = 0; i < entity_columns_storage.size(); ++i) {
+            existing_columns.emplace_back(entity_columns_storage[i].name(),
+                                          entity_columns_storage[i].value());
+          }
+
+          // Create blob resolver for lazy loading - filter can call
+          // resolver->ResolveColumn() to fetch blob values on-demand
+          blob_resolver = std::make_unique<CompactionBlobResolver>(
+              ikey_.user_key, &entity_columns_storage, &blob_columns_storage,
+              blob_fetcher_.get(), prefetch_buffers_.get(), &iter_stats_);
+        } else {
+          // No blob columns, use fast path
+          Slice value_copy = value_;
+          const Status s = WideColumnSerialization::Deserialize(
+              value_copy, existing_columns);
+
+          if (!s.ok()) {
+            status_ = s;
+            validity_info_.Invalidate();
+            return false;
+          }
         }
 
         existing_col = &existing_columns;
@@ -334,7 +477,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       decision = compaction_filter_->FilterV3(
           level_, filter_key, value_type, existing_val, existing_col,
           &compaction_filter_value_, &new_columns,
-          compaction_filter_skip_until_.rep());
+          compaction_filter_skip_until_.rep(), blob_resolver.get());
     }
 
     iter_stats_.total_filter_time +=
@@ -1266,6 +1409,316 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
   }
 }
 
+void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
+  assert(ikey_.type == kTypeWideColumnEntity);
+
+  // Check if blob extraction is enabled
+  if (!blob_file_builder_) {
+    return;
+  }
+
+  // Deserialize the entity columns
+  Slice entity_slice = value_;
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> existing_blob_columns;
+
+  Status s = WideColumnSerialization::DeserializeColumns(
+      entity_slice, &columns, &existing_blob_columns);
+  if (!s.ok()) {
+    status_ = s;
+    validity_info_.Invalidate();
+    return;
+  }
+
+  // If there are already blob columns, we skip extraction. This is by design:
+  // entities that already have some columns in blob files are not re-processed.
+  // New large inline columns in such entities will be extracted in a future
+  // compaction after all existing blob refs are resolved back to inline
+  // (e.g., via garbage collection).
+  if (!existing_blob_columns.empty()) {
+    return;
+  }
+
+  // Try to extract large column values to blob files
+  // Track which columns were extracted and their blob indices
+  std::vector<std::pair<size_t, BlobIndex>> new_blob_columns;
+  std::string temp_blob_index;
+
+  for (size_t i = 0; i < columns.size(); ++i) {
+    const Slice& col_value = columns[i].value();
+
+    // Clear the temporary buffer for each column
+    temp_blob_index.clear();
+
+    // Try to add the column value to blob file
+    // blob_file_builder_->Add() will check min_blob_size internally
+    // and only write to blob file if the value is large enough
+    s = blob_file_builder_->Add(user_key(), col_value, &temp_blob_index);
+    if (!s.ok()) {
+      status_ = s;
+      validity_info_.Invalidate();
+      return;
+    }
+
+    // If blob_index is not empty, the value was extracted to a blob file
+    if (!temp_blob_index.empty()) {
+      BlobIndex blob_idx;
+      s = blob_idx.DecodeFrom(temp_blob_index);
+      if (!s.ok()) {
+        status_ = s;
+        validity_info_.Invalidate();
+        return;
+      }
+      new_blob_columns.emplace_back(i, blob_idx);
+    }
+  }
+
+  // If no columns were extracted, nothing to do
+  if (new_blob_columns.empty()) {
+    return;
+  }
+
+  // Re-serialize the entity with blob indices
+  // First, convert WideColumns to the format expected by
+  // SerializeWithBlobIndices
+  std::vector<std::pair<std::string, std::string>> columns_for_serialization;
+  columns_for_serialization.reserve(columns.size());
+  for (const auto& col : columns) {
+    columns_for_serialization.emplace_back(col.name().ToString(),
+                                           col.value().ToString());
+  }
+
+  rewritten_entity_.clear();
+  s = WideColumnSerialization::SerializeWithBlobIndices(
+      columns_for_serialization, new_blob_columns, &rewritten_entity_);
+  if (!s.ok()) {
+    status_ = s;
+    validity_info_.Invalidate();
+    return;
+  }
+
+  // Update value_ to point to the rewritten entity
+  value_ = rewritten_entity_;
+}
+
+bool CompactionIterator::FetchBlobsNeedingGC(
+    const std::vector<WideColumn>& /*columns*/,
+    const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+    std::vector<std::pair<size_t, std::string>>* fetched_blob_values) {
+  assert(fetched_blob_values != nullptr);
+
+  for (const auto& blob_col : blob_columns) {
+    const size_t col_idx = blob_col.first;
+    const BlobIndex& blob_index = blob_col.second;
+
+    // Skip inlined blobs - they don't need GC
+    if (blob_index.IsInlined()) {
+      continue;
+    }
+
+    // Check if this blob file needs garbage collection
+    if (blob_index.file_number() >=
+        blob_garbage_collection_cutoff_file_number_) {
+      continue;
+    }
+
+    // This blob needs to be relocated - fetch its value
+    FilePrefetchBuffer* prefetch_buffer =
+        prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                                blob_index.file_number())
+                          : nullptr;
+
+    uint64_t bytes_read = 0;
+    assert(blob_fetcher_);
+
+    PinnableSlice blob_value;
+    Status s = blob_fetcher_->FetchBlob(user_key(), blob_index, prefetch_buffer,
+                                        &blob_value, &bytes_read);
+    if (!s.ok()) {
+      status_ = s;
+      validity_info_.Invalidate();
+      return false;
+    }
+
+    ++iter_stats_.num_blobs_read;
+    iter_stats_.total_blob_bytes_read += bytes_read;
+    ++iter_stats_.num_blobs_relocated;
+    iter_stats_.total_blob_bytes_relocated += blob_index.size();
+
+    fetched_blob_values->emplace_back(col_idx, blob_value.ToString());
+  }
+
+  return !fetched_blob_values->empty();
+}
+
+std::vector<std::pair<size_t, BlobIndex>>
+CompactionIterator::ReExtractBlobValues(
+    const std::vector<std::pair<size_t, std::string>>& fetched_blob_values) {
+  std::vector<std::pair<size_t, BlobIndex>> new_blob_columns;
+
+  if (!blob_file_builder_) {
+    return new_blob_columns;
+  }
+
+  for (const auto& fv : fetched_blob_values) {
+    const size_t col_idx = fv.first;
+    const Slice col_value(fv.second);
+
+    std::string temp_blob_index;
+    Status s = blob_file_builder_->Add(user_key(), col_value, &temp_blob_index);
+    if (!s.ok()) {
+      status_ = s;
+      validity_info_.Invalidate();
+      return {};  // Return empty on error
+    }
+
+    if (!temp_blob_index.empty()) {
+      BlobIndex blob_idx;
+      s = blob_idx.DecodeFrom(temp_blob_index);
+      if (!s.ok()) {
+        status_ = s;
+        validity_info_.Invalidate();
+        return {};
+      }
+      new_blob_columns.emplace_back(col_idx, blob_idx);
+    }
+    // If temp_blob_index is empty, the value will be inlined
+  }
+
+  return new_blob_columns;
+}
+
+void CompactionIterator::SerializeEntityAfterGC(
+    const std::vector<WideColumn>& columns,
+    const std::vector<std::pair<size_t, BlobIndex>>& original_blob_columns,
+    const std::vector<std::pair<size_t, std::string>>& fetched_blob_values,
+    const std::vector<std::pair<size_t, BlobIndex>>& new_blob_columns) {
+  // Build a set of column indices that were fetched (GC'd)
+  std::unordered_set<size_t> fetched_indices;
+  for (const auto& fv : fetched_blob_values) {
+    fetched_indices.insert(fv.first);
+  }
+
+  // Build a set of column indices that were re-extracted
+  std::unordered_set<size_t> re_extracted_indices;
+  for (const auto& nb : new_blob_columns) {
+    re_extracted_indices.insert(nb.first);
+  }
+
+  // Build a map of column index to fetched value
+  std::unordered_map<size_t, const std::string*> fetched_values_map;
+  for (const auto& fv : fetched_blob_values) {
+    fetched_values_map[fv.first] = &fv.second;
+  }
+
+  // Collect all blob columns for final serialization: include non-GC'd
+  // originals and newly re-extracted
+  std::vector<std::pair<size_t, BlobIndex>> final_blob_columns;
+  for (const auto& blob_col : original_blob_columns) {
+    if (fetched_indices.count(blob_col.first) == 0) {
+      // This blob column wasn't GC'd - keep original
+      final_blob_columns.push_back(blob_col);
+    }
+  }
+  // Add newly re-extracted blobs
+  for (const auto& nb : new_blob_columns) {
+    final_blob_columns.push_back(nb);
+  }
+
+  // Build columns for serialization
+  std::vector<std::pair<std::string, std::string>> columns_for_serialization;
+  columns_for_serialization.reserve(columns.size());
+
+  for (size_t i = 0; i < columns.size(); ++i) {
+    std::string col_name = columns[i].name().ToString();
+    std::string col_value;
+
+    auto fetched_it = fetched_values_map.find(i);
+    if (fetched_it != fetched_values_map.end()) {
+      // This blob column was fetched for GC; use the resolved inline value.
+      col_value = *fetched_it->second;
+    } else {
+      // For inline columns, this is the actual value. For non-fetched blob
+      // columns, this contains the raw serialized blob index, which is fine
+      // because SerializeWithBlobIndices() re-encodes from the BlobIndex
+      // object in final_blob_columns, ignoring this string for blob-type
+      // columns.
+      col_value = columns[i].value().ToString();
+    }
+
+    columns_for_serialization.emplace_back(std::move(col_name),
+                                           std::move(col_value));
+  }
+
+  // Serialize the entity
+  rewritten_entity_.clear();
+  Status s;
+  if (final_blob_columns.empty()) {
+    WideColumns wide_columns;
+    wide_columns.reserve(columns_for_serialization.size());
+    for (const auto& col : columns_for_serialization) {
+      wide_columns.emplace_back(col.first, col.second);
+    }
+    s = WideColumnSerialization::Serialize(wide_columns, rewritten_entity_);
+  } else {
+    s = WideColumnSerialization::SerializeWithBlobIndices(
+        columns_for_serialization, final_blob_columns, &rewritten_entity_);
+  }
+
+  if (!s.ok()) {
+    status_ = s;
+    validity_info_.Invalidate();
+    return;
+  }
+
+  value_ = rewritten_entity_;
+}
+
+void CompactionIterator::GarbageCollectEntityBlobsIfNeeded() {
+  assert(ikey_.type == kTypeWideColumnEntity);
+
+  if (!compaction_ || !compaction_->enable_blob_garbage_collection()) {
+    return;
+  }
+
+  // Deserialize the entity columns to get blob column references
+  Slice entity_slice = value_;
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+
+  Status s = WideColumnSerialization::DeserializeColumns(entity_slice, &columns,
+                                                         &blob_columns);
+  if (!s.ok()) {
+    status_ = s;
+    validity_info_.Invalidate();
+    return;
+  }
+
+  if (blob_columns.empty()) {
+    return;
+  }
+
+  // Fetch blobs that need GC
+  std::vector<std::pair<size_t, std::string>> fetched_blob_values;
+  if (!FetchBlobsNeedingGC(columns, blob_columns, &fetched_blob_values)) {
+    // Either no blobs needed GC (status_ is OK) or an error occurred
+    // (status_ is already set by FetchBlobsNeedingGC). In both cases,
+    // we return without modifying the entity.
+    return;
+  }
+
+  // Re-extract fetched values to new blob files
+  std::vector<std::pair<size_t, BlobIndex>> new_blob_columns =
+      ReExtractBlobValues(fetched_blob_values);
+  if (!status_.ok()) {
+    return;  // Error occurred during re-extraction
+  }
+
+  // Serialize the final entity
+  SerializeEntityAfterGC(columns, blob_columns, fetched_blob_values,
+                         new_blob_columns);
+}
+
 void CompactionIterator::PrepareOutput() {
   if (Valid()) {
     if (LIKELY(!is_range_del_)) {
@@ -1273,6 +1726,14 @@ void CompactionIterator::PrepareOutput() {
         ExtractLargeValueIfNeeded();
       } else if (ikey_.type == kTypeBlobIndex) {
         GarbageCollectBlobIfNeeded();
+      } else if (ikey_.type == kTypeWideColumnEntity) {
+        // Check if entity has blob references using
+        // WideColumnSerialization::HasBlobColumns
+        if (WideColumnSerialization::HasBlobColumns(value_)) {
+          GarbageCollectEntityBlobsIfNeeded();
+        } else {
+          ExtractLargeColumnValuesIfNeeded();
+        }
       }
     }
 

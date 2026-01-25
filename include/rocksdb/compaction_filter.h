@@ -25,6 +25,51 @@ namespace ROCKSDB_NAMESPACE {
 class Slice;
 class SliceTransform;
 
+// Interface for lazily resolving blob values within wide-column entities.
+// This allows compaction filters to access blob column values on-demand,
+// avoiding unnecessary I/O for blob columns that the filter doesn't need.
+//
+// Usage in CompactionFilter::FilterV3():
+//   if (blob_resolver != nullptr) {
+//     if (blob_resolver->IsBlobColumn(0)) {
+//       Slice resolved_value;
+//       Status s = blob_resolver->ResolveColumn(0, &resolved_value);
+//       if (!s.ok()) { /* handle error */ }
+//       // Use resolved_value...
+//     }
+//   }
+//
+// Thread safety: A resolver instance is used by a single thread (the
+// compaction thread). The resolved values remain valid until the next
+// ResolveColumn call or until FilterV3 returns.
+class WideColumnBlobResolver {
+ public:
+  virtual ~WideColumnBlobResolver() = default;
+
+  // Resolve the value for the column at the given index.
+  // Returns OK on success, with resolved_value pointing to the data.
+  // The resolved_value remains valid until the next call to ResolveColumn,
+  // Reset(), or until the resolver is destroyed.
+  //
+  // For blob columns: fetches the blob value from the blob file.
+  // For non-blob (inline) columns: returns the inline value directly.
+  //
+  // Returns an error status if:
+  // - column_index is out of bounds
+  // - I/O error occurred while fetching the blob
+  //
+  // If ResolveColumn fails, the compaction filter should return
+  // kKeepFilter to avoid data loss.
+  virtual Status ResolveColumn(size_t column_index, Slice* resolved_value) = 0;
+
+  // Check if the column at the given index is a blob reference (vs inline).
+  // Returns false if column_index is out of bounds.
+  virtual bool IsBlobColumn(size_t column_index) const = 0;
+
+  // Returns the total number of columns in the entity.
+  virtual size_t NumColumns() const = 0;
+};
+
 // CompactionFilter allows an application to modify/delete a key-value during
 // table file creation.
 //
@@ -274,6 +319,17 @@ class CompactionFilter : public Customizable {
   // parameter, and see Decision above for more information on the semantics of
   // the potential return values.
   //
+  // When the entity has blob columns (columns whose values are stored in blob
+  // files), the `blob_resolver` parameter provides a way to lazily resolve
+  // blob values on-demand. If `blob_resolver` is non-null:
+  // - `existing_columns` contains all columns, but blob columns will have
+  //   blob index references as their values (not the actual blob data)
+  // - Call `blob_resolver->IsBlobColumn(idx)` to check if a column is a blob
+  // - Call `blob_resolver->ResolveColumn(idx, &value)` to fetch the blob value
+  //
+  // This lazy loading mechanism allows filters to avoid I/O for blob columns
+  // they don't need to access.
+  //
   // For compatibility, the default implementation keeps all wide-column
   // entities, and falls back to FilterV2 for plain values and merge operands.
   // If you override this method, there is no need to override FilterV2 (or
@@ -283,8 +339,10 @@ class CompactionFilter : public Customizable {
       const Slice* existing_value, const WideColumns* existing_columns,
       std::string* new_value,
       std::vector<std::pair<std::string, std::string>>* /* new_columns */,
-      std::string* skip_until) const {
+      std::string* skip_until,
+      WideColumnBlobResolver* blob_resolver = nullptr) const {
     (void)existing_columns;
+    (void)blob_resolver;
 
     assert(!existing_value || !existing_columns);
     assert(value_type == ValueType::kWideColumnEntity || existing_value);

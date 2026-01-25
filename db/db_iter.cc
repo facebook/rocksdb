@@ -11,7 +11,9 @@
 
 #include <limits>
 #include <string>
+#include <vector>
 
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -289,10 +291,106 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   assert(value_.empty());
   assert(wide_columns_.empty());
 
-  const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
+  // Fast path: if no blob columns, use the simpler Deserialize
+  if (!WideColumnSerialization::HasBlobColumns(slice)) {
+    const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
 
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      wide_columns_.clear();
+      return false;
+    }
+
+    if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+      value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+    }
+
+    return true;
+  }
+
+  // Slow path: entity has blob columns that need resolution
+  // Use DeserializeColumns to get both inline columns and blob column info
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+
+  {
+    Slice input_copy = slice;
+    const Status s = WideColumnSerialization::DeserializeColumns(
+        input_copy, &columns, &blob_columns);
+
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      return false;
+    }
+  }
+
+  // We need storage for resolved blob values
+  // Store them in saved_value_ to keep them alive
+  // First, reserve space for blob values
+  std::vector<std::string> resolved_blob_values;
+  resolved_blob_values.reserve(blob_columns.size());
+
+  // Fetch each blob value
+  for (const auto& blob_col : blob_columns) {
+    const size_t col_idx = blob_col.first;
+    const BlobIndex& blob_idx = blob_col.second;
+
+    assert(col_idx < columns.size());
+    if (col_idx >= columns.size()) {
+      status_ = Status::Corruption("Blob column index out of bounds");
+      valid_ = false;
+      return false;
+    }
+
+    // Handle inlined blobs - their value is stored directly in the BlobIndex
+    if (blob_idx.IsInlined()) {
+      resolved_blob_values.emplace_back(blob_idx.value().data(),
+                                        blob_idx.value().size());
+      continue;
+    }
+
+    // TTL blobs in entity columns are not expected in normal operation,
+    // but handle them gracefully by fetching via blob_reader_
+    // (Note: TTL is a legacy BlobDB feature, not used with integrated BlobDB)
+
+    // Get the blob value
+    PinnableSlice blob_value;
+
+    // Use blob_reader_ to fetch the blob
+    const Status s = blob_reader_.RetrieveAndSetBlobValue(
+        saved_key_.GetUserKey(), columns[col_idx].value());
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      blob_reader_.ResetBlobValue();
+      return false;
+    }
+
+    // Store the resolved value
+    resolved_blob_values.emplace_back(blob_reader_.GetBlobValue().data(),
+                                      blob_reader_.GetBlobValue().size());
+    blob_reader_.ResetBlobValue();
+  }
+
+  // Use the helper to serialize the entity with resolved blob values
+  saved_value_.clear();
+  const Status s = WideColumnSerialization::SerializeResolvedEntity(
+      columns, blob_columns, resolved_blob_values, &saved_value_);
   if (!s.ok()) {
     status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  // Deserialize from saved_value_ to get wide_columns_ with proper Slice
+  // pointers
+  Slice saved_slice(saved_value_);
+  const Status s2 =
+      WideColumnSerialization::Deserialize(saved_slice, wide_columns_);
+  if (!s2.ok()) {
+    status_ = s2;
     valid_ = false;
     wide_columns_.clear();
     return false;
@@ -1407,6 +1505,74 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
                                           const Slice& user_key) {
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
   // since a failure must be propagated regardless of its value.
+
+  // If the entity has blob columns (V2 format), we need to resolve them first.
+  // TimedFullMerge calls WideColumnSerialization::Deserialize(), which only
+  // supports V1 format. We resolve blob references to produce a V1 entity.
+  if (WideColumnSerialization::HasBlobColumns(entity)) {
+    std::vector<WideColumn> columns;
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+
+    {
+      Slice input_copy = entity;
+      const Status s = WideColumnSerialization::DeserializeColumns(
+          input_copy, &columns, &blob_columns);
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+        return false;
+      }
+    }
+
+    // Fetch each blob value
+    std::vector<std::string> resolved_blob_values;
+    resolved_blob_values.reserve(blob_columns.size());
+
+    for (const auto& blob_col : blob_columns) {
+      const size_t col_idx = blob_col.first;
+      const BlobIndex& blob_idx = blob_col.second;
+
+      if (blob_idx.IsInlined()) {
+        resolved_blob_values.emplace_back(blob_idx.value().data(),
+                                          blob_idx.value().size());
+        continue;
+      }
+
+      assert(col_idx < columns.size());
+      const Status s = blob_reader_.RetrieveAndSetBlobValue(
+          user_key, columns[col_idx].value());
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+        blob_reader_.ResetBlobValue();
+        return false;
+      }
+
+      resolved_blob_values.emplace_back(blob_reader_.GetBlobValue().data(),
+                                        blob_reader_.GetBlobValue().size());
+      blob_reader_.ResetBlobValue();
+    }
+
+    // Serialize into V1 format with all blob values resolved
+    std::string resolved_entity;
+    const Status s = WideColumnSerialization::SerializeResolvedEntity(
+        columns, blob_columns, resolved_blob_values, &resolved_entity);
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      return false;
+    }
+
+    ValueType result_type;
+    const Status s2 = MergeHelper::TimedFullMerge(
+        merge_operator_, user_key, MergeHelper::kWideBaseValue,
+        Slice(resolved_entity), merge_context_.GetOperands(), logger_,
+        statistics_, clock_,
+        /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+        &saved_value_, &pinned_value_, &result_type);
+    return SetValueAndColumnsFromMergeResult(s2, result_type);
+  }
+
   ValueType result_type;
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kWideBaseValue, entity,

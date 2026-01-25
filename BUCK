@@ -4937,6 +4937,12 @@ cpp_unittest_wrapper(name="db_merge_operator_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_open_with_config_test",
+            srcs=["db/db_open_with_config_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_options_test",
             srcs=["db/db_options_test.cc"],
             deps=[":rocksdb_test_lib"],
