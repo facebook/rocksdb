@@ -128,6 +128,7 @@ typedef struct rocksdb_envoptions_t rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t
     rocksdb_ingestexternalfileoptions_t;
 typedef struct rocksdb_sstfilewriter_t rocksdb_sstfilewriter_t;
+typedef struct rocksdb_sstfilereader_t rocksdb_sstfilereader_t;
 typedef struct rocksdb_ratelimiter_t rocksdb_ratelimiter_t;
 typedef struct rocksdb_perfcontext_t rocksdb_perfcontext_t;
 typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
@@ -2578,6 +2579,24 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_file_size(
     rocksdb_sstfilewriter_t* writer, uint64_t* file_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
     rocksdb_sstfilewriter_t* writer);
+
+extern ROCKSDB_LIBRARY_API rocksdb_sstfilereader_t* rocksdb_sstfilereader_create(
+    const rocksdb_options_t* io_options);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_open(
+    rocksdb_sstfilereader_t* reader, const char* name, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_sstfilereader_new_iterator(rocksdb_sstfilereader_t* reader,
+                                   const rocksdb_readoptions_t* options);
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_sstfilereader_new_table_iterator(rocksdb_sstfilereader_t* reader);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_verify_checksum(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options,
+    char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_tableproperties_t*
+rocksdb_sstfilereader_get_table_properties(rocksdb_sstfilereader_t* reader);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_destroy(
+    rocksdb_sstfilereader_t* reader);
+
 extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfileoptions_t*
 rocksdb_ingestexternalfileoptions_create(void);
 extern ROCKSDB_LIBRARY_API void

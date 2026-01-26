@@ -32,6 +32,8 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/sst_file_reader.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -126,6 +128,7 @@ using ROCKSDB_NAMESPACE::SliceTransform;
 using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileManager;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
+using ROCKSDB_NAMESPACE::SstFileReader;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::StderrLogger;
@@ -280,6 +283,9 @@ struct rocksdb_ingestexternalfileoptions_t {
 };
 struct rocksdb_sstfilewriter_t {
   SstFileWriter* rep;
+};
+struct rocksdb_sstfilereader_t {
+  SstFileReader* rep;
 };
 struct rocksdb_ratelimiter_t {
   std::shared_ptr<RateLimiter> rep;
@@ -6012,6 +6018,43 @@ void rocksdb_sstfilewriter_file_size(rocksdb_sstfilewriter_t* writer,
 void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {
   delete writer->rep;
   delete writer;
+}
+
+rocksdb_sstfilereader_t* rocksdb_sstfilereader_create(
+    const rocksdb_options_t* io_options) {
+  rocksdb_sstfilereader_t* reader = new rocksdb_sstfilereader_t;
+  reader->rep = new SstFileReader(io_options->rep);
+  return reader;
+}
+
+void rocksdb_sstfilereader_open(rocksdb_sstfilereader_t* reader,
+                                const char* name, char** errptr) {
+  SaveError(errptr, reader->rep->Open(std::string(name)));
+}
+
+rocksdb_iterator_t* rocksdb_sstfilereader_new_iterator(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = reader->rep->NewIterator(options->rep);
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_sstfilereader_new_table_iterator(
+    rocksdb_sstfilereader_t* reader) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = reader->rep->NewTableIterator().release();
+  return result;
+}
+
+void rocksdb_sstfilereader_verify_checksum(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options,
+    char** errptr) {
+  SaveError(errptr, reader->rep->VerifyChecksum(options->rep));
+}
+
+void rocksdb_sstfilereader_destroy(rocksdb_sstfilereader_t* reader) {
+  delete reader->rep;
+  delete reader;
 }
 
 rocksdb_ingestexternalfileoptions_t*

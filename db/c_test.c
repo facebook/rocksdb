@@ -1218,6 +1218,66 @@ int main(int argc, char** argv) {
     CheckNoError(err);
   }
 
+  StartPhase("sstfilereader");
+  {
+    // Create an SST file to read
+    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
+    rocksdb_sstfilewriter_t* writer =
+        rocksdb_sstfilewriter_create(env_opt, options);
+
+    remove(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "key1", 4, "value1", 6, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "key2", 4, "value2", 6, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "key3", 4, "value3", 6, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_destroy(writer);
+    rocksdb_envoptions_destroy(env_opt);
+
+    rocksdb_sstfilereader_t* reader = rocksdb_sstfilereader_create(options);
+    rocksdb_sstfilereader_open(reader, sstfilename, &err);
+    CheckNoError(err);
+
+    rocksdb_iterator_t* iter =
+        rocksdb_sstfilereader_new_iterator(reader, roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "key1", "value1");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "key2", "value2");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "key3", "value3");
+    rocksdb_iter_next(iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_destroy(iter);
+
+    rocksdb_iterator_t* table_iter =
+        rocksdb_sstfilereader_new_table_iterator(reader);
+    CheckCondition(!rocksdb_iter_valid(table_iter));
+    rocksdb_iter_seek_to_first(table_iter);
+    CheckCondition(rocksdb_iter_valid(table_iter));
+    CheckIter(table_iter, "key1", "value1");
+    rocksdb_iter_next(table_iter);
+    CheckIter(table_iter, "key2", "value2");
+    rocksdb_iter_next(table_iter);
+    CheckIter(table_iter, "key3", "value3");
+    rocksdb_iter_next(table_iter);
+    CheckCondition(!rocksdb_iter_valid(table_iter));
+    rocksdb_iter_destroy(table_iter);
+
+    rocksdb_sstfilereader_verify_checksum(reader, roptions, &err);
+    CheckNoError(err);
+
+    rocksdb_sstfilereader_destroy(reader);
+    remove(sstfilename);
+  }
+
   StartPhase("writebatch");
   {
     rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
