@@ -578,15 +578,21 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
     // search simply lands at the right place.
     skip_linear_scan = true;
   } else if (value_delta_encoded_) {
-    if (index_search_type_ == BlockBasedTableOptions::kBinary) {
+    if (index_search_type_ == BlockBasedTableOptions::kBinary ||
+        !raw_key_.IsUserKey()) {
       ok = FindRestartPointIndex<DecodeKeyV4, BinarySeek>(seek_key, &index,
                                                           &skip_linear_scan);
     } else {
+      // Interpolation search implementation currently does not factor in
+      // sequence numbers in keys. Rare, but possible when a single user key
+      // spans multiple blocks. If this was the case, then there is also a good
+      // chance the data is not uniform either.
       ok = FindRestartPointIndex<DecodeKeyV4, InterpolationSeek>(
           seek_key, &index, &skip_linear_scan);
     }
   } else {
-    if (index_search_type_ == BlockBasedTableOptions::kBinary) {
+    if (index_search_type_ == BlockBasedTableOptions::kBinary ||
+        !raw_key_.IsUserKey()) {
       ok = FindRestartPointIndex<DecodeKey, BinarySeek>(seek_key, &index,
                                                         &skip_linear_scan);
     } else {
@@ -984,6 +990,7 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
     if constexpr (std::is_same_v<SeekFunc, InterpolationSeek>) {
       assert(ts_sz_ == 0);
       assert(icmp_.user_comparator() == BytewiseComparator());
+      assert(raw_key_.IsUserKey());
 
       if (!seek_failed) {
         Slice left_key;
