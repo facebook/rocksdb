@@ -182,6 +182,20 @@ static void CheckIter(rocksdb_iterator_t* iter, const char* key,
   CheckEqual(val, str, len);
 }
 
+static void CheckInternalIter(rocksdb_iterator_t* iter, const char* key,
+                      const char* val) {
+  size_t len;
+  const char* str;
+  str = rocksdb_iter_key(iter, &len);
+  // Remove internal metadata (last 8 bytes: sequence number + type)
+  if (len >= 8) {
+    len -= 8;
+  }
+  CheckEqual(key, str, len);
+  str = rocksdb_iter_value(iter, &len);
+  CheckEqual(val, str, len);
+}
+
 // Callback from rocksdb_writebatch_iterate()
 static void CheckPut(void* ptr, const char* k, size_t klen, const char* v,
                      size_t vlen) {
@@ -1347,11 +1361,11 @@ int main(int argc, char** argv) {
     CheckCondition(!rocksdb_iter_valid(table_iter));
     rocksdb_iter_seek_to_first(table_iter);
     CheckCondition(rocksdb_iter_valid(table_iter));
-    CheckIter(table_iter, "key1", "value1");
+    CheckInternalIter(table_iter, "key1", "value1");
     rocksdb_iter_next(table_iter);
-    CheckIter(table_iter, "key2", "value2");
+    CheckInternalIter(table_iter, "key2", "value2");
     rocksdb_iter_next(table_iter);
-    CheckIter(table_iter, "key3", "value3");
+    CheckInternalIter(table_iter, "key3", "value3");
     rocksdb_iter_next(table_iter);
     CheckCondition(!rocksdb_iter_valid(table_iter));
     rocksdb_iter_destroy(table_iter);
