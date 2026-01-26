@@ -1408,7 +1408,7 @@ int main(int argc, char** argv) {
     CheckCondition(data_size > 0);
 
     uint64_t raw_key_size = rocksdb_tableproperties_get_raw_key_size(props);
-    CheckCondition(raw_key_size == 12);  // 3 keys * 4 bytes each
+    CheckCondition(raw_key_size == 36);  // 3 keys * (4 bytes + 8 metadata bytes)
 
     uint64_t raw_value_size = rocksdb_tableproperties_get_raw_value_size(props);
     CheckCondition(raw_value_size == 18);  // 3 values * 6 bytes each
