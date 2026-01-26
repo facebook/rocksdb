@@ -83,8 +83,9 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
-            (expected ? expected : "(null)"), (v ? v : "(null)"));
+    fprintf(stderr, "%s: expected '%s' (len=%zu), got '%s' (len=%zu)\n", phase,
+            (expected ? expected : "(null)"), expected ? strlen(expected) : 0,
+            (v ? v : "(null)"), n);
     abort();
   }
 }
