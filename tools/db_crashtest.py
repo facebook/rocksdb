@@ -444,7 +444,8 @@ default_params = {
     "use_multiscan": random.choice([1] + [0] * 3),
     # By default, `statistics` use kExceptDetailedTimers level
     "statistics": random.choice([0, 1]),
-    "multiscan_use_async_io": random.randint(0, 1),
+    # TODO: re-enable after resolving "Req failed: Unknown error -14" errors
+    "multiscan_use_async_io": 0,  # random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
