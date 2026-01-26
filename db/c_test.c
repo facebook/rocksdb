@@ -1380,34 +1380,34 @@ int main(int argc, char** argv) {
     Free(&values_list[1]);
     Free(&values_list[2]);
 
-    uint64_t num_entries =
-        rocksdb_sstfilereader_get_table_properties_num_entries(reader);
+    const rocksdb_tableproperties_t* props =
+        rocksdb_sstfilereader_get_table_properties(reader);
+    CheckCondition(props != NULL);
+
+    uint64_t num_entries = rocksdb_tableproperties_get_num_entries(props);
     CheckCondition(num_entries == 3);
 
-    uint64_t data_size =
-        rocksdb_sstfilereader_get_table_properties_data_size(reader);
+    uint64_t data_size = rocksdb_tableproperties_get_data_size(props);
     CheckCondition(data_size > 0);
 
-    uint64_t raw_key_size =
-        rocksdb_sstfilereader_get_table_properties_raw_key_size(reader);
+    uint64_t raw_key_size = rocksdb_tableproperties_get_raw_key_size(props);
     CheckCondition(raw_key_size == 12);  // 3 keys * 4 bytes each
 
-    uint64_t raw_value_size =
-        rocksdb_sstfilereader_get_table_properties_raw_value_size(reader);
+    uint64_t raw_value_size = rocksdb_tableproperties_get_raw_value_size(props);
     CheckCondition(raw_value_size == 18);  // 3 values * 6 bytes each
 
     uint64_t num_data_blocks =
-        rocksdb_sstfilereader_get_table_properties_num_data_blocks(reader);
+        rocksdb_tableproperties_get_num_data_blocks(props);
     CheckCondition(num_data_blocks > 0);
 
-    uint64_t format_version =
-        rocksdb_sstfilereader_get_table_properties_format_version(reader);
+    uint64_t format_version = rocksdb_tableproperties_get_format_version(props);
     CheckCondition(format_version > 0);
 
-    char* comparator_name =
-        rocksdb_sstfilereader_get_table_properties_comparator_name(reader);
+    char* comparator_name = rocksdb_tableproperties_get_comparator_name(props);
     CheckCondition(comparator_name != NULL);
     Free(&comparator_name);
+
+    rocksdb_tableproperties_destroy((rocksdb_tableproperties_t*)props);
 
     rocksdb_sstfilereader_destroy(reader);
     remove(sstfilename);
