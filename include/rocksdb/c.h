@@ -2592,8 +2592,6 @@ rocksdb_sstfilereader_new_table_iterator(rocksdb_sstfilereader_t* reader);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_verify_checksum(
     rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options,
     char** errptr);
-extern ROCKSDB_LIBRARY_API rocksdb_tableproperties_t*
-rocksdb_sstfilereader_get_table_properties(rocksdb_sstfilereader_t* reader);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_destroy(
     rocksdb_sstfilereader_t* reader);
 
