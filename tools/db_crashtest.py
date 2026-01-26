@@ -980,10 +980,6 @@ def finalize_and_sanitize(src_params):
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
-    # Interpolation search only works with kBinarySearch index type
-    if dest_params.get("index_search_type", 0) == 1:
-        if dest_params.get("index_type", 0) != 0:
-            dest_params["index_search_type"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0

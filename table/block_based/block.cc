@@ -156,6 +156,7 @@ struct DecodeEntryV4 {
 struct BinarySeek {
   inline void operator()(int64_t left, int64_t right, int64_t* mid) const {
     assert(left <= right);
+    assert(left >= -1);
     // The `mid` is computed by rounding up so it lands in (`left`, `right`].
     *mid = left + (right - left + 1) / 2;
   }
@@ -164,16 +165,14 @@ struct BinarySeek {
 struct InterpolationSeek {
   static constexpr int64_t kGuardLen = 8;
 
-  inline bool operator()(int64_t& left, int64_t right, const Slice& left_key,
+  inline bool operator()(int64_t left, int64_t right, const Slice& left_key,
                          const Slice& right_key, const Slice& target,
                          size_t shared_prefix_len, int64_t* mid, bool* lte_left,
-                         bool* gt_right) const {
+                         bool* gt_right, const Comparator* comparator) const {
     assert(left <= right);
+    assert(left >= 0);
     if (right - left <= kGuardLen) {
       // If the search window is small, fall back to binary search
-      if (left == 0) {
-        left = -1;  // need to re-extend search window to include left = -1
-      }
       return false;
     }
     assert(shared_prefix_len <= left_key.size() &&
@@ -183,11 +182,23 @@ struct InterpolationSeek {
     uint64_t target_val = ReadBe64(target, shared_prefix_len);
 
     assert(left_val <= right_val);
-    if (target_val <= left_val) {
+    if (target_val < left_val) {
+      assert(comparator->Compare(target, left_key) < 0);
       *lte_left = true;
       return true;
+    } else if (target_val == left_val) {
+      // target_val == left_val doesn't imply target == left_key
+      // because ReadBe64 only reads 8 bytes. We need to check actual key order.
+      if (comparator->Compare(target, left_key) <= 0) {
+        *lte_left = true;
+        return true;
+      } else {
+        // it is possible that target == left, so fallback to binary search
+        return false;
+      }
     }
     if (target_val > right_val) {
+      assert(comparator->Compare(target, right_key) > 0);
       *gt_right = true;
       return true;
     }
@@ -209,7 +220,9 @@ struct InterpolationSeek {
     int64_t range = right - left;
     int64_t offset = static_cast<int64_t>(range * ratio);
 #endif
+
     *mid = left + offset;
+    assert(*mid <= right);
     if (*mid == left) {
       ++(*mid);
     }
@@ -974,12 +987,6 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
   // - Any restart keys after index `right` are strictly greater than the target
   //   key.
   int64_t left = -1;
-  if constexpr (std::is_same_v<SeekFunc, InterpolationSeek>) {
-    // Interpolation seek reads left and right bounaries anyways, so we can
-    // set left = 0. The invariant that left <= target is still held because we
-    // early exit if left > target for the first iteration.
-    left = 0;
-  }
 
   int64_t right = num_restarts_ - 1;
   int64_t shared_prefix_len = -1;
@@ -995,6 +1002,12 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
       if (!seek_failed) {
         Slice left_key;
         Slice right_key;
+
+        // Interpolation seek reads left and right bounaries anyways, so we can
+        // set left = 0. The invariant that left <= target is still held because
+        // we early exit if left > target for the first iteration.
+        left = std::max<int64_t>(left, 0);
+
         if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(left),
                                           &left_key)) {
           return false;
@@ -1017,7 +1030,7 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
         bool lte_left = false;
         seek_failed = !seek_func(left, right, left_key, right_key, target,
                                  static_cast<size_t>(shared_prefix_len), &mid,
-                                 &lte_left, &gt_right);
+                                 &lte_left, &gt_right, icmp_.user_comparator());
         // early exit if key is not within bounds
         if (lte_left) {
           assert(!seek_failed);
@@ -1033,6 +1046,9 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
           assert(CompareCurrentKey(target) < 0);
           *index = static_cast<uint32_t>(right);
           return true;
+        }
+        if (seek_failed) {
+          left--;  // need to re-extend search window to include left index
         }
       }
       if (seek_failed) {
