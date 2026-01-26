@@ -6052,6 +6052,177 @@ void rocksdb_sstfilereader_verify_checksum(
   SaveError(errptr, reader->rep->VerifyChecksum(options->rep));
 }
 
+void rocksdb_sstfilereader_verify_num_entries(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options,
+    char** errptr) {
+  SaveError(errptr, reader->rep->VerifyNumEntries(options->rep));
+}
+
+void rocksdb_sstfilereader_multi_get(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses = reader->rep->MultiGet(options->rep, keys, &values);
+  for (size_t i = 0; i < num_keys; i++) {
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      errs[i] = strdup(statuses[i].ToString().c_str());
+    }
+  }
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_data_size(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->data_size : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_index_size(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->index_size : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_filter_size(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->filter_size : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_raw_key_size(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->raw_key_size : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_raw_value_size(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->raw_value_size : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_num_data_blocks(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->num_data_blocks : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_num_entries(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->num_entries : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_num_deletions(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->num_deletions : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_num_merge_operands(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->num_merge_operands : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_num_range_deletions(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->num_range_deletions : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_format_version(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->format_version : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_fixed_key_len(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->fixed_key_len : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_column_family_id(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->column_family_id : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_creation_time(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->creation_time : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_oldest_key_time(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->oldest_key_time : 0;
+}
+
+uint64_t rocksdb_sstfilereader_get_table_properties_newest_key_time(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  return props ? props->newest_key_time : 0;
+}
+
+char* rocksdb_sstfilereader_get_table_properties_db_id(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  if (props && !props->db_id.empty()) {
+    return CopyString(props->db_id);
+  }
+  return nullptr;
+}
+
+char* rocksdb_sstfilereader_get_table_properties_db_session_id(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  if (props && !props->db_session_id.empty()) {
+    return CopyString(props->db_session_id);
+  }
+  return nullptr;
+}
+
+char* rocksdb_sstfilereader_get_table_properties_column_family_name(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  if (props && !props->column_family_name.empty()) {
+    return CopyString(props->column_family_name);
+  }
+  return nullptr;
+}
+
+char* rocksdb_sstfilereader_get_table_properties_filter_policy_name(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  if (props && !props->filter_policy_name.empty()) {
+    return CopyString(props->filter_policy_name);
+  }
+  return nullptr;
+}
+
+char* rocksdb_sstfilereader_get_table_properties_comparator_name(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  if (props && !props->comparator_name.empty()) {
+    return CopyString(props->comparator_name);
+  }
+  return nullptr;
+}
+
 void rocksdb_sstfilereader_destroy(rocksdb_sstfilereader_t* reader) {
   delete reader->rep;
   delete reader;

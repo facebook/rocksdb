@@ -1274,6 +1274,59 @@ int main(int argc, char** argv) {
     rocksdb_sstfilereader_verify_checksum(reader, roptions, &err);
     CheckNoError(err);
 
+    rocksdb_sstfilereader_verify_num_entries(reader, roptions, &err);
+    CheckNoError(err);
+
+    const char* keys_list[3] = {"key1", "key2", "key3"};
+    const size_t keys_list_sizes[3] = {4, 4, 4};
+    char* values_list[3] = {NULL, NULL, NULL};
+    size_t values_list_sizes[3] = {0, 0, 0};
+    char* errs[3] = {NULL, NULL, NULL};
+    rocksdb_sstfilereader_multi_get(reader, roptions, 3, keys_list,
+                                    keys_list_sizes, values_list,
+                                    values_list_sizes, errs);
+    CheckCondition(errs[0] == NULL);
+    CheckCondition(errs[1] == NULL);
+    CheckCondition(errs[2] == NULL);
+    CheckCondition(values_list_sizes[0] == 6);
+    CheckCondition(values_list_sizes[1] == 6);
+    CheckCondition(values_list_sizes[2] == 6);
+    CheckCondition(memcmp(values_list[0], "value1", 6) == 0);
+    CheckCondition(memcmp(values_list[1], "value2", 6) == 0);
+    CheckCondition(memcmp(values_list[2], "value3", 6) == 0);
+    Free(&values_list[0]);
+    Free(&values_list[1]);
+    Free(&values_list[2]);
+
+    uint64_t num_entries =
+        rocksdb_sstfilereader_get_table_properties_num_entries(reader);
+    CheckCondition(num_entries == 3);
+
+    uint64_t data_size =
+        rocksdb_sstfilereader_get_table_properties_data_size(reader);
+    CheckCondition(data_size > 0);
+
+    uint64_t raw_key_size =
+        rocksdb_sstfilereader_get_table_properties_raw_key_size(reader);
+    CheckCondition(raw_key_size == 12);  // 3 keys * 4 bytes each
+
+    uint64_t raw_value_size =
+        rocksdb_sstfilereader_get_table_properties_raw_value_size(reader);
+    CheckCondition(raw_value_size == 18);  // 3 values * 6 bytes each
+
+    uint64_t num_data_blocks =
+        rocksdb_sstfilereader_get_table_properties_num_data_blocks(reader);
+    CheckCondition(num_data_blocks > 0);
+
+    uint64_t format_version =
+        rocksdb_sstfilereader_get_table_properties_format_version(reader);
+    CheckCondition(format_version > 0);
+
+    char* comparator_name =
+        rocksdb_sstfilereader_get_table_properties_comparator_name(reader);
+    CheckCondition(comparator_name != NULL);
+    Free(&comparator_name);
+
     rocksdb_sstfilereader_destroy(reader);
     remove(sstfilename);
   }
