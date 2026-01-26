@@ -166,7 +166,7 @@ struct InterpolationSeek {
 
   inline bool operator()(int64_t& left, int64_t right, const Slice& left_key,
                          const Slice& right_key, const Slice& target,
-                         size_t shared_prefix_len, int64_t* mid, bool* lt_left,
+                         size_t shared_prefix_len, int64_t* mid, bool* lte_left,
                          bool* gt_right) const {
     assert(left <= right);
     if (right - left <= kGuardLen) {
@@ -183,8 +183,8 @@ struct InterpolationSeek {
     uint64_t target_val = ReadBe64(target, shared_prefix_len);
 
     assert(left_val <= right_val);
-    if (target_val < left_val) {
-      *lt_left = true;
+    if (target_val <= left_val) {
+      *lte_left = true;
       return true;
     }
     if (target_val > right_val) {
@@ -1014,12 +1014,12 @@ bool BlockIter<TValue>::FindRestartPointIndex(const Slice& target,
         }
 
         bool gt_right = false;
-        bool lt_left = false;
+        bool lte_left = false;
         seek_failed = !seek_func(left, right, left_key, right_key, target,
                                  static_cast<size_t>(shared_prefix_len), &mid,
-                                 &lt_left, &gt_right);
+                                 &lte_left, &gt_right);
         // early exit if key is not within bounds
-        if (lt_left) {
+        if (lte_left) {
           assert(!seek_failed);
           UpdateRawKeyAndMaybePadMinTimestamp(left_key);
           assert(CompareCurrentKey(target) >= 0);
