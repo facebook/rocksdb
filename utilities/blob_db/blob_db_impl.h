@@ -136,10 +136,6 @@ class BlobDBImpl : public BlobDB {
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
 
-  using BlobDB::PutUntil;
-  Status PutUntil(const WriteOptions& options, const Slice& key,
-                  const Slice& value, uint64_t expiration) override;
-
   using BlobDB::CompactFiles;
   Status CompactFiles(
       const CompactionOptions& compact_options,
