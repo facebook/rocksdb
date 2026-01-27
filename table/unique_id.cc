@@ -199,12 +199,16 @@ Status GetUniqueIdFromTableProperties(const TableProperties &props,
 }
 
 std::string UniqueIdToHumanString(const std::string &id) {
-  // Not so efficient, but that's OK
-  std::string str = Slice(id).ToString(/*hex*/ true);
-  for (size_t i = 16; i < str.size(); i += 17) {
-    str.insert(i, "-");
+  std::string hex = Slice(id).ToString(/*hex*/ true);
+  std::string result;
+  result.reserve(hex.size() + hex.size() / 16);
+  for (size_t i = 0; i < hex.size(); i++) {
+    if (i > 0 && i % 16 == 0) {
+      result.push_back('-');
+    }
+    result.push_back(hex[i]);
   }
-  return str;
+  return result;
 }
 
 std::string InternalUniqueIdToHumanString(UniqueIdPtr in) {
