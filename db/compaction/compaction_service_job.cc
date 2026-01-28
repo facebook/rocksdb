@@ -27,6 +27,17 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   assert(db_options_.compaction_service);
 
   const Compaction* compaction = sub_compact->compaction;
+
+  // Don't use remote compaction for transient CFs - they're not persisted
+  // to MANIFEST and thus cannot be opened by a different process
+  if (compaction->column_family_data()->ioptions().is_transient) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Skipping remote compaction for transient CF, "
+                   "falling back to local compaction",
+                   compaction->column_family_data()->GetName().c_str(),
+                   job_id_);
+    return CompactionServiceJobStatus::kUseLocal;
+  }
   CompactionServiceInput compaction_input;
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;

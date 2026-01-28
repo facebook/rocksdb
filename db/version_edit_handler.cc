@@ -268,6 +268,18 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         OptimizeForPersistentStats(&cfo);
         tmp_cfd = CreateCfAndInit(cfo, edit);
       } else {
+        // Check that user doesn't incorrectly try to open a regular CF
+        // (one that exists in MANIFEST) as transient.
+        // A CF that exists in MANIFEST is not transient and should never be
+        // opened with transient cf_options
+        if (cf_options->second.is_transient) {
+          s = Status::InvalidArgument(
+              "Column family " + cf_name +
+              " exists in MANIFEST (persistent CF) but is being opened with "
+              "is_transient=true. A persistent CF cannot be reopened as "
+              "transient.");
+          return s;
+        }
         tmp_cfd = CreateCfAndInit(cf_options->second, edit);
       }
       *cfd = tmp_cfd;
@@ -391,7 +403,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     *s = Status::Corruption(msg);
   }
   // There were some column families in the MANIFEST that weren't specified
-  // in the argument. This is OK in read_only mode
+  // in the argument. This is OK in read_only mode. Transient CFs are also
+  // intentionally not opened and should not cause errors.
   if (s->ok() && MustOpenAllColumnFamilies() &&
       !do_not_open_column_families_.empty()) {
     std::string msg;
