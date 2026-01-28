@@ -23,6 +23,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
@@ -306,6 +307,9 @@ struct rocksdb_ratelimiter_t {
 };
 struct rocksdb_perfcontext_t {
   PerfContext* rep;
+};
+struct rocksdb_iostatscontext_t {
+  IOStatsContext* rep;
 };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
@@ -5745,6 +5749,26 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->internal_range_del_reseek_count;
     case rocksdb_block_read_cpu_time:
       return rep->block_read_cpu_time;
+    case rocksdb_block_cache_index_hit_count:
+      return rep->block_cache_index_hit_count;
+    case rocksdb_block_cache_filter_hit_count:
+      return rep->block_cache_filter_hit_count;
+    case rocksdb_index_block_read_count:
+      return rep->index_block_read_count;
+    case rocksdb_filter_block_read_count:
+      return rep->filter_block_read_count;
+    case rocksdb_iter_next_count:
+      return rep->iter_next_count;
+    case rocksdb_iter_seek_count:
+      return rep->iter_seek_count;
+    case rocksdb_iter_prev_count:
+      return rep->iter_prev_count;
+    case rocksdb_iter_next_cpu_nanos:
+      return rep->iter_next_cpu_nanos;
+    case rocksdb_iter_prev_cpu_nanos:
+      return rep->iter_prev_cpu_nanos;
+    case rocksdb_iter_seek_cpu_nanos:
+      return rep->iter_seek_cpu_nanos;
     default:
       break;
   }
@@ -5752,6 +5776,68 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
 }
 
 void rocksdb_perfcontext_destroy(rocksdb_perfcontext_t* context) {
+  delete context;
+}
+
+void rocksdb_perfcontext_enable_per_level_perfcontext(
+    rocksdb_perfcontext_t* context) {
+  context->rep->EnablePerLevelPerfContext();
+}
+
+rocksdb_iostatscontext_t* rocksdb_iostatscontext_create(void) {
+  rocksdb_iostatscontext_t* context = new rocksdb_iostatscontext_t;
+  context->rep = ROCKSDB_NAMESPACE::get_iostats_context();
+  return context;
+}
+
+void rocksdb_iostatscontext_reset(rocksdb_iostatscontext_t* context) {
+  context->rep->Reset();
+}
+
+char* rocksdb_iostatscontext_report(rocksdb_iostatscontext_t* context,
+                                    unsigned char exclude_zero_counters) {
+  return strdup(context->rep->ToString(exclude_zero_counters).c_str());
+}
+
+uint64_t rocksdb_iostatscontext_metric(rocksdb_iostatscontext_t* context,
+                                       int metric) {
+  IOStatsContext* rep = context->rep;
+
+  switch (metric) {
+    case rocksdb_iostats_thread_pool_id:
+      return rep->thread_pool_id;
+    case rocksdb_iostats_bytes_written:
+      return rep->bytes_written;
+    case rocksdb_iostats_bytes_read:
+      return rep->bytes_read;
+    case rocksdb_iostats_open_nanos:
+      return rep->open_nanos;
+    case rocksdb_iostats_allocate_nanos:
+      return rep->allocate_nanos;
+    case rocksdb_iostats_write_nanos:
+      return rep->write_nanos;
+    case rocksdb_iostats_read_nanos:
+      return rep->read_nanos;
+    case rocksdb_iostats_range_sync_nanos:
+      return rep->range_sync_nanos;
+    case rocksdb_iostats_fsync_nanos:
+      return rep->fsync_nanos;
+    case rocksdb_iostats_prepare_write_nanos:
+      return rep->prepare_write_nanos;
+    case rocksdb_iostats_logger_nanos:
+      return rep->logger_nanos;
+    case rocksdb_iostats_cpu_write_nanos:
+      return rep->cpu_write_nanos;
+    case rocksdb_iostats_cpu_read_nanos:
+      return rep->cpu_read_nanos;
+    default:
+      break;
+  }
+
+  return 0;
+}
+
+void rocksdb_iostatscontext_destroy(rocksdb_iostatscontext_t* context) {
   delete context;
 }
 
