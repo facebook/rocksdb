@@ -1985,6 +1985,30 @@ jboolean Java_org_rocksdb_Options_skipCheckingSstFileSizesOnDbOpen(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setSkipDirectoryScanOnReadOnlyDbOpen
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setSkipDirectoryScanOnReadOnlyDbOpen(
+    JNIEnv*, jclass, jlong jhandle,
+    jboolean jskip_directory_scan_on_read_only_db_open) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opt->skip_directory_scan_on_readonly_db_open =
+      static_cast<bool>(jskip_directory_scan_on_read_only_db_open);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    skipDirectoryScanOnReadOnlyDbOpen
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_skipDirectoryScanOnReadOnlyDbOpen(
+    JNIEnv*, jclass, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jboolean>(opt->skip_directory_scan_on_readonly_db_open);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setWalRecoveryMode
  * Signature: (JB)V
  */
