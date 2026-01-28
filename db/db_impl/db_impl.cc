@@ -5802,6 +5802,16 @@ Status DBImpl::IngestExternalFiles(
   if (args.empty()) {
     return Status::InvalidArgument("ingestion arg list is empty");
   }
+  // Supported only when all args have the consistent `allow_write` behavior, as
+  // `allow_write` determines whether stopping writes to the DB affects all
+  // args.
+  bool allow_write = args[0].options.allow_write;
+  for (const auto& arg : args) {
+    if (arg.options.allow_write != allow_write) {
+      return Status::InvalidArgument(
+          "Inconsistent allow_writes values across ingestion arguments");
+    }
+  }
   {
     std::unordered_set<ColumnFamilyHandle*> unique_cfhs;
     for (const auto& arg : args) {
@@ -5960,19 +5970,25 @@ Status DBImpl::IngestExternalFiles(
 
     // Stop writes to the DB by entering both write threads
     WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
-    if (two_write_queues_) {
-      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
-    }
-    PERF_TIMER_GUARD(file_ingestion_blocking_live_writes_nanos);
+    if (!allow_write) {
+      // Stop writes to the DB by entering both write threads.
+      write_thread_.EnterUnbatched(&w, &mutex_);
+      if (two_write_queues_) {
+        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      }
 
-    // When unordered_write is enabled, the keys are writing to memtable in an
-    // unordered way. If the ingestion job checks memtable key range before the
-    // key landing in memtable, the ingestion job may skip the necessary
-    // memtable flush.
-    // So wait here to ensure there is no pending write to memtable.
-    WaitForPendingWrites();
+
+      // When unordered_write is enabled, the keys are writing to memtable in an
+      // unordered way. If the ingestion job checks memtable key range before the
+      // key landing in memtable, the ingestion job may skip the necessary
+      // memtable flush.
+      // So wait here to ensure there is no pending write to memtable.
+      WaitForPendingWrites();
+    }
+
+    TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:AfterAllowWriteCheck",
+                             nullptr);
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
@@ -6007,7 +6023,7 @@ Status DBImpl::IngestExternalFiles(
         mutex_.Unlock();
         status = AtomicFlushMemTables(
             flush_opts, FlushReason::kExternalFileIngestion,
-            {} /* provided_candidate_cfds */, true /* entered_write_thread */);
+            {} /* provided_candidate_cfds */, !allow_write /* entered_write_thread */);
         mutex_.Lock();
       } else {
         for (size_t i = 0; i != num_cfs; ++i) {
@@ -6016,7 +6032,7 @@ Status DBImpl::IngestExternalFiles(
             status =
                 FlushMemTable(ingestion_jobs[i].GetColumnFamilyData(),
                               flush_opts, FlushReason::kExternalFileIngestion,
-                              true /* entered_write_thread */);
+                              !allow_write /* entered_write_thread */);
             mutex_.Lock();
             if (!status.ok()) {
               break;
@@ -6123,11 +6139,12 @@ Status DBImpl::IngestExternalFiles(
     }
 
     // Resume writes to the DB
-    if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    if (!allow_write) {
+      if (two_write_queues_) {
+        nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      }
+      write_thread_.ExitUnbatched(&w);
     }
-    write_thread_.ExitUnbatched(&w);
-    PERF_TIMER_STOP(file_ingestion_blocking_live_writes_nanos);
 
     if (status.ok()) {
       for (auto& job : ingestion_jobs) {
