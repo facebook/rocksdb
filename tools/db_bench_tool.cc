@@ -1087,12 +1087,6 @@ DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
               "[Stacked BlobDB] Target size of each blob file.");
 
-DEFINE_string(
-    blob_db_compression_type, "snappy",
-    "[Stacked BlobDB] Algorithm to use to compress blobs in blob files.");
-static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
-
 // Integrated BlobDB options
 DEFINE_bool(
     enable_blob_files,
@@ -5204,7 +5198,6 @@ class Benchmark {
       blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
       blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
       blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
-      blob_db_options.compression = FLAGS_blob_db_compression_type_e;
       blob_db::BlobDB* ptr = nullptr;
       s = hooks.Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
@@ -9190,10 +9183,6 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
 
   FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
       FLAGS_compressed_secondary_cache_compression_type.c_str());
-
-  // Stacked BlobDB
-  FLAGS_blob_db_compression_type_e =
-      StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
   int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {

@@ -59,8 +59,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
   bool IsBlobFileOpened() const;
   virtual bool OpenNewBlobFileIfNeeded() const;
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
-                           PinnableSlice* blob, bool need_decompress,
-                           CompressionType* compression_type) const;
+                           PinnableSlice* blob) const;
   bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
                           uint64_t* new_blob_file_number,
                           uint64_t* new_blob_offset) const;
