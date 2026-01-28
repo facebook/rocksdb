@@ -12,6 +12,9 @@ package org.rocksdb;
  * ExportImportFilesMetaData)}.
  */
 public class ImportColumnFamilyOptions extends RocksObject {
+  /**
+   * Constructs an ImportColumnFamilyOptions.
+   */
   public ImportColumnFamilyOptions() {
     super(newImportColumnFamilyOptions());
   }

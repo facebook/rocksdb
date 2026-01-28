@@ -5,9 +5,14 @@
 
 package org.rocksdb;
 
+/**
+ * Options for a Transaction.
+ */
 public class TransactionOptions extends RocksObject
     implements TransactionalOptions<TransactionOptions> {
-
+  /**
+   * Constructs a TransactionOptions.
+   */
   public TransactionOptions() {
     super(newTransactionOptions());
   }
@@ -56,7 +61,7 @@ public class TransactionOptions extends RocksObject
    * The wait timeout in milliseconds when a transaction attempts to lock a key.
    * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
-   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
+   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout()}
    * will be used
    *
    * @return the lock timeout in milliseconds
@@ -71,7 +76,7 @@ public class TransactionOptions extends RocksObject
    * a transaction attempts to lock a key.
    * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
-   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
+   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout()}
    * will be used
    * <p>
    * Default: -1

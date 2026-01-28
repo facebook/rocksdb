@@ -12,7 +12,13 @@ package org.rocksdb;
  * value.
  */
 public abstract class MergeOperator extends RocksObject {
-    protected MergeOperator(final long nativeHandle) {
-        super(nativeHandle);
-    }
+  /**
+   * Constructs a MergeOperator.
+   *
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ MergeOperator.
+   */
+  protected MergeOperator(final long nativeHandle) {
+    super(nativeHandle);
+  }
 }

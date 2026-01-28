@@ -12,9 +12,24 @@ package org.rocksdb;
  * examples include compaction and flush.
  */
 public enum OperationType {
+  /**
+   * Unknown.
+   */
   OP_UNKNOWN((byte)0x0),
+
+  /**
+   * Compaction.
+   */
   OP_COMPACTION((byte)0x1),
+
+  /**
+   * Flush.
+   */
   OP_FLUSH((byte) 0x2),
+
+  /**
+   * DB Open.
+   */
   OP_DBOPEN((byte) 0x3);
 
   private final byte value;

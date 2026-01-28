@@ -1,6 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
+/**
+ * Interface for MutableDBOptions.
+ *
+ * @param <T> the concrete type of DBOptions.
+ */
 public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T>> {
   /**
    * Specifies the maximum number of concurrent background jobs (both flushes
@@ -455,7 +460,9 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * use "0:00-23:59". To make an entire day have no offpeak period, leave
    * this field blank. Default: Empty string (no offpeak).
    *
-   * @param offpeakTimeUTC String value from which to parse offpeak time range
+   * @param offpeakTimeUTC String value from which to parse offpeak time range.
+   *
+   * @return the reference to the current options.
    */
   T setDailyOffpeakTimeUTC(final String offpeakTimeUTC);
 

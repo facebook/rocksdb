@@ -8,6 +8,11 @@ package org.rocksdb;
 import java.util.Collection;
 import java.util.List;
 
+/**
+ * Interface for Column Family Options.
+ *
+ * @param <T> the concrete type of the ColumnFamilyOptions.
+ */
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
   /**

@@ -5,7 +5,9 @@ package org.rocksdb;
  * The config for skip-list memtable representation.
  */
 public class SkipListMemTableConfig extends MemTableConfig {
-
+  /**
+   * The default lookahead.
+   */
   public static final long DEFAULT_LOOKAHEAD = 0;
 
   /**

@@ -12,10 +12,25 @@ package org.rocksdb;
  * @since 3.10.0
  */
 public class RateLimiter extends RocksObject {
+  /**
+   * The default refill period in microseconds.
+   */
   public static final long DEFAULT_REFILL_PERIOD_MICROS = 100 * 1000;
+
+  /**
+   * The default fairness parameter value.
+   */
   public static final int DEFAULT_FAIRNESS = 10;
+
+  /**
+   * The default rate limiter mode.
+   */
   public static final RateLimiterMode DEFAULT_MODE =
       RateLimiterMode.WRITES_ONLY;
+
+  /**
+   * The default of whether to enable auto-tune.
+   */
   public static final boolean DEFAULT_AUTOTUNE = false;
 
   /**

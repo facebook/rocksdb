@@ -5,12 +5,32 @@
 
 package org.rocksdb.util;
 
+/**
+ * Simple factors of byte sizes.
+ */
 public class SizeUnit {
+  /**
+   * 1 Kilobyte.
+   */
   public static final long KB = 1024L;
-  public static final long MB = KB * KB;
-  public static final long GB = KB * MB;
-  public static final long TB = KB * GB;
-  public static final long PB = KB * TB;
 
-  private SizeUnit() {}
+  /**
+   * 1 Megabyte.
+   */
+  public static final long MB = KB * KB;
+
+  /**
+   * 1 Gigabyte.
+   */
+  public static final long GB = KB * MB;
+
+  /**
+   * 1 Terabyte.
+   */
+  public static final long TB = KB * GB;
+
+  /**
+   * 1 Petabyte.
+   */
+  public static final long PB = KB * TB;
 }

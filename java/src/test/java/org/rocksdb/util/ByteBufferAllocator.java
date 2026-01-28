@@ -8,7 +8,17 @@ package org.rocksdb.util;
 
 import java.nio.ByteBuffer;
 
+/**
+ * Allocates for creating new buffers.
+ */
 public interface ByteBufferAllocator {
+  /**
+   * Allocate a new ByteBuffer.
+   *
+   * @param capacity the capacity of the buffer.
+   *
+   * @return the new ByteBuffer.
+   */
   ByteBuffer allocate(int capacity);
 
   ByteBufferAllocator DIRECT = new DirectByteBufferAllocator();

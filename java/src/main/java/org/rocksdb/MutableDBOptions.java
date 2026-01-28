@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Mutable Database Options.
+ */
 public class MutableDBOptions extends AbstractMutableOptions {
   /**
    * User must use builder pattern, or parser.
@@ -55,29 +58,111 @@ public class MutableDBOptions extends AbstractMutableOptions {
     return new MutableDBOptions.MutableDBOptionsBuilder().fromParsed(parsedOptions, ignoreUnknown);
   }
 
+  /**
+   * Parses a String representation of MutableDBOptions
+   * <p>
+   * The format is: key1=value1;key2=value2;key3=value3 etc
+   * <p>
+   * For int[] values, each int should be separated by a comma, e.g.
+   * <p>
+   * key1=value1;intArrayKey1=1:2:3
+   *
+   * @param str The string representation of the mutable db options
+   *
+   * @return A builder for the mutable db options
+   */
   public static MutableDBOptionsBuilder parse(final String str) {
     return parse(str, false);
   }
 
   private interface MutableDBOptionKey extends MutableOptionKey {}
 
+  /**
+   * Database options.
+   */
   public enum DBOption implements MutableDBOptionKey {
+    /**
+     * Maximum number of background jobs.
+     */
     max_background_jobs(ValueType.INT),
+
+    /**
+     * Maximum number of background compactions.
+     */
     max_background_compactions(ValueType.INT),
+
+    /**
+     * Whether to avoid flush during shutdown.
+     */
     avoid_flush_during_shutdown(ValueType.BOOLEAN),
+
+    /**
+     * Max buffer size for writing to files.
+     */
     writable_file_max_buffer_size(ValueType.LONG),
+
+    /**
+     * Delayed write rate.
+     */
     delayed_write_rate(ValueType.LONG),
+
+    /**
+     * Maximum total size of the WAL.
+     */
     max_total_wal_size(ValueType.LONG),
+
+    /**
+     * The period to delete obsolete file.
+     * Measured in microseconds.
+     */
     delete_obsolete_files_period_micros(ValueType.LONG),
+
+    /**
+     * The period to dump statistics.
+     * Measured in seconds.
+     */
     stats_dump_period_sec(ValueType.INT),
+
+    /**
+     * The period that statistics persist.
+     * Measured in seconds.
+     */
     stats_persist_period_sec(ValueType.INT),
+
+    /**
+     * Buffer size for statistics history.
+     */
     stats_history_buffer_size(ValueType.LONG),
+
+    /**
+     * Maximum number of open files.
+     */
     max_open_files(ValueType.INT),
+
+    /**
+     * Bytes per sync.
+     */
     bytes_per_sync(ValueType.LONG),
+
+    /**
+     * WAL bytes per sync.
+     */
     wal_bytes_per_sync(ValueType.LONG),
+
+    /**
+     * Strict limit of bytes per sync.
+     */
     strict_bytes_per_sync(ValueType.BOOLEAN),
+
+    /**
+     * Compaction readahead size.
+     */
     compaction_readahead_size(ValueType.LONG),
 
+    /**
+     * Signifies periods characterized by significantly less read and write activity compared to
+     * other times.
+     */
     daily_offpeak_time_utc(ValueType.STRING);
 
     private final ValueType valueType;
@@ -91,6 +176,9 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
   }
 
+  /**
+   * Builder for constructing MutableDBOptions.
+   */
   public static class MutableDBOptionsBuilder
       extends AbstractMutableOptionsBuilder<MutableDBOptions, MutableDBOptionsBuilder, MutableDBOptionKey>
       implements MutableDBOptionsInterface<MutableDBOptionsBuilder> {

@@ -13,6 +13,9 @@ package org.rocksdb;
  * instance becomes out-of-scope to release the allocated memory in C++.
  */
 public class ComparatorOptions extends RocksObject {
+  /**
+   * Constructs a new ComparatorOptions.
+   */
   public ComparatorOptions() {
     super(newComparatorOptions());
   }

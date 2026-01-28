@@ -5,10 +5,28 @@
 
 package org.rocksdb;
 
+/**
+ * Reasons for Table File creation.
+ */
 public enum TableFileCreationReason {
+  /**
+   * Flush.
+   */
   FLUSH((byte) 0x00),
+
+  /**
+   * Compaction.
+   */
   COMPACTION((byte) 0x01),
+
+  /**
+   * Recovery.
+   */
   RECOVERY((byte) 0x02),
+
+  /**
+   * Miscellaneous.
+   */
   MISC((byte) 0x03);
 
   private final byte value;

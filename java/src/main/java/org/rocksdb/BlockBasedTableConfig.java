@@ -11,6 +11,9 @@ package org.rocksdb;
  */
 // TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
+  /**
+   * Constructs a new BlockBasedTableConfig.
+   */
   @SuppressWarnings("PMD.NullAssignment")
   public BlockBasedTableConfig() {
     //TODO(AR) flushBlockPolicyFactory
@@ -859,7 +862,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Set the index shortening mode.
-   *
+   * <p>
    * See {@link IndexShorteningMode}.
    *
    * @param indexShortening the index shortening mode.
@@ -937,7 +940,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @deprecated This option is now deprecated. No matter what value it
    *     is set to, it will behave as
-   *     if {@link #hashIndexAllowCollision()} == true.
+   *     if {@code setHashIndexAllowCollision(true)}
    */
   @Deprecated
   public boolean hashIndexAllowCollision() {

@@ -22,7 +22,11 @@ import static org.rocksdb.util.ByteUtil.memcmp;
  * {@link org.rocksdb.BuiltinComparator#BYTEWISE_COMPARATOR}
  */
 public final class BytewiseComparator extends AbstractComparator {
-
+  /**
+   * Constructs a new BytewiseComparator.
+   *
+   * @param copt the configuration options for the comparator.
+   */
   public BytewiseComparator(final ComparatorOptions copt) {
     super(copt);
   }
@@ -46,7 +50,7 @@ public final class BytewiseComparator extends AbstractComparator {
       if (a.remaining() < b.remaining()) {
         r = -1;
       } else if (a.remaining() > b.remaining()) {
-        r = +1;
+        r = 1;
       }
     }
     return r;

@@ -12,6 +12,8 @@ import java.util.List;
  * mutable (i.e. present in {@link AdvancedMutableColumnFamilyOptionsInterface})
  * <p>
  * Taken from include/rocksdb/advanced_options.h
+ *
+ * @param <T> the concrete type of the Column Family Options.
  */
 public interface AdvancedColumnFamilyOptionsInterface<
     T extends AdvancedColumnFamilyOptionsInterface<T> & ColumnFamilyOptionsInterface<T>> {
@@ -375,7 +377,7 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * even for key hit because they tell us whether to look in that level or go
    * to the higher level.</p>
    *
-   * <p>Default: false<p>
+   * <p>Default: false</p>
    *
    * @param optimizeFiltersForHits boolean value indicating if this flag is set.
    * @return the reference to the current options.

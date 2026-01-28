@@ -5,8 +5,11 @@
 
 package org.rocksdb;
 
+/**
+ * Options for WAL processing.
+ */
 public enum WalProcessingOption {
-  /*
+  /**
    * Continue processing as usual.
    */
   CONTINUE_PROCESSING((byte)0x0),
@@ -42,6 +45,15 @@ public enum WalProcessingOption {
     return value;
   }
 
+  /**
+   * Get an option from its byte representation.
+   *
+   * @param value the byte representation of the option.
+   *
+   * @return the option
+   *
+   * @throws IllegalArgumentException if the {@code value} parameter does not represent an option.
+   */
   public static WalProcessingOption fromValue(final byte value) {
     for (final WalProcessingOption walProcessingOption : WalProcessingOption.values()) {
       if (walProcessingOption.value == value) {

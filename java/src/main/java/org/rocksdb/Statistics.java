@@ -12,19 +12,37 @@ import java.util.EnumSet;
  * is managed by Options class.
  */
 public class Statistics extends RocksObject {
-
+  /**
+   * Constructs a Statistics.
+   */
   public Statistics() {
     super(newStatisticsInstance());
   }
 
+  /**
+   * Constructs a Statistics.
+   *
+   * @param otherStatistics another statistics object to copy stats from.
+   */
   public Statistics(final Statistics otherStatistics) {
     super(newStatistics(otherStatistics.nativeHandle_));
   }
 
+  /**
+   * Constructs a Statistics.
+   *
+   * @param ignoreHistograms histograms to ignore.
+   */
   public Statistics(final EnumSet<HistogramType> ignoreHistograms) {
     super(newStatisticsInstance(toArrayValues(ignoreHistograms)));
   }
 
+  /**
+   * Constructs a Statistics.
+   *
+   * @param ignoreHistograms histograms to ignore.
+   * @param otherStatistics another statistics object to copy stats from.
+   */
   public Statistics(final EnumSet<HistogramType> ignoreHistograms, final Statistics otherStatistics) {
     super(newStatistics(toArrayValues(ignoreHistograms), otherStatistics.nativeHandle_));
   }

@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.*;
 
+/**
+ * Mutable Column Family Options.
+ */
 public class MutableColumnFamilyOptions extends AbstractMutableOptions {
   /**
    * User must use builder pattern, or parser.
@@ -54,24 +57,87 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     return new MutableColumnFamilyOptionsBuilder().fromParsed(parsedOptions, ignoreUnknown);
   }
 
+  /**
+   * Parses a String representation of MutableColumnFamilyOptions
+   * <p>
+   * The format is: key1=value1;key2=value2;key3=value3 etc
+   * <p>
+   * For int[] values, each int should be separated by a colon, e.g.
+   * <p>
+   * key1=value1;intArrayKey1=1:2:3
+   *
+   * @param str The string representation of the mutable column family options
+   *
+   * @return A builder for the mutable column family options
+   */
   public static MutableColumnFamilyOptionsBuilder parse(final String str) {
     return parse(str, false);
   }
 
   private interface MutableColumnFamilyOptionKey extends MutableOptionKey {}
 
+  /**
+   * Mem Table options.
+   */
   public enum MemtableOption implements MutableColumnFamilyOptionKey {
+    /**
+     * Write buffer size.
+     */
     write_buffer_size(ValueType.LONG),
+
+    /**
+     * Arena block size.
+     */
     arena_block_size(ValueType.LONG),
+
+    /**
+     * Prefix size ratio for Memtable's Bloom Filter.
+     */
     memtable_prefix_bloom_size_ratio(ValueType.DOUBLE),
+
+    /**
+     * Whether to filter whole keys in the Memtable(s).
+     */
     memtable_whole_key_filtering(ValueType.BOOLEAN),
+
+    /**
+     * Number of bits for the prefix in Memtable's Bloom Filter.
+     */
     @Deprecated memtable_prefix_bloom_bits(ValueType.INT),
+
+    /**
+     * Number of probes for the prefix in Memtable's Bloom Filter.
+     */
     @Deprecated memtable_prefix_bloom_probes(ValueType.INT),
+
+    /**
+     * Huge Page Size for Memtable(s).
+     */
     memtable_huge_page_size(ValueType.LONG),
+
+    /**
+     * Maximum number of successive merges.
+     */
     max_successive_merges(ValueType.LONG),
+
+    /**
+     * Whether to filter deletes.
+     */
     @Deprecated filter_deletes(ValueType.BOOLEAN),
+
+    /**
+     * Maximum number of write buffers.
+     */
     max_write_buffer_number(ValueType.INT),
+
+    /**
+     * Number of in-place update locks.
+     */
     inplace_update_num_locks(ValueType.LONG),
+
+    /**
+     * Memory purge threshold.
+     */
     experimental_mempurge_threshold(ValueType.DOUBLE);
 
     private final ValueType valueType;
@@ -85,20 +151,78 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     }
   }
 
+  /**
+   * Compaction options.
+   */
   public enum CompactionOption implements MutableColumnFamilyOptionKey {
+    /**
+     * Disable auto compaction.
+     */
     disable_auto_compactions(ValueType.BOOLEAN),
+
+    /**
+     * Soft limit on the number of bytes pending before compaction.
+     */
     soft_pending_compaction_bytes_limit(ValueType.LONG),
+
+    /**
+     * Hard limit on the number of bytes pending before compaction.
+     */
     hard_pending_compaction_bytes_limit(ValueType.LONG),
+
+    /**
+     * Number of files in Level 0 before compaction is triggered.
+     */
     level0_file_num_compaction_trigger(ValueType.INT),
+
+    /**
+     * Writes to Level 0 before a slowdown is triggered.
+     */
     level0_slowdown_writes_trigger(ValueType.INT),
+
+    /**
+     * Writes to Level 0 before a stop is triggered.
+     */
     level0_stop_writes_trigger(ValueType.INT),
+
+    /**
+     * Max compaction bytes.
+     */
     max_compaction_bytes(ValueType.LONG),
+
+    /**
+     * Target for the base size of files.
+     */
     target_file_size_base(ValueType.LONG),
+
+    /**
+     * Multiplier for the size of files.
+     */
     target_file_size_multiplier(ValueType.INT),
+
+    /**
+     * Maximum size in bytes for level base.
+     */
     max_bytes_for_level_base(ValueType.LONG),
+
+    /**
+     * Maximum bytes for level multiplier.
+     */
     max_bytes_for_level_multiplier(ValueType.INT),
+
+    /**
+     * Maximum bytes for level multiplier(s) additional
+     */
     max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
+
+    /**
+     * Time-to-live.
+     */
     ttl(ValueType.LONG),
+
+    /**
+     * Compaction period in seconds.
+     */
     periodic_compaction_seconds(ValueType.LONG);
 
     private final ValueType valueType;
@@ -112,16 +236,58 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     }
   }
 
+  /**
+   * Blob options.
+   */
   public enum BlobOption implements MutableColumnFamilyOptionKey {
+    /**
+     * Enable BLOB files.
+     */
     enable_blob_files(ValueType.BOOLEAN),
+
+    /**
+     * Minimum BLOB size.
+     */
     min_blob_size(ValueType.LONG),
+
+    /**
+     * BLOB file size.
+     */
     blob_file_size(ValueType.LONG),
+
+    /**
+     * BLOB compression type.
+     */
     blob_compression_type(ValueType.ENUM),
+
+    /**
+     * Enable BLOB garbage collection.
+     */
     enable_blob_garbage_collection(ValueType.BOOLEAN),
+
+    /**
+     * BLOB garbage collection age cut-off.
+     */
     blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
+
+    /**
+     * Threshold for forcing BLOB garbage collection.
+     */
     blob_garbage_collection_force_threshold(ValueType.DOUBLE),
+
+    /**
+     * BLOB compaction read-ahead size.
+     */
     blob_compaction_readahead_size(ValueType.LONG),
+
+    /**
+     * BLOB file starting level.
+     */
     blob_file_starting_level(ValueType.INT),
+
+    /**
+     * Prepopulate BLOB Cache.
+     */
     prepopulate_blob_cache(ValueType.ENUM);
 
     private final ValueType valueType;
@@ -135,10 +301,28 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     }
   }
 
+  /**
+   * Miscellaneous options.
+   */
   public enum MiscOption implements MutableColumnFamilyOptionKey {
+    /**
+     * Maximum number of sequential keys to skip during iteration.
+     */
     max_sequential_skip_in_iterations(ValueType.LONG),
+
+    /**
+     * Whether to enable paranoid file checks.
+     */
     paranoid_file_checks(ValueType.BOOLEAN),
+
+    /**
+     * Whether to report background I/O stats.
+     */
     report_bg_io_stats(ValueType.BOOLEAN),
+
+    /**
+     * Compression type.
+     */
     compression(ValueType.ENUM);
 
     private final ValueType valueType;
@@ -152,6 +336,9 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     }
   }
 
+  /**
+   * Builder for constructing MutableColumnFamilyOptions.
+   */
   public static class MutableColumnFamilyOptionsBuilder
       extends AbstractMutableOptionsBuilder<MutableColumnFamilyOptions, MutableColumnFamilyOptionsBuilder, MutableColumnFamilyOptionKey>
       implements MutableColumnFamilyOptionsInterface<MutableColumnFamilyOptionsBuilder> {

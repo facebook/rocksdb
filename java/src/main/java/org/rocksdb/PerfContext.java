@@ -5,11 +5,23 @@
 
 package org.rocksdb;
 
+/**
+ * Performance Context.
+ */
 public class PerfContext extends RocksObject {
+  /**
+   * Constructs a PerfContext.
+   *
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ PerfContext.
+   */
   protected PerfContext(final long nativeHandle) {
     super(nativeHandle);
   }
 
+  /**
+   * Reset the performance context.
+   */
   public void reset() {
     reset(nativeHandle_);
   }
@@ -42,8 +54,8 @@ public class PerfContext extends RocksObject {
     return getBlockReadByte(nativeHandle_);
   }
 
-  /*
-      @return total nanos spent on block reads
+  /**
+   * @return total nanos spent on block reads
    */
   public long getBlockReadTime() {
     return getBlockReadTime(nativeHandle_);
@@ -220,7 +232,7 @@ public class PerfContext extends RocksObject {
   }
 
   /**
-   * total number of internal keys skipped over during iteration.
+   * Get the total number of internal keys skipped over during iteration.
    * There are several reasons for it:
    * 1. when calling Next(), the iterator is in the position of the previous
    *    key, so that we'll need to skip it. It means this counter will always
@@ -236,51 +248,64 @@ public class PerfContext extends RocksObject {
    *    hidden by the tombstones will be included here.
    * 4. symmetric cases for Prev() and SeekToLast()
    * internal_recent_skipped_count is not included in this counter.
+   *
+   * @return the total number of internal keys skipped over during iteration
    */
   public long getInternalKeySkippedCount() {
     return getInternalKeySkippedCount(nativeHandle_);
   }
 
   /**
-   * Total number of deletes and single deletes skipped over during iteration
+   * Get the Total number of deletes and single deletes skipped over during iteration
    * When calling Next(), Seek() or SeekToFirst(), after previous position
    * before calling Next(), the seek key in Seek() or the beginning for
    * SeekToFirst(), there may be one or more deleted keys before the next valid
    * key. Every deleted key is counted once. We don't recount here if there are
    * still older updates invalidated by the tombstones.
+   *
+   * @return total number of deletes and single deletes skipped over during iteration.
    */
   public long getInternalDeleteSkippedCount() {
     return getInternalDeleteSkippedCount(nativeHandle_);
   }
 
   /**
-   * How many times iterators skipped over internal keys that are more recent
+   * Get how many times iterators skipped over internal keys that are more recent
    * than the snapshot that iterator is using.
+   *
+   * @return the number of times iterators skipped over internal keys that are more recent
+   *     than the snapshot that iterator is using.
    */
   public long getInternalRecentSkippedCount() {
     return getInternalRecentSkippedCount(nativeHandle_);
   }
 
   /**
-   * How many merge operands were fed into the merge operator by iterators.
+   * Get how many merge operands were fed into the merge operator by iterators.
    * Note: base values are not included in the count.
+   *
+   * @return the number of merge operands that were fed into the merge operator by iterators.
    */
   public long getInternalMergeCount() {
     return getInternalMergeCount(nativeHandle_);
   }
 
   /**
-   * How many merge operands were fed into the merge operator by point lookups.
+   * Get how many merge operands were fed into the merge operator by point lookups.
    * Note: base values are not included in the count.
+   *
+   * @return the number of merge operands yjay were fed into the merge operator by point lookups.
    */
   public long getInternalMergePointLookupCount() {
     return getInternalMergePointLookupCount(nativeHandle_);
   }
 
   /**
-   * Number of times we reseeked inside a merging iterator, specifically to skip
+   * Get the number of times we re-seek'd inside a merging iterator, specifically to skip
    * after or before a range of keys covered by a range deletion in a newer LSM
    * component.
+   *
+   * @return the number of times we re-seek'd inside a merging iterator.
    */
   public long getInternalRangeDelReseekCount() {
     return getInternalRangeDelReseekCount(nativeHandle_);
@@ -485,26 +510,37 @@ public class PerfContext extends RocksObject {
   }
 
   /**
+   * Get total time of mem table block seeks in nanoseconds.
+   *
    * @return Time spent on seeking a key in data/index blocks
    */
   public long getBlockSeekNanos() {
     return getBlockSeekNanos(nativeHandle_);
   }
+
   /**
-   * @return  Time spent on finding or creating a table reader
+   * Get total time spent on finding or creating a table reader.
+   *
+   * @return the time spent on finding or creating a table reader
    */
   public long getFindTableNanos() {
     return getFindTableNanos(nativeHandle_);
   }
 
   /**
+   * Get total number of mem table bloom hits.
+   *
    * @return total number of mem table bloom hits
    */
   public long getBloomMemtableHitCount() {
     return getBloomMemtableHitCount(nativeHandle_);
   }
 
-  // total number of mem table bloom misses
+  /**
+   * Get total number of mem table bloom misses.
+   *
+   * @return total number of mem table bloom misses.
+   */
   public long getBloomMemtableMissCount() {
     return getBloomMemtableMissCount(nativeHandle_);
   }
@@ -544,91 +580,211 @@ public class PerfContext extends RocksObject {
     return getEnvNewSequentialFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for creating new random access file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvNewRandomAccessFileNanos() {
     return getEnvNewRandomAccessFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for creating new writable file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvNewWritableFileNanos() {
     return getEnvNewWritableFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for reusing random access file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvReuseWritableFileNanos() {
     return getEnvReuseWritableFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for creating new random access read-write file(s) in the
+   * environment.
+   *
+   * @return the total time
+   */
   public long getEnvNewRandomRwFileNanos() {
     return getEnvNewRandomRwFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for creating new directory(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvNewDirectoryNanos() {
     return getEnvNewDirectoryNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for checking if a file exists in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvFileExistsNanos() {
     return getEnvFileExistsNanos(nativeHandle_);
   }
+
+  /**
+   * Get the time taken in nanoseconds for getting children in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvGetChildrenNanos() {
     return getEnvGetChildrenNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for child file attributes in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvGetChildrenFileAttributesNanos() {
     return getEnvGetChildrenFileAttributesNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for deleting file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvDeleteFileNanos() {
     return getEnvDeleteFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for creating directories(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvCreateDirNanos() {
     return getEnvCreateDirNanos(nativeHandle_);
   }
+
+  /**
+   * Get the time taken in nanoseconds for creating directories(s) (only if not already existing) in
+   * the environment.
+   *
+   * @return the total time
+   */
   public long getEnvCreateDirIfMissingNanos() {
     return getEnvCreateDirIfMissingNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for deleting directories(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvDeleteDirNanos() {
     return getEnvDeleteDirNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for getting file size(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvGetFileSizeNanos() {
     return getEnvGetFileSizeNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for getting file modification time(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvGetFileModificationTimeNanos() {
     return getEnvGetFileModificationTimeNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for renaming file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvRenameFileNanos() {
     return getEnvRenameFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for linking file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvLinkFileNanos() {
     return getEnvLinkFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for locking file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvLockFileNanos() {
     return getEnvLockFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for unlocking file(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvUnlockFileNanos() {
     return getEnvUnlockFileNanos(nativeHandle_);
   }
 
+  /**
+   * Get the time taken in nanoseconds for creating loggers in the environment.
+   *
+   * @return the total time
+   */
   public long getEnvNewLoggerNanos() {
     return getEnvNewLoggerNanos(nativeHandle_);
   }
 
+  /**
+   * Get the CPU time consumed in the environment.
+   *
+   * @return the total time
+   */
   public long getGetCpuNanos() {
     return getGetCpuNanos(nativeHandle_);
   }
 
+  /**
+   * Get the CPU time consumed by calling 'next' on iterator(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getIterNextCpuNanos() {
     return getIterNextCpuNanos(nativeHandle_);
   }
+
+  /**
+   * Get the CPU time consumed by calling 'prev' on iterator(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getIterPrevCpuNanos() {
     return getIterPrevCpuNanos(nativeHandle_);
   }
 
+  /**
+   * Get the CPU time consumed by calling 'seek' on iterator(s) in the environment.
+   *
+   * @return the total time
+   */
   public long getIterSeekCpuNanos() {
     return getIterSeekCpuNanos(nativeHandle_);
   }
@@ -647,6 +803,9 @@ public class PerfContext extends RocksObject {
     return getDecryptDataNanos(nativeHandle_);
   }
 
+  /**
+   * @return the number of asynchronous seeks.
+   */
   public long getNumberAsyncSeek() {
     return getNumberAsyncSeek(nativeHandle_);
   }

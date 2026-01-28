@@ -184,7 +184,9 @@ public class Transaction extends RocksObject {
   }
 
   /**
-   * Prepare the current transaction for 2PC
+   * Prepare the current transaction for 2PC.
+   *
+   * @throws RocksDBException if the transaction cannot be prepared
    */
   public void prepare() throws RocksDBException {
     //TODO(AR) consider a Java'ish version of this function, which returns an AutoCloseable (commit)
@@ -257,7 +259,7 @@ public class Transaction extends RocksObject {
   /**
    * This function has an inconsistent parameter order compared to other {@code get()}
    * methods and is deprecated in favour of one with a consistent order.
-   *
+   * <p>
    * This function is similar to
    * {@link RocksDB#get(ColumnFamilyHandle, ReadOptions, byte[])} except it will
    * also read pending changes in this transaction.
@@ -297,11 +299,11 @@ public class Transaction extends RocksObject {
    * also read pending changes in this transaction.
    * Currently, this function will return Status::MergeInProgress if the most
    * recent write to the queried key in this batch is a Merge.
-   *
+   * <p>
    * If {@link ReadOptions#snapshot()} is not set, the current version of the
    * key will be read. Calling {@link #setSnapshot()} does not affect the
    * version of the data returned.
-   *
+   * <p>
    * Note that setting {@link ReadOptions#setSnapshot(Snapshot)} will affect
    * what is read from the DB but will NOT change which keys are read from this
    * transaction (the keys in this transaction do not yet belong to any snapshot
@@ -560,7 +562,7 @@ public class Transaction extends RocksObject {
    *     {@link org.rocksdb.ColumnFamilyHandle} instances.
    * @param keys of keys for which values need to be retrieved.
    *
-   * @return Array of values, one for each key
+   * @return list of values, one for each key
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
@@ -646,7 +648,7 @@ public class Transaction extends RocksObject {
    *     {@link org.rocksdb.ColumnFamilyHandle} instances.
    * @param keys of keys for which values need to be retrieved.
    *
-   * @return Array of values, one for each key
+   * @return list of values, one for each key
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
@@ -1189,7 +1191,6 @@ public class Transaction extends RocksObject {
   /**
    * A multi-key version of
    * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}.
-   * <p>
    *
    * @param readOptions Read options.
    * @param columnFamilyHandles {@link org.rocksdb.ColumnFamilyHandle}
@@ -1225,14 +1226,13 @@ public class Transaction extends RocksObject {
   /**
    * A multi-key version of
    * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}.
-   * <p>
    *
    * @param readOptions Read options.
    * @param columnFamilyHandles {@link org.rocksdb.ColumnFamilyHandle}
    *     instances
    * @param keys the keys to retrieve the values for.
    *
-   * @return Array of values, one for each key
+   * @return list of values, one for each key
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
@@ -1261,7 +1261,6 @@ public class Transaction extends RocksObject {
 
   /**
    * A multi-key version of {@link #getForUpdate(ReadOptions, byte[], boolean)}.
-   * <p>
    *
    * @param readOptions Read options.
    * @param keys the keys to retrieve the values for.
@@ -1285,7 +1284,6 @@ public class Transaction extends RocksObject {
 
   /**
    * A multi-key version of {@link #getForUpdate(ReadOptions, byte[], boolean)}.
-   * <p>
    *
    * @param readOptions Read options.
    * @param keys the keys to retrieve the values for.
@@ -1332,7 +1330,7 @@ public class Transaction extends RocksObject {
    * Returns an iterator that will iterate on all keys in the default
    * column family including both keys in the DB and uncommitted keys in this
    * transaction.
-   *
+   * <p>
    * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
    * from the DB but will NOT change which keys are read from this transaction
    * (the keys in this transaction do not yet belong to any snapshot and will be
@@ -1555,10 +1553,10 @@ public class Transaction extends RocksObject {
   /**
    * Similar to {@link RocksDB#put(byte[], byte[])}, but
    * will also perform conflict checking on the keys be written.
-   *
+   * <p>
    * If this Transaction was created on an {@link OptimisticTransactionDB},
    * these functions should always succeed.
-   *
+   * <p>
    *  If this Transaction was created on a {@link TransactionDB}, an
    *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
    *  when:
@@ -1593,10 +1591,10 @@ public class Transaction extends RocksObject {
   /**
    * Similar to {@link RocksDB#put(byte[], byte[])}, but
    * will also perform conflict checking on the keys be written.
-   *
+   * <p>
    * If this Transaction was created on an {@link OptimisticTransactionDB},
    * these functions should always succeed.
-   *
+   * <p>
    *  If this Transaction was created on a {@link TransactionDB}, an
    *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
    *  when:
@@ -1635,6 +1633,29 @@ public class Transaction extends RocksObject {
     key.position(key.limit());
     value.position(value.limit());
   }
+
+  /**
+   * Similar to {@link RocksDB#put(byte[], byte[])}, but
+   * will also perform conflict checking on the keys be written.
+   * <p>
+   * If this Transaction was created on an {@link OptimisticTransactionDB},
+   * these functions should always succeed.
+   * <p>
+   *  If this Transaction was created on a {@link TransactionDB}, an
+   *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   *  when:
+   *    {@link Status.Code#Busy} if there is a write conflict,
+   *    {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *    {@link Status.Code#TryAgain} if the memtable history size is not large
+   *       enough.
+   *
+   * @param columnFamilyHandle The column family to put the key/value into
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
   public void put(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
       final ByteBuffer value) throws RocksDBException {
     put(columnFamilyHandle, key, value, false);
@@ -1755,10 +1776,10 @@ public class Transaction extends RocksObject {
   /**
    * Similar to {@link RocksDB#merge(byte[], byte[])}, but
    * will also perform conflict checking on the keys be written.
-   *
+   * <p>
    * If this Transaction was created on an {@link OptimisticTransactionDB},
    * these functions should always succeed.
-   *
+   * <p>
    *  If this Transaction was created on a {@link TransactionDB}, an
    *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
    *  when:
@@ -1791,10 +1812,10 @@ public class Transaction extends RocksObject {
   /**
    * Similar to {@link RocksDB#merge(byte[], byte[])}, but
    * will also perform conflict checking on the keys be written.
-   *
+   * <p>
    * If this Transaction was created on an {@link OptimisticTransactionDB},
    * these functions should always succeed.
-   *
+   * <p>
    *  If this Transaction was created on a {@link TransactionDB}, an
    *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
    *  when:
@@ -1833,10 +1854,10 @@ public class Transaction extends RocksObject {
   /**
    * Similar to {@link RocksDB#merge(byte[], byte[])}, but
    * will also perform conflict checking on the keys be written.
-   *
+   * <p>
    * If this Transaction was created on an {@link OptimisticTransactionDB},
    * these functions should always succeed.
-   *
+   * <p>
    *  If this Transaction was created on a {@link TransactionDB}, an
    *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
    *  when:
@@ -2283,10 +2304,10 @@ public class Transaction extends RocksObject {
    * Similar to {@link RocksDB#merge(ColumnFamilyHandle, byte[], byte[])},
    * but operates on the transactions write batch. This write will only happen
    * if this transaction gets committed successfully.
-   *
+   * <p>
    * Unlike {@link #merge(ColumnFamilyHandle, byte[], byte[])} no conflict
    * checking will be performed for this key.
-   *
+   * <p>
    * If this Transaction was created on a {@link TransactionDB}, this function
    * will still acquire locks necessary to make sure this write doesn't cause
    * conflicts in other transactions; This may cause a {@link RocksDBException}
@@ -2346,10 +2367,10 @@ public class Transaction extends RocksObject {
    * Similar to {@link RocksDB#merge(byte[], byte[])},
    * but operates on the transactions write batch. This write will only happen
    * if this transaction gets committed successfully.
-   *
+   * <p>
    * Unlike {@link #merge(byte[], byte[])} no conflict
    * checking will be performed for this key.
-   *
+   * <p>
    * If this Transaction was created on a {@link TransactionDB}, this function
    * will still acquire locks necessary to make sure this write doesn't cause
    * conflicts in other transactions; This may cause a {@link RocksDBException}
@@ -2792,21 +2813,58 @@ public class Transaction extends RocksObject {
     return getId(nativeHandle_);
   }
 
+  /**
+   * States of a Transaction.
+   */
   public enum TransactionState {
+    /**
+     * Transaction started.
+     */
     STARTED((byte)0),
+
+    /**
+     * Transaction is awaiting prepare.
+     */
     AWAITING_PREPARE((byte)1),
+
+    /**
+     * Transaction is prepared.
+     */
     PREPARED((byte)2),
+
+    /**
+     * Transaction awaiting commit.
+     */
     AWAITING_COMMIT((byte)3),
+
+    /**
+     * Transaction is committed.
+     */
     COMMITTED((byte)4),
+
+    /**
+     * Transaction is awaiting rollback.
+     */
     AWAITING_ROLLBACK((byte)5),
+
+    /**
+     * Transaction rolled-back.
+     */
     ROLLEDBACK((byte)6),
+
+    /**
+     * Transaction locks have been stolen.
+     */
     LOCKS_STOLEN((byte)7);
 
-    /*
-     * Keep old misspelled variable as alias
-     * Tip from https://stackoverflow.com/a/37092410/454544
+    /**
+     * Old misspelled variable as alias for {@link #COMMITTED}.
+     * Tip from <a
+     * href="https://stackoverflow.com/a/37092410/454544">https://stackoverflow.com/a/37092410/454544</a>
+     *
+     * @deprecated use {@link #COMMITTED} instead.
      */
-    public static final TransactionState COMMITED = COMMITTED;
+    @Deprecated public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
 
@@ -2850,6 +2908,9 @@ public class Transaction extends RocksObject {
     return new WaitingTransactions(columnFamilyId, key, transactionIds);
   }
 
+  /**
+   * Waiting Transactions.
+   */
   public static class WaitingTransactions {
     private final long columnFamilyId;
     private final String key;

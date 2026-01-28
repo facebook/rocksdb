@@ -169,7 +169,7 @@ public class Options extends RocksObject
 
   @Override
   public Options optimizeForSmallDb(final Cache cache) {
-    optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
+    optimizeForSmallDb(nativeHandle_, cache.nativeHandle_);
     return this;
   }
 
@@ -2115,12 +2115,13 @@ public class Options extends RocksObject
    * Set TablePropertiesCollectorFactory in underlying C++ object.
    * This method create its own copy of the list. Caller is responsible for
    * closing all the instances in the list.
-   * @param factories
+   *
+   * @param factories the collector factories.
    */
   public void setTablePropertiesCollectorFactory(List<TablePropertiesCollectorFactory> factories) {
     long[] factoryHandlers = new long[factories.size()];
     for (int i = 0; i < factoryHandlers.length; i++) {
-      factoryHandlers[i] = factories.get(i).getNativeHandle();
+      factoryHandlers[i] = factories.get(i).nativeHandle_;
     }
     setTablePropertiesCollectorFactory(nativeHandle_, factoryHandlers);
   }

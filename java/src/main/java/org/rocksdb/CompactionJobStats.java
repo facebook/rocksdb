@@ -5,8 +5,13 @@
 
 package org.rocksdb;
 
+/**
+ * Statistics about a Compaction Job.
+ */
 public class CompactionJobStats extends RocksObject {
-
+  /**
+   * Constructs a new CompactionJobStats.
+   */
   public CompactionJobStats() {
     super(newCompactionJobStats());
   }
@@ -118,7 +123,7 @@ public class CompactionJobStats extends RocksObject {
   /**
    * Get the number of records being replaced by newer record associated
    * with same key.
-   *
+   * <p>
    * This could be a new value or a deletion entry for that key so this field
    * sums up all updated and deleted keys.
    *
@@ -149,7 +154,7 @@ public class CompactionJobStats extends RocksObject {
 
   /**
    * Get the number of deletion entries before compaction.
-   *
+   * <p>
    * Deletion entries can disappear after compaction because they expired.
    *
    * @return the number of deletion entries before compaction.
@@ -182,7 +187,7 @@ public class CompactionJobStats extends RocksObject {
 
   /**
    * Get the Time spent on file's Append() call.
-   *
+   * <p>
    * Only populated if {@link ColumnFamilyOptions#reportBgIoStats()} is set.
    *
    * @return the Time spent on file's Append() call.
@@ -193,7 +198,7 @@ public class CompactionJobStats extends RocksObject {
 
   /**
    * Get the Time spent on sync file range.
-   *
+   * <p>
    * Only populated if {@link ColumnFamilyOptions#reportBgIoStats()} is set.
    *
    * @return the Time spent on sync file range.
@@ -204,7 +209,7 @@ public class CompactionJobStats extends RocksObject {
 
   /**
    * Get the Time spent on file fsync.
-   *
+   * <p>
    * Only populated if {@link ColumnFamilyOptions#reportBgIoStats()} is set.
    *
    * @return the Time spent on file fsync.
@@ -215,7 +220,7 @@ public class CompactionJobStats extends RocksObject {
 
   /**
    * Get the Time spent on preparing file write (falocate, etc)
-   *
+   * <p>
    * Only populated if {@link ColumnFamilyOptions#reportBgIoStats()} is set.
    *
    * @return the Time spent on preparing file write (falocate, etc).

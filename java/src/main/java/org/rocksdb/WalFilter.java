@@ -56,7 +56,13 @@ public interface WalFilter {
       final String logFileName, final WriteBatch batch,
       final WriteBatch newBatch);
 
+  /**
+   * LogFoundResult.
+   */
   class LogRecordFoundResult {
+    /**
+     * Constant for continuing processing unchanged.
+     */
     public static LogRecordFoundResult CONTINUE_UNCHANGED =
         new LogRecordFoundResult(WalProcessingOption.CONTINUE_PROCESSING, false);
 

@@ -229,9 +229,9 @@ public class OptimisticTransactionDB extends RocksDB
   }
   private static native void disposeInternalJni(final long handle);
 
-  protected static native long open(final long optionsHandle,
-      final String path) throws RocksDBException;
-  protected static native long[] open(final long handle, final String path,
+  private static native long open(final long optionsHandle, final String path)
+      throws RocksDBException;
+  private static native long[] open(final long handle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native long beginTransaction(final long handle, final long writeOptionsHandle);

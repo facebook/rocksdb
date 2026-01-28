@@ -12,10 +12,18 @@ package org.rocksdb;
 public class TraceOptions {
   private final long maxTraceFileSize;
 
+  /**
+   * Constructs a TraceOptions.
+   */
   public TraceOptions() {
     this.maxTraceFileSize = 64L * 1024L * 1024L * 1024L; // 64 GB
   }
 
+  /**
+   * Constructs a TraceOptions.
+   *
+   * @param maxTraceFileSize the maximum size of the trace file.
+   */
   public TraceOptions(final long maxTraceFileSize) {
     this.maxTraceFileSize = maxTraceFileSize;
   }

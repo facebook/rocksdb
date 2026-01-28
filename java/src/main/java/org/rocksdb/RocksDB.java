@@ -21,7 +21,14 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
+  /**
+   * The name of the default column family.
+   */
   public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes(UTF_8);
+
+  /**
+   * A constant representing a result where something was searched for but not found.
+   */
   public static final int NOT_FOUND = -1;
 
   private enum LibraryState {
@@ -165,6 +172,11 @@ public class RocksDB extends RocksObject {
     }
   }
 
+  /**
+   * Get the RocksDB version.
+   *
+   * @return the version of RocksDB.
+   */
   public static Version rocksdbVersion() {
     return version;
   }
@@ -808,6 +820,9 @@ public class RocksDB extends RocksObject {
    * The ColumnFamilyHandle is automatically disposed with DB disposal.
    *
    * @param columnFamilyDescriptor column family to be created.
+   * @param importColumnFamilyOptions the options for the import.
+   * @param metadata the metadata for the imported file.
+   *
    * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -823,6 +838,21 @@ public class RocksDB extends RocksObject {
         columnFamilyDescriptor, importColumnFamilyOptions, metadatas);
   }
 
+  /**
+   * Creates a new column family with the name columnFamilyName and
+   * import external SST files specified in `metadata` allocates a
+   * ColumnFamilyHandle within an internal structure.
+   * The ColumnFamilyHandle is automatically disposed with DB disposal.
+   *
+   * @param columnFamilyDescriptor column family to be created.
+   * @param importColumnFamilyOptions the options for the import.
+   * @param metadatas the metadata for the imported files.
+   *
+   * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
   public ColumnFamilyHandle createColumnFamilyWithImport(
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final ImportColumnFamilyOptions importColumnFamilyOptions,
@@ -830,7 +860,7 @@ public class RocksDB extends RocksObject {
     final int metadataNum = metadatas.size();
     final long[] metadataHandleList = new long[metadataNum];
     for (int i = 0; i < metadataNum; i++) {
-      metadataHandleList[i] = metadatas.get(i).getNativeHandle();
+      metadataHandleList[i] = metadatas.get(i).nativeHandle_;
     }
     final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
         createColumnFamilyWithImport(nativeHandle_, columnFamilyDescriptor.getName(),
@@ -857,10 +887,17 @@ public class RocksDB extends RocksObject {
     dropColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_);
   }
 
-  // Bulk drop column families. This call only records drop records in the
-  // manifest and prevents the column families from flushing and compacting.
-  // In case of error, the request may succeed partially. User may call
-  // ListColumnFamilies to check the result.
+  /**
+   * Bulk drop column families. This call only records drop records in the
+   * manifest and prevents the column families from flushing and compacting.
+   * In case of error, the request may succeed partially. User may call
+   * {@link #listColumnFamilies(Options, String)} to check the result.
+   *
+   * @param columnFamilies the column families to drop.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
   public void dropColumnFamilies(
       final List<ColumnFamilyHandle> columnFamilies) throws RocksDBException {
     final long[] cfHandles = new long[columnFamilies.size()];
@@ -1716,6 +1753,19 @@ public class RocksDB extends RocksObject {
         key, offset, len, value, vOffset, vLen);
   }
 
+  /**
+   * Add merge operand for key/value pair.
+   *
+   * @param writeOpts {@link WriteOptions} for this write.
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   *     the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   *
+   * @throws IndexOutOfBoundsException if an offset or length is out of bounds
+   */
   public void merge(final WriteOptions writeOpts, final ByteBuffer key, final ByteBuffer value)
       throws RocksDBException {
     if (key.isDirect() && value.isDirect()) {
@@ -1734,6 +1784,20 @@ public class RocksDB extends RocksObject {
     value.position(value.limit());
   }
 
+  /**
+   * Add merge operand for key/value pair.
+   *
+   * @param columnFamilyHandle the column family.
+   * @param writeOpts {@link WriteOptions} for this write.
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   *     the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   *
+   * @throws IndexOutOfBoundsException if an offset or length is out of bounds
+   */
   public void merge(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
       final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     if (key.isDirect() && value.isDirect()) {
@@ -1944,6 +2008,7 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
+   * @throws IllegalArgumentException if the arguments are invalid.
    */
   public int get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException, IllegalArgumentException {
@@ -1976,6 +2041,7 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
+   * @throws IllegalArgumentException if the arguments are invalid.
    */
   public int get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final int offset, final int len, final byte[] value, final int vOffset,
@@ -2584,11 +2650,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    * @param key byte array of a key to search for*
    * @return true if key exist in database, otherwise false.
@@ -2600,11 +2666,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    * @param key byte array of a key to search for
    * @param offset the offset of the "key" array to be used, must be
@@ -2620,11 +2686,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
@@ -2639,11 +2705,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
@@ -2663,11 +2729,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    *
    * @param readOptions {@link ReadOptions} instance
@@ -2682,11 +2748,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    *
    * @param readOptions {@link ReadOptions} instance
@@ -2706,11 +2772,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
@@ -2727,11 +2793,11 @@ public class RocksDB extends RocksObject {
    *  Check if a key exists in the database.
    *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    *  of a correct result, whether the key exists or not.
-   *
+   * <p>
    *  Internally it checks if the key may exist and then double checks with read operation
    *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    *  a false positive.
-   *
+   * <p>
    *  The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
@@ -2755,11 +2821,11 @@ public class RocksDB extends RocksObject {
    * Check if a key exists in the database.
    * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    * of a correct result, whether the key exists or not.
-   *
+   * <p>
    * Internally it checks if the key may exist and then double checks with read operation
    * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    * a false positive.
-   *
+   * <p>
    * The code crosses the Java/JNI boundary only once.
    *
    * @param key ByteBuffer with key. Must be allocated as direct.
@@ -2773,11 +2839,11 @@ public class RocksDB extends RocksObject {
    * Check if a key exists in the database.
    * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    * of a correct result, whether the key exists or not.
-   *
+   * <p>
    * Internally it checks if the key may exist and then double checks with read operation
    * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    * a false positive.
-   *
+   * <p>
    * The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
@@ -2792,11 +2858,11 @@ public class RocksDB extends RocksObject {
    * Check if a key exists in the database.
    * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    * of a correct result, whether the key exists or not.
-   *
+   * <p>
    * Internally it checks if the key may exist and then double checks with read operation
    * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    * a false positive.
-   *
+   * <p>
    * The code crosses the Java/JNI boundary only once.
    *
    * @param readOptions {@link ReadOptions} instance
@@ -2811,11 +2877,11 @@ public class RocksDB extends RocksObject {
    * Check if a key exists in the database.
    * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
    * of a correct result, whether the key exists or not.
-   *
+   * <p>
    * Internally it checks if the key may exist and then double checks with read operation
    * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
    * a false positive.
-   *
+   * <p>
    * The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
@@ -3675,10 +3741,26 @@ public class RocksDB extends RocksObject {
     return getApproximateSizes(null, ranges, sizeApproximationFlags);
   }
 
+  /**
+   * Count and size.
+   */
   public static class CountAndSize {
+    /**
+     * The count.
+     */
     public final long count;
+
+    /**
+     * The size.
+     */
     public final long size;
 
+    /**
+     * Constructs a CountAndSize.
+     *
+     * @param count the count.
+     * @param size the size.
+     */
     public CountAndSize(final long count, final long size) {
       this.count = count;
       this.size = size;
@@ -3878,7 +3960,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * Set performance level for rocksdb performance measurement.
-   * @param level
+   *
+   * @param level the performance level
+   *
    * @throws IllegalArgumentException for UNINITIALIZED and OUT_OF_BOUNDS values
    *    as they can't be used for settings.
    */
@@ -3894,7 +3978,8 @@ public class RocksDB extends RocksObject {
 
   /**
    * Return current performance level measurement settings.
-   * @return
+   *
+   * @return the performance level
    */
   public PerfLevel getPerfLevel() {
     byte level = getPerfLevelNative();
@@ -3902,8 +3987,9 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Return perf context bound to this thread.
-   * @return
+   * Return performance context bound to this thread.
+   *
+   * @return the performance context
    */
   public PerfContext getPerfContext() {
     long native_handle = getPerfContextNative();
@@ -3911,7 +3997,7 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Get the options for the column family handle
+   * Get the options for the column family handle.
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance, or null for the default column family.
@@ -4326,6 +4412,9 @@ public class RocksDB extends RocksObject {
     enableFileDeletions(nativeHandle_);
   }
 
+  /**
+   * Live files.
+   */
   public static class LiveFiles {
     /**
      * The valid size of the manifest file. The manifest file is an ever growing
@@ -4788,15 +4877,29 @@ public class RocksDB extends RocksObject {
     return rangeSliceHandles;
   }
 
+  /**
+   * Store the options instance.
+   *
+   * This is used to ensure it is correct released later.
+   *
+   * @param options the options.
+   */
   protected void storeOptionsInstance(final DBOptionsInterface<?> options) {
     options_ = options;
   }
 
-  protected void storeDefaultColumnFamilyHandle(ColumnFamilyHandle columnFamilyHandle) {
+  /**
+   * Store the default column family handle.
+   *
+   * This is used to ensure it is correct released later.
+   *
+   * @param columnFamilyHandle the handle of the default column family.
+   */
+  protected void storeDefaultColumnFamilyHandle(final ColumnFamilyHandle columnFamilyHandle) {
     defaultColumnFamilyHandle_ = columnFamilyHandle;
   }
 
-  private static void checkBounds(int offset, int len, int size) {
+  private static void checkBounds(final int offset, final int len, final int size) {
     if ((offset | len | (offset + len) | (size - (offset + len))) < 0) {
       throw new IndexOutOfBoundsException(String.format("offset(%d), len(%d), size(%d)", offset, len, size));
     }
@@ -5085,28 +5188,56 @@ public class RocksDB extends RocksObject {
 
   private static native int version();
 
+  /**
+   * The DB Options.
+   */
   protected DBOptionsInterface<?> options_;
   private static Version version;
 
+  /**
+   * Representation of a 3 part version number, e.g. MAJOR.MINOR.PATCH.
+   */
   public static class Version {
     private final byte major;
     private final byte minor;
     private final byte patch;
 
+    /**
+     * Constructs a new Version.
+     *
+     * @param major the major component of the version number.
+     * @param minor the minor component of the version number.
+     * @param patch the patch component of the version number.
+     */
     public Version(final byte major, final byte minor, final byte patch) {
       this.major = major;
       this.minor = minor;
       this.patch = patch;
     }
 
+    /**
+     * Get the major component of the version number.
+     *
+     * @return the major component of the version number.
+     */
     public int getMajor() {
       return major;
     }
 
+    /**
+     * Get the minor component of the version number.
+     *
+     * @return the minor component of the version number.
+     */
     public int getMinor() {
       return minor;
     }
 
+    /**
+     * Get the patch component of the version number.
+     *
+     * @return the patch component of the version number.
+     */
     public int getPatch() {
       return patch;
     }

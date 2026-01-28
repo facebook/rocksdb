@@ -13,20 +13,24 @@ import java.nio.ByteBuffer;
 /**
  * This is a Java implementation of a Comparator for Java int
  * keys.
- *
+ * <p>
  * This comparator assumes keys are (at least) four bytes, so
  * the caller must guarantee that in accessing other APIs in
  * combination with this comparator.
- *
+ * <p>
  * The performance of Comparators implemented in Java is always
  * less than their C++ counterparts due to the bridging overhead,
  * as such you likely don't want to use this apart from benchmarking
  * or testing.
  */
 public final class IntComparator extends AbstractComparator {
-
-  public IntComparator(final ComparatorOptions copt) {
-    super(copt);
+  /**
+   * Constructs an IntComparator.
+   *
+   * @param comparatorOptions the options for the comparator.
+   */
+  public IntComparator(final ComparatorOptions comparatorOptions) {
+    super(comparatorOptions);
   }
 
   @Override

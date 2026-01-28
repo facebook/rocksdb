@@ -28,10 +28,21 @@ public class WriteBufferManager extends RocksObject {
     this.allowStall_ = allowStall;
   }
 
-  public WriteBufferManager(final long bufferSizeBytes, final Cache cache){
+  /**
+   * Construct a new instance of WriteBufferManager.
+   *
+   * @param bufferSizeBytes the buffer size in bytes.
+   * @param cache the cache to use.
+   */
+  public WriteBufferManager(final long bufferSizeBytes, final Cache cache) {
     this(bufferSizeBytes, cache, false);
   }
 
+  /**
+   * Determine if the Write Buffer Manager is allowed to stall.
+   *
+   * @return true if it is allowed to stall, false otherwise.
+   */
   public boolean allowStall() {
     return allowStall_;
   }

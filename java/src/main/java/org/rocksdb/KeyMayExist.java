@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Indicates whether a key exists or not, and its corresponding value's length.
+ */
 public class KeyMayExist {
   @Override
   public boolean equals(final Object o) {
@@ -23,13 +26,45 @@ public class KeyMayExist {
     return Objects.hash(exists, valueLength);
   }
 
-  public enum KeyMayExistEnum { kNotExist, kExistsWithoutValue, kExistsWithValue }
+  /**
+   * Part of the return type from {@link RocksDB#keyMayExist(ColumnFamilyHandle,
+   * java.nio.ByteBuffer, java.nio.ByteBuffer)}.
+   */
+  public enum KeyMayExistEnum {
+    /**
+     * Key does not exist.
+     */
+    kNotExist,
 
-  public KeyMayExist(final KeyMayExistEnum exists, final int valueLength) {
+    /**
+     * Key may exist without a value.
+     */
+    kExistsWithoutValue,
+
+    /**
+     * Key may exist with a value.
+     */
+    kExistsWithValue
+  }
+
+  /**
+   * Constructs a KeyMayExist.
+   *
+   * @param exists indicates if the key exists.
+   * @param valueLength the length of the value pointed to by the key (if it exists).
+   */
+  KeyMayExist(final KeyMayExistEnum exists, final int valueLength) {
     this.exists = exists;
     this.valueLength = valueLength;
   }
 
+  /**
+   * Indicates if the key exists.
+   */
   public final KeyMayExistEnum exists;
+
+  /**
+   * The length of the value pointed to by the key (if it exists).
+   */
   public final int valueLength;
 }

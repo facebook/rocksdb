@@ -13,17 +13,51 @@ package org.rocksdb;
  * <p>It also support prefix hash feature.</p>
  */
 public class PlainTableConfig extends TableFormatConfig {
+  /**
+   * Indicates that the key sizew can be variable length.
+   */
   public static final int VARIABLE_LENGTH = 0;
+
+  /**
+   * The default bits per key in the bloom filter.
+   */
   public static final int DEFAULT_BLOOM_BITS_PER_KEY = 10;
+
+  /**
+   * The default ratio of the hash table.
+   */
   public static final double DEFAULT_HASH_TABLE_RATIO = 0.75;
+
+  /**
+   * The default sparseness factor of the index.
+   */
   public static final int DEFAULT_INDEX_SPARSENESS = 16;
+
+  /**
+   * The default size of the huge TLB.
+   */
   public static final int DEFAULT_HUGE_TLB_SIZE = 0;
+
+  /**
+   * The default encoding type.
+   */
   public static final EncodingType DEFAULT_ENCODING_TYPE =
       EncodingType.kPlain;
+
+  /**
+   * The default full scan mode.
+   */
   public static final boolean DEFAULT_FULL_SCAN_MODE = false;
+
+  /**
+   * The default setting for whether to store the index in a file.
+   */
   public static final boolean DEFAULT_STORE_INDEX_IN_FILE
       = false;
 
+  /**
+   * Constructs a PlainTableConfig with the default settings.
+   */
   public PlainTableConfig() {
     keySize_ = VARIABLE_LENGTH;
     bloomBitsPerKey_ = DEFAULT_BLOOM_BITS_PER_KEY;

@@ -13,16 +13,28 @@ import java.util.List;
  * which are called from C++ via JNI.
  * <p>
  * RocksCallbackObject is the base-class any RocksDB classes that acts as a
- * callback from some underlying underlying native C++ {@code rocksdb} object.
+ * callback from some underlying native C++ {@code rocksdb} object.
+ * Its implementation is always coupled with
+ * a C++ implementation of {@code ROCKSDB_NAMESPACE::JniCallback}.
  * <p>
  * The use of {@code RocksObject} should always be preferred over
  * {@link RocksCallbackObject} if callbacks are not required.
  */
 public abstract class RocksCallbackObject extends
     AbstractImmutableNativeReference {
-
+  /**
+   * An immutable reference to the value of the C++ pointer pointing to some
+   * underlying native RocksDB C++ object that
+   * extends {@code ROCKSDB_NAMESPACE::JniCallback}.
+   */
   protected final long nativeHandle_;
 
+  /**
+   * Constructs a RocksCallbackObject.
+   *
+   * @param nativeParameterHandles reference to the value of the C++ pointers pointing to the
+   *     underlying native RocksDB C++ objects.
+   */
   protected RocksCallbackObject(final long... nativeParameterHandles) {
     super(true);
     this.nativeHandle_ = initializeNative(nativeParameterHandles);

@@ -17,9 +17,11 @@ public class CompactRangeOptions extends RocksObject {
   private static final byte VALUE_kForce = 2;
   private static final byte VALUE_kForceOptimized = 3;
 
-  // For level based compaction, we can configure if we want to skip/force bottommost level
-  // compaction. The order of this enum MUST follow the C++ layer. See BottommostLevelCompaction in
-  // db/options.h
+  /**
+   * For level based compaction, we can configure if we want to skip/force bottommost level
+   * compaction. The order of this enum MUST follow the C++ layer. See BottommostLevelCompaction in
+   * db/options.h
+   */
   public enum BottommostLevelCompaction {
     /**
      * Skip bottommost level compaction
@@ -71,15 +73,34 @@ public class CompactRangeOptions extends RocksObject {
     }
   }
 
+  /**
+   * Timestamp.
+   */
   public static class Timestamp {
+    /**
+     * the start.
+     */
     public final long start;
+
+    /**
+     * the range.
+     */
     public final long range;
 
-    public Timestamp(final long start, final long duration) {
+    /**
+     * Constructs a Timestamp.
+     *
+     * @param start the start.
+     * @param range the range.
+     */
+    public Timestamp(final long start, final long range) {
       this.start = start;
-      this.range = duration;
+      this.range = range;
     }
 
+    /**
+     * Constructs a Timestamp.
+     */
     public Timestamp() {
       this.start = 0;
       this.range = 0;
@@ -250,20 +271,44 @@ public class CompactRangeOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * Set Full History Low Timestamp;
+   *
+   * @param tsLow low timestamp.
+   *
+   * @return This CompactRangeOptions.
+   */
   public CompactRangeOptions setFullHistoryTSLow(final Timestamp tsLow) {
     setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.range);
     return this;
   }
 
+  /**
+   * Get the Full History Low Timestamp;
+   *
+   * @return low timestamp.
+   */
   public Timestamp fullHistoryTSLow() {
     return fullHistoryTSLow(nativeHandle_);
   }
 
+  /**
+   * Set canceled.
+   *
+   * @param canceled true to cancel, otherwise false.
+   *
+   * @return This CompactRangeOptions.
+   */
   public CompactRangeOptions setCanceled(final boolean canceled) {
     setCanceled(nativeHandle_, canceled);
     return this;
   }
 
+  /**
+   * Get the canceled status.
+   *
+   * @return true if canceled, false otherwise.
+   */
   public boolean canceled() {
     return canceled(nativeHandle_);
   }
