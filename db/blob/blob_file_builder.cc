@@ -69,10 +69,11 @@ BlobFileBuilder::BlobFileBuilder(
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       // TODO: support most CompressionOptions with a new CF option
       // blob_compression_opts
-      // TODO with schema change: support custom compression manager and options
-      // such as max_compressed_bytes_per_kb
+      compression_manager_(mutable_cf_options->compression_manager
+                               ? mutable_cf_options->compression_manager
+                               : GetBuiltinV2CompressionManager()),
       // NOTE: returns nullptr for kNoCompression
-      blob_compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
+      blob_compressor_(compression_manager_->GetCompressor(
           CompressionOptions{}, blob_compression_type_)),
       blob_compressor_wa_(blob_compressor_
                               ? blob_compressor_->ObtainWorkingArea()
@@ -281,10 +282,39 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   Status s;
   StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                        BLOB_DB_COMPRESSION_MICROS);
-  s = LegacyForceBuiltinCompression(*blob_compressor_, &blob_compressor_wa_,
-                                    *blob, compressed_blob);
-  if (!s.ok()) {
-    return s;
+
+  // For custom compression types, use the Compressor interface directly
+  // For built-in types, we still need the legacy function for compatibility
+  CompressionType preferred_type =
+      blob_compressor_->GetPreferredCompressionType();
+  if (preferred_type > kLastBuiltinCompression) {
+    // Custom compression type - use Compressor interface directly
+    // Estimate upper bound for compressed size - be generous for custom types
+    size_t n = blob->size();
+    size_t upper_bound = n * 2 + 1024;  // Conservative upper bound
+
+    compressed_blob->ResetForSize(upper_bound);
+    CompressionType actual_type = kNoCompression;
+    s = blob_compressor_->CompressBlock(
+        *blob, compressed_blob->data(), &compressed_blob->MutableSize(),
+        &actual_type,
+        const_cast<Compressor::ManagedWorkingArea*>(&blob_compressor_wa_));
+
+    if (!s.ok()) {
+      return s;
+    }
+    if (actual_type == kNoCompression) {
+      // abort in debug builds
+      assert(actual_type != kNoCompression);
+      return Status::Corruption("Compression unexpectedly declined or aborted");
+    }
+  } else {
+    // Built-in compression type - use legacy function
+    s = LegacyForceBuiltinCompression(*blob_compressor_, &blob_compressor_wa_,
+                                      *blob, compressed_blob);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   *blob = Slice(*compressed_blob);

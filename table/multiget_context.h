@@ -6,11 +6,13 @@
 #pragma once
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string>
 
 #include "db/dbformat.h"
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -41,6 +43,11 @@ struct KeyContext {
   PinnableWideColumns* columns;
   std::string* timestamp;
   GetContext* get_context;
+  // Output for per-key blob compression type (for MultiGet with
+  // read_blob_compressed=true). After MultiGet completes, this value is
+  // copied to the corresponding element in
+  // ReadOptions::blob_compression_types_out.
+  std::optional<CompressionType> blob_compression_type;
 
   KeyContext(ColumnFamilyHandle* col_family, const Slice& user_key,
              PinnableSlice* val, PinnableWideColumns* cols, std::string* ts,
@@ -56,7 +63,8 @@ struct KeyContext {
         value(val),
         columns(cols),
         timestamp(ts),
-        get_context(nullptr) {}
+        get_context(nullptr),
+        blob_compression_type(std::nullopt) {}
 };
 
 // The MultiGetContext class is a container for the sorted list of keys that

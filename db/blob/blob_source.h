@@ -110,6 +110,10 @@ class BlobSource {
   bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
                         uint64_t offset, size_t* charge = nullptr) const;
 
+  bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
+                        uint64_t offset, bool compressed,
+                        size_t* charge = nullptr) const;
+
   // For TypedSharedCacheInterface
   void Create(BlobContents** out, const char* buf, size_t size,
               MemoryAllocator* alloc);
@@ -120,11 +124,13 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CacheHandleGuard<BlobContents>* cached_blob) const;
+                          CacheHandleGuard<BlobContents>* cached_blob,
+                          bool compressed) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
                           std::unique_ptr<BlobContents>* blob,
-                          CacheHandleGuard<BlobContents>* cached_blob) const;
+                          CacheHandleGuard<BlobContents>* cached_blob,
+                          bool compressed) const;
 
   static void PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
                             PinnableSlice* value);
@@ -139,10 +145,20 @@ class BlobSource {
                               Cache::Priority priority) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t /*file_size*/,
-                              uint64_t offset) const {
+                              uint64_t offset, bool compressed) const {
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
+    if (compressed) {
+      // Use high bit of offset to distinguish compressed entries from
+      // uncompressed entries with the same offset.
+      return base_cache_key.WithOffset(offset | kCompressedCacheKeyFlag);
+    }
     return base_cache_key.WithOffset(offset);
   }
+
+  // Flag used to distinguish compressed blob cache keys from uncompressed ones.
+  // The high bit of the offset is used since blob file offsets are unlikely to
+  // exceed 2^63 bytes.
+  static constexpr uint64_t kCompressedCacheKeyFlag = 1ULL << 63;
 
   const std::string& db_id_;
   const std::string& db_session_id_;
@@ -152,7 +168,7 @@ class BlobSource {
   // A cache to store blob file reader.
   BlobFileCache* blob_file_cache_;
 
-  // A cache to store uncompressed blobs.
+  // A cache to store blob values (compressed or uncompressed).
   mutable SharedCacheInterface blob_cache_;
 
   // The control option of how the cache tiers will be used. Currently rocksdb

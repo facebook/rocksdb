@@ -173,13 +173,12 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
     }
   }
 
-  if (!CompressionTypeSupported(cf_options.blob_compression_type)) {
-    std::ostringstream oss;
-    oss << "The specified blob compression type "
-        << CompressionTypeToString(cf_options.blob_compression_type)
-        << " is not available.";
-
-    return Status::InvalidArgument(oss.str());
+  {
+    Status s = CheckCompressionSupportedWithManager(
+        cf_options.blob_compression_type, cf_options.compression_manager.get());
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   return Status::OK();
@@ -658,7 +657,8 @@ ColumnFamilyData::ColumnFamilyData(
                                       db_session_id));
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, &ioptions(), soptions(), id_,
-                          internal_stats_->GetBlobFileReadHist(), io_tracer));
+                          internal_stats_->GetBlobFileReadHist(), io_tracer,
+                          mutable_cf_options_.compression_manager));
     blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
                                       db_session_id, blob_file_cache_.get()));
 
