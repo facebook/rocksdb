@@ -1864,6 +1864,8 @@ class ReactiveVersionSet : public VersionSet {
     return Status::NotSupported("not supported in reactive mode");
   }
 
+  Status TryGetManifestSize(log::Reader* reader, uint64_t* size) const;
+
   // No copy allowed
   ReactiveVersionSet(const ReactiveVersionSet&);
   ReactiveVersionSet& operator=(const ReactiveVersionSet&);
