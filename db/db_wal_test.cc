@@ -3144,6 +3144,389 @@ TEST_F(DBWALTest, WALWriteErrorNoRecovery) {
   fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
   Destroy(options);
 }
+
+#if defined(ROCKSDB_PLATFORM_POSIX)
+TEST_F(DBWALTest, DirectIOForWAL) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.create_if_missing = true;
+
+  // Check if direct I/O is supported
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    // Direct I/O might not be supported on this file system
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write some data to generate WAL writes
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+
+  // Flush to ensure WAL is written
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  // Verify data can be read back
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ("value" + std::to_string(i), Get("key" + std::to_string(i)));
+  }
+
+  // Reopen and verify data persisted
+  Reopen(options);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ("value" + std::to_string(i), Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOWithPreallocation) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 1024 * 1024;  // 1MB
+  options.create_if_missing = true;
+  options.wal_bytes_per_sync = 0;  // Disable sync-per-write for performance
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write enough data to trigger multiple pre-allocation blocks
+  const int num_writes = 1000;
+  for (int i = 0; i < num_writes; i++) {
+    std::string value(1024, 'a' + (i % 26));  // 1KB value
+    ASSERT_OK(Put("key" + std::to_string(i), value));
+  }
+
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  // Verify all data is readable
+  for (int i = 0; i < num_writes; i++) {
+    std::string value(1024, 'a' + (i % 26));
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+
+  // Reopen and verify persistence
+  Reopen(options);
+  for (int i = 0; i < num_writes; i++) {
+    std::string value(1024, 'a' + (i % 26));
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationWithSmallBlockSize) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 64 * 1024;  // 64KB
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write data that will require multiple preallocation blocks
+  for (int i = 0; i < 200; i++) {
+    std::string value(512, 'x');
+    ASSERT_OK(Put("key" + std::to_string(i), value));
+  }
+
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  // Verify data integrity
+  for (int i = 0; i < 200; i++) {
+    std::string value(512, 'x');
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationWithLargeBlockSize) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 4 * 1024 * 1024;  // 4MB
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write data smaller than one preallocation block
+  for (int i = 0; i < 500; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  // Verify data
+  for (int i = 0; i < 500; i++) {
+    ASSERT_EQ("value" + std::to_string(i), Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationMultipleFlushes) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 512 * 1024;  // 512KB
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Perform multiple write-flush cycles
+  for (int round = 0; round < 5; round++) {
+    for (int i = 0; i < 100; i++) {
+      std::string key =
+          "round" + std::to_string(round) + "_key" + std::to_string(i);
+      std::string value(256, 'a' + round);
+      ASSERT_OK(Put(key, value));
+    }
+    ASSERT_OK(dbfull()->FlushWAL(false));
+  }
+
+  // Verify all data across all rounds
+  for (int round = 0; round < 5; round++) {
+    for (int i = 0; i < 100; i++) {
+      std::string key =
+          "round" + std::to_string(round) + "_key" + std::to_string(i);
+      std::string value(256, 'a' + round);
+      ASSERT_EQ(value, Get(key));
+    }
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationWithSync) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 256 * 1024;  // 256KB
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  WriteOptions write_opts;
+  write_opts.sync = true;
+
+  // Write with sync enabled to test interaction with preallocation
+  for (int i = 0; i < 100; i++) {
+    std::string value(512, 'y');
+    ASSERT_OK(Put("key" + std::to_string(i), value, write_opts));
+  }
+
+  // Verify data
+  for (int i = 0; i < 100; i++) {
+    std::string value(512, 'y');
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+
+  // Reopen to ensure synced data is durable
+  Reopen(options);
+  for (int i = 0; i < 100; i++) {
+    std::string value(512, 'y');
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationRecovery) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 1024 * 1024;
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write data
+  for (int i = 0; i < 500; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(dbfull()->FlushWAL(true));
+
+  // Close and reopen to test WAL recovery
+  Close();
+  ASSERT_OK(TryReopen(options));
+
+  // Verify recovered data
+  for (int i = 0; i < 500; i++) {
+    ASSERT_EQ("value" + std::to_string(i), Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationZeroBlockSize) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 0;  // 0 (triggers default 1MB fallback)
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Even with preallocation disabled, direct I/O should work
+  // The default will be used (1MB)
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ("value" + std::to_string(i), Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationConcurrentWrites) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 512 * 1024;
+  options.create_if_missing = true;
+  options.max_background_jobs = 4;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Concurrent writes to test thread safety of preallocation
+  std::atomic<int> write_count{0};
+  auto writer = [this, &write_count]() {
+    for (int i = 0; i < 50; i++) {
+      int id = write_count.fetch_add(1);
+      std::string key = "key" + std::to_string(id);
+      std::string value(256, 'a' + (id % 26));
+      ASSERT_OK(Put(key, value));
+    }
+  };
+
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 4; i++) {
+    threads.emplace_back(writer);
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  // Verify all writes succeeded
+  for (int i = 0; i < 200; i++) {
+    std::string key = "key" + std::to_string(i);
+    std::string value(256, 'a' + (i % 26));
+    ASSERT_EQ(value, Get(key));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationWithMemtableFlush) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 256 * 1024;
+  options.create_if_missing = true;
+  options.write_buffer_size = 64 * 1024;  // Small memtable for frequent flushes
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write enough to trigger memtable flushes
+  for (int i = 0; i < 1000; i++) {
+    std::string value(128, 'z');
+    ASSERT_OK(Put("key" + std::to_string(i), value));
+  }
+
+  // Wait for flushes to complete
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Verify data
+  for (int i = 0; i < 1000; i++) {
+    std::string value(128, 'z');
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationEdgeCases) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 128 * 1024;
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Test 1: Empty write
+  ASSERT_OK(dbfull()->FlushWAL(false));
+
+  // Test 2: Single small write
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(dbfull()->FlushWAL(false));
+  ASSERT_EQ("value1", Get("key1"));
+
+  // Test 3: Write close to block boundary
+  std::string large_value(128 * 1024 - 100, 'b');  // Close to boundary
+  ASSERT_OK(Put("large_key", large_value));
+  ASSERT_OK(dbfull()->FlushWAL(false));
+  ASSERT_EQ(large_value, Get("large_key"));
+
+  // Test 4: Very small writes
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("tiny" + std::to_string(i), "v"));
+  }
+  ASSERT_OK(dbfull()->FlushWAL(false));
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("v", Get("tiny" + std::to_string(i)));
+  }
+}
+
+TEST_F(DBWALTest, DirectIOPreallocationCloseWhileActive) {
+  Options options = CurrentOptions();
+  options.use_direct_io_for_wal = true;
+  options.wal_direct_io_preallocation_block_size = 1024 * 1024;
+  options.create_if_missing = true;
+
+  Status s = TryReopen(options);
+  if (!s.ok()) {
+    ROCKSDB_GTEST_SKIP("Direct I/O not supported");
+    return;
+  }
+
+  // Write data to potentially trigger background preallocation
+  for (int i = 0; i < 500; i++) {
+    std::string value(1024, 'c');
+    ASSERT_OK(Put("key" + std::to_string(i), value));
+  }
+
+  // Immediately close - this should wait for preallocation to complete
+  Close();
+
+  // Reopen and verify data was persisted correctly
+  ASSERT_OK(TryReopen(options));
+  for (int i = 0; i < 500; i++) {
+    std::string value(1024, 'c');
+    ASSERT_EQ(value, Get("key" + std::to_string(i)));
+  }
+}
+#endif  // ROCKSDB_PLATFORM_POSIX
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
