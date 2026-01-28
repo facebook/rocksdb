@@ -35,11 +35,6 @@ struct BlobDBOptions {
   // whether the blob_dir path is relative or absolute.
   bool path_relative = true;
 
-  // When max_db_size is reached, evict blob files to free up space
-  // instead of returnning NoSpace error on write. Blob files will be
-  // evicted from oldest to newest, based on file creation time.
-  bool is_fifo = false;
-
   // Maximum size of the database (including SST files and blob files).
   //
   // Default: 0 (no limits)
