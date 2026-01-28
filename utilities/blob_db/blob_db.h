@@ -48,10 +48,6 @@ struct BlobDBOptions {
   // and so on
   uint64_t ttl_range_secs = 3600;
 
-  // The smallest value to store in blob log. Values smaller than this threshold
-  // will be inlined in base DB together with the key.
-  uint64_t min_blob_size = 0;
-
   // Allows OS to incrementally sync blob files to disk for every
   // bytes_per_sync bytes written. Users shouldn't rely on it for
   // persistency guarantee.

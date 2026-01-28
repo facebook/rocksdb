@@ -1071,69 +1071,54 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
                                 const Slice& key, const Slice& value,
                                 uint64_t expiration, WriteBatch* batch) {
   write_mutex_.AssertHeld();
-  Status s;
+  std::string headerbuf;
+  BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value, expiration);
+
+  // Check DB size limit before selecting blob file.
+  Status s = CheckDbSizeLimit(headerbuf.size() + key.size() + value.size());
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::shared_ptr<BlobFile> blob_file;
+  if (expiration != kNoExpiration) {
+    s = SelectBlobFileTTL(write_options, expiration, &blob_file);
+  } else {
+    s = SelectBlobFile(write_options, &blob_file);
+  }
   std::string index_entry;
-  uint32_t column_family_id =
-      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
-          ->GetID();
-  if (value.size() < bdb_options_.min_blob_size) {
+  if (s.ok()) {
+    assert(blob_file != nullptr);
+    s = AppendBlob(write_options, blob_file, headerbuf, key, value, expiration,
+                   &index_entry);
+  }
+  if (s.ok()) {
+    if (expiration != kNoExpiration) {
+      WriteLock file_lock(&blob_file->mutex_);
+      blob_file->ExtendExpirationRange(expiration);
+    }
+    s = CloseBlobFileIfNeeded(write_options, blob_file);
+  }
+  if (s.ok()) {
+    const uint32_t column_family_id =
+        static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+            ->GetID();
+    s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
+                                         index_entry);
+  }
+  if (s.ok()) {
     if (expiration == kNoExpiration) {
-      // Put as normal value
-      s = batch->Put(key, value);
-      RecordTick(statistics_, BLOB_DB_WRITE_INLINED);
+      RecordTick(statistics_, BLOB_DB_WRITE_BLOB);
     } else {
-      // Inlined with TTL
-      BlobIndex::EncodeInlinedTTL(&index_entry, expiration, value);
-      s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
-                                           index_entry);
-      RecordTick(statistics_, BLOB_DB_WRITE_INLINED_TTL);
+      RecordTick(statistics_, BLOB_DB_WRITE_BLOB_TTL);
     }
   } else {
-    std::string headerbuf;
-    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value, expiration);
-
-    // Check DB size limit before selecting blob file.
-    s = CheckDbSizeLimit(headerbuf.size() + key.size() + value.size());
-    if (!s.ok()) {
-      return s;
-    }
-
-    std::shared_ptr<BlobFile> blob_file;
-    if (expiration != kNoExpiration) {
-      s = SelectBlobFileTTL(write_options, expiration, &blob_file);
-    } else {
-      s = SelectBlobFile(write_options, &blob_file);
-    }
-    if (s.ok()) {
-      assert(blob_file != nullptr);
-      s = AppendBlob(write_options, blob_file, headerbuf, key, value,
-                     expiration, &index_entry);
-    }
-    if (s.ok()) {
-      if (expiration != kNoExpiration) {
-        WriteLock file_lock(&blob_file->mutex_);
-        blob_file->ExtendExpirationRange(expiration);
-      }
-      s = CloseBlobFileIfNeeded(write_options, blob_file);
-    }
-    if (s.ok()) {
-      s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
-                                           index_entry);
-    }
-    if (s.ok()) {
-      if (expiration == kNoExpiration) {
-        RecordTick(statistics_, BLOB_DB_WRITE_BLOB);
-      } else {
-        RecordTick(statistics_, BLOB_DB_WRITE_BLOB_TTL);
-      }
-    } else {
-      ROCKS_LOG_ERROR(
-          db_options_.info_log,
-          "Failed to append blob to FILE: %s: KEY: %s VALSZ: %" ROCKSDB_PRIszt
-          " status: '%s' blob_file: '%s'",
-          blob_file->PathName().c_str(), key.ToString().c_str(), value.size(),
-          s.ToString().c_str(), blob_file->DumpState().c_str());
-    }
+    ROCKS_LOG_ERROR(
+        db_options_.info_log,
+        "Failed to append blob to FILE: %s: KEY: %s VALSZ: %" ROCKSDB_PRIszt
+        " status: '%s' blob_file: '%s'",
+        blob_file->PathName().c_str(), key.ToString().c_str(), value.size(),
+        s.ToString().c_str(), blob_file->DumpState().c_str());
   }
 
   RecordTick(statistics_, BLOB_DB_NUM_KEYS_WRITTEN);
@@ -1364,13 +1349,6 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     } else {
       *expiration = kNoExpiration;
     }
-  }
-
-  if (blob_index.IsInlined()) {
-    // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
-    // memory buffer to avoid extra copy.
-    value->PinSelf(blob_index.value());
-    return Status::OK();
   }
 
   return GetRawBlobFromFile(key, blob_index.file_number(), blob_index.offset(),
