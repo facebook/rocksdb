@@ -46,6 +46,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "util/stderr_logger.h"
@@ -149,6 +150,8 @@ using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
+using ROCKSDB_NAMESPACE::WideColumn;
+using ROCKSDB_NAMESPACE::WideColumns;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
@@ -392,6 +395,17 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
                            const char* existing_value, size_t value_length,
                            char** new_value, size_t* new_value_length,
                            unsigned char* value_changed);
+  int (*filter_v3_)(void* state, int level, const char* key, size_t key_length,
+                    int valuetype, const char* existing_value,
+                    size_t value_length,
+                    const rocksdb_widecolumns_t* existing_columns,
+                    rocksdb_databuffer_t* new_value_buffer,
+                    rocksdb_widecolumn_builder_t* new_columns,
+                    rocksdb_databuffer_t* skip_until);
+  int (*filter_blob_by_key_)(void* state, int level, const char* key,
+                             size_t key_length,
+                             rocksdb_databuffer_t* new_value_buffer,
+                             rocksdb_databuffer_t* skip_until);
   const char* (*name_)(void*);
   unsigned char ignore_snapshots_;
 
@@ -399,6 +413,11 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
 
   bool Filter(int level, const Slice& key, const Slice& existing_value,
               std::string* new_value, bool* value_changed) const override {
+    if (!filter_) {
+      return CompactionFilter::Filter(level, key, existing_value, new_value,
+                                      value_changed);
+    }
+
     char* c_new_value = nullptr;
     size_t new_value_length = 0;
     unsigned char c_value_changed = 0;
@@ -411,6 +430,75 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
       *value_changed = true;
     }
     return result;
+  }
+
+  Decision FilterV3(
+      int level, const Slice& key, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* new_columns,
+      std::string* skip_until) const override {
+    static_assert(rocksdb_compactionfilter_valuetype_value ==
+                  static_cast<int>(CompactionFilter::ValueType::kValue));
+    static_assert(rocksdb_compactionfilter_valuetype_merge_operand ==
+                  static_cast<int>(CompactionFilter::ValueType::kMergeOperand));
+    static_assert(
+        rocksdb_compactionfilter_valuetype_wide_column_entity ==
+        static_cast<int>(CompactionFilter::ValueType::kWideColumnEntity));
+
+    static_assert(rocksdb_compactionfilter_decision_keep ==
+                  static_cast<int>(CompactionFilter::Decision::kKeep));
+    static_assert(rocksdb_compactionfilter_decision_remove ==
+                  static_cast<int>(CompactionFilter::Decision::kRemove));
+    static_assert(rocksdb_compactionfilter_decision_change_value ==
+                  static_cast<int>(CompactionFilter::Decision::kChangeValue));
+    static_assert(
+        rocksdb_compactionfilter_decision_remove_and_skip_until ==
+        static_cast<int>(CompactionFilter::Decision::kRemoveAndSkipUntil));
+    static_assert(rocksdb_compactionfilter_decision_purge ==
+                  static_cast<int>(CompactionFilter::Decision::kPurge));
+    static_assert(
+        rocksdb_compactionfilter_decision_change_wide_column_entity ==
+        static_cast<int>(CompactionFilter::Decision::kChangeWideColumnEntity));
+    static_assert(rocksdb_compactionfilter_decision_undetermined ==
+                  static_cast<int>(CompactionFilter::Decision::kUndetermined));
+
+    if (!filter_v3_) {
+      return CompactionFilter::FilterV3(level, key, value_type, existing_value,
+                                        existing_columns, new_value,
+                                        new_columns, skip_until);
+    }
+
+    const char* existing_value_data;
+    size_t existing_value_length;
+    if (existing_value) {
+      existing_value_data = existing_value->data();
+      existing_value_length = existing_value->size();
+    } else {
+      existing_value_data = nullptr;
+      existing_value_length = 0;
+    }
+    int decision = filter_v3_(
+        state_, level, key.data(), key.size(), value_type, existing_value_data,
+        existing_value_length,
+        reinterpret_cast<const rocksdb_widecolumns_t*>(existing_columns),
+        reinterpret_cast<rocksdb_databuffer_t*>(new_value),
+        reinterpret_cast<rocksdb_widecolumn_builder_t*>(new_columns),
+        reinterpret_cast<rocksdb_databuffer_t*>(skip_until));
+    return static_cast<CompactionFilter::Decision>(decision);
+  }
+
+  Decision FilterBlobByKey(int level, const Slice& key, std::string* new_value,
+                           std::string* skip_until) const override {
+    if (!filter_blob_by_key_) {
+      return CompactionFilter::FilterBlobByKey(level, key, new_value,
+                                               skip_until);
+    }
+    int decision = filter_blob_by_key_(
+        state_, level, key.data(), key.size(),
+        reinterpret_cast<rocksdb_databuffer_t*>(new_value),
+        reinterpret_cast<rocksdb_databuffer_t*>(skip_until));
+    return static_cast<CompactionFilter::Decision>(decision);
   }
 
   const char* Name() const override { return (*name_)(state_); }
@@ -5776,6 +5864,72 @@ rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
   result->state_ = state;
   result->destructor_ = destructor;
   result->filter_ = filter;
+  result->filter_v3_ = nullptr;
+  result->filter_blob_by_key_ = nullptr;
+  result->ignore_snapshots_ = true;
+  result->name_ = name;
+  return result;
+}
+
+size_t rocksdb_widecolumns_length(const rocksdb_widecolumns_t* widecolumns) {
+  const WideColumns* columns =
+      reinterpret_cast<const WideColumns*>(widecolumns);
+  return columns->size();
+}
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_name(
+    const rocksdb_widecolumns_t* widecolumns, size_t index,
+    size_t* name_length) {
+  const WideColumns* columns =
+      reinterpret_cast<const WideColumns*>(widecolumns);
+  const WideColumn& column = columns->at(index);
+  const Slice& name = column.name();
+  *name_length = name.size();
+  return name.data();
+}
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_value(
+    const rocksdb_widecolumns_t* widecolumns, size_t index,
+    size_t* value_length) {
+  const WideColumns* columns =
+      reinterpret_cast<const WideColumns*>(widecolumns);
+  const WideColumn& column = columns->at(index);
+  const Slice& value = column.value();
+  *value_length = value.size();
+  return value.data();
+}
+
+extern ROCKSDB_LIBRARY_API void rocksdb_widecolumn_builder_add_name_value(
+    rocksdb_widecolumn_builder_t* builder, const char* name, size_t name_length,
+    const char* value, size_t value_length) {
+  auto* pairs =
+      reinterpret_cast<std::vector<std::pair<std::string, std::string>>*>(
+          builder);
+  pairs->emplace_back(std::string(name, name_length),
+                      std::string(value, value_length));
+}
+
+extern ROCKSDB_LIBRARY_API rocksdb_compactionfilter_t*
+rocksdb_compactionfilter_create_v3(
+    void* state, void (*destructor)(void*),
+    int (*filter_v3)(void* state, int level, const char* key, size_t key_length,
+                     int valuetype, const char* existing_value,
+                     size_t value_length,
+                     const rocksdb_widecolumns_t* existing_columns,
+                     rocksdb_databuffer_t* new_value_buffer,
+                     rocksdb_widecolumn_builder_t* new_columns,
+                     rocksdb_databuffer_t* skip_until),
+    int (*filter_blob_by_key)(void* state, int level, const char* key,
+                              size_t key_length,
+                              rocksdb_databuffer_t* new_value_buffer,
+                              rocksdb_databuffer_t* skip_until),
+    const char* (*name)(void* state)) {
+  rocksdb_compactionfilter_t* result = new rocksdb_compactionfilter_t;
+  result->state_ = state;
+  result->destructor_ = destructor;
+  result->filter_ = nullptr;
+  result->filter_v3_ = filter_v3;
+  result->filter_blob_by_key_ = filter_blob_by_key;
   result->ignore_snapshots_ = true;
   result->name_ = name;
   return result;
@@ -7178,6 +7332,13 @@ void rocksdb_delete_file_in_range_cf(
           db->rep, column_family->rep,
           (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
           (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr)));
+}
+
+void rocksdb_databuffer_append(rocksdb_databuffer_t* buffer, const char* data,
+                               size_t data_len) {
+  // Treat rocksdb_databuffer_t as std::string.
+  std::string* s = reinterpret_cast<std::string*>(buffer);
+  s->append(data, data_len);
 }
 
 /* MetaData */

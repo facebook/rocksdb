@@ -171,6 +171,9 @@ typedef struct rocksdb_eventlistener_t rocksdb_eventlistener_t;
 typedef struct rocksdb_writestallinfo_t rocksdb_writestallinfo_t;
 typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
 typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
+typedef struct rocksdb_databuffer_t rocksdb_databuffer_t;
+typedef struct rocksdb_widecolumns_t rocksdb_widecolumns_t;
+typedef struct rocksdb_widecolumn_builder_t rocksdb_widecolumn_builder_t;
 
 // Remote Compaction typedef
 typedef struct rocksdb_compactionservice_scheduleresponse_t
@@ -2187,6 +2190,85 @@ rocksdb_compactionfilter_create(
                             size_t* new_value_length,
                             unsigned char* value_changed),
     const char* (*name)(void*));
+
+enum {
+  rocksdb_compactionfilter_valuetype_value = 0,
+  rocksdb_compactionfilter_valuetype_merge_operand = 1,
+  rocksdb_compactionfilter_valuetype_wide_column_entity = 3,
+};
+
+enum {
+  rocksdb_compactionfilter_decision_keep = 0,
+  rocksdb_compactionfilter_decision_remove = 1,
+  rocksdb_compactionfilter_decision_change_value = 2,
+  rocksdb_compactionfilter_decision_remove_and_skip_until = 3,
+  rocksdb_compactionfilter_decision_purge = 6,
+  rocksdb_compactionfilter_decision_change_wide_column_entity = 7,
+  rocksdb_compactionfilter_decision_undetermined = 8,
+};
+
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_widecolumns_length(const rocksdb_widecolumns_t* widecolumns);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_name(
+    const rocksdb_widecolumns_t* widecolumns, size_t index,
+    size_t* name_length);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_value(
+    const rocksdb_widecolumns_t* widecolumns, size_t index,
+    size_t* value_length);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_widecolumn_builder_add_name_value(
+    rocksdb_widecolumn_builder_t* builder, const char* name, size_t name_length,
+    const char* value, size_t value_length);
+
+/**
+ * Create a compaction filter using V3 protocol from its state and callbacks.
+ * All callbacks for a filter created in response to the callback of a factory
+ * created with `rocksdb_compactionfilterfactory_create()` will only be invoked
+ * from the thread where the filter was created. The filter passed to
+ * `rocksdb_options_set_compaction_filter()` can be accessed from any thread and
+ * all its callbacks must be thread-safe.
+ *
+ * @param state an opaque pointer that will be passed to the callbacks.
+ * @param destructor the callback that is called when RocksDB releases the
+ *     filter instance.
+ * @param filter the callback to receive information about the existing key and
+ *     decide how they should be processed by the compaction  what. It must not
+ *     be NULL. The filter must return one of
+ *     `rocksdb_compactionfilter_decision_*` constants. `valuetype` argument is
+ *     one of `rocksdb_compactionfilter_valuetype_*` constants. `existing_value`
+ *     is not NULL if and only if `valuetype` is
+ *     `rocksdb_compactionfilter_valuetype_value` or
+ *     `rocksdb_compactionfilter_valuetype_merge_operand`. `existing_columns` is
+ *     not NULL if only if `valuetype` is
+ *     rocksdb_compactionfilter_valuetype_wide_column_entity. The out parameters
+ *     `new_value_buffer`, `new_columns` and skip_until are never NULL. Except
+ *     for the state pointer that the filter instance owns the callback
+ *     implementation must not access the passed pointers after the call.
+ * @param filter_blob_by_key If not NULL the callback to receive information
+ *     about the existing key and decide how they should be processed by the
+ *     compaction without accessing the value. The filter must return one of
+ *     `rocksdb_compactionfilter_decision_*` constants.
+ * @param name the callback to return the filter name for debugging/logging
+ * purposes
+ */
+extern ROCKSDB_LIBRARY_API rocksdb_compactionfilter_t*
+rocksdb_compactionfilter_create_v3(
+    void* state, void (*destructor)(void*),
+    int (*filter_v3)(void* state, int level, const char* key, size_t key_length,
+                     int valuetype, const char* existing_value,
+                     size_t value_length,
+                     const rocksdb_widecolumns_t* existing_columns,
+                     rocksdb_databuffer_t* new_value_buffer,
+                     rocksdb_widecolumn_builder_t* new_columns,
+                     rocksdb_databuffer_t* skip_until),
+    int (*filter_blob_by_key)(void* state, int level, const char* key,
+                              size_t key_length,
+                              rocksdb_databuffer_t* new_value_buffer,
+                              rocksdb_databuffer_t* skip_until),
+    const char* (*name)(void* state));
+
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionfilter_set_ignore_snapshots(
     rocksdb_compactionfilter_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionfilter_destroy(
@@ -2715,7 +2797,7 @@ rocksdb_slicetransform_create(
     unsigned char (*in_range)(void*, const char* key, size_t length),
     const char* (*name)(void*));
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
-    rocksdb_slicetransform_create_fixed_prefix(size_t);
+rocksdb_slicetransform_create_fixed_prefix(size_t);
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
 rocksdb_slicetransform_create_noop(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_slicetransform_destroy(
@@ -3010,6 +3092,13 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_sst_file_metadata_get_smallestkey(
  */
 extern ROCKSDB_LIBRARY_API char* rocksdb_sst_file_metadata_get_largestkey(
     rocksdb_sst_file_metadata_t* file_meta, size_t* len);
+
+/**
+ * Append data to the buffer. This can be called multiple times per buffer to
+ * append several data fragments.
+ */
+extern ROCKSDB_LIBRARY_API void rocksdb_databuffer_append(
+    rocksdb_databuffer_t* buffer, const char* data, size_t data_len);
 
 /* Transactions */
 
