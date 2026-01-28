@@ -83,10 +83,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       live_sst_size_(0),
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
-      debug_level_(0),
-      // NOTE: returns nullptr for kNoCompression
-      blob_compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
-          CompressionOptions{}, bdb_options_.compression)) {
+      debug_level_(0) {
   clock_ = env_->GetSystemClock().get();
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
@@ -708,7 +705,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(
       static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   auto blob_file = std::make_shared<BlobFile>(
       this, blob_dir_, file_num, db_options_.info_log.get(), column_family_id,
-      bdb_options_.compression, has_ttl, expiration_range);
+      has_ttl, expiration_range);
 
   ROCKS_LOG_DEBUG(db_options_.info_log, "New blob file created: %s reason='%s'",
                   blob_file->PathName().c_str(), reason.c_str());
@@ -1095,32 +1092,14 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
       RecordTick(statistics_, BLOB_DB_WRITE_INLINED_TTL);
     }
   } else {
-    GrowableBuffer compression_output;
-    Slice value_maybe_compressed;
-    if (blob_compressor_) {
-      assert(bdb_options_.compression != kNoCompression);
-      assert(bdb_options_.compression ==
-             blob_compressor_->GetPreferredCompressionType());
-      s = CompressBlob(value, &compression_output);
-      if (!s.ok()) {
-        return s;
-      }
-      value_maybe_compressed = compression_output.AsSlice();
-    } else {
-      assert(bdb_options_.compression == kNoCompression);
-      value_maybe_compressed = value;
-    }
-
     std::string headerbuf;
-    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value_maybe_compressed,
-                                       expiration);
+    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value, expiration);
 
     // Check DB size limit before selecting blob file to
     // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
     // done before calling SelectBlobFile().
     s = CheckSizeAndEvictBlobFiles(
-        write_options,
-        headerbuf.size() + key.size() + value_maybe_compressed.size());
+        write_options, headerbuf.size() + key.size() + value.size());
     if (!s.ok()) {
       return s;
     }
@@ -1133,9 +1112,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
     }
     if (s.ok()) {
       assert(blob_file != nullptr);
-      assert(blob_file->GetCompressionType() == bdb_options_.compression);
-      s = AppendBlob(write_options, blob_file, headerbuf, key,
-                     value_maybe_compressed, expiration, &index_entry);
+      s = AppendBlob(write_options, blob_file, headerbuf, key, value,
+                     expiration, &index_entry);
     }
     if (s.ok()) {
       if (expiration != kNoExpiration) {
@@ -1170,44 +1148,6 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
   RecordInHistogram(statistics_, BLOB_DB_VALUE_SIZE, value.size());
 
   return s;
-}
-
-Status BlobDBImpl::CompressBlob(const Slice& raw,
-                                GrowableBuffer* compression_output) const {
-  StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  return LegacyForceBuiltinCompression(
-      *blob_compressor_, /*working_area=*/nullptr, raw, compression_output);
-}
-
-Decompressor& BlobDecompressor() {
-  static auto decompressor =
-      GetBuiltinV2CompressionManager()->GetDecompressor();
-
-  return *decompressor;
-}
-
-Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
-                                   CompressionType compression_type,
-                                   PinnableSlice* value_output) const {
-  assert(compression_type != kNoCompression);
-
-  BlockContents contents;
-  auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
-
-  {
-    StopWatch decompression_sw(clock_, statistics_,
-                               BLOB_DB_DECOMPRESSION_MICROS);
-    Status s = DecompressBlockData(
-        compressed_value.data(), compressed_value.size(), compression_type,
-        BlobDecompressor(), &contents, cfh->cfd()->ioptions());
-    if (!s.ok()) {
-      return Status::Corruption("Unable to decompress blob.");
-    }
-  }
-
-  value_output->PinSelf(contents.data);
-
-  return Status::OK();
 }
 
 Status BlobDBImpl::CompactFiles(
@@ -1409,11 +1349,10 @@ Status BlobDBImpl::AppendBlob(const WriteOptions& write_options,
 
   if (expiration == kNoExpiration) {
     BlobIndex::EncodeBlob(index_entry, bfile->BlobFileNumber(), blob_offset,
-                          value.size(), bdb_options_.compression);
+                          value.size(), kNoCompression);
   } else {
     BlobIndex::EncodeBlobTTL(index_entry, expiration, bfile->BlobFileNumber(),
-                             blob_offset, value.size(),
-                             bdb_options_.compression);
+                             blob_offset, value.size(), kNoCompression);
   }
 
   return s;
@@ -1511,39 +1450,14 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::OK();
   }
 
-  CompressionType compression_type = kNoCompression;
-  s = GetRawBlobFromFile(key, blob_index.file_number(), blob_index.offset(),
-                         blob_index.size(), value, &compression_type);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (compression_type != kNoCompression) {
-    s = DecompressSlice(*value, compression_type, value);
-    if (!s.ok()) {
-      if (debug_level_ >= 2) {
-        ROCKS_LOG_ERROR(
-            db_options_.info_log,
-            "Uncompression error during blob read from file: %" PRIu64
-            " blob_offset: %" PRIu64 " blob_size: %" PRIu64
-            " key: %s status: '%s'",
-            blob_index.file_number(), blob_index.offset(), blob_index.size(),
-            key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
-      }
-      return s;
-    }
-  }
-
-  return Status::OK();
+  return GetRawBlobFromFile(key, blob_index.file_number(), blob_index.offset(),
+                            blob_index.size(), value);
 }
 
 Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
                                       uint64_t offset, uint64_t size,
-                                      PinnableSlice* value,
-                                      CompressionType* compression_type) {
+                                      PinnableSlice* value) {
   assert(value);
-  assert(compression_type);
-  assert(*compression_type == kNoCompression);
 
   if (!size) {
     value->PinSelf("");
@@ -1580,8 +1494,6 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 
     blob_file = it->second;
   }
-
-  *compression_type = blob_file->GetCompressionType();
 
   // takes locks when called
   std::shared_ptr<RandomAccessFileReader> reader;

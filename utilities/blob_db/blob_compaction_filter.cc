@@ -94,10 +94,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     }
     // Read value from blob file.
     PinnableSlice blob;
-    CompressionType compression_type = kNoCompression;
-    constexpr bool need_decompress = true;
-    if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob, need_decompress,
-                             &compression_type)) {
+    if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob)) {
       return Decision::kIOError;
     }
     CompactionFilter::Decision decision = ucf->FilterV2(
@@ -123,15 +120,6 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
     return Decision::kIOError;
   }
   Slice new_blob_value(*new_value);
-  GrowableBuffer compressed_output;
-  if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-    Status s = blob_db_impl->CompressBlob(new_blob_value, &compressed_output);
-    if (!s.ok()) {
-      // Best approximation
-      return Decision::kIOError;
-    }
-    new_blob_value = compressed_output.AsSlice();
-  }
   uint64_t new_blob_file_number = 0;
   uint64_t new_blob_offset = 0;
   if (!WriteBlobToNewFile(key, new_blob_value, &new_blob_file_number,
@@ -142,8 +130,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
     return Decision::kIOError;
   }
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                        new_blob_value.size(),
-                        blob_db_impl->bdb_options_.compression);
+                        new_blob_value.size(), kNoCompression);
   return Decision::kChangeBlobIndex;
 }
 
@@ -205,14 +192,13 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
 }
 
 bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
-    const Slice& key, const BlobIndex& blob_index, PinnableSlice* blob,
-    bool need_decompress, CompressionType* compression_type) const {
+    const Slice& key, const BlobIndex& blob_index, PinnableSlice* blob) const {
   BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
   assert(blob_db_impl);
 
-  Status s = blob_db_impl->GetRawBlobFromFile(
-      key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
-      blob, compression_type);
+  Status s = blob_db_impl->GetRawBlobFromFile(key, blob_index.file_number(),
+                                              blob_index.offset(),
+                                              blob_index.size(), blob);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -223,21 +209,6 @@ bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
         s.ToString().c_str());
 
     return false;
-  }
-
-  if (need_decompress && *compression_type != kNoCompression) {
-    s = blob_db_impl->DecompressSlice(*blob, *compression_type, blob);
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(
-          blob_db_impl->db_options_.info_log,
-          "Uncompression error during blob read from file: %" PRIu64
-          " blob_offset: %" PRIu64 " blob_size: %" PRIu64
-          " key: %s status: '%s'",
-          blob_index.file_number(), blob_index.offset(), blob_index.size(),
-          key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
-
-      return false;
-    }
   }
 
   return true;
@@ -372,31 +343,9 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   }
 
   PinnableSlice blob;
-  CompressionType compression_type = kNoCompression;
-  GrowableBuffer compressed_output;
-  if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
+  if (!ReadBlobFromOldFile(key, blob_index, &blob)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
-  }
-
-  // If the compression_type is changed, re-compress it with the new compression
-  // type.
-  if (compression_type != blob_db_impl->bdb_options_.compression) {
-    if (compression_type != kNoCompression) {
-      const Status status =
-          blob_db_impl->DecompressSlice(blob, compression_type, &blob);
-      if (!status.ok()) {
-        gc_stats_.SetError();
-        return BlobDecision::kCorruption;
-      }
-    }
-    if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-      s = blob_db_impl->CompressBlob(blob, &compressed_output);
-      if (!s.ok()) {
-        return BlobDecision::kCorruption;
-      }
-      blob.PinSelf(compressed_output.AsSlice());
-    }
   }
 
   uint64_t new_blob_file_number = 0;
@@ -412,7 +361,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   }
 
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                        blob.size(), compression_type);
+                        blob.size(), kNoCompression);
 
   gc_stats_.AddRelocatedBlob(blob_index.size());
 

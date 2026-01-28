@@ -227,15 +227,7 @@ class BlobDBImpl : public BlobDB {
 
   Status GetRawBlobFromFile(const Slice& key, uint64_t file_number,
                             uint64_t offset, uint64_t size,
-                            PinnableSlice* value,
-                            CompressionType* compression_type);
-
-  Status CompressBlob(const Slice& raw,
-                      GrowableBuffer* compression_output) const;
-
-  Status DecompressSlice(const Slice& compressed_value,
-                         CompressionType compression_type,
-                         PinnableSlice* value_output) const;
+                            PinnableSlice* value);
 
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
@@ -503,11 +495,7 @@ class BlobDBImpl : public BlobDB {
   int disable_file_deletions_ = 0;
 
   uint32_t debug_level_;
-
-  std::unique_ptr<Compressor> blob_compressor_;
 };
-
-Decompressor& BlobDecompressor();
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
