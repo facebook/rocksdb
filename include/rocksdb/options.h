@@ -2051,6 +2051,44 @@ struct ReadOptions {
   // comes at the expense of slightly higher CPU overhead.
   bool optimize_multiget_for_io = true;
 
+  // When true, blob values are returned in compressed format without
+  // decompression. This is useful for:
+  // - Efficient blob transfer between systems (tiered storage)
+  // - Backup and restore operations (preserving original compression)
+  // - Replication to remote storage
+  // - Debugging and inspection of stored blob data
+  //
+  // When this is set, the returned value contains raw compressed bytes.
+  // The compression algorithm used can be retrieved via:
+  // - blob_compression_types_out pointer (for Get/MultiGet operations)
+  // - Iterator::GetBlobCompressionType() method (for iterator operations)
+  //
+  // Behavior for inline (non-blob) values:
+  // When enabled for inline values that are not stored in blob files, the
+  // value is returned as-is and kNoCompression is reported.
+  //
+  // Default: false
+  bool read_blob_compressed = false;
+
+  // Output vector to receive compression types for Get/MultiGet operations.
+  // Valid only after a successful operation when read_blob_compressed=true.
+  // Each element corresponds to the key at the same index in the request.
+  //
+  // Usage:
+  // - Caller provides a pointer to a std::vector<CompressionType>
+  // - For Get(): The vector will be resized to 1 element
+  // - For MultiGet(): The vector will be resized to match the number of keys
+  // - After the operation returns, each element contains the compression type
+  //   for the corresponding key's blob value (if the key exists and has a blob)
+  // - For keys that don't exist or don't have blob values, the corresponding
+  //   element is set to kNoCompression
+  //
+  // For Iterator operations:
+  // Use Iterator::GetBlobCompressionType() instead of this pointer.
+  //
+  // Default: nullptr (compression types not reported)
+  std::vector<CompressionType>* blob_compression_types_out = nullptr;
+
   // *** END options relevant to point lookups (as well as scans) ***
   // *** BEGIN options only relevant to iterators or scans ***
 

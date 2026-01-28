@@ -55,6 +55,26 @@
 namespace ROCKSDB_NAMESPACE {
 class MockEnv;
 
+// Helper to verify that data is Snappy-compressed and matches expected value.
+// Asserts that:
+// 1. Compressed data is smaller than the original uncompressed data
+// 2. Decompression succeeds
+// 3. Decompressed data matches the expected uncompressed value
+inline void VerifySnappyCompressedData(
+    const Slice& compressed_data, const std::string& expected_uncompressed) {
+  // Verify the compressed data is smaller than original
+  ASSERT_LT(compressed_data.size(), expected_uncompressed.size());
+
+  // Decompress and verify the data
+  size_t uncompressed_size = 0;
+  CacheAllocationPtr decompressed =
+      Snappy_Uncompress(compressed_data.data(), compressed_data.size(),
+                        &uncompressed_size, nullptr);
+  ASSERT_NE(decompressed, nullptr);
+  ASSERT_EQ(std::string(decompressed.get(), uncompressed_size),
+            expected_uncompressed);
+}
+
 namespace anon {
 class AtomicCounter {
  public:

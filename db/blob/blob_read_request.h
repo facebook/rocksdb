@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <optional>
 
 #include "rocksdb/compression_type.h"
 #include "rocksdb/slice.h"
@@ -36,15 +37,22 @@ struct BlobReadRequest {
   // Status of read
   Status* status = nullptr;
 
-  BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
-                  CompressionType _compression, PinnableSlice* _result,
-                  Status* _status)
+  // Output parameter: compression type of the blob (set when
+  // ReadOptions::read_blob_compressed=true). This allows the caller to know
+  // which compression algorithm was used for the blob data.
+  std::optional<CompressionType>* compression_type_out = nullptr;
+
+  BlobReadRequest(
+      const Slice& _user_key, uint64_t _offset, size_t _len,
+      CompressionType _compression, PinnableSlice* _result, Status* _status,
+      std::optional<CompressionType>* _compression_type_out = nullptr)
       : user_key(&_user_key),
         offset(_offset),
         len(_len),
         compression(_compression),
         result(_result),
-        status(_status) {}
+        status(_status),
+        compression_type_out(_compression_type_out) {}
 
   BlobReadRequest() = default;
   BlobReadRequest(const BlobReadRequest& other) = default;
