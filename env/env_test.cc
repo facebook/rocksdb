@@ -3989,6 +3989,25 @@ TEST_F(TestIOActivity, IOActivityToString) {
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kUnknown), "Unknown");
 }
 
+TEST_F(EnvPosixTest, PhysicalCoreID) {
+  // we expect PhysicalCoreID to actually work on supported platform
+  // TODO: support PPC?
+  int core1 = port::PhysicalCoreID();
+  int core2 = port::PhysicalCoreID();
+  ASSERT_GE(core1, -1);
+  ASSERT_GE(core2, -1);
+
+  // this SHOULD be equal, but ...this could be flaky
+  ASSERT_EQ(core1, core2);
+
+  // on supported platforms: we expect this to return a "real" value
+  // as of 2026-01-06 this is not supported on Mac OS X
+#if defined(ROCKSDB_SCHED_GETCPU_PRESENT) || defined(OS_WIN)
+  ASSERT_NE(core1, -1) << "platform support may be missing";
+  ASSERT_NE(core2, -1);
+#endif
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
