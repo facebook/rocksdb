@@ -174,6 +174,7 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
+    "index_search_type": lambda: random.choice([0, 1]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
