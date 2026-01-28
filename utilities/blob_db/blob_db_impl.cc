@@ -81,8 +81,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       open_file_count_(0),
       total_blob_size_(0),
       live_sst_size_(0),
-      fifo_eviction_seq_(0),
-      evict_expiration_up_to_(0),
       debug_level_(0) {
   clock_ = env_->GetSystemClock().get();
   blob_dir_ = (bdb_options_.path_relative)
@@ -277,7 +275,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return s;
   }
 
-  UpdateLiveSSTSize(WriteOptions(Env::IOActivity::kDBOpen));
+  UpdateLiveSSTSize();
 
   // Start background jobs.
   if (!bdb_options_.disable_background_tasks) {
@@ -591,7 +589,6 @@ bool BlobDBImpl::MarkBlobFileObsoleteIfNeeded(
   assert(blob_file->Immutable());
   assert(bdb_options_.enable_garbage_collection);
 
-  // Note: FIFO eviction could have marked this file obsolete already.
   if (blob_file->Obsolete()) {
     return true;
   }
@@ -1095,11 +1092,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& write_options,
     std::string headerbuf;
     BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value, expiration);
 
-    // Check DB size limit before selecting blob file to
-    // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
-    // done before calling SelectBlobFile().
-    s = CheckSizeAndEvictBlobFiles(
-        write_options, headerbuf.size() + key.size() + value.size());
+    // Check DB size limit before selecting blob file.
+    s = CheckDbSizeLimit(headerbuf.size() + key.size() + value.size());
     if (!s.ok()) {
       return s;
     }
@@ -1187,8 +1181,6 @@ void BlobDBImpl::GetCompactionContextCommon(BlobCompactionContext* context) {
   for (auto& p : blob_files_) {
     context->current_blob_files.insert(p.first);
   }
-  context->fifo_eviction_seq = fifo_eviction_seq_;
-  context->evict_expiration_up_to = evict_expiration_up_to_;
 }
 
 void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
@@ -1216,7 +1208,7 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
   }
 }
 
-void BlobDBImpl::UpdateLiveSSTSize(const WriteOptions& write_options) {
+void BlobDBImpl::UpdateLiveSSTSize() {
   uint64_t live_sst_size = 0;
   bool ok = GetIntProperty(DB::Properties::kLiveSstFilesSize, &live_sst_size);
   if (ok) {
@@ -1229,90 +1221,21 @@ void BlobDBImpl::UpdateLiveSSTSize(const WriteOptions& write_options) {
         db_options_.info_log,
         "Failed to update total SST file size after flush or compaction.");
   }
-  {
-    // Trigger FIFO eviction if needed.
-    MutexLock l(&write_mutex_);
-    Status s = CheckSizeAndEvictBlobFiles(write_options, 0, true /*force*/);
-    if (s.IsNoSpace()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "DB grow out-of-space after SST size updated. Current live"
-                     " SST size: %" PRIu64
-                     " , current blob files size: %" PRIu64 ".",
-                     live_sst_size_.load(), total_blob_size_.load());
-    }
-  }
 }
 
-Status BlobDBImpl::CheckSizeAndEvictBlobFiles(const WriteOptions& write_options,
-                                              uint64_t blob_size,
-                                              bool force_evict) {
-  write_mutex_.AssertHeld();
-
-  uint64_t live_sst_size = live_sst_size_.load();
-  if (bdb_options_.max_db_size == 0 ||
-      live_sst_size + total_blob_size_.load() + blob_size <=
-          bdb_options_.max_db_size) {
+Status BlobDBImpl::CheckDbSizeLimit(uint64_t blob_size) {
+  if (bdb_options_.max_db_size == 0) {
     return Status::OK();
   }
 
-  if (bdb_options_.is_fifo == false ||
-      (!force_evict && live_sst_size + blob_size > bdb_options_.max_db_size)) {
-    // FIFO eviction is disabled, or no space to insert new blob even we evict
-    // all blob files.
-    return Status::NoSpace(
-        "Write failed, as writing it would exceed max_db_size limit.");
+  uint64_t live_sst_size = live_sst_size_.load();
+  uint64_t total_blob_size = total_blob_size_.load();
+  if (live_sst_size + total_blob_size + blob_size <= bdb_options_.max_db_size) {
+    return Status::OK();
   }
 
-  std::vector<std::shared_ptr<BlobFile>> candidate_files;
-  CopyBlobFiles(&candidate_files);
-  std::sort(candidate_files.begin(), candidate_files.end(),
-            BlobFileComparator());
-  fifo_eviction_seq_ = GetLatestSequenceNumber();
-
-  WriteLock l(&mutex_);
-
-  while (!candidate_files.empty() &&
-         live_sst_size + total_blob_size_.load() + blob_size >
-             bdb_options_.max_db_size) {
-    std::shared_ptr<BlobFile> blob_file = candidate_files.back();
-    candidate_files.pop_back();
-    WriteLock file_lock(&blob_file->mutex_);
-    if (blob_file->Obsolete()) {
-      // File already obsoleted by someone else.
-      assert(blob_file->Immutable());
-      continue;
-    }
-    // FIFO eviction can evict open blob files.
-    if (!blob_file->Immutable()) {
-      Status s = CloseBlobFile(write_options, blob_file);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-    assert(blob_file->Immutable());
-    auto expiration_range = blob_file->GetExpirationRange();
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Evict oldest blob file since DB out of space. Current "
-                   "live SST file size: %" PRIu64 ", total blob size: %" PRIu64
-                   ", max db size: %" PRIu64 ", evicted blob file #%" PRIu64
-                   ".",
-                   live_sst_size, total_blob_size_.load(),
-                   bdb_options_.max_db_size, blob_file->BlobFileNumber());
-    ObsoleteBlobFile(blob_file, fifo_eviction_seq_, true /*update_size*/);
-    evict_expiration_up_to_ = expiration_range.first;
-    RecordTick(statistics_, BLOB_DB_FIFO_NUM_FILES_EVICTED);
-    RecordTick(statistics_, BLOB_DB_FIFO_NUM_KEYS_EVICTED,
-               blob_file->BlobCount());
-    RecordTick(statistics_, BLOB_DB_FIFO_BYTES_EVICTED,
-               blob_file->GetFileSize());
-    TEST_SYNC_POINT("BlobDBImpl::EvictOldestBlobFile:Evicted");
-  }
-  if (live_sst_size + total_blob_size_.load() + blob_size >
-      bdb_options_.max_db_size) {
-    return Status::NoSpace(
-        "Write failed, as writing it would exceed max_db_size limit.");
-  }
-  return Status::OK();
+  return Status::NoSpace(
+      "Write failed, as writing it would exceed max_db_size limit.");
 }
 
 Status BlobDBImpl::AppendBlob(const WriteOptions& write_options,

@@ -27,14 +27,13 @@ class BlobDBListener : public EventListener {
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->UpdateLiveSSTSize(WriteOptions(Env::IOActivity::kFlush));
+    blob_db_impl_->UpdateLiveSSTSize();
   }
 
   void OnCompactionCompleted(DB* /*db*/,
                              const CompactionJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->UpdateLiveSSTSize(
-        WriteOptions(Env::IOActivity::kCompaction));
+    blob_db_impl_->UpdateLiveSSTSize();
   }
 
   const char* Name() const override { return kClassName(); }

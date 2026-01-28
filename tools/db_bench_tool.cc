@@ -1055,10 +1055,6 @@ DEFINE_double(
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
     "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
 
-DEFINE_bool(blob_db_is_fifo,
-            ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().is_fifo,
-            "[Stacked BlobDB] Enable FIFO eviction strategy in BlobDB.");
-
 DEFINE_uint64(blob_db_max_db_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().max_db_size,
               "[Stacked BlobDB] Max size limit of the directory where blob "
@@ -5192,7 +5188,6 @@ class Benchmark {
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
       blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
-      blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
       blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
       blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
       blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;

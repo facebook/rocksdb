@@ -21,8 +21,6 @@ struct BlobCompactionContext {
   BlobDBImpl* blob_db_impl = nullptr;
   uint64_t next_file_number = 0;
   std::unordered_set<uint64_t> current_blob_files;
-  SequenceNumber fifo_eviction_seq = 0;
-  uint64_t evict_expiration_up_to = 0;
 };
 
 struct BlobCompactionContextGC {

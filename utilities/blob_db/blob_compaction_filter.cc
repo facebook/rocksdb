@@ -55,30 +55,9 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
   if (!blob_index.IsInlined() &&
       blob_index.file_number() < context_.next_file_number &&
       context_.current_blob_files.count(blob_index.file_number()) == 0) {
-    // Corresponding blob file gone (most likely, evicted by FIFO eviction).
     evicted_count_++;
     evicted_size_ += key.size() + value.size();
     return Decision::kRemove;
-  }
-  if (context_.fifo_eviction_seq > 0 && blob_index.HasTTL() &&
-      blob_index.expiration() < context_.evict_expiration_up_to) {
-    // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
-    // get sequence number.
-    ParsedInternalKey ikey;
-    if (!ParseInternalKey(
-             key, &ikey,
-             context_.blob_db_impl->db_options_.allow_data_in_errors)
-             .ok()) {
-      assert(false);
-      return Decision::kKeep;
-    }
-    // Remove keys that could have been remove by last FIFO eviction.
-    // If get error while parsing key, ignore and continue.
-    if (ikey.sequence < context_.fifo_eviction_seq) {
-      evicted_count_++;
-      evicted_size_ += key.size() + value.size();
-      return Decision::kRemove;
-    }
   }
   // Apply user compaction filter for all non-TTL blob data.
   if (ucf != nullptr && !blob_index.HasTTL()) {
@@ -281,8 +260,7 @@ bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     s = blob_db_impl->CloseBlobFile(WriteOptions(), blob_file_);
 
-    // Note: we delay registering the new blob file until it's closed to
-    // prevent FIFO eviction from processing it during compaction/GC.
+    // Note: we delay registering the new blob file until it's closed.
     blob_db_impl->RegisterBlobFile(blob_file_);
   }
 
