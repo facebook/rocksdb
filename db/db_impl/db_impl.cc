@@ -46,10 +46,14 @@
 #include "db/log_writer.h"
 #include "db/malloc_stats.h"
 #include "db/memtable.h"
+#include "db/memtable_insertion_completion_queue.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
+#include "db/partitioned_wal_manager.h"
+#include "db/partitioned_wal_sync_thread.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/sequence_visibility_tracker.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
@@ -555,6 +559,36 @@ Status DBImpl::CloseHelper() {
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
+
+  // Wait for all in-flight partitioned WAL writes to complete before shutdown.
+  // This prevents races between writes and memtable cleanup.
+  if (immutable_db_options_.enable_partitioned_wal) {
+    std::unique_lock<std::mutex> lock(partitioned_wal_shutdown_mutex_);
+    partitioned_wal_shutdown_cv_.wait(lock, [this] {
+      return partitioned_wal_in_flight_writes_.load(
+                 std::memory_order_relaxed) == 0;
+    });
+  }
+
+  // Shutdown partitioned WAL components if they were initialized
+  if (wal_sync_thread_) {
+    wal_sync_thread_->Stop();
+  }
+  if (visibility_tracker_) {
+    visibility_tracker_->Stop();
+  }
+  if (memtable_completion_queue_) {
+    memtable_completion_queue_->Shutdown();
+  }
+  if (partitioned_wal_manager_) {
+    const WriteOptions write_opts;
+    IOStatus io_s = partitioned_wal_manager_->CloseAll(write_opts);
+    if (!io_s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Error closing partitioned WAL files: %s",
+                     io_s.ToString().c_str());
+    }
+  }
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -1590,6 +1624,17 @@ Status DBImpl::GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size) {
 Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   WriteOptions write_options;
+
+  // Also sync partitioned WAL files if enabled
+  if (immutable_db_options_.enable_partitioned_wal &&
+      partitioned_wal_manager_ != nullptr &&
+      partitioned_wal_manager_->IsOpen()) {
+    IOStatus io_s = partitioned_wal_manager_->SyncAll(write_options);
+    if (!io_s.ok()) {
+      return static_cast<Status>(io_s);
+    }
+  }
+
   VersionEdit synced_wals;
   Status s = SyncWalImpl(/*include_current_wal=*/true, write_options,
                          /*job_context=*/nullptr, &synced_wals,

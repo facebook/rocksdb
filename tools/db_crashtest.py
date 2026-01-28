@@ -424,6 +424,14 @@ default_params = {
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
+    # Partitioned WAL options - disabled by default, enable occasionally for testing
+    "enable_partitioned_wal": lambda: random.choice([0] * 9 + [1]),
+    "num_partitioned_wal_writers": lambda: random.choice([2, 4, 8]),
+    "partitioned_wal_consistency_mode": lambda: random.choice(["strong", "weak"]),
+    "partitioned_wal_sync_interval_ms": lambda: random.choice([100, 500, 1000, 5000]),
+    "partitioned_wal_max_file_size": lambda: random.choice(
+        [10 * 1024 * 1024, 50 * 1024 * 1024, 100 * 1024 * 1024]
+    ),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
@@ -1249,6 +1257,32 @@ def finalize_and_sanitize(src_params):
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+
+    # Partitioned WAL has several incompatible options. When partitioned WAL
+    # is enabled, disable incompatible options. When incompatible options are
+    # enabled, disable partitioned WAL.
+    if dest_params.get("enable_partitioned_wal", 0) == 1:
+        # Partitioned WAL requires WAL to be enabled
+        if dest_params.get("disable_wal", 0) == 1:
+            dest_params["enable_partitioned_wal"] = 0
+        # Partitioned WAL is not compatible with pipelined write
+        if dest_params.get("enable_pipelined_write", 0) == 1:
+            dest_params["enable_partitioned_wal"] = 0
+        # Partitioned WAL is not compatible with unordered_write
+        if dest_params.get("unordered_write", 0) == 1:
+            dest_params["enable_partitioned_wal"] = 0
+        # Partitioned WAL is not compatible with two_write_queues
+        if dest_params.get("two_write_queues", 0) == 1:
+            dest_params["enable_partitioned_wal"] = 0
+        # Partitioned WAL is not compatible with transactions
+        if dest_params.get("use_txn", 0) == 1:
+            dest_params["enable_partitioned_wal"] = 0
+        # Partitioned WAL is not compatible with manual WAL flush
+        if dest_params.get("manual_wal_flush_one_in", 0) > 0:
+            dest_params["enable_partitioned_wal"] = 0
+        # Partitioned WAL is not compatible with recycling log files
+        if dest_params.get("recycle_log_file_num", 0) > 0:
+            dest_params["enable_partitioned_wal"] = 0
 
     return dest_params
 

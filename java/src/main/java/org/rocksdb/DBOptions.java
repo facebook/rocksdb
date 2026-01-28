@@ -1215,6 +1215,72 @@ public class DBOptions extends RocksObject
     return bgerrorResumeRetryInterval(nativeHandle_);
   }
 
+  @Override
+  public DBOptions setEnablePartitionedWal(final boolean enablePartitionedWal) {
+    assert (isOwningHandle());
+    setEnablePartitionedWal(nativeHandle_, enablePartitionedWal);
+    return this;
+  }
+
+  @Override
+  public boolean enablePartitionedWal() {
+    assert (isOwningHandle());
+    return enablePartitionedWal(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setNumPartitionedWalWriters(final int numPartitionedWalWriters) {
+    assert (isOwningHandle());
+    setNumPartitionedWalWriters(nativeHandle_, numPartitionedWalWriters);
+    return this;
+  }
+
+  @Override
+  public int numPartitionedWalWriters() {
+    assert (isOwningHandle());
+    return numPartitionedWalWriters(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setPartitionedWalConsistencyMode(final PartitionedWALConsistencyMode mode) {
+    assert (isOwningHandle());
+    setPartitionedWalConsistencyMode(nativeHandle_, mode.getValue());
+    return this;
+  }
+
+  @Override
+  public PartitionedWALConsistencyMode partitionedWalConsistencyMode() {
+    assert (isOwningHandle());
+    return PartitionedWALConsistencyMode.getPartitionedWALConsistencyMode(
+        partitionedWalConsistencyMode(nativeHandle_));
+  }
+
+  @Override
+  public DBOptions setPartitionedWalSyncIntervalMs(final long intervalMs) {
+    assert (isOwningHandle());
+    setPartitionedWalSyncIntervalMs(nativeHandle_, intervalMs);
+    return this;
+  }
+
+  @Override
+  public long partitionedWalSyncIntervalMs() {
+    assert (isOwningHandle());
+    return partitionedWalSyncIntervalMs(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setPartitionedWalMaxFileSize(final long maxFileSize) {
+    assert (isOwningHandle());
+    setPartitionedWalMaxFileSize(nativeHandle_, maxFileSize);
+    return this;
+  }
+
+  @Override
+  public long partitionedWalMaxFileSize() {
+    assert (isOwningHandle());
+    return partitionedWalMaxFileSize(nativeHandle_);
+  }
+
   static final int DEFAULT_NUM_SHARD_BITS = -1;
 
 
@@ -1438,6 +1504,20 @@ public class DBOptions extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
+  private static native void setEnablePartitionedWal(
+      final long handle, final boolean enablePartitionedWal);
+  private static native boolean enablePartitionedWal(final long handle);
+  private static native void setNumPartitionedWalWriters(
+      final long handle, final int numPartitionedWalWriters);
+  private static native int numPartitionedWalWriters(final long handle);
+  private static native void setPartitionedWalConsistencyMode(final long handle, final byte mode);
+  private static native byte partitionedWalConsistencyMode(final long handle);
+  private static native void setPartitionedWalSyncIntervalMs(
+      final long handle, final long intervalMs);
+  private static native long partitionedWalSyncIntervalMs(final long handle);
+  private static native void setPartitionedWalMaxFileSize(
+      final long handle, final long maxFileSize);
+  private static native long partitionedWalMaxFileSize(final long handle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

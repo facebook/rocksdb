@@ -87,16 +87,23 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/malloc_stats.cc",
         "db/manifest_ops.cc",
         "db/memtable.cc",
+        "db/memtable_insertion_completion_queue.cc",
         "db/memtable_list.cc",
         "db/merge_helper.cc",
         "db/merge_operator.cc",
         "db/multi_scan.cc",
         "db/output_validator.cc",
+        "db/partitioned_log_reader.cc",
+        "db/partitioned_log_writer.cc",
+        "db/partitioned_wal_manager.cc",
+        "db/partitioned_wal_recovery.cc",
+        "db/partitioned_wal_sync_thread.cc",
         "db/periodic_task_scheduler.cc",
         "db/range_del_aggregator.cc",
         "db/range_tombstone_fragmenter.cc",
         "db/repair.cc",
         "db/seqno_to_time_mapping.cc",
+        "db/sequence_visibility_tracker.cc",
         "db/snapshot_impl.cc",
         "db/table_cache.cc",
         "db/table_properties_collector.cc",
@@ -5045,6 +5052,12 @@ cpp_unittest_wrapper(name="db_write_buffer_manager_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_write_partitioned_wal_test",
+            srcs=["db/db_write_partitioned_wal_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_write_test",
             srcs=["db/db_write_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5293,6 +5306,12 @@ cpp_unittest_wrapper(name="memory_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="memtable_insertion_completion_queue_test",
+            srcs=["db/memtable_insertion_completion_queue_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="memtable_list_test",
             srcs=["db/memtable_list_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5379,6 +5398,30 @@ cpp_unittest_wrapper(name="options_util_test",
 
 cpp_unittest_wrapper(name="partitioned_filter_block_test",
             srcs=["table/block_based/partitioned_filter_block_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="partitioned_log_test",
+            srcs=["db/partitioned_log_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="partitioned_wal_manager_test",
+            srcs=["db/partitioned_wal_manager_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="partitioned_wal_recovery_test",
+            srcs=["db/partitioned_wal_recovery_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="partitioned_wal_sync_thread_test",
+            srcs=["db/partitioned_wal_sync_thread_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5493,6 +5536,12 @@ cpp_unittest_wrapper(name="ribbon_test",
 
 cpp_unittest_wrapper(name="seqno_time_test",
             srcs=["db/seqno_time_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="sequence_visibility_tracker_test",
+            srcs=["db/sequence_visibility_tracker_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

@@ -5190,6 +5190,69 @@ TEST_F(ConfigOptionsTest, ConfiguringOptionsDoesNotRevertRateLimiterBandwidth) {
   ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
 }
 
+TEST_F(OptionsTest, PartitionedWALOptionParsing) {
+  // Test parsing partitioned WAL options from string
+  DBOptions base_db_opt;
+  DBOptions new_db_opt;
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+
+  // Test enable_partitioned_wal
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options, base_db_opt,
+      "enable_partitioned_wal=true;num_partitioned_wal_writers=8;"
+      "partitioned_wal_consistency_mode=kWeak;"
+      "partitioned_wal_sync_interval_ms=2000;",
+      &new_db_opt));
+  ASSERT_TRUE(new_db_opt.enable_partitioned_wal);
+  ASSERT_EQ(new_db_opt.num_partitioned_wal_writers, 8u);
+  ASSERT_EQ(new_db_opt.partitioned_wal_consistency_mode,
+            PartitionedWALConsistencyMode::kWeak);
+  ASSERT_EQ(new_db_opt.partitioned_wal_sync_interval_ms, 2000u);
+
+  // Test default values
+  ASSERT_OK(
+      GetDBOptionsFromString(config_options, base_db_opt, "", &new_db_opt));
+  ASSERT_FALSE(new_db_opt.enable_partitioned_wal);
+  ASSERT_EQ(new_db_opt.num_partitioned_wal_writers, 4u);
+  ASSERT_EQ(new_db_opt.partitioned_wal_consistency_mode,
+            PartitionedWALConsistencyMode::kStrong);
+  ASSERT_EQ(new_db_opt.partitioned_wal_sync_interval_ms, 1000u);
+
+  // Test kStrong consistency mode
+  ASSERT_OK(GetDBOptionsFromString(config_options, base_db_opt,
+                                   "partitioned_wal_consistency_mode=kStrong;",
+                                   &new_db_opt));
+  ASSERT_EQ(new_db_opt.partitioned_wal_consistency_mode,
+            PartitionedWALConsistencyMode::kStrong);
+
+  // Test invalid consistency mode value
+  Status s = GetDBOptionsFromString(
+      config_options, base_db_opt, "partitioned_wal_consistency_mode=kInvalid;",
+      &new_db_opt);
+  ASSERT_NOK(s);
+
+  // Test serialization round-trip
+  DBOptions opts;
+  opts.enable_partitioned_wal = true;
+  opts.num_partitioned_wal_writers = 16;
+  opts.partitioned_wal_consistency_mode = PartitionedWALConsistencyMode::kWeak;
+  opts.partitioned_wal_sync_interval_ms = 5000;
+
+  std::string opts_str;
+  ASSERT_OK(GetStringFromDBOptions(config_options, opts, &opts_str));
+
+  DBOptions parsed_opts;
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(), opts_str,
+                                   &parsed_opts));
+  ASSERT_EQ(parsed_opts.enable_partitioned_wal, true);
+  ASSERT_EQ(parsed_opts.num_partitioned_wal_writers, 16u);
+  ASSERT_EQ(parsed_opts.partitioned_wal_consistency_mode,
+            PartitionedWALConsistencyMode::kWeak);
+  ASSERT_EQ(parsed_opts.partitioned_wal_sync_interval_ms, 5000u);
+}
+
 INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
                         ::testing::Bool());
 

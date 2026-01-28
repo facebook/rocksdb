@@ -256,6 +256,35 @@ class WriteBatchInternal {
   // If checksum is provided, the batch content is verfied against the checksum.
   static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key,
                                      uint64_t* checksum = nullptr);
+
+  // Get body (all records after 12-byte header: 8B sequence + 4B count)
+  // Returns a Slice pointing to the records portion of the WriteBatch.
+  // The returned Slice is only valid as long as the WriteBatch is not modified.
+  static Slice GetBody(const WriteBatch* batch);
+
+  // Rebuild batch from body with new sequence number.
+  // The body is the data after the 12-byte header (records only, no header).
+  // This clears the batch and creates a new WriteBatch with the given
+  // sequence number and the body content. The count is determined by
+  // iterating over the body to count records.
+  // Returns OK on success, or Corruption if the body is malformed.
+  static Status SetSequenceAndRebuildFromBody(WriteBatch* batch,
+                                              SequenceNumber seq,
+                                              const Slice& body);
+
+  // Count the number of records in a body (records portion without header).
+  // This is a helper function that iterates over the body to count records.
+  // Returns the count on success via out parameter, or an error status if
+  // the body is malformed.
+  static Status CountRecordsInBody(const Slice& body, uint32_t* count);
+
+  // Get the first column family ID encountered in the WriteBatch.
+  // This is useful for partitioned WAL where we need to record which
+  // column family a batch primarily operates on. For batches that span
+  // multiple column families, this returns the first CF ID encountered.
+  // If the batch is empty or contains only non-CF operations (like
+  // BeginPrepare), returns 0 (default column family).
+  static uint32_t GetFirstColumnFamilyId(const WriteBatch* batch);
 };
 
 // LocalSavePoint is similar to a scope guard

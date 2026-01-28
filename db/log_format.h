@@ -46,10 +46,16 @@ enum RecordType : uint8_t {
   // For WAL verification
   kPredecessorWALInfoType = 130,
   kRecyclePredecessorWALInfoType = 131,
+
+  // For partitioned WAL
+  // Completion record indicates a write batch body has been written to a
+  // partitioned WAL file
+  kPartitionedWALCompletionType = 132,
+  kRecyclablePartitionedWALCompletionType = 133,
 };
 // Unknown type of value with the 8-th bit set will be ignored
 constexpr uint8_t kRecordTypeSafeIgnoreMask = 1 << 7;
-constexpr uint8_t kMaxRecordType = kRecyclePredecessorWALInfoType;
+constexpr uint8_t kMaxRecordType = kRecyclablePartitionedWALCompletionType;
 
 constexpr unsigned int kBlockSize = 32768;
 
