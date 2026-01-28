@@ -33,13 +33,13 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0 # Need full checkout to determine merge base
         fetch-tags: true
     - uses: "./.github/actions/setup-upstream"
     - name: Setup Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
     - name: Install Dependencies
       run: python -m pip install --upgrade pip
     - name: Install argparse
@@ -69,7 +69,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/post-steps"
@@ -81,7 +81,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
     - name: Build cmake-mingw
@@ -100,7 +100,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
@@ -119,7 +119,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
@@ -133,7 +133,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
@@ -152,7 +152,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
@@ -164,7 +164,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
     - run: "./sst_dump --help | grep -E -q 'Supported built-in compression types: kNoCompression$' # Verify no compiled in compression\n"
@@ -178,7 +178,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - run: make V=1 -j32 LIB_MODE=shared release
     - run: ls librocksdb.so
     - run: "./trace_analyzer --version" # A tool dependent on gflags that can run in release build
@@ -204,7 +204,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     # FIXME: get back to "all microbench" targets
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ make -j32 shared_lib
@@ -220,7 +220,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j32 all microbench
     - run: make clean
@@ -234,7 +234,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
@@ -248,14 +248,14 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-18" CLANG_SCAN_BUILD=scan-build-18 USE_CLANG=1 make V=1 -j32 analyze
     - uses: "./.github/actions/post-steps"
     - name: compress test report
       run: tar -cvzf scan_build_report.tar.gz scan_build_report
       if: failure()
-    - uses: actions/upload-artifact@v4.0.0
+    - uses: actions/upload-artifact@v6
       with:
         name: scan-build-report
         path: scan_build_report.tar.gz
@@ -267,7 +267,7 @@ jobs:
       image: gcc:latest
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - run: apt-get update -y && apt-get install -y libgflags-dev
     - name: Unity build
       run: make V=1 -j8 unity_test
@@ -281,7 +281,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
     - uses: "./.github/actions/post-steps"
@@ -294,7 +294,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
     - uses: "./.github/actions/post-steps"
@@ -306,7 +306,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.0
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
@@ -318,7 +318,7 @@ jobs:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/pre-steps"
     - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
     - uses: "./.github/actions/post-steps"
@@ -329,7 +329,7 @@ jobs:
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
         xcode-version: 16.4.0
@@ -347,7 +347,7 @@ jobs:
       matrix:
         run_sharded_tests: [0, 1, 2, 3]
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
         xcode-version: 16.4.0
@@ -380,7 +380,7 @@ jobs:
       CMAKE_GENERATOR: Visual Studio 17 2022
       CMAKE_PORTABLE: 1
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/windows-build-steps"
   # ============================ Java Jobs ============================ #
   build-linux-java:
@@ -452,7 +452,7 @@ jobs:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
       ROCKSDB_DISABLE_JEMALLOC: 1
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
         xcode-version: 16.4.0
@@ -474,7 +474,7 @@ jobs:
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
         xcode-version: 16.4.0
@@ -496,7 +496,7 @@ jobs:
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: maxim-lobanov/setup-xcode@v1.6.0
       with:
         xcode-version: 16.4.0
@@ -520,7 +520,7 @@ jobs:
       image: evolvedbinary/rocksjava:alpine3_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v6
     - uses: "./.github/actions/install-maven"
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
@@ -530,11 +530,11 @@ jobs:
         which javac && javac -version
     - name: PMD RocksDBJava
       run: make V=1 J=8 -j8 jpmd
-    - uses: actions/upload-artifact@v4.0.0
+    - uses: actions/upload-artifact@v6
       with:
         name: pmd-report
         path: "${{ github.workspace }}/java/target/pmd.xml"
-    - uses: actions/upload-artifact@v4.0.0
+    - uses: actions/upload-artifact@v6
       with:
         name: maven-site
         path: "${{ github.workspace }}/java/target/site"
@@ -543,7 +543,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu-arm
     steps:
-      - uses: actions/checkout@v4.1.0
+      - uses: actions/checkout@v6
       - uses: "./.github/actions/pre-steps"
       - run: sudo apt-get update && sudo apt-get install -y build-essential
       - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
