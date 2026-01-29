@@ -1786,7 +1786,6 @@ TEST_F(BlobDBTest, SyncBlobFileBeforeClose) {
   options.statistics = CreateDBStatistics();
 
   BlobDBOptions blob_options;
-  blob_options.bytes_per_sync = 1 << 20;
   blob_options.disable_background_tasks = true;
 
   Open(blob_options, options);
@@ -1805,7 +1804,6 @@ TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
   options.env = fault_injection_env_.get();
 
   BlobDBOptions blob_options;
-  blob_options.bytes_per_sync = 1 << 20;
   blob_options.disable_background_tasks = true;
 
   Open(blob_options, options);
