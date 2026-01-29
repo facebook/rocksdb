@@ -25,13 +25,10 @@ namespace blob_db {
 // users to use blob DB.
 
 constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
+// Name of the directory under the base DB where blobs will be stored.
+constexpr const char* kBlobDirName = "blob_dir";
 
 struct BlobDBOptions {
-  // Name of the directory under the base DB where blobs will be stored. Using
-  // a directory where the base DB stores its SST files is not supported.
-  // Default is "blob_dir"
-  std::string blob_dir = "blob_dir";
-
   // Maximum size of the database (including SST files and blob files).
   //
   // Default: 0 (no limits)

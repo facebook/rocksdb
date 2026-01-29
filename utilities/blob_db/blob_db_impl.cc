@@ -88,7 +88,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       live_sst_size_(0),
       debug_level_(0) {
   clock_ = env_->GetSystemClock().get();
-  blob_dir_ = dbname + "/" + bdb_options_.blob_dir;
+  blob_dir_ = dbname + "/" + kBlobDirName;
   file_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
 }
 
@@ -1970,12 +1970,12 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {
 }
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
-                     const BlobDBOptions& bdb_options) {
+                     const BlobDBOptions& /*bdb_options*/) {
   const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
 
   Status status;
-  std::string blobdir = dbname + "/" + bdb_options.blob_dir;
+  std::string blobdir = dbname + "/" + kBlobDirName;
 
   std::vector<std::string> filenames;
   if (env->GetChildren(blobdir, &filenames).ok()) {
