@@ -283,7 +283,7 @@ class DBCompactionAbortTest : public DBTestBase {
   }
 };
 
-// Parameterized test for abort with different subcompaction configurations
+// Parameterized test for abort with different number of max subcompactions.
 // This consolidates tests that were essentially duplicates with different
 // max_subcompactions values
 class DBCompactionAbortSubcompactionTest
@@ -355,14 +355,9 @@ TEST_P(DBCompactionAbortStyleTest, AbortCompaction) {
   ConfigureOptionsForStyle(options, style);
   Reopen(options);
 
-  // Use larger value size for Universal compaction to ensure compaction work
-  int value_size = (style == kCompactionStyleUniversal) ? 1000 : 100;
-  PopulateData(/*num_files=*/4, /*keys_per_file=*/100,
-               /*value_size=*/value_size);
+  PopulateData(/*num_files=*/4, /*keys_per_file=*/100, /*value_size=*/100);
 
-  RunSyncPointAbortTest((style == kCompactionStyleUniversal)
-                            ? "CompactionJob::ProcessKeyValueCompaction:Start"
-                            : "CompactionJob::RunSubcompactions:BeforeStart");
+  RunSyncPointAbortTest("CompactionJob::RunSubcompactions:BeforeStart");
 
   VerifyDataIntegrity(/*num_keys=*/100);
 }
