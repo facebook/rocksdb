@@ -32,7 +32,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     if (ucf == nullptr) {
       return Decision::kKeep;
     }
-    // Apply user compaction filter for inlined data.
+    // Apply user compaction filter for non-blob data.
     CompactionFilter::Decision decision =
         ucf->FilterV2(level, key, value_type, value, new_value, skip_until);
     if (decision == Decision::kChangeValue) {
@@ -52,8 +52,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     expired_size_ += key.size() + value.size();
     return Decision::kRemove;
   }
-  if (!blob_index.IsInlined() &&
-      blob_index.file_number() < context_.next_file_number &&
+  if (blob_index.file_number() < context_.next_file_number &&
       context_.current_blob_files.count(blob_index.file_number()) == 0) {
     evicted_count_++;
     evicted_size_ += key.size() + value.size();
@@ -88,13 +87,6 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
 
 CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
     const Slice& key, std::string* new_value) const {
-  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
-  assert(blob_db_impl);
-
-  if (new_value->size() < blob_db_impl->bdb_options_.min_blob_size) {
-    // Keep new_value inlined.
-    return Decision::kChangeValue;
-  }
   if (!OpenNewBlobFileIfNeeded()) {
     return Decision::kIOError;
   }
@@ -293,12 +285,6 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   if (!s.ok()) {
     gc_stats_.SetError();
     return BlobDecision::kCorruption;
-  }
-
-  if (blob_index.IsInlined()) {
-    gc_stats_.AddBlob(blob_index.value().size());
-
-    return BlobDecision::kKeep;
   }
 
   gc_stats_.AddBlob(blob_index.size());

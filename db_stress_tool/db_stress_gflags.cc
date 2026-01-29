@@ -426,12 +426,6 @@ DEFINE_bool(enable_write_thread_adaptive_yield,
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Use BlobDB.");
 
 DEFINE_uint64(
-    blob_db_min_blob_size,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
-    "[Stacked BlobDB] Smallest blob to store in a file. Blobs "
-    "smaller than this will be inlined with the key in the LSM tree.");
-
-DEFINE_uint64(
     blob_db_bytes_per_sync,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
     "[Stacked BlobDB] Sync blob files once per every N bytes written.");

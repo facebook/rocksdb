@@ -326,12 +326,12 @@ enum Tickers : uint32_t {
   // # of bytes (keys + value) read from BlobDB. Only applicable to legacy
   // BlobDB.
   BLOB_DB_BYTES_READ,
-  // # of keys written by BlobDB as non-TTL inlined value. Only applicable to
-  // legacy BlobDB.
-  BLOB_DB_WRITE_INLINED,
-  // # of keys written by BlobDB as TTL inlined value. Only applicable to legacy
-  // BlobDB.
-  BLOB_DB_WRITE_INLINED_TTL,
+  // Deprecated: min_blob_size is no longer configurable. Retained to avoid
+  // shifting enum values.
+  BLOB_DB_WRITE_INLINED_DEPRECATED,
+  // Deprecated: min_blob_size is no longer configurable. Retained to avoid
+  // shifting enum values.
+  BLOB_DB_WRITE_INLINED_TTL_DEPRECATED,
   // # of keys written by BlobDB as non-TTL blob value. Only applicable to
   // legacy BlobDB.
   BLOB_DB_WRITE_BLOB,

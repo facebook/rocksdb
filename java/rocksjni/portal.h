@@ -5101,9 +5101,9 @@ class TickerTypeJni {
         return -0x1;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ:
         return -0x2;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_DEPRECATED:
         return -0x3;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL_DEPRECATED:
         return -0x4;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB:
         return -0x5;
@@ -5594,9 +5594,9 @@ class TickerTypeJni {
       case -0x2:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ;
       case -0x3:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_DEPRECATED;
       case -0x4:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL_DEPRECATED;
       case -0x5:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB;
       case -0x6:

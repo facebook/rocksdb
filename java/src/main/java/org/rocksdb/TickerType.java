@@ -550,14 +550,14 @@ public enum TickerType {
     BLOB_DB_BYTES_READ((byte) -0x2),
 
     /**
-     * # of keys written by BlobDB as non-TTL inlined value.
+     * Deprecated and unused. Retained to avoid shifting enum values.
      */
-    BLOB_DB_WRITE_INLINED((byte) -0x3),
+    @Deprecated BLOB_DB_WRITE_INLINED((byte) -0x3),
 
     /**
-     * # of keys written by BlobDB as TTL inlined value.
+     * Deprecated and unused. Retained to avoid shifting enum values.
      */
-    BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
+    @Deprecated BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
 
     /**
      * # of keys written by BlobDB as non-TTL blob value.

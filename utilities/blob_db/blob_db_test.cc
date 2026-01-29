@@ -265,10 +265,7 @@ class BlobDBTest : public testing::Test {
       BlobIndex blob_index;
       ASSERT_OK(blob_index.DecodeFrom(versions[i].value));
 
-      const uint64_t file_number = !blob_index.IsInlined()
-                                       ? blob_index.file_number()
-                                       : kInvalidBlobFileNumber;
-      ASSERT_EQ(file_number, expected_version.file_number);
+      ASSERT_EQ(blob_index.file_number(), expected_version.file_number);
 
       const uint64_t expiration =
           blob_index.HasTTL() ? blob_index.expiration() : kNoExpiration;
@@ -303,7 +300,6 @@ class BlobDBTest : public testing::Test {
 TEST_F(BlobDBTest, Put) {
   Random rnd(301);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -319,8 +315,6 @@ TEST_F(BlobDBTest, PutWithTTL) {
   options.env = mock_env_.get();
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
-  bdb_options.min_blob_size = 0;
-  bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
@@ -342,7 +336,6 @@ TEST_F(BlobDBTest, PutWithTTL) {
 TEST_F(BlobDBTest, StackableDBGet) {
   Random rnd(301);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -385,7 +378,6 @@ TEST_F(BlobDBTest, GetIOError) {
   Options options;
   options.env = fault_injection_env_.get();
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;  // Make sure value write to blob file
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   ColumnFamilyHandle* column_family = blob_db_->DefaultColumnFamily();
@@ -402,7 +394,6 @@ TEST_F(BlobDBTest, PutIOError) {
   Options options;
   options.env = fault_injection_env_.get();
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;  // Make sure value write to blob file
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   fault_injection_env_->SetFilesystemActive(false, Status::IOError());
@@ -414,7 +405,6 @@ TEST_F(BlobDBTest, PutIOError) {
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -433,7 +423,6 @@ TEST_F(BlobDBTest, WriteBatch) {
 TEST_F(BlobDBTest, Delete) {
   Random rnd(301);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -449,7 +438,6 @@ TEST_F(BlobDBTest, Delete) {
 TEST_F(BlobDBTest, DeleteBatch) {
   Random rnd(301);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   for (size_t i = 0; i < 100; i++) {
@@ -467,7 +455,6 @@ TEST_F(BlobDBTest, DeleteBatch) {
 TEST_F(BlobDBTest, Override) {
   Random rnd(301);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -521,7 +508,6 @@ TEST_F(BlobDBTest, SstFileManager) {
       static_cast<SstFileManagerImpl*>(sst_file_manager.get());
 
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.enable_garbage_collection = true;
   bdb_options.garbage_collection_cutoff = 1.0;
   Options db_options;
@@ -579,7 +565,6 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
       static_cast<SstFileManagerImpl*>(sst_file_manager.get());
 
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   Options db_options;
 
   SyncPoint::GetInstance()->EnableProcessing();
@@ -620,7 +605,6 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
 
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.enable_garbage_collection = true;
   bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
@@ -728,7 +712,6 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   bdb_options.blob_dir = "blob_dir";
   bdb_options.path_relative = true;
   bdb_options.ttl_range_secs = 10;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
 
   Options options;
@@ -867,66 +850,13 @@ TEST_F(BlobDBTest, OutOfSpace) {
   ASSERT_TRUE(s.IsNoSpace());
 }
 
-TEST_F(BlobDBTest, InlineSmallValues) {
-  constexpr uint64_t kMaxExpiration = 1000;
-  Random rnd(301);
-  BlobDBOptions bdb_options;
-  bdb_options.ttl_range_secs = kMaxExpiration;
-  bdb_options.min_blob_size = 100;
-  bdb_options.blob_file_size = 256 * 1000 * 1000;
-  bdb_options.disable_background_tasks = true;
-  Options options;
-  options.env = mock_env_.get();
-  mock_clock_->SetCurrentTime(0);
-  Open(bdb_options, options);
-  std::map<std::string, std::string> data;
-  std::map<std::string, KeyVersion> versions;
-  for (size_t i = 0; i < 1000; i++) {
-    bool is_small_value = rnd.Next() % 2;
-    bool has_ttl = rnd.Next() % 2;
-    uint64_t ttl = rnd.Next() % kMaxExpiration;
-    int len = is_small_value ? 50 : 200;
-    std::string key = "key" + std::to_string(i);
-    std::string value = rnd.HumanReadableString(len);
-    std::string blob_index;
-    data[key] = value;
-    SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
-    if (!has_ttl) {
-      ASSERT_OK(blob_db_->Put(WriteOptions(), key, value));
-    } else {
-      ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), key, value, ttl));
-    }
-    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
-    versions[key] =
-        KeyVersion(key, value, sequence,
-                   (is_small_value && !has_ttl) ? kTypeValue : kTypeBlobIndex);
-  }
-  VerifyDB(data);
-  VerifyBaseDB(versions);
-  auto* bdb_impl = static_cast<BlobDBImpl*>(blob_db_);
-  auto blob_files = bdb_impl->TEST_GetBlobFiles();
-  ASSERT_EQ(2, blob_files.size());
-  std::shared_ptr<BlobFile> non_ttl_file;
-  std::shared_ptr<BlobFile> ttl_file;
-  if (blob_files[0]->HasTTL()) {
-    ttl_file = blob_files[0];
-    non_ttl_file = blob_files[1];
-  } else {
-    non_ttl_file = blob_files[0];
-    ttl_file = blob_files[1];
-  }
-  ASSERT_FALSE(non_ttl_file->HasTTL());
-  ASSERT_TRUE(ttl_file->HasTTL());
-}
-
 TEST_F(BlobDBTest, UserCompactionFilter) {
   class CustomerFilter : public CompactionFilter {
    public:
     bool Filter(int /*level*/, const Slice& /*key*/, const Slice& value,
                 std::string* new_value, bool* value_changed) const override {
       *value_changed = false;
-      // changing value size to test value transitions between inlined data
-      // and stored-in-blob data
+      // Test compaction filter modifying blob values
       if (value.size() % 4 == 1) {
         *new_value = value.ToString();
         // double size by duplicating value
@@ -956,15 +886,10 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
   };
 
   constexpr size_t kNumPuts = 1 << 10;
-  // Generate both inlined and blob value
   constexpr uint64_t kMinValueSize = 1 << 6;
   constexpr uint64_t kMaxValueSize = 1 << 8;
-  constexpr uint64_t kMinBlobSize = 1 << 7;
-  static_assert(kMinValueSize < kMinBlobSize);
-  static_assert(kMaxValueSize > kMinBlobSize);
 
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.blob_file_size = kMaxValueSize * 10;
   bdb_options.disable_background_tasks = true;
   // case_num == 0: Test user defined compaction filter
@@ -1043,7 +968,6 @@ TEST_F(BlobDBTest, UserCompactionFilter_BlobIOError) {
   constexpr int kValueSize = 100;
 
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.blob_file_size = kValueSize * 10;
   bdb_options.disable_background_tasks = true;
 
@@ -1105,11 +1029,9 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   constexpr size_t kNumPuts = 1000;
   constexpr uint64_t kMaxTTL = 1000;
   constexpr uint64_t kCompactTime = 500;
-  constexpr uint64_t kMinBlobSize = 100;
   Random rnd(301);
   mock_clock_->SetCurrentTime(0);
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.disable_background_tasks = true;
   Options options;
   options.env = mock_env_.get();
@@ -1118,21 +1040,13 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   std::map<std::string, std::string> data;
   std::map<std::string, std::string> data_after_compact;
   for (size_t i = 0; i < kNumPuts; i++) {
-    bool is_small_value = rnd.Next() % 2;
     bool has_ttl = rnd.Next() % 2;
     // At time 0, stored expiration equals TTL
     uint64_t ttl = rnd.Next() % kMaxTTL;
-    int len = is_small_value ? 10 : 200;
+    int len = rnd.Next() % 200 + 10;
     std::string key = "key" + std::to_string(rnd.Next() % kNumKeys);
     std::string value = rnd.HumanReadableString(len);
     if (!has_ttl) {
-      if (is_small_value) {
-        std::string blob_entry;
-        BlobIndex::EncodeInlinedTTL(&blob_entry, ttl, value);
-        // Fake blob index with TTL. See what it will do.
-        ASSERT_GT(kMinBlobSize, blob_entry.size());
-        value = blob_entry;
-      }
       ASSERT_OK(Put(key, value));
       data_after_compact[key] = value;
     } else {
@@ -1169,7 +1083,6 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
 // blob file has been removed.
 TEST_F(BlobDBTest, FilterFileNotAvailable) {
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Options options;
   options.disable_auto_compactions = true;
@@ -1230,21 +1143,15 @@ TEST_F(BlobDBTest, GarbageCollection) {
   constexpr uint64_t kCompactTime = 500;
 
   constexpr uint64_t kKeySize = 7;  // "key" + 4 digits
-
-  constexpr uint64_t kSmallValueSize = 1 << 6;
-  constexpr uint64_t kLargeValueSize = 1 << 8;
-  constexpr uint64_t kMinBlobSize = 1 << 7;
-  static_assert(kSmallValueSize < kMinBlobSize);
-  static_assert(kLargeValueSize > kMinBlobSize);
+  constexpr uint64_t kValueSize = 1 << 8;
 
   constexpr size_t kBlobsPerFile = 8;
   constexpr size_t kNumBlobFiles = kNumPuts / kBlobsPerFile;
   constexpr uint64_t kBlobFileSize =
       BlobLogHeader::kSize +
-      (BlobLogRecord::kHeaderSize + kKeySize + kLargeValueSize) * kBlobsPerFile;
+      (BlobLogRecord::kHeaderSize + kKeySize + kValueSize) * kBlobsPerFile;
 
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.blob_file_size = kBlobFileSize;
   bdb_options.enable_garbage_collection = true;
   bdb_options.garbage_collection_cutoff = 0.25;
@@ -1262,14 +1169,14 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   Random rnd(301);
 
-  // Add a bunch of large non-TTL values. These will be written to non-TTL
+  // Add a bunch of non-TTL values. These will be written to non-TTL
   // blob files and will be subject to GC.
   for (size_t i = 0; i < kNumPuts; ++i) {
     std::ostringstream oss;
     oss << "key" << std::setw(4) << std::setfill('0') << i;
 
     const std::string key(oss.str());
-    const std::string value = rnd.HumanReadableString(kLargeValueSize);
+    const std::string value = rnd.HumanReadableString(kValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(Put(key, value));
@@ -1282,11 +1189,11 @@ TEST_F(BlobDBTest, GarbageCollection) {
                          sequence, kTypeBlobIndex);
   }
 
-  // Add some small and/or TTL values that will be ignored during GC.
-  // First, add a large TTL value will be written to its own TTL blob file.
+  // Add a TTL value that will be written to its own TTL blob file (ignored
+  // during GC).
   {
     const std::string key("key2000");
-    const std::string value = rnd.HumanReadableString(kLargeValueSize);
+    const std::string value = rnd.HumanReadableString(kValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), key, value, kTTL));
@@ -1297,37 +1204,6 @@ TEST_F(BlobDBTest, GarbageCollection) {
     blob_index_versions[key] =
         BlobIndexVersion(key, /* file_number */ kNumBlobFiles + 1, kTTL,
                          sequence, kTypeBlobIndex);
-  }
-
-  // Now add a small TTL value (which will be inlined).
-  {
-    const std::string key("key3000");
-    const std::string value = rnd.HumanReadableString(kSmallValueSize);
-    const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
-
-    ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), key, value, kTTL));
-    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
-
-    data[key] = value;
-    blob_value_versions[key] = KeyVersion(key, value, sequence, kTypeBlobIndex);
-    blob_index_versions[key] = BlobIndexVersion(key, kInvalidBlobFileNumber,
-                                                kTTL, sequence, kTypeBlobIndex);
-  }
-
-  // Finally, add a small non-TTL value (which will be stored as a regular
-  // value).
-  {
-    const std::string key("key4000");
-    const std::string value = rnd.HumanReadableString(kSmallValueSize);
-    const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
-
-    ASSERT_OK(Put(key, value));
-    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
-
-    data[key] = value;
-    blob_value_versions[key] = KeyVersion(key, value, sequence, kTypeValue);
-    blob_index_versions[key] = BlobIndexVersion(
-        key, kInvalidBlobFileNumber, kNoExpiration, sequence, kTypeValue);
   }
 
   VerifyDB(data);
@@ -1391,7 +1267,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED),
             cutoff * kBlobsPerFile);
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED),
-            cutoff * kBlobsPerFile * kLargeValueSize);
+            cutoff * kBlobsPerFile * kValueSize);
 
   // At this point, we should have 128 immutable non-TTL files with file numbers
   // 33..128 and 130..161. (129 was taken by the TTL blob file.)
@@ -1413,7 +1289,6 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
 TEST_F(BlobDBTest, GarbageCollectionFailure) {
   BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
   bdb_options.enable_garbage_collection = true;
   bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
@@ -1460,7 +1335,6 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
 TEST_F(BlobDBTest, EvictExpiredFile) {
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 100;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Options options;
   options.env = mock_env_.get();
@@ -1790,7 +1664,6 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
 TEST_F(BlobDBTest, ShutdownWait) {
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 100;
-  bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = false;
   Options options;
   options.env = mock_env_.get();
@@ -1854,7 +1727,6 @@ TEST_F(BlobDBTest, SyncBlobFileBeforeClose) {
   options.statistics = CreateDBStatistics();
 
   BlobDBOptions blob_options;
-  blob_options.min_blob_size = 0;
   blob_options.bytes_per_sync = 1 << 20;
   blob_options.disable_background_tasks = true;
 
@@ -1874,7 +1746,6 @@ TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
   options.env = fault_injection_env_.get();
 
   BlobDBOptions blob_options;
-  blob_options.min_blob_size = 0;
   blob_options.bytes_per_sync = 1 << 20;
   blob_options.disable_background_tasks = true;
 
