@@ -174,10 +174,6 @@ class BlobDB : public StackableDB {
                      std::vector<ColumnFamilyHandle*>* handles,
                      BlobDB** blob_db);
 
-  virtual BlobDBOptions GetBlobDBOptions() const = 0;
-
-  virtual Status SyncBlobFiles(const WriteOptions& write_options) = 0;
-
   ~BlobDB() override {}
 
  protected:
