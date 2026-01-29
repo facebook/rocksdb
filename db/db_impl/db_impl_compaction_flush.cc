@@ -1719,6 +1719,12 @@ Status DBImpl::CompactFilesImpl(
                    "[%s] [JOB %d] Stopping manual compaction",
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id);
+  } else if (status.IsCompactionAborted()) {
+    // Don't report aborted compaction as error
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Compaction aborted",
+                   c->column_family_data()->GetName().c_str(),
+                   job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
@@ -3654,6 +3660,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // case of a failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
                                         !s.IsManualCompactionPaused() &&
+                                        !s.IsCompactionAborted() &&
                                         !s.IsColumnFamilyDropped() &&
                                         !s.IsBusy());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
