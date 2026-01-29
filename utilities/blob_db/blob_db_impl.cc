@@ -43,6 +43,11 @@
 
 namespace ROCKSDB_NAMESPACE::blob_db {
 
+// The cutoff in terms of blob file age for garbage collection. Blobs in the
+// oldest N non-TTL blob files will be rewritten when encountered during
+// compaction, where N = kGarbageCollectionCutoff * number_of_non_TTL_files.
+constexpr double kGarbageCollectionCutoff = 0.25;
+
 bool BlobFileComparator::operator()(
     const std::shared_ptr<BlobFile>& lhs,
     const std::shared_ptr<BlobFile>& rhs) const {
@@ -136,12 +141,6 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
   if (blob_dir_.empty()) {
     return Status::NotSupported("No blob directory in options");
-  }
-
-  if (bdb_options_.garbage_collection_cutoff < 0.0 ||
-      bdb_options_.garbage_collection_cutoff > 1.0) {
-    return Status::InvalidArgument(
-        "Garbage collection cutoff must be in the interval [0.0, 1.0]");
   }
 
   // Temporarily disable compactions in the base DB during open; save the user
@@ -1185,8 +1184,8 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
 
   if (!live_imm_non_ttl_blob_files_.empty()) {
     auto it = live_imm_non_ttl_blob_files_.begin();
-    std::advance(it, bdb_options_.garbage_collection_cutoff *
-                         live_imm_non_ttl_blob_files_.size());
+    std::advance(
+        it, kGarbageCollectionCutoff * live_imm_non_ttl_blob_files_.size());
     context_gc->cutoff_file_number = it != live_imm_non_ttl_blob_files_.end()
                                          ? it->first
                                          : std::numeric_limits<uint64_t>::max();

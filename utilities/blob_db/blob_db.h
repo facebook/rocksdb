@@ -61,11 +61,6 @@ struct BlobDBOptions {
   // by rewriting the remaining live blobs to new files.
   bool enable_garbage_collection = false;
 
-  // The cutoff in terms of blob file age for garbage collection. Blobs in
-  // the oldest N non-TTL blob files will be rewritten when encountered during
-  // compaction, where N = garbage_collection_cutoff * number_of_non_TTL_files.
-  double garbage_collection_cutoff = 0.25;
-
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
