@@ -218,6 +218,7 @@ DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);
 DECLARE_int32(disable_file_deletions_one_in);
 DECLARE_int32(disable_manual_compaction_one_in);
+DECLARE_int32(abort_and_resume_compactions_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);

@@ -117,6 +117,7 @@ class Status {
     kMergeOperandThresholdExceeded = 16,
     kPrefetchLimitReached = 17,
     kNotExpectedCodePath = 18,
+    kCompactionAborted = 19,
     kMaxSubCode
   };
 
@@ -481,6 +482,13 @@ class Status {
   bool IsManualCompactionPaused() const {
     MarkChecked();
     return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
+  }
+
+  // Returns true iff the status indicates compaction aborted. This
+  // is caused by a call to AbortAllCompactions
+  bool IsCompactionAborted() const {
+    MarkChecked();
+    return (code() == kIncomplete) && (subcode() == kCompactionAborted);
   }
 
   // Returns true iff the status indicates a TxnNotPrepared error.

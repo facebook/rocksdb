@@ -375,6 +375,8 @@ class StackableDB : public DB {
   void DisableManualCompaction() override {
     return db_->DisableManualCompaction();
   }
+  void AbortAllCompactions() override { return db_->AbortAllCompactions(); }
+  void ResumeAllCompactions() override { return db_->ResumeAllCompactions(); }
 
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override {

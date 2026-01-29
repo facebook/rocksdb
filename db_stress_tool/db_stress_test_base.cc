@@ -1271,6 +1271,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_compactions_one_in)) {
+        Status status = TestAbortAndResumeCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
@@ -3138,6 +3143,20 @@ Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   db_->EnableManualCompaction();
+  return Status::OK();
+}
+
+Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
+  // Abort all running compactions and prevent new ones from starting
+  db_->AbortAllCompactions();
+  // Sleep to allow other threads to attempt operations while aborted
+  // Uses same sleep pattern as TestPauseBackground and
+  // TestDisableManualCompaction
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  // Resume compactions
+  db_->ResumeAllCompactions();
   return Status::OK();
 }
 

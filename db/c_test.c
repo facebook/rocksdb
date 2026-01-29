@@ -4447,7 +4447,7 @@ int main(int argc, char** argv) {
 
   StartPhase("statistics");
   {
-    const uint32_t BYTES_WRITTEN_TICKER = 60;
+    const uint32_t BYTES_WRITTEN_TICKER = 61;
     const uint32_t DB_WRITE_HIST = 1;
 
     rocksdb_statistics_histogram_data_t* hist =

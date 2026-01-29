@@ -142,6 +142,9 @@ class SubcompactionState;
 
 class CompactionJob {
  public:
+  // Constant false aborted flag, used for compaction service jobs
+  static const std::atomic<int> kCompactionAbortedFalse;
+
   CompactionJob(int job_id, Compaction* compaction,
                 const ImmutableDBOptions& db_options,
                 const MutableDBOptions& mutable_db_options,
@@ -157,6 +160,7 @@ class CompactionJob {
                 Env::Priority thread_pri,
                 const std::shared_ptr<IOTracer>& io_tracer,
                 const std::atomic<bool>& manual_compaction_canceled,
+                const std::atomic<int>& compaction_aborted,
                 const std::string& db_id = "",
                 const std::string& db_session_id = "",
                 std::string full_history_ts_low = "", std::string trim_ts = "",
@@ -299,6 +303,7 @@ class CompactionJob {
   void RunSubcompactions();
   void UpdateTimingStats(uint64_t start_micros);
   void RemoveEmptyOutputs();
+  void CleanupAbortedSubcompactions();
   bool HasNewBlobFiles() const;
   Status CollectSubcompactionErrors();
   Status SyncOutputDirectories();
@@ -363,11 +368,6 @@ class CompactionJob {
     std::unique_ptr<InternalIterator> trim_history_iter;
   };
 
-  struct BlobFileResources {
-    std::vector<std::string> blob_file_paths;
-    std::unique_ptr<BlobFileBuilder> blob_file_builder;
-  };
-
   bool ShouldUseLocalCompaction(SubcompactionState* sub_compact);
   CompactionIOStatsSnapshot InitializeIOStats();
   Status SetupAndValidateCompactionFilter(
@@ -382,14 +382,14 @@ class CompactionJob {
       SubcompactionState* sub_compact, ColumnFamilyData* cfd,
       SubcompactionInternalIterators& iterators,
       SubcompactionKeyBoundaries& boundaries, ReadOptions& read_options);
-  void CreateBlobFileBuilder(SubcompactionState* sub_compact,
-                             ColumnFamilyData* cfd,
-                             BlobFileResources& blob_resources,
-                             const WriteOptions& write_options);
+  void CreateBlobFileBuilder(
+      SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+      std::unique_ptr<BlobFileBuilder>& blob_file_builder,
+      const WriteOptions& write_options);
   std::unique_ptr<CompactionIterator> CreateCompactionIterator(
       SubcompactionState* sub_compact, ColumnFamilyData* cfd,
       InternalIterator* input_iter, const CompactionFilter* compaction_filter,
-      MergeHelper& merge, BlobFileResources& blob_resources,
+      MergeHelper& merge, std::unique_ptr<BlobFileBuilder>& blob_file_builder,
       const WriteOptions& write_options);
   std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc> CreateFileHandlers(
       SubcompactionState* sub_compact, SubcompactionKeyBoundaries& boundaries);
@@ -461,6 +461,7 @@ class CompactionJob {
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<bool>& manual_compaction_canceled_;
+  const std::atomic<int>& compaction_aborted_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
   InstrumentedMutex* db_mutex_;

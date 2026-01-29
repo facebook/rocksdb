@@ -4823,6 +4823,12 @@ cpp_unittest_wrapper(name="db_clip_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_compaction_abort_test",
+            srcs=["db/db_compaction_abort_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_compaction_filter_test",
             srcs=["db/db_compaction_filter_test.cc"],
             deps=[":rocksdb_test_lib"],

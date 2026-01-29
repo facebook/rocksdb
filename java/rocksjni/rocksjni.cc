@@ -2980,6 +2980,28 @@ void Java_org_rocksdb_RocksDB_continueBackgroundWork(JNIEnv* env, jclass,
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    abortAllCompactions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_abortAllCompactions(JNIEnv*, jclass,
+                                                  jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->AbortAllCompactions();
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    resumeAllCompactions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_resumeAllCompactions(JNIEnv*, jclass,
+                                                   jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->ResumeAllCompactions();
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    enableAutoCompaction
  * Signature: (J[J)V
  */

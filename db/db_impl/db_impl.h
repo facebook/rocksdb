@@ -455,6 +455,8 @@ class DBImpl : public DB {
 
   void EnableManualCompaction() override;
   void DisableManualCompaction() override;
+  void AbortAllCompactions() override;
+  void ResumeAllCompactions() override;
 
   using DB::SetOptions;
   Status SetOptions(
@@ -2788,6 +2790,14 @@ class DBImpl : public DB {
   // manual compactions. It is accessed in read mode outside the DB mutex in
   // compaction code paths.
   std::atomic<int> manual_compaction_paused_ = false;
+
+  // If non-zero, all compaction jobs (background automatic compactions,
+  // manual compactions via CompactRange, and foreground CompactFiles calls)
+  // are being aborted. Compactions will be signaled to stop. Any new
+  // compaction job would fail immediately. The value indicates how many threads
+  // have called AbortAllCompactions(). It is accessed in read mode outside the
+  // DB mutex in compaction code paths.
+  std::atomic<int> compaction_aborted_ = 0;
 
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0

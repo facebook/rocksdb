@@ -676,8 +676,8 @@ class CompactionJobTestBase : public testing::Test {
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
-        env_->GenerateUniqueId(), DBImpl::GenerateDbSessionId(nullptr),
-        full_history_ts_low_);
+        CompactionJob::kCompactionAbortedFalse, env_->GenerateUniqueId(),
+        DBImpl::GenerateDbSessionId(nullptr), full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
@@ -2545,7 +2545,8 @@ class ResumableCompactionJobTest : public CompactionJobTestBase {
         versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
         nullptr, stats.get(), &mutex_, &error_handler_, &job_context,
         table_cache_, &event_logger, false, false, dbname_, &job_stats,
-        Env::Priority::USER, nullptr, cancel_, env_->GenerateUniqueId(),
+        Env::Priority::USER, nullptr, cancel_,
+        CompactionJob::kCompactionAbortedFalse, env_->GenerateUniqueId(),
         DBImpl::GenerateDbSessionId(nullptr), "");
 
     compaction_job.Prepare(std::nullopt, compaction_progress,
