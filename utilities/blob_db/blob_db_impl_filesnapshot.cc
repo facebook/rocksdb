@@ -70,7 +70,7 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
     auto blob_file = bfile_pair.second;
     // Path should be relative to db_name, but begin with slash.
     ret.emplace_back(
-        BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber()));
+        BlobFileName("", kBlobDirName, blob_file->BlobFileNumber()));
   }
   return Status::OK();
 }
@@ -85,7 +85,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     filemetadata.size = blob_file->GetFileSize();
     const uint64_t file_number = blob_file->BlobFileNumber();
     // Path should be relative to db_name, but begin with slash.
-    filemetadata.name = BlobFileName("", bdb_options_.blob_dir, file_number);
+    filemetadata.name = BlobFileName("", kBlobDirName, file_number);
     filemetadata.file_number = file_number;
     if (blob_file->HasTTL()) {
       filemetadata.oldest_ancester_time = blob_file->GetExpirationRange().first;

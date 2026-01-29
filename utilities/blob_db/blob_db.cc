@@ -69,9 +69,6 @@ BlobDB::BlobDB() : StackableDB(nullptr) {}
 
 void BlobDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
-      log, "                                  BlobDBOptions.blob_dir: %s",
-      blob_dir.c_str());
-  ROCKS_LOG_HEADER(
       log, "                               BlobDBOptions.max_db_size: %" PRIu64,
       max_db_size);
   ROCKS_LOG_HEADER(
