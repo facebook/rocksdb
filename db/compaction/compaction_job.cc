@@ -1576,7 +1576,7 @@ Status CompactionJob::ProcessKeyValue(
     CompactionIterator* c_iter, const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func, uint64_t& prev_cpu_micros) {
   // Cron interval for periodic operations: stats update, abort check,
-  // and sync points. Uses 1024 to maintain responsive abort checking.
+  // and sync points. Uses 1024 (power of 2) for efficient bitwise check.
   const uint64_t kCronEveryMask = (1 << 10) - 1;
   [[maybe_unused]] const std::optional<const Slice> end = sub_compact->end;
 
@@ -1600,8 +1600,8 @@ Status CompactionJob::ProcessKeyValue(
 
     const uint64_t num_records = c_iter->iter_stats().num_input_records;
 
-    // Periodic cron operations: stats update, abort check, and sync points
-    if ((num_records & kCronEveryMask) == 0) {
+    // Periodic cron operations: stats update, abort check.
+    if ((num_records & kCronEveryMask) == kCronEveryMask) {
       // Check for abort signal periodically
       if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
         status = Status::Incomplete(Status::SubCode::kCompactionAborted);
