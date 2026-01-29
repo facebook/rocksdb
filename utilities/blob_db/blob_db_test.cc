@@ -84,6 +84,7 @@ class BlobDBTest : public testing::Test {
       options.stats_dump_period_sec = 0;
       options.stats_persist_period_sec = 0;
     }
+    bdb_options_ = bdb_options;
     return BlobDB::Open(options, bdb_options, dbname_, &blob_db_);
   }
 
@@ -109,10 +110,9 @@ class BlobDBTest : public testing::Test {
   void Destroy() {
     if (blob_db_) {
       Options options = blob_db_->GetOptions();
-      BlobDBOptions bdb_options = blob_db_->GetBlobDBOptions();
       delete blob_db_;
       blob_db_ = nullptr;
-      ASSERT_OK(DestroyBlobDB(dbname_, options, bdb_options));
+      ASSERT_OK(DestroyBlobDB(dbname_, options, bdb_options_));
     }
   }
 
@@ -295,6 +295,7 @@ class BlobDBTest : public testing::Test {
   std::unique_ptr<Env> mock_env_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
   BlobDB* blob_db_;
+  BlobDBOptions bdb_options_;
 };  // class BlobDBTest
 
 TEST_F(BlobDBTest, Put) {

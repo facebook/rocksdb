@@ -131,8 +131,6 @@ Status BlobDBImpl::CloseImpl() {
   return s;
 }
 
-BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
-
 Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
   assert(db_ == nullptr);

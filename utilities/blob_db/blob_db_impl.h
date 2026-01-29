@@ -75,9 +75,6 @@ class BlobDBImpl : public BlobDB {
   friend class BlobIndexCompactionFilterGC;
 
  public:
-  // deletions check period
-  static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
-
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
 
@@ -140,8 +137,6 @@ class BlobDBImpl : public BlobDB {
       std::vector<std::string>* const output_file_names = nullptr,
       CompactionJobInfo* compaction_job_info = nullptr) override;
 
-  BlobDBOptions GetBlobDBOptions() const override;
-
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
              const DBOptions& db_options,
              const ColumnFamilyOptions& cf_options);
@@ -160,8 +155,6 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
-
-  Status SyncBlobFiles(const WriteOptions& write_options) override;
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
@@ -213,6 +206,8 @@ class BlobDBImpl : public BlobDB {
   // Create a snapshot if there isn't one in read options.
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
+
+  Status SyncBlobFiles(const WriteOptions& write_options);
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
