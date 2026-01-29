@@ -32,9 +32,6 @@ struct BlobDBOptions {
   // Default is "blob_dir"
   std::string blob_dir = "blob_dir";
 
-  // whether the blob_dir path is relative or absolute.
-  bool path_relative = true;
-
   // Maximum size of the database (including SST files and blob files).
   //
   // Default: 0 (no limits)

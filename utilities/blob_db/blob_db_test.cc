@@ -755,7 +755,6 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
 
   BlobDBOptions bdb_options;
   bdb_options.blob_dir = "blob_dir";
-  bdb_options.path_relative = true;
   bdb_options.ttl_range_secs = 10;
   bdb_options.disable_background_tasks = true;
 

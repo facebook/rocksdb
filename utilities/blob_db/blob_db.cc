@@ -72,9 +72,6 @@ void BlobDBOptions::Dump(Logger* log) const {
       log, "                                  BlobDBOptions.blob_dir: %s",
       blob_dir.c_str());
   ROCKS_LOG_HEADER(
-      log, "                             BlobDBOptions.path_relative: %d",
-      path_relative);
-  ROCKS_LOG_HEADER(
       log, "                               BlobDBOptions.max_db_size: %" PRIu64,
       max_db_size);
   ROCKS_LOG_HEADER(
