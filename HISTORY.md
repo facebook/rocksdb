@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.10.1 (02/02/2026)
+### Bug Fixes
+* Fix Windows VS 2022 build errors.
+
 ## 10.10.0 (12/16/2025)
 ### Bug Fixes
 * Fixed a bug in best-efforts recovery that causes use-after-free crashes when accessing SST files that were cached during the recovery.
