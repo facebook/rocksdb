@@ -1721,10 +1721,9 @@ Status DBImpl::CompactFilesImpl(
                    job_context->job_id);
   } else if (status.IsCompactionAborted()) {
     // Don't report aborted compaction as error
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "[%s] [JOB %d] Compaction aborted",
-                   c->column_family_data()->GetName().c_str(),
-                   job_context->job_id);
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log, "[%s] [JOB %d] Compaction aborted",
+        c->column_family_data()->GetName().c_str(), job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
