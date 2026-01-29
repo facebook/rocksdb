@@ -1064,10 +1064,6 @@ DEFINE_uint64(
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().ttl_range_secs,
     "[Stacked BlobDB] TTL bucket size to use when creating blob files.");
 
-DEFINE_uint64(blob_db_bytes_per_sync,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
-              "[Stacked BlobDB] Bytes to sync blob file at.");
-
 DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
               "[Stacked BlobDB] Target size of each blob file.");
@@ -5178,7 +5174,6 @@ class Benchmark {
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
       blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
       blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
-      blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
       blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
       blob_db::BlobDB* ptr = nullptr;
       s = hooks.Open(options, blob_db_options, db_name, &ptr);

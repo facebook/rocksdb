@@ -28,6 +28,10 @@ constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
 // Name of the directory under the base DB where blobs will be stored.
 constexpr const char* kBlobDirName = "blob_dir";
 
+// Allows OS to incrementally sync blob files to disk for every
+// kBytesPerSync bytes written.
+constexpr uint64_t kBytesPerSync = 512 * 1024;
+
 struct BlobDBOptions {
   // Maximum size of the database (including SST files and blob files).
   //
@@ -41,11 +45,6 @@ struct BlobDBOptions {
   // second bucket is 1471542600 - 1471543200
   // and so on
   uint64_t ttl_range_secs = 3600;
-
-  // Allows OS to incrementally sync blob files to disk for every
-  // bytes_per_sync bytes written. Users shouldn't rely on it for
-  // persistency guarantee.
-  uint64_t bytes_per_sync = 512 * 1024;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size

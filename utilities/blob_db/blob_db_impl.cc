@@ -89,7 +89,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       debug_level_(0) {
   clock_ = env_->GetSystemClock().get();
   blob_dir_ = dbname + "/" + kBlobDirName;
-  file_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
+  file_options_.bytes_per_sync = kBytesPerSync;
 }
 
 BlobDBImpl::~BlobDBImpl() {
