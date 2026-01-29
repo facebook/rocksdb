@@ -110,8 +110,6 @@ class BlobFile {
 
   ~BlobFile();
 
-  uint32_t GetColumnFamilyId() const;
-
   // Returns log file's absolute pathname.
   std::string PathName() const;
 
