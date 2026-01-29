@@ -293,12 +293,14 @@ struct IODispatcherImpl::Impl {
       std::vector<FSReadRequest>* read_reqs,
       std::vector<std::vector<size_t>>* coalesced_block_indices);
 
-  // Returns block indices that failed to set up for async IO
+  // Surface actual async IO errors to caller, but allow fallback for
+  // unsupported cases. Returns block indices that need sync fallback.
   std::vector<size_t> ExecuteAsyncIO(
       const std::shared_ptr<IOJob>& job,
       const std::shared_ptr<ReadSet>& read_set,
       std::vector<FSReadRequest>& read_reqs,
-      const std::vector<std::vector<size_t>>& coalesced_block_indices);
+      const std::vector<std::vector<size_t>>& coalesced_block_indices,
+      Status* out_status);
 
   Status ExecuteSyncIO(
       const std::shared_ptr<IOJob>& job,
@@ -376,22 +378,27 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Step 3: Execute IO requests based on JobOptions
   if (job->job_options.read_options.async_io) {
-    // Try async IO, get back any blocks that failed to set up
-    std::vector<size_t> failed_indices =
-        ExecuteAsyncIO(job, rs, read_reqs, coalesced_block_indices);
+    // Try async IO - get back any blocks that need sync fallback (not
+    // supported) and surface any actual errors to caller
+    Status async_status;
+    std::vector<size_t> fallback_indices = ExecuteAsyncIO(
+        job, rs, read_reqs, coalesced_block_indices, &async_status);
+    if (!async_status.ok()) {
+      return async_status;
+    }
 
-    // Fall back to sync IO for failed blocks (maintains coalescing benefit)
-    if (!failed_indices.empty()) {
+    // Fall back to sync IO for blocks where async is not supported
+    if (!fallback_indices.empty()) {
       std::vector<FSReadRequest> sync_read_reqs;
       std::vector<std::vector<size_t>> sync_coalesced_indices;
-      PrepareIORequests(job, failed_indices, job->block_handles,
+      PrepareIORequests(job, fallback_indices, job->block_handles,
                         &sync_read_reqs, &sync_coalesced_indices);
 
       Status s = ExecuteSyncIO(job, rs, sync_read_reqs, sync_coalesced_indices);
       if (!s.ok()) {
         return s;
       }
-      rs->num_sync_reads_ += failed_indices.size();
+      rs->num_sync_reads_ += fallback_indices.size();
     }
   } else {
     Status s = ExecuteSyncIO(job, rs, read_reqs, coalesced_block_indices);
@@ -470,8 +477,10 @@ void IODispatcherImpl::Impl::PrepareIORequests(
 std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
     const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& read_set,
     std::vector<FSReadRequest>& read_reqs,
-    const std::vector<std::vector<size_t>>& coalesced_block_indices) {
-  std::vector<size_t> failed_block_indices;
+    const std::vector<std::vector<size_t>>& coalesced_block_indices,
+    Status* out_status) {
+  std::vector<size_t> fallback_block_indices;
+  *out_status = Status::OK();
 
   // Get file and IO options
   auto* rep = job->table->get_rep();
@@ -479,13 +488,8 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
   Status s =
       rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
   if (!s.ok()) {
-    // All blocks failed - return all indices
-    for (const auto& indices : coalesced_block_indices) {
-      for (const auto idx : indices) {
-        failed_block_indices.push_back(idx);
-      }
-    }
-    return failed_block_indices;
+    *out_status = s;
+    return fallback_block_indices;
   }
 
   const bool direct_io = rep->file->use_direct_io();
@@ -523,10 +527,16 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
                              &async_state->del_fn,
                              direct_io ? &async_state->aligned_buf : nullptr);
 
-    if (!s.ok() || async_state->io_handle == nullptr) {
-      // Async IO not supported or failed - add to failed list for sync fallback
+    if (!s.ok()) {
+      // Actual error - surface to caller
+      *out_status = s;
+      return fallback_block_indices;
+    }
+
+    if (async_state->io_handle == nullptr) {
+      // Async IO not supported - add to fallback list for sync IO
       for (const auto idx : coalesced_block_indices[i]) {
-        failed_block_indices.push_back(idx);
+        fallback_block_indices.push_back(idx);
       }
       continue;
     }
@@ -537,7 +547,7 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
     }
   }
 
-  return failed_block_indices;
+  return fallback_block_indices;
 }
 
 Status IODispatcherImpl::Impl::ExecuteSyncIO(

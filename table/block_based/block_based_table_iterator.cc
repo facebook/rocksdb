@@ -1003,12 +1003,12 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   job->job_options.read_options.async_io = multiscan_opts->use_async_io;
 
   std::shared_ptr<ReadSet> read_set;
-  // Use the IODispatcher from options if provided, otherwise create a new one
+  // IODispatcher should be provided by DBIter::Prepare() to enable sharing
+  // across all BlockBasedTableIterators in the scan. Create one if not
+  // provided (for direct calls to Prepare, e.g., in unit tests).
   std::shared_ptr<IODispatcher> dispatcher = multiscan_opts->io_dispatcher;
-  std::unique_ptr<IODispatcher> owned_dispatcher;
   if (!dispatcher) {
-    owned_dispatcher.reset(NewIODispatcher());
-    dispatcher.reset(owned_dispatcher.release());
+    dispatcher.reset(NewIODispatcher());
   }
   multi_scan_status_ = dispatcher->SubmitJob(job, &read_set);
   if (!multi_scan_status_.ok()) {
@@ -1021,7 +1021,8 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   multi_scan_ = std::make_unique<MultiScanState>(
       table_->get_rep()->ioptions.env->GetFileSystem(), multiscan_opts,
       std::move(read_set), std::move(data_block_separators),
-      std::move(block_index_ranges_per_scan), prefetch_max_idx);
+      std::move(block_index_ranges_per_scan), prefetch_max_idx,
+      table_->GetStatistics());
 
   is_index_at_curr_block_ = false;
   block_iter_points_to_real_block_ = false;
@@ -1228,9 +1229,13 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
   }
 
   // Unpin all the blocks from multi_scan_->cur_data_block_idx to
-  // cur_scan_start_idx
+  // cur_scan_start_idx - these are wasted (prefetched but skipped)
   for (auto unpin_block_idx = multi_scan_->cur_data_block_idx;
        unpin_block_idx < cur_scan_start_idx; unpin_block_idx++) {
+    // Count as wasted if it was prefetched
+    if (unpin_block_idx < multi_scan_->prefetch_max_idx) {
+      multi_scan_->wasted_blocks_count++;
+    }
     multi_scan_->read_set->ReleaseBlock(unpin_block_idx);
   }
 
@@ -1243,7 +1248,10 @@ void BlockBasedTableIterator::MultiScanUnexpectedSeekTarget(
               *user_seek_target, /*a_has_ts=*/true,
               data_block_separators[block_idx],
               /*b_has_ts=*/false) > 0)) {
-    // Unpin the blocks that are passed
+    // Unpin the blocks that are passed - count as wasted if prefetched
+    if (block_idx < multi_scan_->prefetch_max_idx) {
+      multi_scan_->wasted_blocks_count++;
+    }
     multi_scan_->read_set->ReleaseBlock(block_idx);
     block_idx++;
   }
@@ -1278,9 +1286,12 @@ void BlockBasedTableIterator::MultiScanSeekTargetFromBlock(
   }
 
   // Move current data block index forward until block_idx, meantime, unpin all
-  // the blocks in between
+  // the blocks in between - these are wasted (prefetched but skipped)
   while (multi_scan_->cur_data_block_idx < block_idx) {
-    // unpin block via ReadSet
+    // Count as wasted if it was prefetched
+    if (multi_scan_->cur_data_block_idx < multi_scan_->prefetch_max_idx) {
+      multi_scan_->wasted_blocks_count++;
+    }
     multi_scan_->read_set->ReleaseBlock(multi_scan_->cur_data_block_idx);
     multi_scan_->cur_data_block_idx++;
   }

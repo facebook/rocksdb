@@ -433,7 +433,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     size_t cur_data_block_idx;
     size_t prefetch_max_idx;
 
-    // For tracking wasted prefetch blocks
+    // For tracking wasted prefetch blocks (prefetched but never read)
     Statistics* statistics;
     size_t wasted_blocks_count;
 
@@ -442,7 +442,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         std::shared_ptr<ReadSet>&& _read_set,
         std::vector<std::string>&& _data_block_separators,
         std::vector<std::tuple<size_t, size_t>>&& _block_index_ranges_per_scan,
-        size_t _prefetch_max_idx)
+        size_t _prefetch_max_idx, Statistics* _statistics)
         : fs(_fs),
           scan_opts(_scan_opts),
           read_set(std::move(_read_set)),
@@ -450,9 +450,16 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
           block_index_ranges_per_scan(std::move(_block_index_ranges_per_scan)),
           next_scan_idx(0),
           cur_data_block_idx(0),
-          prefetch_max_idx(_prefetch_max_idx) {}
+          prefetch_max_idx(_prefetch_max_idx),
+          statistics(_statistics),
+          wasted_blocks_count(0) {}
 
-    ~MultiScanState() = default;
+    ~MultiScanState() {
+      if (statistics && wasted_blocks_count > 0) {
+        RecordTick(statistics, MULTISCAN_PREFETCH_BLOCKS_WASTED,
+                   wasted_blocks_count);
+      }
+    }
   };
 
   Status multi_scan_status_;

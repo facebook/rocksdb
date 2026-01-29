@@ -23,6 +23,7 @@
 #include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
@@ -1621,6 +1622,14 @@ void DBIter::Prepare(const MultiScanArgs& scan_opts) {
   new_scan_opts.emplace(scan_opts);
   scan_opts_.swap(new_scan_opts);
   scan_index_ = 0;
+
+  // Create a shared IODispatcher if not provided. This allows all
+  // BlockBasedTableIterators in this scan to share a single dispatcher,
+  // enabling better IO coordination and future rate limiting.
+  if (!scan_opts_.value().io_dispatcher) {
+    scan_opts_->io_dispatcher.reset(NewIODispatcher());
+  }
+
   if (!scan_opts.empty()) {
     iter_.Prepare(&scan_opts_.value());
   } else {
