@@ -28,13 +28,10 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/utilities/transaction.h"
-#include "table/meta_blocks.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
-#include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_compaction_filter.h"
@@ -85,8 +82,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       closed_(true),
       open_file_count_(0),
       total_blob_size_(0),
-      live_sst_size_(0),
-      debug_level_(0) {
+      live_sst_size_(0) {
   clock_ = env_->GetSystemClock().get();
   blob_dir_ = dbname + "/" + kBlobDirName;
   file_options_.bytes_per_sync = kBytesPerSync;
@@ -740,11 +736,6 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
       statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS));
 
   uint64_t boffset = bfile->GetFileSize();
-  if (debug_level_ >= 2 && boffset) {
-    ROCKS_LOG_DEBUG(db_options_.info_log,
-                    "Open blob file: %s with offset: %" PRIu64, fpath.c_str(),
-                    boffset);
-  }
 
   BlobLogWriter::ElemType et = BlobLogWriter::kEtNone;
   if (bfile->file_size_ == BlobLogHeader::kSize) {
@@ -1365,15 +1356,6 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   // valid offset.
   if (offset <
       (BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key.size())) {
-    if (debug_level_ >= 2) {
-      ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Invalid blob index file_number: %" PRIu64
-                      " blob_offset: %" PRIu64 " blob_size: %" PRIu64
-                      " key: %s",
-                      file_number, offset, size,
-                      key.ToString(/* output_hex */ true).c_str());
-    }
-
     return Status::NotFound("Invalid blob offset");
   }
 
@@ -1463,15 +1445,6 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
                                blob_record.size() - sizeof(uint32_t));
   crc = crc32c::Mask(crc);  // Adjust for storage
   if (crc != crc_exp) {
-    if (debug_level_ >= 2) {
-      ROCKS_LOG_ERROR(
-          db_options_.info_log,
-          "Blob crc mismatch file: %" PRIu64 " blob_offset: %" PRIu64
-          " blob_size: %" PRIu64 " key: %s status: '%s'",
-          file_number, offset, size,
-          key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
-    }
-
     return Status::Corruption("Corruption. Blob CRC mismatch");
   }
 
@@ -1928,14 +1901,6 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   }
 
   return std::make_pair(!aborted, -1);
-}
-
-void BlobDBImpl::CopyBlobFiles(
-    std::vector<std::shared_ptr<BlobFile>>* bfiles_copy) {
-  ReadLock rl(&mutex_);
-  for (auto const& p : blob_files_) {
-    bfiles_copy->push_back(p.second);
-  }
 }
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {

@@ -26,7 +26,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/wal_filter.h"
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
@@ -286,8 +285,6 @@ class BlobDBImpl : public BlobDB {
   // Evict expired blob files from the TTL queue.
   std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
 
-  std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
-
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
 
@@ -374,9 +371,6 @@ class BlobDBImpl : public BlobDB {
   // checks if there is no snapshot which is referencing the
   // blobs
   bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
-  bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
-
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   uint64_t EpochNow() { return clock_->NowMicros() / 1000000; }
 
@@ -469,8 +463,6 @@ class BlobDBImpl : public BlobDB {
   //
   // REQUIRES: access with delete_file_mutex_ held.
   int disable_file_deletions_ = 0;
-
-  uint32_t debug_level_;
 };
 
 }  // namespace blob_db
