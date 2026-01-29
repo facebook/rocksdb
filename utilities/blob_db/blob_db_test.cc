@@ -509,7 +509,6 @@ TEST_F(BlobDBTest, SstFileManager) {
 
   BlobDBOptions bdb_options;
   bdb_options.enable_garbage_collection = true;
-  bdb_options.garbage_collection_cutoff = 1.0;
   Options db_options;
 
   int files_scheduled_to_delete = 0;
@@ -527,12 +526,22 @@ TEST_F(BlobDBTest, SstFileManager) {
 
   Open(bdb_options, db_options);
 
-  // Create one obselete file and clean it.
+  // Create 4 blob files. With GC cutoff of 0.25, the oldest file (file 1)
+  // will be in the GC zone: floor(0.25 * 4) = 1.
   ASSERT_OK(blob_db_->Put(WriteOptions(), "foo", "bar"));
   auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   std::shared_ptr<BlobFile> bfile = blob_files[0];
   ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+
+  // Create 3 more blob files (files 2-4, outside GC zone).
+  for (int i = 1; i < 4; i++) {
+    ASSERT_OK(blob_db_->Put(WriteOptions(), "key" + std::to_string(i), "val"));
+    blob_files = blob_db_impl()->TEST_GetBlobFiles();
+    ASSERT_EQ(static_cast<size_t>(i + 1), blob_files.size());
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[i]));
+  }
+
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   blob_db_impl()->TEST_DeleteObsoleteFiles();
 
@@ -540,7 +549,8 @@ TEST_F(BlobDBTest, SstFileManager) {
   ASSERT_EQ(1, files_scheduled_to_delete);
   Destroy();
   // Make sure that DestroyBlobDB() also goes through delete scheduler.
-  ASSERT_EQ(2, files_scheduled_to_delete);
+  // Remaining files: 3 original (files 2-4) + 1 GC output file = 4 files.
+  ASSERT_EQ(5, files_scheduled_to_delete);
   SyncPoint::GetInstance()->DisableProcessing();
   sfm->WaitForEmptyTrash();
 }
@@ -606,20 +616,27 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   BlobDBOptions bdb_options;
   bdb_options.enable_garbage_collection = true;
-  bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
 
   Options options;
   options.disable_auto_compactions = true;
 
-  // i = when to take snapshot
+  // This test verifies that snapshots protect blob files from deletion during
+  // garbage collection. With fixed GC cutoff of 0.25 and 8 immutable files,
+  // floor(0.25 * 8) = 2 files are in the GC zone (files 1 and 2).
+  //
+  // We run 4 iterations with different snapshot timing:
+  //   i=0: snapshot after key1 (before key2) - protects file 1
+  //   i=1: snapshot after key2 (before key3) - protects files 1 and 2
+  //   i=2: snapshot after key9 (after all keys) - no protection needed
+  //   i=3: snapshot after Delete(key2) - no protection needed
   for (int i = 0; i < 4; i++) {
     Destroy();
     Open(bdb_options, options);
 
     const Snapshot* snapshot = nullptr;
 
-    // First file
+    // Create first blob file (will be in GC zone).
     ASSERT_OK(Put("key1", "value"));
     if (i == 0) {
       snapshot = blob_db_->GetSnapshot();
@@ -629,7 +646,8 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
     ASSERT_EQ(1, blob_files.size());
     ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
 
-    // Second file
+    // Create second blob file (will be in GC zone). We track this file
+    // to verify it becomes obsolete after GC relocates its blob.
     ASSERT_OK(Put("key2", "value"));
     if (i == 1) {
       snapshot = blob_db_->GetSnapshot();
@@ -637,39 +655,66 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
 
     blob_files = blob_db_impl()->TEST_GetBlobFiles();
     ASSERT_EQ(2, blob_files.size());
-    auto bfile = blob_files[1];
-    ASSERT_FALSE(bfile->Immutable());
-    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+    auto gc_target_file = blob_files[1];
+    ASSERT_FALSE(gc_target_file->Immutable());
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(gc_target_file));
 
-    // Third file
-    ASSERT_OK(Put("key3", "value"));
+    // Create files 3-8, all closed (these are outside GC zone).
+    for (int j = 3; j <= 8; j++) {
+      ASSERT_OK(Put("key" + std::to_string(j), "value"));
+      blob_files = blob_db_impl()->TEST_GetBlobFiles();
+      ASSERT_EQ(static_cast<size_t>(j), blob_files.size());
+      ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[j - 1]));
+    }
+
+    // Create file 9 but leave it open (mutable). Only immutable files are
+    // counted for GC cutoff calculation.
+    ASSERT_OK(Put("key9", "value"));
     if (i == 2) {
       snapshot = blob_db_->GetSnapshot();
     }
 
+    // Verify we have 9 total files (8 immutable + 1 mutable).
+    blob_files = blob_db_impl()->TEST_GetBlobFiles();
+    ASSERT_EQ(9, blob_files.size());
+
+    // Trigger GC via compaction. Blobs in files 1 and 2 will be relocated
+    // to a new GC output file.
     ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-    ASSERT_TRUE(bfile->Obsolete());
+
+    // Verify gc_target_file (file 2) is now obsolete.
+    ASSERT_TRUE(gc_target_file->Obsolete());
+    // Verify the obsolete sequence matches the latest sequence number.
     ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
-              bfile->GetObsoleteSequence());
+              gc_target_file->GetObsoleteSequence());
 
     Delete("key2");
     if (i == 3) {
       snapshot = blob_db_->GetSnapshot();
     }
 
-    ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+    // Verify we now have 10 files (9 original + 1 GC output file).
+    // Files 1 and 2 are obsolete but not yet deleted.
+    ASSERT_EQ(10, blob_db_impl()->TEST_GetBlobFiles().size());
     blob_db_impl()->TEST_DeleteObsoleteFiles();
 
     if (i >= 2) {
-      // The snapshot shouldn't see data in bfile
-      ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+      // Snapshot was taken after all keys were written, so it sees the
+      // post-compaction state where blob indexes point to the GC output file.
+      // Obsolete files 1 and 2 can be deleted immediately.
+      // Verify 8 files remain (10 - 2 obsolete files deleted).
+      ASSERT_EQ(8, blob_db_impl()->TEST_GetBlobFiles().size());
       blob_db_->ReleaseSnapshot(snapshot);
     } else {
-      // The snapshot will see data in bfile, so the file shouldn't be deleted
-      ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+      // Snapshot was taken before compaction completed, so it may still
+      // reference blobs in the obsolete files. Files cannot be deleted.
+      // Verify all 10 files still exist.
+      ASSERT_EQ(10, blob_db_impl()->TEST_GetBlobFiles().size());
       blob_db_->ReleaseSnapshot(snapshot);
       blob_db_impl()->TEST_DeleteObsoleteFiles();
-      ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+      // After releasing the snapshot, obsolete files can be deleted.
+      // Verify 8 files remain.
+      ASSERT_EQ(8, blob_db_impl()->TEST_GetBlobFiles().size());
     }
   }
 }
@@ -1154,7 +1199,6 @@ TEST_F(BlobDBTest, GarbageCollection) {
   BlobDBOptions bdb_options;
   bdb_options.blob_file_size = kBlobFileSize;
   bdb_options.enable_garbage_collection = true;
-  bdb_options.garbage_collection_cutoff = 0.25;
   bdb_options.disable_background_tasks = true;
 
   Options options;
@@ -1238,8 +1282,9 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDB(blob_value_versions);
 
-  const uint64_t cutoff = static_cast<uint64_t>(
-      bdb_options.garbage_collection_cutoff * kNumBlobFiles);
+  // GC cutoff is fixed at 0.25
+  constexpr double kGCCutoff = 0.25;
+  const uint64_t cutoff = static_cast<uint64_t>(kGCCutoff * kNumBlobFiles);
   for (auto& pair : blob_index_versions) {
     BlobIndexVersion& version = pair.second;
 
@@ -1290,7 +1335,6 @@ TEST_F(BlobDBTest, GarbageCollection) {
 TEST_F(BlobDBTest, GarbageCollectionFailure) {
   BlobDBOptions bdb_options;
   bdb_options.enable_garbage_collection = true;
-  bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
 
   Options db_options;
@@ -1298,14 +1342,31 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
 
   Open(bdb_options, db_options);
 
-  // Write a couple of valid blobs.
+  // Create 4 blob files. With fixed GC cutoff of 0.25, the oldest file
+  // (floor(0.25 * 4) = 1) will be in the GC zone.
+  // The first file contains valid blobs for "foo" and "dead".
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("dead", "beef"));
 
-  // Write a fake blob reference into the base DB that points to a non-existing
-  // blob file.
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+  auto first_file = blob_files[0];
+  uint64_t first_file_number = first_file->BlobFileNumber();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(first_file));
+
+  // Create 3 more blob files (files 2-4, outside GC zone).
+  for (int i = 1; i < 4; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value"));
+    blob_files = blob_db_impl()->TEST_GetBlobFiles();
+    ASSERT_EQ(static_cast<size_t>(i + 1), blob_files.size());
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[i]));
+  }
+
+  // Write a fake blob index that points to the first file (in GC zone)
+  // but with an invalid offset beyond the file size. This will cause
+  // GC to fail when it tries to read this blob.
   std::string blob_index;
-  BlobIndex::EncodeBlob(&blob_index, /* file_number */ 1000, /* offset */ 1234,
+  BlobIndex::EncodeBlob(&blob_index, first_file_number, /* offset */ 999999,
                         /* size */ 5678, kNoCompression);
 
   WriteBatch batch;
@@ -1313,17 +1374,17 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
       &batch, blob_db_->DefaultColumnFamily()->GetID(), "key", blob_index));
   ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
 
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(blob_files.size(), 1);
-  auto blob_file = blob_files[0];
-  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
-
+  // Verify compaction fails with IO error due to invalid blob offset.
   ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
                   .IsIOError());
 
   const Statistics* const statistics = db_options.statistics.get();
   assert(statistics);
 
+  // Verify GC statistics:
+  // - Relocated 2 keys ("foo" and "dead") with 7 bytes ("bar" + "beef")
+  // - Failed on "key" which has invalid blob offset
+  // - Created 1 new GC output file before failing
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), 0);
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 1);
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 1);

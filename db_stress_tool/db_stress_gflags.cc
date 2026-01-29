@@ -439,11 +439,6 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
     "[Stacked BlobDB] Enable BlobDB garbage collection.");
 
-DEFINE_double(
-    blob_db_gc_cutoff,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
-    "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
-
 // Options for integrated BlobDB
 DEFINE_bool(allow_setting_blob_options_dynamically, false,
             "[Integrated BlobDB] Allow setting blob options dynamically.");
