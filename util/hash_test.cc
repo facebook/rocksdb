@@ -615,6 +615,13 @@ static void test_BitOps() {
 
     // BottomNBits
     {
+      // build the mask the extremely slow way
+      T bottom_n_mask = 0x00;
+      for (int j = 0; j < i; j++) {
+        bottom_n_mask <<= 1;
+        bottom_n_mask |= 0x1;
+      }
+
       // An essentially full length value
       T x = everyOtherBit;
       if (i > 2) {
@@ -623,6 +630,11 @@ static void test_BitOps() {
       }
       auto a = BottomNBits(x, i);
       auto b = BottomNBits(~x, i);
+
+      // check that a and b match the expected values
+      EXPECT_EQ(a, x & bottom_n_mask);
+      EXPECT_EQ(b, (~x) & bottom_n_mask);
+
       EXPECT_EQ(x | a, x);
       EXPECT_EQ(a | b, vm1);
       EXPECT_EQ(a & b, T{0});

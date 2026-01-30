@@ -613,7 +613,7 @@ class LDBTestCase(unittest.TestCase):
         # Call the dump_live_files function with the edited dbPath name.
         self.assertTrue(
             self.dumpLiveFiles(
-                "--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath,
+                "--db=%s --decode_blob_index" % dbPath,
                 dumpFilePath,
             )
         )
@@ -881,7 +881,7 @@ class LDBTestCase(unittest.TestCase):
         expected_pattern = re.compile(regex)
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
-        cmd = "dump --path=%s --dump_uncompressed_blobs"
+        cmd = "dump --path=%s"
         self.assertRunOKFull(
             (cmd) % (blob_files[0]), expected_pattern, unexpected=False, isPattern=True
         )

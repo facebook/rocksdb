@@ -3864,11 +3864,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
           blob_db::BlobDBOptions blob_db_options;
-          blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
-          blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
           blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
           blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
-          blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
 
           blob_db::BlobDB* blob_db = nullptr;
           s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,

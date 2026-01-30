@@ -298,11 +298,8 @@ DECLARE_uint32(occ_lock_bucket_count);
 
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
-DECLARE_uint64(blob_db_min_blob_size);
-DECLARE_uint64(blob_db_bytes_per_sync);
 DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
-DECLARE_double(blob_db_gc_cutoff);
 
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);

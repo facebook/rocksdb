@@ -1050,15 +1050,6 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
     "[Stacked BlobDB] Enable BlobDB garbage collection.");
 
-DEFINE_double(
-    blob_db_gc_cutoff,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
-    "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
-
-DEFINE_bool(blob_db_is_fifo,
-            ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().is_fifo,
-            "[Stacked BlobDB] Enable FIFO eviction strategy in BlobDB.");
-
 DEFINE_uint64(blob_db_max_db_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().max_db_size,
               "[Stacked BlobDB] Max size limit of the directory where blob "
@@ -1073,25 +1064,9 @@ DEFINE_uint64(
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().ttl_range_secs,
     "[Stacked BlobDB] TTL bucket size to use when creating blob files.");
 
-DEFINE_uint64(
-    blob_db_min_blob_size,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
-    "[Stacked BlobDB] Smallest blob to store in a file. Blobs "
-    "smaller than this will be inlined with the key in the LSM tree.");
-
-DEFINE_uint64(blob_db_bytes_per_sync,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
-              "[Stacked BlobDB] Bytes to sync blob file at.");
-
 DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
               "[Stacked BlobDB] Target size of each blob file.");
-
-DEFINE_string(
-    blob_db_compression_type, "snappy",
-    "[Stacked BlobDB] Algorithm to use to compress blobs in blob files.");
-static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
 
 // Integrated BlobDB options
 DEFINE_bool(
@@ -5197,14 +5172,9 @@ class Benchmark {
       // Stacked BlobDB
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
-      blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
-      blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
       blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
       blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
-      blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
-      blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
       blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
-      blob_db_options.compression = FLAGS_blob_db_compression_type_e;
       blob_db::BlobDB* ptr = nullptr;
       s = hooks.Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
@@ -9190,10 +9160,6 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
 
   FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
       FLAGS_compressed_secondary_cache_compression_type.c_str());
-
-  // Stacked BlobDB
-  FLAGS_blob_db_compression_type_e =
-      StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
   int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
