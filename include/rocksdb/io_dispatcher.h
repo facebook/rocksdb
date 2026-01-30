@@ -15,6 +15,9 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class FileSystem;
+
 /*
  * IODispatcher is a class that allows users to submit groups of IO jobs to be
  * dispatched asynchronously (or synchronously), upon submission the
@@ -160,6 +163,9 @@ class ReadSet {
 
   // Job data
   std::shared_ptr<IOJob> job_;
+
+  // FileSystem for calling AbortIO in destructor
+  std::shared_ptr<FileSystem> fs_;
 
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;

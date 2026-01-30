@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "file/random_access_file_reader.h"
@@ -94,7 +95,34 @@ struct AsyncIOState {
 };
 
 // ReadSet destructor - clean up IO handles
+// Must call AbortIO before deleting handles to avoid use-after-free when
+// io_uring completions arrive for deleted handles.
 ReadSet::~ReadSet() {
+  if (async_io_map_.empty()) {
+    return;
+  }
+
+  // Collect unique pending IO handles (multiple block indices may share the
+  // same async_state due to coalescing)
+  std::vector<void*> pending_handles;
+  std::unordered_set<void*> seen_handles;
+  for (auto& pair : async_io_map_) {
+    auto& async_state = pair.second;
+    if (async_state->io_handle != nullptr &&
+        seen_handles.find(async_state->io_handle) == seen_handles.end()) {
+      pending_handles.push_back(async_state->io_handle);
+      seen_handles.insert(async_state->io_handle);
+    }
+  }
+
+  // Abort all pending IO operations before deleting handles
+  if (!pending_handles.empty() && fs_) {
+    // AbortIO cancels pending requests and waits for completions
+    IOStatus s = fs_->AbortIO(pending_handles);
+    (void)s;  // Ignore errors in destructor
+  }
+
+  // Now safe to delete the handles
   for (auto& pair : async_io_map_) {
     auto& async_state = pair.second;
     if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
@@ -323,6 +351,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Initialize ReadSet
   rs->job_ = job;
+  rs->fs_ = job->table->get_rep()->ioptions.env->GetFileSystem();
   rs->pinned_blocks_.resize(job->block_handles.size());
 
   // Build sorted index for O(log n) ReadOffset lookups via binary search.
