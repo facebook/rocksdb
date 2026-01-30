@@ -7,8 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <limits>
+
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/partitioned_log_format.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
@@ -1279,6 +1282,286 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(::testing::Values(10, 100, 1000, kBlockSize,
                                          kBlockSize * 2),
                        ::testing::Values(CompressionType::kZSTD)));
+
+// Tests for CompletionRecord serialization and CRC validation
+class CompletionRecordTest : public ::testing::Test {};
+
+TEST_F(CompletionRecordTest, SerializationRoundTrip) {
+  // Create a CompletionRecord with known values
+  CompletionRecord original;
+  original.partition_wal_number = 12345678901234ULL;
+  original.partition_offset = 98765432109876ULL;
+  original.body_size = 1024;
+  original.body_crc = 0xDEADBEEF;
+  original.record_count = 42;
+  original.first_sequence = 100;
+  original.last_sequence = 141;
+  original.column_family_id = 7;
+
+  // Encode to string
+  std::string encoded;
+  original.EncodeTo(&encoded);
+
+  // Verify encoded size
+  ASSERT_EQ(encoded.size(), CompletionRecord::kEncodedSize);
+  ASSERT_EQ(encoded.size(), 52U);
+
+  // Decode from string
+  CompletionRecord decoded;
+  Slice input(encoded);
+  Status s = decoded.DecodeFrom(&input);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+
+  // Verify all fields match
+  ASSERT_EQ(original.partition_wal_number, decoded.partition_wal_number);
+  ASSERT_EQ(original.partition_offset, decoded.partition_offset);
+  ASSERT_EQ(original.body_size, decoded.body_size);
+  ASSERT_EQ(original.body_crc, decoded.body_crc);
+  ASSERT_EQ(original.record_count, decoded.record_count);
+  ASSERT_EQ(original.first_sequence, decoded.first_sequence);
+  ASSERT_EQ(original.last_sequence, decoded.last_sequence);
+  ASSERT_EQ(original.column_family_id, decoded.column_family_id);
+
+  // Verify equality operator
+  ASSERT_EQ(original, decoded);
+
+  // Verify input slice is fully consumed
+  ASSERT_EQ(input.size(), 0U);
+}
+
+TEST_F(CompletionRecordTest, SerializationRoundTripWithMaxValues) {
+  // Test with maximum values to ensure no overflow issues
+  CompletionRecord original;
+  original.partition_wal_number = std::numeric_limits<uint64_t>::max();
+  original.partition_offset = std::numeric_limits<uint64_t>::max();
+  original.body_size = std::numeric_limits<uint64_t>::max();
+  original.body_crc = std::numeric_limits<uint32_t>::max();
+  original.record_count = std::numeric_limits<uint32_t>::max();
+  original.first_sequence = std::numeric_limits<uint64_t>::max();
+  original.last_sequence = std::numeric_limits<uint64_t>::max();
+  original.column_family_id = std::numeric_limits<uint32_t>::max();
+
+  std::string encoded;
+  original.EncodeTo(&encoded);
+  ASSERT_EQ(encoded.size(), CompletionRecord::kEncodedSize);
+
+  CompletionRecord decoded;
+  Slice input(encoded);
+  Status s = decoded.DecodeFrom(&input);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(original, decoded);
+}
+
+TEST_F(CompletionRecordTest, SerializationRoundTripWithZeroValues) {
+  // Test with all zero values
+  CompletionRecord original;  // Default constructor initializes to zero
+
+  std::string encoded;
+  original.EncodeTo(&encoded);
+  ASSERT_EQ(encoded.size(), CompletionRecord::kEncodedSize);
+
+  CompletionRecord decoded;
+  Slice input(encoded);
+  Status s = decoded.DecodeFrom(&input);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(original, decoded);
+}
+
+TEST_F(CompletionRecordTest, DecodeFromTruncatedInput) {
+  CompletionRecord original;
+  original.partition_wal_number = 12345;
+  original.partition_offset = 67890;
+  original.body_size = 1024;
+  original.body_crc = 0xABCD1234;
+  original.record_count = 10;
+  original.first_sequence = 100;
+  original.last_sequence = 109;
+  original.column_family_id = 1;
+
+  std::string encoded;
+  original.EncodeTo(&encoded);
+
+  // Try to decode from truncated input (various sizes)
+  for (size_t truncate_at = 0; truncate_at < CompletionRecord::kEncodedSize;
+       ++truncate_at) {
+    std::string truncated = encoded.substr(0, truncate_at);
+    CompletionRecord decoded;
+    Slice input(truncated);
+    Status s = decoded.DecodeFrom(&input);
+    ASSERT_TRUE(s.IsCorruption())
+        << "Expected corruption for truncate_at=" << truncate_at
+        << ", got: " << s.ToString();
+  }
+}
+
+TEST_F(CompletionRecordTest, CRCValidation) {
+  // Create some test data
+  std::string body_data = "This is a test write batch body for CRC validation";
+
+  // Create a CompletionRecord and compute CRC
+  CompletionRecord record;
+  record.partition_wal_number = 100;
+  record.partition_offset = 0;
+  record.body_size = body_data.size();
+  record.ComputeBodyCRC(Slice(body_data));
+  record.record_count = 1;
+  record.first_sequence = 1;
+  record.last_sequence = 1;
+  record.column_family_id = 0;
+
+  // Validate that the CRC matches
+  ASSERT_TRUE(record.ValidateBodyCRC(Slice(body_data)));
+
+  // Modify the data and verify CRC no longer matches
+  std::string modified_data = body_data;
+  modified_data[0] = 'X';
+  ASSERT_FALSE(record.ValidateBodyCRC(Slice(modified_data)));
+
+  // Verify with empty data
+  std::string empty_data;
+  CompletionRecord empty_record;
+  empty_record.ComputeBodyCRC(Slice(empty_data));
+  ASSERT_TRUE(empty_record.ValidateBodyCRC(Slice(empty_data)));
+  ASSERT_FALSE(empty_record.ValidateBodyCRC(Slice("non-empty")));
+}
+
+TEST_F(CompletionRecordTest, CRCConsistency) {
+  // Verify that CRC computation is consistent
+  std::string test_data = "Consistent CRC test data";
+
+  CompletionRecord record1, record2;
+  record1.ComputeBodyCRC(Slice(test_data));
+  record2.ComputeBodyCRC(Slice(test_data));
+
+  ASSERT_EQ(record1.body_crc, record2.body_crc);
+
+  // Verify CRC validation works for both
+  ASSERT_TRUE(record1.ValidateBodyCRC(Slice(test_data)));
+  ASSERT_TRUE(record2.ValidateBodyCRC(Slice(test_data)));
+}
+
+TEST_F(CompletionRecordTest, DebugString) {
+  CompletionRecord record;
+  record.partition_wal_number = 123;
+  record.partition_offset = 456;
+  record.body_size = 789;
+  record.body_crc = 0xABCD;
+  record.record_count = 10;
+  record.first_sequence = 100;
+  record.last_sequence = 109;
+  record.column_family_id = 1;
+
+  std::string debug_str = record.DebugString();
+
+  // Verify the debug string contains all field values
+  ASSERT_NE(debug_str.find("partition_wal_number=123"), std::string::npos);
+  ASSERT_NE(debug_str.find("partition_offset=456"), std::string::npos);
+  ASSERT_NE(debug_str.find("body_size=789"), std::string::npos);
+  ASSERT_NE(debug_str.find("body_crc=43981"), std::string::npos);  // 0xABCD
+  ASSERT_NE(debug_str.find("record_count=10"), std::string::npos);
+  ASSERT_NE(debug_str.find("first_sequence=100"), std::string::npos);
+  ASSERT_NE(debug_str.find("last_sequence=109"), std::string::npos);
+  ASSERT_NE(debug_str.find("column_family_id=1"), std::string::npos);
+}
+
+TEST_F(CompletionRecordTest, EqualityOperator) {
+  CompletionRecord record1, record2;
+  record1.partition_wal_number = 100;
+  record1.partition_offset = 200;
+  record1.body_size = 300;
+  record1.body_crc = 400;
+  record1.record_count = 5;
+  record1.first_sequence = 10;
+  record1.last_sequence = 14;
+  record1.column_family_id = 1;
+
+  record2 = record1;
+
+  ASSERT_EQ(record1, record2);
+  ASSERT_FALSE(record1 != record2);
+
+  // Modify each field and verify inequality
+  record2.partition_wal_number = 101;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.partition_offset = 201;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.body_size = 301;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.body_crc = 401;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.record_count = 6;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.first_sequence = 11;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.last_sequence = 15;
+  ASSERT_NE(record1, record2);
+  record2 = record1;
+
+  record2.column_family_id = 2;
+  ASSERT_NE(record1, record2);
+}
+
+TEST_F(CompletionRecordTest, ConstructorWithParameters) {
+  CompletionRecord record(
+      /*wal_number=*/123,
+      /*offset=*/456,
+      /*size=*/789,
+      /*crc=*/0xDEAD,
+      /*count=*/10,
+      /*first_seq=*/100,
+      /*last_seq=*/109,
+      /*cf_id=*/5);
+
+  ASSERT_EQ(record.partition_wal_number, 123U);
+  ASSERT_EQ(record.partition_offset, 456U);
+  ASSERT_EQ(record.body_size, 789U);
+  ASSERT_EQ(record.body_crc, 0xDEADU);
+  ASSERT_EQ(record.record_count, 10U);
+  ASSERT_EQ(record.first_sequence, 100U);
+  ASSERT_EQ(record.last_sequence, 109U);
+  ASSERT_EQ(record.column_family_id, 5U);
+}
+
+TEST_F(CompletionRecordTest, MultipleRecordsInBuffer) {
+  // Simulate writing multiple records to a buffer and reading them back
+  std::string buffer;
+
+  CompletionRecord record1(1, 0, 100, 0x1111, 5, 1, 5, 0);
+  CompletionRecord record2(1, 100, 200, 0x2222, 10, 6, 15, 1);
+  CompletionRecord record3(2, 0, 50, 0x3333, 2, 16, 17, 0);
+
+  record1.EncodeTo(&buffer);
+  record2.EncodeTo(&buffer);
+  record3.EncodeTo(&buffer);
+
+  ASSERT_EQ(buffer.size(), 3 * CompletionRecord::kEncodedSize);
+
+  // Read them back
+  Slice input(buffer);
+
+  CompletionRecord decoded1, decoded2, decoded3;
+  ASSERT_TRUE(decoded1.DecodeFrom(&input).ok());
+  ASSERT_TRUE(decoded2.DecodeFrom(&input).ok());
+  ASSERT_TRUE(decoded3.DecodeFrom(&input).ok());
+
+  ASSERT_EQ(record1, decoded1);
+  ASSERT_EQ(record2, decoded2);
+  ASSERT_EQ(record3, decoded3);
+
+  ASSERT_EQ(input.size(), 0U);
+}
 
 }  // namespace ROCKSDB_NAMESPACE::log
 

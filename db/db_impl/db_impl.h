@@ -16,6 +16,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -34,6 +35,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/partitioned_log_format.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
@@ -76,7 +78,11 @@ class Arena;
 class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
+class MemtableInsertionCompletionQueue;
+class PartitionedWALManager;
+class PartitionedWALSyncThread;
 class PersistentStatsHistoryIterator;
+class SequenceVisibilityTracker;
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -86,6 +92,7 @@ class WriteCallback;
 struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
+struct MemtableInsertionMessage;
 
 // Class to maintain directories for all database paths other than main one.
 class Directories {
@@ -1599,6 +1606,19 @@ class DBImpl : public DB {
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
 
+  // Write implementation using partitioned WAL.
+  // This is called when enable_partitioned_wal is true.
+  // The partitioned WAL write path allows parallel writes to different
+  // partition files while maintaining correctness through atomic sequence
+  // number allocation and completion records in the main WAL.
+  Status WriteImplPartitionedWAL(const WriteOptions& write_options,
+                                 WriteBatch* batch, WriteCallback* callback,
+                                 uint64_t* log_used, uint64_t log_ref,
+                                 bool disable_memtable, uint64_t* seq_used,
+                                 size_t batch_cnt,
+                                 PreReleaseCallback* pre_release_callback,
+                                 PostMemTableCallback* post_memtable_callback);
+
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
@@ -2137,7 +2157,8 @@ class DBImpl : public DB {
       SequenceNumber* last_seqno_observed, SequenceNumber* next_sequence,
       bool* stop_replay_for_corruption, Status* status,
       bool* stop_replay_by_wal_filter,
-      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed,
+      std::vector<log::CompletionRecord>* pending_completion_records = nullptr);
 
   Status InitializeWriteBatchForLogRecord(
       Slice record, const std::unique_ptr<log::Reader>& reader,
@@ -2149,10 +2170,10 @@ class DBImpl : public DB {
       SequenceNumber sequence, SequenceNumber const* const next_sequence,
       bool* stop_replay_for_corruption);
 
-  Status InsertLogRecordToMemtable(WriteBatch* batch_to_use,
-                                   uint64_t wal_number,
-                                   SequenceNumber* next_sequence,
-                                   bool* has_valid_writes);
+  Status InsertLogRecordToMemtable(
+      WriteBatch* batch_to_use, uint64_t wal_number,
+      SequenceNumber* next_sequence, bool* has_valid_writes,
+      std::vector<log::CompletionRecord>* pending_completion_records = nullptr);
 
   Status MaybeWriteLevel0TableForRecovery(
       bool has_valid_writes, bool read_only, uint64_t wal_number, int job_id,
@@ -2317,6 +2338,22 @@ class DBImpl : public DB {
       }
     } else {
       // (Writes are finished before the next write group starts.)
+    }
+
+    // Wait for in-flight partitioned WAL writes to complete their memtable
+    // inserts. Taking exclusive lock ensures:
+    // 1. We wait for all in-progress writes (they hold shared lock)
+    // 2. New writes are blocked while we hold exclusive lock
+    // This guarantees memtable entry count is stable during switch.
+    if (immutable_db_options_.enable_partitioned_wal) {
+      // Unlock DB mutex to avoid deadlock - partitioned WAL writes may
+      // need to acquire mutex_ for flush scheduling after memtable insert.
+      mutex_.Unlock();
+      partitioned_wal_memtable_mutex_.lock();
+      // Immediately release - we just needed to wait for writes to complete.
+      // The exclusive lock blocked new writes and waited for in-progress ones.
+      partitioned_wal_memtable_mutex_.unlock();
+      mutex_.Lock();
     }
 
     // Wait for any LockWAL to clear
@@ -3207,6 +3244,37 @@ class DBImpl : public DB {
   // The number of LockWAL called without matching UnlockWAL call.
   // See also lock_wal_write_token_
   uint32_t lock_wal_count_ = 0;
+
+  // Partitioned WAL components (only initialized when enable_partitioned_wal is
+  // true)
+  // Manager for partitioned WAL files - handles creation, rotation, and
+  // deletion
+  std::unique_ptr<PartitionedWALManager> partitioned_wal_manager_;
+  // Queue for tracking memtable insertion completion in partitioned WAL mode
+  std::unique_ptr<MemtableInsertionCompletionQueue> memtable_completion_queue_;
+  // Background thread for updating visible sequence numbers
+  std::unique_ptr<SequenceVisibilityTracker> visibility_tracker_;
+  // Background thread for syncing WAL files periodically
+  std::unique_ptr<PartitionedWALSyncThread> wal_sync_thread_;
+  // Flag indicating whether we recovered from partitioned WAL during Open.
+  // This is used during downgrade (enable_partitioned_wal=false but DB was
+  // previously using partitioned WAL) to clean up partitioned WAL files.
+  bool recovered_from_partitioned_wal_ = false;
+  // Flag to track if a partitioned WAL rotation is already pending.
+  // This prevents scheduling multiple rotations concurrently.
+  std::atomic<bool> partitioned_wal_rotation_pending_{false};
+  // Counter for in-flight partitioned WAL writes. Used to wait for all writes
+  // to complete during shutdown.
+  std::atomic<uint32_t> partitioned_wal_in_flight_writes_{0};
+  // Mutex and condition variable for waiting for in-flight writes during
+  // shutdown
+  mutable std::mutex partitioned_wal_shutdown_mutex_;
+  std::condition_variable partitioned_wal_shutdown_cv_;
+  // Shared mutex for coordinating partitioned WAL memtable writes with memtable
+  // switch. Writes hold shared lock during memtable insert, switch holds
+  // exclusive lock. This ensures memtable switch waits for in-flight writes
+  // and blocks new writes during switch.
+  mutable std::shared_mutex partitioned_wal_memtable_mutex_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

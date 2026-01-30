@@ -292,6 +292,13 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {MULTISCAN_IO_COALESCED_NONADJACENT,
      "rocksdb.multiscan.io.coalesced.nonadjacent"},
     {MULTISCAN_SEEK_ERRORS, "rocksdb.multiscan.seek.errors"},
+    {PARTITIONED_WAL_WRITES, "rocksdb.partitioned.wal.writes"},
+    {PARTITIONED_WAL_BYTES_WRITTEN, "rocksdb.partitioned.wal.bytes.written"},
+    {PARTITIONED_WAL_COMPLETION_RECORDS,
+     "rocksdb.partitioned.wal.completion.records"},
+    {PARTITIONED_WAL_VISIBILITY_WAIT_MICROS,
+     "rocksdb.partitioned.wal.visibility.wait.micros"},
+    {PARTITIONED_WAL_SYNCS, "rocksdb.partitioned.wal.syncs"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -368,6 +375,10 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.multiscan.op.prepare.iterators.micros"},
     {MULTISCAN_PREPARE_MICROS, "rocksdb.multiscan.prepare.micros"},
     {MULTISCAN_BLOCKS_PER_PREPARE, "rocksdb.multiscan.blocks.per.prepare"},
+    {PARTITIONED_WAL_WRITE_LATENCY, "rocksdb.partitioned.wal.write.latency"},
+    {PARTITIONED_WAL_SEQUENCE_ALLOC_LATENCY,
+     "rocksdb.partitioned.wal.sequence.alloc.latency"},
+    {PARTITIONED_WAL_SYNC_LATENCY, "rocksdb.partitioned.wal.sync.latency"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

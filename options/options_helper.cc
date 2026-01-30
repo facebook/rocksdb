@@ -201,6 +201,15 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.compaction_service = immutable_db_options.compaction_service;
   options.calculate_sst_write_lifetime_hint_set =
       immutable_db_options.calculate_sst_write_lifetime_hint_set;
+  options.enable_partitioned_wal = immutable_db_options.enable_partitioned_wal;
+  options.num_partitioned_wal_writers =
+      immutable_db_options.num_partitioned_wal_writers;
+  options.partitioned_wal_consistency_mode =
+      immutable_db_options.partitioned_wal_consistency_mode;
+  options.partitioned_wal_sync_interval_ms =
+      immutable_db_options.partitioned_wal_sync_interval_ms;
+  options.partitioned_wal_max_file_size =
+      immutable_db_options.partitioned_wal_max_file_size;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(

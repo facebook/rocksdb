@@ -1739,4 +1739,93 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return String value of current offpeak time range, "" if none is set.
    */
   String dailyOffpeakTimeUTC();
+
+  /**
+   * Enable partitioned WAL for concurrent write throughput.
+   * When enabled, WAL writes are distributed across multiple partition files
+   * to allow concurrent writes from multiple threads.
+   *
+   * Default: false
+   *
+   * @param enablePartitionedWal true to enable partitioned WAL.
+   * @return the reference to the current options.
+   */
+  T setEnablePartitionedWal(final boolean enablePartitionedWal);
+
+  /**
+   * Check if partitioned WAL is enabled.
+   *
+   * @return true if partitioned WAL is enabled.
+   */
+  boolean enablePartitionedWal();
+
+  /**
+   * Number of concurrent WAL writers when partitioned WAL is enabled.
+   * Each writer handles a separate partition file for concurrent writes.
+   *
+   * Default: 4
+   *
+   * @param numPartitionedWalWriters number of concurrent WAL writers.
+   * @return the reference to the current options.
+   */
+  T setNumPartitionedWalWriters(final int numPartitionedWalWriters);
+
+  /**
+   * Get number of concurrent WAL writers for partitioned WAL.
+   *
+   * @return number of concurrent WAL writers.
+   */
+  int numPartitionedWalWriters();
+
+  /**
+   * Consistency mode for partitioned WAL.
+   *
+   * Default: STRONG
+   *
+   * @param mode consistency mode to use.
+   * @return the reference to the current options.
+   */
+  T setPartitionedWalConsistencyMode(final PartitionedWALConsistencyMode mode);
+
+  /**
+   * Get the consistency mode for partitioned WAL.
+   *
+   * @return the consistency mode.
+   */
+  PartitionedWALConsistencyMode partitionedWalConsistencyMode();
+
+  /**
+   * Interval in milliseconds for syncing partitioned WAL files to disk.
+   *
+   * Default: 1000 (1 second)
+   *
+   * @param intervalMs sync interval in milliseconds.
+   * @return the reference to the current options.
+   */
+  T setPartitionedWalSyncIntervalMs(final long intervalMs);
+
+  /**
+   * Get the sync interval for partitioned WAL files.
+   *
+   * @return sync interval in milliseconds.
+   */
+  long partitionedWalSyncIntervalMs();
+
+  /**
+   * Maximum size of each partitioned WAL file before rotating.
+   * 0 means unlimited (rotate only based on total WAL size).
+   *
+   * Default: 0
+   *
+   * @param maxFileSize maximum file size in bytes.
+   * @return the reference to the current options.
+   */
+  T setPartitionedWalMaxFileSize(final long maxFileSize);
+
+  /**
+   * Get the maximum size of each partitioned WAL file.
+   *
+   * @return maximum file size in bytes.
+   */
+  long partitionedWalMaxFileSize();
 }

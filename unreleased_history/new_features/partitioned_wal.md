@@ -1,0 +1,1 @@
+Added partitioned WAL feature for concurrent write throughput. When enabled via `enable_partitioned_wal=true`, WAL writes are distributed across multiple partition files to allow concurrent writes from multiple threads. Configure with `num_partitioned_wal_writers`, `partitioned_wal_consistency_mode`, `partitioned_wal_sync_interval_ms`, and `partitioned_wal_max_file_size` options.

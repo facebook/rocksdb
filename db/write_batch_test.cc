@@ -1265,6 +1265,150 @@ TEST_F(WriteBatchTest, CommitWithTimestamp) {
             handler.seen);
 }
 
+TEST_F(WriteBatchTest, GetBodyAndRebuild) {
+  // Create a batch with some operations
+  WriteBatch batch1;
+  ASSERT_OK(batch1.Put("key1", "value1"));
+  ASSERT_OK(batch1.Put("key2", "value2"));
+  ASSERT_OK(batch1.Delete("key3"));
+  WriteBatchInternal::SetSequence(&batch1, 100);
+
+  // Verify original batch state
+  ASSERT_EQ(3u, WriteBatchInternal::Count(&batch1));
+  ASSERT_EQ(100u, WriteBatchInternal::Sequence(&batch1));
+
+  // Get the body from batch1
+  Slice body = WriteBatchInternal::GetBody(&batch1);
+  ASSERT_GT(body.size(), 0u);
+
+  // Rebuild a new batch with a different sequence number
+  WriteBatch batch2;
+  ASSERT_OK(
+      WriteBatchInternal::SetSequenceAndRebuildFromBody(&batch2, 200, body));
+
+  // Verify the rebuilt batch has the new sequence number
+  ASSERT_EQ(200u, WriteBatchInternal::Sequence(&batch2));
+  ASSERT_EQ(3u, WriteBatchInternal::Count(&batch2));
+
+  // Verify both batches have the same body
+  Slice body1 = WriteBatchInternal::GetBody(&batch1);
+  Slice body2 = WriteBatchInternal::GetBody(&batch2);
+  ASSERT_EQ(body1.ToString(), body2.ToString());
+
+  // Verify the content is preserved by iterating
+  TestHandler handler1, handler2;
+  ASSERT_OK(batch1.Iterate(&handler1));
+  ASSERT_OK(batch2.Iterate(&handler2));
+  ASSERT_EQ(handler1.seen, handler2.seen);
+  ASSERT_EQ("Put(key1, value1)Put(key2, value2)Delete(key3)", handler1.seen);
+}
+
+TEST_F(WriteBatchTest, GetBodyPreservesRecords) {
+  // Test that all record types survive round-trip through GetBody and Rebuild
+  WriteBatch batch1;
+
+  // Add various record types
+  ASSERT_OK(batch1.Put("put_key", "put_value"));
+  ASSERT_OK(batch1.Delete("delete_key"));
+  ASSERT_OK(batch1.SingleDelete("single_delete_key"));
+  ASSERT_OK(batch1.DeleteRange("range_start", "range_end"));
+  ASSERT_OK(batch1.Merge("merge_key", "merge_value"));
+  ASSERT_OK(batch1.PutLogData("log_data"));
+
+  WriteBatchInternal::SetSequence(&batch1, 500);
+
+  // Get body and rebuild with a new sequence
+  Slice body = WriteBatchInternal::GetBody(&batch1);
+  WriteBatch batch2;
+  ASSERT_OK(
+      WriteBatchInternal::SetSequenceAndRebuildFromBody(&batch2, 1000, body));
+
+  // Verify sequence and count
+  ASSERT_EQ(1000u, WriteBatchInternal::Sequence(&batch2));
+  // Count should be 5 (Put, Delete, SingleDelete, DeleteRange, Merge)
+  // LogData does not count as a record
+  ASSERT_EQ(5u, WriteBatchInternal::Count(&batch2));
+
+  // Verify all records are preserved
+  TestHandler handler1, handler2;
+  ASSERT_OK(batch1.Iterate(&handler1));
+  ASSERT_OK(batch2.Iterate(&handler2));
+  ASSERT_EQ(handler1.seen, handler2.seen);
+
+  // Verify the expected content
+  ASSERT_EQ(
+      "Put(put_key, put_value)"
+      "Delete(delete_key)"
+      "SingleDelete(single_delete_key)"
+      "DeleteRange(range_start, range_end)"
+      "Merge(merge_key, merge_value)"
+      "LogData(log_data)",
+      handler1.seen);
+}
+
+TEST_F(WriteBatchTest, GetBodyEmptyBatch) {
+  // Test with an empty batch
+  WriteBatch batch;
+  WriteBatchInternal::SetSequence(&batch, 100);
+
+  Slice body = WriteBatchInternal::GetBody(&batch);
+  ASSERT_EQ(0u, body.size());
+
+  // Rebuild from empty body
+  WriteBatch batch2;
+  ASSERT_OK(
+      WriteBatchInternal::SetSequenceAndRebuildFromBody(&batch2, 200, body));
+  ASSERT_EQ(200u, WriteBatchInternal::Sequence(&batch2));
+  ASSERT_EQ(0u, WriteBatchInternal::Count(&batch2));
+}
+
+TEST_F(WriteBatchTest, CountRecordsInBody) {
+  // Test the CountRecordsInBody helper directly
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("k1", "v1"));
+  ASSERT_OK(batch.Put("k2", "v2"));
+  ASSERT_OK(batch.Delete("k3"));
+  ASSERT_OK(batch.PutLogData("blob"));  // LogData doesn't count
+
+  Slice body = WriteBatchInternal::GetBody(&batch);
+  uint32_t count = 0;
+  ASSERT_OK(WriteBatchInternal::CountRecordsInBody(body, &count));
+  ASSERT_EQ(3u, count);
+}
+
+TEST_F(WriteBatchTest, GetBodyWithColumnFamilies) {
+  // Test with column family operations
+  WriteBatch batch1;
+  ColumnFamilyHandleImplDummy cf1(1), cf2(2);
+
+  ASSERT_OK(batch1.Put(&cf1, "cf1_key", "cf1_value"));
+  ASSERT_OK(batch1.Put(&cf2, "cf2_key", "cf2_value"));
+  ASSERT_OK(batch1.Delete(&cf1, "cf1_delete"));
+
+  WriteBatchInternal::SetSequence(&batch1, 300);
+
+  // Get body and rebuild
+  Slice body = WriteBatchInternal::GetBody(&batch1);
+  WriteBatch batch2;
+  ASSERT_OK(
+      WriteBatchInternal::SetSequenceAndRebuildFromBody(&batch2, 400, body));
+
+  // Verify
+  ASSERT_EQ(400u, WriteBatchInternal::Sequence(&batch2));
+  ASSERT_EQ(3u, WriteBatchInternal::Count(&batch2));
+
+  // Verify content matches
+  TestHandler handler1, handler2;
+  ASSERT_OK(batch1.Iterate(&handler1));
+  ASSERT_OK(batch2.Iterate(&handler2));
+  ASSERT_EQ(handler1.seen, handler2.seen);
+  ASSERT_EQ(
+      "PutCF(1, cf1_key, cf1_value)"
+      "PutCF(2, cf2_key, cf2_value)"
+      "DeleteCF(1, cf1_delete)",
+      handler1.seen);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

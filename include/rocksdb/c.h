@@ -2046,6 +2046,36 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_compression(
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_wal_compression(
     rocksdb_options_t* opt);
 
+/* Partitioned WAL options */
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_enable_partitioned_wal(
+    rocksdb_options_t* opt, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_enable_partitioned_wal(rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_num_partitioned_wal_writers(
+    rocksdb_options_t* opt, uint32_t);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_options_get_num_partitioned_wal_writers(rocksdb_options_t* opt);
+
+enum {
+  rocksdb_partitioned_wal_consistency_mode_strong = 0,
+  rocksdb_partitioned_wal_consistency_mode_weak = 1
+};
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_partitioned_wal_consistency_mode(rocksdb_options_t* opt,
+                                                     int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_options_get_partitioned_wal_consistency_mode(rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_partitioned_wal_sync_interval_ms(rocksdb_options_t* opt,
+                                                     uint64_t);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_options_get_partitioned_wal_sync_interval_ms(rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_partitioned_wal_max_file_size(rocksdb_options_t* opt,
+                                                  uint64_t);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_options_get_partitioned_wal_max_file_size(rocksdb_options_t* opt);
+
 enum {
   rocksdb_k_by_compensated_size_compaction_pri = 0,
   rocksdb_k_oldest_largest_seq_first_compaction_pri = 1,

@@ -74,10 +74,17 @@ LIB_SOURCES =                                                   \
   db/logs_with_prep_tracker.cc                                  \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
+  db/partitioned_log_writer.cc                                  \
+  db/partitioned_log_reader.cc                                  \
+  db/partitioned_wal_manager.cc                                 \
+  db/partitioned_wal_recovery.cc                                \
+  db/partitioned_wal_sync_thread.cc                             \
   db/malloc_stats.cc                                            \
   db/manifest_ops.cc                                            \
   db/memtable.cc                                                \
+  db/memtable_insertion_completion_queue.cc                     \
   db/memtable_list.cc                                           \
+  db/sequence_visibility_tracker.cc                             \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/multi_scan.cc						\
@@ -540,8 +547,15 @@ TEST_MAIN_SOURCES =                                                     \
   db/flush_job_test.cc                                                  \
   db/listener_test.cc                                                   \
   db/log_test.cc                                                        \
+  db/partitioned_log_test.cc                                            \
+  db/partitioned_wal_manager_test.cc                                    \
+  db/partitioned_wal_recovery_test.cc                                   \
+  db/partitioned_wal_sync_thread_test.cc                                \
+  db/db_write_partitioned_wal_test.cc                                   \
   db/manual_compaction_test.cc                                          \
+  db/memtable_insertion_completion_queue_test.cc                \
   db/memtable_list_test.cc                                              \
+  db/sequence_visibility_tracker_test.cc                        \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
   db/multi_cf_iterator_test.cc                                          \

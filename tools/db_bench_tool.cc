@@ -886,6 +886,25 @@ static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
 
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
+DEFINE_bool(enable_partitioned_wal, false,
+            "If true, enable partitioned WAL for parallel write throughput.");
+
+DEFINE_uint32(num_partitioned_wal_writers, 4,
+              "Number of partitioned WAL writers when partitioned WAL is "
+              "enabled.");
+
+DEFINE_string(partitioned_wal_consistency_mode, "strong",
+              "Consistency mode for partitioned WAL: 'strong' (wait for "
+              "visibility) or 'weak' (return immediately).");
+
+DEFINE_uint64(partitioned_wal_sync_interval_ms, 1000,
+              "Interval between WAL syncs in milliseconds when partitioned WAL "
+              "is enabled. Set to 0 for sync on every write.");
+
+DEFINE_uint64(partitioned_wal_max_file_size, 100 * 1024 * 1024,
+              "Maximum size in bytes for each partitioned WAL file before "
+              "rotation. Set to 0 to disable size-based rotation.");
+
 DEFINE_string(truth_db, "/dev/shm/truth_db/dbbench",
               "Truth key/values used when using verify");
 
@@ -4427,6 +4446,18 @@ class Benchmark {
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
     options.wal_compression = FLAGS_wal_compression_e;
+    options.enable_partitioned_wal = FLAGS_enable_partitioned_wal;
+    options.num_partitioned_wal_writers = FLAGS_num_partitioned_wal_writers;
+    options.partitioned_wal_sync_interval_ms =
+        FLAGS_partitioned_wal_sync_interval_ms;
+    options.partitioned_wal_max_file_size = FLAGS_partitioned_wal_max_file_size;
+    if (FLAGS_partitioned_wal_consistency_mode == "weak") {
+      options.partitioned_wal_consistency_mode =
+          ROCKSDB_NAMESPACE::PartitionedWALConsistencyMode::kWeak;
+    } else {
+      options.partitioned_wal_consistency_mode =
+          ROCKSDB_NAMESPACE::PartitionedWALConsistencyMode::kStrong;
+    }
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,

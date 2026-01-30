@@ -105,6 +105,11 @@ struct ImmutableDBOptions {
   Temperature metadata_write_temperature;
   Temperature wal_write_temperature;
   CompactionStyleSet calculate_sst_write_lifetime_hint_set;
+  bool enable_partitioned_wal;
+  uint32_t num_partitioned_wal_writers;
+  PartitionedWALConsistencyMode partitioned_wal_consistency_mode;
+  uint64_t partitioned_wal_sync_interval_ms;
+  uint64_t partitioned_wal_max_file_size;
 
   // Beginning convenience/helper objects that are not part of the base
   // DBOptions

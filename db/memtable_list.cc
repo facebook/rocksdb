@@ -44,8 +44,16 @@ void MemTableListVersion::UnrefMemTable(
     autovector<ReadOnlyMemTable*>* to_delete, ReadOnlyMemTable* m) {
   if (m->Unref()) {
     to_delete->push_back(m);
-    assert(*parent_memtable_list_memory_usage_ >= m->ApproximateMemoryUsage());
-    *parent_memtable_list_memory_usage_ -= m->ApproximateMemoryUsage();
+    size_t mem_usage = m->ApproximateMemoryUsage();
+    // Note: ApproximateMemoryUsage() can return a different value than when
+    // AddMemTable was called if the memtable's internal state changed
+    // (e.g., range tombstone fragmentation during reads). We use saturating
+    // subtraction to prevent underflow in the approximate memory counter.
+    if (*parent_memtable_list_memory_usage_ >= mem_usage) {
+      *parent_memtable_list_memory_usage_ -= mem_usage;
+    } else {
+      *parent_memtable_list_memory_usage_ = 0;
+    }
   }
 }
 

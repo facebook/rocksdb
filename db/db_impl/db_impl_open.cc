@@ -11,7 +11,13 @@
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
+#include "db/memtable_insertion_completion_queue.h"
+#include "db/partitioned_log_format.h"
+#include "db/partitioned_wal_manager.h"
+#include "db/partitioned_wal_recovery.h"
+#include "db/partitioned_wal_sync_thread.h"
 #include "db/periodic_task_scheduler.h"
+#include "db/sequence_visibility_tracker.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -1303,6 +1309,13 @@ Status DBImpl::ProcessLogFile(
 
   TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
                            /*cb_arg=*/nullptr);
+
+  // Collect completion records from this WAL file for later processing.
+  // This is necessary because completion records may not be in sequence order
+  // (due to concurrent writes), and we need to process them in sequence order
+  // to avoid violating memtable sequence number ordering.
+  std::vector<log::CompletionRecord> pending_completion_records;
+
   while (true) {
     if (*stop_replay_by_wal_filter) {
       break;
@@ -1325,7 +1338,8 @@ Status DBImpl::ProcessLogFile(
         record, reader, running_ts_sz, wal_number, fname, read_only, job_id,
         logFileDropped, &reporter, &record_checksum, &last_seqno_observed,
         next_sequence, stop_replay_for_corruption, &status,
-        stop_replay_by_wal_filter, version_edits, flushed);
+        stop_replay_by_wal_filter, version_edits, flushed,
+        &pending_completion_records);
 
     if (!process_status.ok()) {
       return process_status;
@@ -1337,6 +1351,29 @@ Status DBImpl::ProcessLogFile(
       return seqno_check_status;
     } else if (*stop_replay_for_corruption) {
       break;
+    }
+  }
+
+  // Process any collected completion records in sequence order.
+  // This ensures memtable receives entries in the correct sequence order.
+  if (status.ok() && !pending_completion_records.empty()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Processing %zu completion records from log #%" PRIu64,
+                   pending_completion_records.size(), wal_number);
+
+    // Process all completion records in one batch (already sorted in Recover)
+    PartitionedWALRecovery recovery(immutable_db_options_, dbname_, fs_.get());
+    status = recovery.Recover(pending_completion_records,
+                              column_family_memtables_.get(), &flush_scheduler_,
+                              &trim_history_scheduler_, wal_number,
+                              min_wal_number, next_sequence);
+    if (!status.ok()) {
+      ROCKS_LOG_ERROR(
+          immutable_db_options_.info_log,
+          "Failed to recover %zu completion records from log #%" PRIu64 ": %s",
+          pending_completion_records.size(), wal_number,
+          status.ToString().c_str());
+      return status;
     }
   }
 
@@ -1431,7 +1468,8 @@ Status DBImpl::ProcessLogRecord(
     SequenceNumber* last_seqno_observed, SequenceNumber* next_sequence,
     bool* stop_replay_for_corruption, Status* status,
     bool* stop_replay_by_wal_filter,
-    std::unordered_map<int, VersionEdit>* version_edits, bool* flushed) {
+    std::unordered_map<int, VersionEdit>* version_edits, bool* flushed,
+    std::vector<log::CompletionRecord>* pending_completion_records) {
   assert(reporter);
   assert(last_seqno_observed);
   assert(stop_replay_for_corruption);
@@ -1492,8 +1530,9 @@ Status DBImpl::ProcessLogRecord(
   }
 
   assert(process_status.ok());
-  process_status = InsertLogRecordToMemtable(batch_to_use, wal_number,
-                                             next_sequence, &has_valid_writes);
+  process_status =
+      InsertLogRecordToMemtable(batch_to_use, wal_number, next_sequence,
+                                &has_valid_writes, pending_completion_records);
   MaybeIgnoreError(&process_status);
   // We are treating this as a failure while reading since we read valid
   // blocks that do not form coherent data
@@ -1568,10 +1607,56 @@ void DBImpl::MaybeReviseStopReplayForCorruption(
   }
 }
 
-Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
-                                         uint64_t wal_number,
-                                         SequenceNumber* next_sequence,
-                                         bool* has_valid_writes) {
+// Helper class to detect and extract partitioned WAL completion records
+// from a WriteBatch during recovery.
+namespace {
+class PartitionedWALCompletionRecordHandler : public WriteBatch::Handler {
+ public:
+  PartitionedWALCompletionRecordHandler() : is_completion_record_(false) {}
+
+  Status PutCF(uint32_t /*column_family_id*/, const Slice& key,
+               const Slice& value) override {
+    static const Slice kCompletionKey("__PWAL_COMPLETION__");
+    if (key == kCompletionKey) {
+      is_completion_record_ = true;
+      completion_data_ = value.ToString();
+    }
+    return Status::OK();
+  }
+
+  // We only care about Put operations for completion records
+  Status DeleteCF(uint32_t, const Slice&) override { return Status::OK(); }
+  Status SingleDeleteCF(uint32_t, const Slice&) override {
+    return Status::OK();
+  }
+  Status DeleteRangeCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MarkBeginPrepare(bool) override { return Status::OK(); }
+  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+  Status MarkRollback(const Slice&) override { return Status::OK(); }
+  Status MarkCommit(const Slice&) override { return Status::OK(); }
+  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MarkNoop(bool) override { return Status::OK(); }
+
+  bool IsCompletionRecord() const { return is_completion_record_; }
+  const std::string& GetCompletionData() const { return completion_data_; }
+
+ private:
+  bool is_completion_record_;
+  std::string completion_data_;
+};
+}  // namespace
+
+Status DBImpl::InsertLogRecordToMemtable(
+    WriteBatch* batch_to_use, uint64_t wal_number,
+    SequenceNumber* next_sequence, bool* has_valid_writes,
+    std::vector<log::CompletionRecord>* pending_completion_records) {
   // If column family was not found, it might mean that the WAL write
   // batch references to the column family that was dropped after the
   // insert. We don't want to fail the whole write batch in that case --
@@ -1579,6 +1664,80 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
   // That's why we set ignore missing column families to true
   assert(batch_to_use);
   assert(has_valid_writes);
+
+  // Check if this is a partitioned WAL completion record.
+  // We always check for completion records during recovery, regardless of
+  // whether enable_partitioned_wal is currently set. This enables:
+  // 1. Normal recovery when enable_partitioned_wal=true
+  // 2. Downgrade: recovering from partitioned WAL even when
+  //    enable_partitioned_wal=false (DB was previously using partitioned WAL)
+  {
+    PartitionedWALCompletionRecordHandler handler;
+    Status s = batch_to_use->Iterate(&handler);
+    if (s.ok() && handler.IsCompletionRecord()) {
+      // This is a completion record - decode it and recover from partitioned
+      // WAL
+      log::CompletionRecord completion;
+      Slice completion_data(handler.GetCompletionData());
+      s = completion.DecodeFrom(&completion_data);
+      if (!s.ok()) {
+        ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                        "Failed to decode completion record: %s",
+                        s.ToString().c_str());
+        return s;
+      }
+
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                      "Found partitioned WAL completion record: seq=[%" PRIu64
+                      ", %" PRIu64 "], partition=%" PRIu64 ", offset=%" PRIu64
+                      ", size=%" PRIu64,
+                      completion.first_sequence, completion.last_sequence,
+                      completion.partition_wal_number,
+                      completion.partition_offset, completion.body_size);
+
+      // Track that we recovered from partitioned WAL (for cleanup during
+      // downgrade)
+      recovered_from_partitioned_wal_ = true;
+
+      // If a pending completion records vector is provided, collect the record
+      // for later processing in sequence order. This is necessary because
+      // completion records in the main WAL may not be in sequence order
+      // (due to concurrent writes).
+      if (pending_completion_records != nullptr) {
+        pending_completion_records->push_back(completion);
+        *has_valid_writes = true;
+        return Status::OK();
+      }
+
+      // No collection vector - recover immediately (legacy path)
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Recovering from partitioned WAL: seq=[%" PRIu64
+                     ", %" PRIu64 "], partition=%" PRIu64 ", offset=%" PRIu64
+                     ", size=%" PRIu64,
+                     completion.first_sequence, completion.last_sequence,
+                     completion.partition_wal_number,
+                     completion.partition_offset, completion.body_size);
+
+      PartitionedWALRecovery recovery(immutable_db_options_, dbname_,
+                                      fs_.get());
+      std::vector<log::CompletionRecord> records;
+      records.push_back(completion);
+      // Use wal_number as min_wal_number in legacy path (conservative)
+      s = recovery.Recover(records, column_family_memtables_.get(),
+                           &flush_scheduler_, &trim_history_scheduler_,
+                           wal_number, wal_number, next_sequence);
+      if (s.ok()) {
+        *has_valid_writes = true;
+      } else {
+        ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                        "Failed to recover from partitioned WAL: %s",
+                        s.ToString().c_str());
+      }
+      return s;
+    }
+  }
+
+  // Normal path - insert directly into memtable
   Status status = WriteBatchInternal::InsertInto(
       batch_to_use, column_family_memtables_.get(), &flush_scheduler_,
       &trim_history_scheduler_, true, wal_number, this,
@@ -2520,6 +2679,111 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     s = impl->LogAndApplyForRecovery(recovery_ctx);
+  }
+
+  // Handle upgrade/downgrade between traditional WAL and partitioned WAL modes.
+  //
+  // Upgrade: enable_partitioned_wal=true but we recovered from traditional WAL
+  //   - This is handled automatically: traditional WAL recovery happens first,
+  //     then partitioned WAL components are initialized for new writes.
+  //   - Log the upgrade event for visibility.
+  //
+  // Downgrade: enable_partitioned_wal=false but we recovered from partitioned
+  // WAL
+  //   - Recovery from partitioned WAL already happened (completion records
+  //     processed)
+  //   - Clean up the old partitioned WAL files since they are no longer needed.
+  //
+  // Cleanup on non-partitioned mode: enable_partitioned_wal=false on existing
+  // DB
+  //   - Even if we didn't recover from partitioned WAL (e.g., data was already
+  //     flushed to SST files), we should clean up any leftover partition files.
+  //   - This handles the case where user had partitioned WAL enabled, flushed
+  //     all data, then reopens with partitioned WAL disabled.
+  if (s.ok()) {
+    bool upgrading_to_partitioned_wal =
+        impl->immutable_db_options_.enable_partitioned_wal &&
+        !impl->recovered_from_partitioned_wal_ && !recovery_ctx.is_new_db_;
+
+    bool downgrading_from_partitioned_wal =
+        !impl->immutable_db_options_.enable_partitioned_wal &&
+        impl->recovered_from_partitioned_wal_;
+
+    // Also clean up if we're not using partitioned WAL and this is not a new
+    // DB. This handles leftover partition files from previous partitioned WAL
+    // usage where the data was already flushed to SST (so no recovery was
+    // needed).
+    bool should_cleanup_partition_files =
+        !impl->immutable_db_options_.enable_partitioned_wal &&
+        !recovery_ctx.is_new_db_;
+
+    if (upgrading_to_partitioned_wal) {
+      ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                     "Upgrading to partitioned WAL mode. Traditional WAL "
+                     "data has been recovered and new writes will use "
+                     "partitioned WAL.");
+    }
+
+    if (downgrading_from_partitioned_wal) {
+      ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                     "Downgrading from partitioned WAL mode. Partitioned WAL "
+                     "data has been recovered. Cleaning up partitioned WAL "
+                     "files.");
+    }
+
+    if (should_cleanup_partition_files) {
+      // Clean up all partitioned WAL files since we're not using partitioned
+      // WAL mode. Use UINT64_MAX as min_log_number to delete all partitioned
+      // WAL files. This is safe because:
+      // 1. If we recovered from partitioned WAL, the data is now in memtables
+      // 2. If we didn't recover (data already in SST), partition files are
+      // stale
+      PartitionedWALManager temp_manager(
+          impl->immutable_db_options_.fs.get(), impl->immutable_db_options_,
+          impl->dbname_, 0 /* num_partitions - not used for deletion */);
+      Status cleanup_status = temp_manager.DeleteObsoleteFiles(UINT64_MAX);
+      if (!cleanup_status.ok()) {
+        ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
+                       "Failed to clean up partitioned WAL files during "
+                       "downgrade: %s",
+                       cleanup_status.ToString().c_str());
+        // Don't fail the open for cleanup failures
+      }
+    }
+  }
+
+  // Initialize partitioned WAL components if enabled
+  if (s.ok() && impl->immutable_db_options_.enable_partitioned_wal) {
+    // Create the partitioned WAL manager
+    impl->partitioned_wal_manager_ = std::make_unique<PartitionedWALManager>(
+        impl->immutable_db_options_.fs.get(), impl->immutable_db_options_,
+        impl->dbname_, impl->immutable_db_options_.num_partitioned_wal_writers);
+
+    // Open the partitioned WAL manager with the current log number
+    s = impl->partitioned_wal_manager_->Open(impl->cur_wal_number_);
+    if (s.ok()) {
+      // Create the memtable insertion completion queue
+      impl->memtable_completion_queue_ =
+          std::make_unique<MemtableInsertionCompletionQueue>();
+
+      // Create the visibility tracker
+      impl->visibility_tracker_ = std::make_unique<SequenceVisibilityTracker>(
+          impl->versions_.get(), impl->memtable_completion_queue_.get());
+      s = impl->visibility_tracker_->Start();
+    }
+    if (s.ok()) {
+      // Create the WAL sync thread.
+      // For partitioned WAL, we don't pass the main WAL writer because:
+      // 1. The partitioned WAL manager handles its own syncing
+      // 2. The main WAL writer may be rotated/freed during operation
+      // 3. Passing it could cause use-after-free if accessed after rotation
+      log::Writer* main_wal_writer = nullptr;  // Not used for partitioned WAL
+      impl->wal_sync_thread_ = std::make_unique<PartitionedWALSyncThread>(
+          impl->partitioned_wal_manager_.get(), main_wal_writer,
+          impl->immutable_db_options_.partitioned_wal_sync_interval_ms,
+          impl->immutable_db_options_.clock, impl->stats_);
+      s = impl->wal_sync_thread_->Start();
+    }
   }
 
   if (s.ok() && !impl->immutable_db_options_.write_identity_file) {

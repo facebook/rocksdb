@@ -13,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
+#include "db/partitioned_wal_manager.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
@@ -721,6 +722,18 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
   }
   wal_manager_.PurgeObsoleteWALFiles();
+  // Also purge obsolete partitioned WAL files if partitioned WAL is enabled.
+  // The min log number to keep is already computed and stored in
+  // state.log_number.
+  if (partitioned_wal_manager_) {
+    Status s = partitioned_wal_manager_->DeleteObsoleteFiles(state.log_number);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "[JOB %d] Failed to delete obsolete partitioned WAL files: %s",
+          state.job_id, s.ToString().c_str());
+    }
+  }
   LogFlush(immutable_db_options_.info_log);
   InstrumentedMutexLock l(&mutex_);
   --pending_purge_obsolete_files_;
