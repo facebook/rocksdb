@@ -918,6 +918,7 @@ set(SOURCES
         util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
+        util/io_dispatcher_imp.cc
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc

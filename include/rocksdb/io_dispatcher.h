@@ -15,6 +15,9 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class FileSystem;
+
 /*
  * IODispatcher is a class that allows users to submit groups of IO jobs to be
  * dispatched asynchronously (or synchronously), upon submission the
@@ -140,6 +143,16 @@ class ReadSet {
   // out: Output parameter for the pinned block entry
   Status ReadOffset(size_t offset, CachableEntry<Block>* out);
 
+  // Release a block by index, unpinning it from cache.
+  // After this call, ReadIndex() for this block will return an error.
+  // This is useful for eager memory reclamation when blocks are no longer
+  // needed.
+  void ReleaseBlock(size_t block_index);
+
+  // Check if a block at the given index is still available (not released).
+  // Returns true if the block can be read, false otherwise.
+  bool IsBlockAvailable(size_t block_index) const;
+
   // Statistics accessors
   uint64_t GetNumSyncReads() const { return num_sync_reads_; }
   uint64_t GetNumAsyncReads() const { return num_async_reads_; }
@@ -150,6 +163,9 @@ class ReadSet {
 
   // Job data
   std::shared_ptr<IOJob> job_;
+
+  // FileSystem for calling AbortIO in destructor
+  std::shared_ptr<FileSystem> fs_;
 
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;
@@ -203,5 +219,64 @@ class IODispatcher {
 };
 
 IODispatcher* NewIODispatcher();
+
+// TrackingIODispatcher wraps another IODispatcher and tracks all ReadSets
+// created. This is useful for testing to verify IO statistics.
+class TrackingIODispatcher : public IODispatcher {
+ public:
+  TrackingIODispatcher() : impl_(NewIODispatcher()) {}
+  explicit TrackingIODispatcher(IODispatcher* impl) : impl_(impl) {}
+
+  Status SubmitJob(const std::shared_ptr<IOJob>& job,
+                   std::shared_ptr<ReadSet>* read_set) override {
+    Status s = impl_->SubmitJob(job, read_set);
+    if (s.ok() && read_set && *read_set) {
+      read_sets_.push_back(*read_set);
+    }
+    return s;
+  }
+
+  // Get all ReadSets created by this dispatcher
+  const std::vector<std::shared_ptr<ReadSet>>& GetReadSets() const {
+    return read_sets_;
+  }
+
+  // Get aggregated statistics from all ReadSets
+  uint64_t GetTotalSyncReads() const {
+    uint64_t total = 0;
+    for (const auto& rs : read_sets_) {
+      total += rs->GetNumSyncReads();
+    }
+    return total;
+  }
+
+  uint64_t GetTotalAsyncReads() const {
+    uint64_t total = 0;
+    for (const auto& rs : read_sets_) {
+      total += rs->GetNumAsyncReads();
+    }
+    return total;
+  }
+
+  uint64_t GetTotalCacheHits() const {
+    uint64_t total = 0;
+    for (const auto& rs : read_sets_) {
+      total += rs->GetNumCacheHits();
+    }
+    return total;
+  }
+
+  // Get total IO operations (sum of all types)
+  uint64_t GetTotalIOOperations() const {
+    return GetTotalSyncReads() + GetTotalAsyncReads() + GetTotalCacheHits();
+  }
+
+  // Clear tracked ReadSets
+  void ClearReadSets() { read_sets_.clear(); }
+
+ private:
+  std::unique_ptr<IODispatcher> impl_;
+  std::vector<std::shared_ptr<ReadSet>> read_sets_;
+};
 
 }  // namespace ROCKSDB_NAMESPACE

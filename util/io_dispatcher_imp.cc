@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "file/random_access_file_reader.h"
@@ -94,7 +95,34 @@ struct AsyncIOState {
 };
 
 // ReadSet destructor - clean up IO handles
+// Must call AbortIO before deleting handles to avoid use-after-free when
+// io_uring completions arrive for deleted handles.
 ReadSet::~ReadSet() {
+  if (async_io_map_.empty()) {
+    return;
+  }
+
+  // Collect unique pending IO handles (multiple block indices may share the
+  // same async_state due to coalescing)
+  std::vector<void*> pending_handles;
+  std::unordered_set<void*> seen_handles;
+  for (auto& pair : async_io_map_) {
+    auto& async_state = pair.second;
+    if (async_state->io_handle != nullptr &&
+        seen_handles.find(async_state->io_handle) == seen_handles.end()) {
+      pending_handles.push_back(async_state->io_handle);
+      seen_handles.insert(async_state->io_handle);
+    }
+  }
+
+  // Abort all pending IO operations before deleting handles
+  if (!pending_handles.empty() && fs_) {
+    // AbortIO cancels pending requests and waits for completions
+    IOStatus s = fs_->AbortIO(pending_handles);
+    (void)s;  // Ignore errors in destructor
+  }
+
+  // Now safe to delete the handles
   for (auto& pair : async_io_map_) {
     auto& async_state = pair.second;
     if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
@@ -187,6 +215,26 @@ Status ReadSet::ReadOffset(size_t offset, CachableEntry<Block>* out) {
   return Status::InvalidArgument("Offset not found in any block");
 }
 
+void ReadSet::ReleaseBlock(size_t block_index) {
+  if (block_index >= pinned_blocks_.size()) {
+    return;
+  }
+  // Unpin the block from cache
+  pinned_blocks_[block_index].Reset();
+  // Clean up any pending async IO for this block
+  async_io_map_.erase(block_index);
+}
+
+bool ReadSet::IsBlockAvailable(size_t block_index) const {
+  if (block_index >= pinned_blocks_.size()) {
+    return false;
+  }
+  // Block is available if it hasn't been released (still has a value or
+  // has pending async IO)
+  return pinned_blocks_[block_index].GetValue() != nullptr ||
+         async_io_map_.find(block_index) != async_io_map_.end();
+}
+
 // Poll and process async IO for a specific block
 Status ReadSet::PollAndProcessAsyncIO(
     const std::shared_ptr<AsyncIOState>& async_state) {
@@ -204,12 +252,9 @@ Status ReadSet::PollAndProcessAsyncIO(
     return async_state->read_req.status;
   }
 
-  // Determine which buffer to use
-  const Slice buffer_data =
-      rep->file->use_direct_io()
-          ? Slice(static_cast<const char*>(async_state->aligned_buf.get()),
-                  async_state->read_req.len)
-          : Slice(async_state->buf.get(), async_state->read_req.len);
+  // Use the result slice from the callback which has been correctly set
+  // with any necessary alignment adjustments for direct IO
+  const Slice& buffer_data = async_state->read_req.result;
 
   // Process all blocks in this async request
   for (size_t i = 0; i < async_state->block_indices.size(); ++i) {
@@ -276,11 +321,14 @@ struct IODispatcherImpl::Impl {
       std::vector<FSReadRequest>* read_reqs,
       std::vector<std::vector<size_t>>* coalesced_block_indices);
 
-  void ExecuteAsyncIO(
+  // Surface actual async IO errors to caller, but allow fallback for
+  // unsupported cases. Returns block indices that need sync fallback.
+  std::vector<size_t> ExecuteAsyncIO(
       const std::shared_ptr<IOJob>& job,
       const std::shared_ptr<ReadSet>& read_set,
       std::vector<FSReadRequest>& read_reqs,
-      const std::vector<std::vector<size_t>>& coalesced_block_indices);
+      const std::vector<std::vector<size_t>>& coalesced_block_indices,
+      Status* out_status);
 
   Status ExecuteSyncIO(
       const std::shared_ptr<IOJob>& job,
@@ -303,6 +351,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Initialize ReadSet
   rs->job_ = job;
+  rs->fs_ = job->table->get_rep()->ioptions.env->GetFileSystem();
   rs->pinned_blocks_.resize(job->block_handles.size());
 
   // Build sorted index for O(log n) ReadOffset lookups via binary search.
@@ -358,7 +407,28 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Step 3: Execute IO requests based on JobOptions
   if (job->job_options.read_options.async_io) {
-    ExecuteAsyncIO(job, rs, read_reqs, coalesced_block_indices);
+    // Try async IO - get back any blocks that need sync fallback (not
+    // supported) and surface any actual errors to caller
+    Status async_status;
+    std::vector<size_t> fallback_indices = ExecuteAsyncIO(
+        job, rs, read_reqs, coalesced_block_indices, &async_status);
+    if (!async_status.ok()) {
+      return async_status;
+    }
+
+    // Fall back to sync IO for blocks where async is not supported
+    if (!fallback_indices.empty()) {
+      std::vector<FSReadRequest> sync_read_reqs;
+      std::vector<std::vector<size_t>> sync_coalesced_indices;
+      PrepareIORequests(job, fallback_indices, job->block_handles,
+                        &sync_read_reqs, &sync_coalesced_indices);
+
+      Status s = ExecuteSyncIO(job, rs, sync_read_reqs, sync_coalesced_indices);
+      if (!s.ok()) {
+        return s;
+      }
+      rs->num_sync_reads_ += fallback_indices.size();
+    }
   } else {
     Status s = ExecuteSyncIO(job, rs, read_reqs, coalesced_block_indices);
     if (!s.ok()) {
@@ -433,17 +503,22 @@ void IODispatcherImpl::Impl::PrepareIORequests(
   }
 }
 
-void IODispatcherImpl::Impl::ExecuteAsyncIO(
+std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
     const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& read_set,
     std::vector<FSReadRequest>& read_reqs,
-    const std::vector<std::vector<size_t>>& coalesced_block_indices) {
+    const std::vector<std::vector<size_t>>& coalesced_block_indices,
+    Status* out_status) {
+  std::vector<size_t> fallback_block_indices;
+  *out_status = Status::OK();
+
   // Get file and IO options
   auto* rep = job->table->get_rep();
   IOOptions io_opts;
   Status s =
       rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
   if (!s.ok()) {
-    return;
+    *out_status = s;
+    return fallback_block_indices;
   }
 
   const bool direct_io = rep->file->use_direct_io();
@@ -468,9 +543,12 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
     }
 
     // Callback for async read completion
-    // TODO: Probably need to make this more useful.
-    auto cb = [](const FSReadRequest& /*req*/, void* /*cb_arg*/) {
-      // Placeholder callback - currently does nothing
+    // Store the result slice and status back into async_state so we can access
+    // them after Poll() completes.
+    auto cb = [](const FSReadRequest& req, void* cb_arg) {
+      auto* state = static_cast<AsyncIOState*>(cb_arg);
+      state->read_req.result = req.result;
+      state->read_req.status = req.status;
     };
 
     s = rep->file->ReadAsync(async_state->read_req, io_opts, cb,
@@ -479,18 +557,26 @@ void IODispatcherImpl::Impl::ExecuteAsyncIO(
                              direct_io ? &async_state->aligned_buf : nullptr);
 
     if (!s.ok()) {
+      // Actual error - surface to caller
+      *out_status = s;
+      return fallback_block_indices;
+    }
+
+    if (async_state->io_handle == nullptr) {
+      // Async IO not supported - add to fallback list for sync IO
+      for (const auto idx : coalesced_block_indices[i]) {
+        fallback_block_indices.push_back(idx);
+      }
       continue;
     }
-    assert(async_state->io_handle);
-
-    // Mark the status as permitted unchecked since we'll check it later
-    // in PollAndProcessAsyncIO
 
     // Add async state to map for all blocks in this request
     for (const auto idx : async_state->block_indices) {
       read_set->async_io_map_[idx] = async_state;
     }
   }
+
+  return fallback_block_indices;
 }
 
 Status IODispatcherImpl::Impl::ExecuteSyncIO(
