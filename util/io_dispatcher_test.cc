@@ -27,6 +27,13 @@
 // Enable io_uring support for this test
 extern "C" bool RocksDbIOUringEnable() { return true; }
 
+// Check if io_uring is available at compile time
+#ifdef ROCKSDB_IOURING_PRESENT
+static constexpr bool kIOUringPresent = true;
+#else
+static constexpr bool kIOUringPresent = false;
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 // Represents a single read operation recorded by the tracking file system
@@ -392,7 +399,8 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
   job->block_handles = block_handles;
   job->table = table.get();
   ReadOptions read_options;
-  job->job_options.read_options.async_io = true;
+  // Only use async IO when io_uring is available
+  job->job_options.read_options.async_io = kIOUringPresent;
 
   std::shared_ptr<ReadSet> read_set;
   s = dispatcher->SubmitJob(job, &read_set);
@@ -471,7 +479,8 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  job->job_options.read_options.async_io = true;
+  // Only use async IO when io_uring is available
+  job->job_options.read_options.async_io = kIOUringPresent;
 
   std::shared_ptr<ReadSet> read_set;
   s = dispatcher->SubmitJob(job, &read_set);
@@ -510,9 +519,13 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
 TEST_F(IODispatcherTest, AsyncAndSyncRead) {
   // This test verifies the difference between async_io=true and async_io=false
   // by checking the statistics after reading all blocks.
-  // Note: When io_uring is not available, async_io=true will fall back to sync.
+  // Only test async_io=true when io_uring is available.
+  std::vector<bool> async_modes = {false};
+  if (kIOUringPresent) {
+    async_modes.push_back(true);
+  }
 
-  for (auto async : {true, false}) {
+  for (auto async : async_modes) {
     std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
     std::unique_ptr<BlockBasedTable> table;
