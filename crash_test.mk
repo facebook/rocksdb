@@ -34,6 +34,7 @@ CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD) --
 	whitebox_crash_test_with_txn whitebox_crash_test_with_ts \
 	whitebox_crash_test_with_optimistic_txn \
 	whitebox_crash_test_with_tiered_storage \
+	db_cleanup \
 
 crash_test: $(DB_STRESS_CMD)
 # Do not parallelize
@@ -160,6 +161,9 @@ whitebox_crash_test_with_tiered_storage: $(DB_STRESS_CMD)
 whitebox_crash_test_with_optimistic_txn: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --optimistic_txn whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+db_cleanup: $(DB_STRESS_CMD)
+	$(DB_STRESS_CMD) --destroy_db_and_exit=1 --db=$(TEST_TMPDIR) $(CRASH_TEST_EXT_ARGS)
 
 # Old names DEPRECATED
 crash_test_with_txn: crash_test_with_wc_txn
