@@ -351,7 +351,7 @@ void FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
   assert(IsBufferQueueEmpty() || buf->IsOffsetInBuffer(offset));
 }
 
-void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
+Status FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
   BufferInfo* buf = GetFirstBuffer();
 
   if (buf->async_read_in_progress_ && fs_ != nullptr) {
@@ -362,7 +362,16 @@ void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
       std::vector<void*> handles;
       handles.emplace_back(buf->io_handle_);
       StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
-      fs_->Poll(handles, 1).PermitUncheckedError();
+      IOStatus io_s = fs_->Poll(handles, 1);
+      // Allow tests to inject Poll errors
+      TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::PollIfNeeded:IOStatus",
+                               &io_s);
+      if (!io_s.ok()) {
+        // On Poll failure, clean up the handle and abort.
+        // DestroyAndClearIOHandle also sets async_read_in_progress_ to false.
+        DestroyAndClearIOHandle(buf);
+        return io_s;
+      }
     }
 
     // Reset and Release io_handle after the Poll API as request has been
@@ -373,6 +382,7 @@ void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
   // Always call outdated data after Poll as Buffers might be out of sync w.r.t
   // offset and length.
   ClearOutdatedData(offset, length);
+  return Status::OK();
 }
 
 // ReadAheadSizeTuning API calls readaheadsize_cb_
@@ -511,7 +521,10 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
   // by Seek, but the next access is at another offset.
   if (buf->async_read_in_progress_ &&
       buf->IsOffsetInBufferWithAsyncProgress(offset)) {
-    PollIfNeeded(offset, length);
+    Status poll_status = PollIfNeeded(offset, length);
+    if (!poll_status.ok()) {
+      return poll_status;
+    }
   }
 
   if (IsBufferQueueEmpty() || NumBuffersAllocated() == 1) {
@@ -646,7 +659,10 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
       return s;
     }
   } else {
-    PollIfNeeded(tmp_offset, tmp_length);
+    Status poll_status = PollIfNeeded(tmp_offset, tmp_length);
+    if (!poll_status.ok()) {
+      return poll_status;
+    }
   }
 
   AllocateBufferIfEmpty();
