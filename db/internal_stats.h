@@ -852,6 +852,8 @@ class InternalStats {
                                    Version* version);
   bool HandleNumRunningCompactionSortedRuns(uint64_t* value, DBImpl* db,
                                             Version* version);
+  bool HandleCompactionAbortCount(uint64_t* value, DBImpl* db,
+                                  Version* version);
   bool HandleBackgroundErrors(uint64_t* value, DBImpl* db, Version* version);
   bool HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* db,
                                    Version* version);

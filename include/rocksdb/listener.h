@@ -488,6 +488,9 @@ struct CompactionJobInfo {
   // Information about blob files deleted during compaction in Integrated
   // BlobDB.
   std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
+
+  // Whether this compaction was aborted via AbortAllCompactions()
+  bool aborted = false;
 };
 
 struct MemTableInfo {

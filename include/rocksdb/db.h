@@ -1253,6 +1253,10 @@ class DB {
     //  sorted runs being processed by currently running compactions.
     static const std::string kNumRunningCompactionSortedRuns;
 
+    //  "rocksdb.compaction-abort-count" - returns the current value of the
+    //      compaction abort counter.
+    static const std::string kCompactionAbortCount;
+
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
     static const std::string kBackgroundErrors;
@@ -1730,6 +1734,46 @@ class DB {
   // manual compactions, and must not be called more times than
   // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
+
+  // Abort all compaction work/jobs. This function will signal all
+  // running compactions (both automatic and manual, background and foreground)
+  // to abort and will wait for them to finish or abort before returning. After
+  // this function returns, new compaction work will be aborted immediately
+  // until ResumeAllCompactions() is called.
+  //
+  // The compaction abort is checked periodically (every 1000 keys processed),
+  // so ongoing compactions should abort as well within a reasonable time.
+  // This function blocks until all compactions have completed or aborted.
+  //
+  // Any output files from aborted compactions are automatically cleaned up,
+  // ensuring no partial compaction results are installed, except for resumable
+  // compaction.
+  //
+  // This function supports concurrent abort requests from multiple callers
+  // without coordination between them. The call count is tracked, and
+  // compactions only resume after the number of ResumeAllCompactions() calls
+  // matches number of AbortAllCompactions() calls.
+  //
+  // Differences with other compaction control APIs:
+  // - DisableManualCompaction(): Only pauses manual compactions, waits for
+  //   them to finish naturally. AbortAllCompactions() actively cancels both
+  //   automatic and manual compactions.
+  // - PauseBackgroundWork(): Pauses all background work (flush + compaction),
+  //   waits for work to finish naturally. AbortAllCompactions() only affects
+  //   compactions and actively cancels them.
+  //
+  // Note: Compaction service (remote compaction) is not currently supported.
+  // Aborted compactions return Status::Incomplete with subcode
+  // kCompactionAborted.
+  virtual void AbortAllCompactions() = 0;
+
+  // Resume all compactions that were aborted by AbortAllCompactions().
+  // This function must be called as many times as AbortAllCompactions()
+  // has been called in order to resume compactions. This reference-counting
+  // behavior ensures that if multiple callers independently request an
+  // abort, compactions will not resume until all of them have called
+  // ResumeAllCompactions().
+  virtual void ResumeAllCompactions() = 0;
 
   // Wait for all flush and compactions jobs to finish. Jobs to wait include the
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,

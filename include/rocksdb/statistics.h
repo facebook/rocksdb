@@ -162,6 +162,8 @@ enum Tickers : uint32_t {
   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
   // If a compaction was canceled in sfm to prevent ENOSPC
   COMPACTION_CANCELLED,
+  // Number of compactions aborted via AbortAllCompactions()
+  COMPACTION_ABORTED,
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,

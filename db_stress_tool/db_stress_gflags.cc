@@ -796,6 +796,10 @@ DEFINE_int32(
     "If non-zero, then DisableManualCompaction()+Enable will be called "
     "once for every N ops on average.  0 disables.");
 
+DEFINE_int32(abort_and_resume_compactions_one_in, 0,
+             "If non-zero, then AbortAllCompactions()+Resume will be called "
+             "once for every N ops on average. 0 disables.");
+
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
 

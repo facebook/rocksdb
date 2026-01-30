@@ -117,6 +117,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   std::string debug_str_before_wait =
       compaction->input_version()->DebugString(/*hex=*/true);
 
+  // TODO: Update CompactionService API to support abort and resume
+  // functionality. Currently, remote compaction jobs cannot be aborted via
+  // AbortAllCompactions() because the CompactionService interface lacks methods
+  // to signal abort to remote workers and to properly resume after an abort.
+  // The API needs to be extended with:
+  // - A method to signal abort to running remote compaction jobs
+  // - A method to resume/re-enable scheduling after an abort is lifted
+
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Waiting for remote compaction...",
                  compaction->column_family_data()->GetName().c_str(), job_id_);
@@ -312,16 +320,17 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     std::string output_path,
     const CompactionServiceInput& compaction_service_input,
     CompactionServiceResult* compaction_service_result)
-    : CompactionJob(job_id, compaction, db_options, mutable_db_options,
-                    file_options, versions, shutting_down, log_buffer, nullptr,
-                    output_directory, nullptr, stats, db_mutex,
-                    db_error_handler, job_context, std::move(table_cache),
-                    event_logger,
-                    compaction->mutable_cf_options().paranoid_file_checks,
-                    compaction->mutable_cf_options().report_bg_io_stats, dbname,
-                    &(compaction_service_result->stats), Env::Priority::USER,
-                    io_tracer, manual_compaction_canceled, db_id, db_session_id,
-                    compaction->column_family_data()->GetFullHistoryTsLow()),
+    : CompactionJob(
+          job_id, compaction, db_options, mutable_db_options, file_options,
+          versions, shutting_down, log_buffer, nullptr, output_directory,
+          nullptr, stats, db_mutex, db_error_handler, job_context,
+          std::move(table_cache), event_logger,
+          compaction->mutable_cf_options().paranoid_file_checks,
+          compaction->mutable_cf_options().report_bg_io_stats, dbname,
+          &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
+          manual_compaction_canceled, CompactionJob::kCompactionAbortedFalse,
+          db_id, db_session_id,
+          compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(std::move(output_path)),
       compaction_input_(compaction_service_input),
       compaction_result_(compaction_service_result) {}

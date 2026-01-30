@@ -3691,6 +3691,8 @@ class ModelDB : public DB {
   void EnableManualCompaction() override {}
 
   void DisableManualCompaction() override {}
+  void AbortAllCompactions() override {}
+  void ResumeAllCompactions() override {}
 
   Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) override {
@@ -6484,7 +6486,8 @@ TEST_P(DBTestWithParam, CompactionTotalTimeTest) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   // Hard-coded number in CompactionJob::ProcessKeyValueCompaction().
-  const int kRecordStatsEvery = 1000;
+  // Uses 1024 (power of 2) for efficient bitwise check.
+  const int kRecordStatsEvery = 1024;
   // The stat COMPACTION_CPU_TOTAL_TIME should be recorded
   // during compaction and once more after compaction.
   ASSERT_EQ(n / kRecordStatsEvery + 1, record_count);

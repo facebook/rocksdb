@@ -8570,6 +8570,14 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
   db->rep->EnableManualCompaction();
 }
 
+void rocksdb_abort_all_compactions(rocksdb_t* db) {
+  db->rep->AbortAllCompactions();
+}
+
+void rocksdb_resume_all_compactions(rocksdb_t* db) {
+  db->rep->ResumeAllCompactions();
+}
+
 rocksdb_statistics_histogram_data_t*
 rocksdb_statistics_histogram_data_create() {
   return new rocksdb_statistics_histogram_data_t{};
