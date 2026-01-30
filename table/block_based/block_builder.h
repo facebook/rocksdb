@@ -31,7 +31,8 @@ class BlockBuilder {
                         double data_block_hash_table_util_ratio = 0.75,
                         size_t ts_sz = 0,
                         bool persist_user_defined_timestamps = true,
-                        bool is_user_key = false);
+                        bool is_user_key = false,
+                        bool use_separated_kv_storage = false);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -124,6 +125,14 @@ class BlockBuilder {
   bool finished_;  // Has Finish() been called?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
+
+  const bool use_separated_kv_storage_;  // When enabled, keys are stored first,
+                                         // followed by values in a separate
+                                         // section. Value offset is stored as
+                                         // varint only at restart points; for
+                                         // other entries, offset is computed
+                                         // as prev_offset + prev_length.
+  std::string values_buffer_;
 #ifndef NDEBUG
   bool add_with_last_key_called_ = false;
 #endif

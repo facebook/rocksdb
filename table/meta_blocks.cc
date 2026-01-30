@@ -170,6 +170,14 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.key_smallest_seqno != UINT64_MAX) {
     Add(TablePropertiesNames::kKeySmallestSeqno, props.key_smallest_seqno);
   }
+  if (props.data_block_restart_interval > 0) {
+    Add(TablePropertiesNames::kDataBlockRestartInterval,
+        props.data_block_restart_interval);
+  }
+  if (props.index_block_restart_interval > 0) {
+    Add(TablePropertiesNames::kIndexBlockRestartInterval,
+        props.index_block_restart_interval);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -316,6 +324,10 @@ Status ParsePropertiesBlock(
        &new_table_properties->key_largest_seqno},
       {TablePropertiesNames::kKeySmallestSeqno,
        &new_table_properties->key_smallest_seqno},
+      {TablePropertiesNames::kDataBlockRestartInterval,
+       &new_table_properties->data_block_restart_interval},
+      {TablePropertiesNames::kIndexBlockRestartInterval,
+       &new_table_properties->index_block_restart_interval},
   };
 
   Status s;

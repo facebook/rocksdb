@@ -77,6 +77,8 @@ struct TablePropertiesNames {
   static const std::string kUserDefinedTimestampsPersisted;
   static const std::string kKeyLargestSeqno;
   static const std::string kKeySmallestSeqno;
+  static const std::string kDataBlockRestartInterval;
+  static const std::string kIndexBlockRestartInterval;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -319,6 +321,11 @@ struct TableProperties {
   uint64_t key_smallest_seqno = UINT64_MAX;
 
   bool HasKeySmallestSeqno() const { return key_smallest_seqno != UINT64_MAX; }
+
+  // Block restart intervals used when building this SST file.
+  // 0 means unknown (for backwards compatibility with older SST files).
+  uint64_t data_block_restart_interval = 0;
+  uint64_t index_block_restart_interval = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
