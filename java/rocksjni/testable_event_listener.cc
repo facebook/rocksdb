@@ -5,6 +5,7 @@
 #include <climits>
 #include <cstdint>
 #include <iostream>
+#include <thread>
 #include <utility>
 
 #include "include/org_rocksdb_test_TestableEventListener.h"
@@ -70,6 +71,20 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.user_collected_properties = {{"key", "value"}};
   table_properties.readable_properties = {{"key", "value"}};
   return table_properties;
+}
+
+/*
+ * Class:     org_rocksdb_test_TestableEventListener
+ * Method:    invokeAllCallbacksInThread
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL
+Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacksInThread(
+    JNIEnv *, jclass, jlong jhandle) {
+  std::thread t1 = std::thread(
+      Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks, nullptr,
+      nullptr, jhandle);
+  t1.join();
 }
 
 /*
