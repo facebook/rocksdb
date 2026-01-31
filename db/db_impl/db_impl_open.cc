@@ -724,7 +724,9 @@ Status DBImpl::Recover(
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
     auto wal_dir = immutable_db_options_.GetWalDir();
-    if (!immutable_db_options_.best_efforts_recovery) {
+    if (!immutable_db_options_.best_efforts_recovery &&
+        !(read_only &&
+          immutable_db_options_.skip_directory_scan_on_readonly_db_open)) {
       IOOptions io_opts;
       io_opts.do_not_recurse = true;
       s = immutable_db_options_.fs->GetChildren(
@@ -825,7 +827,8 @@ Status DBImpl::Recover(
     }
   }
 
-  if (read_only) {
+  if (read_only &&
+      !immutable_db_options_.skip_directory_scan_on_readonly_db_open) {
     // If we are opening as read-only, we need to update options_file_number_
     // to reflect the most recent OPTIONS file. It does not matter for regular
     // read-write db instance because options_file_number_ will later be

@@ -744,6 +744,23 @@ class StringFS : public FileSystemWrapper {
   std::unordered_map<std::string, std::string> files_;
 };
 
+// Filesystem wrapper that rejects directory listing operations (GetChildren).
+// Used for testing skip_directory_scan_on_readonly_db_open option.
+class NoReaddirFS : public FileSystemWrapper {
+ public:
+  explicit NoReaddirFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "NoReaddirFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus GetChildren(const std::string& /*dir*/, const IOOptions& /*opts*/,
+                       std::vector<std::string>* /*result*/,
+                       IODebugContext* /*dbg*/) override {
+    return IOStatus::NotSupported("Directory listing not supported");
+  }
+};
+
 // A compressor that essentially implements a custom compression algorithm
 // by leveraging an existing compression algorithm and putting a custom header
 // on it to detect any attempts to decompress it with the wrong compression

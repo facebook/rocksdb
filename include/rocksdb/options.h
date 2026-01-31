@@ -1373,6 +1373,19 @@ struct DBOptions {
   // Default: false
   bool skip_checking_sst_file_sizes_on_db_open = false;
 
+  // If true, skip directory listing operations (readdir/getdents64) during
+  // read-only database open. Use this for file systems that do not support
+  // directory listing.
+  //
+  // When enabled, WAL directory scanning is skipped. This is safe for any
+  // database that was closed cleanly or flushed before being opened
+  // read-only.
+  //
+  // Only affects DB::OpenForReadOnly(); ignored for read-write opens.
+  //
+  // Default: false
+  bool skip_directory_scan_on_readonly_db_open = false;
+
   // Recovery mode to control the consistency while replaying WAL
   // Default: kPointInTimeRecovery
   WALRecoveryMode wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
