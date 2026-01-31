@@ -14,6 +14,7 @@
 #include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -22,6 +23,68 @@ class DBBlobBasicTest : public DBTestBase {
  protected:
   DBBlobBasicTest()
       : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
+
+  // Common test constants for compressed blob tests
+  static constexpr size_t kCompressibleBlobSize = 1024;
+
+  // Helper to setup options for blob file tests with given compression type
+  Options GetBlobOptions(CompressionType compression = kNoCompression) {
+    Options options = GetDefaultOptions();
+    options.enable_blob_files = true;
+    options.min_blob_size = 0;
+    options.blob_compression_type = compression;
+    return options;
+  }
+
+  // Helper to write a single blob and flush
+  void WriteBlobAndFlush(const std::string& key, const std::string& value) {
+    ASSERT_OK(Put(key, value));
+    ASSERT_OK(Flush());
+  }
+
+  // Helper to write multiple blobs and flush
+  void WriteBlobsAndFlush(const std::vector<std::string>& keys,
+                          const std::vector<std::string>& values) {
+    ASSERT_EQ(keys.size(), values.size());
+    for (size_t i = 0; i < keys.size(); ++i) {
+      ASSERT_OK(Put(keys[i], values[i]));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Helper to create compressible blob values (repeated characters)
+  static std::vector<std::string> CreateCompressibleBlobs(
+      size_t num_blobs, size_t blob_size = kCompressibleBlobSize,
+      char start_char = 'a') {
+    std::vector<std::string> blobs;
+    blobs.reserve(num_blobs);
+    for (size_t i = 0; i < num_blobs; ++i) {
+      blobs.push_back(std::string(blob_size, start_char + i));
+    }
+    return blobs;
+  }
+
+  // Helper to create sequential keys
+  static std::vector<std::string> CreateSequentialKeys(
+      size_t num_keys, const std::string& prefix = "key") {
+    std::vector<std::string> keys;
+    keys.reserve(num_keys);
+    for (size_t i = 0; i < num_keys; ++i) {
+      keys.push_back(prefix + std::to_string(i));
+    }
+    return keys;
+  }
+
+  // Helper to read blob with read_blob_compressed option and optional
+  // compression type output
+  Status GetCompressedBlob(
+      const std::string& key, PinnableSlice* result,
+      std::vector<CompressionType>* compression_types_out = nullptr) {
+    ReadOptions read_options;
+    read_options.read_blob_compressed = true;
+    read_options.blob_compression_types_out = compression_types_out;
+    return db_->Get(read_options, db_->DefaultColumnFamily(), key, result);
+  }
 };
 
 TEST_F(DBBlobBasicTest, GetBlob) {
@@ -2457,6 +2520,793 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
     }
     ASSERT_OK(iter->status());
   }
+}
+
+TEST_F(DBBlobBasicTest, GetCompressedBlob_Snappy) {
+  // Test reading blob values in compressed format via DB::Get API
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  // Use a large blob that compresses well
+  constexpr char key[] = "key";
+  const std::string blob_value(kCompressibleBlobSize, 'x');
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // First, verify normal read works
+  ASSERT_EQ(Get(key), blob_value);
+
+  // Now read with read_blob_compressed=true
+  PinnableSlice result;
+  ASSERT_OK(GetCompressedBlob(key, &result));
+
+  VerifySnappyCompressedData(result, blob_value);
+}
+
+TEST_F(DBBlobBasicTest, GetCompressedBlob_NoCompression) {
+  // Test reading uncompressed blob with read_blob_compressed=true
+  // Should return data as-is
+  Reopen(GetBlobOptions(kNoCompression));
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // First, verify normal read works
+  ASSERT_EQ(Get(key), blob_value);
+
+  // Now read with read_blob_compressed=true
+  PinnableSlice result;
+  ASSERT_OK(GetCompressedBlob(key, &result));
+
+  // Verify the returned data is exactly the same as original
+  // (since no compression was used)
+  ASSERT_EQ(result.ToString(), blob_value);
+}
+
+TEST_F(DBBlobBasicTest, GetCompressedBlob_SeparateCacheKeys) {
+  // Test that read_blob_compressed=true and read_blob_compressed=false
+  // use different cache keys, so they can coexist in cache independently
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Options options = GetBlobOptions(kSnappyCompression);
+
+  LRUCacheOptions co;
+  co.capacity = 2 << 20;  // 2MB
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.blob_cache = backing_cache;
+  options.statistics = CreateDBStatistics();
+
+  Reopen(options);
+
+  const std::string key = "key";
+  const std::string blob_value(kCompressibleBlobSize, 'y');
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Read with read_blob_compressed=true - populates compressed cache
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  read_options.fill_cache = true;
+
+  PinnableSlice result;
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+
+  // Verify the returned data is compressed
+  ASSERT_LT(result.size(), blob_value.size());
+
+  // Verify the compressed cache was populated - compressed cache-only read
+  // should succeed
+  result.Reset();
+  read_options.read_tier = kBlockCacheTier;
+  read_options.read_blob_compressed = true;  // Compressed cache lookup
+
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+  ASSERT_LT(result.size(), blob_value.size());
+
+  // Verify uncompressed cache was NOT populated - uncompressed cache-only read
+  // should fail because compressed and uncompressed use different cache keys
+  result.Reset();
+  read_options.read_tier = kBlockCacheTier;
+  read_options.read_blob_compressed = false;  // Uncompressed cache lookup
+
+  Status s = db_->Get(read_options, db_->DefaultColumnFamily(), key, &result);
+  ASSERT_TRUE(s.IsIncomplete())
+      << "Expected Incomplete status because uncompressed cache is empty, got: "
+      << s.ToString();
+
+  // Now do an uncompressed read to populate uncompressed cache
+  read_options.read_tier = kReadAllTier;
+  read_options.fill_cache = true;
+  read_options.read_blob_compressed = false;
+
+  result.Reset();
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result.ToString(), blob_value);
+
+  // Verify uncompressed cache is now populated - kBlockCacheTier should work
+  result.Reset();
+  read_options.read_tier = kBlockCacheTier;
+
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result.ToString(), blob_value);
+
+  // Both compressed and uncompressed should now be in cache
+  // Verify compressed cache still works
+  result.Reset();
+  read_options.read_blob_compressed = true;
+
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+  ASSERT_LT(result.size(), blob_value.size());
+}
+
+TEST_F(DBBlobBasicTest, IteratorCompressedBlob_Snappy) {
+  // Test reading compressed blobs via iterator API
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  // Insert multiple blobs using helpers
+  constexpr int num_keys = 5;
+  auto keys = CreateSequentialKeys(num_keys);
+  auto blob_values = CreateCompressibleBlobs(num_keys);
+
+  WriteBlobsAndFlush(keys, blob_values);
+
+  // First, verify normal iteration works
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    int count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->key().ToString(), keys[count]);
+      ASSERT_EQ(iter->value().ToString(), blob_values[count]);
+      count++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, num_keys);
+  }
+
+  // Now test iteration with read_blob_compressed=true
+  {
+    ReadOptions read_options;
+    read_options.read_blob_compressed = true;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    int count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->key().ToString(), keys[count]);
+
+      VerifySnappyCompressedData(iter->value(), blob_values[count]);
+
+      count++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, num_keys);
+  }
+
+  // Test backward iteration with read_blob_compressed=true
+  {
+    ReadOptions read_options;
+    read_options.read_blob_compressed = true;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    int count = num_keys - 1;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(iter->key().ToString(), keys[count]);
+      ASSERT_LT(iter->value().size(), blob_values[count].size());
+      count--;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, -1);
+  }
+}
+
+TEST_F(DBBlobBasicTest, IteratorCompressedBlob_SeekAndPrepareValue) {
+  // Test Seek() and PrepareValue() with read_blob_compressed=true
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  const std::string key = "test_key";
+  const std::string blob_value(2048, 'z');
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Test with allow_unprepared_value=true
+  {
+    ReadOptions read_options;
+    read_options.read_blob_compressed = true;
+    read_options.allow_unprepared_value = true;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek(key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), key);
+
+    // Value might not be prepared yet, call PrepareValue()
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_OK(iter->status());
+
+    VerifySnappyCompressedData(iter->value(), blob_value);
+  }
+}
+
+TEST_F(DBBlobBasicTest, IteratorCompressedBlob_NoCompression) {
+  // Test iteration with uncompressed blobs and read_blob_compressed=true
+  Reopen(GetBlobOptions(kNoCompression));
+
+  const std::string key = "key";
+  const std::string blob_value = "uncompressed_blob";
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Test iteration with read_blob_compressed=true
+  // Should return data as-is since no compression is used
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), key);
+  ASSERT_EQ(iter->value().ToString(), blob_value);
+  ASSERT_OK(iter->status());
+}
+
+TEST_F(DBBlobBasicTest, GetCompressedBlob_CompressionTypeOutput) {
+  // Test that blob_compression_types_out returns the correct compression type
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  const std::string key = "key";
+  const std::string blob_value(kCompressibleBlobSize, 'x');
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Read with read_blob_compressed=true and compression_types_out
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  std::vector<CompressionType> compression_types_out;
+  read_options.blob_compression_types_out = &compression_types_out;
+
+  PinnableSlice result;
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+
+  // Verify compression type is reported correctly
+  ASSERT_EQ(compression_types_out.size(), 1);
+  ASSERT_EQ(compression_types_out[0], kSnappyCompression);
+
+  // Verify the returned data is compressed
+  ASSERT_LT(result.size(), blob_value.size());
+}
+
+TEST_F(DBBlobBasicTest, GetCompressedBlob_NoCompression_CompressionTypeOutput) {
+  // Test compression_types_out when blob is stored without compression
+  Reopen(GetBlobOptions(kNoCompression));
+
+  const std::string key = "key";
+  const std::string blob_value = "test_value";
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Read with read_blob_compressed=true and compression_types_out
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  std::vector<CompressionType> compression_types_out;
+  read_options.blob_compression_types_out = &compression_types_out;
+
+  PinnableSlice result;
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+
+  // Verify compression type is reported as kNoCompression
+  ASSERT_EQ(compression_types_out.size(), 1);
+  ASSERT_EQ(compression_types_out[0], kNoCompression);
+
+  // Verify the data is as-is
+  ASSERT_EQ(result.ToString(), blob_value);
+}
+
+TEST_F(DBBlobBasicTest, IteratorCompressedBlob_CompressionTypeOutput) {
+  // Test GetBlobCompressionType() returns correct compression type
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  const std::string key = "key";
+  const std::string blob_value(kCompressibleBlobSize, 'y');
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Test with read_blob_compressed=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+
+  // Verify GetBlobCompressionType() returns the correct type
+  ASSERT_EQ(iter->GetBlobCompressionType(), kSnappyCompression);
+
+  // Verify the data is compressed
+  ASSERT_LT(iter->value().size(), blob_value.size());
+}
+
+TEST_F(DBBlobBasicTest,
+       IteratorCompressedBlob_NoCompression_CompressionTypeOutput) {
+  // Test GetBlobCompressionType() for uncompressed blobs
+  Reopen(GetBlobOptions(kNoCompression));
+
+  const std::string key = "key";
+  const std::string blob_value = "uncompressed_value";
+
+  WriteBlobAndFlush(key, blob_value);
+
+  // Test with read_blob_compressed=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+
+  // Verify GetBlobCompressionType() returns kNoCompression
+  ASSERT_EQ(iter->GetBlobCompressionType(), kNoCompression);
+
+  // Verify the data is as-is
+  ASSERT_EQ(iter->value().ToString(), blob_value);
+}
+
+TEST_F(DBBlobBasicTest, CompressedBlob_DifferentAlgorithmsAcrossFiles) {
+  // Test reading compressed blobs from files with different compression
+  // algorithms. This validates that the compression type is tracked per-file
+  // and correctly returned when reading.
+
+  // We need two different compression algorithms
+  CompressionType compression1 = kNoCompression;
+  CompressionType compression2 = kNoCompression;
+
+  if (Snappy_Supported() && Zlib_Supported()) {
+    compression1 = kSnappyCompression;
+    compression2 = kZlibCompression;
+  } else if (Snappy_Supported() && ZSTD_Supported()) {
+    compression1 = kSnappyCompression;
+    compression2 = kZSTD;
+  } else if (Snappy_Supported() && LZ4_Supported()) {
+    compression1 = kSnappyCompression;
+    compression2 = kLZ4Compression;
+  } else if (Zlib_Supported() && ZSTD_Supported()) {
+    compression1 = kZlibCompression;
+    compression2 = kZSTD;
+  } else {
+    // Skip test if we don't have at least two compression algorithms
+    ROCKSDB_GTEST_BYPASS("Need at least two compression algorithms");
+    return;
+  }
+
+  Reopen(GetBlobOptions(compression1));
+
+  // Create compressible data (repeated patterns compress well)
+  const std::string key1 = "key1";
+  const std::string value1 = std::string(kCompressibleBlobSize, 'a');
+  const std::string key2 = "key2";
+  const std::string value2 = std::string(kCompressibleBlobSize, 'b');
+
+  // Write first blob with compression1 and flush
+  WriteBlobAndFlush(key1, value1);
+
+  // Change compression algorithm
+  Reopen(GetBlobOptions(compression2));
+
+  // Write second blob with compression2 and flush
+  WriteBlobAndFlush(key2, value2);
+
+  // Now read both blobs with read_blob_compressed=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  read_options.verify_checksums = false;
+
+  // Test using Get API
+  {
+    PinnableSlice compressed_value1;
+    std::vector<CompressionType> types1;
+    read_options.blob_compression_types_out = &types1;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key1,
+                       &compressed_value1));
+    ASSERT_EQ(types1.size(), 1);
+    ASSERT_EQ(types1[0], compression1);
+
+    PinnableSlice compressed_value2;
+    std::vector<CompressionType> types2;
+    read_options.blob_compression_types_out = &types2;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key2,
+                       &compressed_value2));
+    ASSERT_EQ(types2.size(), 1);
+    ASSERT_EQ(types2[0], compression2);
+
+    // Verify the compression types are different
+    ASSERT_NE(types1[0], types2[0]);
+
+    // Decompress and verify values are correct
+    constexpr uint32_t compress_format_version = 2;
+
+    // Decompress value1
+    {
+      UncompressionContext ctx1(types1[0]);
+      UncompressionInfo info1(ctx1, UncompressionDict::GetEmptyDict(),
+                              types1[0]);
+      size_t uncompressed_size1 = 0;
+      CacheAllocationPtr decompressed1 = OLD_UncompressData(
+          info1, compressed_value1.data(), compressed_value1.size(),
+          &uncompressed_size1, compress_format_version);
+      ASSERT_NE(decompressed1, nullptr);
+      ASSERT_EQ(std::string(decompressed1.get(), uncompressed_size1), value1);
+    }
+
+    // Decompress value2
+    {
+      UncompressionContext ctx2(types2[0]);
+      UncompressionInfo info2(ctx2, UncompressionDict::GetEmptyDict(),
+                              types2[0]);
+      size_t uncompressed_size2 = 0;
+      CacheAllocationPtr decompressed2 = OLD_UncompressData(
+          info2, compressed_value2.data(), compressed_value2.size(),
+          &uncompressed_size2, compress_format_version);
+      ASSERT_NE(decompressed2, nullptr);
+      ASSERT_EQ(std::string(decompressed2.get(), uncompressed_size2), value2);
+    }
+  }
+
+  // Test using Iterator API
+  {
+    read_options.blob_compression_types_out = nullptr;  // Not used for iterator
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    // Read key1
+    iter->Seek(key1);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), key1);
+    CompressionType iter_type1 = iter->GetBlobCompressionType();
+    ASSERT_EQ(iter_type1, compression1);
+
+    // Read key2
+    iter->Seek(key2);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), key2);
+    CompressionType iter_type2 = iter->GetBlobCompressionType();
+    ASSERT_EQ(iter_type2, compression2);
+
+    // Verify the compression types are different
+    ASSERT_NE(iter_type1, iter_type2);
+
+    // Decompress and verify via iterator
+    constexpr uint32_t compress_format_version = 2;
+
+    // Decompress key1's value
+    iter->Seek(key1);
+    ASSERT_TRUE(iter->Valid());
+    {
+      CompressionType type = iter->GetBlobCompressionType();
+      UncompressionContext ctx(type);
+      UncompressionInfo info(ctx, UncompressionDict::GetEmptyDict(), type);
+      size_t uncompressed_size = 0;
+      CacheAllocationPtr decompressed =
+          OLD_UncompressData(info, iter->value().data(), iter->value().size(),
+                             &uncompressed_size, compress_format_version);
+      ASSERT_NE(decompressed, nullptr);
+      ASSERT_EQ(std::string(decompressed.get(), uncompressed_size), value1);
+    }
+
+    // Decompress key2's value
+    iter->Seek(key2);
+    ASSERT_TRUE(iter->Valid());
+    {
+      CompressionType type = iter->GetBlobCompressionType();
+      UncompressionContext ctx(type);
+      UncompressionInfo info(ctx, UncompressionDict::GetEmptyDict(), type);
+      size_t uncompressed_size = 0;
+      CacheAllocationPtr decompressed =
+          OLD_UncompressData(info, iter->value().data(), iter->value().size(),
+                             &uncompressed_size, compress_format_version);
+      ASSERT_NE(decompressed, nullptr);
+      ASSERT_EQ(std::string(decompressed.get(), uncompressed_size), value2);
+    }
+
+    ASSERT_OK(iter->status());
+  }
+}
+
+// A simple custom CompressionManager for testing BlobDB with custom compression
+class TestBlobCompressionManager : public CompressionManager {
+ public:
+  const char* Name() const override { return "TestBlobCompressionManager"; }
+  const char* CompatibilityName() const override { return "TestBlobCustom"; }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return GetBuiltinV2CompressionManager()->SupportsCompressionType(type) ||
+           type == kCustomCompressionAA;
+  }
+
+  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
+                                            CompressionType type) override {
+    if (type == kCustomCompressionAA) {
+      return std::make_unique<
+          test::CompressorCustomAlg<kCustomCompressionAA>>();
+    }
+    return GetBuiltinV2CompressionManager()->GetCompressor(opts, type);
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressor() override {
+    return std::make_shared<test::DecompressorCustomAlg>();
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
+      CompressionType /*type*/) override {
+    return std::make_shared<test::DecompressorCustomAlg>();
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressorForTypes(
+      const CompressionType* types_begin,
+      const CompressionType* types_end) override {
+    auto decomp = std::make_shared<test::DecompressorCustomAlg>();
+    decomp->SetAllowedTypes(types_begin, types_end);
+    return decomp;
+  }
+};
+
+TEST_F(DBBlobBasicTest, CustomCompressionManager) {
+  // Skip if LZ4 is not supported (custom compressor wraps LZ4)
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_BYPASS("Test requires LZ4 support");
+    return;
+  }
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_compression_type = kCustomCompressionAA;
+  options.compression_manager = std::make_shared<TestBlobCompressionManager>();
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+  // Create values long enough to be compressed
+  const std::string value1(1000, 'a');
+  const std::string value2(2000, 'b');
+
+  // Write data
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Flush());
+
+  // Read back and verify
+  ASSERT_EQ(Get(key1), value1);
+  ASSERT_EQ(Get(key2), value2);
+
+  // Verify via iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->value(), value1);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->value(), value2);
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Close and reopen to verify data persists with custom compression
+  Close();
+  Reopen(options);
+
+  // Read back again after reopen
+  ASSERT_EQ(Get(key1), value1);
+  ASSERT_EQ(Get(key2), value2);
+
+  // Verify MultiGet
+  {
+    std::vector<Slice> keys = {key1, key2};
+    std::vector<std::string> values;
+    std::vector<Status> statuses = db_->MultiGet(ReadOptions(), keys, &values);
+    ASSERT_EQ(statuses.size(), 2);
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[0], value1);
+    ASSERT_EQ(values[1], value2);
+  }
+}
+
+TEST_F(DBBlobBasicTest, MultiGetCompressedBlob_PerKeyCompressionTypes) {
+  // Test that blob_compression_types_out returns correct per-key compression
+  // types for MultiGet operations
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  // Insert multiple blobs
+  constexpr int num_keys = 5;
+  auto keys = CreateSequentialKeys(num_keys);
+  auto blob_values = CreateCompressibleBlobs(num_keys);
+
+  WriteBlobsAndFlush(keys, blob_values);
+
+  // First, verify normal MultiGet works
+  {
+    std::vector<Slice> key_slices;
+    for (const auto& key : keys) {
+      key_slices.emplace_back(key);
+    }
+    std::vector<std::string> values;
+    std::vector<Status> statuses =
+        db_->MultiGet(ReadOptions(), key_slices, &values);
+    ASSERT_EQ(statuses.size(), static_cast<size_t>(num_keys));
+    for (int i = 0; i < num_keys; i++) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(values[i], blob_values[i]);
+    }
+  }
+
+  // Now test MultiGet with read_blob_compressed=true and per-key compression
+  // types
+  {
+    ReadOptions read_options;
+    read_options.read_blob_compressed = true;
+
+    // Allocate vector for per-key compression types
+    std::vector<CompressionType> compression_types;
+    read_options.blob_compression_types_out = &compression_types;
+
+    std::vector<Slice> key_slices;
+    for (const auto& key : keys) {
+      key_slices.emplace_back(key);
+    }
+
+    std::vector<PinnableSlice> values(num_keys);
+    std::vector<Status> statuses(num_keys);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  key_slices.data(), values.data(), statuses.data());
+
+    ASSERT_EQ(compression_types.size(), static_cast<size_t>(num_keys));
+    for (int i = 0; i < num_keys; i++) {
+      ASSERT_OK(statuses[i])
+          << "Key " << i << " failed: " << statuses[i].ToString();
+      // Verify compression type is reported correctly for each key
+      ASSERT_EQ(compression_types[i], kSnappyCompression)
+          << "Key " << i << " has wrong compression type";
+      // Verify the returned data is compressed
+      ASSERT_LT(values[i].size(), blob_values[i].size())
+          << "Key " << i << " data is not compressed";
+    }
+  }
+}
+
+TEST_F(DBBlobBasicTest,
+       MultiGetCompressedBlob_PerKeyCompressionTypes_NoCompression) {
+  // Test per-key compression types when blobs are stored without compression
+  Reopen(GetBlobOptions(kNoCompression));
+
+  constexpr int num_keys = 3;
+  auto keys = CreateSequentialKeys(num_keys);
+  auto blob_values = CreateCompressibleBlobs(num_keys);
+
+  WriteBlobsAndFlush(keys, blob_values);
+
+  // Test MultiGet with per-key compression types
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+
+  std::vector<CompressionType> compression_types;
+  read_options.blob_compression_types_out = &compression_types;
+
+  std::vector<Slice> key_slices;
+  for (const auto& key : keys) {
+    key_slices.emplace_back(key);
+  }
+
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                key_slices.data(), values.data(), statuses.data());
+
+  ASSERT_EQ(compression_types.size(), static_cast<size_t>(num_keys));
+  for (int i = 0; i < num_keys; i++) {
+    ASSERT_OK(statuses[i]);
+    // Verify compression type is kNoCompression
+    ASSERT_EQ(compression_types[i], kNoCompression)
+        << "Key " << i << " should have kNoCompression";
+    // Verify data is as-is (not compressed)
+    ASSERT_EQ(values[i].ToString(), blob_values[i]);
+  }
+}
+
+TEST_F(DBBlobBasicTest,
+       MultiGetCompressedBlob_PerKeyCompressionTypes_MixedKeysWithMissing) {
+  // Test per-key compression types when some keys are not found
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  // Insert only some keys
+  constexpr int num_existing_keys = 3;
+  auto existing_keys = CreateSequentialKeys(num_existing_keys, "existing_");
+  auto blob_values = CreateCompressibleBlobs(num_existing_keys);
+
+  WriteBlobsAndFlush(existing_keys, blob_values);
+
+  // Query with a mix of existing and non-existing keys
+  std::vector<std::string> query_keys = {"existing_0", "nonexistent_1",
+                                         "existing_1", "nonexistent_2",
+                                         "existing_2"};
+  constexpr int num_query_keys = 5;
+
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+
+  // Allocate vector for per-key compression types
+  std::vector<CompressionType> compression_types;
+  read_options.blob_compression_types_out = &compression_types;
+
+  std::vector<Slice> key_slices;
+  for (const auto& key : query_keys) {
+    key_slices.emplace_back(key);
+  }
+
+  std::vector<PinnableSlice> values(num_query_keys);
+  std::vector<Status> statuses(num_query_keys);
+  db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_query_keys,
+                key_slices.data(), values.data(), statuses.data());
+
+  ASSERT_EQ(compression_types.size(), static_cast<size_t>(num_query_keys));
+
+  // Verify results
+  // Key 0: existing_0 - should exist with Snappy compression
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(compression_types[0], kSnappyCompression);
+  ASSERT_LT(values[0].size(), blob_values[0].size());
+
+  // Key 1: nonexistent_1 - should not exist
+  ASSERT_TRUE(statuses[1].IsNotFound());
+
+  // Key 2: existing_1 - should exist with Snappy compression
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(compression_types[2], kSnappyCompression);
+  ASSERT_LT(values[2].size(), blob_values[1].size());
+
+  // Key 3: nonexistent_2 - should not exist
+  ASSERT_TRUE(statuses[3].IsNotFound());
+
+  // Key 4: existing_2 - should exist with Snappy compression
+  ASSERT_OK(statuses[4]);
+  ASSERT_EQ(compression_types[4], kSnappyCompression);
+  ASSERT_LT(values[4].size(), blob_values[2].size());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

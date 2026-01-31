@@ -6,11 +6,13 @@
 #include "db/blob/blob_file_reader.h"
 
 #include <cassert>
+#include <optional>
 #include <string>
 
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -27,6 +29,28 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+// Common test constants
+constexpr uint32_t kDefaultColumnFamilyId = 1;
+constexpr bool kDefaultHasTtl = false;
+constexpr uint64_t kDefaultBlobFileNumber = 1;
+constexpr HistogramImpl* kNullBlobFileReadHist = nullptr;
+constexpr FilePrefetchBuffer* kNullPrefetchBuffer = nullptr;
+constexpr MemoryAllocator* kNullAllocator = nullptr;
+
+// Test helper: Create BlobFileReader without compression manager
+Status CreateBlobFileReader(const ImmutableOptions& immutable_options,
+                            const ReadOptions& read_options,
+                            const FileOptions& file_options,
+                            uint32_t column_family_id,
+                            HistogramImpl* blob_file_read_hist,
+                            uint64_t blob_file_number,
+                            const std::shared_ptr<IOTracer>& io_tracer,
+                            std::unique_ptr<BlobFileReader>* reader) {
+  return BlobFileReader::Create(immutable_options, read_options, file_options,
+                                column_family_id, blob_file_read_hist,
+                                blob_file_number, io_tracer, nullptr, reader);
+}
 
 // Creates a test blob file with `num` blobs in it.
 void WriteBlobFile(const ImmutableOptions& immutable_options,
@@ -130,11 +154,68 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
 }  // anonymous namespace
 
-class BlobFileReaderTest : public testing::Test {
+// Helper class for setting up blob file reader tests with common functionality
+class BlobFileReaderTestBase : public testing::Test {
  protected:
-  BlobFileReaderTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
+  BlobFileReaderTestBase() { mock_env_.reset(MockEnv::Create(Env::Default())); }
+
+  // Initialize options with the given test name for the path
+  void InitOptions(const std::string& test_name) {
+    options_.env = mock_env_.get();
+    options_.cf_paths.emplace_back(
+        test::PerThreadDBPath(mock_env_.get(), test_name), 0);
+    options_.enable_blob_files = true;
+    immutable_options_.emplace(options_);
+  }
+
+  // Write a single blob file and create a reader
+  void WriteSingleBlobAndCreateReader(const Slice& key, const Slice& blob,
+                                      CompressionType compression) {
+    ASSERT_TRUE(immutable_options_.has_value());
+    WriteBlobFile(*immutable_options_, kDefaultColumnFamilyId, kDefaultHasTtl,
+                  ExpirationRange(), ExpirationRange(), kDefaultBlobFileNumber,
+                  key, blob, compression, &blob_offset_, &blob_size_);
+
+    ReadOptions read_options;
+    ASSERT_OK(CreateBlobFileReader(
+        *immutable_options_, read_options, FileOptions(),
+        kDefaultColumnFamilyId, kNullBlobFileReadHist, kDefaultBlobFileNumber,
+        nullptr /*IOTracer*/, &reader_));
+  }
+
+  // Write multiple blobs and create a reader
+  void WriteMultipleBlobsAndCreateReader(const std::vector<Slice>& keys,
+                                         const std::vector<Slice>& blobs,
+                                         CompressionType compression) {
+    ASSERT_TRUE(immutable_options_.has_value());
+    blob_offsets_.resize(keys.size());
+    blob_sizes_.resize(keys.size());
+    WriteBlobFile(*immutable_options_, kDefaultColumnFamilyId, kDefaultHasTtl,
+                  ExpirationRange(), ExpirationRange(), kDefaultBlobFileNumber,
+                  keys, blobs, compression, blob_offsets_, blob_sizes_);
+
+    ReadOptions read_options;
+    ASSERT_OK(CreateBlobFileReader(
+        *immutable_options_, read_options, FileOptions(),
+        kDefaultColumnFamilyId, kNullBlobFileReadHist, kDefaultBlobFileNumber,
+        nullptr /*IOTracer*/, &reader_));
+  }
+
   std::unique_ptr<Env> mock_env_;
+  Options options_;
+  std::optional<ImmutableOptions> immutable_options_;
+  std::unique_ptr<BlobFileReader> reader_;
+
+  // For single blob tests
+  uint64_t blob_offset_ = 0;
+  uint64_t blob_size_ = 0;
+
+  // For multiple blob tests
+  std::vector<uint64_t> blob_offsets_;
+  std::vector<uint64_t> blob_sizes_;
 };
+
+class BlobFileReaderTest : public BlobFileReaderTestBase {};
 
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   Options options;
@@ -170,7 +251,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   std::unique_ptr<BlobFileReader> reader;
 
   ReadOptions read_options;
-  ASSERT_OK(BlobFileReader::Create(
+  ASSERT_OK(CreateBlobFileReader(
       immutable_options, read_options, FileOptions(), column_family_id,
       blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
@@ -477,10 +558,10 @@ TEST_F(BlobFileReaderTest, Malformed) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
-                                     FileOptions(), column_family_id,
-                                     blob_file_read_hist, blob_file_number,
-                                     nullptr /*IOTracer*/, &reader)
+  ASSERT_TRUE(CreateBlobFileReader(immutable_options, read_options,
+                                   FileOptions(), column_family_id,
+                                   blob_file_read_hist, blob_file_number,
+                                   nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -511,10 +592,10 @@ TEST_F(BlobFileReaderTest, TTL) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
-                                     FileOptions(), column_family_id,
-                                     blob_file_read_hist, blob_file_number,
-                                     nullptr /*IOTracer*/, &reader)
+  ASSERT_TRUE(CreateBlobFileReader(immutable_options, read_options,
+                                   FileOptions(), column_family_id,
+                                   blob_file_read_hist, blob_file_number,
+                                   nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -550,10 +631,10 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
-                                     FileOptions(), column_family_id,
-                                     blob_file_read_hist, blob_file_number,
-                                     nullptr /*IOTracer*/, &reader)
+  ASSERT_TRUE(CreateBlobFileReader(immutable_options, read_options,
+                                   FileOptions(), column_family_id,
+                                   blob_file_read_hist, blob_file_number,
+                                   nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -589,10 +670,10 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
-                                     FileOptions(), column_family_id,
-                                     blob_file_read_hist, blob_file_number,
-                                     nullptr /*IOTracer*/, &reader)
+  ASSERT_TRUE(CreateBlobFileReader(immutable_options, read_options,
+                                   FileOptions(), column_family_id,
+                                   blob_file_read_hist, blob_file_number,
+                                   nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -627,10 +708,10 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
 
   constexpr uint32_t incorrect_column_family_id = 2;
   const ReadOptions read_options;
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
-                                     FileOptions(), incorrect_column_family_id,
-                                     blob_file_read_hist, blob_file_number,
-                                     nullptr /*IOTracer*/, &reader)
+  ASSERT_TRUE(CreateBlobFileReader(immutable_options, read_options,
+                                   FileOptions(), incorrect_column_family_id,
+                                   blob_file_read_hist, blob_file_number,
+                                   nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -662,7 +743,7 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  ASSERT_OK(BlobFileReader::Create(
+  ASSERT_OK(CreateBlobFileReader(
       immutable_options, read_options, FileOptions(), column_family_id,
       blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
@@ -726,7 +807,7 @@ TEST_F(BlobFileReaderTest, Compression) {
 
   std::unique_ptr<BlobFileReader> reader;
   ReadOptions read_options;
-  ASSERT_OK(BlobFileReader::Create(
+  ASSERT_OK(CreateBlobFileReader(
       immutable_options, read_options, FileOptions(), column_family_id,
       blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
@@ -800,7 +881,7 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  ASSERT_OK(BlobFileReader::Create(
+  ASSERT_OK(CreateBlobFileReader(
       immutable_options, read_options, FileOptions(), column_family_id,
       blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
@@ -831,6 +912,166 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(BlobFileReaderTest, GetBlob_CompressedRead_Snappy) {
+  // Test reading compressed blob with read_blob_compressed=true
+  // The returned data should be the raw compressed bytes, not decompressed
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  InitOptions("BlobFileReaderTest_GetBlob_CompressedRead_Snappy");
+
+  constexpr char key[] = "key";
+  // Use a larger blob that will actually compress well
+  const std::string blob(1024, 'x');  // 1KB of repeated 'x' characters
+
+  WriteSingleBlobAndCreateReader(key, blob, kSnappyCompression);
+
+  // Read with read_blob_compressed=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  read_options.verify_checksums = false;
+  std::optional<CompressionType> compression_type_out;
+
+  std::unique_ptr<BlobContents> value;
+  uint64_t bytes_read = 0;
+
+  ASSERT_OK(reader_->GetBlob(read_options, key, blob_offset_, blob_size_,
+                             kSnappyCompression, kNullPrefetchBuffer,
+                             kNullAllocator, &value, &bytes_read,
+                             &compression_type_out));
+  ASSERT_NE(value, nullptr);
+  // Verify compression type is reported correctly
+  ASSERT_TRUE(compression_type_out.has_value());
+  ASSERT_EQ(compression_type_out.value(), kSnappyCompression);
+  // Without checksum verification, bytes_read equals blob_size
+  ASSERT_EQ(bytes_read, blob_size_);
+
+  VerifySnappyCompressedData(value->data(), blob);
+}
+
+TEST_F(BlobFileReaderTest, GetBlob_CompressedRead_NoCompression) {
+  // Test reading uncompressed blob with read_blob_compressed=true
+  // Should return data as-is with compression_type = kNoCompression
+  InitOptions("BlobFileReaderTest_GetBlob_CompressedRead_NoCompression");
+
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  WriteSingleBlobAndCreateReader(key, blob, kNoCompression);
+
+  // Read with read_blob_compressed=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  read_options.verify_checksums = false;
+  std::optional<CompressionType> compression_type_out;
+
+  std::unique_ptr<BlobContents> value;
+  uint64_t bytes_read = 0;
+
+  ASSERT_OK(reader_->GetBlob(read_options, key, blob_offset_, blob_size_,
+                             kNoCompression, kNullPrefetchBuffer,
+                             kNullAllocator, &value, &bytes_read,
+                             &compression_type_out));
+  ASSERT_NE(value, nullptr);
+  // Verify compression type is reported as kNoCompression
+  ASSERT_TRUE(compression_type_out.has_value());
+  ASSERT_EQ(compression_type_out.value(), kNoCompression);
+  // Verify the data is exactly the original blob
+  ASSERT_EQ(value->data(), blob);
+  // Without checksum verification, bytes_read equals blob_size
+  ASSERT_EQ(bytes_read, blob_size_);
+}
+
+TEST_F(BlobFileReaderTest, GetBlob_CompressedRead_ChecksumVerification) {
+  // Test that checksum verification still works when read_blob_compressed=true
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  InitOptions("BlobFileReaderTest_GetBlob_CompressedRead_ChecksumVerification");
+
+  constexpr char key[] = "key";
+  const std::string blob(1024, 'y');
+
+  WriteSingleBlobAndCreateReader(key, blob, kSnappyCompression);
+
+  // Read with both read_blob_compressed=true and verify_checksums=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  read_options.verify_checksums = true;
+  std::optional<CompressionType> compression_type_out;
+
+  std::unique_ptr<BlobContents> value;
+  uint64_t bytes_read = 0;
+
+  ASSERT_OK(reader_->GetBlob(read_options, key, blob_offset_, blob_size_,
+                             kSnappyCompression, kNullPrefetchBuffer,
+                             kNullAllocator, &value, &bytes_read,
+                             &compression_type_out));
+  ASSERT_NE(value, nullptr);
+  ASSERT_TRUE(compression_type_out.has_value());
+  ASSERT_EQ(compression_type_out.value(), kSnappyCompression);
+
+  // Verify we read the full record (with header for checksum verification)
+  const uint64_t key_size = sizeof(key) - 1;
+  ASSERT_EQ(
+      bytes_read,
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size) + blob_size_);
+}
+
+TEST_F(BlobFileReaderTest, MultiGetBlob_CompressedRead) {
+  // Test MultiGetBlob with read_blob_compressed=true
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  InitOptions("BlobFileReaderTest_MultiGetBlob_CompressedRead");
+
+  constexpr size_t num_blobs = 3;
+  const std::vector<std::string> key_strs = {"key1", "key2", "key3"};
+  // Use larger blobs that compress well
+  const std::vector<std::string> blob_strs = {
+      std::string(1024, 'a'), std::string(2048, 'b'), std::string(512, 'c')};
+
+  const std::vector<Slice> keys = {key_strs[0], key_strs[1], key_strs[2]};
+  const std::vector<Slice> blobs = {blob_strs[0], blob_strs[1], blob_strs[2]};
+
+  WriteMultipleBlobsAndCreateReader(keys, blobs, kSnappyCompression);
+
+  // Read with read_blob_compressed=true
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  uint64_t bytes_read = 0;
+
+  std::array<Status, num_blobs> statuses_buf;
+  std::array<std::optional<CompressionType>, num_blobs> compression_types_out;
+  std::array<BlobReadRequest, num_blobs> requests_buf;
+  autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+      blob_reqs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    compression_types_out[i] = std::nullopt;
+    requests_buf[i] = BlobReadRequest(
+        keys[i], blob_offsets_[i], blob_sizes_[i], kSnappyCompression, nullptr,
+        &statuses_buf[i], &compression_types_out[i]);
+    blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
+  }
+
+  reader_->MultiGetBlob(read_options, kNullAllocator, blob_reqs, &bytes_read);
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    ASSERT_OK(statuses_buf[i]);
+    const auto& result = blob_reqs[i].second;
+    ASSERT_NE(result, nullptr);
+    // Verify compression type is reported correctly
+    ASSERT_TRUE(compression_types_out[i].has_value());
+    ASSERT_EQ(compression_types_out[i].value(), kSnappyCompression);
+
+    VerifySnappyCompressedData(result->data(), blob_strs[i]);
+  }
 }
 
 class BlobFileReaderIOErrorTest
@@ -892,7 +1133,7 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  const Status s = BlobFileReader::Create(
+  const Status s = CreateBlobFileReader(
       immutable_options, read_options, FileOptions(), column_family_id,
       blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader);
 
@@ -980,7 +1221,7 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
 
   std::unique_ptr<BlobFileReader> reader;
   const ReadOptions read_options;
-  const Status s = BlobFileReader::Create(
+  const Status s = CreateBlobFileReader(
       immutable_options, read_options, FileOptions(), column_family_id,
       blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader);
 

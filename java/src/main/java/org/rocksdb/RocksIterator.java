@@ -122,6 +122,25 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
   }
 
   /**
+   * Get the compression type of the blob value at the current iterator position.
+   * <p>
+   * This is useful when iterating with {@link ReadOptions#setReadBlobCompressed(boolean)}
+   * set to true. It allows the caller to determine which decompression algorithm
+   * to use for the compressed blob data returned by {@link #value()}.
+   * <p>
+   * REQUIRES: {@link #isValid()}
+   *
+   * @return the compression type if the current entry is a blob and was read with
+   *         read_blob_compressed=true, or {@link CompressionType#NO_COMPRESSION} if the
+   *         current entry is not a blob, or read_blob_compressed was false, or
+   *         blob was stored without compression
+   */
+  public CompressionType getBlobCompressionType() {
+    assert (isOwningHandle());
+    return CompressionType.getCompressionType(getBlobCompressionType0(nativeHandle_));
+  }
+
+  /**
    * <p>Return the value for the current entry.  The underlying storage for
    * the returned slice is valid only until the next modification of
    * the iterator.</p>
@@ -270,6 +289,7 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
 
   private static native byte[] key0(long handle);
   private static native byte[] value0(long handle);
+  private static native byte getBlobCompressionType0(long handle);
   private static native int keyDirect0(
       long handle, ByteBuffer buffer, int bufferOffset, int bufferLen);
   private static native int keyByteArray0(long handle, byte[] array, int arrayOffset, int arrayLen);

@@ -291,6 +291,8 @@ class BatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    // Randomly read blob values in compressed format to test both code paths
+    read_opts_copy.read_blob_compressed = thread->rand.OneIn(2);
 
     assert(!rand_keys.empty());
 
@@ -399,6 +401,8 @@ class BatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    // Randomly read blob values in compressed format to test both code paths
+    read_opts_copy.read_blob_compressed = thread->rand.OneIn(2);
 
     const size_t num_keys = rand_keys.size();
 
@@ -585,6 +589,10 @@ class BatchedOpsStressTest : public StressTest {
 
       ro_copies[i] = readoptions;
       ro_copies[i].snapshot = snapshot;
+      // Randomly read blob values in compressed format to test both code paths
+      if (thread->rand.OneIn(2)) {
+        ro_copies[i].read_blob_compressed = true;
+      }
       if (thread->rand.OneIn(2) &&
           GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
         // For half of the time, set the upper bound to the next prefix

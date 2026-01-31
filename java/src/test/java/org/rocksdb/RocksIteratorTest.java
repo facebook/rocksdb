@@ -9,6 +9,7 @@ import static org.junit.Assert.fail;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -461,6 +462,73 @@ public class RocksIteratorTest {
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
+      }
+    }
+  }
+
+  /**
+   * Test that getBlobCompressionType() returns the correct compression type
+   * when iterating over blob values with read_blob_compressed=true.
+   */
+  @Test
+  public void rocksIteratorGetBlobCompressionType() throws RocksDBException {
+    final int minBlobSize = 100;
+    final int largeBlobSize = minBlobSize * 2;
+
+    // Create a large value that will be stored in a blob file
+    final byte[] largeValue = new byte[largeBlobSize];
+    Arrays.fill(largeValue, (byte) 'x');
+
+    try (final Options options = new Options()
+             .setCreateIfMissing(true)
+             .setEnableBlobFiles(true)
+             .setMinBlobSize(minBlobSize)
+             .setBlobCompressionType(CompressionType.ZSTD_COMPRESSION);
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      // Write a small value (stored in SST, not blob)
+      db.put("small_key".getBytes(), "small_value".getBytes());
+
+      // Write a large value (stored in blob file)
+      db.put("large_key".getBytes(), largeValue);
+
+      // Flush to ensure blobs are written
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
+
+      // Test 1: Without read_blob_compressed, compression type should be NO_COMPRESSION
+      try (final ReadOptions readOptions = new ReadOptions();
+          final RocksIterator iterator = db.newIterator(readOptions)) {
+        iterator.seek("large_key".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("large_key".getBytes());
+        // The value should be decompressed
+        assertThat(iterator.value()).isEqualTo(largeValue);
+        // Compression type should be NO_COMPRESSION since we're reading decompressed data
+        assertThat(iterator.getBlobCompressionType()).isEqualTo(CompressionType.NO_COMPRESSION);
+      }
+
+      // Test 2: With read_blob_compressed=true, compression type should be ZSTD
+      try (final ReadOptions readOptions = new ReadOptions().setReadBlobCompressed(true);
+          final RocksIterator iterator = db.newIterator(readOptions)) {
+        iterator.seek("large_key".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("large_key".getBytes());
+        // The compression type should match the blob compression type
+        assertThat(iterator.getBlobCompressionType()).isEqualTo(CompressionType.ZSTD_COMPRESSION);
+        // The value should be compressed (smaller than the original)
+        assertThat(iterator.value().length).isLessThan(largeValue.length);
+      }
+
+      // Test 3: Small values (not in blob) should have NO_COMPRESSION
+      try (final ReadOptions readOptions = new ReadOptions().setReadBlobCompressed(true);
+          final RocksIterator iterator = db.newIterator(readOptions)) {
+        iterator.seek("small_key".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("small_key".getBytes());
+        assertThat(iterator.value()).isEqualTo("small_value".getBytes());
+        // Non-blob values should have NO_COMPRESSION
+        assertThat(iterator.getBlobCompressionType()).isEqualTo(CompressionType.NO_COMPRESSION);
       }
     }
   }

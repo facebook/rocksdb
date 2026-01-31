@@ -18,19 +18,20 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlobFileCache::BlobFileCache(Cache* cache,
-                             const ImmutableOptions* immutable_options,
-                             const FileOptions* file_options,
-                             uint32_t column_family_id,
-                             HistogramImpl* blob_file_read_hist,
-                             const std::shared_ptr<IOTracer>& io_tracer)
+BlobFileCache::BlobFileCache(
+    Cache* cache, const ImmutableOptions* immutable_options,
+    const FileOptions* file_options, uint32_t column_family_id,
+    HistogramImpl* blob_file_read_hist,
+    const std::shared_ptr<IOTracer>& io_tracer,
+    const std::shared_ptr<CompressionManager>& compression_manager)
     : cache_(cache),
       mutex_(kNumberOfMutexStripes),
       immutable_options_(immutable_options),
       file_options_(file_options),
       column_family_id_(column_family_id),
       blob_file_read_hist_(blob_file_read_hist),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      compression_manager_(compression_manager) {
   assert(cache_);
   assert(immutable_options_);
   assert(file_options_);
@@ -75,7 +76,8 @@ Status BlobFileCache::GetBlobFileReader(
     assert(file_options_);
     const Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
-        blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
+        blob_file_read_hist_, blob_file_number, io_tracer_,
+        compression_manager_, &reader);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;

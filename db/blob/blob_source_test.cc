@@ -108,6 +108,114 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
 class BlobSourceTest : public DBTestBase {
  protected:
+  // Common test constants
+  static constexpr uint32_t kDefaultColumnFamilyId = 1;
+  static constexpr bool kDefaultHasTtl = false;
+  static constexpr HistogramImpl* kNullBlobFileReadHist = nullptr;
+  static constexpr FilePrefetchBuffer* kNullPrefetchBuffer = nullptr;
+
+  // Helper struct for setting up blob source tests
+  struct BlobTestSetup {
+    std::vector<std::string> key_strs;
+    std::vector<std::string> blob_strs;
+    std::vector<Slice> keys;
+    std::vector<Slice> blobs;
+    std::vector<uint64_t> blob_offsets;
+    std::vector<uint64_t> blob_sizes;
+    uint64_t file_size = 0;
+    uint64_t blob_file_number = 1;
+    std::shared_ptr<Cache> backing_cache;
+    std::unique_ptr<BlobFileCache> blob_file_cache;
+    std::unique_ptr<ImmutableOptions> immutable_options;
+    std::unique_ptr<MutableCFOptions> mutable_cf_options;
+    FileOptions file_options;  // Must persist for BlobFileCache
+
+    // Initialize test data with compressible blobs (repeated characters)
+    void InitCompressibleData(size_t num_blobs, size_t blob_size = 1024,
+                              char start_char = 'a') {
+      key_strs.clear();
+      blob_strs.clear();
+      keys.clear();
+      blobs.clear();
+
+      for (size_t i = 0; i < num_blobs; ++i) {
+        key_strs.push_back("key" + std::to_string(i));
+        blob_strs.push_back(std::string(blob_size, start_char + i));
+      }
+
+      FinalizeTestData();
+    }
+
+    // Initialize test data with simple blobs (key0, blob0, key1, blob1, ...)
+    void InitSimpleData(size_t num_blobs) {
+      key_strs.clear();
+      blob_strs.clear();
+      keys.clear();
+      blobs.clear();
+
+      for (size_t i = 0; i < num_blobs; ++i) {
+        key_strs.push_back("key" + std::to_string(i));
+        blob_strs.push_back("blob" + std::to_string(i));
+      }
+
+      FinalizeTestData();
+    }
+
+    // Finalize test data after key_strs and blob_strs are populated
+    void FinalizeTestData() {
+      file_size = BlobLogHeader::kSize + BlobLogFooter::kSize;
+      for (size_t i = 0; i < key_strs.size(); ++i) {
+        keys.emplace_back(key_strs[i]);
+        blobs.emplace_back(blob_strs[i]);
+      }
+
+      blob_offsets.resize(key_strs.size());
+      blob_sizes.resize(key_strs.size());
+    }
+
+    // Write blob file and update file_size with actual sizes
+    void WriteBlobFileAndUpdateSize(const ImmutableOptions& imm_options,
+                                    CompressionType compression) {
+      constexpr ExpirationRange expiration_range;
+
+      WriteBlobFile(imm_options, kDefaultColumnFamilyId, kDefaultHasTtl,
+                    expiration_range, expiration_range, blob_file_number, keys,
+                    blobs, compression, blob_offsets, blob_sizes);
+
+      // Update file_size with actual blob sizes
+      for (size_t i = 0; i < keys.size(); ++i) {
+        file_size +=
+            BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i];
+      }
+    }
+
+    // Create blob file cache
+    void CreateBlobFileCache(const ImmutableOptions& imm_options,
+                             const MutableCFOptions& mut_cf_options,
+                             size_t cache_capacity = 1024) {
+      backing_cache = NewLRUCache(cache_capacity);
+
+      // Store copies of options for later use (must be done before creating
+      // BlobFileCache since it holds pointers)
+      immutable_options = std::make_unique<ImmutableOptions>(imm_options);
+      mutable_cf_options = std::make_unique<MutableCFOptions>(mut_cf_options);
+
+      blob_file_cache = std::make_unique<BlobFileCache>(
+          backing_cache.get(), immutable_options.get(), &file_options,
+          kDefaultColumnFamilyId, kNullBlobFileReadHist, nullptr /*IOTracer*/,
+          nullptr /*CompressionManager*/);
+    }
+
+    BlobSource MakeBlobSource(const std::string& db_id,
+                              const std::string& db_session_id) {
+      return BlobSource(*immutable_options, *mutable_cf_options, db_id,
+                        db_session_id, blob_file_cache.get());
+    }
+  };
+
+  // Legacy alias for backward compatibility
+  using CompressedBlobTestSetup = BlobTestSetup;
+
  public:
   explicit BlobSourceTest()
       : DBTestBase("blob_source_test", /*env_do_fsync=*/true) {
@@ -146,61 +254,31 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   ImmutableOptions immutable_options(options_);
   MutableCFOptions mutable_cf_options(options_);
 
-  constexpr uint32_t column_family_id = 1;
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
-  constexpr uint64_t blob_file_number = 1;
   constexpr size_t num_blobs = 16;
 
-  std::vector<std::string> key_strs;
-  std::vector<std::string> blob_strs;
+  BlobTestSetup setup;
+  setup.InitSimpleData(num_blobs);
+  setup.WriteBlobFileAndUpdateSize(immutable_options, kNoCompression);
+  setup.CreateBlobFileCache(immutable_options, mutable_cf_options);
 
-  for (size_t i = 0; i < num_blobs; ++i) {
-    key_strs.push_back("key" + std::to_string(i));
-    blob_strs.push_back("blob" + std::to_string(i));
-  }
+  // Local aliases for convenience
+  const auto& keys = setup.keys;
+  const auto& blobs = setup.blobs;
+  const auto& blob_offsets = setup.blob_offsets;
+  const auto& blob_sizes = setup.blob_sizes;
+  const uint64_t blob_file_number = setup.blob_file_number;
+  const uint64_t file_size = setup.file_size;
 
-  std::vector<Slice> keys;
-  std::vector<Slice> blobs;
-
-  uint64_t file_size = BlobLogHeader::kSize;
-  for (size_t i = 0; i < num_blobs; ++i) {
-    keys.emplace_back(key_strs[i]);
-    blobs.emplace_back(blob_strs[i]);
-    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
-  }
-  file_size += BlobLogFooter::kSize;
-
-  std::vector<uint64_t> blob_offsets(keys.size());
-  std::vector<uint64_t> blob_sizes(keys.size());
-
-  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
-                expiration_range, blob_file_number, keys, blobs, kNoCompression,
-                blob_offsets, blob_sizes);
-
-  constexpr size_t capacity = 1024;
-  std::shared_ptr<Cache> backing_cache =
-      NewLRUCache(capacity);  // Blob file cache
-
-  FileOptions file_options;
-  constexpr HistogramImpl* blob_file_read_hist = nullptr;
-
-  std::unique_ptr<BlobFileCache> blob_file_cache =
-      std::make_unique<BlobFileCache>(
-          backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
-
-  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
-                         db_session_id_, blob_file_cache.get());
+  BlobSource blob_source = setup.MakeBlobSource(db_id_, db_session_id_);
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr FilePrefetchBuffer* prefetch_buffer = kNullPrefetchBuffer;
 
   {
     // GetBlob
-    std::vector<PinnableSlice> values(keys.size());
+    std::vector<PinnableSlice> values(num_blobs);
     uint64_t bytes_read = 0;
     uint64_t blob_bytes = 0;
     uint64_t total_bytes = 0;
@@ -494,7 +572,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/,
+          nullptr /*CompressionManager*/);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -639,12 +718,15 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileCache> blob_file_cache =
-      std::make_unique<BlobFileCache>(
-          backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+      std::make_unique<BlobFileCache>(backing_cache.get(), &immutable_options,
+                                      &file_options, column_family_id,
+                                      blob_file_read_hist, nullptr /*IOTracer*/,
+                                      nullptr /*CompressionManager*/);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
+
+  // Read blobs and verify they are not cached
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -823,9 +905,10 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileCache> blob_file_cache =
-      std::make_unique<BlobFileCache>(
-          backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+      std::make_unique<BlobFileCache>(backing_cache.get(), &immutable_options,
+                                      &file_options, column_family_id,
+                                      blob_file_read_hist, nullptr /*IOTracer*/,
+                                      nullptr /*CompressionManager*/);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1134,9 +1217,10 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+  std::unique_ptr<BlobFileCache> blob_file_cache(
+      new BlobFileCache(backing_cache.get(), &immutable_options, &file_options,
+                        column_family_id, blob_file_read_hist,
+                        nullptr /*IOTracer*/, nullptr /*CompressionManager*/));
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1424,9 +1508,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileCache> blob_file_cache =
-      std::make_unique<BlobFileCache>(
-          backing_cache.get(), &immutable_options, &file_options,
-          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
+      std::make_unique<BlobFileCache>(backing_cache.get(), &immutable_options,
+                                      &file_options, kColumnFamilyId,
+                                      blob_file_read_hist, nullptr /*IOTracer*/,
+                                      nullptr /*CompressionManager*/);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1546,12 +1631,15 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileCache> blob_file_cache =
-      std::make_unique<BlobFileCache>(
-          backing_cache.get(), &immutable_options, &file_options,
-          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
+      std::make_unique<BlobFileCache>(backing_cache.get(), &immutable_options,
+                                      &file_options, kColumnFamilyId,
+                                      blob_file_read_hist, nullptr /*IOTracer*/,
+                                      nullptr /*CompressionManager*/);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
+
+  Random rnd(301);
 
   ConcurrentCacheReservationManager* cache_res_mgr =
       static_cast<ChargedCache*>(blob_source.GetBlobCache())
@@ -1605,6 +1693,226 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
                 options_.blob_cache->GetUsage());
     }
   }
+}
+
+TEST_F(BlobSourceTest, GetCompressedBlob_CachesCompressedData) {
+  // Test that read_blob_compressed=true now caches compressed data with a
+  // different cache key, and both compressed and uncompressed can coexist
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          env_, "BlobSourceTest_GetCompressedBlob_CachesCompressed"),
+      0);
+
+  options_.statistics = CreateDBStatistics();
+  Statistics* statistics = options_.statistics.get();
+  assert(statistics);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
+
+  constexpr size_t num_blobs = 3;
+
+  // Use helper to set up test data
+  CompressedBlobTestSetup setup;
+  setup.InitCompressibleData(num_blobs);
+  setup.WriteBlobFileAndUpdateSize(immutable_options, kSnappyCompression);
+  setup.CreateBlobFileCache(immutable_options, mutable_cf_options);
+
+  BlobSource blob_source = setup.MakeBlobSource(db_id_, db_session_id_);
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  read_options.fill_cache = true;
+
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+
+  // First, read with read_blob_compressed=true - should populate compressed
+  // cache
+  read_options.read_blob_compressed = true;
+  statistics->Reset().PermitUncheckedError();
+
+  std::vector<PinnableSlice> values(num_blobs);
+  uint64_t bytes_read = 0;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    // Verify neither compressed nor uncompressed is in cache yet
+    ASSERT_FALSE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/true));
+    ASSERT_FALSE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/false));
+
+    ASSERT_OK(blob_source.GetBlob(
+        read_options, setup.keys[i], setup.blob_file_number,
+        setup.blob_offsets[i], setup.file_size, setup.blob_sizes[i],
+        kSnappyCompression, prefetch_buffer, &values[i], &bytes_read));
+    // Verify we got compressed data (smaller than original)
+    ASSERT_LT(values[i].size(), setup.blob_strs[i].size());
+
+    // Verify compressed cache was populated, but not uncompressed
+    ASSERT_TRUE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/true));
+    ASSERT_FALSE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/false));
+  }
+
+  // Verify cache was populated with compressed data
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_COMPRESSED_CACHE_ADD),
+            num_blobs);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+
+  // Now read with read_blob_compressed=false - should populate uncompressed
+  // cache
+  read_options.read_blob_compressed = false;
+  statistics->Reset().PermitUncheckedError();
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    values[i].Reset();
+    ASSERT_OK(blob_source.GetBlob(
+        read_options, setup.keys[i], setup.blob_file_number,
+        setup.blob_offsets[i], setup.file_size, setup.blob_sizes[i],
+        kSnappyCompression, prefetch_buffer, &values[i], &bytes_read));
+    // Verify we got decompressed data (same as original)
+    ASSERT_EQ(values[i].ToString(), setup.blob_strs[i]);
+
+    // Verify BOTH compressed and uncompressed are now in cache
+    ASSERT_TRUE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/true));
+    ASSERT_TRUE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/false));
+  }
+
+  // Verify uncompressed cache was populated
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), num_blobs);
+
+  // Now read with read_blob_compressed=true again - should hit compressed cache
+  read_options.read_blob_compressed = true;
+  statistics->Reset().PermitUncheckedError();
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    values[i].Reset();
+    ASSERT_OK(blob_source.GetBlob(
+        read_options, setup.keys[i], setup.blob_file_number,
+        setup.blob_offsets[i], setup.file_size, setup.blob_sizes[i],
+        kSnappyCompression, prefetch_buffer, &values[i], &bytes_read));
+    // Should get compressed data from cache
+    ASSERT_LT(values[i].size(), setup.blob_strs[i].size());
+  }
+
+  // Verify compressed cache was hit
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_COMPRESSED_CACHE_HIT),
+            num_blobs);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_COMPRESSED_CACHE_ADD), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), 0);
+}
+
+TEST_F(BlobSourceTest, MultiGetCompressedBlob_CachesCompressedData) {
+  // Test that MultiGetBlob with read_blob_compressed=true caches compressed
+  // data
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          env_, "BlobSourceTest_MultiGetCompressedBlob_CachesCompressed"),
+      0);
+
+  options_.statistics = CreateDBStatistics();
+  Statistics* statistics = options_.statistics.get();
+  assert(statistics);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
+
+  constexpr size_t num_blobs = 3;
+
+  // Use helper to set up test data (use 'x' as start char to differentiate)
+  CompressedBlobTestSetup setup;
+  setup.InitCompressibleData(num_blobs, /*blob_size=*/1024, /*start_char=*/'x');
+  setup.WriteBlobFileAndUpdateSize(immutable_options, kSnappyCompression);
+  setup.CreateBlobFileCache(immutable_options, mutable_cf_options);
+
+  BlobSource blob_source = setup.MakeBlobSource(db_id_, db_session_id_);
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  read_options.fill_cache = true;
+  read_options.read_blob_compressed = true;
+
+  statistics->Reset().PermitUncheckedError();
+
+  // Create blob read requests
+  std::vector<PinnableSlice> values(num_blobs);
+  std::vector<Status> statuses(num_blobs);
+  autovector<BlobReadRequest> blob_reqs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    blob_reqs.emplace_back(setup.keys[i], setup.blob_offsets[i],
+                           setup.blob_sizes[i], kSnappyCompression, &values[i],
+                           &statuses[i]);
+  }
+
+  uint64_t bytes_read = 0;
+  blob_source.MultiGetBlobFromOneFile(read_options, setup.blob_file_number,
+                                      setup.file_size, blob_reqs, &bytes_read);
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    ASSERT_OK(statuses[i]);
+    // Verify we got compressed data
+    ASSERT_LT(values[i].size(), setup.blob_strs[i].size());
+    // Verify compressed cache was populated
+    ASSERT_TRUE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/true));
+    // Verify uncompressed cache was NOT populated
+    ASSERT_FALSE(blob_source.TEST_BlobInCache(
+        setup.blob_file_number, setup.file_size, setup.blob_offsets[i],
+        /*compressed=*/false));
+  }
+
+  // Verify compressed cache statistics
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_COMPRESSED_CACHE_ADD),
+            num_blobs);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+
+  // Now do another MultiGet with read_blob_compressed=true - should hit cache
+  statistics->Reset().PermitUncheckedError();
+  blob_reqs.clear();
+  for (size_t i = 0; i < num_blobs; ++i) {
+    values[i].Reset();
+    blob_reqs.emplace_back(setup.keys[i], setup.blob_offsets[i],
+                           setup.blob_sizes[i], kSnappyCompression, &values[i],
+                           &statuses[i]);
+  }
+
+  blob_source.MultiGetBlobFromOneFile(read_options, setup.blob_file_number,
+                                      setup.file_size, blob_reqs, &bytes_read);
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    ASSERT_OK(statuses[i]);
+    // Verify we got compressed data from cache
+    ASSERT_LT(values[i].size(), setup.blob_strs[i].size());
+  }
+
+  // Verify cache was hit
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_COMPRESSED_CACHE_HIT),
+            num_blobs);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_COMPRESSED_CACHE_ADD), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

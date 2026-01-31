@@ -679,31 +679,62 @@ public enum TickerType {
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x1B),
 
     /**
+     * Compressed blob cache statistics (when read_blob_compressed=true)
+     * # of times cache miss when accessing compressed blob from blob cache.
+     */
+    BLOB_DB_COMPRESSED_CACHE_MISS((byte) -0x1C),
+
+    /**
+     * # of times cache hit when accessing compressed blob from blob cache.
+     */
+    BLOB_DB_COMPRESSED_CACHE_HIT((byte) -0x1D),
+
+    /**
+     * # of compressed blobs added to blob cache.
+     */
+    BLOB_DB_COMPRESSED_CACHE_ADD((byte) -0x1E),
+
+    /**
+     * # of failures when adding compressed blobs to blob cache.
+     */
+    BLOB_DB_COMPRESSED_CACHE_ADD_FAILURES((byte) -0x1F),
+
+    /**
+     * # of bytes read from blob cache for compressed blobs.
+     */
+    BLOB_DB_COMPRESSED_CACHE_BYTES_READ((byte) -0x20),
+
+    /**
+     * # of bytes written into blob cache for compressed blobs.
+     */
+    BLOB_DB_COMPRESSED_CACHE_BYTES_WRITE((byte) -0x21),
+
+    /**
      * These counters indicate a performance issue in WritePrepared transactions.
      * We should not seem them ticking them much.
      * # of times prepare_mutex_ is acquired in the fast path.
      */
-    TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x1C),
+    TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x22),
 
     /**
      * # of times old_commit_map_mutex_ is acquired in the fast path.
      */
-    TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x1D),
+    TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x23),
 
     /**
      * # of times we checked a batch for duplicate keys.
      */
-    TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x1E),
+    TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x24),
 
     /**
      * # of times snapshot_mutex_ is acquired in the fast path.
      */
-    TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x1F),
+    TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x25),
 
     /**
      * # of times ::Get returned TryAgain due to expired snapshot seq
      */
-    TXN_GET_TRY_AGAIN((byte) -0x20),
+    TXN_GET_TRY_AGAIN((byte) -0x26),
 
     /**
      * # of files marked as trash by delete scheduler

@@ -94,6 +94,7 @@ class BlobFileBuilder {
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;
+  std::shared_ptr<CompressionManager> compression_manager_;
   std::unique_ptr<Compressor> blob_compressor_;
   mutable Compressor::ManagedWorkingArea blob_compressor_wa_;
   PrepopulateBlobCache prepopulate_blob_cache_;

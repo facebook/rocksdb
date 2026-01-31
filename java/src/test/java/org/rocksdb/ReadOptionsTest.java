@@ -264,6 +264,15 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void readBlobCompressed() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.readBlobCompressed()).isFalse();
+      opt.setReadBlobCompressed(true);
+      assertThat(opt.readBlobCompressed()).isTrue();
+    }
+  }
+
+  @Test
   public void failSetVerifyChecksumUninitialized() {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {

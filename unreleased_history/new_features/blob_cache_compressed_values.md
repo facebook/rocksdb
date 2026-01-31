@@ -1,0 +1,1 @@
+Added support for caching compressed blob values in blob cache when `ReadOptions::read_blob_compressed=true`. Extend blob cache to be able to cache both compressed and uncompressed blob values using separate cache keys and can coexist in the cache.
