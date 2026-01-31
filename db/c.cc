@@ -2386,6 +2386,123 @@ unsigned char rocksdb_key_may_exist_cf(
   return result;
 }
 
+void rocksdb_multi_prefix_exists(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, unsigned char sorted_input) {
+  std::vector<Slice> prefixes(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefixes[i] = Slice(prefixes_list[i], prefixes_list_sizes[i]);
+  }
+
+  // Avoid std::vector<bool> which is bit-packed with poor performance
+  // Use stack allocation for small batches, heap for larger
+  constexpr size_t kStackSize = 64;
+  bool stack_results[kStackSize];
+  std::unique_ptr<bool[]> heap_results;
+  bool* results = stack_results;
+  if (num_prefixes > kStackSize) {
+    heap_results.reset(new bool[num_prefixes]);
+    results = heap_results.get();
+  }
+  // Initialize to false - MultiPrefixExists will set true for found prefixes
+  std::fill(results, results + num_prefixes, false);
+
+  db->rep->MultiPrefixExists(options->rep, num_prefixes, prefixes.data(),
+                             results, sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+  }
+}
+
+void rocksdb_multi_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, unsigned char sorted_input) {
+  std::vector<Slice> prefixes(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefixes[i] = Slice(prefixes_list[i], prefixes_list_sizes[i]);
+  }
+
+  // Avoid std::vector<bool> which is bit-packed with poor performance
+  constexpr size_t kStackSize = 64;
+  bool stack_results[kStackSize];
+  std::unique_ptr<bool[]> heap_results;
+  bool* results = stack_results;
+  if (num_prefixes > kStackSize) {
+    heap_results.reset(new bool[num_prefixes]);
+    results = heap_results.get();
+  }
+  std::fill(results, results + num_prefixes, false);
+
+  db->rep->MultiPrefixExists(options->rep, column_family->rep, num_prefixes,
+                             prefixes.data(), results, sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+  }
+}
+
+void rocksdb_multi_prefix_exists_multi_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_prefixes,
+    rocksdb_column_family_handle_t* const* column_families,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, unsigned char sorted_input) {
+  std::vector<Slice> prefixes(num_prefixes);
+  std::vector<ColumnFamilyHandle*> cf_handles(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefixes[i] = Slice(prefixes_list[i], prefixes_list_sizes[i]);
+    cf_handles[i] = column_families[i]->rep;
+  }
+
+  // Avoid std::vector<bool> which is bit-packed with poor performance
+  constexpr size_t kStackSize = 64;
+  bool stack_results[kStackSize];
+  std::unique_ptr<bool[]> heap_results;
+  bool* results = stack_results;
+  if (num_prefixes > kStackSize) {
+    heap_results.reset(new bool[num_prefixes]);
+    results = heap_results.get();
+  }
+  std::fill(results, results + num_prefixes, false);
+
+  db->rep->MultiPrefixExists(options->rep, num_prefixes, cf_handles.data(),
+                             prefixes.data(), results, sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+  }
+}
+
+void rocksdb_multi_prefix_exists_cf_slice(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const rocksdb_slice_t* prefixes, unsigned char* prefix_exists,
+    unsigned char sorted_input) {
+  // rocksdb_slice_t is ABI compatible with Slice, so we can cast directly
+  const Slice* prefix_slices = reinterpret_cast<const Slice*>(prefixes);
+
+  // Avoid std::vector<bool> which is bit-packed with poor performance
+  constexpr size_t kStackSize = 64;
+  bool stack_results[kStackSize];
+  std::unique_ptr<bool[]> heap_results;
+  bool* results = stack_results;
+  if (num_prefixes > kStackSize) {
+    heap_results.reset(new bool[num_prefixes]);
+    results = heap_results.get();
+  }
+  std::fill(results, results + num_prefixes, false);
+
+  db->rep->MultiPrefixExists(options->rep, column_family->rep, num_prefixes,
+                             prefix_slices, results, sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+  }
+}
+
 rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;

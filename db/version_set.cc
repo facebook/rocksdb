@@ -3143,6 +3143,242 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
 }
 
+void Version::MultiPrefixExists(
+    const ReadOptions& read_options, size_t num_prefixes, const Slice* prefixes,
+    bool* prefix_exists,
+    std::vector<std::unordered_set<std::string>>& tombstoned_keys,
+    bool sorted_input) {
+  // Batched prefix existence check across SST files.
+  //
+  // Performance strategy:
+  // - Instead of creating one iterator per prefix per file (which would be
+  //   O(num_prefixes * num_files) iterator creations), we create ONE iterator
+  //   per file and check ALL pending prefixes against it. For example, with
+  //   100 prefixes and 50 files, this creates 50 iterators instead of 5000.
+  // - Early termination: Once all prefixes are found, we stop processing
+  //   remaining files and levels immediately. This is beneficial when prefixes
+  //   are found early (e.g., in memtable or L0).
+  // - Filters (e.g., Bloom/Ribbon) are checked automatically during Seek()
+  //   operations, avoiding unnecessary data block reads for non-existent
+  //   prefixes.
+  //
+  // Sorted input optimizations (when sorted_input=true):
+  // - Early break from file processing: Once a prefix exceeds the file's
+  //   largest key, all subsequent prefixes (being larger) also exceed it.
+  // - Forward scan: After processing a prefix, the iterator may already be
+  //   positioned at or past the next prefix, avoiding redundant seeks.
+  //
+  // Processing order:
+  // - Levels are processed from L0 to Lmax
+  // - Within each level, files are processed in their natural order
+  //   (L0: newest first by sequence; L1+: sorted by key range)
+  // - This matches RocksDB's standard read path ordering
+  //
+  // Limitations:
+  // - Range deletions are NOT handled (range_del_agg is nullptr)
+  // - ReadOptions::snapshot is ignored (always reads latest data)
+
+  if (num_prefixes == 0) {
+    return;
+  }
+
+  ReadOptions ropts = read_options;
+  ropts.total_order_seek = false;
+  ropts.auto_prefix_mode = true;
+
+  const size_t ts_sz = user_comparator()->timestamp_size();
+
+  // Track how many prefixes are still pending. This enables early termination
+  // when all prefixes have been found, avoiding unnecessary file processing.
+  // We need to count how many are NOT already found (from memtable processing).
+  // Note: Empty prefixes are never "found" (they always return false), so we
+  // exclude them from the count to allow early termination to work correctly.
+  size_t prefixes_remaining = 0;
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (!prefix_exists[i] && !prefixes[i].empty()) {
+      ++prefixes_remaining;
+    }
+  }
+
+  // Process all levels from L0 to the deepest non-empty level
+  for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
+    // Early termination: stop if all prefixes have been found
+    if (prefixes_remaining == 0) {
+      break;
+    }
+
+    const LevelFilesBrief& level_files =
+        storage_info_.level_files_brief_[level];
+    if (level_files.num_files == 0) {
+      continue;
+    }
+
+    // Process each file in this level
+    for (size_t file_idx = 0; file_idx < level_files.num_files; ++file_idx) {
+      // Early termination: stop if all prefixes have been found
+      if (prefixes_remaining == 0) {
+        break;
+      }
+
+      const FdWithKeyRange& f = level_files.files[file_idx];
+
+      // Extract the file's largest user key (for bounds checking)
+      Slice file_largest_key = ExtractUserKey(f.largest_key);
+      if (ts_sz > 0 && file_largest_key.size() > ts_sz) {
+        file_largest_key =
+            Slice(file_largest_key.data(), file_largest_key.size() - ts_sz);
+      }
+
+      // Create ONE iterator for this file. We pass nullptr for range_del_agg
+      // because this implementation does not handle range deletions.
+      // Filter checks (e.g., Bloom/Ribbon) happen automatically during Seek()
+      // when skip_filters=false, so we don't need to check them manually.
+      InternalIterator* iter = table_cache_->NewIterator(
+          ropts, file_options_, *internal_comparator(), *f.file_metadata,
+          nullptr /* range_del_agg - NOT SUPPORTED */, mutable_cf_options_,
+          nullptr /* table_reader_ptr */, nullptr /* file_read_hist */,
+          TableReaderCaller::kUserMultiGet, nullptr /* arena */,
+          false /* skip_filters - let Seek() check filters */, level,
+          max_file_size_for_l0_meta_pin_ /* max_file_size_for_l0_meta_pin */,
+          nullptr /* smallest_compaction_key */,
+          nullptr /* largest_compaction_key */,
+          false /* allow_unprepared_value */);
+
+      if (iter == nullptr) {
+        continue;
+      }
+
+      // Track iterator position for forward scan optimization.
+      // After processing a prefix, the iterator is either:
+      // - Invalid (exhausted), or
+      // - Positioned at the first key that doesn't match the prefix
+      // For sorted input, we can often skip seeking if the iterator is already
+      // at or past the next prefix's position.
+      bool iter_positioned = false;
+
+      // Check all pending prefixes in this file
+      for (size_t i = 0; i < num_prefixes; ++i) {
+        if (prefix_exists[i]) {
+          continue;  // Already found
+        }
+
+        const Slice& prefix = prefixes[i];
+        if (prefix.empty()) {
+          continue;
+        }
+
+        // Quick bounds check - skip if prefix is beyond this file's range.
+        // For sorted input, we can break early since all subsequent prefixes
+        // will also be beyond this file's range.
+        if (file_largest_key.compare(prefix) < 0) {
+          if (sorted_input) {
+            break;  // All remaining prefixes are beyond this file
+          }
+          continue;
+        }
+
+        std::unordered_set<std::string>& tombstones = tombstoned_keys[i];
+
+        // Forward scan optimization for sorted input:
+        // If the iterator is already positioned and valid, check if we can
+        // skip the seek. The iterator is at a key > previous_prefix, and
+        // current prefix >= previous_prefix (sorted). We need to seek only if
+        // the current iterator position is before the target prefix.
+        bool need_seek = true;
+        if (sorted_input && iter_positioned && iter->Valid()) {
+          Slice current_key = ExtractUserKey(iter->key());
+          if (ts_sz > 0 && current_key.size() > ts_sz) {
+            current_key = Slice(current_key.data(), current_key.size() - ts_sz);
+          }
+          // If current key >= prefix, check if it starts with prefix
+          if (current_key.compare(prefix) >= 0) {
+            // Check if current key has the target prefix
+            if (current_key.size() >= prefix.size() &&
+                memcmp(current_key.data(), prefix.data(), prefix.size()) == 0) {
+              // Iterator is already at a key with our prefix - no seek needed
+              need_seek = false;
+            } else {
+              // Current key is past our prefix - no keys with this prefix exist
+              // in this file (for sorted input, we've already passed them)
+              iter_positioned = true;
+              continue;
+            }
+          }
+          // If current key < prefix, we need to seek forward
+        }
+
+        if (need_seek) {
+          InternalKey seek_key(prefix, kMaxSequenceNumber, kValueTypeForSeek);
+          iter->Seek(seek_key.Encode());
+        }
+        iter_positioned = true;
+
+        // Scan through keys with this prefix
+        while (iter->Valid() && iter->status().ok()) {
+          Slice internal_key = iter->key();
+          Slice user_key = ExtractUserKey(internal_key);
+
+          // Strip timestamp if user-defined timestamps are enabled
+          Slice user_key_for_compare = user_key;
+          if (ts_sz > 0 && user_key_for_compare.size() > ts_sz) {
+            user_key_for_compare = Slice(user_key_for_compare.data(),
+                                         user_key_for_compare.size() - ts_sz);
+          }
+
+          // Check if this key still has the target prefix
+          if (user_key_for_compare.size() < prefix.size() ||
+              memcmp(user_key_for_compare.data(), prefix.data(),
+                     prefix.size()) != 0) {
+            break;  // Moved past keys with this prefix
+          }
+
+          std::string user_key_str(user_key_for_compare.data(),
+                                   user_key_for_compare.size());
+
+          // Check if this key was deleted in a newer level (memtable or earlier
+          // SST file)
+          if (tombstones.count(user_key_str) > 0) {
+            iter->Next();
+            continue;
+          }
+
+          ValueType type = ExtractValueType(internal_key);
+          if (type == kTypeValue || type == kTypeBlobIndex ||
+              type == kTypeWideColumnEntity || type == kTypeMerge ||
+              type == kTypeValuePreferredSeqno) {
+            prefix_exists[i] = true;
+            prefixes_remaining--;
+            // For sorted input, advance past this prefix's keys so the iterator
+            // is positioned for the next prefix
+            if (sorted_input) {
+              while (iter->Valid()) {
+                Slice next_key = ExtractUserKey(iter->key());
+                if (ts_sz > 0 && next_key.size() > ts_sz) {
+                  next_key = Slice(next_key.data(), next_key.size() - ts_sz);
+                }
+                if (next_key.size() < prefix.size() ||
+                    memcmp(next_key.data(), prefix.data(), prefix.size()) !=
+                        0) {
+                  break;
+                }
+                iter->Next();
+              }
+            }
+            break;  // Found for this prefix, move to next
+          }
+
+          // Point deletion - record for cross-level shadowing
+          // Note: Range deletions (kTypeRangeDeletion) are NOT tracked
+          tombstones.insert(std::move(user_key_str));
+          iter->Next();
+        }
+      }
+
+      delete iter;
+    }
+  }
+}
+
 #ifdef USE_COROUTINES
 Status Version::ProcessBatch(
     const ReadOptions& read_options, FilePickerMultiGet* batch,

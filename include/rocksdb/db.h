@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -1056,6 +1057,140 @@ class DB {
                            bool* value_found = nullptr) {
     return KeyMayExist(options, DefaultColumnFamily(), key, value, timestamp,
                        value_found);
+  }
+
+  // Batched prefix existence check API.
+  //
+  // For each prefix in the input array, determines whether ANY key with that
+  // prefix exists in the database. Returns definitive results: true means at
+  // least one key with that prefix exists, false means no keys with that
+  // prefix exist.
+  //
+  // This API is optimized for checking many prefixes efficiently. It directly
+  // accesses memtables and SST files, bypassing the standard iterator merge
+  // path for better performance on large batches.
+  //
+  // LIMITATIONS:
+  // - Range deletions (DeleteRange) are NOT fully supported. Keys covered by
+  //   range tombstones may incorrectly be reported as existing. Point deletions
+  //   (Delete, SingleDelete) are handled correctly. For databases that do not
+  //   use DeleteRange(), this limitation does not apply.
+  // - ReadOptions::snapshot is not respected; always reads latest data.
+  // - User-defined timestamps (UDT) are NOT supported. Do not use this API
+  //   with column families that have a comparator with timestamp_size() > 0.
+  //
+  // Parameters:
+  // - options: ReadOptions (note: snapshot option is ignored)
+  // - column_family: The column family to query (must not be null)
+  // - num_prefixes: Number of prefixes to check
+  // - prefixes: Array of prefix slices
+  // - prefix_exists: Output array of booleans. Must be pre-allocated with
+  //                  num_prefixes elements. Set to true if any key with the
+  //                  prefix exists, false otherwise.
+  // - sorted_input: If true, indicates prefixes are already sorted by key
+  //                 order. This enables optimizations:
+  //                 (1) Forward scanning: After processing a prefix, the
+  //                     iterator may already be positioned at the next prefix,
+  //                     avoiding redundant seeks.
+  //                 (2) Early termination: In SST files, once a prefix exceeds
+  //                     the file's largest key, all subsequent prefixes (being
+  //                     larger) can be skipped for that file.
+  //                 For best performance with large batches, sort prefixes
+  //                 before calling this method.
+  //
+  // Performance notes:
+  // - Configure prefix_extractor in ColumnFamilyOptions for optimal filter
+  //   (e.g., Bloom/Ribbon) utilization.
+  // - Uses filters in both memtables and SST files when available.
+  // - For SST files, creates one iterator per file (not per prefix), making
+  //   it efficient for large numbers of prefixes.
+  //
+  // Edge cases:
+  // - Empty prefixes (size = 0) return false.
+  // - Null column_family returns false for all prefixes.
+  // - If num_prefixes is 0, returns immediately with no changes.
+  virtual void MultiPrefixExists(const ReadOptions& /*options*/,
+                                 ColumnFamilyHandle* /*column_family*/,
+                                 size_t num_prefixes, const Slice* /*prefixes*/,
+                                 bool* prefix_exists,
+                                 bool /*sorted_input*/ = false) {
+    // Default implementation returns false for all prefixes (unknown).
+    // Subclasses (DBImpl) override with actual implementation.
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      prefix_exists[i] = false;
+    }
+  }
+
+  // Convenience wrapper that uses the default column family.
+  virtual void MultiPrefixExists(const ReadOptions& options,
+                                 size_t num_prefixes, const Slice* prefixes,
+                                 bool* prefix_exists,
+                                 bool sorted_input = false) {
+    MultiPrefixExists(options, DefaultColumnFamily(), num_prefixes, prefixes,
+                      prefix_exists, sorted_input);
+  }
+
+  // Batched prefix existence check across multiple column families.
+  //
+  // Each prefix[i] is checked against its corresponding column_families[i].
+  // This allows checking different prefixes in different column families
+  // in a single batched call.
+  //
+  // Same limitations as the single-CF version apply (see above):
+  // - Range deletions (DeleteRange) are NOT fully supported.
+  // - ReadOptions::snapshot is not respected.
+  //
+  // Parameters:
+  // - options: ReadOptions (note: snapshot option is ignored)
+  // - num_prefixes: Number of prefixes to check
+  // - column_families: Array of column family handles (size = num_prefixes).
+  //                    Null entries result in false for that prefix.
+  // - prefixes: Array of prefix slices (size = num_prefixes)
+  // - prefix_exists: Output array of booleans (size = num_prefixes)
+  // - sorted_input: Indicates prefixes are sorted. When all prefixes belong
+  //                 to the same column family, sorted_input enables forward
+  //                 scan and early termination optimizations. When multiple
+  //                 column families are involved, prefixes are grouped by CF
+  //                 internally, and sorted_input is passed as false to each
+  //                 group (grouping doesn't preserve sort order).
+  //
+  // Implementation note: Prefixes are grouped by column family internally.
+  // If all prefixes belong to the same CF, a fast path avoids grouping
+  // overhead and preserves sorted_input.
+  virtual void MultiPrefixExists(const ReadOptions& /*options*/,
+                                 size_t num_prefixes,
+                                 ColumnFamilyHandle** /*column_families*/,
+                                 const Slice* /*prefixes*/, bool* prefix_exists,
+                                 bool /*sorted_input*/ = false) {
+    // Default implementation returns false for all prefixes (unknown).
+    // Subclasses (DBImpl) override with actual implementation.
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      prefix_exists[i] = false;
+    }
+  }
+
+  // std::vector-based convenience wrapper for single column family.
+  //
+  // Returns a vector where result[i] indicates whether any key with
+  // prefixes[i] exists.
+  //
+  // Note: Uses a temporary bool[] internally because std::vector<bool> is
+  // bit-packed and doesn't provide a contiguous data() pointer.
+  virtual std::vector<bool> MultiPrefixExists(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const std::vector<Slice>& prefixes, bool sorted_input = false) {
+    if (prefixes.empty()) {
+      return std::vector<bool>();
+    }
+    std::unique_ptr<bool[]> temp_results(new bool[prefixes.size()]);
+    std::fill(temp_results.get(), temp_results.get() + prefixes.size(), false);
+    MultiPrefixExists(options, column_family, prefixes.size(), prefixes.data(),
+                      temp_results.get(), sorted_input);
+    std::vector<bool> results(prefixes.size());
+    for (size_t i = 0; i < prefixes.size(); ++i) {
+      results[i] = temp_results[i];
+    }
+    return results;
   }
 
   // Return a heap-allocated iterator over the contents of the database.
