@@ -875,7 +875,9 @@ Status BlockBasedTable::Open(
       &rep->table_options, &rep->ioptions, rep->ioptions.stats,
       rep->decompressor.get(), block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
-      rep->index_has_first_key);
+      rep->index_has_first_key,
+      FormatVersionUsesSeparatedKVStorage(footer.format_version()),
+      rep->data_block_restart_interval, rep->index_block_restart_interval);
 
   // Check expected unique id if provided
   if (expected_unique_id != kNullUniqueId64x2) {
@@ -1165,6 +1167,11 @@ Status BlockBasedTable::ReadPropertiesBlock(
     if (max_ts_pos != props.end()) {
       rep_->max_timestamp = Slice(max_ts_pos->second);
     }
+
+    rep_->data_block_restart_interval = static_cast<uint32_t>(
+        rep_->table_properties->data_block_restart_interval);
+    rep_->index_block_restart_interval = static_cast<uint32_t>(
+        rep_->table_properties->index_block_restart_interval);
 
     rep_->index_has_first_key =
         rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;

@@ -52,7 +52,8 @@ BlockBuilder::BlockBuilder(
     bool use_value_delta_encoding,
     BlockBasedTableOptions::DataBlockIndexType index_type,
     double data_block_hash_table_util_ratio, size_t ts_sz,
-    bool persist_user_defined_timestamps, bool is_user_key)
+    bool persist_user_defined_timestamps, bool is_user_key,
+    bool use_separated_kv_storage)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
@@ -60,7 +61,8 @@ BlockBuilder::BlockBuilder(
       is_user_key_(is_user_key),
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
-      finished_(false) {
+      finished_(false),
+      use_separated_kv_storage_(use_separated_kv_storage) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
@@ -86,6 +88,8 @@ void BlockBuilder::Reset() {
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
   }
+  values_buffer_.clear();
+
 #ifndef NDEBUG
   add_with_last_key_called_ = false;
 #endif
@@ -129,6 +133,12 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
 
 Slice BlockBuilder::Finish() {
   // Append restart array
+  size_t values_buffer_offset = buffer_.size();
+
+  if (use_separated_kv_storage_) {
+    buffer_.append(values_buffer_);
+  }
+
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
   }
@@ -145,6 +155,9 @@ Slice BlockBuilder::Finish() {
   // footer is a packed format of data_block_index_type and num_restarts
   uint32_t block_footer = PackIndexTypeAndNumRestarts(index_type, num_restarts);
 
+  if (use_separated_kv_storage_) {
+    PutFixed32(&buffer_, static_cast<uint32_t>(values_buffer_offset));
+  }
   PutFixed32(&buffer_, block_footer);
   finished_ = true;
   return Slice(buffer_);
@@ -221,28 +234,46 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   }
 
   const size_t non_shared = key_to_persist.size() - shared;
-
+  const size_t previous_value_offset = values_buffer_.size();
   if (use_value_delta_encoding_) {
-    // Add "<shared><non_shared>" to buffer_
-    PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                        static_cast<uint32_t>(non_shared));
+    if (use_separated_kv_storage_ && counter_ == 0) {
+      // Add "<shared><non_shared><value_offset>" to buffer_
+      PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
+                                  static_cast<uint32_t>(non_shared),
+                                  static_cast<uint32_t>(values_buffer_.size()));
+    } else {
+      // Add "<shared><non_shared>" to buffer_
+      PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
+                          static_cast<uint32_t>(non_shared));
+    }
   } else {
-    // Add "<shared><non_shared><value_size>" to buffer_
-    PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                                static_cast<uint32_t>(non_shared),
-                                static_cast<uint32_t>(value.size()));
+    if (use_separated_kv_storage_ && counter_ == 0) {
+      // Add "<shared><non_shared><value_size><value_offset>" to buffer_
+      PutVarint32Varint32Varint32Varint32(
+          &buffer_, static_cast<uint32_t>(shared),
+          static_cast<uint32_t>(non_shared),
+          static_cast<uint32_t>(value.size()),
+          static_cast<uint32_t>(values_buffer_.size()));
+    } else {
+      // Add "<shared><non_shared><value_size>" to buffer_
+      PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
+                                  static_cast<uint32_t>(non_shared),
+                                  static_cast<uint32_t>(value.size()));
+    }
   }
 
-  // Add string delta to buffer_ followed by value
+  // Add string delta to buffer_
   buffer_.append(key_to_persist.data() + shared, non_shared);
+
+  auto& values_buffer = use_separated_kv_storage_ ? values_buffer_ : buffer_;
   // Use value delta encoding only when the key has shared bytes. This would
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
   if (shared != 0 && use_value_delta_encoding_) {
     assert(delta_value != nullptr);
-    buffer_.append(delta_value->data(), delta_value->size());
+    values_buffer.append(delta_value->data(), delta_value->size());
   } else {
-    buffer_.append(value.data(), value.size());
+    values_buffer.append(value.data(), value.size());
   }
 
   // TODO(yuzhangyu): make user defined timestamp work with block hash index.
@@ -256,7 +287,8 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   }
 
   counter_++;
-  estimate_ += buffer_.size() - buffer_size;
+  estimate_ += buffer_.size() - buffer_size + values_buffer_.size() -
+               previous_value_offset;
 }
 
 const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,

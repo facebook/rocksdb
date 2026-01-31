@@ -12,14 +12,17 @@ namespace ROCKSDB_NAMESPACE {
 void BlockCreateContext::Create(std::unique_ptr<Block_kData>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kData(
-      std::move(block), table_options->read_amp_bytes_per_bit, statistics));
+      std::move(block), table_options->read_amp_bytes_per_bit, statistics,
+      use_separated_kv_storage, data_block_restart_interval));
   parsed_out->get()->InitializeDataBlockProtectionInfo(protection_bytes_per_key,
                                                        raw_ucmp);
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kIndex(std::move(block),
-                                     /*read_amp_bytes_per_bit*/ 0, statistics));
+                                     /*read_amp_bytes_per_bit*/ 0, statistics,
+                                     /*use_separated_kv_storage=*/false,
+                                     index_block_restart_interval));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
       index_has_first_key);
@@ -28,7 +31,8 @@ void BlockCreateContext::Create(
     std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
     BlockContents&& block) {
   parsed_out->reset(new Block_kFilterPartitionIndex(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics,
+      /*use_separated_kv_storage=*/false, index_block_restart_interval));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
       index_has_first_key);
@@ -36,12 +40,14 @@ void BlockCreateContext::Create(
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kRangeDeletion>* parsed_out, BlockContents&& block) {
   parsed_out->reset(new Block_kRangeDeletion(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics,
+      /*use_separated_kv_storage=*/false));
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kMetaIndex(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics,
+      /*use_separated_kv_storage=*/false));
   parsed_out->get()->InitializeMetaIndexBlockProtectionInfo(
       protection_bytes_per_key);
 }

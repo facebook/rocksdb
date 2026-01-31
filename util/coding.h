@@ -171,6 +171,17 @@ inline void PutVarint32Varint32Varint32(std::string* dst, uint32_t v1,
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
+inline void PutVarint32Varint32Varint32Varint32(std::string* dst, uint32_t v1,
+                                                uint32_t v2, uint32_t v3,
+                                                uint32_t v4) {
+  char buf[20];
+  char* ptr = EncodeVarint32(buf, v1);
+  ptr = EncodeVarint32(ptr, v2);
+  ptr = EncodeVarint32(ptr, v3);
+  ptr = EncodeVarint32(ptr, v4);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
 inline char* EncodeVarint64(char* dst, uint64_t v) {
   static const unsigned int B = 128;
   unsigned char* ptr = lossless_cast<unsigned char*>(dst);
@@ -355,8 +366,7 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-inline void
-PutUnaligned(T* memory, const T& value) {
+inline void PutUnaligned(T* memory, const T& value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
   char* nonAlignedMemory = reinterpret_cast<char*>(memory);
   memcpy(nonAlignedMemory, reinterpret_cast<const char*>(&value), sizeof(T));
@@ -373,8 +383,7 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-inline void
-GetUnaligned(const T* memory, T* value) {
+inline void GetUnaligned(const T* memory, T* value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
   char* nonAlignedMemory = reinterpret_cast<char*>(value);
   memcpy(nonAlignedMemory, reinterpret_cast<const char*>(memory), sizeof(T));

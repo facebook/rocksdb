@@ -1760,7 +1760,13 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
-  BlockBuilder block_builder(1);
+  BlockBuilder block_builder(
+      1 /* block_restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      FormatVersionUsesSeparatedKVStorage(table_options.format_version));
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }

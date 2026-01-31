@@ -83,10 +83,18 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
         decomp = dict.GetValue()->decompressor_.get();
       }
     }
-    s = RetrieveBlock(
-        prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
-        get_context, lookup_context, for_compaction,
-        /* use_cache */ true, async_read, use_block_cache_for_lookup);
+
+    if (block_type == BlockType::kRangeDeletion) {
+      s = RetrieveBlock(prefetch_buffer, ro, handle, decomp,
+                        &block.As<Block_kRangeDeletion>(), get_context,
+                        lookup_context, for_compaction, /* use_cache */ true,
+                        async_read, use_block_cache_for_lookup);
+    } else {
+      s = RetrieveBlock(
+          prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
+          get_context, lookup_context, for_compaction,
+          /* use_cache */ true, async_read, use_block_cache_for_lookup);
+    }
   }
 
   if (s.IsTryAgain() && async_read) {

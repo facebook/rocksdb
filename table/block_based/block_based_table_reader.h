@@ -694,6 +694,10 @@ struct BlockBasedTable::Rep {
   bool index_key_includes_seq = true;
   bool index_value_is_full = true;
 
+  // Restart intervals read from table properties (0 if not available)
+  uint32_t data_block_restart_interval = 0;
+  uint32_t index_block_restart_interval = 0;
+
   // Whether block checksums in metadata blocks were verified on open.
   // This is only to mostly maintain current dubious behavior of VerifyChecksum
   // with respect to index blocks, but only when the checksum was previously

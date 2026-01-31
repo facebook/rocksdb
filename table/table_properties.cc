@@ -328,6 +328,10 @@ const std::string TablePropertiesNames::kKeyLargestSeqno =
     "rocksdb.key.largest.seqno";
 const std::string TablePropertiesNames::kKeySmallestSeqno =
     "rocksdb.key.smallest.seqno";
+const std::string TablePropertiesNames::kDataBlockRestartInterval =
+    "rocksdb.data.block.restart.interval";
+const std::string TablePropertiesNames::kIndexBlockRestartInterval =
+    "rocksdb.index.block.restart.interval";
 
 static std::unordered_map<std::string, OptionTypeInfo>
     table_properties_type_info = {
@@ -448,6 +452,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"key_smallest_seqno",
          {offsetof(struct TableProperties, key_smallest_seqno),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"data_block_restart_interval",
+         {offsetof(struct TableProperties, data_block_restart_interval),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"index_block_restart_interval",
+         {offsetof(struct TableProperties, index_block_restart_interval),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"db_id",
