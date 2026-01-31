@@ -300,6 +300,7 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
+  utilities/merge_operators/int64add/int64_add.cc               \
   utilities/merge_operators/bytesxor.cc                         \
   utilities/object_registry.cc                                  \
   utilities/option_change_migration/option_change_migration.cc  \
@@ -645,7 +646,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/env_timed_test.cc                                           \
   utilities/memory/memory_test.cc                                       \
-  utilities/merge_operators/string_append/stringappend_test.cc          \
+  utilities/merge_operators/test/merge_operators_test.cc                \
   utilities/object_registry_test.cc                                     \
   utilities/option_change_migration/option_change_migration_test.cc     \
   utilities/options/options_util_test.cc                                \
