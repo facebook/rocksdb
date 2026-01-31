@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,7 +20,7 @@ class ColumnFamilyHandle;
 struct LiveFileMetaData;
 struct ExportImportFilesMetaData;
 
-class Checkpoint {
+class ROCKSDB_API Checkpoint {
  public:
   // Creates a Checkpoint object to be used for creating openable snapshots
   static Status Create(DB* db, Checkpoint** checkpoint_ptr);
