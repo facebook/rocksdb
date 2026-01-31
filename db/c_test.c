@@ -912,9 +912,10 @@ int main(int argc, char** argv) {
   Free(&err);
 
   StartPhase("open_error");
-  rocksdb_open(options, dbname, &err);
+  db = rocksdb_open(options, dbname, &err);
   CheckCondition(err != NULL);
   Free(&err);
+  CheckCondition(db == NULL);
 
   StartPhase("open");
   rocksdb_options_set_create_if_missing(options, 1);
@@ -2013,10 +2014,19 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_create_if_missing(db_options, 0);
     db = rocksdb_open(db_options, dbname, &err);
+
+    // create cf1
     rocksdb_column_family_handle_t* cfh;
     cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
     rocksdb_column_family_handle_destroy(cfh);
     CheckNoError(err);
+
+    // create cf1 again: must return an error and a NULL pointer
+    cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    CheckCondition(cfh == NULL);
+
     rocksdb_close(db);
 
     size_t cflen;
@@ -4870,6 +4880,31 @@ int main(int argc, char** argv) {
                                sst_file_manager));
 
     rocksdb_sst_file_manager_destroy(sst_file_manager);
+  }
+
+  StartPhase("create_column_family_with_ttl");
+  {
+    static const int test_ttl = 10;
+    // create a new TTL database
+    CheckCondition(db != NULL);
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    db = rocksdb_open_with_ttl(options, dbname, -1, &err);
+    CheckNoError(err);
+
+    rocksdb_column_family_handle_t* cf = rocksdb_create_column_family_with_ttl(
+        db, options, "cf_ttl", test_ttl, &err);
+    CheckNoError(err);
+    rocksdb_column_family_handle_destroy(cf);
+
+    // create cf again: must return an error and a NULL pointer
+    cf = rocksdb_create_column_family_with_ttl(db, options, "cf_ttl", test_ttl,
+                                               &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    CheckCondition(cf == NULL);
   }
 
   StartPhase("cancel_all_background_work");
