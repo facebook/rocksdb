@@ -945,6 +945,33 @@ class Version {
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr);
 
+  // Batched prefix existence check across SST files in this Version.
+  //
+  // Strategy: For each SST file, create ONE iterator and check ALL pending
+  // prefixes against it. This is much more efficient than creating an iterator
+  // per prefix per file. With N prefixes and M files, this creates M iterators
+  // instead of N*M.
+  //
+  // Files are processed level by level (L0 first, newest files first within
+  // each level). Each file's iterator is used to check all prefixes that
+  // haven't been found yet.
+  //
+  // Limitations:
+  // - Range deletions (DeleteRange) are NOT handled - the range_del_agg
+  //   parameter is passed as nullptr to NewIterator.
+  //
+  // See ReadOnlyMemTable::MultiPrefixExists for parameter documentation.
+  // @param statuses Optional output array for per-prefix error status. If
+  //        provided (not nullptr), statuses[i] is set to any I/O error
+  //        encountered while checking prefix[i], or Status::OK() on success.
+  // @return Number of prefixes newly found in SST files.
+  size_t MultiPrefixExists(
+      const ReadOptions& read_options, size_t num_prefixes,
+      const Slice* prefixes, bool* prefix_exists, Status* statuses,
+      std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+          tombstoned_keys,
+      bool sorted_input);
+
   // Interprets blob_index_slice as a blob reference, and (assuming the
   // corresponding blob file is part of this Version) retrieves the blob and
   // saves it in *value.

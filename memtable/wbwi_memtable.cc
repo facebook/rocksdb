@@ -189,4 +189,117 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
     }
   }
 }
+
+size_t WBWIMemTable::MultiPrefixExists(
+    const ReadOptions& /*read_options*/, size_t num_prefixes,
+    const Slice* prefixes, bool* prefix_exists,
+    std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+        tombstoned_keys,
+    bool sorted_input) {
+  // WBWIMemTable uses an InternalIterator-based approach since it wraps a
+  // WriteBatchWithIndex rather than having the skiplist structure of MemTable.
+  //
+  // Note: WBWIMemTable does not support user-defined timestamps, so no
+  // timestamp stripping is needed here.
+  std::unique_ptr<InternalIterator> iter(NewIterator());
+
+  // Track if iterator is positioned for forward scan optimization.
+  bool iter_positioned = false;
+
+  // Count how many prefixes we find (for O(1) early termination tracking)
+  size_t num_found = 0;
+
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (prefix_exists[i]) {
+      continue;  // Already found in a higher level
+    }
+
+    const Slice& prefix = prefixes[i];
+    if (prefix.empty()) {
+      continue;
+    }
+
+    // Forward scan optimization for sorted input:
+    // If the iterator is already positioned, check if we can skip the seek.
+    bool need_seek = true;
+    if (sorted_input && iter_positioned && iter->Valid()) {
+      Slice current_key = ExtractUserKey(iter->key());
+      if (current_key.compare(prefix) >= 0) {
+        if (current_key.size() >= prefix.size() &&
+            memcmp(current_key.data(), prefix.data(), prefix.size()) == 0) {
+          // Iterator is already at a key with our prefix - no seek needed
+          need_seek = false;
+        } else {
+          // Current key is past our prefix - no keys with this prefix exist
+          iter_positioned = true;
+          continue;
+        }
+      }
+    }
+
+    if (need_seek) {
+      // Seek to the first key >= prefix
+      LookupKey lkey(prefix, kMaxSequenceNumber);
+      iter->Seek(lkey.internal_key());
+    }
+    iter_positioned = true;
+
+    // Lazy tombstone access - only dereference when needed
+    std::unique_ptr<std::unordered_set<std::string>>& tombstones_ptr =
+        tombstoned_keys[i];
+
+    while (iter->Valid() && iter->status().ok()) {
+      Slice internal_key = iter->key();
+      Slice user_key = ExtractUserKey(internal_key);
+
+      // Check if this key still has the target prefix
+      if (user_key.size() < prefix.size() ||
+          memcmp(user_key.data(), prefix.data(), prefix.size()) != 0) {
+        break;  // Moved past keys with this prefix
+      }
+
+      // Check if this key was already marked as deleted. This handles:
+      // 1. Within this memtable: A DELETE with a higher sequence number shadows
+      //    a PUT with a lower sequence number.
+      // 2. Across levels: A DELETE in a newer level shadows a PUT in this
+      //    level. The tombstoned_keys vector accumulates deleted keys as we
+      //    traverse from newest to oldest.
+      // Note: ToString() only called when tombstones_ptr is non-null, avoiding
+      // allocation when there are no tombstones.
+      if (tombstones_ptr && tombstones_ptr->count(user_key.ToString()) > 0) {
+        iter->Next();
+        continue;
+      }
+
+      ValueType type = ExtractValueType(internal_key);
+      if (type == kTypeValue || type == kTypeBlobIndex ||
+          type == kTypeWideColumnEntity || type == kTypeMerge ||
+          type == kTypeValuePreferredSeqno) {
+        prefix_exists[i] = true;
+        ++num_found;
+        // For sorted input, advance past this prefix's keys
+        if (sorted_input) {
+          while (iter->Valid()) {
+            Slice next_key = ExtractUserKey(iter->key());
+            if (next_key.size() < prefix.size() ||
+                memcmp(next_key.data(), prefix.data(), prefix.size()) != 0) {
+              break;
+            }
+            iter->Next();
+          }
+        }
+        break;
+      }
+
+      // Point deletion - record for cross-level and within-level shadowing.
+      // Lazy allocation: only create the set when we actually see a tombstone.
+      if (!tombstones_ptr) {
+        tombstones_ptr = std::make_unique<std::unordered_set<std::string>>();
+      }
+      tombstones_ptr->emplace(user_key.data(), user_key.size());
+      iter->Next();
+    }
+  }
+  return num_found;
+}
 }  // namespace ROCKSDB_NAMESPACE

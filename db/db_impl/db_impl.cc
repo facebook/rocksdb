@@ -3888,6 +3888,145 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   return s.ok() || s.IsIncomplete();
 }
 
+void DBImpl::MultiPrefixExists(const ReadOptions& read_options,
+                               ColumnFamilyHandle* column_family,
+                               size_t num_prefixes, const Slice* prefixes,
+                               bool* prefix_exists, Status* statuses,
+                               bool sorted_input) {
+  // Implementation of batched prefix existence check.
+  //
+  // Architecture: Directly accesses the SuperVersion (mutable memtable,
+  // immutable memtables, and SST files) rather than using the iterator merge
+  // path. This is similar to the approach used by MultiGet.
+  //
+  // Search order (newest to oldest):
+  //   1. Mutable memtable
+  //   2. Immutable memtables (newest first)
+  //   3. SST files (L0 newest first, then L1+)
+  //
+  // Once a prefix is found (prefix_exists[i] = true), subsequent levels skip
+  // checking that prefix. Tombstoned keys are tracked across all levels to
+  // ensure deletions in newer levels properly shadow values in older levels.
+  //
+  // Limitations (documented in db.h):
+  //   - Range deletions (DeleteRange) are not handled
+  //   - ReadOptions::snapshot is ignored
+  //   - User-defined timestamps (UDT) are not supported
+
+  if (num_prefixes == 0) {
+    return;
+  }
+
+  // Initialize all results to false and statuses to OK
+  memset(prefix_exists, 0, num_prefixes);
+  if (statuses) {
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      statuses[i] = Status::OK();
+    }
+  }
+
+  if (column_family == nullptr) {
+    return;
+  }
+
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+  if (cfd == nullptr) {
+    return;
+  }
+
+  // User-defined timestamps (UDT) are not supported. The seek logic assumes
+  // keys don't have timestamps, so results would be incorrect with UDT enabled.
+  if (cfd->user_comparator()->timestamp_size() > 0) {
+    if (statuses) {
+      Status not_supported = Status::NotSupported(
+          "MultiPrefixExists does not support user-defined timestamps");
+      for (size_t i = 0; i < num_prefixes; ++i) {
+        statuses[i] = not_supported;
+      }
+    }
+    return;
+  }
+
+  // Acquire a reference to the current SuperVersion. This ensures the
+  // memtables and SST files remain valid for the duration of this call.
+  // This is the same pattern used by MultiGet.
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  if (sv == nullptr) {
+    return;
+  }
+
+  // Configure read options for prefix seeking
+  ReadOptions ropts = read_options;
+  ropts.total_order_seek = false;
+  ropts.auto_prefix_mode = true;
+
+  // Cross-level tombstone tracking.
+  //
+  // Problem: A key may be deleted in a newer level (e.g., memtable) but still
+  // exist in an older level (e.g., SST file). Without tracking deletions
+  // across levels, we would incorrectly report the prefix exists when we find
+  // the PUT in the older level.
+  //
+  // Solution: For each prefix, maintain a set of user keys that have been
+  // tombstoned (point deletions only - range deletions not supported). When
+  // we find a PUT for a key, we first check if it's in the tombstone set.
+  //
+  // Memory optimization: Using unique_ptr for lazy allocation - the
+  // unordered_set is only created when a tombstone is actually found. For
+  // workloads with few or no deletions (the common case), this avoids all
+  // allocation overhead. For workloads with many deletions, memory usage scales
+  // with deleted keys.
+  std::vector<std::unique_ptr<std::unordered_set<std::string>>> tombstoned_keys(
+      num_prefixes);
+
+  // Search from newest to oldest: mutable memtable -> immutable memtables ->
+  // SST files. Each level skips prefixes already found and propagates
+  // tombstone information to the next level.
+  //
+  // sorted_input optimization: When prefixes are sorted, the underlying
+  // implementations can use forward scanning instead of seeking for each
+  // prefix, and can early-terminate file processing when prefixes exceed
+  // file bounds.
+  //
+  // Early termination: Each MultiPrefixExists call returns the count of newly
+  // found prefixes. We track how many are still pending and skip remaining
+  // levels when all are found. This is O(1) per level instead of O(n).
+
+  // Count initial pending prefixes (non-empty only, since empty always returns
+  // false)
+  size_t prefixes_pending = 0;
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (!prefixes[i].empty()) {
+      ++prefixes_pending;
+    }
+  }
+
+  size_t found =
+      sv->mem->MultiPrefixExists(ropts, num_prefixes, prefixes, prefix_exists,
+                                 tombstoned_keys, sorted_input);
+  prefixes_pending -= found;
+  if (prefixes_pending == 0) {
+    ReturnAndCleanupSuperVersion(cfd, sv);
+    return;
+  }
+
+  found =
+      sv->imm->MultiPrefixExists(ropts, num_prefixes, prefixes, prefix_exists,
+                                 tombstoned_keys, sorted_input);
+  prefixes_pending -= found;
+  if (prefixes_pending == 0) {
+    ReturnAndCleanupSuperVersion(cfd, sv);
+    return;
+  }
+
+  sv->current->MultiPrefixExists(ropts, num_prefixes, prefixes, prefix_exists,
+                                 statuses, tombstoned_keys, sorted_input);
+
+  // Release the SuperVersion reference
+  ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
 std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
     const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
     const MultiScanArgs& scan_opts) {

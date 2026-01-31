@@ -2500,6 +2500,116 @@ int main(int argc, char** argv) {
     rocksdb_destroy_db(options, dbname, &err);
   }
 
+  StartPhase("multi_prefix_exists");
+  {
+    // Create database with prefix extractor and memtable prefix bloom
+    rocksdb_options_set_prefix_extractor(
+        options, rocksdb_slicetransform_create_fixed_prefix(3));
+    rocksdb_options_set_memtable_prefix_bloom_size_ratio(options, 0.1);
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 0);
+    rocksdb_options_set_create_if_missing(options, 1);
+
+    // Set up bloom filter
+    rocksdb_block_based_table_options_t* table_opts =
+        rocksdb_block_based_options_create();
+    rocksdb_block_based_options_set_filter_policy(
+        table_opts, rocksdb_filterpolicy_create_bloom(10));
+    rocksdb_block_based_options_set_whole_key_filtering(table_opts, 0);
+    rocksdb_options_set_block_based_table_factory(options, table_opts);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    // Put some data with different prefixes
+    rocksdb_put(db, woptions, "foo1_key1", 9, "value1", 6, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "foo2_key2", 9, "value2", 6, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "bar1_key3", 9, "value3", 6, &err);
+    CheckNoError(err);
+
+    // Test MultiPrefixExists with multiple prefixes (unsorted)
+    const char* prefixes[] = {"foo", "bar", "baz"};  // baz should not exist
+    size_t prefix_sizes[] = {3, 3, 3};
+    unsigned char results[3];
+    size_t num_prefixes = 3;
+
+    rocksdb_multi_prefix_exists(db, roptions, num_prefixes, prefixes,
+                                prefix_sizes, results, NULL /* errs */,
+                                0 /* sorted_input */);
+
+    // Definitive semantics:
+    // - foo and bar should return true (keys exist with those prefixes)
+    // - baz should return false (no keys exist with that prefix)
+    CheckCondition(results[0] == 1);  // foo exists
+    CheckCondition(results[1] == 1);  // bar exists
+    CheckCondition(results[2] == 0);  // baz does NOT exist
+
+    // Test with sorted_input=true (prefixes already sorted: bar, baz, foo)
+    const char* sorted_prefixes[] = {"bar", "baz", "foo"};
+    size_t sorted_prefix_sizes[] = {3, 3, 3};
+    unsigned char sorted_results[3];
+
+    rocksdb_multi_prefix_exists(db, roptions, 3, sorted_prefixes,
+                                sorted_prefix_sizes, sorted_results,
+                                NULL /* errs */, 1 /* sorted_input */);
+    CheckCondition(sorted_results[0] == 1);  // bar exists
+    CheckCondition(sorted_results[1] == 0);  // baz does NOT exist
+    CheckCondition(sorted_results[2] == 1);  // foo exists
+
+    // Test with non-existent prefixes - should all return false
+    const char* nonexistent_prefixes[] = {"xyz", "qqq", "zzz"};
+    size_t nonexistent_sizes[] = {3, 3, 3};
+    unsigned char nonexistent_results[3];
+
+    rocksdb_multi_prefix_exists(db, roptions, 3, nonexistent_prefixes,
+                                nonexistent_sizes, nonexistent_results,
+                                NULL /* errs */, 0 /* sorted_input */);
+    CheckCondition(nonexistent_results[0] == 0);  // xyz does not exist
+    CheckCondition(nonexistent_results[1] == 0);  // qqq does not exist
+    CheckCondition(nonexistent_results[2] == 0);  // zzz does not exist
+
+    // Flush to SST to test SST bloom filters
+    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(db, flush_opts, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_destroy(flush_opts);
+
+    // Test again after flush - should still work with SST files
+    rocksdb_multi_prefix_exists(db, roptions, num_prefixes, prefixes,
+                                prefix_sizes, results, NULL /* errs */,
+                                0 /* sorted_input */);
+    CheckCondition(results[0] == 1);  // foo exists (now in SST)
+    CheckCondition(results[1] == 1);  // bar exists (now in SST)
+
+    // Test with slice API
+    rocksdb_slice_t slice_prefixes[2];
+    slice_prefixes[0].data = "foo";
+    slice_prefixes[0].size = 3;
+    slice_prefixes[1].data = "bar";
+    slice_prefixes[1].size = 3;
+    unsigned char slice_results[2];
+
+    rocksdb_column_family_handle_t* default_cf =
+        rocksdb_get_default_column_family_handle(db);
+    rocksdb_multi_prefix_exists_cf_slice(db, roptions, default_cf, 2,
+                                         slice_prefixes, slice_results,
+                                         NULL /* errs */, 0 /* sorted_input */);
+    CheckCondition(slice_results[0] == 1);  // foo exists
+    CheckCondition(slice_results[1] == 1);  // bar exists
+    rocksdb_column_family_handle_destroy(default_cf);
+
+    rocksdb_block_based_options_destroy(table_opts);
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    // Reset options for subsequent tests
+    rocksdb_options_set_prefix_extractor(options, NULL);
+    rocksdb_options_set_memtable_prefix_bloom_size_ratio(options, 0.0);
+  }
+
   // Check memory usage stats
   StartPhase("approximate_memory_usage");
   {

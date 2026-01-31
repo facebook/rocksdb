@@ -126,6 +126,46 @@ void MemTableListVersion::MultiGet(const ReadOptions& read_options,
   }
 }
 
+size_t MemTableListVersion::MultiPrefixExists(
+    const ReadOptions& read_options, size_t num_prefixes, const Slice* prefixes,
+    bool* prefix_exists,
+    std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+        tombstoned_keys,
+    bool sorted_input) {
+  // Iterate through immutable memtables from newest to oldest.
+  // memlist_ is ordered with newest memtables first.
+  //
+  // Each memtable call:
+  // - Skips prefixes already found (prefix_exists[i] == true)
+  // - Adds any deleted keys to tombstoned_keys for cross-level shadowing
+  // - Sets prefix_exists[i] = true if a non-deleted key with the prefix is
+  //   found
+  // - Returns count of newly found prefixes for O(1) early termination tracking
+
+  // Count non-empty prefixes that haven't been found yet
+  size_t prefixes_pending = 0;
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (!prefix_exists[i] && !prefixes[i].empty()) {
+      ++prefixes_pending;
+    }
+  }
+
+  size_t total_found = 0;
+  for (auto memtable : memlist_) {
+    size_t found = memtable->MultiPrefixExists(read_options, num_prefixes,
+                                               prefixes, prefix_exists,
+                                               tombstoned_keys, sorted_input);
+    total_found += found;
+    prefixes_pending -= found;
+
+    // Early termination: all prefixes have been found
+    if (prefixes_pending == 0) {
+      break;
+    }
+  }
+  return total_found;
+}
+
 bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {

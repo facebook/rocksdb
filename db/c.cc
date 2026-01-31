@@ -2386,6 +2386,107 @@ unsigned char rocksdb_key_may_exist_cf(
   return result;
 }
 
+void rocksdb_multi_prefix_exists(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, char** errs, unsigned char sorted_input) {
+  std::vector<Slice> prefixes(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefixes[i] = Slice(prefixes_list[i], prefixes_list_sizes[i]);
+  }
+
+  std::unique_ptr<bool[]> results(new bool[num_prefixes]());
+
+  std::vector<Status> statuses;
+  Status* statuses_ptr = nullptr;
+  if (errs) {
+    statuses.resize(num_prefixes);
+    statuses_ptr = statuses.data();
+  }
+
+  db->rep->MultiPrefixExists(options->rep, num_prefixes, prefixes.data(),
+                             results.get(), statuses_ptr, sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+    if (errs) {
+      if (statuses[i].ok()) {
+        errs[i] = nullptr;
+      } else {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      }
+    }
+  }
+}
+
+void rocksdb_multi_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, char** errs, unsigned char sorted_input) {
+  std::vector<Slice> prefixes(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefixes[i] = Slice(prefixes_list[i], prefixes_list_sizes[i]);
+  }
+
+  std::unique_ptr<bool[]> results(new bool[num_prefixes]());
+
+  std::vector<Status> statuses;
+  Status* statuses_ptr = nullptr;
+  if (errs) {
+    statuses.resize(num_prefixes);
+    statuses_ptr = statuses.data();
+  }
+
+  db->rep->MultiPrefixExists(options->rep, column_family->rep, num_prefixes,
+                             prefixes.data(), results.get(), statuses_ptr,
+                             sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+    if (errs) {
+      if (statuses[i].ok()) {
+        errs[i] = nullptr;
+      } else {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      }
+    }
+  }
+}
+
+void rocksdb_multi_prefix_exists_cf_slice(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const rocksdb_slice_t* prefixes, unsigned char* prefix_exists, char** errs,
+    unsigned char sorted_input) {
+  // rocksdb_slice_t is ABI compatible with Slice, so we can cast directly
+  const Slice* prefix_slices = reinterpret_cast<const Slice*>(prefixes);
+
+  std::unique_ptr<bool[]> results(new bool[num_prefixes]());
+
+  std::vector<Status> statuses;
+  Status* statuses_ptr = nullptr;
+  if (errs) {
+    statuses.resize(num_prefixes);
+    statuses_ptr = statuses.data();
+  }
+
+  db->rep->MultiPrefixExists(options->rep, column_family->rep, num_prefixes,
+                             prefix_slices, results.get(), statuses_ptr,
+                             sorted_input != 0);
+
+  for (size_t i = 0; i < num_prefixes; i++) {
+    prefix_exists[i] = results[i] ? 1 : 0;
+    if (errs) {
+      if (statuses[i].ok()) {
+        errs[i] = nullptr;
+      } else {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      }
+    }
+  }
+}
+
 rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;

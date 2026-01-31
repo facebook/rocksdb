@@ -252,6 +252,46 @@ class ReadOnlyMemTable {
   virtual void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                         ReadCallback* callback, bool immutable_memtable) = 0;
 
+  // Batched prefix existence check in this memtable.
+  //
+  // For each prefix, checks if any non-deleted key starting with that prefix
+  // exists in this memtable. Handles point deletions (kTypeDeletion,
+  // kTypeSingleDeletion) but NOT range deletions (kTypeRangeDeletion).
+  //
+  // Cross-level deletion semantics:
+  // The tombstoned_keys parameter enables correct handling of deletions across
+  // the memtable/SST hierarchy. When a DELETE is found for a key, that key is
+  // added to the tombstone set. When a PUT is found, we check if the key is
+  // in the tombstone set before reporting the prefix as existing. This ensures
+  // that a DELETE in a newer level (e.g., mutable memtable) properly shadows
+  // a PUT in an older level (e.g., SST file).
+  //
+  // @param read_options Read options (note: snapshot is ignored)
+  // @param num_prefixes Number of prefixes to check
+  // @param prefixes Array of prefix slices to search for
+  // @param prefix_exists Output array (size = num_prefixes). Set to true if
+  //        any non-deleted key with the prefix exists. Entries already set
+  //        to true are skipped (optimization for multi-level search).
+  // @param tombstoned_keys Per-prefix sets of user keys that have been deleted.
+  //        Uses unique_ptr for lazy allocation - sets are only created when
+  //        tombstones are actually found, avoiding allocation overhead for
+  //        prefixes with no deletions. Modified by this method: deleted keys
+  //        found are added to the set (creating it if needed). Callers should
+  //        pass the same vector through all levels (memtable, immutable
+  //        memtables, SST files) to enable cross-level shadowing.
+  // @param sorted_input If true, prefixes are sorted in ascending key order.
+  //        This enables optimizations: forward scanning instead of seeking for
+  //        each prefix, and early termination when a prefix exceeds file
+  //        bounds.
+  // @return Number of prefixes newly found (transitioned from false to true
+  //         in prefix_exists). Used for O(1) early termination tracking.
+  virtual size_t MultiPrefixExists(
+      const ReadOptions& read_options, size_t num_prefixes,
+      const Slice* prefixes, bool* prefix_exists,
+      std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+          tombstoned_keys,
+      bool sorted_input) = 0;
+
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
@@ -647,6 +687,14 @@ class MemTable final : public ReadOnlyMemTable {
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool immutable_memtable) override;
+
+  // Batched prefix existence check - see ReadOnlyMemTable::MultiPrefixExists.
+  size_t MultiPrefixExists(
+      const ReadOptions& read_options, size_t num_prefixes,
+      const Slice* prefixes, bool* prefix_exists,
+      std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+          tombstoned_keys,
+      bool sorted_input) override;
 
   // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise

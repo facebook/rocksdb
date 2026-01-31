@@ -78,6 +78,22 @@ class MemTableListVersion {
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback);
 
+  // Batched prefix existence check across all immutable memtables.
+  //
+  // Iterates through immutable memtables from newest to oldest. For each
+  // memtable, delegates to ReadOnlyMemTable::MultiPrefixExists. Prefixes
+  // already marked true are skipped. Tombstone information is accumulated
+  // across all memtables to ensure proper cross-level deletion semantics.
+  //
+  // See ReadOnlyMemTable::MultiPrefixExists for parameter documentation.
+  // @return Number of prefixes newly found across all immutable memtables.
+  size_t MultiPrefixExists(
+      const ReadOptions& read_options, size_t num_prefixes,
+      const Slice* prefixes, bool* prefix_exists,
+      std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+          tombstoned_keys,
+      bool sorted_input);
+
   // Returns all the merge operands corresponding to the key by searching all
   // memtables starting from the most recent one.
   bool GetMergeOperands(const LookupKey& key, Status* s,
