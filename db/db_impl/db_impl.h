@@ -376,6 +376,20 @@ class DBImpl : public DB {
                    std::string* value, std::string* timestamp,
                    bool* value_found = nullptr) override;
 
+  // Batched prefix existence check - see DB::MultiPrefixExists for full
+  // documentation and limitations (range deletions not supported, snapshot
+  // option ignored).
+  using DB::MultiPrefixExists;
+  void MultiPrefixExists(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, size_t num_prefixes,
+                         const Slice* prefixes, bool* prefix_exists,
+                         bool sorted_input = false) override;
+
+  void MultiPrefixExists(const ReadOptions& options, size_t num_prefixes,
+                         ColumnFamilyHandle** column_families,
+                         const Slice* prefixes, bool* prefix_exists,
+                         bool sorted_input = false) override;
+
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;

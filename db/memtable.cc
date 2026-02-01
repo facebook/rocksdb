@@ -1640,6 +1640,179 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
+void MemTable::MultiPrefixExists(
+    const ReadOptions& read_options, size_t num_prefixes, const Slice* prefixes,
+    bool* prefix_exists,
+    std::vector<std::unordered_set<std::string>>& tombstoned_keys,
+    bool sorted_input) {
+  if (IsEmpty() || num_prefixes == 0) {
+    return;
+  }
+
+  PERF_TIMER_GUARD(get_from_memtable_time);
+
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetDynamicPrefixIterator());
+
+  // Filter optimization: If we have a prefix filter and prefix extractor,
+  // we can skip prefixes that definitely don't exist. However, we disable this
+  // optimization when range deletions exist because they could hide keys that
+  // pass the filter check (since this implementation doesn't handle range
+  // deletions).
+  const bool use_filter = bloom_filter_ && prefix_extractor_ &&
+                          (read_options.ignore_range_deletions ||
+                           is_range_del_table_empty_.LoadRelaxed());
+
+  // Track if iterator is positioned for forward scan optimization.
+  // After processing a prefix, the iterator is at the first key past that
+  // prefix. For sorted input, the next prefix >= current prefix, so we may
+  // be able to skip seeking.
+  bool iter_positioned = false;
+
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    // Skip prefixes already found in a higher level (newer memtable)
+    if (prefix_exists[i]) {
+      continue;
+    }
+
+    const Slice& prefix = prefixes[i];
+    if (prefix.empty()) {
+      continue;
+    }
+
+    // Filter early-exit: If the filter says the prefix definitely doesn't
+    // exist, skip the more expensive seek operation.
+    if (use_filter && prefix_extractor_->InDomain(prefix)) {
+      Slice bloom_key = prefix_extractor_->Transform(prefix);
+      if (!bloom_filter_->MayContain(bloom_key)) {
+        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        continue;
+      }
+      PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+    }
+
+    // Forward scan optimization for sorted input:
+    // If the iterator is already positioned (from processing a previous
+    // prefix), check if we can skip the seek.
+    bool need_seek = true;
+    if (sorted_input && iter_positioned && iter->Valid()) {
+      // Parse current iterator position to get user key
+      const char* entry = iter->key();
+      uint32_t key_length = 0;
+      const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+      if (key_ptr != nullptr && key_length > 8) {
+        Slice user_key(key_ptr, key_length - 8);
+        Slice current_key =
+            ts_sz_ > 0 ? StripTimestampFromUserKey(user_key, ts_sz_) : user_key;
+
+        // If current key >= prefix, check if it starts with prefix
+        if (current_key.compare(prefix) >= 0) {
+          if (current_key.size() >= prefix.size() &&
+              memcmp(current_key.data(), prefix.data(), prefix.size()) == 0) {
+            // Iterator is already at a key with our prefix - no seek needed
+            need_seek = false;
+          } else {
+            // Current key is past our prefix - no keys with this prefix exist
+            iter_positioned = true;
+            continue;
+          }
+        }
+        // If current key < prefix, we need to seek forward
+      }
+    }
+
+    if (need_seek) {
+      // Seek to the first key >= prefix. We use kMaxSequenceNumber to ensure
+      // we see all versions of keys with this prefix.
+      LookupKey lkey(prefix, kMaxSequenceNumber);
+      iter->Seek(lkey.internal_key(), lkey.memtable_key().data());
+    }
+    iter_positioned = true;
+
+    std::unordered_set<std::string>& tombstones = tombstoned_keys[i];
+
+    // Iterate through all keys matching this prefix
+    while (iter->Valid()) {
+      // Parse the memtable entry. Format: varint32 length + internal key
+      // Internal key = user_key + 8-byte tag (sequence number + value type)
+      const char* entry = iter->key();
+      uint32_t key_length = 0;
+      const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+      if (key_ptr == nullptr || key_length <= 8) {
+        break;  // Malformed entry
+      }
+
+      // Extract user key (may include timestamp if enabled)
+      Slice user_key(key_ptr, key_length - 8);
+
+      // Strip timestamp for prefix comparison (timestamp is suffix of user key)
+      Slice user_key_without_ts =
+          ts_sz_ > 0 ? StripTimestampFromUserKey(user_key, ts_sz_) : user_key;
+
+      // Check if this key still has our prefix
+      if (user_key_without_ts.size() < prefix.size() ||
+          memcmp(user_key_without_ts.data(), prefix.data(), prefix.size()) !=
+              0) {
+        break;  // Moved past keys with this prefix
+      }
+
+      std::string user_key_str(user_key_without_ts.data(),
+                               user_key_without_ts.size());
+
+      // Check if this key was deleted in a newer level. This handles the case
+      // where a DELETE in the mutable memtable should shadow a PUT in an
+      // immutable memtable or SST file.
+      if (tombstones.count(user_key_str) > 0) {
+        iter->Next();
+        continue;
+      }
+
+      // Extract value type from the 8-byte tag
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      ValueType type = static_cast<ValueType>(tag & 0xff);
+
+      // Check if this is a live value (not a deletion marker)
+      if (type == kTypeValue || type == kTypeBlobIndex ||
+          type == kTypeWideColumnEntity || type == kTypeMerge ||
+          type == kTypeValuePreferredSeqno) {
+        prefix_exists[i] = true;
+        // For sorted input, advance past this prefix's keys so the iterator
+        // is positioned for the next prefix
+        if (sorted_input) {
+          while (iter->Valid()) {
+            const char* next_entry = iter->key();
+            uint32_t next_key_length = 0;
+            const char* next_key_ptr =
+                GetVarint32Ptr(next_entry, next_entry + 5, &next_key_length);
+            if (next_key_ptr == nullptr || next_key_length <= 8) {
+              break;
+            }
+            Slice next_user_key(next_key_ptr, next_key_length - 8);
+            Slice next_key =
+                ts_sz_ > 0 ? StripTimestampFromUserKey(next_user_key, ts_sz_)
+                           : next_user_key;
+            if (next_key.size() < prefix.size() ||
+                memcmp(next_key.data(), prefix.data(), prefix.size()) != 0) {
+              break;
+            }
+            iter->Next();
+          }
+        }
+        break;
+      }
+
+      // This is a deletion marker - record it for cross-level shadowing.
+      // Note: We only track point deletions (kTypeDeletion,
+      // kTypeSingleDeletion). Range deletions (kTypeRangeDeletion) are NOT
+      // tracked, which is a documented limitation of this API.
+      tombstones.insert(std::move(user_key_str));
+      iter->Next();
+    }
+  }
+
+  PERF_COUNTER_ADD(get_from_memtable_count, 1);
+}
+
 Status MemTable::Update(SequenceNumber seq, ValueType value_type,
                         const Slice& key, const Slice& value,
                         const ProtectionInfoKVOS64* kv_prot_info) {

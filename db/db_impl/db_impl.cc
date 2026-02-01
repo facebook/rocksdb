@@ -3888,6 +3888,208 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   return s.ok() || s.IsIncomplete();
 }
 
+void DBImpl::MultiPrefixExists(const ReadOptions& read_options,
+                               ColumnFamilyHandle* column_family,
+                               size_t num_prefixes, const Slice* prefixes,
+                               bool* prefix_exists, bool sorted_input) {
+  // Implementation of batched prefix existence check.
+  //
+  // Architecture: Directly accesses the SuperVersion (mutable memtable,
+  // immutable memtables, and SST files) rather than using the iterator merge
+  // path. This is similar to the approach used by MultiGet.
+  //
+  // Search order (newest to oldest):
+  //   1. Mutable memtable
+  //   2. Immutable memtables (newest first)
+  //   3. SST files (L0 newest first, then L1+)
+  //
+  // Once a prefix is found (prefix_exists[i] = true), subsequent levels skip
+  // checking that prefix. Tombstoned keys are tracked across all levels to
+  // ensure deletions in newer levels properly shadow values in older levels.
+  //
+  // Limitations (documented in db.h):
+  //   - Range deletions (DeleteRange) are not handled
+  //   - ReadOptions::snapshot is ignored
+
+  if (num_prefixes == 0) {
+    return;
+  }
+
+  // Initialize all results to false
+  memset(prefix_exists, 0, num_prefixes);
+
+  if (column_family == nullptr) {
+    return;
+  }
+
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+  if (cfd == nullptr) {
+    return;
+  }
+
+  // Acquire a reference to the current SuperVersion. This ensures the
+  // memtables and SST files remain valid for the duration of this call.
+  // This is the same pattern used by MultiGet.
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  if (sv == nullptr) {
+    return;
+  }
+
+  // Configure read options for prefix seeking
+  ReadOptions ropts = read_options;
+  ropts.total_order_seek = false;
+  ropts.auto_prefix_mode = true;
+
+  // Cross-level tombstone tracking.
+  //
+  // Problem: A key may be deleted in a newer level (e.g., memtable) but still
+  // exist in an older level (e.g., SST file). Without tracking deletions
+  // across levels, we would incorrectly report the prefix exists when we find
+  // the PUT in the older level.
+  //
+  // Solution: For each prefix, maintain a set of user keys that have been
+  // tombstoned (point deletions only - range deletions not supported). When
+  // we find a PUT for a key, we first check if it's in the tombstone set.
+  //
+  // Memory: O(deleted_keys) per prefix. For workloads with few deletions per
+  // prefix, this is minimal. For workloads with many deletions, memory usage
+  // scales with the number of deleted keys.
+  std::vector<std::unordered_set<std::string>> tombstoned_keys(num_prefixes);
+
+  // Search from newest to oldest: mutable memtable -> immutable memtables ->
+  // SST files. Each level skips prefixes already found and propagates
+  // tombstone information to the next level.
+  //
+  // sorted_input optimization: When prefixes are sorted, the underlying
+  // implementations can use forward scanning instead of seeking for each
+  // prefix, and can early-terminate file processing when prefixes exceed
+  // file bounds.
+  sv->mem->MultiPrefixExists(ropts, num_prefixes, prefixes, prefix_exists,
+                             tombstoned_keys, sorted_input);
+
+  sv->imm->MultiPrefixExists(ropts, num_prefixes, prefixes, prefix_exists,
+                             tombstoned_keys, sorted_input);
+
+  sv->current->MultiPrefixExists(ropts, num_prefixes, prefixes, prefix_exists,
+                                 tombstoned_keys, sorted_input);
+
+  // Release the SuperVersion reference
+  ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
+void DBImpl::MultiPrefixExists(const ReadOptions& options, size_t num_prefixes,
+                               ColumnFamilyHandle** column_families,
+                               const Slice* prefixes, bool* prefix_exists,
+                               bool sorted_input) {
+  // Multi-column-family version: each prefix[i] is checked against its
+  // corresponding column_families[i].
+  //
+  // Implementation strategy:
+  //   1. Fast path: If all prefixes belong to the same CF, delegate directly
+  //      to the single-CF version (avoids grouping overhead).
+  //   2. Slow path: Group prefixes by CF, process each group separately,
+  //      then scatter results back to the original indices.
+
+  if (num_prefixes == 0) {
+    return;
+  }
+
+  memset(prefix_exists, 0, num_prefixes);
+
+  // Fast path: Check if all prefixes target the same column family.
+  // This is the common case in practice.
+  bool all_same_cf = true;
+  ColumnFamilyHandle* first_cf = column_families[0];
+  for (size_t i = 1; i < num_prefixes && all_same_cf; ++i) {
+    if (column_families[i] != first_cf) {
+      all_same_cf = false;
+    }
+  }
+
+  if (all_same_cf && first_cf != nullptr) {
+    MultiPrefixExists(options, first_cf, num_prefixes, prefixes, prefix_exists,
+                      sorted_input);
+    return;
+  }
+
+  // Slow path: Multiple column families involved.
+  //
+  // Group prefixes by their column family, then process each group with the
+  // single-CF version. Use autovector to avoid heap allocation for typical
+  // workloads (few CFs, moderate number of prefixes per CF).
+  //
+  // Note: Grouping does not preserve the original order of prefixes within
+  // each group, so we always pass sorted_input=false to the single-CF version.
+
+  struct CFGroup {
+    ColumnFamilyHandle* cf;
+    autovector<size_t, 32> indices;  // Original indices for this CF's prefixes
+  };
+  autovector<CFGroup, 8> cf_groups;
+
+  // Group prefixes by column family
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (column_families[i] == nullptr) {
+      continue;  // Null CF -> result stays false
+    }
+
+    // Find or create group for this CF
+    CFGroup* group = nullptr;
+    for (auto& g : cf_groups) {
+      if (g.cf == column_families[i]) {
+        group = &g;
+        break;
+      }
+    }
+    if (group == nullptr) {
+      cf_groups.push_back(CFGroup{column_families[i], {}});
+      group = &cf_groups.back();
+    }
+    group->indices.push_back(i);
+  }
+
+  // Process each column family group
+  for (auto& group : cf_groups) {
+    if (group.indices.empty()) {
+      continue;
+    }
+
+    // Gather prefixes for this CF into a contiguous array.
+    // Use stack allocation for small batches to avoid heap overhead.
+    constexpr size_t kStackPrefixSize = 32;
+    Slice stack_prefixes[kStackPrefixSize];
+    std::unique_ptr<Slice[]> heap_prefixes;
+    Slice* cf_prefixes = stack_prefixes;
+    if (group.indices.size() > kStackPrefixSize) {
+      heap_prefixes.reset(new Slice[group.indices.size()]);
+      cf_prefixes = heap_prefixes.get();
+    }
+    for (size_t j = 0; j < group.indices.size(); ++j) {
+      cf_prefixes[j] = prefixes[group.indices[j]];
+    }
+
+    // Allocate results array for this CF
+    constexpr size_t kStackResultSize = 64;
+    bool stack_results[kStackResultSize];
+    std::unique_ptr<bool[]> heap_results;
+    bool* cf_results = stack_results;
+    if (group.indices.size() > kStackResultSize) {
+      heap_results.reset(new bool[group.indices.size()]);
+      cf_results = heap_results.get();
+    }
+
+    // Process this CF's prefixes
+    MultiPrefixExists(options, group.cf, group.indices.size(), cf_prefixes,
+                      cf_results, /*sorted_input=*/false);
+
+    // Scatter results back to original indices
+    for (size_t j = 0; j < group.indices.size(); ++j) {
+      prefix_exists[group.indices[j]] = cf_results[j];
+    }
+  }
+}
+
 std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
     const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
     const MultiScanArgs& scan_opts) {
