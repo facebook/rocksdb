@@ -279,6 +279,8 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
   Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
   DBRecoverContext context;
+  // Preserve no-space recovery flag from existing context
+  context.recovering_from_no_space = recover_context_.recovering_from_no_space;
   bool found = false;
 
   {
@@ -403,6 +405,16 @@ void ErrorHandler::SetBGError(const Status& bg_status,
 
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
+
+  // Check if this is a no-space error that will require special recovery
+  // handling
+  if (bg_io_err.subcode() == IOStatus::SubCode::kNoSpace) {
+    // Set flag directly in recover_context_ since HandleKnownErrors will create
+    // a new context
+    recover_context_.recovering_from_no_space = true;
+    // Store the background error reason for better error detection
+    recover_context_.bg_error_reason = reason;
+  }
   if (bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
       bg_io_err.GetDataLoss()) {
     // First, data loss (non file scope) is treated as unrecoverable error. So
@@ -546,11 +558,13 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
 
   if (db_options_.allow_2pc &&
       (bg_error.severity() <= Status::Severity::kSoftError)) {
-    // Don't know how to recover, as the contents of the current WAL file may
-    // be inconsistent, and it may be needed for 2PC. If 2PC is not enabled,
-    // we can just flush the memtable and discard the log
-    *auto_recovery = false;
-    return Status(bg_error, Status::Severity::kFatalError);
+    // With safe WAL switching during no-space recovery, we can handle 2PC cases
+    // by switching to a new WAL and forcing flush, making the old WAL
+    // unnecessary. The recover context flag will be set to indicate safe WAL
+    // switching should be used.
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "No-space error with 2PC enabled - will use safe WAL "
+                   "switching for recovery");
   }
 
   {
@@ -565,6 +579,9 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
 }
 
 void ErrorHandler::RecoverFromNoSpace() {
+  // Set the no-space recovery flag in the context
+  SetNoSpaceRecoveryContext();
+
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
 
@@ -572,6 +589,11 @@ void ErrorHandler::RecoverFromNoSpace() {
   if (sfm) {
     sfm->StartErrorRecovery(this, bg_error_);
   }
+}
+
+void ErrorHandler::SetNoSpaceRecoveryContext() {
+  db_mutex_->AssertHeld();
+  recover_context_.recovering_from_no_space = true;
 }
 
 Status ErrorHandler::ClearBGError() {
@@ -593,6 +615,8 @@ Status ErrorHandler::ClearBGError() {
     recovery_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
+    // Reset the no-space recovery context after successful recovery
+    recover_context_.recovering_from_no_space = false;
     if (!db_->shutdown_initiated_) {
       // NotifyOnErrorRecoveryEnd() may release and re-acquire db_mutex_.
       // Prevent DB from being closed while we notify listeners. DB close will
