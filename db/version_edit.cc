@@ -174,6 +174,12 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutLengthPrefixedSlice(dst, Slice(&p, 1));
   }
 
+  if (HasTransientColumnFamily()) {
+    PutVarint32(dst, kIsTransientColumnFamily);
+    char t = static_cast<char>(transient_column_family_);
+    PutLengthPrefixedSlice(dst, Slice(&t, 1));
+  }
+
   if (HasSubcompactionProgress()) {
     PutVarint32(dst, kSubcompactionProgress);
     std::string progress_data;
@@ -804,6 +810,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         } else {
           persist_user_defined_timestamps_ = (str[0] == 1);
           has_persist_user_defined_timestamps_ = true;
+        }
+        break;
+
+      case kIsTransientColumnFamily:
+        if (!GetLengthPrefixedSlice(&input, &str)) {
+          msg = "transient_column_family";
+        } else if (str.size() != 1) {
+          msg = "transient_column_family field wrong size";
+        } else {
+          transient_column_family_ = (str[0] == 1);
+          has_transient_column_family_ = true;
         }
         break;
 

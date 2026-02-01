@@ -2900,6 +2900,59 @@ TEST_F(VersionSetAtomicGroupTest,
             edit_with_incorrect_group_size_.DebugString());
 }
 
+// Validate that we skip the second pass needed to edit remaining_entries_ in
+// batch_edits if using atomic groups, but with no transient CFs. We need to do
+// this because transient cf edits are not written to manifest, but missing
+// edits from the manifest will be perceived as corruption. Ensure there
+// is no impact when not using this feature
+TEST_F(VersionSetAtomicGroupTest, NoTransientCFPass) {
+  const int kAtomicGroupSize = 5;
+
+  bool backward_pass_executed = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BackwardPassForTransientCF",
+      [&](void* /* arg */) { backward_pass_executed = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  NewDB();
+
+  // Create atomic group with no transient CFs
+  autovector<VersionEdit> edits;
+  edits.resize(kAtomicGroupSize);
+  int remaining = kAtomicGroupSize;
+
+  for (size_t i = 0; i < edits.size(); ++i) {
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    edits[i].MarkAtomicGroup(--remaining);
+    edits[i].SetLastSequence(last_seqno_++);
+  }
+
+  // Prepare edit lists for LogAndApply
+  autovector<ColumnFamilyData*> cfds;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  for (size_t i = 0; i < edits.size(); ++i) {
+    cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
+    autovector<VersionEdit*> edit_list;
+    edit_list.emplace_back(&edits[i]);
+    edit_lists.emplace_back(edit_list);
+  }
+
+  // Call LogAndApply which triggers ProcessManifestWrites
+  mutex_.Lock();
+  Status s = versions_->LogAndApply(cfds, read_options_, write_options_,
+                                    edit_lists, &mutex_, nullptr);
+  mutex_.Unlock();
+  EXPECT_OK(s);
+
+  // verify the backward pass to fix num_remaining counts for transient CFs in
+  // atomic groups was not executed
+  EXPECT_FALSE(backward_pass_executed);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 class AtomicGroupBestEffortRecoveryTest : public VersionSetAtomicGroupTest {
  public:
   AtomicGroupBestEffortRecoveryTest()

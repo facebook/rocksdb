@@ -81,7 +81,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/unique_id_impl.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -124,7 +123,7 @@ class Repairer {
               file_options_, raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               /*db_id=*/"", db_session_id_, db_options.daily_offpeak_time_utc,
-              /*error_handler=*/nullptr, /*read_only=*/false),
+              /*error_handler=*/nullptr, /*unchanging=*/false),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -166,6 +165,7 @@ class Repairer {
     ColumnFamilyData* cfd;
     cfd = nullptr;
     edit.AddColumnFamily(cf_name);
+    edit.SetIsTransientColumnFamily(cf_opts->is_transient);
 
     mutex_.Lock();
     std::unique_ptr<FSDirectory> db_dir;

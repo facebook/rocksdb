@@ -340,6 +340,12 @@ Options DBTestBase::GetDefaultOptions() const {
   return options;
 }
 
+Options DBTestBase::GetTransientCFOptions() const {
+  Options options = GetDefaultOptions();
+  options.is_transient = true;
+  return options;
+}
+
 Options DBTestBase::GetOptions(
     int option_config, const Options& default_options,
     const anon::OptionsOverride& options_override) const {

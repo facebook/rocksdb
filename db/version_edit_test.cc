@@ -287,11 +287,30 @@ TEST_F(VersionEditTest, ColumnFamilyTest) {
   edit.SetColumnFamily(2);
   edit.AddColumnFamily("column_family");
   edit.SetMaxColumnFamily(5);
+  ASSERT_FALSE(edit.HasTransientColumnFamily());
+  ASSERT_FALSE(edit.GetTransientColumnFamily());
   TestEncodeDecode(edit);
 
   edit.Clear();
   edit.SetColumnFamily(3);
   edit.DropColumnFamily();
+  TestEncodeDecode(edit);
+
+  // Add a transient CF
+  edit.Clear();
+  edit.SetColumnFamily(4);
+  edit.AddColumnFamily("temp_cf");
+  edit.SetIsTransientColumnFamily(true);
+  ASSERT_TRUE(edit.HasTransientColumnFamily());
+  ASSERT_TRUE(edit.GetTransientColumnFamily());
+  TestEncodeDecode(edit);
+
+  // Drop a transient CF
+  edit.Clear();
+  edit.SetColumnFamily(4);
+  edit.DropColumnFamily();
+  ASSERT_FALSE(edit.HasTransientColumnFamily());
+  ASSERT_FALSE(edit.GetTransientColumnFamily());
   TestEncodeDecode(edit);
 }
 

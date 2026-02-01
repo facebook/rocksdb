@@ -417,6 +417,8 @@ class StressTest {
   std::vector<std::string> column_family_names_;
   std::atomic<int> new_column_family_name_;
   int num_times_reopened_;
+  // True if column_families_ contains transient CFs (only on first open)
+  bool column_families_contains_transient_cfs_ = false;
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;

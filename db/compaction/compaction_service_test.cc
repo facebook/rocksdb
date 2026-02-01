@@ -1836,6 +1836,80 @@ TEST_F(CompactionServiceTest, FallbackLocalAuto) {
   ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES), 0);
 }
 
+TEST_F(CompactionServiceTest, TransientCFUsesLocalCompaction) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  ReopenWithCompactionService(&options);
+
+  // Create a transient CF
+  ColumnFamilyOptions cf_opts(options);
+  cf_opts.is_transient = true;
+
+  ColumnFamilyHandle* transient_cf_handle = nullptr;
+  ASSERT_OK(
+      db_->CreateColumnFamily(cf_opts, "transient_cf", &transient_cf_handle));
+
+  auto my_cs = GetCompactionService();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+  Statistics* primary_statistics = GetPrimaryStatistics();
+
+  // Record initial remote compaction count
+  uint64_t initial_comp_num = my_cs->GetCompactionNum();
+
+  // add data to transient cf
+  for (int i = 0; i < 20; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 10 + j;
+      ASSERT_OK(db_->Put(WriteOptions(), transient_cf_handle, Key(key_id),
+                         "value" + std::to_string(key_id)));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions(), transient_cf_handle));
+  }
+
+  // Generate overlapping data
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 10 + j;
+      ASSERT_OK(db_->Put(WriteOptions(), transient_cf_handle, Key(key_id),
+                         "value_new" + std::to_string(key_id)));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions(), transient_cf_handle));
+  }
+
+  // trigger compaction and then check that it happened locally
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), transient_cf_handle,
+                              nullptr, nullptr));
+
+  // NO remote compaction happened
+  ASSERT_EQ(my_cs->GetCompactionNum(), initial_comp_num);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 0);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES), 0);
+  ASSERT_EQ(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
+
+  // Local compaction did happen
+  uint64_t primary_write_bytes =
+      primary_statistics->getTickerCount(COMPACT_WRITE_BYTES);
+  ASSERT_GT(primary_write_bytes, 0);
+
+  // Verify data integrity
+  for (int i = 0; i < 200; i++) {
+    std::string value;
+    Status s = db_->Get(ReadOptions(), transient_cf_handle, Key(i), &value);
+    ASSERT_OK(s);
+    if (i < 100) {
+      // Keys 0-99 were overwritten by the second loop
+      ASSERT_EQ(value, "value_new" + std::to_string(i));
+    } else {
+      // Keys 100-199 still have original values
+      ASSERT_EQ(value, "value" + std::to_string(i));
+    }
+  }
+
+  // Cleanup
+  delete transient_cf_handle;
+}
+
 TEST_F(CompactionServiceTest, FallbackLocalManual) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;

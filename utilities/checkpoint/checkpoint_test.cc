@@ -143,6 +143,7 @@ class CheckpointTest : public testing::Test {
     Close();
     EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
+    column_families.reserve(cfs.size());
     for (size_t i = 0; i < cfs.size(); ++i) {
       column_families.emplace_back(cfs[i], options[i]);
     }
@@ -264,6 +265,97 @@ class CheckpointTest : public testing::Test {
     return atoi(property.c_str());
   }
 };
+
+TEST_F(CheckpointTest, CheckpointTransientCF) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
+  Options transient_options = CurrentOptions();
+  transient_options.is_transient = true;
+  CreateColumnFamilies({"six_temp", "seven_temp", "eight_temp"},
+                       transient_options);
+
+  ASSERT_OK(Put(0, "Default", "Default"));
+  ASSERT_OK(Put(1, "one", "one"));
+  ASSERT_OK(Put(2, "two", "two"));
+  ASSERT_OK(Put(3, "three", "three"));
+  ASSERT_OK(Put(4, "four", "four"));
+  ASSERT_OK(Put(5, "five", "five"));
+
+  ASSERT_OK(Put(6, "six_temp", "six_temp"));
+  ASSERT_OK(Put(7, "seven_temp", "seven_temp"));
+  ASSERT_OK(Put(8, "eight_temp", "eight_temp"));
+
+  DB* snapshotDB;
+  ReadOptions roptions;
+  std::string result;
+  std::vector<ColumnFamilyHandle*> cphandles;
+
+  // Take a snapshot
+  ROCKSDB_NAMESPACE::port::Thread t([&]() {
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+    delete checkpoint;
+  });
+
+  TEST_SYNC_POINT("CheckpointTest::CheckpointCF:1");
+  ASSERT_OK(Put(0, "Default", "Default1"));
+  ASSERT_OK(Put(1, "one", "eleven"));
+  ASSERT_OK(Put(2, "two", "twelve"));
+  ASSERT_OK(Put(3, "three", "thirteen"));
+  ASSERT_OK(Put(4, "four", "fourteen"));
+  ASSERT_OK(Put(5, "five", "fifteen"));
+  TEST_SYNC_POINT("CheckpointTest::CheckpointCF:2");
+  t.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_OK(Put(1, "one", "twentyone"));
+  ASSERT_OK(Put(2, "two", "twentytwo"));
+  ASSERT_OK(Put(3, "three", "twentythree"));
+  ASSERT_OK(Put(4, "four", "twentyfour"));
+  ASSERT_OK(Put(5, "five", "twentyfive"));
+  ASSERT_OK(Flush());
+
+  // Open snapshot and verify contents while DB is running
+  options.create_if_missing = false;
+  options.is_transient = false;
+  std::vector<std::string> cfs;
+  cfs = {
+      kDefaultColumnFamilyName, "one", "two", "three", "four", "five",
+  };
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(cfs.size());
+  for (size_t i = 0; i < cfs.size(); ++i) {
+    column_families.emplace_back(cfs[i], options);
+  }
+
+  ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
+                     &snapshotDB));
+
+  // transient CFs were not opened
+  ASSERT_EQ(cphandles.size(), 6);
+
+  // Verify data in non-transient CFs
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "Default", &result));
+  ASSERT_EQ("Default1", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[1], "one", &result));
+  ASSERT_EQ("eleven", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[2], "two", &result));
+  ASSERT_EQ("twelve", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[3], "three", &result));
+  ASSERT_EQ("thirteen", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[4], "four", &result));
+  ASSERT_EQ("fourteen", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[5], "five", &result));
+  ASSERT_EQ("fifteen", result);
+
+  // Cleanup
+  for (auto h : cphandles) {
+    delete h;
+  }
+  cphandles.clear();
+  delete snapshotDB;
+  snapshotDB = nullptr;
+}
 
 TEST_F(CheckpointTest, GetSnapshotLink) {
   for (uint64_t log_size_for_flush : {0, 1000000}) {
@@ -516,6 +608,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   std::vector<std::string> cfs;
   cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
   std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(cfs.size());
   for (size_t i = 0; i < cfs.size(); ++i) {
     column_families.emplace_back(cfs[i], options);
   }
@@ -574,6 +667,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   std::vector<std::string> cfs;
   cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
   std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(cfs.size());
   for (size_t i = 0; i < cfs.size(); ++i) {
     column_families.emplace_back(cfs[i], options);
   }

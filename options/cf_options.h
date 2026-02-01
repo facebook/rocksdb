@@ -83,6 +83,8 @@ struct ImmutableCFOptions {
 
   bool persist_user_defined_timestamps;
 
+  bool is_transient;
+
   bool cf_allow_ingest_behind;
 };
 

@@ -3693,14 +3693,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     edit.SetComparatorName(cf_options.comparator->Name());
     edit.SetPersistUserDefinedTimestamps(
         cf_options.persist_user_defined_timestamps);
+    edit.SetIsTransientColumnFamily(cf_options.is_transient);
 
-    // LogAndApply will both write the creation in MANIFEST and create
-    // ColumnFamilyData object
+    // For transient CFs, skip writing to manifest
+    // LogAndApply will create ColumnFamilyData object but skip manifest write
+    // if is_transient is true
     {  // write thread
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
-      // LogAndApply will both write the creation in MANIFEST and create
-      // ColumnFamilyData object
       s = versions_->LogAndApply(nullptr, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
@@ -3727,8 +3727,11 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
 
       *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Created column family [%s] (ID %u)",
-                     column_family_name.c_str(), (unsigned)cfd->GetID());
+                     "Created column family [%s] (ID %u)%s",
+                     column_family_name.c_str(), (unsigned)cfd->GetID(),
+                     cf_options.is_transient
+                         ? " [transient, not persisted to manifest]"
+                         : "");
     } else {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Creating column family [%s] FAILED -- %s",
