@@ -329,6 +329,67 @@ static unsigned char CFilterFilter(void* arg, int level, const char* key,
   return 0;
 }
 
+static int CFilterFilterV3(void* arg, int level, const char* key,
+                           size_t key_length, int valuetype,
+                           const char* existing_value, size_t value_length,
+                           const rocksdb_widecolumns_t* existing_columns,
+                           rocksdb_databuffer_t* new_value_buffer,
+                           rocksdb_widecolumn_builder_t* new_columns,
+                           rocksdb_databuffer_t* skip_until) {
+  (void)arg;
+  (void)level;
+  (void)existing_value;
+  (void)value_length;
+  (void)existing_columns;
+  (void)new_columns;
+  (void)skip_until;
+  assert(!arg);
+  assert(key);
+  assert(new_value_buffer);
+  assert(new_columns);
+  assert(skip_until);
+  assert((valuetype == rocksdb_compactionfilter_valuetype_wide_column_entity) ==
+         (existing_columns != NULL));
+  assert((valuetype != rocksdb_compactionfilter_valuetype_wide_column_entity) ==
+         (existing_value != NULL));
+  if (valuetype != rocksdb_compactionfilter_valuetype_value) {
+    return rocksdb_compactionfilter_decision_keep;
+  }
+
+  if (key_length == 3) {
+    if (memcmp(key, "bar", key_length) == 0) {
+      return rocksdb_compactionfilter_decision_remove;
+    } else if (memcmp(key, "baz", key_length) == 0) {
+      rocksdb_databuffer_append(new_value_buffer, "newbazvalue", 11);
+      return rocksdb_compactionfilter_decision_change_value;
+    }
+  }
+  return rocksdb_compactionfilter_decision_keep;
+}
+
+static int CFilterBlobByKey(void* arg, int level, const char* key,
+                            size_t key_length,
+                            rocksdb_databuffer_t* new_value_buffer,
+                            rocksdb_databuffer_t* skip_until) {
+  (void)arg;
+  (void)level;
+  (void)skip_until;
+  assert(!arg);
+  assert(key);
+  assert(new_value_buffer);
+  assert(skip_until);
+
+  if (key_length == 3) {
+    if (memcmp(key, "bar", key_length) == 0) {
+      return rocksdb_compactionfilter_decision_remove;
+    } else if (memcmp(key, "baz", key_length) == 0) {
+      rocksdb_databuffer_append(new_value_buffer, "newbazvalue", 11);
+      return rocksdb_compactionfilter_decision_change_value;
+    }
+  }
+  return rocksdb_compactionfilter_decision_undetermined;
+}
+
 static void CFilterFactoryDestroy(void* arg) { (void)arg; }
 static const char* CFilterFactoryName(void* arg) {
   (void)arg;
@@ -338,8 +399,8 @@ static rocksdb_compactionfilter_t* CFilterCreate(
     void* arg, rocksdb_compactionfiltercontext_t* context) {
   (void)arg;
   (void)context;
-  return rocksdb_compactionfilter_create(NULL, CFilterDestroy, CFilterFilter,
-                                         CFilterName);
+  return rocksdb_compactionfilter_create_v3(
+      NULL, CFilterDestroy, CFilterFilterV3, CFilterBlobByKey, CFilterName);
 }
 
 void CheckMetaData(rocksdb_column_family_metadata_t* cf_meta,
