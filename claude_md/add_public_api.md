@@ -4,25 +4,24 @@ This document provides guidance for adding new public APIs to RocksDB, following
 
 ## API Layer Architecture
 
-RocksDB exposes public APIs through multiple layers:
+RocksDB exposes public APIs through multiple layers. Users can access RocksDB through any of the three public APIs: C++ headers, C headers, or Java bindings.
 
-\`\`\`
-┌─────────────────────────────────────────────────────┐
-│ Level 1: C++ Public API (Virtual Interface)         │
-│ Location: include/rocksdb/db.h                      │
-└─────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────┐
-│ Level 2: C++ Implementation                          │
-│ Location: db/db_impl/db_impl*.cc                    │
-└─────────────────────────────────────────────────────┘
-                         ↓
-┌────────────────────────────┬────────────────────────┐
-│ Level 3a: C API Bindings   │ Level 3b: Java/JNI    │
-│ include/rocksdb/c.h        │ java/src/.../RocksDB  │
-│ db/c.cc                    │ java/rocksjni/*.cc    │
-└────────────────────────────┴────────────────────────┘
-\`\`\`
+Here is an example for public header db.h:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     Level 1: Public APIs (User Entry Points)                │
+├───────────────────────┬─────────────────────────┬───────────────────────────┤
+│   C++ Public API      │     C API Bindings      │       Java/JNI API        │
+│ include/rocksdb/db.h  │   include/rocksdb/c.h   │ java/src/.../RocksDB.java │
+│ include/rocksdb/*.h   │                         │ java/src/.../*.java       │
+└───────────────────────┴────────────┬────────────┴───────────────────────────┘
+                                     ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              Level 2: C++ Implementation (Internal Core)                    │
+│              db/db_impl/db_impl*.cc, db/c.cc, java/rocksjni/*.cc            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Step-by-Step Guide: Adding a New Public API
 
@@ -47,7 +46,7 @@ virtual Status YourNewAPI(const YourAPIOptions& options,
 
 **Key Patterns:**
 - Use `Status` return type for error handling
-- Use `const Slice*` for optional key ranges (nullptr = unbounded)
+- Use `OptSlice` to avoid unnecessary levels of indirection and use of raw pointers.
 - Use `ColumnFamilyHandle*` for column family support
 - Provide convenience overloads for the default column family
 
@@ -61,21 +60,21 @@ If your API has multiple configuration options, define an options struct:
 struct YourAPIOptions {
   // Document each option with clear comments
   bool some_boolean_option = false;
-  
+
   // Default value explanation
   int some_int_option = -1;
-  
+
   // Pointer options require careful lifetime management
   std::atomic<bool>* canceled = nullptr;
-  
+
   // Enum options for multi-choice settings
   YourEnumType some_enum = YourEnumType::kDefault;
 };
 \`\`\`
 
 **Key Patterns:**
-- Use sensible default values
-- Document each field's purpose and default behavior
+- Use sensible default values specified inline (e.g., `= false`, `= -1`)
+- Do NOT redundantly document the default value in comments; instead, document the rationale (why this default), historical context, and how different values are interpreted
 - Group related options logically
 - Consider thread-safety for pointer options
 
@@ -112,19 +111,19 @@ Status DBImpl::YourNewAPI(const YourAPIOptions& options,
   if (/* invalid input */) {
     return Status::InvalidArgument("Error message");
   }
-  
+
   // 2. Check for cancellation/abort conditions
   if (options.canceled && options.canceled->load(std::memory_order_acquire)) {
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
-  
+
   // 3. Get column family data
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  
+
   // 4. Core implementation logic
   // ...
-  
+
   return Status::OK();
 }
 \`\`\`
@@ -287,28 +286,28 @@ private static native void yourNewAPI(final long handle,
 
 \`\`\`java
 public class YourAPIOptions extends RocksObject {
-  
+
   public YourAPIOptions() {
     super(newYourAPIOptions());
   }
-  
+
   // Builder pattern setters
   public YourAPIOptions setSomeBooleanOption(boolean value) {
     setSomeBooleanOption(nativeHandle_, value);
     return this;
   }
-  
+
   // Getters
   public boolean someBooleanOption() {
     return someBooleanOption(nativeHandle_);
   }
-  
+
   // Native method declarations
   private static native long newYourAPIOptions();
   private static native void disposeInternalJni(long handle);
   private static native void setSomeBooleanOption(long handle, boolean value);
   private static native boolean someBooleanOption(long handle);
-  
+
   @Override
   protected final void disposeInternal(final long handle) {
     disposeInternalJni(handle);
@@ -324,7 +323,7 @@ void Java_org_rocksdb_RocksDB_yourNewAPI(
     jlong jdb_handle, jbyteArray jbegin, jint jbegin_len,
     jbyteArray jend, jint jend_len,
     jlong joptions_handle, jlong jcf_handle) {
-  
+
   // 1. Convert Java byte arrays to C++ strings
   jboolean has_exception = JNI_FALSE;
   std::string str_begin;
@@ -335,7 +334,7 @@ void Java_org_rocksdb_RocksDB_yourNewAPI(
         &has_exception);
     if (has_exception == JNI_TRUE) return;
   }
-  
+
   std::string str_end;
   if (jend_len > 0) {
     str_end = ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
@@ -344,7 +343,7 @@ void Java_org_rocksdb_RocksDB_yourNewAPI(
         &has_exception);
     if (has_exception == JNI_TRUE) return;
   }
-  
+
   // 2. Get or create options
   ROCKSDB_NAMESPACE::YourAPIOptions* options = nullptr;
   if (joptions_handle == 0) {
@@ -352,25 +351,25 @@ void Java_org_rocksdb_RocksDB_yourNewAPI(
   } else {
     options = reinterpret_cast<ROCKSDB_NAMESPACE::YourAPIOptions*>(joptions_handle);
   }
-  
+
   // 3. Unwrap handles
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle =
       jcf_handle == 0 ? db->DefaultColumnFamily()
                       : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  
+
   // 4. Create Slices
   std::unique_ptr<ROCKSDB_NAMESPACE::Slice> begin;
   std::unique_ptr<ROCKSDB_NAMESPACE::Slice> end;
   if (jbegin_len > 0) begin.reset(new ROCKSDB_NAMESPACE::Slice(str_begin));
   if (jend_len > 0) end.reset(new ROCKSDB_NAMESPACE::Slice(str_end));
-  
+
   // 5. Call C++ API
   ROCKSDB_NAMESPACE::Status s = db->YourNewAPI(*options, cf_handle, begin.get(), end.get());
-  
+
   // 6. Cleanup if we created options
   if (joptions_handle == 0) delete options;
-  
+
   // 7. Throw Java exception on error
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
@@ -411,22 +410,27 @@ src/main/java/org/rocksdb/YourAPIOptions.java
 src/test/java/org/rocksdb/YourAPIOptionsTest.java
 \`\`\`
 
-### Step 8: Document in HISTORY.md
+### Step 8: Add Release Notes
 
-**File:** `HISTORY.md`
+**Directory:** `unreleased_history/`
 
-Add entry under the appropriate section:
+RocksDB uses individual files in the `unreleased_history/` directory rather than directly editing `HISTORY.md`. This avoids merge conflicts and ensures changes are attributed to the correct release version.
+
+Add a file to the appropriate subdirectory:
+- `unreleased_history/new_features/` - For new functionality
+- `unreleased_history/public_api_changes/` - For API changes
+- `unreleased_history/behavior_changes/` - For behavior modifications
+- `unreleased_history/bug_fixes/` - For bug fixes
+
+**Example:** `unreleased_history/new_features/your_new_api.md`
 
 \`\`\`markdown
-## Unreleased
-### New Features
-* Added `YourNewAPI()` to support [describe functionality]. See `YourAPIOptions` for configuration. (#PR_NUMBER)
-
-### Public API Changes
-* Added new struct `YourAPIOptions` with the following fields:
-  - `some_boolean_option`: [description]
-  - `some_int_option`: [description]
+Added `YourNewAPI()` to support [describe functionality]. See `YourAPIOptions` for configuration.
 \`\`\`
+
+**Example:** `unreleased_history/public_api_changes/your_api_options.md`
+
+**Note:** Files should contain one line of markdown. The "* " prefix is automatically added if not included. These files are compiled into `HISTORY.md` during the release process.
 
 ### Step 9: Add Tests
 
@@ -436,16 +440,16 @@ Add entry under the appropriate section:
 TEST_F(DBTest, YourNewAPIBasic) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
-  
+
   // Setup test data
   ASSERT_OK(Put(1, "key1", "value1"));
   ASSERT_OK(Put(1, "key2", "value2"));
-  
+
   // Test your API
   YourAPIOptions api_options;
   api_options.some_boolean_option = true;
   ASSERT_OK(db_->YourNewAPI(api_options, handles_[1], nullptr, nullptr));
-  
+
   // Verify results
   // ...
 }
@@ -485,7 +489,7 @@ public class YourAPIOptionsTest {
 | JNI Implementation | `java/rocksjni/rocksjni.cc` | ✓ |
 | JNI Options | `java/rocksjni/your_api_options.cc` | If needed |
 | Java CMake | `java/CMakeLists.txt` | If new files |
-| Changelog | `HISTORY.md` | ✓ |
+| Changelog | `unreleased_history/*.md` | ✓ |
 | C++ Tests | `db/db_*_test.cc` | ✓ |
 | Java Tests | `java/src/test/java/org/rocksdb/*Test.java` | ✓ |
 

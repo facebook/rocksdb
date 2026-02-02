@@ -60,7 +60,7 @@ Public headers define RocksDB's API surface. Changes here have the highest compa
 
 **API Design:** New APIs should be intuitive, consistent with existing patterns, and well-documented. Consider how the API will be used in practice and avoid adding unnecessary complexity.
 
-**Backwards Compatibility:** Breaking changes to public APIs require extensive justification and a deprecation plan. Maintain ABI compatibility where possible.
+**Backwards Compatibility:** Breaking changes to public APIs require extensive justification and a deprecation plan. Maintain ABI compatibility for bug fixes and patch releases.
 
 **Documentation:** Every public API must be thoroughly documented with usage examples, parameter descriptions, and notes on thread safety and performance characteristics.
 
