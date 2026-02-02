@@ -1152,7 +1152,7 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(
       wb1.DeleteRange(&cf0, "begin_key", "end_key").IsInvalidArgument());
 
-  // Sanity checks for the WriteBatch SliceParts APIs without extra 'ts' arg.
+  // Sanity checks for the WriteBatch SliceParts APIs without extra 'ts' arg
   Slice key_slices[2] = {Slice("key_part1"), Slice("key_part2")};
   Slice value_slices[2] = {Slice("value_part1"), Slice("value_part2")};
   // wb has right timestamp size
