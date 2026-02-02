@@ -10,7 +10,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
-#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -25,6 +24,7 @@
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
@@ -1886,108 +1886,99 @@ TEST_F(DBTest2, CompressionOptions) {
 
 TEST_F(DBTest2, RoundRobinManager) {
   if (ZSTD_Supported()) {
-    auto mgr = std::make_shared<RoundRobinManager>(
-        GetDefaultBuiltinCompressionManager());
+    auto mgr =
+        std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
 
-    for (CompressionType type : {kZSTD}) {
-      std::vector<std::string> values;
-      for (bool use_wrapper : {true}) {
-        SCOPED_TRACE("Compression type: " + std::to_string(type) +
-                     (use_wrapper ? " with " : " no ") + "wrapper");
+    std::vector<std::string> values;
+    for (bool use_wrapper : {true}) {
+      SCOPED_TRACE((use_wrapper ? "With " : "No ") + std::string("wrapper"));
 
-        Options options = CurrentOptions();
-        options.compression = type;
-        options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-        options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-        BlockBasedTableOptions bbto;
-        bbto.enable_index_compression = false;
-        options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-        options.compression_manager = use_wrapper ? mgr : nullptr;
-        DestroyAndReopen(options);
+      Options options = CurrentOptions();
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+      BlockBasedTableOptions bbto;
+      bbto.enable_index_compression = false;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      options.compression_manager = use_wrapper ? mgr : nullptr;
+      DestroyAndReopen(options);
 
-        Random rnd(301);
-        constexpr int kCount = 13;
+      Random rnd(301);
+      constexpr int kCount = 13;
 
-        // Highly compressible blocks, except 1 non-compressible. Half of the
-        // compressible are morked for bypass and 1 marked for rejection. Values
-        // are large enough to ensure just 1 k-v per block.
-        for (int i = 0; i < kCount; ++i) {
-          std::string value;
-          if (i == 6) {
-            // One non-compressible block
-            value = rnd.RandomBinaryString(20000);
-          } else {
-            test::CompressibleString(&rnd, 0.1, 20000, &value);
-          }
-          values.push_back(value);
-          ASSERT_OK(Put(Key(i), value));
-          ASSERT_EQ(Get(Key(i)), value);
+      // Highly compressible blocks, except 1 non-compressible. Half of the
+      // compressible are morked for bypass and 1 marked for rejection. Values
+      // are large enough to ensure just 1 k-v per block.
+      for (int i = 0; i < kCount; ++i) {
+        std::string value;
+        if (i == 6) {
+          // One non-compressible block
+          value = rnd.RandomBinaryString(20000);
+        } else {
+          test::CompressibleString(&rnd, 0.1, 20000, &value);
         }
-        ASSERT_OK(Flush());
-
-        // Ensure well-formed for reads
-        for (int i = 0; i < kCount; ++i) {
-          ASSERT_NE(Get(Key(i)), "NOT_FOUND");
-          ASSERT_EQ(Get(Key(i)), values[i]);
-        }
-        ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
+        values.push_back(value);
+        ASSERT_OK(Put(Key(i), value));
+        ASSERT_EQ(Get(Key(i)), value);
       }
+      ASSERT_OK(Flush());
+
+      // Ensure well-formed for reads
+      for (int i = 0; i < kCount; ++i) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+        ASSERT_EQ(Get(Key(i)), values[i]);
+      }
+      ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }
   }
 }
 
-TEST_F(DBTest2, SimpleMixedCompressionManager) {
+TEST_F(DBTest2, RandomMixedCompressionManager) {
   if (ZSTD_Supported()) {
-    auto mgr = std::make_shared<SimpleMixedCompressionManager>(
-        GetDefaultBuiltinCompressionManager());
-    // Currently mixedmanager only supports with preffered compression manager
-    // zstd
-    for (CompressionType type : {kZSTD}) {
-      std::vector<std::string> values;
-      for (bool use_wrapper : {true}) {
-        SCOPED_TRACE("Compression type: " + std::to_string(type) +
-                     (use_wrapper ? " with " : " no ") + "wrapper");
+    auto mgr = std::make_shared<RandomMixedCompressionManager>(
+        GetBuiltinV2CompressionManager());
+    std::vector<std::string> values;
+    for (bool use_wrapper : {true}) {
+      SCOPED_TRACE((use_wrapper ? "With " : "No ") + std::string("wrapper"));
 
-        Options options = CurrentOptions();
-        options.compression = type;
-        options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-        options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-        BlockBasedTableOptions bbto;
-        bbto.enable_index_compression = false;
-        options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-        options.compression_manager = use_wrapper ? mgr : nullptr;
-        DestroyAndReopen(options);
+      Options options = CurrentOptions();
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+      BlockBasedTableOptions bbto;
+      bbto.enable_index_compression = false;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      options.compression_manager = use_wrapper ? mgr : nullptr;
+      DestroyAndReopen(options);
 
-        Random rnd(301);
-        constexpr int kCount = 13;
+      Random rnd(301);
+      constexpr int kCount = 13;
 
-        // Highly compressible blocks, except 1 non-compressible. Half of the
-        // compressible are morked for bypass and 1 marked for rejection. Values
-        // are large enough to ensure just 1 k-v per block.
-        for (int i = 0; i < kCount; ++i) {
-          std::string value;
-          if (i == 6) {
-            // One non-compressible block
-            value = rnd.RandomBinaryString(20000);
-          } else {
-            test::CompressibleString(&rnd, 0.1, 20000, &value);
-          }
-          values.push_back(value);
-          ASSERT_OK(Put(Key(i), value));
-          ASSERT_EQ(Get(Key(i)), value);
+      // Highly compressible blocks, except 1 non-compressible. Half of the
+      // compressible are morked for bypass and 1 marked for rejection. Values
+      // are large enough to ensure just 1 k-v per block.
+      for (int i = 0; i < kCount; ++i) {
+        std::string value;
+        if (i == 6) {
+          // One non-compressible block
+          value = rnd.RandomBinaryString(20000);
+        } else {
+          test::CompressibleString(&rnd, 0.1, 20000, &value);
         }
-        ASSERT_OK(Flush());
-
-        // Ensure well-formed for reads
-        for (int i = 0; i < kCount; ++i) {
-          ASSERT_NE(Get(Key(i)), "NOT_FOUND");
-          ASSERT_EQ(Get(Key(i)), values[i]);
-        }
-        ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
+        values.push_back(value);
+        ASSERT_OK(Put(Key(i), value));
+        ASSERT_EQ(Get(Key(i)), value);
       }
+      ASSERT_OK(Flush());
+
+      // Ensure well-formed for reads
+      for (int i = 0; i < kCount; ++i) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+        ASSERT_EQ(Get(Key(i)), values[i]);
+      }
+      ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }
   }
 }
+
 TEST_F(DBTest2, CompressionManagerWrapper) {
   // Test that we can use a custom CompressionManager to wrap the built-in
   // CompressionManager, thus adopting a custom *strategy* based on existing
@@ -2001,6 +1992,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
 
   struct MyCompressor : public CompressorWrapper {
     using CompressorWrapper::CompressorWrapper;
+    const char* Name() const override { return "MyCompressor"; }
 
     Status CompressBlock(Slice uncompressed_data,
                          std::string* compressed_output,
@@ -2027,7 +2019,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
   };
   struct MyManager : public CompressionManagerWrapper {
     using CompressionManagerWrapper::CompressionManagerWrapper;
-    const char* Name() const override { return wrapped_->Name(); }
+    const char* Name() const override { return "MyManager"; }
     std::unique_ptr<Compressor> GetCompressorForSST(
         const FilterBuildingContext& context, const CompressionOptions& opts,
         CompressionType preferred) override {
@@ -2035,7 +2027,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
           wrapped_->GetCompressorForSST(context, opts, preferred));
     }
   };
-  auto mgr = std::make_shared<MyManager>(GetDefaultBuiltinCompressionManager());
+  auto mgr = std::make_shared<MyManager>(GetBuiltinV2CompressionManager());
 
   for (CompressionType type : GetSupportedCompressions()) {
     for (bool use_wrapper : {false, true}) {
@@ -2100,6 +2092,331 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
       }
       ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }
+  }
+}
+
+TEST_F(DBTest2, CompressionManagerCustomCompression) {
+  // Test that we can use a custom CompressionManager to implement custom
+  // compression algorithms, and that there are appropriate schema guard rails
+  // to ensure data is not processed by the wrong algorithm.
+  using Compressor8A = test::CompressorCustomAlg<kCustomCompression8A>;
+  using Compressor8B = test::CompressorCustomAlg<kCustomCompression8B>;
+  using Compressor8C = test::CompressorCustomAlg<kCustomCompression8C>;
+
+  if (!Compressor8A::Supported() || !LZ4_Supported()) {
+    fprintf(stderr,
+            "Prerequisite compression library not supported. Skipping\n");
+    return;
+  }
+
+  class MyManager : public CompressionManager {
+   public:
+    explicit MyManager(const char* compat_name) : compat_name_(compat_name) {}
+    const char* Name() const override { return name_.c_str(); }
+    const char* CompatibilityName() const override { return compat_name_; }
+
+    bool SupportsCompressionType(CompressionType type) const override {
+      return type == kCustomCompression8A || type == kCustomCompression8B ||
+             type == kCustomCompression8C ||
+             GetBuiltinV2CompressionManager()->SupportsCompressionType(type);
+    }
+
+    int used_compressor8A_count_ = 0;
+    int used_compressor8B_count_ = 0;
+    int used_compressor8C_count_ = 0;
+
+    std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
+                                              CompressionType type) override {
+      switch (static_cast<unsigned char>(type)) {
+        case kCustomCompression8A:
+          used_compressor8A_count_++;
+          return std::make_unique<Compressor8A>();
+        case kCustomCompression8B:
+          used_compressor8B_count_++;
+          return std::make_unique<Compressor8B>();
+        case kCustomCompression8C:
+          used_compressor8C_count_++;
+          return std::make_unique<Compressor8C>();
+        // Also support built-in compression algorithms
+        default:
+          return GetBuiltinV2CompressionManager()->GetCompressor(opts, type);
+      }
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressor() override {
+      return std::make_shared<test::DecompressorCustomAlg>();
+    }
+
+    RelaxedAtomic<CompressionType> last_specific_decompressor_type_{
+        kNoCompression};
+
+    std::shared_ptr<Decompressor> GetDecompressorForTypes(
+        const CompressionType* types_begin,
+        const CompressionType* types_end) override {
+      assert(types_end > types_begin);
+      last_specific_decompressor_type_.StoreRelaxed(*types_begin);
+      auto decomp = std::make_shared<test::DecompressorCustomAlg>();
+      decomp->SetAllowedTypes(types_begin, types_end);
+      return decomp;
+    }
+
+    void AddFriend(const std::shared_ptr<CompressionManager>& mgr) {
+      friends_[mgr->CompatibilityName()] = mgr;
+    }
+    std::shared_ptr<CompressionManager> FindCompatibleCompressionManager(
+        Slice compatibility_name) override {
+      std::shared_ptr<CompressionManager> rv =
+          CompressionManager::FindCompatibleCompressionManager(
+              compatibility_name);
+      if (!rv) {
+        auto it = friends_.find(compatibility_name.ToString());
+        if (it != friends_.end()) {
+          return it->second.lock();
+        }
+      }
+      return rv;
+    }
+
+   private:
+    const char* compat_name_;
+    std::string name_;
+    // weak_ptr to avoid cycles
+    std::map<std::string, std::weak_ptr<CompressionManager>> friends_;
+  };
+
+  for (bool use_dict : {false, true}) {
+    SCOPED_TRACE(use_dict ? "With dict" : "No dict");
+
+    // Although these compression managers are actually compatible, we must
+    // respect their distinct compatibility names and treat them as incompatible
+    // (or else risk processing data incorrectly)
+    // NOTE: these are not registered in ObjectRegistry to test what happens
+    // when the original CompressionManager might not be available, but
+    // mgr_bar will be registered during the test, with different names to
+    // prevent interference between iterations.
+    auto mgr_foo = std::make_shared<MyManager>("Foo");
+    auto mgr_bar = std::make_shared<MyManager>(use_dict ? "Bar1" : "Bar2");
+
+    // And this one claims to be fully compatible with the built-in compression
+    // manager when it's not fully compatible (for custom CompressionTypes)
+    auto mgr_claim_compatible = std::make_shared<MyManager>("BuiltinV2");
+
+    constexpr uint16_t kValueSize = 10000;
+
+    Options options = CurrentOptions();
+    options.level0_file_num_compaction_trigger = 20;
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    bbto.format_version = 6;  // Before custom compression alg support
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    // Claims not to use custom compression (and doesn't unless setting a custom
+    // CompressionType)
+    options.compression_manager = mgr_claim_compatible;
+    // Use a built-in compression type with dictionary support
+    options.compression = kLZ4Compression;
+    options.compression_opts.max_dict_bytes = kValueSize / 2;
+    DestroyAndReopen(options);
+
+    Random rnd(404);
+    std::string value;
+    ASSERT_OK(
+        Put("a", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    ASSERT_OK(Flush());
+
+    // That data should be readable without access to the original compression
+    // manager, because it used the built-in CompatibilityName and a built-in
+    // CompressionType
+    options.compression_manager = nullptr;
+    Reopen(options);
+    ASSERT_EQ(Get("a"), value);
+
+    // Verify it was compressed
+    Range r = {"a", "a0"};
+    TablePropertiesCollection tables_properties;
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    EXPECT_EQ(tables_properties.begin()->second->compression_name, "LZ4");
+
+    // Disallow setting a custom CompressionType with a CompressionManager
+    // claiming to be built-in compatible.
+    options.compression_manager = mgr_claim_compatible;
+    options.compression = kCustomCompression8A;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
+
+    options.compression_manager = nullptr;
+    options.compression = kCustomCompressionFE;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
+    options.compression =
+        static_cast<CompressionType>(kLastBuiltinCompression + 1);
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
+
+    // Custom compression schema (different CompatibilityName) not supported
+    // before format_version=7
+    options.compression_manager = mgr_foo;
+    options.compression = kLZ4Compression;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
+
+    // Set format version supporting custom compression
+    bbto.format_version = 7;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+    // Custom compression type not supported with built-in schema name, even
+    // with format_version=7
+    options.compression_manager = mgr_claim_compatible;
+    options.compression = kCustomCompression8B;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
+
+    // Custom compression schema, but specifying a custom compression type it
+    // doesn't support.
+    options.compression_manager = mgr_foo;
+    options.compression = kCustomCompressionF0;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotSupported);
+
+    // Using a built-in compression type with fv=7 but named custom schema
+    options.compression = kLZ4Compression;
+    Reopen(options);
+    ASSERT_OK(
+        Put("b", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+    ASSERT_EQ(Get("b"), value);
+
+    // Verify it was compressed with LZ4
+    r = {"b", "b0"};
+    tables_properties.clear();
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    // Uses new format for "compression_name" property
+    EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;04;");
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
+
+    // Custom compression type
+    options.compression = kCustomCompression8A;
+    Reopen(options);
+    ASSERT_OK(
+        Put("c", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    EXPECT_EQ(mgr_foo->used_compressor8A_count_, 0);
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+    ASSERT_EQ(Get("c"), value);
+    EXPECT_EQ(mgr_foo->used_compressor8A_count_, 1);
+
+    // Verify it was compressed with custom format
+    r = {"c", "c0"};
+    tables_properties.clear();
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8A;");
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kCustomCompression8A);
+
+    // Also dynamically changeable, because the compression manager will respect
+    // the current setting as reported under the legacy logic
+    ASSERT_OK(dbfull()->SetOptions({{"compression", "kLZ4Compression"}}));
+    ASSERT_OK(
+        Put("d", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 4);
+    ASSERT_EQ(Get("d"), value);
+
+    // Verify it was compressed with LZ4
+    r = {"d", "d0"};
+    tables_properties.clear();
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;04;");
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
+
+    // Dynamically changeable to custom compressions also
+    ASSERT_OK(dbfull()->SetOptions({{"compression", "kCustomCompression8B"}}));
+    ASSERT_OK(
+        Put("e", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+    ASSERT_EQ(Get("e"), value);
+
+    // Verify it was compressed with custom format
+    r = {"e", "e0"};
+    tables_properties.clear();
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8B;");
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kCustomCompression8B);
+
+    // Fails to re-open with incompatible compression manager (can't find
+    // compression manager Foo because it's not registered nor known by Bar)
+    options.compression_manager = mgr_bar;
+    options.compression = kLZ4Compression;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotSupported);
+
+    // But should re-open if we make Bar aware of the Foo compression manager
+    mgr_bar->AddFriend(mgr_foo);
+    Reopen(options);
+
+    // Can still read everything
+    ASSERT_EQ(Get("a").size(), kValueSize);
+    ASSERT_EQ(Get("b").size(), kValueSize);
+    ASSERT_EQ(Get("c").size(), kValueSize);
+    ASSERT_EQ(Get("d").size(), kValueSize);
+    ASSERT_EQ(Get("e").size(), kValueSize);
+
+    // Add a file using mgr_bar
+    ASSERT_OK(
+        Put("f", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 6);
+    ASSERT_EQ(Get("f"), value);
+
+    // Verify it was compressed appropriately
+    r = {"f", "f0"};
+    tables_properties.clear();
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    EXPECT_EQ(mgr_bar->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
+
+    // Fails to re-open with incompatible compression manager (can't find
+    // compression manager Bar because it's not registered nor known by Foo)
+    options.compression_manager = mgr_foo;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotSupported);
+
+    // Register and re-open
+    auto& library = *ObjectLibrary::Default();
+    library.AddFactory<CompressionManager>(
+        mgr_bar->CompatibilityName(),
+        [mgr_bar](const std::string& /*uri*/,
+                  std::unique_ptr<CompressionManager>* guard,
+                  std::string* /*errmsg*/) {
+          *guard = std::make_unique<MyManager>(mgr_bar->CompatibilityName());
+          return guard->get();
+        });
+    Reopen(options);
+
+    // Can still read everything
+    ASSERT_EQ(Get("a").size(), kValueSize);
+    ASSERT_EQ(Get("b").size(), kValueSize);
+    ASSERT_EQ(Get("c").size(), kValueSize);
+    ASSERT_EQ(Get("d").size(), kValueSize);
+    ASSERT_EQ(Get("e").size(), kValueSize);
+    ASSERT_EQ(Get("f").size(), kValueSize);
+
+    // TODO: test old version of a compression manager unable to read a
+    // compression type
   }
 }
 
@@ -3228,7 +3545,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
       "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
         // CompactFiles() relies on manual_compactions_paused to
-        // determine if thie compaction should be paused or not
+        // determine if this compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
       });
@@ -3340,6 +3657,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
+
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
@@ -5634,6 +5952,103 @@ TEST_F(DBTest2, TestCompactFiles) {
 
   ASSERT_OK(user_thread1_status);
   ASSERT_OK(user_thread2_status);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBTest2, TestCancelCompactFiles) {
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.env = env_;
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_EQ(db_->NumberLevels(handle), 2);
+
+  ROCKSDB_NAMESPACE::SstFileWriter sst_file_writer{
+      ROCKSDB_NAMESPACE::EnvOptions(), options};
+
+  // ingest large SST files
+  std::vector<std::string> external_sst_file_names;
+  int key_counter = 0;
+  const int num_keys_per_file = 100000;
+  const int num_files = 10;
+  for (int i = 0; i < num_files; ++i) {
+    std::string file_name =
+        dbname_ + "/test_compact_files" + std::to_string(i) + ".sst_t";
+    external_sst_file_names.push_back(file_name);
+    ASSERT_OK(sst_file_writer.Open(file_name));
+    for (int j = 0; j < num_keys_per_file; ++j) {
+      ASSERT_OK(sst_file_writer.Put(Key(j + num_keys_per_file * key_counter),
+                                    std::to_string(j)));
+    }
+    key_counter += 1;
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  ASSERT_OK(db_->IngestExternalFile(handle, external_sst_file_names,
+                                    IngestExternalFileOptions()));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_EQ(files.size(), num_files);
+
+  // Test that 0 compactions happen - canceled is set to True initially
+  CompactionOptions compaction_options;
+  std::atomic<bool> canceled(true);
+  compaction_options.canceled = &canceled;
+
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+
+  // Test cancellation before the check to cancel compaction happens -
+  // compaction should not occur
+  bool disable_compaction = false;
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCancelCompactFiles:SuccessfulCompaction", [&](void* arg) {
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        if (disable_compaction) {
+          db_->DisableManualCompaction();
+          ASSERT_EQ(1, paused->load(std::memory_order_acquire));
+        } else {
+          compaction_options.canceled->store(true, std::memory_order_release);
+          ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        }
+      });
+
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+
+  // DisableManualCompaction() should successfully cancel compaction
+  disable_compaction = true;
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+  // unlike CompactRange, value of compaction_options.canceled will be
+  // unaffected by calling DisableManualCompactions()
+  ASSERT_FALSE(compaction_options.canceled->load());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  db_->EnableManualCompaction();
+
+  // Test cancelation after the check to cancel compaction - compaction should
+  // occur, leaving only 1 file
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactFilesImpl:0", [&](void* /*arg*/) {
+        compaction_options.canceled->store(true, std::memory_order_release);
+      });
+
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ASSERT_OK(db_->CompactFiles(compaction_options, handle, files, 1));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 1);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();

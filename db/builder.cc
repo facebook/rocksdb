@@ -218,8 +218,7 @@ Status BuildTable(
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       ParsedInternalKey ikey = c_iter.ikey();
-      key_after_flush_buf.assign(key.data(), key.size());
-      Slice key_after_flush = key_after_flush_buf;
+      Slice key_after_flush = key;
       Slice value_after_flush = value;
 
       if (ikey.type == kTypeValuePreferredSeqno) {
@@ -237,6 +236,7 @@ Status BuildTable(
               std::min(smallest_preferred_seqno, preferred_seqno);
         } else {
           // Cannot get a useful preferred seqno, convert it to a kTypeValue.
+          key_after_flush_buf.assign(key.data(), key.size());
           UpdateInternalKey(&key_after_flush_buf, ikey.sequence, kTypeValue);
           ikey = ParsedInternalKey(ikey.user_key, ikey.sequence, kTypeValue);
           key_after_flush = key_after_flush_buf;

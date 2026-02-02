@@ -1016,10 +1016,10 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
 }
 
 uint32_t Block::NumRestarts() const {
-  assert(size_ >= 2 * sizeof(uint32_t));
-  uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  assert(size() >= 2 * sizeof(uint32_t));
+  uint32_t block_footer = DecodeFixed32(data() + size() - sizeof(uint32_t));
   uint32_t num_restarts = block_footer;
-  if (size_ > kMaxBlockSizeSupportedByHashIndex) {
+  if (size() > kMaxBlockSizeSupportedByHashIndex) {
     // In BlockBuilder, we have ensured a block with HashIndex is less than
     // kMaxBlockSizeSupportedByHashIndex (64KiB).
     //
@@ -1038,12 +1038,12 @@ uint32_t Block::NumRestarts() const {
 }
 
 BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
-  assert(size_ >= 2 * sizeof(uint32_t));
-  if (size_ > kMaxBlockSizeSupportedByHashIndex) {
+  assert(size() >= 2 * sizeof(uint32_t));
+  if (size() > kMaxBlockSizeSupportedByHashIndex) {
     // The check is for the same reason as that in NumRestarts()
     return BlockBasedTableOptions::kDataBlockBinarySearch;
   }
-  uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  uint32_t block_footer = DecodeFixed32(data() + size() - sizeof(uint32_t));
   uint32_t num_restarts = block_footer;
   BlockBasedTableOptions::DataBlockIndexType index_type;
   UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
@@ -1059,54 +1059,51 @@ Block::~Block() {
 
 Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
              Statistics* statistics)
-    : contents_(std::move(contents)),
-      data_(contents_.data.data()),
-      size_(contents_.data.size()),
-      restart_offset_(0),
-      num_restarts_(0) {
+    : contents_(std::move(contents)), restart_offset_(0), num_restarts_(0) {
   TEST_SYNC_POINT("Block::Block:0");
-  if (size_ < sizeof(uint32_t)) {
-    size_ = 0;  // Error marker
+  auto& size = contents_.data.size_;
+  if (size < sizeof(uint32_t)) {
+    size = 0;  // Error marker
   } else {
     // Should only decode restart points for uncompressed blocks
     num_restarts_ = NumRestarts();
     switch (IndexType()) {
       case BlockBasedTableOptions::kDataBlockBinarySearch:
-        restart_offset_ = static_cast<uint32_t>(size_) -
+        restart_offset_ = static_cast<uint32_t>(size) -
                           (1 + num_restarts_) * sizeof(uint32_t);
-        if (restart_offset_ > size_ - sizeof(uint32_t)) {
+        if (restart_offset_ > size - sizeof(uint32_t)) {
           // The size is too small for NumRestarts() and therefore
           // restart_offset_ wrapped around.
-          size_ = 0;
+          size = 0;
         }
         break;
       case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-        if (size_ < sizeof(uint32_t) /* block footer */ +
-                        sizeof(uint16_t) /* NUM_BUCK */) {
-          size_ = 0;
+        if (size < sizeof(uint32_t) /* block footer */ +
+                       sizeof(uint16_t) /* NUM_BUCK */) {
+          size = 0;
           break;
         }
 
         uint16_t map_offset;
         data_block_hash_index_.Initialize(
-            data_, static_cast<uint16_t>(size_ - sizeof(uint32_t)), /*chop off
-                                                                NUM_RESTARTS*/
-            &map_offset);
+            contents_.data.data(),
+            /* chop off NUM_RESTARTS */
+            static_cast<uint16_t>(size - sizeof(uint32_t)), &map_offset);
 
         restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
 
         if (restart_offset_ > map_offset) {
           // map_offset is too small for NumRestarts() and
           // therefore restart_offset_ wrapped around.
-          size_ = 0;
+          size = 0;
           break;
         }
         break;
       default:
-        size_ = 0;  // Error marker
+        size = 0;  // Error marker
     }
   }
-  if (read_amp_bytes_per_bit != 0 && statistics && size_ != 0) {
+  if (read_amp_bytes_per_bit != 0 && statistics && size != 0) {
     read_amp_bitmap_.reset(new BlockReadAmpBitmap(
         restart_offset_, read_amp_bytes_per_bit, statistics));
   }
@@ -1148,7 +1145,7 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
       assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
-      size_ = 0;  // Error marker
+      contents_.data.size_ = 0;  // Error marker
       return;
     }
     protection_bytes_per_key_ = protection_bytes_per_key;
@@ -1197,7 +1194,7 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
       assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
-      size_ = 0;  // Error marker
+      contents_.data.size_ = 0;  // Error marker
       return;
     }
     protection_bytes_per_key_ = protection_bytes_per_key;
@@ -1231,7 +1228,7 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
       assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
-      size_ = 0;  // Error marker
+      contents_.data.size_ = 0;  // Error marker
       return;
     }
     protection_bytes_per_key_ = protection_bytes_per_key;
@@ -1240,14 +1237,14 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
 
 MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
   MetaBlockIter* iter = new MetaBlockIter();
-  if (size_ < 2 * sizeof(uint32_t)) {
+  if (size() < 2 * sizeof(uint32_t)) {
     iter->Invalidate(Status::Corruption("bad block contents"));
     return iter;
   } else if (num_restarts_ == 0) {
     // Empty block.
     iter->Invalidate(Status::OK());
   } else {
-    iter->Initialize(data_, restart_offset_, num_restarts_,
+    iter->Initialize(data(), restart_offset_, num_restarts_,
                      block_contents_pinned, protection_bytes_per_key_,
                      kv_checksum_, block_restart_interval_);
   }
@@ -1265,7 +1262,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
   } else {
     ret_iter = new DataBlockIter;
   }
-  if (size_ < 2 * sizeof(uint32_t)) {
+  if (size() < 2 * sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
@@ -1275,7 +1272,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
     return ret_iter;
   } else {
     ret_iter->Initialize(
-        raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        raw_ucmp, data(), restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         user_defined_timestamps_persisted,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
@@ -1303,7 +1300,7 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     ret_iter = new IndexBlockIter;
   }
-  if (size_ < 2 * sizeof(uint32_t)) {
+  if (size() < 2 * sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
@@ -1315,7 +1312,7 @@ IndexBlockIter* Block::NewIndexIterator(
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
     ret_iter->Initialize(
-        raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        raw_ucmp, data(), restart_offset_, num_restarts_, global_seqno,
         prefix_index_ptr, have_first_key, key_includes_seq, value_is_full,
         block_contents_pinned, user_defined_timestamps_persisted,
         protection_bytes_per_key_, kv_checksum_, block_restart_interval_);

@@ -269,7 +269,7 @@ class ExternalTableFactory : public Customizable {
 
 // Allocate a TableFactory that wraps around an ExternalTableFactory. Use this
 // to allocate and set in ColumnFamilyOptions::table_factory.
-std::shared_ptr<TableFactory> NewExternalTableFactory(
+std::unique_ptr<TableFactory> NewExternalTableFactory(
     std::shared_ptr<ExternalTableFactory> inner_factory);
 
 }  // namespace ROCKSDB_NAMESPACE

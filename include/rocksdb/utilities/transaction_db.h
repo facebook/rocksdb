@@ -396,9 +396,9 @@ struct TransactionOptions {
   // due to too many memtables.
   // Note that the ingestion relies on the transaction's underlying index,
   // (WriteBatchWithIndex), so updates that are added to the transaction
-  // without indexing (e.g. added directly to the transaction underlying
+  // without indexing (i.e. added directly to the transaction underlying
   // write batch through Transaction::GetWriteBatch()->GetWriteBatch())
-  // are not supported. They will not be applied to the DB.
+  // are not supported, and the optimization will not apply in that case.
   //
   // NOTE: since WBWI keep track of the most recent update per key, a Put
   // followed by a SingleDelete will be written to DB as a SingleDelete. This

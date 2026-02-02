@@ -11,6 +11,7 @@
 #include <ios>
 #include <thread>
 
+#include "db_stress_tool/db_stress_compression_manager.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -875,6 +876,10 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
   Status s = Status::OK();
+  // We don't issue write to transaction's underlying WriteBatch in stress test
+  assert(txn.GetWriteBatch()->GetWriteBatch()->Count());
+  assert(txn.GetWriteBatch()->GetWBWIOpCount() ==
+         txn.GetWriteBatch()->GetWriteBatch()->Count());
   if (FLAGS_use_optimistic_txn) {
     assert(optimistic_txn_db_);
     s = txn.Commit();
@@ -3412,21 +3417,37 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-    // Currently limited to ZSTD compression. Table property compression_name
-    // needs to set to zstd for now even when there can be more than one
-    // algorithm in the table under your compressor.
-    options_.compression = kZSTD;
-    options_.bottommost_compression = kZSTD;
-    if (!ZSTD_Supported()) {
-      fprintf(stderr,
-              "ZSTD compression not supported thus mixed compression cannot be "
-              "used\n");
-      exit(1);
-    }
-    auto mgr = std::make_shared<RoundRobinManager>(
-        GetDefaultBuiltinCompressionManager());
-    options_.compression_manager = mgr;
+  {
+    // We must register any compression managers with a custom
+    // CompatibilityName() so that if it was used in a past invocation but not
+    // the current invocation, we can still read the SST files requiring it.
+    static std::once_flag loaded;
+    std::call_once(loaded, [&]() {
+      TEST_AllowUnsupportedFormatVersion() = true;
+      auto& library = *ObjectLibrary::Default();
+      library.AddFactory<CompressionManager>(
+          DbStressCustomCompressionManager().CompatibilityName(),
+          [](const std::string& /*uri*/,
+             std::unique_ptr<CompressionManager>* guard,
+             std::string* /*errmsg*/) {
+            *guard = std::make_unique<DbStressCustomCompressionManager>();
+            return guard->get();
+          });
+    });
+  }
+  if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
+    options_.compression_manager =
+        std::make_shared<DbStressCustomCompressionManager>();
+  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+    options_.compression_manager =
+        std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
+  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "randommixed")) {
+    options_.compression_manager =
+        std::make_shared<RandomMixedCompressionManager>(
+            GetBuiltinV2CompressionManager());
+  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+    options_.compression_manager =
+        CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {
@@ -4359,6 +4380,8 @@ void InitializeOptionsFromFlags(
   }
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.compaction_options_universal.reduce_file_locking =
+      FLAGS_universal_reduce_file_locking;
 }
 
 void InitializeOptionsGeneral(

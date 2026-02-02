@@ -102,6 +102,7 @@ class StopWatch {
 };
 
 // a nano second precision stopwatch
+template <bool use_cpu_time = false>
 class StopWatchNano {
  public:
   explicit StopWatchNano(SystemClock* clock, bool auto_start = false)
@@ -110,27 +111,36 @@ class StopWatchNano {
       Start();
     }
   }
-
-  void Start() { start_ = clock_->NowNanos(); }
-
+  void Start() {
+    if constexpr (use_cpu_time) {
+      start_ = clock_->CPUNanos();
+    } else {
+      start_ = clock_->NowNanos();
+    }
+  }
   uint64_t ElapsedNanos(bool reset = false) {
-    auto now = clock_->NowNanos();
+    uint64_t now = 0;
+    if constexpr (use_cpu_time) {
+      now = clock_->CPUNanos();
+    } else {
+      now = clock_->NowNanos();
+    }
     auto elapsed = now - start_;
     if (reset) {
       start_ = now;
     }
     return elapsed;
   }
-
   uint64_t ElapsedNanosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
-
   bool IsStarted() { return start_ != 0; }
+  uint64_t ElapsedMicros(bool reset = false) {
+    return ElapsedNanos(reset) / 1000;
+  }
 
  private:
   SystemClock* clock_;
   uint64_t start_;
 };
-
 }  // namespace ROCKSDB_NAMESPACE

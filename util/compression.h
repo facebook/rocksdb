@@ -28,6 +28,7 @@
 #include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
 #include "util/atomic.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 #include "util/string_util.h"
@@ -247,6 +248,7 @@ struct DecompressorDict {
       decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
     } else {
       assert(s.ok());
+      assert(decompressor_->GetSerializedDict() == dict);
     }
 
     memory_usage_ = sizeof(struct DecompressorDict);
@@ -697,8 +699,7 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return XPRESS_Supported();
     case kZSTD:
       return ZSTD_Supported();
-    default:
-      assert(false);
+    default:  // Including custom compression types
       return false;
   }
 }
@@ -726,8 +727,7 @@ inline bool DictCompressionTypeSupported(CompressionType compression_type) {
       // NB: dictionary supported since 0.5.0. See ZSTD_VERSION_NUMBER check
       // above.
       return ZSTD_Supported();
-    default:
-      assert(false);
+    default:  // Including custom compression types
       return false;
   }
 }
@@ -753,9 +753,13 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "ZSTD";
     case kDisableCompressionOption:
       return "DisableOption";
-    default:
-      assert(false);
-      return "";
+    default: {
+      bool is_custom = compression_type >= kFirstCustomCompression &&
+                       compression_type <= kLastCustomCompression;
+      unsigned char c = lossless_cast<unsigned char>(compression_type);
+      return (is_custom ? "Custom" : "Reserved") +
+             ToBaseCharsString<16>(2, c, /*uppercase=*/true);
+    }
   }
 }
 

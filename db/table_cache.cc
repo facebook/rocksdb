@@ -146,7 +146,8 @@ Status TableCache::GetTableReader(
     s = mutable_cf_options.table_factory->NewTableReader(
         ro,
         TableReaderOptions(
-            ioptions_, mutable_cf_options.prefix_extractor, file_options,
+            ioptions_, mutable_cf_options.prefix_extractor,
+            mutable_cf_options.compression_manager.get(), file_options,
             internal_comparator,
             mutable_cf_options.block_protection_bytes_per_key, skip_filters,
             immortal_tables_, false /* force_direct_prefetch */, level,

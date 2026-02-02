@@ -32,7 +32,8 @@ struct WriteBatchWithIndex::Rep {
         skip_list(comparator, &arena),
         last_sub_batch_offset(0),
         sub_batch_cnt(1),
-        overwrite_key(_overwrite_key) {}
+        overwrite_key(_overwrite_key),
+        op_count(0) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
@@ -48,7 +49,8 @@ struct WriteBatchWithIndex::Rep {
   // Tracks ids of CFs that have updates in this WBWI, number of updates and
   // number of overwritten single deletions per cf. Useful for WBWIMemTable
   // when this WBWI is ingested into a DB.
-  std::unordered_map<uint32_t, CFStat> cf_id_to_stat;
+  std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat> cf_id_to_stat;
+  size_t op_count;
 
   // In overwrite mode, find the existing entry for the same key and update it
   // to point to the current entry if this is not a Merge operation.
@@ -154,6 +156,7 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
 void WriteBatchWithIndex::Rep::AddOrUpdateIndexWithCfId(
     uint32_t cf_id, const Slice& key, WriteType type, size_t last_entry_offset,
     const Comparator* cf_cmp) {
+  op_count++;
   uint32_t update_count = 0;
   if (!UpdateExistingEntryWithCfId(cf_id, key, type, last_entry_offset,
                                    &update_count)) {
@@ -201,7 +204,6 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id,
 
 void WriteBatchWithIndex::Rep::Clear() {
   write_batch.Clear();
-  cf_id_to_stat.clear();
   ClearIndex();
 }
 
@@ -212,6 +214,8 @@ void WriteBatchWithIndex::Rep::ClearIndex() {
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
   last_sub_batch_offset = 0;
   sub_batch_cnt = 1;
+  cf_id_to_stat.clear();
+  op_count = 0;
 }
 
 Status WriteBatchWithIndex::Rep::ReBuildIndex() {
@@ -1172,6 +1176,8 @@ const std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat>&
 WriteBatchWithIndex::GetCFStats() const {
   return rep->cf_id_to_stat;
 }
+
+size_t WriteBatchWithIndex::GetWBWIOpCount() const { return rep->op_count; }
 
 bool WriteBatchWithIndex::GetOverwriteKey() const { return rep->overwrite_key; }
 }  // namespace ROCKSDB_NAMESPACE
