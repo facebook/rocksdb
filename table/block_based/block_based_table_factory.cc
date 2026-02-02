@@ -485,19 +485,20 @@ void BlockBasedTableFactory::InitializeOptions() {
     }
   }
 
-  if (table_options_.format_version < kMinSupportedFormatVersion) {
+  if (table_options_.format_version < kMinSupportedBbtFormatVersionForWrite) {
+    // In TEST mode, allow writing format versions that are at least supported
+    // for reading (so that we have a way of testing the read side).
     if (TEST_AllowUnsupportedFormatVersion()) {
-      // Allow old format version for testing.
-      // And relevant old sanitization.
-      if (table_options_.format_version == 0 &&
-          table_options_.checksum != kCRC32c) {
-        // silently convert format_version to 1 to support non-CRC32c checksum
-        table_options_.format_version = 1;
+      if (table_options_.format_version <
+          kMinSupportedBbtFormatVersionForRead) {
+        table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
       }
     } else {
-      table_options_.format_version = kMinSupportedFormatVersion;
+      table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
     }
   }
+  // NOTE: do not sanitize too high format_version, so that it can be rejected
+  // in validation
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
@@ -627,8 +628,14 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!IsSupportedFormatVersion(table_options_.format_version) &&
-      !TEST_AllowUnsupportedFormatVersion()) {
+  // In TEST mode, also allow writing
+  // (a) old format_versions that for users are only supported for reads
+  // (b) future "draft" format versions that are not yet published to users
+  if (!(IsSupportedFormatVersionForWrite(kBlockBasedTableMagicNumber,
+                                         table_options_.format_version) ||
+        (TEST_AllowUnsupportedFormatVersion() &&
+         table_options_.format_version >=
+             kMinSupportedBbtFormatVersionForRead))) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
@@ -636,9 +643,7 @@ Status BlockBasedTableFactory::ValidateOptions(
   bool using_builtin_compatible_compression = true;
   if (cf_opts.compression_manager &&
       strcmp(cf_opts.compression_manager->CompatibilityName(),
-             GetBuiltinCompressionManager(
-                 GetCompressFormatForVersion(table_options_.format_version))
-                 ->CompatibilityName()) != 0) {
+             GetBuiltinV2CompressionManager()->CompatibilityName()) != 0) {
     if (FormatVersionUsesCompressionManagerName(
             table_options_.format_version)) {
       using_builtin_compatible_compression = false;

@@ -44,7 +44,7 @@ const std::set<uint32_t> kFooterFormatVersionsToTest{
     6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
-    kLatestFormatVersion,
+    kLatestBbtFormatVersion,
 };
 const ReadOptionsNoIo kReadOptionsNoIo;
 

@@ -76,6 +76,7 @@
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/defer.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -674,35 +675,6 @@ static std::vector<TestArgs> GenerateArgList() {
   std::vector<int> restart_intervals = {16, 1, 1024};
   std::vector<uint32_t> compression_parallel_threads = {1, 4};
 
-  // Only add compression if it is supported
-  std::vector<std::pair<CompressionType, bool>> compression_types;
-  compression_types.emplace_back(kNoCompression, false);
-  if (Snappy_Supported()) {
-    compression_types.emplace_back(kSnappyCompression, false);
-  }
-  if (Zlib_Supported()) {
-    compression_types.emplace_back(kZlibCompression, false);
-    compression_types.emplace_back(kZlibCompression, true);
-  }
-  if (BZip2_Supported()) {
-    compression_types.emplace_back(kBZip2Compression, false);
-    compression_types.emplace_back(kBZip2Compression, true);
-  }
-  if (LZ4_Supported()) {
-    compression_types.emplace_back(kLZ4Compression, false);
-    compression_types.emplace_back(kLZ4Compression, true);
-    compression_types.emplace_back(kLZ4HCCompression, false);
-    compression_types.emplace_back(kLZ4HCCompression, true);
-  }
-  if (XPRESS_Supported()) {
-    compression_types.emplace_back(kXpressCompression, false);
-    compression_types.emplace_back(kXpressCompression, true);
-  }
-  if (ZSTD_Supported()) {
-    compression_types.emplace_back(kZSTD, false);
-    compression_types.emplace_back(kZSTD, true);
-  }
-
   for (auto test_type : test_types) {
     for (auto reverse_compare : reverse_compare_types) {
       if (test_type == PLAIN_TABLE_SEMI_FIXED_PREFIX ||
@@ -713,9 +685,9 @@ static std::vector<TestArgs> GenerateArgList() {
         one_arg.type = test_type;
         one_arg.reverse_compare = reverse_compare;
         one_arg.restart_interval = restart_intervals[0];
-        one_arg.compression = compression_types[0].first;
+        one_arg.compression = kNoCompression;
         one_arg.compression_parallel_threads = 1;
-        one_arg.format_version = 0;
+        one_arg.format_version = 0;  // Plain tables use their own versioning
         one_arg.use_mmap = true;
         test_args.push_back(one_arg);
         one_arg.use_mmap = false;
@@ -724,17 +696,20 @@ static std::vector<TestArgs> GenerateArgList() {
       }
 
       for (auto restart_interval : restart_intervals) {
-        for (auto compression_type : compression_types) {
+        for (auto compression_type : GetSupportedCompressions()) {
           for (auto num_threads : compression_parallel_threads) {
-            TestArgs one_arg;
-            one_arg.type = test_type;
-            one_arg.reverse_compare = reverse_compare;
-            one_arg.restart_interval = restart_interval;
-            one_arg.compression = compression_type.first;
-            one_arg.compression_parallel_threads = num_threads;
-            one_arg.format_version = compression_type.second ? 2 : 1;
-            one_arg.use_mmap = false;
-            test_args.push_back(one_arg);
+            // format_version = 7 changes some compression handling
+            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U}) {
+              TestArgs one_arg;
+              one_arg.type = test_type;
+              one_arg.reverse_compare = reverse_compare;
+              one_arg.restart_interval = restart_interval;
+              one_arg.compression = compression_type;
+              one_arg.compression_parallel_threads = num_threads;
+              one_arg.format_version = fv;
+              one_arg.use_mmap = false;
+              test_args.push_back(one_arg);
+            }
           }
         }
       }
@@ -5002,30 +4977,11 @@ TEST(TableTest, FooterTests) {
   BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
   uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
   uint32_t base_context_checksum = 123456789;
-  {
-    // legacy block based
-    FooterBuilder footer;
-    ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
-                           footer_offset, kCRC32c, meta_index, index));
-    Footer decoded_footer;
-    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
-    ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum_type(), kCRC32c);
-    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
-    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.format_version(), 0U);
-    ASSERT_EQ(decoded_footer.base_context_checksum(), 0U);
-    ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
-    // Ensure serialized with legacy magic
-    ASSERT_EQ(
-        DecodeFixed64(footer.GetSlice().data() + footer.GetSlice().size() - 8),
-        kLegacyBlockBasedTableMagicNumber);
-  }
-  // block based, various checksums, various versions
+  // block based, various checksums, various versions (format_version >= 2)
   for (auto t : GetSupportedChecksums()) {
-    for (uint32_t fv = 1; IsSupportedFormatVersion(fv); ++fv) {
+    for (uint32_t fv = kMinSupportedBbtFormatVersionForWrite;
+         IsSupportedFormatVersionForWrite(kBlockBasedTableMagicNumber, fv);
+         ++fv) {
       uint32_t maybe_bcc =
           FormatVersionUsesContextChecksum(fv) ? base_context_checksum : 0U;
       FooterBuilder footer;
@@ -5072,41 +5028,154 @@ TEST(TableTest, FooterTests) {
     }
   }
 
+  // plain table, various checksums, various versions (format_version >= 2)
+  // Plain tables have no block trailer (size 0), so set up separate handles
+  // Note: format_version >= 6 has complex footer checksum requirements,
+  // so we only test format_version 2-5 for plain tables here
   {
-    // legacy plain table
-    FooterBuilder footer;
-    ASSERT_OK(footer.Build(kPlainTableMagicNumber, /* format_version */ 0,
-                           footer_offset, kNoChecksum, meta_index));
-    Footer decoded_footer;
-    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
-    ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum_type(), kCRC32c);
-    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
-    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), 0U);
-    ASSERT_EQ(decoded_footer.index_handle().size(), 0U);
-    ASSERT_EQ(decoded_footer.format_version(), 0U);
-    ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
-    // Ensure serialized with legacy magic
-    ASSERT_EQ(
-        DecodeFixed64(footer.GetSlice().data() + footer.GetSlice().size() - 8),
-        kLegacyPlainTableMagicNumber);
+    uint64_t plain_metaindex_size = r->Uniform(1000000);
+    // For plain tables: metaindex is at offset 0, footer immediately follows
+    BlockHandle plain_meta_index(0, plain_metaindex_size);
+    uint64_t plain_footer_offset = plain_metaindex_size;
+    for (auto t : GetSupportedChecksums()) {
+      for (uint32_t fv = kMinSupportedBbtFormatVersionForWrite; fv < 6; ++fv) {
+        FooterBuilder footer;
+        ASSERT_OK(footer.Build(kPlainTableMagicNumber, fv, plain_footer_offset,
+                               t, plain_meta_index));
+        Footer decoded_footer;
+        ASSERT_OK(
+            decoded_footer.DecodeFrom(footer.GetSlice(), plain_footer_offset));
+        ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
+        ASSERT_EQ(decoded_footer.checksum_type(), t);
+        ASSERT_EQ(decoded_footer.metaindex_handle().offset(),
+                  plain_meta_index.offset());
+        ASSERT_EQ(decoded_footer.metaindex_handle().size(),
+                  plain_meta_index.size());
+        ASSERT_EQ(decoded_footer.format_version(), fv);
+        ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
+      }
+    }
   }
+}
+
+// Test that legacy SST formats (format_version < 2) are properly rejected
+TEST(TableTest, LegacyFormatRejectionTests) {
+  // Temporarily disable unsupported format version allowance for this test
+  bool& allow = TEST_AllowUnsupportedFormatVersion();
+  SaveAndRestore<bool> saved_allow(&allow, false);
+
+  // Test legacy block-based magic number from LevelDB should be rejected
   {
-    // xxhash plain table (not currently used)
-    FooterBuilder footer;
-    ASSERT_OK(footer.Build(kPlainTableMagicNumber, /* format_version */ 1,
-                           footer_offset, kxxHash, meta_index));
+    // Construct a fake footer with legacy block-based magic number
+    std::array<char, Footer::kVersion0EncodedLength> fake_footer;
+    std::fill(fake_footer.begin(), fake_footer.end(), 0);
+    // Put legacy magic number at the end
+    EncodeFixed64(fake_footer.data() + fake_footer.size() - 8,
+                  0xdb4775248b80fb57ull /*legacy magic number*/);
+
     Footer decoded_footer;
-    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
-    ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum_type(), kxxHash);
-    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
-    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), 0U);
-    ASSERT_EQ(decoded_footer.index_handle().size(), 0U);
-    ASSERT_EQ(decoded_footer.format_version(), 1U);
-    ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
+    Status s = decoded_footer.DecodeFrom(
+        Slice(fake_footer.data(), fake_footer.size()), 0);
+    ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+    ASSERT_TRUE(s.ToString().find("nsupported legacy magic number") !=
+                std::string::npos)
+        << s.ToString();
+    ASSERT_TRUE(s.ToString().find("full compaction") != std::string::npos)
+        << s.ToString();
+  }
+
+  // Test format_version=1 with new magic number should be rejected
+  {
+    std::array<char, Footer::kNewVersionsEncodedLength> fake_footer;
+    std::fill(fake_footer.begin(), fake_footer.end(), 0);
+    // Part 1: checksum type
+    fake_footer[0] = kCRC32c;
+    // Part 3: format_version=1 and new magic number
+    char* part3 = fake_footer.data() + fake_footer.size() - 12;
+    EncodeFixed32(part3, 1);  // format_version = 1
+    EncodeFixed64(part3 + 4, kBlockBasedTableMagicNumber);
+
+    Footer decoded_footer;
+    Status s = decoded_footer.DecodeFrom(
+        Slice(fake_footer.data(), fake_footer.size()), 0);
+    // format_version=1 is not supported for read, should return Corruption
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_TRUE(s.ToString().find("format_version") != std::string::npos)
+        << s.ToString();
+  }
+
+  // Test format_version=0 with new magic number should be rejected
+  {
+    std::array<char, Footer::kNewVersionsEncodedLength> fake_footer;
+    std::fill(fake_footer.begin(), fake_footer.end(), 0);
+    // Part 1: checksum type
+    fake_footer[0] = kCRC32c;
+    // Part 3: format_version=0 and new magic number
+    char* part3 = fake_footer.data() + fake_footer.size() - 12;
+    EncodeFixed32(part3, 0);  // format_version = 0
+    EncodeFixed64(part3 + 4, kBlockBasedTableMagicNumber);
+
+    Footer decoded_footer;
+    Status s = decoded_footer.DecodeFrom(
+        Slice(fake_footer.data(), fake_footer.size()), 0);
+    // format_version=0 is not supported for read, should return Corruption
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_TRUE(s.ToString().find("format_version") != std::string::npos)
+        << s.ToString();
+  }
+}
+
+// Test that configuring unsupported format_version for writing is sanitized
+// or rejected as appropriate
+TEST(TableTest, UnsupportedFormatVersionConfigTest) {
+  // Temporarily disable unsupported format version allowance for this test
+  bool& allow = TEST_AllowUnsupportedFormatVersion();
+  SaveAndRestore<bool> saved_allow(&allow, false);
+
+  // Test that format_version < kMinSupportedBbtFormatVersionForWrite is
+  // sanitized to kMinSupportedBbtFormatVersionForWrite during initialization
+  for (uint32_t fv = 0; fv < kMinSupportedBbtFormatVersionForWrite; ++fv) {
+    BlockBasedTableOptions table_options;
+    table_options.format_version = fv;
+    BlockBasedTableFactory factory(table_options);
+
+    // After construction, format_version should be sanitized
+    auto* opts = factory.GetOptions<BlockBasedTableOptions>();
+    ASSERT_EQ(opts->format_version, kMinSupportedBbtFormatVersionForWrite)
+        << "format_version=" << fv << " should be sanitized to "
+        << kMinSupportedBbtFormatVersionForWrite;
+  }
+
+  // Test that supported format versions are not changed
+  for (uint32_t fv = kMinSupportedBbtFormatVersionForWrite;
+       IsSupportedFormatVersionForWrite(kBlockBasedTableMagicNumber, fv);
+       ++fv) {
+    BlockBasedTableOptions table_options;
+    table_options.format_version = fv;
+    BlockBasedTableFactory factory(table_options);
+
+    auto* opts = factory.GetOptions<BlockBasedTableOptions>();
+    ASSERT_EQ(opts->format_version, fv)
+        << "format_version=" << fv << " should not be changed";
+
+    ColumnFamilyOptions cf_opts;
+    DBOptions db_opts;
+    Status s = factory.ValidateOptions(db_opts, cf_opts);
+    ASSERT_OK(s) << "format_version=" << fv << ": " << s.ToString();
+  }
+
+  // Test that format_version > kLatestBbtFormatVersion is rejected by
+  // ValidateOptions (not sanitized, since it could be a future version that
+  // requires newer code)
+  {
+    BlockBasedTableOptions table_options;
+    table_options.format_version = kLatestBbtFormatVersion + 1;
+    BlockBasedTableFactory factory(table_options);
+
+    ColumnFamilyOptions cf_opts;
+    DBOptions db_opts;
+    Status s = factory.ValidateOptions(db_opts, cf_opts);
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
   }
 }
 
@@ -5707,8 +5776,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       read_options_for_helper.verify_checksums = false;
       PersistentCacheOptions cache_options;
 
-      auto mgr = GetBuiltinCompressionManager(
-          GetCompressFormatForVersion(footer.format_version()));
+      auto mgr = GetBuiltinV2CompressionManager();
       BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
                                  read_options_for_helper, handle, contents,
                                  ioptions, false /* decompress */,
@@ -5846,8 +5914,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   PersistentCacheOptions pcache_opts;
-  auto mgr = GetBuiltinCompressionManager(
-      GetCompressFormatForVersion(footer.format_version()));
+  auto mgr = GetBuiltinV2CompressionManager();
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
@@ -5929,8 +5996,7 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   PersistentCacheOptions pcache_opts;
-  auto mgr = GetBuiltinCompressionManager(
-      GetCompressFormatForVersion(footer.format_version()));
+  auto mgr = GetBuiltinV2CompressionManager();
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,

@@ -134,9 +134,6 @@ Compressor* MaybeCloneSpecialized(
 // allocated
 // it must be not extern in one place.
 const uint64_t kBlockBasedTableMagicNumber = 0x88e241b785f4cff7ull;
-// We also support reading and writing legacy block based table format (for
-// backwards compatibility)
-const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 
 // A collector that collects properties of interest to block-based table.
 // For now this class looks heavy-weight since we only write one additional
@@ -1096,10 +1093,7 @@ struct BlockBasedTableBuilder::Rep {
     auto* mgr = tbo.moptions.compression_manager.get();
     if (mgr == nullptr) {
       uses_explicit_compression_manager = false;
-      mgr = GetBuiltinCompressionManager(
-                GetCompressFormatForVersion(
-                    static_cast<uint32_t>(table_opt.format_version)))
-                .get();
+      mgr = GetBuiltinV2CompressionManager().get();
     } else {
       uses_explicit_compression_manager = true;
 
@@ -1186,8 +1180,7 @@ struct BlockBasedTableBuilder::Rep {
     }
 
     if (sample_for_compression > 0) {
-      auto builtin = GetBuiltinCompressionManager(
-          GetCompressFormatForVersion(table_opt.format_version));
+      auto builtin = GetBuiltinV2CompressionManager();
       if (builtin->SupportsCompressionType(kLZ4Compression)) {
         fast_sample_compressor = builtin->GetCompressor({}, kLZ4Compression);
       } else if (builtin->SupportsCompressionType(kSnappyCompression)) {
@@ -1388,11 +1381,10 @@ struct BlockBasedTableBuilder::Rep {
       // Use legacy compression_name property, populated at the end of
       // building the file. Not compatible with compression managers using
       // custom algorithms / compression types.
-      assert(Slice(mgr->CompatibilityName())
-                 .compare(GetBuiltinCompressionManager(
-                              GetCompressFormatForVersion(
-                                  static_cast<uint32_t>(props.format_version)))
-                              ->CompatibilityName()) == 0);
+      assert(
+          Slice(mgr->CompatibilityName())
+              .compare(GetBuiltinV2CompressionManager()->CompatibilityName()) ==
+          0);
     }
   }
   void PostPopulateCompressionProperties() {

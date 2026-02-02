@@ -154,23 +154,18 @@ std::string IndexValue::ToString(bool hex, bool have_first_key) const {
 
 namespace {
 inline bool IsLegacyFooterFormat(uint64_t magic_number) {
-  return magic_number == kLegacyBlockBasedTableMagicNumber ||
-         magic_number == kLegacyPlainTableMagicNumber;
+  return magic_number == kLegacyPlainTableMagicNumber;
 }
+// Used when reading format_version=0 footers (plain tables)
 inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
-  if (magic_number == kLegacyBlockBasedTableMagicNumber) {
-    return kBlockBasedTableMagicNumber;
-  }
   if (magic_number == kLegacyPlainTableMagicNumber) {
     return kPlainTableMagicNumber;
   }
   assert(false);
   return magic_number;
 }
+// Used by plain tables to write format_version=0 footers
 inline uint64_t DownconvertToLegacyFooterFormat(uint64_t magic_number) {
-  if (magic_number == kBlockBasedTableMagicNumber) {
-    return kLegacyBlockBasedTableMagicNumber;
-  }
   if (magic_number == kPlainTableMagicNumber) {
     return kLegacyPlainTableMagicNumber;
   }
@@ -178,14 +173,18 @@ inline uint64_t DownconvertToLegacyFooterFormat(uint64_t magic_number) {
   return magic_number;
 }
 inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
-  if (magic_number == kBlockBasedTableMagicNumber ||
-      magic_number == kLegacyBlockBasedTableMagicNumber) {
+  if (magic_number == kBlockBasedTableMagicNumber) {
     return static_cast<uint8_t>(BlockBasedTable::kBlockTrailerSize);
   } else {
     return 0;
   }
 }
 
+// NOTE: format_version 0 is still used by plain tables and format_version 1 by
+// cuckoo table. For block-based tables, format_version < 2 is no longer
+// supported for reading or writing. Legacy magic numbers on block-based tables
+// are used only for good error reporting.
+//
 // Footer format, in three parts:
 // * Part1
 //   -> format_version == 0 (inferred from legacy magic number)
@@ -229,7 +228,7 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
                             const BlockHandle& index_handle,
                             uint32_t base_context_checksum) {
   assert(magic_number != Footer::kNullTableMagicNumber);
-  assert(IsSupportedFormatVersion(format_version) ||
+  assert(IsSupportedFormatVersionForWrite(magic_number, format_version) ||
          TEST_AllowUnsupportedFormatVersion());
 
   char* part2;
@@ -251,6 +250,7 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     EncodeFixed64(cur, magic_number);
     assert(cur + 8 == slice_.data() + slice_.size());
   } else {
+    // format_version == 0 is used by plain tables
     slice_ = Slice(data_.data(), Footer::kVersion0EncodedLength);
     // Legacy SST files use kCRC32c checksum but it's not stored in footer.
     assert(checksum_type == kNoChecksum || checksum_type == kCRC32c);
@@ -337,9 +337,18 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   const char* magic_ptr = input.data() + input.size() - kMagicNumberLengthByte;
   uint64_t magic = DecodeFixed64(magic_ptr);
 
-  // We check for legacy formats here and silently upconvert them
+  // Legacy block-based tables (format_version < 2) are no longer supported.
+  // (This constant is only used here and in the corresponding test.)
+  if (magic == 0xdb4775248b80fb57ull) {
+    return Status::NotSupported(
+        "Unsupported legacy magic number for block-based SST format. Load with "
+        "RocksDB >= 4.6.0 and < 11.0.0 and run full compaction to upgrade.");
+  }
+
+  // Check for legacy formats
   bool legacy = IsLegacyFooterFormat(magic);
   if (legacy) {
+    // Legacy plain tables are still supported - upconvert magic
     magic = UpconvertLegacyFooterFormat(magic);
   }
   if (enforce_table_magic_number != 0 && enforce_table_magic_number != magic) {
@@ -355,6 +364,7 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   uint32_t computed_checksum = 0;
   uint64_t footer_offset = 0;
   if (legacy) {
+    // Legacy format (format_version=0, used by plain tables)
     // The size is already asserted to be at least kMinEncodedLength
     // at the beginning of the function
     input.remove_prefix(input.size() - kVersion0EncodedLength);
@@ -363,10 +373,11 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   } else {
     part3_ptr = magic_ptr - 4;
     format_version_ = DecodeFixed32(part3_ptr);
-    if (UNLIKELY(!IsSupportedFormatVersion(format_version_) &&
+    if (UNLIKELY(!IsSupportedFormatVersionForRead(magic, format_version_) &&
                  !TEST_AllowUnsupportedFormatVersion())) {
-      return Status::Corruption("Corrupt or unsupported format_version: " +
-                                std::to_string(format_version_));
+      return Status::Corruption("Corrupt or unsupported format_version " +
+                                std::to_string(format_version_) +
+                                " for magic " + std::to_string(magic));
     }
     // All known format versions >= 1 occupy exactly this many bytes.
     if (UNLIKELY(input.size() < kNewVersionsEncodedLength)) {

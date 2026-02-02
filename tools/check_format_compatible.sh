@@ -159,8 +159,9 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 
 # Branches (git refs) to check for DB backward compatibility (new version
 # reading data from old) (in addition to the "forward compatible" list)
-# NOTE: 2.7.fb.branch shows assertion violation in some configurations
-declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
+# NOTE: format_version < 2 support was removed, so we only test back to 4.6.fb
+# (when format_version=2 became the default)
+declare -a db_backward_only_refs=("4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list

@@ -1818,19 +1818,6 @@ inline CacheAllocationPtr OLD_UncompressData(
   }
 }
 
-// ***********************************************************************
-// BEGIN built-in implementation of customization interface
-// ***********************************************************************
-
-// NOTE: to avoid compression API depending on block-based table API, uses
-// its own format version. See internal function GetCompressFormatForVersion()
-const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
-    int compression_format_version);
-
-// ***********************************************************************
-// END built-in implementation of customization interface
-// ***********************************************************************
-
 // The new compression APIs intentionally make it difficult to generate
 // compressed data larger than the original. (It is better to store the
 // uncompressed version in that case.) For legacy cases that must store
