@@ -111,6 +111,20 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
+  // Handle --delete_dir_and_exit early, before other option validation
+  if (!FLAGS_delete_dir_and_exit.empty()) {
+    s = DestroyDir(raw_env, FLAGS_delete_dir_and_exit);
+    if (s.ok()) {
+      fprintf(stdout, "Successfully deleted directory %s\n",
+              FLAGS_delete_dir_and_exit.c_str());
+      return 0;
+    } else {
+      fprintf(stderr, "Failed to delete directory %s: %s\n",
+              FLAGS_delete_dir_and_exit.c_str(), s.ToString().c_str());
+      return 1;
+    }
+  }
+
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the
