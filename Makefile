@@ -993,6 +993,11 @@ watch-log:
 dump-log:
 	bash -c '$(quoted_perl_command)' < LOG
 
+# Machine-parseable progress output for automated monitoring (e.g., Claude Code)
+# Outputs JSON: {"status":"running","completed":45,"total":100,"failed":0,"percent":45,"eta_seconds":120}
+check-progress:
+	@build_tools/check_progress.sh
+
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
 check: all
@@ -1203,6 +1208,10 @@ tags0:
 
 format:
 	build_tools/format-diff.sh
+
+# Non-interactive format (auto-apply without prompts, for CI/automation/Claude Code)
+format-auto:
+	build_tools/format-diff.sh -y
 
 check-format:
 	build_tools/format-diff.sh -c
