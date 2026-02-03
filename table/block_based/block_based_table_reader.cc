@@ -870,13 +870,16 @@ Status BlockBasedTable::Open(
     return s;
   }
 
+  bool use_separated_kv =
+      rep->table_properties &&
+      rep->table_properties->separated_kv_in_data_block == 1;
+
   // Populate BlockCreateContext
   rep->create_context = BlockCreateContext(
       &rep->table_options, &rep->ioptions, rep->ioptions.stats,
       rep->decompressor.get(), block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
-      rep->index_has_first_key,
-      FormatVersionUsesSeparatedKVStorage(footer.format_version()),
+      rep->index_has_first_key, use_separated_kv,
       rep->data_block_restart_interval, rep->index_block_restart_interval);
 
   // Check expected unique id if provided

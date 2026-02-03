@@ -1032,17 +1032,16 @@ struct BlockBasedTableBuilder::Rep {
                       ? std::min(static_cast<size_t>(table_options.block_size),
                                  kDefaultPageSize)
                       : 0),
-        data_block(
-            table_options.block_restart_interval,
-            table_options.use_delta_encoding,
-            false /* use_value_delta_encoding */,
-            tbo.internal_comparator.user_comparator()
-                    ->CanKeysWithDifferentByteContentsBeEqual()
-                ? BlockBasedTableOptions::kDataBlockBinarySearch
-                : table_options.data_block_index_type,
-            table_options.data_block_hash_table_util_ratio, ts_sz,
-            persist_user_defined_timestamps, false /* is_user_key */,
-            FormatVersionUsesSeparatedKVStorage(table_options.format_version)),
+        data_block(table_options.block_restart_interval,
+                   table_options.use_delta_encoding,
+                   false /* use_value_delta_encoding */,
+                   tbo.internal_comparator.user_comparator()
+                           ->CanKeysWithDifferentByteContentsBeEqual()
+                       ? BlockBasedTableOptions::kDataBlockBinarySearch
+                       : table_options.data_block_index_type,
+                   table_options.data_block_hash_table_util_ratio, ts_sz,
+                   persist_user_defined_timestamps, false /* is_user_key */,
+                   table_options.separate_key_value_in_data_block),
         range_del_block(
             1 /* block_restart_interval */, true /* use_delta_encoding */,
             false /* use_value_delta_encoding */,
@@ -1068,17 +1067,16 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
-        create_context(
-            &table_options, &ioptions, ioptions.stats,
-            /*decompressor=*/nullptr,
-            tbo.moptions.block_protection_bytes_per_key,
-            tbo.internal_comparator.user_comparator(),
-            !use_delta_encoding_for_index_values,
-            table_opt.index_type ==
-                BlockBasedTableOptions::kBinarySearchWithFirstKey,
-            FormatVersionUsesSeparatedKVStorage(table_options.format_version),
-            table_options.block_restart_interval,
-            table_options.index_block_restart_interval),
+        create_context(&table_options, &ioptions, ioptions.stats,
+                       /*decompressor=*/nullptr,
+                       tbo.moptions.block_protection_bytes_per_key,
+                       tbo.internal_comparator.user_comparator(),
+                       !use_delta_encoding_for_index_values,
+                       table_opt.index_type ==
+                           BlockBasedTableOptions::kBinarySearchWithFirstKey,
+                       table_options.separate_key_value_in_data_block,
+                       table_options.block_restart_interval,
+                       table_options.index_block_restart_interval),
         tail_size(0) {
     FilterBuildingContext filter_context(table_options);
 
@@ -1315,6 +1313,8 @@ struct BlockBasedTableBuilder::Rep {
     props.data_block_restart_interval = table_options.block_restart_interval;
     props.index_block_restart_interval =
         table_options.index_block_restart_interval;
+    props.separated_kv_in_data_block =
+        table_options.separate_key_value_in_data_block ? 1 : 0;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }
@@ -2697,7 +2697,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     Block reader{
         BlockContents{data_block}, 0 /* read_amp_bytes_per_bit */,
         nullptr /* statistics */,
-        FormatVersionUsesSeparatedKVStorage(r->table_options.format_version),
+        r->table_options.separate_key_value_in_data_block,
         static_cast<uint32_t>(r->table_options.block_restart_interval)};
     DataBlockIter* iter = reader.NewDataIterator(
         r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber,

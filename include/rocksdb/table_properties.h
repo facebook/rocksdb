@@ -79,6 +79,7 @@ struct TablePropertiesNames {
   static const std::string kKeySmallestSeqno;
   static const std::string kDataBlockRestartInterval;
   static const std::string kIndexBlockRestartInterval;
+  static const std::string kSeparatedKVInDataBlock;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -326,6 +327,10 @@ struct TableProperties {
   // 0 means unknown (for backwards compatibility with older SST files).
   uint64_t data_block_restart_interval = 0;
   uint64_t index_block_restart_interval = 0;
+
+  // Whether the SST file uses separated key/value storage in data blocks (0 =
+  // false).
+  uint64_t separated_kv_in_data_block = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

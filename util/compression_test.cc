@@ -13,6 +13,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/data_block_footer.h"
 #include "test_util/testutil.h"
 #include "util/auto_tune_compressor.h"
 #include "util/coding.h"
@@ -1110,18 +1111,26 @@ TEST_F(DBCompressionTest, RandomMixedCompressionManager) {
 namespace {
 // Template parameter to distinguish data blocks vs. v4+ index blocks
 template <bool kIndexBlockV4>
-static Status ValidateRocksBlock(Slice data) {
+static Status ValidateRocksBlock(Slice data, bool use_separated_kv,
+                                 uint64_t restart_interval) {
+  assert(!kIndexBlockV4 ||
+         !use_separated_kv);  // index blocks not currently supported
   const char* src = data.data();
   size_t srcSize = data.size();
   const char* const block_type_str =
       kIndexBlockV4 ? "Index block" : "Data block";
 
   // Minimum RocksDB block content size: at least 1 entry + restarts
-  if (srcSize < 8) {
+  size_t footer_size = use_separated_kv ? 8 : 4;
+  if (srcSize < footer_size + 4) {  // footer + at least one restart
     return Status::Corruption(std::string(block_type_str) + " too small");
   }
 
-  uint32_t numRestarts = DecodeFixed32(src + srcSize - sizeof(uint32_t));
+  BlockBasedTableOptions::DataBlockIndexType index_type;
+  uint32_t numRestarts;
+
+  UnPackIndexTypeAndNumRestarts(DecodeFixed32(src + srcSize - sizeof(uint32_t)),
+                                &index_type, &numRestarts);
 
   // Sanity check: num_restarts should be reasonable
   // TODO: also support data block hash index
@@ -1130,17 +1139,26 @@ static Status ValidateRocksBlock(Slice data) {
                               block_type_str);
   }
 
-  size_t restartsSize = numRestarts * sizeof(uint32_t) + sizeof(uint32_t);
+  size_t restartsSize = numRestarts * sizeof(uint32_t) + footer_size;
   if (srcSize < restartsSize) {
     return Status::Corruption(std::string(block_type_str) +
                               " too small for restarts array");
   }
 
-  size_t entriesSize = srcSize - restartsSize;
+  size_t entriesSize;
+  uint32_t values_section_offset = 0;
+  if (use_separated_kv) {
+    values_section_offset = DecodeFixed32(src + srcSize - 2 * sizeof(uint32_t));
+    entriesSize = values_section_offset;  // keys section ends at value_offset
+  } else {
+    entriesSize = srcSize - restartsSize;
+  }
   const char* entriesEnd = src + entriesSize;
 
   // Parse entries
   const char* p = src;
+  uint32_t cur_idx = 0;
+  Slice current_value;
   while (p < entriesEnd) {
     // Parse shared_bytes varint
     uint32_t shared;
@@ -1167,6 +1185,17 @@ static Status ValidateRocksBlock(Slice data) {
       if (next == nullptr) {
         return Status::Corruption(
             std::string("Invalid value_length varint in ") + block_type_str);
+      }
+      p = next;
+    }
+
+    uint32_t value_offset = 0;
+    if (cur_idx % restart_interval == 0 && use_separated_kv) {
+      // For separated KV format, parse value_offset varint at restart points
+      next = GetVarint32Ptr(p, entriesEnd, &value_offset);
+      if (next == nullptr) {
+        return Status::Corruption(
+            std::string("Invalid value_offset varint in ") + block_type_str);
       }
       p = next;
     }
@@ -1201,12 +1230,35 @@ static Status ValidateRocksBlock(Slice data) {
       }
     } else {
       // For data blocks, validate value
-      if (p + valueLen > entriesEnd) {
-        return Status::Corruption(
-            std::string("Value exceeds end of entries in ") + block_type_str);
+      if (!use_separated_kv) {
+        // Inline values: value follows key delta
+        if (p + valueLen > entriesEnd) {
+          return Status::Corruption(
+              std::string("Value exceeds end of entries in ") + block_type_str);
+        }
+        p += valueLen;
+      } else {
+        // Separated KV: values are stored in a separate section
+        // value_offset is relative to values section start (set at restart
+        // points)
+        if (cur_idx % restart_interval == 0) {
+          current_value =
+              Slice(src + values_section_offset + value_offset, valueLen);
+        } else {
+          // Non-restart entries: value immediately follows previous value
+          current_value =
+              Slice(current_value.data() + current_value.size(), valueLen);
+        }
+
+        if (current_value.data() + current_value.size() >
+            src + srcSize - restartsSize) {
+          return Status::Corruption(
+              std::string("Value exceeds values section in ") + block_type_str);
+        }
       }
-      p += valueLen;
     }
+
+    ++cur_idx;
   }
 
   return Status::OK();
@@ -1215,20 +1267,23 @@ static Status ValidateRocksBlock(Slice data) {
 
 class DBCompressionTestMaybeParallel
     : public DBCompressionTest,
-      public testing::WithParamInterface<std::tuple<int, bool>> {
+      public testing::WithParamInterface<std::tuple<int, bool, bool>> {
  public:
   DBCompressionTestMaybeParallel()
       : DBCompressionTest(),
         parallel_threads_(std::get<0>(GetParam())),
-        use_dict_(std::get<1>(GetParam())) {}
+        use_dict_(std::get<1>(GetParam())),
+        separate_kv_(std::get<2>(GetParam())) {}
 
  protected:
   int parallel_threads_;
   bool use_dict_;
+  bool separate_kv_;
 };
 
 INSTANTIATE_TEST_CASE_P(DBCompressionTest, DBCompressionTestMaybeParallel,
                         ::testing::Combine(::testing::Values(1, 4),
+                                           ::testing::Values(false, true),
                                            ::testing::Values(false, true)));
 
 TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
@@ -1245,6 +1300,10 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
   static RelaxedAtomic<int> dataCheckedCount{0};
   static RelaxedAtomic<int> indexCheckedCount{0};
   static RelaxedAtomic<int> compressCalledCount{0};
+  static bool useSeparatedKV = false;
+
+  // Set the separated KV flag for the wrappers
+  useSeparatedKV = separate_kv_;
 
   // We also have wrappers here to help verify that when RocksDB asks to
   // specialize the Compressor for a particular kind of block, it only passes in
@@ -1267,7 +1326,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
                          ManagedWorkingArea* working_area) override {
       dataCheckedCount.FetchAddRelaxed(1);
       // Parse and validate data block format before compressing
-      Status s = ValidateRocksBlock</*kIndexBlockV4=*/false>(uncompressed_data);
+      Status s = ValidateRocksBlock</*kIndexBlockV4=*/false>(
+          uncompressed_data, useSeparatedKV,
+          BlockBasedTableOptions().block_restart_interval);
       if (!s.ok()) {
         return s;
       }
@@ -1293,7 +1354,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
                          ManagedWorkingArea* working_area) override {
       indexCheckedCount.FetchAddRelaxed(1);
       // Parse and validate index block v4 format before compressing
-      Status s = ValidateRocksBlock</*kIndexBlockV4=*/true>(uncompressed_data);
+      Status s = ValidateRocksBlock</*kIndexBlockV4=*/true>(
+          uncompressed_data, false,
+          BlockBasedTableOptions().index_block_restart_interval);
       if (!s.ok()) {
         return s;
       }
@@ -1393,7 +1456,8 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
         continue;
       }
       SCOPED_TRACE("Compression type: " + std::to_string(type) +
-                   (use_wrapper ? " with " : " no ") + "wrapper");
+                   (use_wrapper ? " with " : " no ") + "wrapper" +
+                   (separate_kv_ ? " separated_kv" : ""));
 
       Options options = CurrentOptions();
       options.compression = type;
@@ -1406,6 +1470,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
       bbto.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       bbto.partition_filters = true;
       bbto.filter_policy.reset(NewBloomFilterPolicy(5));
+      bbto.separate_key_value_in_data_block = separate_kv_;
       options.table_factory.reset(NewBlockBasedTableFactory(bbto));
       options.compression_manager = use_wrapper ? mgr : nullptr;
       DestroyAndReopen(options);

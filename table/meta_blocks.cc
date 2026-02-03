@@ -178,6 +178,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kIndexBlockRestartInterval,
         props.index_block_restart_interval);
   }
+  if (props.separated_kv_in_data_block > 0) {
+    Add(TablePropertiesNames::kSeparatedKVInDataBlock,
+        props.separated_kv_in_data_block);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -328,6 +332,8 @@ Status ParsePropertiesBlock(
        &new_table_properties->data_block_restart_interval},
       {TablePropertiesNames::kIndexBlockRestartInterval,
        &new_table_properties->index_block_restart_interval},
+      {TablePropertiesNames::kSeparatedKVInDataBlock,
+       &new_table_properties->separated_kv_in_data_block},
   };
 
   Status s;

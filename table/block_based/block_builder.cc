@@ -74,14 +74,16 @@ BlockBuilder::BlockBuilder(
       assert(0);
   }
   assert(block_restart_interval_ >= 1);
-  estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
+  estimate_ = sizeof(uint32_t) + sizeof(uint32_t) +
+              (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
 }
 
 void BlockBuilder::Reset() {
   buffer_.clear();
   restarts_.resize(1);  // First restart point is at offset 0
   assert(restarts_[0] == 0);
-  estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
+  estimate_ = sizeof(uint32_t) + sizeof(uint32_t) +
+              (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
   counter_ = 0;
   finished_ = false;
   last_key_.clear();
@@ -118,6 +120,12 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
 
   if (counter_ >= block_restart_interval_) {
     estimate += sizeof(uint32_t);  // a new restart entry.
+  }
+
+  // For separated KV storage, value_offset varint is written at restart points
+  if (use_separated_kv_storage_ &&
+      (counter_ == 0 || counter_ >= block_restart_interval_)) {
+    estimate += VarintLength(values_buffer_.size());
   }
 
   estimate += sizeof(int32_t);  // varint for shared prefix length.

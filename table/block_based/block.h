@@ -281,7 +281,7 @@ class Block {
 
  private:
   // Decode block footer and extract index type, num_restarts, and value_offset
-  // (for format_version >= 8). Returns false if block is invalid.
+  // (if use_separated_kv_storage = true). Returns false if block is invalid.
   bool DecodeFooter(bool use_separated_kv_storage,
                     BlockBasedTableOptions::DataBlockIndexType* index_type,
                     uint32_t* num_restarts, uint32_t* value_offset);
@@ -297,7 +297,7 @@ class Block {
   uint8_t protection_bytes_per_key_{0};
   DataBlockHashIndex data_block_hash_index_;
 
-  // Pointer to values section (fv >= 8), nullptr if not using separated KV
+  // Pointer to values section, nullptr if not using separated KV
   const char* values_section_{nullptr};
 };
 

@@ -175,7 +175,7 @@ inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
   return format_version >= 2 ? 2 : 1;
 }
 
-constexpr uint32_t kLatestFormatVersion = 8;
+constexpr uint32_t kLatestFormatVersion = 7;
 
 inline bool IsSupportedFormatVersion(uint32_t version) {
   return version <= kLatestFormatVersion;
@@ -192,10 +192,6 @@ inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
 
 inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
   return version >= 7;
-}
-
-inline bool FormatVersionUsesSeparatedKVStorage(uint32_t version) {
-  return version >= 8;
 }
 
 // Footer encapsulates the fixed information stored at the tail end of every

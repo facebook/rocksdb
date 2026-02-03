@@ -4296,6 +4296,8 @@ void InitializeOptionsFromFlags(
             : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
+  block_based_options.separate_key_value_in_data_block =
+      FLAGS_separate_key_value_in_data_block;
   block_based_options.index_block_restart_interval =
       static_cast<int32_t>(FLAGS_index_block_restart_interval);
   block_based_options.filter_policy = filter_policy;

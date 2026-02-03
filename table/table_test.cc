@@ -1142,7 +1142,7 @@ class GeneralTableTest : public TableTest {};
 class BlockBasedTableTestBase : public TableTest {};
 class BlockBasedTableTest : public BlockBasedTableTestBase,
                             virtual public ::testing::WithParamInterface<
-                                std::tuple<uint32_t, size_t, size_t>> {
+                                std::tuple<uint32_t, size_t, size_t, bool>> {
  public:
   BlockBasedTableTest() : format_(std::get<0>(GetParam())) {
     env_ = Env::Default();
@@ -1154,6 +1154,7 @@ class BlockBasedTableTest : public BlockBasedTableTestBase,
     auto param = GetParam();
     options.super_block_alignment_size = std::get<1>(param);
     options.super_block_alignment_space_overhead_ratio = std::get<2>(param);
+    options.separate_key_value_in_data_block = std::get<3>(param);
     return options;
   }
 
@@ -1390,7 +1391,7 @@ INSTANTIATE_TEST_CASE_P(
     testing::Combine(testing::ValuesIn(test::kFooterFormatVersionsToTest),
                      testing::Values(0, 128 * 1024, 512 * 1024,
                                      2 * 1024 * 1024),
-                     testing::Values(2048, 32, 128)));
+                     testing::Values(2048, 32, 128), testing::Bool()));
 
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
@@ -1766,7 +1767,7 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
       BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
       true /* persist_user_defined_timestamps */, false /* is_user_key */,
-      FormatVersionUsesSeparatedKVStorage(table_options.format_version));
+      table_options.separate_key_value_in_data_block);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }
