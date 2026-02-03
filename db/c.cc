@@ -6859,6 +6859,11 @@ void rocksdb_ingestexternalfileoptions_set_fail_if_not_bottommost_level(
   opt->rep.fail_if_not_bottommost_level = fail_if_not_bottommost_level;
 }
 
+void rocksdb_ingestexternalfileoptions_set_link_files(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char link_files) {
+  opt->rep.link_files = link_files;
+}
+
 void rocksdb_ingestexternalfileoptions_destroy(
     rocksdb_ingestexternalfileoptions_t* opt) {
   delete opt;

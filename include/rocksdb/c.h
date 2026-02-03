@@ -2702,6 +2702,9 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_ingestexternalfileoptions_set_fail_if_not_bottommost_level(
     rocksdb_ingestexternalfileoptions_t* opt,
     unsigned char fail_if_not_bottommost_level);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfileoptions_set_link_files(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char link_files);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_ingestexternalfileoptions_destroy(
     rocksdb_ingestexternalfileoptions_t* opt);
