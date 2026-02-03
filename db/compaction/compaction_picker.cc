@@ -216,7 +216,7 @@ void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
   assert(initialized);
 }
 
-bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
+bool CompactionPicker::ExpandInputsToCleanCut(const std::string& cf_name,
                                               VersionStorageInfo* vstorage,
                                               CompactionInputFiles* inputs,
                                               InternalKey** next_smallest) {
@@ -232,6 +232,19 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
 
   InternalKey smallest, largest;
 
+#ifndef NDEBUG
+  std::string initial_files;
+  for (const auto* f : inputs->files) {
+    if (!initial_files.empty()) initial_files += ", ";
+    initial_files += std::to_string(f->fd.GetNumber());
+  }
+  ROCKS_LOG_DEBUG(ioptions_.logger,
+                  "[%s] ExpandInputsToCleanCut: level=%d, initial files=[%s]",
+                  cf_name.c_str(), level, initial_files.c_str());
+#else
+  (void)cf_name;
+#endif  // NDEBUG
+
   // Keep expanding inputs until we are sure that there is a "clean cut"
   // boundary between the files in input and the surrounding files.
   // This will ensure that no parts of a key are lost during compaction.
@@ -244,15 +257,100 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
     vstorage->GetOverlappingInputs(level, &smallest, &largest, &inputs->files,
                                    hint_index, &hint_index, true, nullptr,
                                    next_smallest);
+
+#ifndef NDEBUG
+    if (inputs->size() > old_size) {
+      ROCKS_LOG_DEBUG(ioptions_.logger,
+                      "[%s] ExpandInputsToCleanCut: expanded %zu -> %zu files, "
+                      "query range smallest=[%s], largest=[%s]",
+                      cf_name.c_str(), old_size, inputs->size(),
+                      smallest.DebugString(true).c_str(),
+                      largest.DebugString(true).c_str());
+    }
+#endif  // NDEBUG
+
   } while (inputs->size() > old_size);
 
   // we started off with inputs non-empty and the previous loop only grew
   // inputs. thus, inputs should be non-empty here
   assert(!inputs->empty());
 
+#ifndef NDEBUG
+  // Log final state and adjacent files that were NOT included
+  std::string final_files;
+  for (const auto* f : inputs->files) {
+    if (!final_files.empty()) final_files += ", ";
+    final_files += std::to_string(f->fd.GetNumber());
+  }
+  ROCKS_LOG_DEBUG(ioptions_.logger,
+                  "[%s] ExpandInputsToCleanCut: final files=[%s], "
+                  "final range smallest=[%s], largest=[%s]",
+                  cf_name.c_str(), final_files.c_str(),
+                  smallest.DebugString(true).c_str(),
+                  largest.DebugString(true).c_str());
+
+  // Log adjacent files to understand why expansion stopped
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(level);
+  if (!inputs->files.empty()) {
+    int first_idx = -1, last_idx = -1;
+    for (int i = 0; i < static_cast<int>(level_files.size()); i++) {
+      if (level_files[i] == inputs->files.front()) first_idx = i;
+      if (level_files[i] == inputs->files.back()) last_idx = i;
+    }
+
+    // Log file before first selected file
+    if (first_idx > 0) {
+      const auto* prev_file = level_files[first_idx - 1];
+      const auto* first_file = inputs->files.front();
+      int cmp = sstableKeyCompare(icmp_->user_comparator(), prev_file->largest,
+                                  first_file->smallest);
+      ROCKS_LOG_DEBUG(ioptions_.logger,
+                      "[%s] ExpandInputsToCleanCut: file before first: %" PRIu64
+                      " largest=[%s], first file %" PRIu64
+                      " smallest=[%s], sstableKeyCompare=%d, "
+                      "prev being_compacted=%d",
+                      cf_name.c_str(), prev_file->fd.GetNumber(),
+                      prev_file->largest.DebugString(true).c_str(),
+                      first_file->fd.GetNumber(),
+                      first_file->smallest.DebugString(true).c_str(), cmp,
+                      prev_file->being_compacted);
+    }
+
+    // Log file after last selected file
+    if (last_idx >= 0 && last_idx < static_cast<int>(level_files.size()) - 1) {
+      const auto* last_file = inputs->files.back();
+      const auto* next_file = level_files[last_idx + 1];
+      int cmp = sstableKeyCompare(icmp_->user_comparator(), last_file->largest,
+                                  next_file->smallest);
+      ROCKS_LOG_DEBUG(ioptions_.logger,
+                      "[%s] ExpandInputsToCleanCut: last file %" PRIu64
+                      " largest=[%s], file after last: %" PRIu64
+                      " smallest=[%s], sstableKeyCompare=%d, "
+                      "next being_compacted=%d",
+                      cf_name.c_str(), last_file->fd.GetNumber(),
+                      last_file->largest.DebugString(true).c_str(),
+                      next_file->fd.GetNumber(),
+                      next_file->smallest.DebugString(true).c_str(), cmp,
+                      next_file->being_compacted);
+    }
+  }
+#endif  // NDEBUG
+
   // If, after the expansion, there are files that are already under
   // compaction, then we must drop/cancel this compaction.
   if (AreFilesInCompaction(inputs->files)) {
+#ifndef NDEBUG
+    for (const auto* f : inputs->files) {
+      if (f->being_compacted) {
+        ROCKS_LOG_DEBUG(ioptions_.logger,
+                        "[%s] ExpandInputsToCleanCut: FAILED - file %" PRIu64
+                        " is being_compacted, smallest=[%s], largest=[%s]",
+                        cf_name.c_str(), f->fd.GetNumber(),
+                        f->smallest.DebugString(true).c_str(),
+                        f->largest.DebugString(true).c_str());
+      }
+    }
+#endif  // NDEBUG
     return false;
   }
   return true;
