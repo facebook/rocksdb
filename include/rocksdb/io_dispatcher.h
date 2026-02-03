@@ -196,7 +196,8 @@ class ReadSet {
   // blocks are coalesced into a single IO request.
   std::unordered_map<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
 
-  // For memory release notifications back to dispatcher (weak ref to avoid cycles)
+  // For memory release notifications back to dispatcher (weak ref to avoid
+  // cycles)
   std::weak_ptr<IODispatcherImplData> dispatcher_data_;
 
   // Size of each block (parallel to pinned_blocks_) for memory accounting

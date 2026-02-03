@@ -1148,7 +1148,8 @@ TEST_F(IODispatcherTest, MemoryReleasedOnReadSetDestruction) {
   Status s = CreateAndOpenSST(30, &table, &block_handles);
   ASSERT_OK(s);
 
-  // Second table - created now so it's available after first ReadSet is destroyed
+  // Second table - created now so it's available after first ReadSet is
+  // destroyed
   std::unique_ptr<BlockBasedTable> table2;
   std::vector<BlockHandle> block_handles2;
   s = CreateAndOpenSST(30, &table2, &block_handles2);

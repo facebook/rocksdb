@@ -242,8 +242,8 @@ void ReadSet::ReleaseBlock(size_t block_index) {
   }
 
   // Release memory BEFORE unpinning
-  if (pinned_blocks_[block_index].GetValue() && block_index < block_sizes_.size() &&
-      block_sizes_[block_index] > 0) {
+  if (pinned_blocks_[block_index].GetValue() &&
+      block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
     if (auto dispatcher_data = dispatcher_data_.lock()) {
       dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
     }
@@ -525,8 +525,8 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
   }
 }
 
-Status IODispatcherImpl::Impl::SubmitJob(
-    const std::shared_ptr<IOJob>& job, std::shared_ptr<ReadSet>* read_set) {
+Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
+                                         std::shared_ptr<ReadSet>* read_set) {
   if (!read_set) {
     return Status::InvalidArgument("read_set output parameter is null");
   }
