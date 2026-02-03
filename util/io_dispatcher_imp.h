@@ -21,7 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class IODispatcherImpl : public IODispatcher {
  public:
-  explicit IODispatcherImpl();
+  IODispatcherImpl();
+  explicit IODispatcherImpl(const IODispatcherOptions& options);
   ~IODispatcherImpl() override;
 
   Status SubmitJob(const std::shared_ptr<IOJob>& job,
@@ -29,7 +30,7 @@ class IODispatcherImpl : public IODispatcher {
 
  private:
   struct Impl;
-  std::unique_ptr<Impl> impl_;
+  std::shared_ptr<Impl> impl_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

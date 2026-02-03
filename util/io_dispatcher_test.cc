@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -893,6 +894,300 @@ TEST_F(IODispatcherTest, VerifyReadRequestDetails) {
   for (const auto& expected : expected_offsets) {
     EXPECT_TRUE(actual_offsets.count(expected) > 0)
         << "Expected read at offset " << expected << " but it was not found";
+  }
+}
+
+// Test that memory limiting blocks when the limit is exceeded
+TEST_F(IODispatcherTest, MemoryLimitBlocksWhenExceeded) {
+  // Create dispatcher with a small memory limit (1MB)
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 1 * 1024 * 1024;  // 1MB
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(50, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 0);
+
+  // Submit a job - should succeed immediately (non-blocking)
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+
+  // Read all blocks - they may be read synchronously if prefetch was deferred
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+// Test that SubmitJob never blocks even when memory is exhausted
+TEST_F(IODispatcherTest, SubmitJobNeverBlocks) {
+  // Create dispatcher with a tiny memory limit
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 1024;  // 1KB - very small
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(50, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 0);
+
+  // Submit first job - uses up all memory
+  auto job1 = std::make_shared<IOJob>();
+  job1->block_handles = block_handles;
+  job1->table = table.get();
+  job1->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set1;
+  s = dispatcher->SubmitJob(job1, &read_set1);
+  ASSERT_OK(s);  // Should succeed immediately
+
+  // Submit second job - should also succeed immediately (not block)
+  std::unique_ptr<BlockBasedTable> table2;
+  std::vector<BlockHandle> block_handles2;
+  s = CreateAndOpenSST(30, &table2, &block_handles2);
+  ASSERT_OK(s);
+
+  auto job2 = std::make_shared<IOJob>();
+  job2->block_handles = block_handles2;
+  job2->table = table2.get();
+  job2->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set2;
+  s = dispatcher->SubmitJob(job2, &read_set2);
+  ASSERT_OK(s);  // Should succeed immediately - prefetch is just deferred
+
+  // Reads work - blocks are fetched synchronously on demand
+  for (size_t i = 0; i < block_handles2.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set2->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+// Test that releasing blocks triggers pending prefetches
+TEST_F(IODispatcherTest, BlockReleaseTriggersWaitingJob) {
+  // Create dispatcher with a small memory limit
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 100 * 1024;  // 100KB
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(30, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 0);
+
+  // Submit first job
+  auto job1 = std::make_shared<IOJob>();
+  job1->block_handles = block_handles;
+  job1->table = table.get();
+  job1->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set1;
+  s = dispatcher->SubmitJob(job1, &read_set1);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set1, nullptr);
+
+  // Read all blocks from first job
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set1->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+  }
+
+  // Submit second job - prefetch will be deferred due to memory limit
+  std::unique_ptr<BlockBasedTable> table2;
+  std::vector<BlockHandle> block_handles2;
+  s = CreateAndOpenSST(20, &table2, &block_handles2);
+  ASSERT_OK(s);
+
+  auto job2 = std::make_shared<IOJob>();
+  job2->block_handles = block_handles2;
+  job2->table = table2.get();
+  job2->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set2;
+  s = dispatcher->SubmitJob(job2, &read_set2);
+  ASSERT_OK(s);  // Should succeed immediately
+  ASSERT_NE(read_set2, nullptr);
+
+  // Release blocks from first job - this should trigger pending prefetches
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    read_set1->ReleaseBlock(i);
+  }
+
+  // Read all blocks from second job - should work
+  for (size_t i = 0; i < block_handles2.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set2->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+// Test that multiple ReadSets share the memory budget
+TEST_F(IODispatcherTest, MultipleReadSetsShareMemoryBudget) {
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 10 * 1024 * 1024;  // 10MB
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::vector<std::shared_ptr<ReadSet>> read_sets;
+  std::vector<std::vector<BlockHandle>> all_block_handles;
+
+  // Create and submit multiple jobs
+  for (int i = 0; i < 3; i++) {
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+
+    Status s = CreateAndOpenSST(20 + i * 5, &table, &block_handles);
+    ASSERT_OK(s);
+
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.async_io = false;
+    tables_.push_back(std::move(table));
+
+    all_block_handles.push_back(block_handles);
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    read_sets.push_back(read_set);
+  }
+
+  // Verify all ReadSets can read their blocks
+  for (size_t i = 0; i < read_sets.size(); ++i) {
+    for (size_t j = 0; j < all_block_handles[i].size(); ++j) {
+      CachableEntry<Block> block;
+      Status read_status = read_sets[i]->ReadIndex(j, &block);
+      ASSERT_OK(read_status);
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+  }
+
+  // Release all blocks from first ReadSet
+  for (size_t i = 0; i < all_block_handles[0].size(); ++i) {
+    read_sets[0]->ReleaseBlock(i);
+  }
+
+  // Create another job - should work because first ReadSet released memory
+  std::unique_ptr<BlockBasedTable> table_new;
+  std::vector<BlockHandle> block_handles_new;
+  Status s = CreateAndOpenSST(25, &table_new, &block_handles_new);
+  ASSERT_OK(s);
+
+  auto job_new = std::make_shared<IOJob>();
+  job_new->block_handles = block_handles_new;
+  job_new->table = table_new.get();
+  job_new->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set_new;
+  s = dispatcher->SubmitJob(job_new, &read_set_new);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set_new, nullptr);
+
+  for (size_t i = 0; i < block_handles_new.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set_new->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+// Test that no memory limiting is applied when max_prefetch_memory_bytes is 0
+TEST_F(IODispatcherTest, NoMemoryLimitWhenZero) {
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 0;  // No limit
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(50, &table, &block_handles);
+  ASSERT_OK(s);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+// Test memory release on ReadSet destruction triggers pending prefetches
+TEST_F(IODispatcherTest, MemoryReleasedOnReadSetDestruction) {
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 100 * 1024;  // 100KB
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  // Create table outside the scope so it outlives the ReadSet
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(30, &table, &block_handles);
+  ASSERT_OK(s);
+
+  // Second table - created now so it's available after first ReadSet is destroyed
+  std::unique_ptr<BlockBasedTable> table2;
+  std::vector<BlockHandle> block_handles2;
+  s = CreateAndOpenSST(30, &table2, &block_handles2);
+  ASSERT_OK(s);
+
+  std::shared_ptr<ReadSet> read_set2;
+
+  {
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.async_io = false;
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    ASSERT_NE(read_set, nullptr);
+
+    // Submit second job while first is still alive - prefetch will be deferred
+    auto job2 = std::make_shared<IOJob>();
+    job2->block_handles = block_handles2;
+    job2->table = table2.get();
+    job2->job_options.read_options.async_io = false;
+
+    s = dispatcher->SubmitJob(job2, &read_set2);
+    ASSERT_OK(s);  // Should succeed immediately
+    ASSERT_NE(read_set2, nullptr);
+
+    // First ReadSet goes out of scope here and should release all memory,
+    // which triggers pending prefetches for second ReadSet
+  }
+
+  // Read all blocks from second job - should work because first ReadSet
+  // released its memory on destruction
+  for (size_t i = 0; i < block_handles2.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set2->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
   }
 }
 

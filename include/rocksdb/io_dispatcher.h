@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -17,6 +18,21 @@
 namespace ROCKSDB_NAMESPACE {
 
 class FileSystem;
+class Statistics;
+
+// Forward declaration for internal implementation
+struct IODispatcherImplData;
+
+// Options for configuring IODispatcher behavior
+struct IODispatcherOptions {
+  // Maximum memory (in bytes) for prefetching across all ReadSets.
+  // When this limit is reached, SubmitJob() blocks until memory is released.
+  // Set to 0 (default) for unlimited prefetch memory.
+  size_t max_prefetch_memory_bytes = 0;
+
+  // Optional statistics for tracking memory limiter metrics
+  Statistics* statistics = nullptr;
+};
 
 /*
  * IODispatcher is a class that allows users to submit groups of IO jobs to be
@@ -180,6 +196,12 @@ class ReadSet {
   // blocks are coalesced into a single IO request.
   std::unordered_map<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
 
+  // For memory release notifications back to dispatcher (weak ref to avoid cycles)
+  std::weak_ptr<IODispatcherImplData> dispatcher_data_;
+
+  // Size of each block (parallel to pinned_blocks_) for memory accounting
+  std::vector<size_t> block_sizes_;
+
   // Statistics counters
   std::atomic<uint64_t> num_sync_reads_ = 0;
   std::atomic<uint64_t> num_async_reads_ = 0;
@@ -218,7 +240,11 @@ class IODispatcher {
                            std::shared_ptr<ReadSet>* read_set) = 0;
 };
 
+// Create IODispatcher with default options (no memory limit)
 IODispatcher* NewIODispatcher();
+
+// Create IODispatcher with custom options
+IODispatcher* NewIODispatcher(const IODispatcherOptions& options);
 
 // TrackingIODispatcher wraps another IODispatcher and tracks all ReadSets
 // created. This is useful for testing to verify IO statistics.

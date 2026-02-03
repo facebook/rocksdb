@@ -292,6 +292,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {MULTISCAN_IO_COALESCED_NONADJACENT,
      "rocksdb.multiscan.io.coalesced.nonadjacent"},
     {MULTISCAN_SEEK_ERRORS, "rocksdb.multiscan.seek.errors"},
+    {PREFETCH_MEMORY_BYTES_GRANTED, "rocksdb.prefetch.memory.bytes.granted"},
+    {PREFETCH_MEMORY_BYTES_RELEASED, "rocksdb.prefetch.memory.bytes.released"},
+    {PREFETCH_MEMORY_REQUESTS_BLOCKED,
+     "rocksdb.prefetch.memory.requests.blocked"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
