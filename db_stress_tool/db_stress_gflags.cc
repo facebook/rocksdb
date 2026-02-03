@@ -139,6 +139,10 @@ DEFINE_bool(destroy_db_and_exit, false,
             "Destroys the database dir and exits. Useful for cleanup without "
             "running stress test. Other options are mostly ignored.");
 
+DEFINE_string(delete_dir_and_exit, "",
+              "Recursively deletes the specified directory and exits. "
+              "Useful for cleaning up TEST_TMPDIR after crash tests.");
+
 DEFINE_bool(verbose, false, "Verbose");
 
 DEFINE_bool(progress_reports, true,
