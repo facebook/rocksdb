@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/options.h"
@@ -22,6 +23,7 @@ class Statistics;
 
 // Forward declaration for internal implementation
 struct IODispatcherImplData;
+struct PendingPrefetchRequest;
 
 // Options for configuring IODispatcher behavior
 struct IODispatcherOptions {
@@ -214,6 +216,16 @@ class ReadSet {
 
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
+
+  // Remove a block from pending prefetch (called by ReadIndex/ReleaseBlock)
+  void RemoveFromPending(size_t block_index);
+
+  // Atomic flags indicating if block is pending prefetch (lock-free check)
+  std::unique_ptr<std::atomic<bool>[]> pending_prefetch_flags_;
+  size_t pending_prefetch_flags_size_ = 0;
+
+  // Reference to pending request (for removal notification)
+  std::shared_ptr<PendingPrefetchRequest> pending_request_;
 };
 
 /*

@@ -16,6 +16,7 @@
 
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -111,6 +112,9 @@ struct AsyncIOState {
 // io_uring completions arrive for deleted handles.
 ReadSet::~ReadSet() {
   // Release memory for any blocks still pinned
+  // Note: block_sizes_[i] is only set for async IO reads where memory
+  // limiting applies. For sync reads, block_sizes_ remains 0, so this
+  // loop is effectively a no-op for sync reads.
   if (auto dispatcher_data = dispatcher_data_.lock()) {
     for (size_t i = 0; i < block_sizes_.size(); ++i) {
       if (block_sizes_[i] > 0 && pinned_blocks_[i].GetValue()) {
@@ -194,6 +198,9 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   }
 
   // Case 3: Block needs synchronous read
+  // If this block was pending prefetch, remove it since we're reading it now
+  RemoveFromPending(block_index);
+
   Status s = SyncRead(block_index);
   if (s.ok()) {
     *out = std::move(pinned_blocks_[block_index]);
@@ -241,7 +248,13 @@ void ReadSet::ReleaseBlock(size_t block_index) {
     return;
   }
 
+  // Remove from pending if applicable
+  RemoveFromPending(block_index);
+
   // Release memory BEFORE unpinning
+  // Note: block_sizes_[idx] is only set for async IO reads where memory
+  // limiting applies. For sync reads, block_sizes_ remains 0, so this
+  // check implicitly skips ReleaseMemory for sync reads.
   if (pinned_blocks_[block_index].GetValue() &&
       block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
     if (auto dispatcher_data = dispatcher_data_.lock()) {
@@ -335,8 +348,28 @@ Status ReadSet::SyncRead(size_t block_index) {
 struct PendingPrefetchRequest {
   std::weak_ptr<ReadSet> read_set;
   std::shared_ptr<IOJob> job;
-  std::vector<size_t> block_indices_to_prefetch;
+  std::unordered_set<size_t> block_indices_to_prefetch;  // Set for O(1) removal
+  std::atomic<size_t> pending_bytes_{0};  // Track remaining bytes
+  mutable std::mutex indices_mutex_;      // Protects set modifications
 };
+
+// Remove a block from pending prefetch (called when block is read or released)
+void ReadSet::RemoveFromPending(size_t block_index) {
+  if (!pending_prefetch_flags_ || block_index >= pending_prefetch_flags_size_) {
+    return;
+  }
+
+  // Atomic exchange - returns true only if it was previously true
+  if (!pending_prefetch_flags_[block_index].exchange(false)) {
+    return;  // Already removed or never pending
+  }
+
+  if (pending_request_) {
+    std::lock_guard<std::mutex> lock(pending_request_->indices_mutex_);
+    pending_request_->block_indices_to_prefetch.erase(block_index);
+    pending_request_->pending_bytes_ -= block_sizes_[block_index];
+  }
+}
 
 // IODispatcherImpl::Impl inherits from IODispatcherImplData
 struct IODispatcherImpl::Impl : public IODispatcherImplData,
@@ -361,7 +394,7 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
   size_t max_prefetch_memory_bytes_ = 0;
   size_t memory_used_ = 0;
   port::Mutex memory_mutex_;
-  std::deque<PendingPrefetchRequest> pending_prefetch_queue_;
+  std::deque<std::shared_ptr<PendingPrefetchRequest>> pending_prefetch_queue_;
   Statistics* statistics_ = nullptr;
 
  private:
@@ -439,7 +472,7 @@ void IODispatcherImpl::Impl::ReleaseMemory(size_t bytes) {
 void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
   // Process pending prefetch requests
   while (true) {
-    PendingPrefetchRequest pending;
+    std::shared_ptr<PendingPrefetchRequest> pending;
 
     {
       MutexLock lock(&memory_mutex_);
@@ -453,46 +486,46 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
     }
 
     // Check if the ReadSet is still alive
-    auto read_set = pending.read_set.lock();
+    auto read_set = pending->read_set.lock();
     if (!read_set) {
       continue;  // ReadSet was destroyed, skip this request
     }
 
-    // Filter out blocks that have already been read or released
-    std::vector<size_t> blocks_still_needed;
-    for (size_t idx : pending.block_indices_to_prefetch) {
-      // Block still needs prefetch if:
-      // - It's not in cache (pinned_blocks_ is empty for this index)
-      // - It's not being async read (not in async_io_map_)
-      // - block_sizes_ is still non-zero (not released)
-      if (!read_set->pinned_blocks_[idx].GetValue() &&
-          read_set->async_io_map_.find(idx) == read_set->async_io_map_.end() &&
-          read_set->block_sizes_[idx] > 0) {
-        blocks_still_needed.push_back(idx);
+    // Get remaining blocks under lock (no filtering needed - blocks are
+    // proactively removed by ReadIndex and ReleaseBlock)
+    std::vector<size_t> blocks_to_dispatch;
+    size_t bytes_needed;
+    {
+      std::lock_guard<std::mutex> lock(pending->indices_mutex_);
+      if (pending->block_indices_to_prefetch.empty()) {
+        continue;  // All blocks already handled
       }
-    }
 
-    if (blocks_still_needed.empty()) {
-      continue;  // All blocks already handled
-    }
-
-    // Calculate memory needed for remaining blocks
-    size_t bytes_needed = 0;
-    for (size_t idx : blocks_still_needed) {
-      bytes_needed += read_set->block_sizes_[idx];
+      blocks_to_dispatch.assign(pending->block_indices_to_prefetch.begin(),
+                                pending->block_indices_to_prefetch.end());
+      bytes_needed = pending->pending_bytes_;
     }
 
     // Try to acquire memory
     if (!TryAcquireMemory(bytes_needed)) {
       // Not enough memory yet - put back in queue
       MutexLock lock(&memory_mutex_);
-      pending.block_indices_to_prefetch = std::move(blocks_still_needed);
       pending_prefetch_queue_.push_front(std::move(pending));
       return;
     }
 
+    // Clear pending flags before dispatch
+    if (read_set->pending_prefetch_flags_) {
+      for (size_t idx : blocks_to_dispatch) {
+        if (idx < read_set->pending_prefetch_flags_size_) {
+          read_set->pending_prefetch_flags_[idx].store(false);
+        }
+      }
+    }
+    read_set->pending_request_.reset();
+
     // Dispatch the prefetch
-    DispatchPrefetch(read_set, pending.job, blocks_still_needed);
+    DispatchPrefetch(read_set, pending->job, blocks_to_dispatch);
   }
 }
 
@@ -584,28 +617,47 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   rs->num_cache_hits_ =
       job->block_handles.size() - block_indices_to_read.size();
 
-  // Calculate and track block sizes for uncached blocks
+  // Calculate block sizes for uncached blocks
+  // Only track for async IO since that's when memory limiting applies
   size_t bytes_needed = 0;
+  const bool use_memory_limiting = job->job_options.read_options.async_io;
   for (const auto& idx : block_indices_to_read) {
     size_t block_size =
         BlockBasedTable::BlockSizeWithTrailer(job->block_handles[idx]);
-    rs->block_sizes_[idx] = block_size;
+    if (use_memory_limiting) {
+      rs->block_sizes_[idx] = block_size;
+    }
     bytes_needed += block_size;
   }
 
   // Store dispatcher reference for release callbacks
   rs->dispatcher_data_ = shared_from_this();
 
-  // Try to acquire memory for prefetching (non-blocking)
-  if (bytes_needed > 0 && !TryAcquireMemory(bytes_needed)) {
+  // Try to acquire memory (only for async IO - sync reads proceed immediately)
+  if (use_memory_limiting && bytes_needed > 0 &&
+      !TryAcquireMemory(bytes_needed)) {
     // Not enough memory - queue the prefetch for later and return immediately
-    // Blocks will be read synchronously on-demand via ReadIndex
-    MutexLock lock(&memory_mutex_);
-    PendingPrefetchRequest pending;
-    pending.read_set = rs;
-    pending.job = job;
-    pending.block_indices_to_prefetch = block_indices_to_read;
-    pending_prefetch_queue_.push_back(std::move(pending));
+    auto pending = std::make_shared<PendingPrefetchRequest>();
+    pending->read_set = rs;
+    pending->job = job;
+    pending->block_indices_to_prefetch.insert(block_indices_to_read.begin(),
+                                              block_indices_to_read.end());
+    pending->pending_bytes_ = bytes_needed;
+
+    // Set up pending flags and reference in ReadSet
+    size_t num_blocks = job->block_handles.size();
+    rs->pending_prefetch_flags_ =
+        std::make_unique<std::atomic<bool>[]>(num_blocks);
+    rs->pending_prefetch_flags_size_ = num_blocks;
+    for (size_t idx : block_indices_to_read) {
+      rs->pending_prefetch_flags_[idx].store(true);
+    }
+    rs->pending_request_ = pending;
+
+    {
+      MutexLock lock(&memory_mutex_);
+      pending_prefetch_queue_.push_back(std::move(pending));
+    }
 
     *read_set = std::move(rs);
     return Status::OK();
