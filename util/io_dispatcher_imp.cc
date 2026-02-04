@@ -564,9 +564,8 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
     const std::vector<size_t>& block_indices) {
   // Sync point for testing partial prefetch - passes number of blocks being
   // dispatched
-  size_t num_blocks = block_indices.size();
   TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::DispatchPrefetch:BlockCount",
-                           &num_blocks);
+                           const_cast<std::vector<size_t>*>(&block_indices));
 
   // Prepare and execute IO for the given blocks
   std::vector<FSReadRequest> read_reqs;
@@ -673,7 +672,8 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // (only for async IO - sync reads proceed immediately)
   if (use_memory_limiting && bytes_needed > 0) {
     // Try to acquire memory for blocks in order (earlier indices first)
-    // This prioritizes blocks that are typically accessed first in sequential scans
+    // This prioritizes blocks that are typically accessed first in sequential
+    // scans
     std::vector<size_t> blocks_to_dispatch;
     std::vector<size_t> blocks_to_queue;
 

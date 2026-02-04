@@ -1219,8 +1219,8 @@ TEST_F(IODispatcherTest, PartialPrefetchDispatchesWhatFits) {
   size_t blocks_dispatched_on_submit = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "IODispatcherImpl::DispatchPrefetch:BlockCount", [&](void* arg) {
-        size_t* count = static_cast<size_t*>(arg);
-        blocks_dispatched_on_submit += *count;
+        auto* indices = static_cast<std::vector<size_t>*>(arg);
+        blocks_dispatched_on_submit += indices->size();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
