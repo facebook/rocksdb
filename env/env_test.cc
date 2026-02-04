@@ -41,6 +41,9 @@
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include "env/io_posix.h"
+#endif
 #include "env/mock_env.h"
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
@@ -3917,6 +3920,154 @@ TEST_F(TestAsyncRead, AbortIOReversedHandles) {
   // 2MB file, Direct I/O enabled, 100 iterations
   TestAbortIOWithRequests(env_, 2 * 1024 * 1024, specs,
                           /*use_direct_io=*/true, /*iterations=*/100);
+}
+
+// Test for bug fix: AbortIO with partial handles should correctly handle
+// completions for non-aborted handles.
+//
+// Previously, AbortIO would consume completions for non-aborted handles but
+// not set is_finished (since it expected req_count==2 for all handles).
+// This caused subsequent Poll calls to hang forever.
+//
+// The fix correctly detects handles not in the abort set and finalizes them
+// immediately when their completion arrives (at req_count==1).
+TEST_F(TestAsyncRead, AbortIOPartialHandlesBug) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env_, "testfile_abortio_partial");
+
+  constexpr size_t kSectorSize = 4096;
+  constexpr size_t kFileSize = 2 * 1024 * 1024;  // 2MB
+
+  // 1. Create test file with direct I/O
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    FileOptions file_opts;
+    file_opts.use_direct_writes = true;
+    ASSERT_OK(fs->NewWritableFile(fname, file_opts, &wfile, nullptr));
+
+    size_t num_sectors = kFileSize / kSectorSize;
+    for (size_t i = 0; i < num_sectors; ++i) {
+      auto data = NewAligned(kSectorSize, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  // 2. Submit 3 ReadAsync requests, abort only the first one, then Poll the
+  // rest
+  {
+    FileOptions file_opts;
+    file_opts.use_direct_reads = true;
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, file_opts, &file, nullptr));
+
+    IOOptions opts;
+    constexpr size_t kNumReads = 3;
+    std::vector<void*> io_handles(kNumReads);
+    std::vector<FSReadRequest> reqs(kNumReads);
+    std::vector<std::unique_ptr<char, Deleter>> data;
+    std::vector<size_t> vals;
+    IOHandleDeleter del_fn;
+    std::atomic<int> callbacks_invoked{0};
+
+    // H0: 1MB read, H1: 4KB read, H2: 4KB read
+    std::vector<std::pair<uint64_t, size_t>> read_specs = {
+        {0, 1024 * 1024},            // H0: 1MB at offset 0
+        {1024 * 1024, 4096},         // H1: 4KB at offset 1MB
+        {1024 * 1024 + 4096, 4096},  // H2: 4KB at offset 1MB+4KB
+    };
+
+    for (size_t i = 0; i < kNumReads; i++) {
+      reqs[i].offset = read_specs[i].first;
+      reqs[i].len = read_specs[i].second;
+      data.emplace_back(NewAligned(reqs[i].len, 0));
+      reqs[i].scratch = data.back().get();
+      vals.push_back(i);
+    }
+
+    std::function<void(FSReadRequest&, void*)> callback =
+        [&](FSReadRequest& req, void* cb_arg) {
+          size_t i = *(reinterpret_cast<size_t*>(cb_arg));
+          reqs[i].status = req.status;
+          callbacks_invoked++;
+        };
+
+    // Submit all ReadAsync requests
+    for (size_t i = 0; i < kNumReads; i++) {
+      void* cb_arg = static_cast<void*>(&(vals[i]));
+      IOStatus s = file->ReadAsync(reqs[i], opts, callback, cb_arg,
+                                   &(io_handles[i]), &del_fn, nullptr);
+      if (s.IsNotSupported()) {
+        // io_uring not supported, clean up and skip
+        for (size_t j = 0; j < i; j++) {
+          if (io_handles[j]) {
+            del_fn(io_handles[j]);
+          }
+        }
+        ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+        return;
+      }
+      ASSERT_OK(s);
+    }
+
+    // Wait for reads to complete in io_uring (completions in queue but not
+    // consumed). 5 seconds should be plenty for direct I/O reads to complete.
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    // Abort ONLY H0 - this will consume all completions but should correctly
+    // finalize H1 and H2 (since they're not in the abort set).
+    std::vector<void*> abort_handles = {io_handles[0]};
+    ASSERT_OK(fs->AbortIO(abort_handles));
+
+    // Verify H0 is finished (aborted)
+    Posix_IOHandle* h0 = static_cast<Posix_IOHandle*>(io_handles[0]);
+    ASSERT_TRUE(h0->is_finished);
+    ASSERT_EQ(h0->req_count, 2u);  // original + cancel
+
+    // Verify H1 and H2 are finished (read completed, not aborted)
+    Posix_IOHandle* h1 = static_cast<Posix_IOHandle*>(io_handles[1]);
+    Posix_IOHandle* h2 = static_cast<Posix_IOHandle*>(io_handles[2]);
+    ASSERT_TRUE(h1->is_finished);
+    ASSERT_TRUE(h2->is_finished);
+    ASSERT_EQ(h1->req_count, 1u);  // only original (no cancel)
+    ASSERT_EQ(h2->req_count, 1u);  // only original (no cancel)
+
+    // Poll on H1, H2 - should return immediately since they're already finished
+    // Note: Poll must be called from the same thread (io_uring is thread-local)
+    std::vector<void*> poll_handles = {io_handles[1], io_handles[2]};
+
+    // Use a watchdog to detect hang (regression test)
+    std::atomic<bool> poll_completed{false};
+    std::thread watchdog([&]() {
+      for (int i = 0; i < 500; i++) {  // 5 seconds timeout
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (poll_completed) return;
+      }
+      // Bug regression: Poll hung
+      _exit(1);
+    });
+
+    fs->Poll(poll_handles, poll_handles.size());
+    poll_completed = true;
+    watchdog.join();
+
+    // Verify all callbacks were invoked
+    ASSERT_EQ(callbacks_invoked.load(), 3);
+
+    // Clean up handles
+    for (size_t i = 0; i < kNumReads; i++) {
+      if (io_handles[i]) {
+        del_fn(io_handles[i]);
+      }
+    }
+  }
+
+  ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+#else
+  (void)env_;  // Suppress unused variable warning
+#endif
 }
 
 struct StaticDestructionTester {

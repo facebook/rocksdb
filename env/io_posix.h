@@ -127,6 +127,7 @@ struct Posix_IOHandle {
         use_direct_io(_use_direct_io),
         alignment(_alignment),
         is_finished(false),
+        is_being_aborted(false),
         req_count(0) {}
 
   struct iovec iov;
@@ -139,6 +140,10 @@ struct Posix_IOHandle {
   bool use_direct_io;
   size_t alignment;
   bool is_finished;
+  // is_being_aborted is set by AbortIO when a cancel request is submitted.
+  // Used to distinguish between aborted handles (expect 2 completions) and
+  // non-aborted handles (expect 1 completion) when processing completions.
+  bool is_being_aborted;
   // req_count is used by AbortIO API to keep track of number of requests.
   uint32_t req_count;
 };
@@ -196,6 +201,27 @@ inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
 #ifdef NDEBUG
   (void)len;
 #endif
+}
+
+// Finalize a completed async read request.
+// Processes the CQE result, marks the handle as finished, and invokes the
+// callback. This is shared between Poll and AbortIO (for non-aborted handles).
+inline void FinalizeAsyncRead(struct io_uring* iu, struct io_uring_cqe* cqe,
+                              Posix_IOHandle* posix_handle) {
+  FSReadRequest req;
+  req.scratch = posix_handle->scratch;
+  req.offset = posix_handle->offset;
+  req.len = posix_handle->len;
+
+  size_t finished_len = 0;
+  size_t bytes_read = 0;
+  bool read_again = false;
+  UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len, true /*async_read*/,
+               posix_handle->use_direct_io, posix_handle->alignment,
+               finished_len, &req, bytes_read, read_again);
+  posix_handle->is_finished = true;
+  io_uring_cqe_seen(iu, cqe);
+  posix_handle->cb(req, posix_handle->cb_arg);
 }
 #endif
 
