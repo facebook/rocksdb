@@ -517,6 +517,9 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
       }
     }
 
+    // Save job before potential move of pending
+    auto job = pending->job;
+
     // Update pending request if blocks remain
     if (!blocks_still_pending.empty()) {
       MutexLock lock(&pending->indices_mutex_);
@@ -549,7 +552,7 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
 
     // Dispatch acquired blocks
     if (!blocks_to_dispatch.empty()) {
-      DispatchPrefetch(read_set, pending->job, blocks_to_dispatch);
+      DispatchPrefetch(read_set, job, blocks_to_dispatch);
     }
 
     // If we dispatched nothing, stop (no memory available)
@@ -584,11 +587,16 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
       std::vector<std::vector<size_t>> sync_coalesced_indices;
       PrepareIORequests(job, fallback_indices, job->block_handles,
                         &sync_read_reqs, &sync_coalesced_indices);
-      ExecuteSyncIO(job, read_set, sync_read_reqs, sync_coalesced_indices);
+      // Prefetch errors are ignored - user will get the error when reading
+      Status s =
+          ExecuteSyncIO(job, read_set, sync_read_reqs, sync_coalesced_indices);
+      s.PermitUncheckedError();
       read_set->num_sync_reads_ += fallback_indices.size();
     }
   } else {
-    ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
+    // Prefetch errors are ignored - user will get the error when reading
+    Status s = ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
+    s.PermitUncheckedError();
     read_set->num_sync_reads_ += block_indices.size();
   }
 }
