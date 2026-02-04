@@ -16,7 +16,6 @@
 
 #include <deque>
 #include <memory>
-#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -350,7 +349,7 @@ struct PendingPrefetchRequest {
   std::shared_ptr<IOJob> job;
   std::unordered_set<size_t> block_indices_to_prefetch;  // Set for O(1) removal
   std::atomic<size_t> pending_bytes_{0};  // Track remaining bytes
-  mutable std::mutex indices_mutex_;      // Protects set modifications
+  mutable port::Mutex indices_mutex_;     // Protects set modifications
 };
 
 // Remove a block from pending prefetch (called when block is read or released)
@@ -365,7 +364,7 @@ void ReadSet::RemoveFromPending(size_t block_index) {
   }
 
   if (pending_request_) {
-    std::lock_guard<std::mutex> lock(pending_request_->indices_mutex_);
+    MutexLock lock(&pending_request_->indices_mutex_);
     pending_request_->block_indices_to_prefetch.erase(block_index);
     pending_request_->pending_bytes_ -= block_sizes_[block_index];
   }
@@ -496,7 +495,7 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
     std::vector<size_t> blocks_to_dispatch;
     size_t bytes_needed;
     {
-      std::lock_guard<std::mutex> lock(pending->indices_mutex_);
+      MutexLock lock(&pending->indices_mutex_);
       if (pending->block_indices_to_prefetch.empty()) {
         continue;  // All blocks already handled
       }
