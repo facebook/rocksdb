@@ -24,6 +24,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "test_util/sync_point.h"
 
 // Enable io_uring support for this test
 extern "C" bool RocksDbIOUringEnable() { return true; }
@@ -1187,6 +1188,131 @@ TEST_F(IODispatcherTest, MemoryReleasedOnReadSetDestruction) {
   for (size_t i = 0; i < block_handles2.size(); ++i) {
     CachableEntry<Block> block;
     Status read_status = read_set2->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+// Test that partial prefetch dispatches as many blocks as memory allows
+// and queues the rest for later dispatch
+TEST_F(IODispatcherTest, PartialPrefetchDispatchesWhatFits) {
+  // Skip this test if io_uring is not available since partial prefetch
+  // only applies to async IO
+  if (!kIOUringPresent) {
+    return;  // io_uring not available, skip async IO test
+  }
+
+  // Create dispatcher with memory limit that allows only some blocks
+  // Each block is ~16KB, so 50KB allows roughly 3 blocks
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 50 * 1024;  // 50KB
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  // Create 10 blocks - only ~3 should fit in memory
+  Status s = CreateAndOpenSST(10, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GE(block_handles.size(), 5);
+
+  // Use sync point to count blocks dispatched during SubmitJob
+  size_t blocks_dispatched_on_submit = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchPrefetch:BlockCount", [&](void* arg) {
+        size_t* count = static_cast<size_t*>(arg);
+        blocks_dispatched_on_submit += *count;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;  // Use async IO
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+
+  // With partial prefetch, we expect SOME blocks to have been dispatched
+  // (the ones that fit in memory), but not ALL blocks
+  // This is the key assertion: partial prefetch means > 0 blocks dispatched
+  // even though total memory needed exceeds the limit
+  EXPECT_GT(blocks_dispatched_on_submit, 0)
+      << "Expected some blocks to be dispatched with partial prefetch";
+  EXPECT_LT(blocks_dispatched_on_submit, block_handles.size())
+      << "Expected not all blocks to be dispatched (memory limit should apply)";
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Now read all blocks - remaining blocks will be fetched on demand
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->ReadIndex(i, &block);
+    ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+
+  // Verify all blocks were ultimately read
+  uint64_t total_reads = read_set->GetNumSyncReads() +
+                         read_set->GetNumAsyncReads() +
+                         read_set->GetNumCacheHits();
+  EXPECT_EQ(total_reads, block_handles.size());
+}
+
+// Test that earlier block indices are prioritized in partial prefetch
+TEST_F(IODispatcherTest, PartialPrefetchPrioritizesEarlierIndices) {
+  // Skip this test if io_uring is not available
+  if (!kIOUringPresent) {
+    return;  // io_uring not available, skip async IO test
+  }
+
+  // Create dispatcher with memory limit that allows only 1-2 blocks
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 20 * 1024;  // 20KB - room for ~1 block
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(10, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GE(block_handles.size(), 5);
+
+  tracking_fs_->ClearReadOps();
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+
+  // Get the async reads that were dispatched
+  auto read_ops = tracking_fs_->GetReadOps();
+
+  // Find the offset of the first async read
+  uint64_t first_async_offset = UINT64_MAX;
+  for (const auto& op : read_ops) {
+    if (op.type == ReadOp::kReadAsync && !op.requests.empty()) {
+      first_async_offset = std::min(first_async_offset, op.requests[0].first);
+    }
+  }
+
+  // The first async read should be for the first block (lowest offset)
+  // This verifies that earlier indices are prioritized
+  if (first_async_offset != UINT64_MAX) {
+    EXPECT_EQ(first_async_offset, block_handles[0].offset())
+        << "Expected first async read to be for the first block (earliest "
+           "index)";
+  }
+
+  // Read all blocks to complete the test
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    Status read_status = read_set->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
   }

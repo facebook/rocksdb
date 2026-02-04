@@ -31,6 +31,7 @@
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/reader_common.h"
 #include "table/format.h"
+#include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -469,7 +470,7 @@ void IODispatcherImpl::Impl::ReleaseMemory(size_t bytes) {
 }
 
 void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
-  // Process pending prefetch requests
+  // Process pending prefetch requests with partial dispatch support
   while (true) {
     std::shared_ptr<PendingPrefetchRequest> pending;
 
@@ -490,30 +491,54 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
       continue;  // ReadSet was destroyed, skip this request
     }
 
-    // Get remaining blocks under lock (no filtering needed - blocks are
-    // proactively removed by ReadIndex and ReleaseBlock)
-    std::vector<size_t> blocks_to_dispatch;
-    size_t bytes_needed;
+    // Get remaining blocks, sorted for consistent ordering (earlier first)
+    std::vector<size_t> remaining_blocks;
     {
       MutexLock lock(&pending->indices_mutex_);
       if (pending->block_indices_to_prefetch.empty()) {
         continue;  // All blocks already handled
       }
+      remaining_blocks.assign(pending->block_indices_to_prefetch.begin(),
+                              pending->block_indices_to_prefetch.end());
+    }
+    // Sort to prioritize earlier indices (sequential access pattern)
+    std::sort(remaining_blocks.begin(), remaining_blocks.end());
 
-      blocks_to_dispatch.assign(pending->block_indices_to_prefetch.begin(),
-                                pending->block_indices_to_prefetch.end());
-      bytes_needed = pending->pending_bytes_;
+    // Try to acquire memory for as many blocks as possible (earlier first)
+    std::vector<size_t> blocks_to_dispatch;
+    std::vector<size_t> blocks_still_pending;
+
+    for (size_t idx : remaining_blocks) {
+      size_t block_size = read_set->block_sizes_[idx];
+      if (TryAcquireMemory(block_size)) {
+        blocks_to_dispatch.push_back(idx);
+      } else {
+        blocks_still_pending.push_back(idx);
+      }
     }
 
-    // Try to acquire memory
-    if (!TryAcquireMemory(bytes_needed)) {
-      // Not enough memory yet - put back in queue
-      MutexLock lock(&memory_mutex_);
+    // Update pending request if blocks remain
+    if (!blocks_still_pending.empty()) {
+      MutexLock lock(&pending->indices_mutex_);
+      pending->block_indices_to_prefetch.clear();
+      pending->block_indices_to_prefetch.insert(blocks_still_pending.begin(),
+                                                blocks_still_pending.end());
+
+      size_t pending_bytes = 0;
+      for (size_t idx : blocks_still_pending) {
+        pending_bytes += read_set->block_sizes_[idx];
+      }
+      pending->pending_bytes_ = pending_bytes;
+
+      // Requeue for later
+      MutexLock queue_lock(&memory_mutex_);
       pending_prefetch_queue_.push_front(std::move(pending));
-      return;
+    } else {
+      // All blocks dispatched, clear pending state
+      read_set->pending_request_.reset();
     }
 
-    // Clear pending flags before dispatch
+    // Clear pending flags for dispatched blocks
     if (read_set->pending_prefetch_flags_) {
       for (size_t idx : blocks_to_dispatch) {
         if (idx < read_set->pending_prefetch_flags_size_) {
@@ -521,16 +546,28 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
         }
       }
     }
-    read_set->pending_request_.reset();
 
-    // Dispatch the prefetch
-    DispatchPrefetch(read_set, pending->job, blocks_to_dispatch);
+    // Dispatch acquired blocks
+    if (!blocks_to_dispatch.empty()) {
+      DispatchPrefetch(read_set, pending->job, blocks_to_dispatch);
+    }
+
+    // If we dispatched nothing, stop (no memory available)
+    if (blocks_to_dispatch.empty()) {
+      return;
+    }
   }
 }
 
 void IODispatcherImpl::Impl::DispatchPrefetch(
     const std::shared_ptr<ReadSet>& read_set, const std::shared_ptr<IOJob>& job,
     const std::vector<size_t>& block_indices) {
+  // Sync point for testing partial prefetch - passes number of blocks being
+  // dispatched
+  size_t num_blocks = block_indices.size();
+  TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::DispatchPrefetch:BlockCount",
+                           &num_blocks);
+
   // Prepare and execute IO for the given blocks
   std::vector<FSReadRequest> read_reqs;
   std::vector<std::vector<size_t>> coalesced_block_indices;
@@ -632,37 +669,63 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Store dispatcher reference for release callbacks
   rs->dispatcher_data_ = shared_from_this();
 
-  // Try to acquire memory (only for async IO - sync reads proceed immediately)
-  if (use_memory_limiting && bytes_needed > 0 &&
-      !TryAcquireMemory(bytes_needed)) {
-    // Not enough memory - queue the prefetch for later and return immediately
-    auto pending = std::make_shared<PendingPrefetchRequest>();
-    pending->read_set = rs;
-    pending->job = job;
-    pending->block_indices_to_prefetch.insert(block_indices_to_read.begin(),
-                                              block_indices_to_read.end());
-    pending->pending_bytes_ = bytes_needed;
+  // Try to acquire memory with partial dispatch support
+  // (only for async IO - sync reads proceed immediately)
+  if (use_memory_limiting && bytes_needed > 0) {
+    // Try to acquire memory for blocks in order (earlier indices first)
+    // This prioritizes blocks that are typically accessed first in sequential scans
+    std::vector<size_t> blocks_to_dispatch;
+    std::vector<size_t> blocks_to_queue;
 
-    // Set up pending flags and reference in ReadSet
-    size_t num_blocks = job->block_handles.size();
-    rs->pending_prefetch_flags_ =
-        std::make_unique<std::atomic<bool>[]>(num_blocks);
-    rs->pending_prefetch_flags_size_ = num_blocks;
     for (size_t idx : block_indices_to_read) {
-      rs->pending_prefetch_flags_[idx].store(true);
+      size_t block_size = rs->block_sizes_[idx];
+      if (TryAcquireMemory(block_size)) {
+        blocks_to_dispatch.push_back(idx);
+      } else {
+        blocks_to_queue.push_back(idx);
+      }
     }
-    rs->pending_request_ = pending;
 
-    {
-      MutexLock lock(&memory_mutex_);
-      pending_prefetch_queue_.push_back(std::move(pending));
+    // Dispatch acquired blocks immediately
+    if (!blocks_to_dispatch.empty()) {
+      DispatchPrefetch(rs, job, blocks_to_dispatch);
+    }
+
+    // Queue remaining blocks for later
+    if (!blocks_to_queue.empty()) {
+      auto pending = std::make_shared<PendingPrefetchRequest>();
+      pending->read_set = rs;
+      pending->job = job;
+      pending->block_indices_to_prefetch.insert(blocks_to_queue.begin(),
+                                                blocks_to_queue.end());
+
+      size_t pending_bytes = 0;
+      for (size_t idx : blocks_to_queue) {
+        pending_bytes += rs->block_sizes_[idx];
+      }
+      pending->pending_bytes_ = pending_bytes;
+
+      // Set up pending flags for queued blocks only
+      size_t num_blocks = job->block_handles.size();
+      rs->pending_prefetch_flags_ =
+          std::make_unique<std::atomic<bool>[]>(num_blocks);
+      rs->pending_prefetch_flags_size_ = num_blocks;
+      for (size_t idx : blocks_to_queue) {
+        rs->pending_prefetch_flags_[idx].store(true);
+      }
+      rs->pending_request_ = pending;
+
+      {
+        MutexLock lock(&memory_mutex_);
+        pending_prefetch_queue_.push_back(std::move(pending));
+      }
     }
 
     *read_set = std::move(rs);
     return Status::OK();
   }
 
-  // Prepare read requests - coalesce adjacent blocks
+  // Non-memory-limited path: prepare read requests - coalesce adjacent blocks
   std::vector<FSReadRequest> read_reqs;
   std::vector<std::vector<size_t>> coalesced_block_indices;
   PrepareIORequests(job, block_indices_to_read, job->block_handles, &read_reqs,
