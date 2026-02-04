@@ -50,8 +50,7 @@ CompressedSecondaryCache::CompressedSecondaryCache(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
               cache_))),
       disable_cache_(opts.capacity == 0) {
-  auto mgr =
-      GetBuiltinCompressionManager(cache_options_.compress_format_version);
+  auto mgr = GetBuiltinCompressionManager(/*compression_format_version=*/2);
   compressor_ = mgr->GetCompressor(cache_options_.compression_opts,
                                    cache_options_.compression_type);
   decompressor_ =
@@ -355,9 +354,6 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
            CompressionOptionsToString(
                const_cast<CompressionOptions&>(cache_options_.compression_opts))
                .c_str());
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "    compress_format_version : %d\n",
-           cache_options_.compress_format_version);
   ret.append(buffer);
   return ret;
 }

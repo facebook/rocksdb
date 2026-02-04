@@ -626,14 +626,6 @@ DEFINE_int32(compressed_secondary_cache_compression_level,
              "dependent. If unset, we try to use the default for the library "
              "specified in `--compressed_secondary_cache_compression_type`");
 
-DEFINE_uint32(
-    compressed_secondary_cache_compress_format_version, 2,
-    "compress_format_version can have two values: "
-    "compress_format_version == 1 -- decompressed size is not included"
-    " in the block header."
-    "compress_format_version == 2 -- decompressed size is included"
-    " in the block header in varint32 format.");
-
 DEFINE_bool(use_tiered_cache, false,
             "If use_compressed_secondary_cache is true and "
             "use_tiered_volatile_cache is true, then allocate a tiered cache "
@@ -3215,8 +3207,6 @@ class Benchmark {
           FLAGS_compressed_secondary_cache_compression_type_e;
       secondary_cache_opts.compression_opts.level =
           FLAGS_compressed_secondary_cache_compression_level;
-      secondary_cache_opts.compress_format_version =
-          FLAGS_compressed_secondary_cache_compress_format_version;
       if (FLAGS_use_tiered_cache) {
         use_tiered_cache = true;
         adm_policy = StringToAdmissionPolicy(FLAGS_tiered_adm_policy.c_str());

@@ -398,7 +398,6 @@ DECLARE_bool(enable_index_compression);
 DECLARE_uint32(index_shortening);
 DECLARE_uint32(metadata_charge_policy);
 DECLARE_bool(use_adaptive_mutex_lru);
-DECLARE_uint32(compress_format_version);
 DECLARE_uint64(manifest_preallocation_size);
 DECLARE_bool(enable_checksum_handoff);
 DECLARE_string(compression_manager);
