@@ -152,7 +152,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
     CompressedSecondaryCacheOptions opts;
     opts.capacity = FLAGS_compressed_secondary_cache_size;
-    opts.compress_format_version = FLAGS_compress_format_version;
     if (FLAGS_enable_do_not_compress_roles) {
       opts.do_not_compress_roles = {CacheEntryRoleSet::All()};
     }

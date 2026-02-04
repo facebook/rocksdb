@@ -1390,12 +1390,6 @@ DEFINE_bool(use_adaptive_mutex_lru,
             ROCKSDB_NAMESPACE::LRUCacheOptions().use_adaptive_mutex,
             "LRUCacheOptions.use_adaptive_mutex");
 
-DEFINE_uint32(
-    compress_format_version,
-    static_cast<uint32_t>(ROCKSDB_NAMESPACE::CompressedSecondaryCacheOptions()
-                              .compress_format_version),
-    "CompressedSecondaryCacheOptions.compress_format_version");
-
 DEFINE_uint64(manifest_preallocation_size,
               ROCKSDB_NAMESPACE::Options().manifest_preallocation_size,
               "Options.manifest_preallocation_size");
