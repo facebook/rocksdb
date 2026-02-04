@@ -593,6 +593,8 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
       s.PermitUncheckedError();
       read_set->num_sync_reads_ += fallback_indices.size();
     }
+    // Async errors are also ignored - user will get the error when reading
+    async_status.PermitUncheckedError();
   } else {
     // Prefetch errors are ignored - user will get the error when reading
     Status s = ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
