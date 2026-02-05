@@ -242,6 +242,43 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
             Status::Code::kNotSupported);
 }
 
+TEST_F(DBBasicTest, ReadOnlyDBFlushWAL) {
+  // Test that FlushWAL returns NotSupported on read-only DB, and that
+  // GetLiveFilesStorageInfo works correctly even with manual_wal_flush=true.
+  // This is a regression test for a bug where GetLiveFilesStorageInfo would
+  // crash on read-only DBs with manual_wal_flush=true because FlushWAL
+  // accessed logs_.back() on an empty deque.
+  auto options = CurrentOptions();
+  options.manual_wal_flush = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("baz", "v3"));  // Unflushed data in WAL
+  Close();
+
+  // Reopen as read-only
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v1", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_EQ("v3", Get("baz"));
+
+  // FlushWAL should return NotSupported (not crash)
+  ASSERT_EQ(db_->FlushWAL(/*sync=*/false).code(), Status::Code::kNotSupported);
+  ASSERT_EQ(db_->FlushWAL(/*sync=*/true).code(), Status::Code::kNotSupported);
+
+  // GetLiveFilesStorageInfo should succeed (previously crashed with
+  // manual_wal_flush=true because it called FlushWAL which accessed
+  // logs_.back() on empty deque)
+  LiveFilesStorageInfoOptions lfsi_opts;
+  lfsi_opts.wal_size_for_flush = 0;
+  std::vector<LiveFileStorageInfo> files;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files));
+  ASSERT_GT(files.size(), 0);
+
+  Close();
+}
+
 TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   auto options = CurrentOptions();
   options.write_dbid_to_manifest = false;
