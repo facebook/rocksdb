@@ -637,6 +637,12 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
   }
+  if (table_options_.separate_key_value_in_data_block &&
+      !FormatVersionSupportsSeparateKeyValue(table_options_.format_version)) {
+    return Status::InvalidArgument(
+        "separate_key_value_in_data_block is not supported for "
+        "format_version < 8");
+  }
   bool using_builtin_compatible_compression = true;
   if (cf_opts.compression_manager &&
       strcmp(cf_opts.compression_manager->CompatibilityName(),

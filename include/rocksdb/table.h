@@ -600,6 +600,9 @@ struct BlockBasedTableOptions {
   // improve read performance at a cost of a varint per restart interval (~1 bit
   // per key by default), in addition to improving compression. Small values or
   // low block_restart_interval may prefer to set this as false.
+  // Requires format_version >= 8.
+  //
+  // Default: false
   bool separate_key_value_in_data_block = false;
 
   // Store index blocks on disk in compressed format. Changing this option to

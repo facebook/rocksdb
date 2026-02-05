@@ -246,27 +246,26 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   if (use_value_delta_encoding_) {
     if (use_separated_kv_storage_ && counter_ == 0) {
       // Add "<shared><non_shared><value_offset>" to buffer_
-      PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                                  static_cast<uint32_t>(non_shared),
-                                  static_cast<uint32_t>(values_buffer_.size()));
+      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
+                  static_cast<uint32_t>(non_shared),
+                  static_cast<uint32_t>(values_buffer_.size()));
     } else {
       // Add "<shared><non_shared>" to buffer_
-      PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                          static_cast<uint32_t>(non_shared));
+      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
+                  static_cast<uint32_t>(non_shared));
     }
   } else {
     if (use_separated_kv_storage_ && counter_ == 0) {
       // Add "<shared><non_shared><value_size><value_offset>" to buffer_
-      PutVarint32Varint32Varint32Varint32(
-          &buffer_, static_cast<uint32_t>(shared),
-          static_cast<uint32_t>(non_shared),
-          static_cast<uint32_t>(value.size()),
-          static_cast<uint32_t>(values_buffer_.size()));
+      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
+                  static_cast<uint32_t>(non_shared),
+                  static_cast<uint32_t>(value.size()),
+                  static_cast<uint32_t>(values_buffer_.size()));
     } else {
       // Add "<shared><non_shared><value_size>" to buffer_
-      PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                                  static_cast<uint32_t>(non_shared),
-                                  static_cast<uint32_t>(value.size()));
+      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
+                  static_cast<uint32_t>(non_shared),
+                  static_cast<uint32_t>(value.size()));
     }
   }
 

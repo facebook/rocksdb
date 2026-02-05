@@ -1154,7 +1154,9 @@ class BlockBasedTableTest : public BlockBasedTableTestBase,
     auto param = GetParam();
     options.super_block_alignment_size = std::get<1>(param);
     options.super_block_alignment_space_overhead_ratio = std::get<2>(param);
-    options.separate_key_value_in_data_block = std::get<3>(param);
+    // separate_key_value_in_data_block requires format_version >= 8
+    options.separate_key_value_in_data_block =
+        std::get<3>(param) && FormatVersionSupportsSeparateKeyValue(format_);
     return options;
   }
 
@@ -6242,6 +6244,46 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_FALSE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
+}
+
+// Test that a single large entry with value larger than block size works
+TEST_P(BlockBasedTableTest, SingleLargeEntry) {
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+
+  // Set a small block size
+  constexpr size_t kBlockSize = 1024;
+  table_options.block_size = kBlockSize;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression = kNoCompression;
+
+  // Create a value that is larger than the block size
+  const size_t kLargeValueSize = kBlockSize * 4;
+  std::string large_value(kLargeValueSize, 'x');
+  c.Add("key1", large_value);
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  auto* reader = c.GetTableReader();
+  ReadOptions read_options;
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(large_value, iter->value().ToString());
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 class ChargeCompressionDictionaryBuildingBufferTest

@@ -83,7 +83,7 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutVarint32Varint64(dst, kNextFileNumber, next_file_number_);
   }
   if (has_max_column_family_) {
-    PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
+    PutVarint32(dst, kMaxColumnFamily, max_column_family_);
   }
   if (has_min_log_number_to_keep_) {
     PutVarint32Varint64(dst, kMinLogNumberToKeep, min_log_number_to_keep_);
@@ -143,7 +143,7 @@ bool VersionEdit::EncodeTo(std::string* dst,
 
   // 0 is default and does not need to be explicitly written
   if (column_family_ != 0) {
-    PutVarint32Varint32(dst, kColumnFamily, column_family_);
+    PutVarint32(dst, kColumnFamily, column_family_);
   }
 
   if (is_column_family_add_) {

@@ -1470,6 +1470,10 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
       bbto.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       bbto.partition_filters = true;
       bbto.filter_policy.reset(NewBloomFilterPolicy(5));
+      // separate_key_value_in_data_block requires format_version >= 8
+      if (separate_kv_) {
+        bbto.format_version = 8;
+      }
       bbto.separate_key_value_in_data_block = separate_kv_;
       options.table_factory.reset(NewBlockBasedTableFactory(bbto));
       options.compression_manager = use_wrapper ? mgr : nullptr;
