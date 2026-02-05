@@ -373,6 +373,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, avoid_flush_during_recovery),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"enforce_write_buffer_manager_during_recovery",
+         {offsetof(struct ImmutableDBOptions,
+                   enforce_write_buffer_manager_during_recovery),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"allow_ingest_behind",
          {offsetof(struct ImmutableDBOptions, allow_ingest_behind),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -775,6 +780,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_filter(options.wal_filter),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
+      enforce_write_buffer_manager_during_recovery(
+          options.enforce_write_buffer_manager_during_recovery),
       allow_ingest_behind(options.allow_ingest_behind),
       two_write_queues(options.two_write_queues),
       manual_wal_flush(options.manual_wal_flush),
@@ -939,6 +946,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
 
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
                    avoid_flush_during_recovery);
+  ROCKS_LOG_HEADER(
+      log, "        Options.enforce_write_buffer_manager_during_recovery: %d",
+      enforce_write_buffer_manager_during_recovery);
   ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
                    allow_ingest_behind);
   ROCKS_LOG_HEADER(log, "            Options.two_write_queues: %d",

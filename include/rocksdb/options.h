@@ -1409,6 +1409,14 @@ struct DBOptions {
   // DEFAULT: false
   bool avoid_flush_during_recovery = false;
 
+  // If true and a WriteBufferManager is configured, RocksDB will check
+  // WriteBufferManager::ShouldFlush() during WAL recovery and schedule
+  // flushes when needed. This prevents OOM when multiple RocksDB instances
+  // share a WriteBufferManager and one instance is recovering from WAL.
+  //
+  // DEFAULT: false
+  bool enforce_write_buffer_manager_during_recovery = false;
+
   // By default RocksDB will flush all memtables on DB close if there are
   // unpersisted data (i.e. with WAL disabled) The flush can be skip to speedup
   // DB close. Unpersisted data WILL BE LOST.
