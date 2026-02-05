@@ -913,6 +913,119 @@ TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
   sleeping_task->WakeUp();
 }
 
+// Test that enforce_write_buffer_manager_during_recovery option controls
+// whether WriteBufferManager limits are respected during WAL recovery.
+// When enabled, flushes are triggered to keep memory bounded.
+// When disabled (default), memory can grow beyond the configured limit.
+TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
+  const size_t kWbmLimit = 1 * 1024 * 1024;             // 1 MB
+  const size_t kWbmLimitForWrites = 100 * 1024 * 1024;  // 100 MB (no flush)
+  cost_cache_ = GetParam();
+
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 10 * 1024 * 1024;  // 10MB per CF, never hit
+  options.max_write_buffer_number = 10;          // Allow many memtables
+  options.level0_file_num_compaction_trigger =
+      1000;  // To avoid compaction in this test
+
+  std::shared_ptr<Cache> cache;
+  if (cost_cache_) {
+    cache = NewLRUCache(100 * 1024 * 1024, 2);
+  }
+
+  const int kNumKeys = 50;
+  const int kValueSize = 50 * 1024;  // 50 KB each, total ~2.5 MB > 1MB limit
+
+  // Helper lambda to set up WBM with given limit
+  auto resetWbm = [&](size_t limit) {
+    if (cost_cache_) {
+      options.write_buffer_manager.reset(
+          new WriteBufferManager(limit, cache, true));
+    } else {
+      options.write_buffer_manager.reset(
+          new WriteBufferManager(limit, nullptr, true));
+    }
+  };
+
+  // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
+  // Use avoid_flush_during_recovery = true to prevent any flushes, showing
+  // that without the new option, WBM limits are not enforced during recovery.
+  options.avoid_flush_during_recovery = true;
+  options.enforce_write_buffer_manager_during_recovery = false;  // default
+
+  // Use large WBM limit during writes to avoid triggering flushes
+  resetWbm(kWbmLimitForWrites);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(kValueSize)));
+  }
+
+  // Check to make sure there's no L0 file
+  ASSERT_EQ(0, TotalTableFiles());
+  Close();
+
+  // Use smaller WBM limit for recovery
+  resetWbm(kWbmLimit);
+
+  // Recovery without enforcement - memory should exceed the limit
+  Reopen(options);
+  size_t memory_without_enforcement =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+
+  ASSERT_GT(memory_without_enforcement, kWbmLimit)
+      << "Without enforcement, memory (" << memory_without_enforcement
+      << ") should exceed the WBM limit (" << kWbmLimit << ")";
+
+  // Verify data integrity
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
+  }
+
+  // Still no L0 file since avoid_flush_during_recovery is true
+  ASSERT_EQ(0, TotalTableFiles());
+
+  // ========== Part 2: Test with enforcement ENABLED ==========================
+  options.avoid_flush_during_recovery = false;
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  // Use large WBM limit during writes to avoid triggering flushes
+  resetWbm(kWbmLimitForWrites);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(kValueSize)));
+  }
+  // Check to make sure there's no L0 file
+  ASSERT_EQ(0, TotalTableFiles());
+  Close();
+
+  // Use smaller WBM limit for recovery
+  resetWbm(kWbmLimit);
+
+  // Recovery with enforcement - memory should be bounded
+  Reopen(options);
+
+  // Wait for flush to finish
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Now we have one L0 file
+  ASSERT_EQ(1, TotalTableFiles());
+
+  size_t memory_with_enforcement =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+
+  ASSERT_LT(memory_with_enforcement, kWbmLimit)
+      << "With enforcement, memory (" << memory_with_enforcement
+      << ") should be less than the limit " << kWbmLimit << ")";
+
+  // Verify data integrity
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());
 

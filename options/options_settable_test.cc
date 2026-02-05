@@ -454,6 +454,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "dump_malloc_stats=false;"
                              "allow_2pc=false;"
                              "avoid_flush_during_recovery=false;"
+                             "enforce_write_buffer_manager_during_recovery=true;"
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
                              "concurrent_prepare=false;"
