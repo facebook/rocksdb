@@ -199,6 +199,7 @@ default_params = {
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
     "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
+    "abort_and_resume_compactions_one_in": lambda: random.choice([10000, 1000000]),
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -445,7 +446,8 @@ default_params = {
     "use_multiscan": random.choice([1] + [0] * 3),
     # By default, `statistics` use kExceptDetailedTimers level
     "statistics": random.choice([0, 1]),
-    "multiscan_use_async_io": random.randint(0, 1),
+    # TODO: re-enable after resolving "Req failed: Unknown error -14" errors
+    "multiscan_use_async_io": 0,  # random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"

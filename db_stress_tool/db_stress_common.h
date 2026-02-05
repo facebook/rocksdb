@@ -101,6 +101,7 @@ DECLARE_bool(verify_before_write);
 DECLARE_bool(histogram);
 DECLARE_bool(destroy_db_initially);
 DECLARE_bool(destroy_db_and_exit);
+DECLARE_string(delete_dir_and_exit);
 DECLARE_bool(verbose);
 DECLARE_bool(progress_reports);
 DECLARE_uint64(db_write_buffer_size);
@@ -219,6 +220,7 @@ DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);
 DECLARE_int32(disable_file_deletions_one_in);
 DECLARE_int32(disable_manual_compaction_one_in);
+DECLARE_int32(abort_and_resume_compactions_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
@@ -298,11 +300,8 @@ DECLARE_uint32(occ_lock_bucket_count);
 
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
-DECLARE_uint64(blob_db_min_blob_size);
-DECLARE_uint64(blob_db_bytes_per_sync);
 DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
-DECLARE_double(blob_db_gc_cutoff);
 
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);

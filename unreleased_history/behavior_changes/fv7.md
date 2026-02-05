@@ -1,1 +1,0 @@
-* The new default for `BlockBasedTableOptions::format_version` is 7, which has been supported since RocksDB 10.4.0 and is required in order to use CompressionManagers supporting custom compression types.

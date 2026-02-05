@@ -219,6 +219,10 @@ if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4996 /wd4100 /wd4324")
   endif()
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /DNDEBUG")
+    message(STATUS "Setting /DNDEBUG as CMAKE_BUILD_TYPE is set to ${CMAKE_BUILD_TYPE}")
+  endif()
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall -pthread")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing -Wno-invalid-offsetof")
@@ -914,6 +918,7 @@ set(SOURCES
         util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
+        util/io_dispatcher_imp.cc
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc
@@ -1377,6 +1382,7 @@ if(WITH_TESTS)
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
+        db/db_compaction_abort_test.cc
         db/db_clip_test.cc
         db/db_dynamic_level_test.cc
         db/db_encryption_test.cc

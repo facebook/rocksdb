@@ -139,6 +139,10 @@ DEFINE_bool(destroy_db_and_exit, false,
             "Destroys the database dir and exits. Useful for cleanup without "
             "running stress test. Other options are mostly ignored.");
 
+DEFINE_string(delete_dir_and_exit, "",
+              "Recursively deletes the specified directory and exits. "
+              "Useful for cleaning up TEST_TMPDIR after crash tests.");
+
 DEFINE_bool(verbose, false, "Verbose");
 
 DEFINE_bool(progress_reports, true,
@@ -430,17 +434,6 @@ DEFINE_bool(enable_write_thread_adaptive_yield,
 // Options for StackableDB-based BlobDB
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Use BlobDB.");
 
-DEFINE_uint64(
-    blob_db_min_blob_size,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
-    "[Stacked BlobDB] Smallest blob to store in a file. Blobs "
-    "smaller than this will be inlined with the key in the LSM tree.");
-
-DEFINE_uint64(
-    blob_db_bytes_per_sync,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
-    "[Stacked BlobDB] Sync blob files once per every N bytes written.");
-
 DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
               "[Stacked BlobDB] Target size of each blob file.");
@@ -449,11 +442,6 @@ DEFINE_bool(
     blob_db_enable_gc,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
     "[Stacked BlobDB] Enable BlobDB garbage collection.");
-
-DEFINE_double(
-    blob_db_gc_cutoff,
-    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
-    "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
 
 // Options for integrated BlobDB
 DEFINE_bool(allow_setting_blob_options_dynamically, false,
@@ -816,6 +804,10 @@ DEFINE_int32(
     disable_manual_compaction_one_in, 0,
     "If non-zero, then DisableManualCompaction()+Enable will be called "
     "once for every N ops on average.  0 disables.");
+
+DEFINE_int32(abort_and_resume_compactions_one_in, 0,
+             "If non-zero, then AbortAllCompactions()+Resume will be called "
+             "once for every N ops on average. 0 disables.");
 
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");

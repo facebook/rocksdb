@@ -185,7 +185,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
 
 TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   constexpr int kPeriodSec = 1;
-  constexpr int kEstimatedOneSliceSize = 22000;
+  constexpr int kEstimatedOneSliceSize = 22100;
 
   Options options;
   options.create_if_missing = true;

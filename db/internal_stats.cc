@@ -310,6 +310,7 @@ static const std::string aggregated_table_properties_at_level =
 static const std::string num_running_compactions = "num-running-compactions";
 static const std::string num_running_compaction_sorted_runs =
     "num-running-compaction-sorted-runs";
+static const std::string compaction_abort_count = "compaction-abort-count";
 static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
@@ -362,6 +363,8 @@ const std::string DB::Properties::kNumRunningCompactions =
     rocksdb_prefix + num_running_compactions;
 const std::string DB::Properties::kNumRunningCompactionSortedRuns =
     rocksdb_prefix + num_running_compaction_sorted_runs;
+const std::string DB::Properties::kCompactionAbortCount =
+    rocksdb_prefix + compaction_abort_count;
 const std::string DB::Properties::kNumRunningFlushes =
     rocksdb_prefix + num_running_flushes;
 const std::string DB::Properties::kBackgroundErrors =
@@ -594,6 +597,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kNumRunningCompactionSortedRuns,
          {false, nullptr, &InternalStats::HandleNumRunningCompactionSortedRuns,
           nullptr, nullptr}},
+        {DB::Properties::kCompactionAbortCount,
+         {false, nullptr, &InternalStats::HandleCompactionAbortCount, nullptr,
+          nullptr}},
         {DB::Properties::kActualDelayedWriteRate,
          {false, nullptr, &InternalStats::HandleActualDelayedWriteRate, nullptr,
           nullptr}},
@@ -1289,6 +1295,13 @@ bool InternalStats::HandleNumRunningCompactionSortedRuns(uint64_t* value,
     sorted_runs += cfd->internal_stats()->NumRunningCompactionSortedRuns();
   }
   *value = sorted_runs;
+  return true;
+}
+
+bool InternalStats::HandleCompactionAbortCount(uint64_t* value, DBImpl* db,
+                                               Version* /*version*/) {
+  *value = static_cast<uint64_t>(
+      db->compaction_aborted_.load(std::memory_order_acquire));
   return true;
 }
 

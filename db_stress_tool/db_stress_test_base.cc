@@ -1271,6 +1271,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_compactions_one_in)) {
+        Status status = TestAbortAndResumeCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
@@ -3047,8 +3052,9 @@ void StressTest::TestCompactFiles(ThreadState* thread,
         // TOOD (hx235): allow an exact list of tolerable failures under stress
         // test
         bool non_ok_status_allowed =
-            s.IsManualCompactionPaused() || IsErrorInjectedAndRetryable(s) ||
-            s.IsAborted() || s.IsInvalidArgument() || s.IsNotSupported();
+            s.IsManualCompactionPaused() || s.IsCompactionAborted() ||
+            IsErrorInjectedAndRetryable(s) || s.IsAborted() ||
+            s.IsInvalidArgument() || s.IsNotSupported();
         if (!non_ok_status_allowed) {
           fprintf(stderr,
                   "Unable to perform CompactFiles(): %s under specified "
@@ -3138,6 +3144,20 @@ Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   db_->EnableManualCompaction();
+  return Status::OK();
+}
+
+Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
+  // Abort all running compactions and prevent new ones from starting
+  db_->AbortAllCompactions();
+  // Sleep to allow other threads to attempt operations while aborted
+  // Uses same sleep pattern as TestPauseBackground and
+  // TestDisableManualCompaction
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  // Resume compactions
+  db_->ResumeAllCompactions();
   return Status::OK();
 }
 
@@ -3316,7 +3336,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   if (!status.ok()) {
     // TOOD (hx235): allow an exact list of tolerable failures under stress test
     bool non_ok_status_allowed =
-        status.IsManualCompactionPaused() ||
+        status.IsManualCompactionPaused() || status.IsCompactionAborted() ||
         IsErrorInjectedAndRetryable(status) || status.IsAborted() ||
         status.IsInvalidArgument() || status.IsNotSupported();
     if (!non_ok_status_allowed) {
@@ -3844,11 +3864,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
           blob_db::BlobDBOptions blob_db_options;
-          blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
-          blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
           blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
           blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
-          blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
 
           blob_db::BlobDB* blob_db = nullptr;
           s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <variant>
+
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
@@ -56,7 +58,64 @@ class Decompressor;
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
 class Compressor {
- public:
+ public:  // Auxiliary types
+  // No dictionary should be used (for a given block type).
+  struct DictDisabled {};
+
+  // A recommendation for dictionary compression by collecting samples from
+  // blocks. The caller should collect up to `max_sample_bytes` of sample data
+  // and pass it to MaybeCloneSpecialized() to create a specialized compressor.
+  struct DictSampling {
+    // Maximum total bytes of sample data to collect from blocks.
+    // This controls how much data is buffered before dictionary training.
+    size_t max_sample_bytes = 0;
+  };
+
+  // A pre-defined dictionary that is recommended or specified for direct use
+  // with MaybeCloneSpecialized(), without any sampling.
+  struct DictPreDefined {
+    // The owned raw/serialized dictionary bytes. Recommend std::move to
+    // MaybeCloneSpecialized()
+    std::string dict_data;
+  };
+
+  // The result type for GetDictGuidance() - indicates how dictionary
+  // compression should be configured for a given block type.
+  using DictConfig = std::variant<DictDisabled, DictSampling, DictPreDefined>;
+
+  // Sample data collected from blocks for dictionary training.
+  struct DictSamples {
+    // All the sample input blocks stored contiguously
+    std::string sample_data;
+    // The lengths of each of the sample blocks in `sample_data`
+    std::vector<size_t> sample_lens;
+
+    bool empty() const { return sample_data.empty(); }
+    bool Verify() const {
+      size_t total_len = 0;
+      for (auto len : sample_lens) {
+        total_len += len;
+      }
+      return total_len == sample_data.size();
+    }
+  };
+
+  // Arguments for MaybeCloneSpecialized() - provides either samples, a
+  // pre-defined dictionary, or indicates no dictionary should be used.
+  // NOTE: DictPreDefined here is the same type as above, allowing the
+  // pre-defined dictionary from GetDictGuidance() to be passed through.
+  using DictConfigArgs =
+      std::variant<DictDisabled, DictSamples, DictPreDefined>;
+
+  // A WorkingArea is an optional structure (both for callers and
+  // implementations) that can enable optimizing repeated compressions by
+  // reusing working space or thread-local tracking of statistics or trends.
+  // This enables use of ZSTD context, for example.
+  //
+  // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
+  struct WorkingArea {};
+
+ public:  // Functions
   Compressor() = default;
   virtual ~Compressor() = default;
 
@@ -69,15 +128,17 @@ class Compressor {
     return id;
   }
 
-  // Returns the max total bytes of for all sampled blocks for creating the data
-  // dictionary, or zero indicating dictionary compression should not be
-  // used/configured. This will typically be called after
-  // CompressionManager::GetCompressor() to see if samples should be accumulated
-  // and passed to MaybeCloneSpecialized().
-  virtual size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const {
+  // Returns the recommended dictionary configuration for the given block type.
+  // See the comments on DictConfig and variants for details.
+  //
+  // NOTE: This may be called on the "base" Compressor returned by
+  // CompressionManager, which is not yet configured with a dictionary,
+  // or it can be skipped by callers not intending to handle dictionary
+  // compression.
+  virtual DictConfig GetDictGuidance(CacheEntryRole block_type) const {
     // Default implementation: no dictionary
     (void)block_type;
-    return 0;
+    return DictDisabled{};
   }
 
   // Returns the serialized form of the data dictionary associated with this
@@ -94,66 +155,38 @@ class Compressor {
   // needed to implement MaybeCloneSpecialized() in wrapper compressors.
   virtual std::unique_ptr<Compressor> Clone() const = 0;
 
-  // Utility struct for providing sample data for the compression dictionary.
-  // Potentially extensible by callers of Compressor (but not recommended)
-  struct DictSampleArgs {
-    // All the sample input blocks stored contiguously
-    std::string sample_data;
-    // The lengths of each of the sample blocks in `sample_data`
-    std::vector<size_t> sample_lens;
-
-    bool empty() { return sample_data.empty(); }
-    bool Verify() {
-      size_t total_len = 0;
-      for (auto len : sample_lens) {
-        total_len += len;
-      }
-      return total_len == sample_data.size();
-    }
-  };
-
   // Create potential variants of the same Compressor that might be
   // (a) optimized for a particular block type (does not affect correct
   //     decompression), and/or
-  // (b) configured to use a compression dictionary, based on the given
-  //     samples (decompression must provide the dictionary from
-  //     GetSerializedDict())
+  // (b) configured to use a compression dictionary based on the provided
+  //     configuration (samples or pre-defined dictionary). See the comments on
+  //     DictConfigArgs and its variants for detail.
+  //
   // Return of nullptr indicates no specialization exists or was attempted
-  // and the caller is best to use the current Compressor for the desired
-  // scenario. Using CacheEntryRole:kMisc for block_type generally means
-  // "unspecified", and both parameters are merely suggestions. The exact
-  // dictionary associated with a returned compressor must be read from
-  // GetSerializedDict().
+  // and the caller should use the current Compressor for the desired scenario.
+  // Using CacheEntryRole::kMisc for block_type generally means "unspecified".
+  //
+  // The exact dictionary associated with a returned compressor must be read
+  // from GetSerializedDict().
   virtual std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const {
     // Default implementation: no specialization
     (void)block_type;
-    (void)dict_samples;
-    // Caller should have checked GetMaxSampleSizeIfWantDict before attempting
-    // to provide dictionary samples
-    assert(dict_samples.empty());
+    (void)dict_config;
     return nullptr;
   }
 
   // A convenience function when a clone is needed and may or may not be
   // specialized.
   std::unique_ptr<Compressor> CloneMaybeSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
-    auto clone = MaybeCloneSpecialized(block_type, std::move(dict_samples));
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const {
+    auto clone = MaybeCloneSpecialized(block_type, std::move(dict_config));
     if (clone == nullptr) {
       clone = Clone();
       assert(clone != nullptr);
     }
     return clone;
   }
-
-  // A WorkingArea is an optional structure (both for callers and
-  // implementations) that can enable optimizing repeated compressions by
-  // reusing working space or thread-local tracking of statistics or trends.
-  // This enables use of ZSTD context, for example.
-  //
-  // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
-  struct WorkingArea {};
 
   // To allow for flexible re-use / reclaimation, we have explicit Get and
   // Release functions, and usually wrap in a special RAII smart pointer.
@@ -423,6 +456,12 @@ class CompressionManager
   // which is valid at the discretion of the CompressionManager. Returning
   // nullptr should normally be the result if preferred == kNoCompression.
   //
+  // Compressors returned here are configured WITHOUT a dictionary, so that
+  // it's always possible to get correct compression->decompression results
+  // if not opting-in to dictionary handling. The compressors may recommend
+  // dictionary usage via GetDictGuidance() and creating a modified Compressor
+  // for that. See Compressor::GetDictGuidance() etc. for details.
+  //
   // These functions must be thread-safe.
 
   // Get a compressor for an SST file.
@@ -477,8 +516,8 @@ class CompressorWrapper : public Compressor {
   CompressorWrapper(const CompressorWrapper&) = delete;
   CompressorWrapper& operator=(const CompressorWrapper&) = delete;
 
-  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override {
-    return wrapped_->GetMaxSampleSizeIfWantDict(block_type);
+  DictConfig GetDictGuidance(CacheEntryRole block_type) const override {
+    return wrapped_->GetDictGuidance(block_type);
   }
 
   Slice GetSerializedDict() const override {
@@ -496,9 +535,9 @@ class CompressorWrapper : public Compressor {
   // when the wrapped Compressor uses the default implementation of
   // MaybeCloneSpecialized(). This needs to be overridden if not.
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override {
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const override {
     auto clone =
-        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_config));
     // Assert default no-op MaybeCloneSpecialized()
     assert(clone == nullptr);
     return clone;
@@ -592,7 +631,14 @@ class CompressionManagerWrapper : public CompressionManager {
 
   std::shared_ptr<CompressionManager> FindCompatibleCompressionManager(
       Slice compatibility_name) override {
-    return wrapped_->FindCompatibleCompressionManager(compatibility_name);
+    // NOTE: We expect that the wrapped CompressionManager will generally
+    // be preferred if compatible, so the default implementation here does
+    // not purely defer to the wrapped instance
+    if (compatibility_name == CompatibilityName()) {
+      return shared_from_this();
+    } else {
+      return wrapped_->FindCompatibleCompressionManager(compatibility_name);
+    }
   }
 
   bool SupportsCompressionType(CompressionType type) const override {

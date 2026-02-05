@@ -41,7 +41,9 @@ inline T BottomNBits(T v, int nbits) {
 #endif
   // Newer compilers compile this down to bzhi on x86, but some older
   // ones don't, thus the need for the intrinsic above.
-  return static_cast<T>(v & ((T{1} << nbits) - 1));
+  using UnsignedT = std::make_unsigned_t<T>;
+  UnsignedT mask = (static_cast<UnsignedT>(1) << nbits) - 1;
+  return static_cast<T>(static_cast<UnsignedT>(v) & mask);
 }
 
 // Fast implementation of floor(log2(v)). Undefined for 0 or negative

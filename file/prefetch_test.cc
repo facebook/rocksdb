@@ -2517,6 +2517,187 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
   Close();
 }
 
+TEST_P(PrefetchTest1, PollErrorRecoveryDuringIteration) {
+  // This end-to-end test verifies that Poll() errors during async prefetching
+  // are properly propagated to the iterator. When Poll() fails, the iterator
+  // should stop and return an IOError status.
+  //
+  // With error injection on the 3rd Poll call, the iterator reads ~231 keys
+  // (out of 500) before encountering the error.
+
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  const int kNumKeys = 500;
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), /*support_prefetch=*/false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  bool use_direct_io = GetParam();
+  Options options;
+  SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    ROCKSDB_GTEST_SKIP("Direct IO not supported");
+    return;
+  }
+  ASSERT_OK(s);
+
+  // Write keys with known values so we can verify correctness
+  std::map<std::string, std::string> expected_data;
+  {
+    WriteBatch batch;
+    for (int i = 0; i < kNumKeys; i++) {
+      std::string key = BuildKey(i);
+      std::string value = "value_" + std::to_string(i) + "_" +
+                          std::string(100, 'x');  // Make values ~110 bytes
+      ASSERT_OK(batch.Put(key, value));
+      expected_data[key] = value;
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    ASSERT_OK(Flush());
+  }
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  // Set up callbacks to track async IO and inject Poll errors
+  std::atomic<int> poll_call_count{0};
+  std::atomic<int> poll_error_injected_count{0};
+  bool read_async_called = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PollIfNeeded:IOStatus", [&](void* arg) {
+        poll_call_count++;
+        int current_count = poll_call_count.load();
+
+        // Inject error on the third Poll call to allow some keys to be read
+        // first
+        if (current_count == 3) {
+          IOStatus* io_s = static_cast<IOStatus*>(arg);
+          *io_s = IOStatus::IOError("Injected Poll error for e2e testing");
+          poll_error_injected_count++;
+          std::cout << "PollErrorRecoveryDuringIteration: Injected error on "
+                       "Poll call #"
+                    << current_count << std::endl;
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "UpdateResults::io_uring_result",
+      [&](void* /*arg*/) { read_async_called = true; });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Iterate through all keys with async IO enabled
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.adaptive_readahead = true;
+
+  int keys_read = 0;
+  int data_mismatches = 0;
+  Status iter_status;
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      std::string key = iter->key().ToString();
+      std::string value = iter->value().ToString();
+
+      auto it = expected_data.find(key);
+      if (it == expected_data.end()) {
+        std::cout << "PollErrorRecoveryDuringIteration: Unexpected key: " << key
+                  << std::endl;
+        data_mismatches++;
+      } else if (it->second != value) {
+        std::cout << "PollErrorRecoveryDuringIteration: Value mismatch for key "
+                  << key << std::endl;
+        data_mismatches++;
+      }
+      keys_read++;
+    }
+    iter_status = iter->status();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Log results
+  std::cout << "PollErrorRecoveryDuringIteration: " << "read_async_called="
+            << read_async_called << ", poll_calls=" << poll_call_count.load()
+            << ", poll_errors_injected=" << poll_error_injected_count.load()
+            << ", keys_read=" << keys_read << ", expected_keys=" << kNumKeys
+            << ", data_mismatches=" << data_mismatches
+            << ", iter_status=" << iter_status.ToString() << std::endl;
+
+  // Verify no data mismatches occurred for keys that were read
+  ASSERT_EQ(data_mismatches, 0)
+      << "Found " << data_mismatches << " data mismatches";
+
+  if (read_async_called) {
+    // Async IO was used - verify Poll error was injected and propagated
+    ASSERT_EQ(poll_call_count.load(), 3)
+        << "Expected exactly 3 Poll calls when error injected on 3rd call";
+    ASSERT_EQ(poll_error_injected_count.load(), 1)
+        << "Expected exactly 1 Poll error to be injected";
+
+    // The iterator should have stopped with an error status
+    ASSERT_TRUE(iter_status.IsIOError())
+        << "Expected iterator to report IOError after Poll failure, got: "
+        << iter_status.ToString();
+
+    std::cout << "PollErrorRecoveryDuringIteration: Successfully verified "
+                 "Poll error was injected and propagated to iterator"
+              << std::endl;
+  } else {
+    // Async IO not supported - iterator should complete successfully
+    ASSERT_OK(iter_status);
+    ASSERT_EQ(keys_read, kNumKeys);
+    std::cout << "PollErrorRecoveryDuringIteration: Async IO (io_uring) not "
+                 "supported on this platform, verified data correctness"
+              << std::endl;
+  }
+
+  // Retry iteration without error injection - verify all data is still readable
+  // This confirms the Poll error didn't corrupt state
+  {
+    int retry_keys_read = 0;
+    int retry_data_mismatches = 0;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      std::string key = iter->key().ToString();
+      std::string value = iter->value().ToString();
+
+      auto it = expected_data.find(key);
+      if (it == expected_data.end()) {
+        retry_data_mismatches++;
+      } else if (it->second != value) {
+        retry_data_mismatches++;
+      }
+      retry_keys_read++;
+    }
+    ASSERT_OK(iter->status())
+        << "Retry iteration failed: " << iter->status().ToString();
+    ASSERT_EQ(retry_keys_read, kNumKeys)
+        << "Retry should read all " << kNumKeys << " keys";
+    ASSERT_EQ(retry_data_mismatches, 0)
+        << "Retry found " << retry_data_mismatches << " data mismatches";
+    std::cout << "PollErrorRecoveryDuringIteration: Retry succeeded, read all "
+              << retry_keys_read << " keys correctly" << std::endl;
+  }
+
+  Close();
+}
+
 namespace {
 #ifdef GFLAGS
 const int kMaxArgCount = 100;
@@ -3374,6 +3555,76 @@ TEST_F(FilePrefetchBufferTest, ForCompaction) {
       strncmp(result.data(), content.substr(60000, 64 * 1024 - 60000).c_str(),
               64 * 1024 - 60000),
       0);
+}
+
+TEST_F(FilePrefetchBufferTest, PollErrorPropagation) {
+  // This test verifies that Poll() errors in PollIfNeeded are properly
+  // propagated rather than being silently ignored.
+
+  std::string fname = "poll-error-test";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  // Set up readahead params for async prefetching
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 16384;
+  readahead_params.max_readahead_size = 16384;
+
+  FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                         /*track_min_offset=*/false, fs());
+
+  Slice result;
+  // Start an async prefetch to set up async_read_in_progress_ state
+  Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 0, 4096, &result);
+
+  // Skip test on platforms that don't support async IO
+  if (s.IsNotSupported()) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+  ASSERT_TRUE(s.IsTryAgain());
+  std::cout << "PollErrorPropagation: Async IO supported, proceeding with test"
+            << std::endl;
+
+  // Set up SyncPoint to inject Poll error
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PollIfNeeded:IOStatus", [&](void* arg) {
+        IOStatus* io_s = static_cast<IOStatus*>(arg);
+        *io_s = IOStatus::IOError("Injected Poll error for testing");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // TryReadFromCache will call PollIfNeeded to complete the async read
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+  Status read_status;
+  bool found =
+      fpb.TryReadFromCache(io_opts, r.get(), 0, 4096, &result, &read_status);
+
+  // When PollIfNeeded fails:
+  // 1. PrefetchInternal returns the error status
+  // 2. TryReadFromCacheUntracked sets *status to the error and returns false
+  // Therefore: found should be false, and read_status should contain the error
+  ASSERT_FALSE(found) << "Expected TryReadFromCache to return false on Poll "
+                         "error, but it returned true";
+  ASSERT_TRUE(read_status.IsIOError())
+      << "Expected IOError status, got: " << read_status.ToString();
+  ASSERT_TRUE(read_status.ToString().find("Injected Poll error") !=
+              std::string::npos)
+      << "Expected error message to contain 'Injected Poll error', got: "
+      << read_status.ToString();
+
+  std::cout << "PollErrorPropagation: Poll error correctly propagated - "
+            << "found=" << found << ", status=" << read_status.ToString()
+            << std::endl;
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 class FSBufferPrefetchTest
