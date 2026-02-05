@@ -48,7 +48,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
  * Signature: (ZZZZBBDBZJJJIIIJZZZJZZIIZZJJBJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
-    JNIEnv *, jclass, jboolean jcache_index_and_filter_blocks,
+    JNIEnv*, jclass, jboolean jcache_index_and_filter_blocks,
     jboolean jcache_index_and_filter_blocks_with_high_priority,
     jboolean jpin_l0_filter_and_index_blocks_in_cache,
     jboolean jpin_top_level_index_and_filter, jbyte jindex_type_value,
@@ -62,6 +62,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean juse_delta_encoding, jlong jfilter_policy_handle,
     jboolean jwhole_key_filtering, jboolean jverify_compression,
     jint jread_amp_bytes_per_bit, jint jformat_version,
+    jboolean jseparate_key_value_in_data_block,
     jboolean jenable_index_compression, jboolean jblock_align,
     jlong jsuper_block_alignment_size,
     jlong jsuper_block_alignment_space_overhead_ratio, jbyte jindex_shortening,
@@ -134,6 +135,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.read_amp_bytes_per_bit =
       static_cast<uint32_t>(jread_amp_bytes_per_bit);
   options.format_version = static_cast<uint32_t>(jformat_version);
+  options.separate_key_value_in_data_block =
+      static_cast<bool>(jseparate_key_value_in_data_block);
   options.enable_index_compression =
       static_cast<bool>(jenable_index_compression);
   options.block_align = static_cast<bool>(jblock_align);
