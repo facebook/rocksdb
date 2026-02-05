@@ -121,6 +121,11 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  using DBImpl::FlushWAL;
+  Status FlushWAL(const FlushWALOptions& /*options*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   using DB::IngestExternalFile;
   Status IngestExternalFile(
       ColumnFamilyHandle* /*column_family*/,
