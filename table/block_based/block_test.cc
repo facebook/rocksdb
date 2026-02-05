@@ -78,12 +78,13 @@ void GenerateRandomKVs(std::vector<std::string>* keys,
 // Test Param 0): key use delta encoding.
 // Test Param 1): user-defined timestamp test mode.
 // Test Param 2): data block index type.
-// Test Param 3): use separated KV storage.
+// Test Param 3): restart interval.
+// Test Param 4): use separated KV storage.
 class BlockTest
     : public testing::Test,
-      public testing::WithParamInterface<
-          std::tuple<bool, test::UserDefinedTimestampTestMode,
-                     BlockBasedTableOptions::DataBlockIndexType, bool>> {
+      public testing::WithParamInterface<std::tuple<
+          bool, test::UserDefinedTimestampTestMode,
+          BlockBasedTableOptions::DataBlockIndexType, uint32_t, bool>> {
  public:
   bool keyUseDeltaEncoding() const { return std::get<0>(GetParam()); }
   bool isUDTEnabled() const {
@@ -97,7 +98,9 @@ class BlockTest
     return std::get<2>(GetParam());
   }
 
-  bool useSeparatedKVStorage() const { return std::get<3>(GetParam()); }
+  uint32_t getRestartInterval() const { return std::get<3>(GetParam()); }
+
+  bool useSeparatedKVStorage() const { return std::get<4>(GetParam()); }
 };
 
 // block test
@@ -115,9 +118,10 @@ TEST_P(BlockTest, SimpleTest) {
       isUDTEnabled() ? BlockBasedTableOptions::kDataBlockBinarySearch
                      : dataBlockIndexType();
   BlockBuilder builder(
-      16, keyUseDeltaEncoding(), false /* use_value_delta_encoding */,
-      index_type, 0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-      shouldPersistUDT(), false /* is_user_key */, useSeparatedKVStorage());
+      static_cast<int>(getRestartInterval()), keyUseDeltaEncoding(),
+      false /* use_value_delta_encoding */, index_type,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
+      false /* is_user_key */, useSeparatedKVStorage());
   int num_records = 20;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */,
@@ -133,10 +137,9 @@ TEST_P(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  // Pass restart interval (16) to match BlockBuilder
   Block reader(std::move(contents), 0 /* read_amp_bytes_per_bit */,
                nullptr /* statistics */, useSeparatedKVStorage(),
-               16 /* restart_interval */);
+               getRestartInterval());
 
   // read contents of block sequentially
   int count = 0;
@@ -182,9 +185,9 @@ BlockContents GetBlockContents(
     size_t ts_sz, bool should_persist_udt, const int /*prefix_group_size*/ = 1,
     BlockBasedTableOptions::DataBlockIndexType dblock_index_type =
         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
-    bool use_separated_kv_storage = false) {
+    bool use_separated_kv_storage = false, uint32_t restart_interval = 1) {
   builder->reset(new BlockBuilder(
-      1 /* restart interval */, key_use_delta_encoding,
+      static_cast<int>(restart_interval), key_use_delta_encoding,
       false /* use_value_delta_encoding */, dblock_index_type,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, should_persist_udt,
       false /* is_user_key */, use_separated_kv_storage));
@@ -268,10 +271,11 @@ TEST_P(BlockTest, SimpleIndexHash) {
       isUDTEnabled()
           ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
           : dataBlockIndexType(),
-      useSeparatedKVStorage());
+      useSeparatedKVStorage(), getRestartInterval());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
-                     shouldPersistUDT(), useSeparatedKVStorage(), 1);
+                     shouldPersistUDT(), useSeparatedKVStorage(),
+                     getRestartInterval());
 }
 
 TEST_P(BlockTest, IndexHashWithSharedPrefix) {
@@ -291,15 +295,16 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
   std::unique_ptr<BlockBuilder> builder;
 
   auto contents = GetBlockContents(
-      &builder, keys, values, keyUseDeltaEncoding(), isUDTEnabled(),
-      shouldPersistUDT(), kPrefixGroup,
+      &builder, keys, values, keyUseDeltaEncoding(), ts_sz, shouldPersistUDT(),
+      kPrefixGroup,
       isUDTEnabled()
           ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
           : dataBlockIndexType(),
-      useSeparatedKVStorage());
+      useSeparatedKVStorage(), getRestartInterval());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
-                     shouldPersistUDT(), useSeparatedKVStorage(), 1);
+                     shouldPersistUDT(), useSeparatedKVStorage(),
+                     getRestartInterval());
 }
 
 // Param 0: key use delta encoding
@@ -308,7 +313,8 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
 // compatible with `kDataBlockBinaryAndHash` data block index type because the
 // user comparator doesn't provide a `CanKeysWithDifferentByteContentsBeEqual`
 // override. This combination is disabled.
-// Param 3: use separated KV storage
+// Param 3: restart interval
+// Param 4: use separated KV storage
 INSTANTIATE_TEST_CASE_P(
     P, BlockTest,
     ::testing::Combine(
@@ -317,7 +323,7 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
             BlockBasedTableOptions::DataBlockIndexType::
                 kDataBlockBinaryAndHash),
-        ::testing::Bool()));
+        ::testing::Values(1, 8, 16), ::testing::Bool()));
 
 // A slow and accurate version of BlockReadAmpBitmap that simply store
 // all the marked ranges in a set.
