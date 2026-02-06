@@ -14,12 +14,15 @@
 
 #include "util/io_dispatcher_imp.h"
 
+#include <deque>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "file/random_access_file_reader.h"
+#include "monitoring/statistics_impl.h"
+#include "port/port.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/options.h"
@@ -28,8 +31,18 @@
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/reader_common.h"
 #include "table/format.h"
+#include "test_util/sync_point.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// IODispatcherImplData is the base that provides ReleaseMemory interface
+// for ReadSets to call back when releasing blocks. Defined here so it's
+// visible to ReadSet methods.
+struct IODispatcherImplData {
+  virtual ~IODispatcherImplData() = default;
+  virtual void ReleaseMemory(size_t bytes) = 0;
+};
 
 // Helper function to create and pin a block from a buffer
 // Used by both ReadSet::PollAndProcessAsyncIO and IODispatcherImpl::Impl
@@ -98,6 +111,18 @@ struct AsyncIOState {
 // Must call AbortIO before deleting handles to avoid use-after-free when
 // io_uring completions arrive for deleted handles.
 ReadSet::~ReadSet() {
+  // Release memory for any blocks still pinned
+  // Note: block_sizes_[i] is only set for async IO reads where memory
+  // limiting applies. For sync reads, block_sizes_ remains 0, so this
+  // loop is effectively a no-op for sync reads.
+  if (auto dispatcher_data = dispatcher_data_.lock()) {
+    for (size_t i = 0; i < block_sizes_.size(); ++i) {
+      if (block_sizes_[i] > 0 && pinned_blocks_[i].GetValue()) {
+        dispatcher_data->ReleaseMemory(block_sizes_[i]);
+      }
+    }
+  }
+
   if (async_io_map_.empty()) {
     return;
   }
@@ -173,6 +198,9 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   }
 
   // Case 3: Block needs synchronous read
+  // If this block was pending prefetch, remove it since we're reading it now
+  RemoveFromPending(block_index);
+
   Status s = SyncRead(block_index);
   if (s.ok()) {
     *out = std::move(pinned_blocks_[block_index]);
@@ -219,6 +247,22 @@ void ReadSet::ReleaseBlock(size_t block_index) {
   if (block_index >= pinned_blocks_.size()) {
     return;
   }
+
+  // Remove from pending if applicable
+  RemoveFromPending(block_index);
+
+  // Release memory BEFORE unpinning
+  // Note: block_sizes_[idx] is only set for async IO reads where memory
+  // limiting applies. For sync reads, block_sizes_ remains 0, so this
+  // check implicitly skips ReleaseMemory for sync reads.
+  if (pinned_blocks_[block_index].GetValue() &&
+      block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
+    if (auto dispatcher_data = dispatcher_data_.lock()) {
+      dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+    }
+    block_sizes_[block_index] = 0;  // Prevent double-release
+  }
+
   // Unpin the block from cache
   pinned_blocks_[block_index].Reset();
   // Clean up any pending async IO for this block
@@ -300,9 +344,51 @@ Status ReadSet::SyncRead(size_t block_index) {
       /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 }
 
-struct IODispatcherImpl::Impl {
-  Impl();
-  ~Impl();
+// A pre-coalesced group of blocks for prefetching
+struct CoalescedPrefetchGroup {
+  std::vector<size_t> block_indices;  // Blocks in this group (sorted by offset)
+  size_t total_bytes = 0;             // Total bytes for this IO
+};
+
+// State for a pending memory request waiting to be granted
+// Groups are pre-coalesced at queue time for efficient dispatch
+struct PendingPrefetchRequest {
+  std::weak_ptr<ReadSet> read_set;
+  std::shared_ptr<IOJob> job;
+
+  // Pre-coalesced groups ready for dispatch (ordered by first block index)
+  std::deque<CoalescedPrefetchGroup> coalesced_groups;
+
+  // Individual block indices still pending (for RemoveFromPending lookup)
+  std::unordered_set<size_t> block_indices_to_prefetch;
+
+  std::atomic<size_t> pending_bytes_{0};  // Track remaining bytes
+  mutable port::Mutex groups_mutex_;  // Protects groups and set modifications
+};
+
+// Remove a block from pending prefetch (called when block is read or released)
+void ReadSet::RemoveFromPending(size_t block_index) {
+  if (!pending_prefetch_flags_ || block_index >= pending_prefetch_flags_size_) {
+    return;
+  }
+
+  // Atomic exchange - returns true only if it was previously true
+  if (!pending_prefetch_flags_[block_index].exchange(false)) {
+    return;  // Already removed or never pending
+  }
+
+  if (pending_request_) {
+    MutexLock lock(&pending_request_->groups_mutex_);
+    pending_request_->block_indices_to_prefetch.erase(block_index);
+    pending_request_->pending_bytes_ -= block_sizes_[block_index];
+  }
+}
+
+// IODispatcherImpl::Impl inherits from IODispatcherImplData
+struct IODispatcherImpl::Impl : public IODispatcherImplData,
+                                public std::enable_shared_from_this<Impl> {
+  explicit Impl(const IODispatcherOptions& options);
+  ~Impl() override;
 
   // Non-copyable and non-movable
   Impl(const Impl&) = delete;
@@ -312,6 +398,18 @@ struct IODispatcherImpl::Impl {
 
   Status SubmitJob(const std::shared_ptr<IOJob>& job,
                    std::shared_ptr<ReadSet>* read_set);
+
+  // Memory management methods - non-blocking
+  bool TryAcquireMemory(size_t bytes);
+  void ReleaseMemory(size_t bytes) override;
+
+  // Memory limiting state
+  size_t max_prefetch_memory_bytes_ = 0;
+  std::atomic<size_t> memory_used_{0};  // Atomic for lock-free accounting
+  std::atomic<bool> has_pending_requests_{false};  // Fast-path check
+  port::Mutex memory_mutex_;  // Only for pending_prefetch_queue_ access
+  std::deque<std::shared_ptr<PendingPrefetchRequest>> pending_prefetch_queue_;
+  Statistics* statistics_ = nullptr;
 
  private:
   void PrepareIORequests(
@@ -335,11 +433,213 @@ struct IODispatcherImpl::Impl {
       const std::shared_ptr<ReadSet>& read_set,
       std::vector<FSReadRequest>& read_reqs,
       const std::vector<std::vector<size_t>>& coalesced_block_indices);
+
+  // Try to dispatch pending prefetch requests when memory becomes available
+  void TryDispatchPendingPrefetches();
+
+  // Dispatch prefetch for a specific ReadSet (called when memory is available)
+  void DispatchPrefetch(const std::shared_ptr<ReadSet>& read_set,
+                        const std::shared_ptr<IOJob>& job,
+                        const std::vector<size_t>& block_indices);
+
+  // Pre-coalesce blocks into groups, respecting max_group_bytes size limit.
+  // Returns groups ordered by first block index (earlier blocks first).
+  std::vector<CoalescedPrefetchGroup> PreCoalesceBlocks(
+      const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& rs,
+      const std::vector<size_t>& block_indices, size_t max_group_bytes);
 };
 
-IODispatcherImpl::Impl::Impl() {}
+IODispatcherImpl::Impl::Impl(const IODispatcherOptions& options)
+    : max_prefetch_memory_bytes_(options.max_prefetch_memory_bytes),
+      statistics_(options.statistics) {}
 
 IODispatcherImpl::Impl::~Impl() {}
+
+bool IODispatcherImpl::Impl::TryAcquireMemory(size_t bytes) {
+  if (max_prefetch_memory_bytes_ == 0) {
+    return true;  // No limit configured
+  }
+
+  // Lock-free memory acquisition using compare-exchange
+  size_t current = memory_used_.load(std::memory_order_relaxed);
+  while (true) {
+    if (current + bytes > max_prefetch_memory_bytes_) {
+      // Not enough memory - caller should queue for later
+      RecordTick(statistics_, PREFETCH_MEMORY_REQUESTS_BLOCKED);
+      return false;
+    }
+    if (memory_used_.compare_exchange_weak(current, current + bytes,
+                                           std::memory_order_release,
+                                           std::memory_order_relaxed)) {
+      RecordTick(statistics_, PREFETCH_MEMORY_BYTES_GRANTED, bytes);
+      return true;
+    }
+    // current is updated by compare_exchange_weak on failure, retry
+  }
+}
+
+void IODispatcherImpl::Impl::ReleaseMemory(size_t bytes) {
+  if (max_prefetch_memory_bytes_ == 0) {
+    return;  // No limit configured
+  }
+
+  // Lock-free memory release using atomic fetch_sub
+  size_t old_val = memory_used_.fetch_sub(bytes, std::memory_order_release);
+  assert(old_val >= bytes);
+  (void)old_val;  // Suppress unused warning in release builds
+  RecordTick(statistics_, PREFETCH_MEMORY_BYTES_RELEASED, bytes);
+
+  // Fast-path: skip dispatch attempt if no pending requests
+  // This avoids mutex contention in the common single-threaded iterator case
+  if (!has_pending_requests_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  // Try to dispatch pending prefetches now that memory is available
+  TryDispatchPendingPrefetches();
+}
+
+void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
+  // Process pending prefetch requests - dispatch entire coalesced groups
+  while (true) {
+    std::shared_ptr<PendingPrefetchRequest> pending;
+
+    {
+      MutexLock lock(&memory_mutex_);
+      if (pending_prefetch_queue_.empty()) {
+        has_pending_requests_.store(false, std::memory_order_release);
+        return;
+      }
+
+      // Get the next pending request
+      pending = std::move(pending_prefetch_queue_.front());
+      pending_prefetch_queue_.pop_front();
+    }
+
+    // Check if the ReadSet is still alive
+    auto read_set = pending->read_set.lock();
+    if (!read_set) {
+      continue;  // ReadSet was destroyed, skip this request
+    }
+
+    // Try to acquire memory for coalesced groups (entire groups at a time)
+    std::vector<size_t> blocks_to_dispatch;
+    bool has_remaining_groups = false;
+
+    {
+      MutexLock lock(&pending->groups_mutex_);
+
+      while (!pending->coalesced_groups.empty()) {
+        auto& group = pending->coalesced_groups.front();
+
+        // Filter out blocks that were already read (not in pending set anymore)
+        std::vector<size_t> remaining_blocks;
+        size_t remaining_bytes = 0;
+        for (size_t idx : group.block_indices) {
+          if (pending->block_indices_to_prefetch.count(idx) > 0) {
+            remaining_blocks.push_back(idx);
+            remaining_bytes += read_set->block_sizes_[idx];
+          }
+        }
+
+        // Skip empty groups (all blocks were already read)
+        if (remaining_blocks.empty()) {
+          pending->coalesced_groups.pop_front();
+          continue;
+        }
+
+        // Try to acquire memory for remaining blocks only
+        if (TryAcquireMemory(remaining_bytes)) {
+          // Add all remaining blocks from this group to dispatch
+          for (size_t idx : remaining_blocks) {
+            blocks_to_dispatch.push_back(idx);
+            pending->block_indices_to_prefetch.erase(idx);
+          }
+          pending->pending_bytes_ -= remaining_bytes;
+          pending->coalesced_groups.pop_front();
+        } else {
+          // Not enough memory for this group - update with remaining blocks
+          group.block_indices = std::move(remaining_blocks);
+          group.total_bytes = remaining_bytes;
+          has_remaining_groups = true;
+          break;
+        }
+      }
+    }
+
+    // Save job before potential move of pending
+    auto job = pending->job;
+
+    // Requeue if groups remain
+    if (has_remaining_groups) {
+      MutexLock lock(&memory_mutex_);
+      pending_prefetch_queue_.push_front(std::move(pending));
+    } else {
+      // All groups dispatched, clear pending state
+      read_set->pending_request_.reset();
+    }
+
+    // Clear pending flags for dispatched blocks
+    if (read_set->pending_prefetch_flags_) {
+      for (size_t idx : blocks_to_dispatch) {
+        if (idx < read_set->pending_prefetch_flags_size_) {
+          read_set->pending_prefetch_flags_[idx].store(false);
+        }
+      }
+    }
+
+    // Dispatch acquired blocks
+    if (!blocks_to_dispatch.empty()) {
+      DispatchPrefetch(read_set, job, blocks_to_dispatch);
+    }
+
+    // If we dispatched nothing, stop (no memory available for any group)
+    if (blocks_to_dispatch.empty()) {
+      return;
+    }
+  }
+}
+
+void IODispatcherImpl::Impl::DispatchPrefetch(
+    const std::shared_ptr<ReadSet>& read_set, const std::shared_ptr<IOJob>& job,
+    const std::vector<size_t>& block_indices) {
+  // Sync point for testing partial prefetch - passes number of blocks being
+  // dispatched
+  TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::DispatchPrefetch:BlockCount",
+                           const_cast<std::vector<size_t>*>(&block_indices));
+
+  // Prepare and execute IO for the given blocks
+  std::vector<FSReadRequest> read_reqs;
+  std::vector<std::vector<size_t>> coalesced_block_indices;
+  PrepareIORequests(job, block_indices, job->block_handles, &read_reqs,
+                    &coalesced_block_indices);
+
+  if (job->job_options.read_options.async_io) {
+    Status async_status;
+    std::vector<size_t> fallback_indices = ExecuteAsyncIO(
+        job, read_set, read_reqs, coalesced_block_indices, &async_status);
+
+    // For blocks where async is not supported, do sync IO
+    if (!fallback_indices.empty()) {
+      std::vector<FSReadRequest> sync_read_reqs;
+      std::vector<std::vector<size_t>> sync_coalesced_indices;
+      PrepareIORequests(job, fallback_indices, job->block_handles,
+                        &sync_read_reqs, &sync_coalesced_indices);
+      // Prefetch errors are ignored - user will get the error when reading
+      Status s =
+          ExecuteSyncIO(job, read_set, sync_read_reqs, sync_coalesced_indices);
+      s.PermitUncheckedError();
+      read_set->num_sync_reads_ += fallback_indices.size();
+    }
+    // Async errors are also ignored - user will get the error when reading
+    async_status.PermitUncheckedError();
+  } else {
+    // Prefetch errors are ignored - user will get the error when reading
+    Status s = ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
+    s.PermitUncheckedError();
+    read_set->num_sync_reads_ += block_indices.size();
+  }
+}
 
 Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
                                          std::shared_ptr<ReadSet>* read_set) {
@@ -353,6 +653,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   rs->job_ = job;
   rs->fs_ = job->table->get_rep()->ioptions.env->GetFileSystem();
   rs->pinned_blocks_.resize(job->block_handles.size());
+  rs->block_sizes_.resize(job->block_handles.size(), 0);
 
   // Build sorted index for O(log n) ReadOffset lookups via binary search.
   // sorted_block_indices_[i] = original index of i-th smallest block by offset.
@@ -399,43 +700,74 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   rs->num_cache_hits_ =
       job->block_handles.size() - block_indices_to_read.size();
 
-  // Prepare read requests - coalesce adjacent blocks
-  std::vector<FSReadRequest> read_reqs;
-  std::vector<std::vector<size_t>> coalesced_block_indices;
-  PrepareIORequests(job, block_indices_to_read, job->block_handles, &read_reqs,
-                    &coalesced_block_indices);
+  // Calculate block sizes for uncached blocks
+  for (const auto& idx : block_indices_to_read) {
+    size_t block_size =
+        BlockBasedTable::BlockSizeWithTrailer(job->block_handles[idx]);
+    rs->block_sizes_[idx] = block_size;
+  }
 
-  // Step 3: Execute IO requests based on JobOptions
-  if (job->job_options.read_options.async_io) {
-    // Try async IO - get back any blocks that need sync fallback (not
-    // supported) and surface any actual errors to caller
-    Status async_status;
-    std::vector<size_t> fallback_indices = ExecuteAsyncIO(
-        job, rs, read_reqs, coalesced_block_indices, &async_status);
-    if (!async_status.ok()) {
-      return async_status;
-    }
+  // Store dispatcher reference for release callbacks
+  rs->dispatcher_data_ = shared_from_this();
 
-    // Fall back to sync IO for blocks where async is not supported
-    if (!fallback_indices.empty()) {
-      std::vector<FSReadRequest> sync_read_reqs;
-      std::vector<std::vector<size_t>> sync_coalesced_indices;
-      PrepareIORequests(job, fallback_indices, job->block_handles,
-                        &sync_read_reqs, &sync_coalesced_indices);
+  // Pre-coalesce blocks into groups, respecting memory budget per group
+  // This ensures we dispatch meaningful IO sizes, not tiny single-block IOs
+  // Both memory-limited and non-memory-limited paths use the same coalescing
+  auto coalesced_groups = PreCoalesceBlocks(job, rs, block_indices_to_read,
+                                            max_prefetch_memory_bytes_);
 
-      Status s = ExecuteSyncIO(job, rs, sync_read_reqs, sync_coalesced_indices);
-      if (!s.ok()) {
-        return s;
+  std::vector<size_t> blocks_to_dispatch;
+  std::deque<CoalescedPrefetchGroup> groups_to_queue;
+
+  // Try to acquire memory for entire coalesced groups
+  for (auto& group : coalesced_groups) {
+    if (TryAcquireMemory(group.total_bytes)) {
+      // Add all blocks from this group to dispatch
+      for (size_t idx : group.block_indices) {
+        blocks_to_dispatch.push_back(idx);
       }
-      rs->num_sync_reads_ += fallback_indices.size();
+    } else {
+      // Queue this group for later
+      groups_to_queue.push_back(std::move(group));
     }
-  } else {
-    Status s = ExecuteSyncIO(job, rs, read_reqs, coalesced_block_indices);
-    if (!s.ok()) {
-      return s;
+  }
+
+  // Dispatch acquired blocks immediately
+  if (!blocks_to_dispatch.empty()) {
+    DispatchPrefetch(rs, job, blocks_to_dispatch);
+  }
+
+  // Queue remaining groups for later (only applies when memory limiting)
+  if (!groups_to_queue.empty()) {
+    auto pending = std::make_shared<PendingPrefetchRequest>();
+    pending->read_set = rs;
+    pending->job = job;
+
+    size_t pending_bytes = 0;
+    for (const auto& group : groups_to_queue) {
+      for (size_t idx : group.block_indices) {
+        pending->block_indices_to_prefetch.insert(idx);
+      }
+      pending_bytes += group.total_bytes;
     }
-    // We bump this for sync reads
-    rs->num_sync_reads_ += block_indices_to_read.size();
+    pending->coalesced_groups = std::move(groups_to_queue);
+    pending->pending_bytes_ = pending_bytes;
+
+    // Set up pending flags for queued blocks only
+    size_t num_blocks = job->block_handles.size();
+    rs->pending_prefetch_flags_ =
+        std::make_unique<std::atomic<bool>[]>(num_blocks);
+    rs->pending_prefetch_flags_size_ = num_blocks;
+    for (size_t idx : pending->block_indices_to_prefetch) {
+      rs->pending_prefetch_flags_[idx].store(true);
+    }
+    rs->pending_request_ = pending;
+
+    {
+      MutexLock lock(&memory_mutex_);
+      pending_prefetch_queue_.push_back(std::move(pending));
+      has_pending_requests_.store(true, std::memory_order_release);
+    }
   }
 
   *read_set = std::move(rs);
@@ -501,6 +833,67 @@ void IODispatcherImpl::Impl::PrepareIORequests(
     read_reqs->back().len = end_offset - start_offset;
     read_reqs->back().scratch = nullptr;
   }
+}
+
+std::vector<CoalescedPrefetchGroup> IODispatcherImpl::Impl::PreCoalesceBlocks(
+    const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& rs,
+    const std::vector<size_t>& block_indices, size_t max_group_bytes) {
+  std::vector<CoalescedPrefetchGroup> groups;
+
+  if (block_indices.empty()) {
+    return groups;
+  }
+
+  const auto& block_handles = job->block_handles;
+  const uint64_t coalesce_threshold = job->job_options.io_coalesce_threshold;
+
+  // Sort block indices by offset for coalescing
+  std::vector<size_t> sorted_indices = block_indices;
+  std::sort(sorted_indices.begin(), sorted_indices.end(),
+            [&block_handles](size_t a, size_t b) {
+              return block_handles[a].offset() < block_handles[b].offset();
+            });
+
+  // Build coalesced groups respecting max_group_bytes
+  groups.emplace_back();
+
+  for (size_t idx : sorted_indices) {
+    size_t block_size = rs->block_sizes_[idx];
+
+    // Skip blocks that are individually larger than the memory budget
+    // These will be read synchronously when needed (via ReadIndex fallback)
+    if (max_group_bytes > 0 && block_size > max_group_bytes) {
+      continue;
+    }
+
+    // Check if we need to start a new group
+    bool start_new_group = false;
+
+    if (!groups.back().block_indices.empty()) {
+      // Check gap with previous block
+      size_t last_idx = groups.back().block_indices.back();
+      const auto& last_handle = block_handles[last_idx];
+      uint64_t last_end = last_handle.offset() +
+                          BlockBasedTable::BlockSizeWithTrailer(last_handle);
+      uint64_t current_start = block_handles[idx].offset();
+
+      if (current_start > last_end + coalesce_threshold) {
+        start_new_group = true;  // Gap too large
+      } else if (max_group_bytes > 0 &&
+                 groups.back().total_bytes + block_size > max_group_bytes) {
+        start_new_group = true;  // Would exceed size limit
+      }
+    }
+
+    if (start_new_group) {
+      groups.emplace_back();
+    }
+
+    groups.back().block_indices.push_back(idx);
+    groups.back().total_bytes += block_size;
+  }
+
+  return groups;
 }
 
 std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
@@ -648,7 +1041,11 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   return Status::OK();
 }
 
-IODispatcherImpl::IODispatcherImpl() : impl_(new Impl()) {}
+IODispatcherImpl::IODispatcherImpl()
+    : impl_(std::make_shared<Impl>(IODispatcherOptions())) {}
+
+IODispatcherImpl::IODispatcherImpl(const IODispatcherOptions& options)
+    : impl_(std::make_shared<Impl>(options)) {}
 
 IODispatcherImpl::~IODispatcherImpl() = default;
 
@@ -658,5 +1055,9 @@ Status IODispatcherImpl::SubmitJob(const std::shared_ptr<IOJob>& job,
 }
 
 IODispatcher* NewIODispatcher() { return new IODispatcherImpl(); }
+
+IODispatcher* NewIODispatcher(const IODispatcherOptions& options) {
+  return new IODispatcherImpl(options);
+}
 
 }  // namespace ROCKSDB_NAMESPACE

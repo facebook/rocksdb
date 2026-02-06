@@ -575,6 +575,14 @@ enum Tickers : uint32_t {
   // # of seeks that failed validation (out of order, etc.)
   MULTISCAN_SEEK_ERRORS,
 
+  // IODispatcher memory limiting statistics
+  // # of bytes granted to prefetch requests
+  PREFETCH_MEMORY_BYTES_GRANTED,
+  // # of bytes released from prefetch memory
+  PREFETCH_MEMORY_BYTES_RELEASED,
+  // # of prefetch requests that were blocked waiting for memory
+  PREFETCH_MEMORY_REQUESTS_BLOCKED,
+
   TICKER_ENUM_MAX
 };
 

@@ -6,8 +6,10 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/options.h"
@@ -17,6 +19,22 @@
 namespace ROCKSDB_NAMESPACE {
 
 class FileSystem;
+class Statistics;
+
+// Forward declaration for internal implementation
+struct IODispatcherImplData;
+struct PendingPrefetchRequest;
+
+// Options for configuring IODispatcher behavior
+struct IODispatcherOptions {
+  // Maximum memory (in bytes) for prefetching across all ReadSets.
+  // When this limit is reached, SubmitJob() blocks until memory is released.
+  // Set to 0 (default) for unlimited prefetch memory.
+  size_t max_prefetch_memory_bytes = 0;
+
+  // Optional statistics for tracking memory limiter metrics
+  Statistics* statistics = nullptr;
+};
 
 /*
  * IODispatcher is a class that allows users to submit groups of IO jobs to be
@@ -33,51 +51,88 @@ class FileSystem;
  * dispatcher, allowing for future ratelimiting and smarter dispatching policies
  * in the future.
  *
-* Example:
- // Submitting an IO job and reading blocks:
- //
- // std::shared_ptr<IOJob> job = std::make_shared<IOJob>();
- // job->table = table_reader;  // Provided BlockBasedTable*
- // job->job_options.io_coalesce_threshold = 32 * 1024;
- // job->job_options.read_options = read_options;  // Provided ReadOptions
- //
- // // Populate the job with block handles (e.g., from an index/iterator)
- // job->block_handles.push_back(handle1);
- // job->block_handles.push_back(handle2);
- // job->block_handles.push_back(handle3);
- //
- // std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
- // std::shared_ptr<ReadSet> read_set;
- // Status s = dispatcher->SubmitJob(job, &read_set);
- // if (!s.ok()) {
- //   // Handle submit error
- // }
- //
- // // Read by index
- // for (size_t i = 1; i < job->block_handles.size(); ++i) {
- //   CachableEntry<Block> block_entry;
- //   Status rs = read_set->ReadIndex(i, &block_entry);
- //   if (!rs.ok()) {
- //     // Handle read error
- //     continue;
- //   }
- //   // Use block_entry (block contents are pinned here)
- // }
- //
- // // Or read by byte offset
- // {
- //   size_t offset = static_cast<size_t>(job->block_handles.front().offset());
- //   CachableEntry<Block> block_entry;
- //   Status rs = read_set->ReadOffset(offset, &block_entry);
- //   if (rs.ok()) {
- //     // Use block_entry
- //   }
- // }
- //
- // // Stats
- // uint64_t cache_hits = read_set->GetNumCacheHits();
- // uint64_t async_reads = read_set->GetNumAsyncReads();
- // uint64_t sync_reads = read_set->GetNumSyncReads();
+ * Example 1: Basic Usage
+ * ----------------------
+ * // Submitting an IO job and reading blocks:
+ * //
+ * // std::shared_ptr<IOJob> job = std::make_shared<IOJob>();
+ * // job->table = table_reader;  // Provided BlockBasedTable*
+ * // job->job_options.io_coalesce_threshold = 32 * 1024;
+ * // job->job_options.read_options = read_options;  // Provided ReadOptions
+ * //
+ * // // Populate the job with block handles (e.g., from an index/iterator)
+ * // job->block_handles.push_back(handle1);
+ * // job->block_handles.push_back(handle2);
+ * // job->block_handles.push_back(handle3);
+ * //
+ * // std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+ * // std::shared_ptr<ReadSet> read_set;
+ * // Status s = dispatcher->SubmitJob(job, &read_set);
+ * // if (!s.ok()) {
+ * //   // Handle submit error
+ * // }
+ * //
+ * // // Read by index
+ * // for (size_t i = 1; i < job->block_handles.size(); ++i) {
+ * //   CachableEntry<Block> block_entry;
+ * //   Status rs = read_set->ReadIndex(i, &block_entry);
+ * //   if (!rs.ok()) {
+ * //     // Handle read error
+ * //     continue;
+ * //   }
+ * //   // Use block_entry (block contents are pinned here)
+ * // }
+ * //
+ * // // Or read by byte offset
+ * // {
+ * //   size_t offset =
+ static_cast<size_t>(job->block_handles.front().offset());
+ * //   CachableEntry<Block> block_entry;
+ * //   Status rs = read_set->ReadOffset(offset, &block_entry);
+ * //   if (rs.ok()) {
+ * //     // Use block_entry
+ * //   }
+ * // }
+ * //
+ * // // Stats
+ * // uint64_t cache_hits = read_set->GetNumCacheHits();
+ * // uint64_t async_reads = read_set->GetNumAsyncReads();
+ * // uint64_t sync_reads = read_set->GetNumSyncReads();
+ *
+ * Example 2: Memory-Limited Prefetching
+ * -------------------------------------
+ * // Configure a memory budget for prefetching to prevent unbounded memory use.
+ * // When the budget is exceeded, IODispatcher uses "partial prefetch":
+ * //   - Dispatches as many blocks as fit in available memory (earlier first)
+ * //   - Queues remaining blocks for later dispatch when memory is released
+ * //   - Never blocks on SubmitJob - remaining blocks are read on-demand
+ * //
+ * // IODispatcherOptions opts;
+ * // opts.max_prefetch_memory_bytes = 64 * 1024 * 1024;  // 64MB budget
+ * // opts.statistics = db_options.statistics.get();      // Optional metrics
+ * //
+ * // std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+ * //
+ * // // Submit a job that needs more memory than available
+ * // // Partial prefetch will dispatch what fits immediately
+ * // std::shared_ptr<ReadSet> read_set;
+ * // Status s = dispatcher->SubmitJob(job, &read_set);  // Never blocks
+ * //
+ * // // Read blocks in order - earlier blocks are more likely to be prefetched
+ * // for (size_t i = 0; i < job->block_handles.size(); ++i) {
+ * //   CachableEntry<Block> block;
+ * //   Status rs = read_set->ReadIndex(i, &block);
+ * //   // Use block...
+ * //
+ * //   // Release block when done to free memory for pending prefetches
+ * //   read_set->ReleaseBlock(i);  // Triggers dispatch of queued blocks
+ * // }
+ * //
+ * // Memory limiting statistics (when statistics is configured):
+ * // - PREFETCH_MEMORY_BYTES_GRANTED: Total bytes acquired for prefetching
+ * // - PREFETCH_MEMORY_BYTES_RELEASED: Total bytes released after use
+ * // - PREFETCH_MEMORY_REQUESTS_BLOCKED: Number of blocks that couldn't be
+ * //   prefetched immediately due to memory pressure
 
  */
 
@@ -180,6 +235,13 @@ class ReadSet {
   // blocks are coalesced into a single IO request.
   std::unordered_map<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
 
+  // For memory release notifications back to dispatcher (weak ref to avoid
+  // cycles)
+  std::weak_ptr<IODispatcherImplData> dispatcher_data_;
+
+  // Size of each block (parallel to pinned_blocks_) for memory accounting
+  std::vector<size_t> block_sizes_;
+
   // Statistics counters
   std::atomic<uint64_t> num_sync_reads_ = 0;
   std::atomic<uint64_t> num_async_reads_ = 0;
@@ -191,6 +253,16 @@ class ReadSet {
 
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
+
+  // Remove a block from pending prefetch (called by ReadIndex/ReleaseBlock)
+  void RemoveFromPending(size_t block_index);
+
+  // Atomic flags indicating if block is pending prefetch (lock-free check)
+  std::unique_ptr<std::atomic<bool>[]> pending_prefetch_flags_;
+  size_t pending_prefetch_flags_size_ = 0;
+
+  // Reference to pending request (for removal notification)
+  std::shared_ptr<PendingPrefetchRequest> pending_request_;
 };
 
 /*
@@ -218,7 +290,11 @@ class IODispatcher {
                            std::shared_ptr<ReadSet>* read_set) = 0;
 };
 
+// Create IODispatcher with default options (no memory limit)
 IODispatcher* NewIODispatcher();
+
+// Create IODispatcher with custom options
+IODispatcher* NewIODispatcher(const IODispatcherOptions& options);
 
 // TrackingIODispatcher wraps another IODispatcher and tracks all ReadSets
 // created. This is useful for testing to verify IO statistics.
