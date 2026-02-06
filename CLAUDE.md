@@ -24,11 +24,30 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 ### Performance Considerations
 
+**⚠️ PERFORMANCE IS CRITICAL:** RocksDB is a high-performance storage engine where every CPU cycle and memory access matters. When writing code, always evaluate from a performance perspective. This is not optional—performance-aware coding is a fundamental requirement for all contributions.
+
 **Benchmarking and Profiling:** Performance claims should be backed by empirical evidence. Use RocksDB's benchmarking tools (e.g., `db_bench`) to validate improvements. Reviewers will request benchmark results for changes that could impact performance.
 
-**Avoid Premature Optimization:** Focus on correctness first, then optimize based on profiling data. Reviewers are skeptical of optimizations that add complexity without measurable benefit.
+**Memory Allocation:** Minimize dynamic memory allocations, especially in hot paths. Prefer stack allocation over heap allocation. Reuse buffers when possible. Consider using arena allocators or memory pools for frequent small allocations. Every `new`, `malloc`, or container resize has a cost.
+
+**Memory Copy:** Avoid unnecessary memory copies. Use move semantics, `std::string_view`, `Slice`, and pass-by-reference where appropriate. Be aware of implicit copies in STL containers and function returns. Prefer in-place operations over copy-and-modify patterns.
+
+**CPU Cache Efficiency:** Design data structures and access patterns to be cache-friendly. Keep frequently accessed data together (data locality). Prefer sequential memory access over random access. Be mindful of cache line sizes (typically 64 bytes) and avoid false sharing in concurrent code. Consider struct packing and field ordering to improve cache utilization.
+
+**Loop Optimization:** Look for opportunities to collapse nested loops, reduce loop overhead, and minimize branch mispredictions. Hoist invariant computations out of loops. Consider loop unrolling for tight inner loops. Batch operations when possible to amortize per-operation overhead.
+
+**SIMD and Vectorization:** Leverage SIMD instructions (SSE, AVX) for data-parallel operations when appropriate. Structure data to enable auto-vectorization by the compiler. Consider explicit SIMD intrinsics for critical hot paths like checksum computation, encoding/decoding, and bulk data processing.
+
+**Branch Prediction:** Minimize unpredictable branches in hot paths. Use `LIKELY`/`UNLIKELY` macros to hint branch prediction. Consider branchless alternatives for simple conditionals. Order switch cases and if-else chains by frequency.
 
 **Memory and Resource Management:** Be mindful of memory allocations, especially in hot paths. Use RAII patterns, smart pointers, and RocksDB's memory management utilities appropriately.
+
+**Hot Path Analysis:** When deciding how aggressively to optimize code, consider whether it's on a hot path:
+- **Hot path** (executed thousands+ times, e.g., data access, iteration, compaction loops): Performance is paramount. Apply all optimization techniques—loop collapsing, SIMD, cache optimization, pre-allocation, etc. The cost of each operation is multiplied by execution frequency.
+- **Cold path** (executed rarely, e.g., DB open, configuration parsing, error handling): Maintainability and clarity are more important. Prefer readable code over micro-optimizations. Complex optimizations here add maintenance burden with negligible performance benefit.
+- **Warm path** (moderate frequency): Balance both concerns. Use profiling data to guide optimization decisions.
+
+**Avoid Premature Optimization:** While performance is critical, focus on correctness first, then optimize based on profiling data. However, be performance-aware from the start—choosing the right algorithm and data structure upfront is not premature optimization. Use the hot path analysis above to decide how much optimization effort is warranted.
 
 ### API Design and Compatibility
 
@@ -208,6 +227,22 @@ The following patterns emerged as frequent sources of review feedback:
 * When there are multiple unit tests need to be executed, try to use
     gtest_parallel.py if available. E.g.
     python3 ${GTEST_PARALLEL}/gtest_parallel.py ./table_test
+
+### Unit test dedup guidelines
+* Extract helper functions for repeated patterns such as object
+    construction, round-trip (encode → decode → verify), and common
+    assertion sequences.
+* Use table-driven tests (struct array + loop) when multiple test cases
+    share the same logic but differ only in input/expected data.
+* Prefer randomized tests over exhaustive parameter permutations. Use
+    `Random` from `util/random.h` (not `std::mt19937`). Use a time-based
+    seed with `SCOPED_TRACE("seed=" + std::to_string(seed))` so failures
+    are reproducible.
+* Keep deterministic edge-case tests separate from randomized tests
+    (error paths, boundary conditions, format verification).
+* Methods only used in tests should be private with `friend class` +
+    `TEST_F` fixture wrappers. In wrappers, always fully qualify the
+    target method to avoid infinite recursion.
 
 ### Adding new public API
     Refer to claude_md/add_public_api.md
