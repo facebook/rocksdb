@@ -32,9 +32,12 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/sst_file_reader.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -135,12 +138,14 @@ using ROCKSDB_NAMESPACE::SliceTransform;
 using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileManager;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
+using ROCKSDB_NAMESPACE::SstFileReader;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::SstPartitionerFactory;
 using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::SubcompactionJobInfo;
 using ROCKSDB_NAMESPACE::TableFactory;
+using ROCKSDB_NAMESPACE::TableProperties;
 using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
@@ -300,6 +305,12 @@ struct rocksdb_ingestexternalfileoptions_t {
 };
 struct rocksdb_sstfilewriter_t {
   SstFileWriter* rep;
+};
+struct rocksdb_sstfilereader_t {
+  SstFileReader* rep;
+};
+struct rocksdb_tableproperties_t {
+  std::shared_ptr<const TableProperties> rep;
 };
 struct rocksdb_ratelimiter_t {
   std::shared_ptr<RateLimiter> rep;
@@ -6818,6 +6829,87 @@ void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {
   delete writer;
 }
 
+rocksdb_sstfilereader_t* rocksdb_sstfilereader_create(
+    const rocksdb_options_t* io_options) {
+  rocksdb_sstfilereader_t* reader = new rocksdb_sstfilereader_t;
+  reader->rep = new SstFileReader(io_options->rep);
+  return reader;
+}
+
+void rocksdb_sstfilereader_open(rocksdb_sstfilereader_t* reader,
+                                const char* name, char** errptr) {
+  SaveError(errptr, reader->rep->Open(std::string(name)));
+}
+
+rocksdb_iterator_t* rocksdb_sstfilereader_new_iterator(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = reader->rep->NewIterator(options->rep);
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_sstfilereader_new_table_iterator(
+    rocksdb_sstfilereader_t* reader) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = reader->rep->NewTableIterator().release();
+  return result;
+}
+
+void rocksdb_sstfilereader_verify_checksum(rocksdb_sstfilereader_t* reader,
+                                           const rocksdb_readoptions_t* options,
+                                           char** errptr) {
+  SaveError(errptr, reader->rep->VerifyChecksum(options->rep));
+}
+
+void rocksdb_sstfilereader_verify_num_entries(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options,
+    char** errptr) {
+  SaveError(errptr, reader->rep->VerifyNumEntries(options->rep));
+}
+
+void rocksdb_sstfilereader_multi_get(rocksdb_sstfilereader_t* reader,
+                                     const rocksdb_readoptions_t* options,
+                                     size_t num_keys,
+                                     const char* const* keys_list,
+                                     const size_t* keys_list_sizes,
+                                     char** values_list,
+                                     size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses =
+      reader->rep->MultiGet(options->rep, keys, &values);
+  for (size_t i = 0; i < num_keys; i++) {
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      errs[i] = strdup(statuses[i].ToString().c_str());
+    }
+  }
+}
+
+const rocksdb_tableproperties_t* rocksdb_sstfilereader_get_table_properties(
+    rocksdb_sstfilereader_t* reader) {
+  auto props = reader->rep->GetTableProperties();
+  if (!props) {
+    return nullptr;
+  }
+  rocksdb_tableproperties_t* result = new rocksdb_tableproperties_t;
+  result->rep = props;
+  return result;
+}
+
+void rocksdb_sstfilereader_destroy(rocksdb_sstfilereader_t* reader) {
+  delete reader->rep;
+  delete reader;
+}
+
 rocksdb_ingestexternalfileoptions_t*
 rocksdb_ingestexternalfileoptions_create() {
   rocksdb_ingestexternalfileoptions_t* opt =
@@ -6887,6 +6979,130 @@ void rocksdb_ingest_external_file_cf(
 
 void rocksdb_try_catch_up_with_primary(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->TryCatchUpWithPrimary());
+}
+
+uint64_t rocksdb_tableproperties_get_data_size(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->data_size;
+}
+
+uint64_t rocksdb_tableproperties_get_index_size(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->index_size;
+}
+
+uint64_t rocksdb_tableproperties_get_filter_size(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->filter_size;
+}
+
+uint64_t rocksdb_tableproperties_get_raw_key_size(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->raw_key_size;
+}
+
+uint64_t rocksdb_tableproperties_get_raw_value_size(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->raw_value_size;
+}
+
+uint64_t rocksdb_tableproperties_get_num_data_blocks(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->num_data_blocks;
+}
+
+uint64_t rocksdb_tableproperties_get_num_entries(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->num_entries;
+}
+
+uint64_t rocksdb_tableproperties_get_num_deletions(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->num_deletions;
+}
+
+uint64_t rocksdb_tableproperties_get_num_merge_operands(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->num_merge_operands;
+}
+
+uint64_t rocksdb_tableproperties_get_num_range_deletions(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->num_range_deletions;
+}
+
+uint64_t rocksdb_tableproperties_get_format_version(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->format_version;
+}
+
+uint64_t rocksdb_tableproperties_get_fixed_key_len(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->fixed_key_len;
+}
+
+uint64_t rocksdb_tableproperties_get_column_family_id(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->column_family_id;
+}
+
+uint64_t rocksdb_tableproperties_get_creation_time(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->creation_time;
+}
+
+uint64_t rocksdb_tableproperties_get_oldest_key_time(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->oldest_key_time;
+}
+
+uint64_t rocksdb_tableproperties_get_newest_key_time(
+    const rocksdb_tableproperties_t* props) {
+  return props->rep->newest_key_time;
+}
+
+char* rocksdb_tableproperties_get_db_id(
+    const rocksdb_tableproperties_t* props) {
+  if (props->rep && !props->rep->db_id.empty()) {
+    return CopyString(props->rep->db_id);
+  }
+  return nullptr;
+}
+
+char* rocksdb_tableproperties_get_db_session_id(
+    const rocksdb_tableproperties_t* props) {
+  if (props->rep && !props->rep->db_session_id.empty()) {
+    return CopyString(props->rep->db_session_id);
+  }
+  return nullptr;
+}
+
+char* rocksdb_tableproperties_get_column_family_name(
+    const rocksdb_tableproperties_t* props) {
+  if (props->rep && !props->rep->column_family_name.empty()) {
+    return CopyString(props->rep->column_family_name);
+  }
+  return nullptr;
+}
+
+char* rocksdb_tableproperties_get_filter_policy_name(
+    const rocksdb_tableproperties_t* props) {
+  if (props->rep && !props->rep->filter_policy_name.empty()) {
+    return CopyString(props->rep->filter_policy_name);
+  }
+  return nullptr;
+}
+
+char* rocksdb_tableproperties_get_comparator_name(
+    const rocksdb_tableproperties_t* props) {
+  if (props->rep && !props->rep->comparator_name.empty()) {
+    return CopyString(props->rep->comparator_name);
+  }
+  return nullptr;
+}
+
+void rocksdb_tableproperties_destroy(const rocksdb_tableproperties_t* props) {
+  delete props;
 }
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create(
