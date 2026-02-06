@@ -71,6 +71,8 @@ const std::string LDBCommand::ARG_CF_NAME = "column_family";
 const std::string LDBCommand::ARG_TTL = "ttl";
 const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
+const std::string LDBCommand::ARG_USE_TXN = "use_txn";
+const std::string LDBCommand::ARG_TXN_WRITE_POLICY = "txn_write_policy";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
 const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
@@ -479,10 +481,13 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& valid_cmd_line_options)
     : db_(nullptr),
       db_ttl_(nullptr),
+      db_txn_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
       is_db_ttl_(false),
+      is_db_txn_(false),
+      txn_write_policy_(0),
       timestamp_(false),
       try_load_options_(false),
       create_if_missing_(false),
@@ -526,6 +531,21 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+  is_db_txn_ = IsFlagPresent(flags, ARG_USE_TXN);
+  itr = options.find(ARG_TXN_WRITE_POLICY);
+  if (itr != options.end()) {
+    try {
+      txn_write_policy_ = std::stoi(itr->second);
+      if (txn_write_policy_ < 0 || txn_write_policy_ > 2) {
+        fprintf(stderr, "Invalid txn_write_policy: %d. Must be 0, 1, or 2.\n",
+                txn_write_policy_);
+        txn_write_policy_ = 0;
+      }
+    } catch (const std::exception&) {
+      fprintf(stderr, "Invalid txn_write_policy value: %s\n",
+              itr->second.c_str());
+    }
+  }
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
@@ -549,7 +569,34 @@ void LDBCommand::OpenDB() {
   // Open the DB.
   Status st;
   std::vector<ColumnFamilyHandle*> handles_opened;
-  if (is_db_ttl_) {
+  if (is_db_txn_) {
+    // TransactionDB mode
+    if (is_db_ttl_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot use both --ttl and --use_txn flags together");
+      return;
+    }
+    if (!secondary_path_.empty() || !leader_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support secondary or follower mode");
+      return;
+    }
+    if (is_read_only_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support read-only mode");
+      return;
+    }
+    TransactionDBOptions txn_db_options;
+    txn_db_options.write_policy =
+        static_cast<TxnDBWritePolicy>(txn_write_policy_);
+    if (column_families_.empty()) {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_, &db_txn_);
+    } else {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_,
+                               column_families_, &handles_opened, &db_txn_);
+    }
+    db_ = db_txn_;
+  } else if (is_db_ttl_) {
     // ldb doesn't yet support TTL DB with multiple column families
     if (!column_family_name_.empty() || !column_families_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -690,7 +737,9 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_FILE_STARTING_LEVEL,
                                   ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
-                                  ARG_CF_NAME};
+                                  ARG_CF_NAME,
+                                  ARG_USE_TXN,
+                                  ARG_TXN_WRITE_POLICY};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
 }
