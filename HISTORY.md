@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.11.1 (02/06/2026)
+### Bug Fixes
+* Fixed a bug in PosixFS AbortIO that could cause it to ignore an IO completion and a subsequent Poll to hang
+
 ## 10.11.0 (01/23/2026)
 ### Public API Changes
 * New SetOptions API that allows setting options for multiple CFs, avoiding the need to reserialize OPTIONS file for each CF
