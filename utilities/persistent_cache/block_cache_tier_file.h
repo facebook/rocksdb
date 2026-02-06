@@ -101,14 +101,14 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
   // append key/value to file and return LBA locator to user
   virtual bool Append(const Slice& /*key*/, const Slice& /*val*/,
                       LBA* const /*lba*/) {
-    assert(!"not implemented");
+    assert(false && "not implemented");
     return false;
   }
 
   // read from the record locator (LBA) and return key, value and status
   virtual bool Read(const LBA& /*lba*/, Slice* /*key*/, Slice* /*block*/,
                     char* /*scratch*/) {
-    assert(!"not implemented");
+    assert(false && "not implemented");
     return false;
   }
 
