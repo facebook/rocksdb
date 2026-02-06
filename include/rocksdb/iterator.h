@@ -56,6 +56,32 @@ class Iterator : public IteratorBase {
     return kNoWideColumns;
   }
 
+  // Check whether the column at the given index is an unresolved blob
+  // reference. Only meaningful when ReadOptions::lazy_column_resolution is
+  // true. Returns false by default (all columns resolved).
+  // REQUIRES: Valid()
+  virtual bool IsUnresolvedColumn(size_t /*column_index*/) const {
+    return false;
+  }
+
+  // Resolve the blob value for the column at the given index. Only meaningful
+  // when ReadOptions::lazy_column_resolution is true. After a successful call,
+  // the column value in columns() will contain the actual blob data.
+  // Returns Status::OK() by default (nothing to resolve).
+  // REQUIRES: Valid()
+  virtual Status ResolveColumn(size_t /*column_index*/) { return Status::OK(); }
+
+  // Resolve all unresolved blob columns at once. Only meaningful when
+  // ReadOptions::lazy_column_resolution is true.
+  // Returns Status::OK() by default (nothing to resolve).
+  // REQUIRES: Valid()
+  virtual Status ResolveAllColumns() { return Status::OK(); }
+
+  // Returns true if any columns are unresolved blob references. Only meaningful
+  // when ReadOptions::lazy_column_resolution is true.
+  // REQUIRES: Valid()
+  virtual bool HasUnresolvedColumns() const { return false; }
+
   // Property "rocksdb.iterator.is-key-pinned":
   //   If returning "1", this means that the Slice returned by key() is valid
   //   as long as the iterator is not deleted.

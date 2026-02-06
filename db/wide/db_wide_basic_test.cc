@@ -2823,6 +2823,191 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobBackwardIteration) {
   }
 }
 
+TEST_F(DBWideBasicTest, LazyColumnResolutionIterator) {
+  // Test that lazy_column_resolution works correctly with iterators.
+  // When enabled, blob columns should remain unresolved until
+  // ResolveColumn() is called.
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+
+  const std::string blob_value = GenerateLargeValue(100);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value},
+                       {"a", small_value}};
+  WideColumns columns2{{"b", blob_value}, {"c", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Forward iteration with lazy resolution
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+
+    // The default column (blob) should have been eagerly resolved for value()
+    ASSERT_EQ(iter->value(), blob_value);
+
+    // Non-blob column "a" should NOT be unresolved
+    ASSERT_FALSE(iter->IsUnresolvedColumn(1));
+    ASSERT_EQ(iter->columns()[1].value(), small_value);
+
+    // Column 0 (default) was eagerly resolved
+    ASSERT_FALSE(iter->IsUnresolvedColumn(0));
+
+    // Should have no unresolved columns since default was auto-resolved and
+    // "a" is inline
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+
+    // Move to key2 which has blob column "b" and inline column "c"
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+
+    // "b" (index 0) is a blob column - should be unresolved
+    ASSERT_TRUE(iter->HasUnresolvedColumns());
+    ASSERT_TRUE(iter->IsUnresolvedColumn(0));
+
+    // "c" (index 1) is an inline column - should NOT be unresolved
+    ASSERT_FALSE(iter->IsUnresolvedColumn(1));
+    ASSERT_EQ(iter->columns()[1].value(), small_value);
+
+    // Resolve the blob column
+    ASSERT_OK(iter->ResolveColumn(0));
+    ASSERT_FALSE(iter->IsUnresolvedColumn(0));
+    ASSERT_EQ(iter->columns()[0].value(), blob_value);
+
+    // Now no unresolved columns
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+
+    // Verify the full columns match
+    ASSERT_EQ(iter->columns(), columns2);
+  }
+
+  // Test ResolveAllColumns
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    // Resolve all columns at once
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns2);
+  }
+
+  // Backward iteration with lazy resolution
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_EQ(iter->columns(), columns1);
+  }
+
+  // Without lazy resolution (default behavior), everything works as before
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = false;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns2);
+  }
+}
+
+TEST_F(DBWideBasicTest, LazyColumnResolutionWithMerge) {
+  // Test that lazy_column_resolution works correctly when merge operations
+  // are involved. Merge should force eager resolution since it needs all
+  // column values.
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+
+  const std::string blob_value = GenerateLargeValue(100);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns{{kDefaultWideColumnName, blob_value}, {"a", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // The entity should be readable with lazy resolution
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+
+    // Resolve all and check
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_EQ(iter->columns(), columns);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

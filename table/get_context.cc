@@ -12,6 +12,7 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"
+#include "db/wide/read_path_blob_resolver.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "monitoring/file_read_sample.h"
@@ -31,7 +32,9 @@ GetContext::GetContext(
     bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
     SystemClock* clock, SequenceNumber* seq,
     PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
+    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher,
+    bool lazy_column_resolution, const Version* version,
+    const ReadOptions* read_options)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -52,29 +55,32 @@ GetContext::GetContext(
       do_merge_(do_merge),
       is_blob_index_(is_blob_index),
       tracing_get_id_(tracing_get_id),
-      blob_fetcher_(blob_fetcher) {
+      blob_fetcher_(blob_fetcher),
+      lazy_column_resolution_(lazy_column_resolution),
+      version_(version),
+      read_options_(read_options) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
   sample_ = should_sample_file_read();
 }
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       PinnableWideColumns* columns, bool* value_found,
-                       MergeContext* merge_context, bool do_merge,
-                       SequenceNumber* _max_covering_tombstone_seq,
-                       SystemClock* clock, SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr,
-                       ReadCallback* callback, bool* is_blob_index,
-                       uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, PinnableWideColumns* columns,
+    bool* value_found, MergeContext* merge_context, bool do_merge,
+    SequenceNumber* _max_covering_tombstone_seq, SystemClock* clock,
+    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id,
+    BlobFetcher* blob_fetcher, bool lazy_column_resolution,
+    const Version* version, const ReadOptions* read_options)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
                  pinnable_val, columns, /*timestamp=*/nullptr, value_found,
                  merge_context, do_merge, _max_covering_tombstone_seq, clock,
                  seq, _pinned_iters_mgr, callback, is_blob_index,
-                 tracing_get_id, blob_fetcher) {}
+                 tracing_get_id, blob_fetcher, lazy_column_resolution, version,
+                 read_options) {}
 
 void GetContext::appendToReplayLog(ValueType type, Slice value, Slice ts) {
   if (replay_log_) {
@@ -407,7 +413,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               if (type == kTypeWideColumnEntity) {
                 // Check if entity has blob columns that need resolution
                 if (WideColumnSerialization::HasBlobColumns(unpacked_value)) {
-                  // Resolve blob columns before setting the value
+                  // TODO: Add lazy resolution support for GetEntity point
+                  // lookups. This requires SuperVersion pinning on
+                  // PinnableWideColumns to keep the Version* alive after
+                  // GetImpl returns. Currently, lazy_column_resolution only
+                  // takes effect for iterators (DBIter path).
+
+                  // Eager path: resolve all blob columns immediately
                   std::vector<WideColumn> entity_columns;
                   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
@@ -430,7 +442,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                       state_ = kCorrupt;
                       return false;
                     }
-                    // The column value contains the raw serialized blob index
                     Slice blob_index_slice = entity_columns[col_idx].value();
 
                     PinnableSlice blob_value;

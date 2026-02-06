@@ -2258,6 +2258,28 @@ struct ReadOptions {
   // from start to end, the native index must be used.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
+  // When true, wide-column entities with blob references will not eagerly
+  // fetch all blob column values. Instead, blob columns will remain unresolved
+  // until explicitly requested via Iterator::ResolveColumn() or
+  // PinnableWideColumns::ResolveColumn(). Inline (non-blob) column values are
+  // always available immediately.
+  //
+  // This can significantly reduce I/O for workloads that read entities with
+  // many blob columns but only access a subset of them.
+  //
+  // Applies to: GetEntity(), iterators (columns()), MultiGetEntity().
+  //
+  // When false (default), all blob column values are fetched eagerly on access,
+  // preserving the existing behavior.
+  //
+  // IMPORTANT: When this is true and you access columns() on an iterator or
+  // PinnableWideColumns from GetEntity(), blob column values will contain raw
+  // blob index bytes until resolved. Use IsUnresolvedColumn() to check and
+  // ResolveColumn() to fetch the actual value.
+  //
+  // Default: false
+  bool lazy_column_resolution = false;
+
   // *** END options only relevant to iterators or scans ***
 
   // *** BEGIN options for RocksDB internal use only ***
