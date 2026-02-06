@@ -4466,6 +4466,18 @@ void InitializeOptionsFromFlags(
       FLAGS_level_compaction_dynamic_level_bytes;
   options.track_and_verify_wals_in_manifest = true;
   options.track_and_verify_wals = FLAGS_track_and_verify_wals;
+  options.enable_partitioned_wal = FLAGS_enable_partitioned_wal;
+  options.num_partitioned_wal_writers = FLAGS_num_partitioned_wal_writers;
+  if (FLAGS_partitioned_wal_consistency_mode == "weak") {
+    options.partitioned_wal_consistency_mode =
+        PartitionedWALConsistencyMode::kWeak;
+  } else {
+    options.partitioned_wal_consistency_mode =
+        PartitionedWALConsistencyMode::kStrong;
+  }
+  options.partitioned_wal_sync_interval_ms =
+      FLAGS_partitioned_wal_sync_interval_ms;
+  options.partitioned_wal_max_file_size = FLAGS_partitioned_wal_max_file_size;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
   options.memtable_protection_bytes_per_key =

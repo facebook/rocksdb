@@ -119,6 +119,7 @@ using ROCKSDB_NAMESPACE::OpenAndCompactOptions;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
 using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::PartitionedWALConsistencyMode;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
 using ROCKSDB_NAMESPACE::PinnableSlice;
@@ -5543,6 +5544,57 @@ void rocksdb_options_set_wal_compression(rocksdb_options_t* opt, int val) {
 
 int rocksdb_options_get_wal_compression(rocksdb_options_t* opt) {
   return opt->rep.wal_compression;
+}
+
+void rocksdb_options_set_enable_partitioned_wal(rocksdb_options_t* opt,
+                                                unsigned char val) {
+  opt->rep.enable_partitioned_wal = val;
+}
+
+unsigned char rocksdb_options_get_enable_partitioned_wal(
+    rocksdb_options_t* opt) {
+  return opt->rep.enable_partitioned_wal;
+}
+
+void rocksdb_options_set_num_partitioned_wal_writers(rocksdb_options_t* opt,
+                                                     uint32_t val) {
+  opt->rep.num_partitioned_wal_writers = val;
+}
+
+uint32_t rocksdb_options_get_num_partitioned_wal_writers(
+    rocksdb_options_t* opt) {
+  return opt->rep.num_partitioned_wal_writers;
+}
+
+void rocksdb_options_set_partitioned_wal_consistency_mode(
+    rocksdb_options_t* opt, int val) {
+  opt->rep.partitioned_wal_consistency_mode =
+      static_cast<PartitionedWALConsistencyMode>(val);
+}
+
+int rocksdb_options_get_partitioned_wal_consistency_mode(
+    rocksdb_options_t* opt) {
+  return static_cast<int>(opt->rep.partitioned_wal_consistency_mode);
+}
+
+void rocksdb_options_set_partitioned_wal_sync_interval_ms(
+    rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.partitioned_wal_sync_interval_ms = val;
+}
+
+uint64_t rocksdb_options_get_partitioned_wal_sync_interval_ms(
+    rocksdb_options_t* opt) {
+  return opt->rep.partitioned_wal_sync_interval_ms;
+}
+
+void rocksdb_options_set_partitioned_wal_max_file_size(rocksdb_options_t* opt,
+                                                       uint64_t val) {
+  opt->rep.partitioned_wal_max_file_size = val;
+}
+
+uint64_t rocksdb_options_get_partitioned_wal_max_file_size(
+    rocksdb_options_t* opt) {
+  return opt->rep.partitioned_wal_max_file_size;
 }
 
 rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(int64_t rate_bytes_per_sec,

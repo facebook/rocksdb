@@ -453,6 +453,22 @@ enum class WALRecoveryMode : char {
   kSkipAnyCorruptedRecords = 0x03,
 };
 
+// Write consistency mode for partitioned WAL.
+// Controls the trade-off between write latency and read-after-write
+// consistency when using partitioned WAL (enable_partitioned_wal=true).
+enum class PartitionedWALConsistencyMode : char {
+  // Wait for visibility before returning from write operations.
+  // Provides read-after-write guarantee: after a write returns, subsequent
+  // reads are guaranteed to see the written data.
+  // Use case: Primary/leader instances where consistency is critical.
+  kStrong = 0x00,
+  // Return immediately after WAL write without waiting for visibility.
+  // Higher throughput but no read-after-write guarantee.
+  // Use case: Replica instances where data will be read after replication
+  // lag anyway, or write-heavy workloads that don't need immediate reads.
+  kWeak = 0x01,
+};
+
 struct DbPath {
   std::string path;
   uint64_t target_size;  // Target size of total files under the path, in byte.
@@ -1708,6 +1724,61 @@ struct DBOptions {
   // `kUnknown`, this overrides any temperature set by OptimizeForLogWrite
   // functions.
   Temperature wal_write_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL: Partitioned WAL for parallel write throughput.
+  //
+  // When enabled, writes are distributed across multiple WAL partitions
+  // (num_partitioned_wal_writers) to achieve higher write throughput by
+  // reducing WAL write contention. Each partition handles writes independently,
+  // and the system maintains proper sequence number ordering and visibility.
+  //
+  // This feature is designed for high-throughput workloads on distributed
+  // storage systems where the storage layer provides durability guarantees.
+  //
+  // Not dynamically configurable - requires DB restart to change.
+  // Default: false
+  bool enable_partitioned_wal = false;
+
+  // Number of partitioned WAL writers when enable_partitioned_wal is true.
+  // Each writer handles a subset of writes independently to reduce contention.
+  // Higher values can improve throughput but increase resource usage.
+  //
+  // Not dynamically configurable - requires DB restart to change.
+  // Default: 4
+  uint32_t num_partitioned_wal_writers = 4;
+
+  // Write consistency mode for partitioned WAL.
+  // Controls the trade-off between write latency and read-after-write
+  // consistency.
+  //
+  // Not dynamically configurable - requires DB restart to change.
+  // Default: kStrong (read-after-write guarantee)
+  PartitionedWALConsistencyMode partitioned_wal_consistency_mode =
+      PartitionedWALConsistencyMode::kStrong;
+
+  // Interval between WAL syncs in milliseconds when using partitioned WAL.
+  // With distributed storage providing durability guarantees, frequent syncs
+  // may be unnecessary and can reduce throughput.
+  //
+  // Set to 0 to sync on every write (traditional behavior).
+  //
+  // Not dynamically configurable - requires DB restart to change.
+  // Default: 1000 (sync every 1 second)
+  uint64_t partitioned_wal_sync_interval_ms = 1000;
+
+  // Maximum size in bytes for each partitioned WAL file before rotation.
+  // When a partitioned WAL file reaches 80% of this size, a flush will be
+  // scheduled to trigger WAL rotation. This helps limit the size of individual
+  // partition files and improves recovery time.
+  //
+  // The 80% threshold provides a safety margin for writes that occur during
+  // the asynchronous flush operation. Files will typically stay within
+  // 0.9-1.2x this limit.
+  //
+  // Set to 0 to disable size-based rotation (only rotate with main WAL).
+  // Not dynamically configurable - requires DB restart to change.
+  // Default: 100MB
+  uint64_t partitioned_wal_max_file_size = 100 * 1024 * 1024;
 
   // Enum set indicative of which compaction styles SST write lifetime hint
   // calculation is allowed on. Today, RocksDB provides native support for

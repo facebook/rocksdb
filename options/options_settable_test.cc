@@ -479,7 +479,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "background_close_inactive_wals=true;"
                              "write_dbid_to_manifest=true;"
                              "write_identity_file=true;"
-                             "prefix_seek_opt_in_only=true;",
+                             "prefix_seek_opt_in_only=true;"
+                             "enable_partitioned_wal=false;"
+                             "num_partitioned_wal_writers=4;"
+                             "partitioned_wal_consistency_mode=kStrong;"
+                             "partitioned_wal_sync_interval_ms=1000;"
+                             "partitioned_wal_max_file_size=0;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

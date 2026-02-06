@@ -3491,4 +3491,290 @@ Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
       "WriteBatch protection info must be zero or eight bytes/key");
 }
 
+Slice WriteBatchInternal::GetBody(const WriteBatch* batch) {
+  assert(batch != nullptr);
+  assert(batch->rep_.size() >= kHeader);
+  return Slice(batch->rep_.data() + kHeader, batch->rep_.size() - kHeader);
+}
+
+Status WriteBatchInternal::CountRecordsInBody(const Slice& body,
+                                              uint32_t* count) {
+  assert(count != nullptr);
+  *count = 0;
+
+  Slice input = body;
+  while (!input.empty()) {
+    char tag = input[0];
+    input.remove_prefix(1);
+
+    Slice key, value, blob, xid;
+    uint32_t column_family = 0;
+
+    switch (tag) {
+      case kTypeColumnFamilyValue:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch Put");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeValue:
+        if (!GetLengthPrefixedSlice(&input, &key) ||
+            !GetLengthPrefixedSlice(&input, &value)) {
+          return Status::Corruption("bad WriteBatch Put");
+        }
+        (*count)++;
+        break;
+      case kTypeColumnFamilyDeletion:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch Delete");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeDeletion:
+        if (!GetLengthPrefixedSlice(&input, &key)) {
+          return Status::Corruption("bad WriteBatch Delete");
+        }
+        (*count)++;
+        break;
+      case kTypeColumnFamilySingleDeletion:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch SingleDelete");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeSingleDeletion:
+        if (!GetLengthPrefixedSlice(&input, &key)) {
+          return Status::Corruption("bad WriteBatch SingleDelete");
+        }
+        (*count)++;
+        break;
+      case kTypeColumnFamilyRangeDeletion:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch DeleteRange");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeRangeDeletion:
+        if (!GetLengthPrefixedSlice(&input, &key) ||
+            !GetLengthPrefixedSlice(&input, &value)) {
+          return Status::Corruption("bad WriteBatch DeleteRange");
+        }
+        (*count)++;
+        break;
+      case kTypeColumnFamilyMerge:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch Merge");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeMerge:
+        if (!GetLengthPrefixedSlice(&input, &key) ||
+            !GetLengthPrefixedSlice(&input, &value)) {
+          return Status::Corruption("bad WriteBatch Merge");
+        }
+        (*count)++;
+        break;
+      case kTypeColumnFamilyBlobIndex:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch BlobIndex");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeBlobIndex:
+        if (!GetLengthPrefixedSlice(&input, &key) ||
+            !GetLengthPrefixedSlice(&input, &value)) {
+          return Status::Corruption("bad WriteBatch BlobIndex");
+        }
+        (*count)++;
+        break;
+      case kTypeLogData:
+        if (!GetLengthPrefixedSlice(&input, &blob)) {
+          return Status::Corruption("bad WriteBatch Blob");
+        }
+        // LogData does not count as a record
+        break;
+      case kTypeNoop:
+      case kTypeBeginPrepareXID:
+      case kTypeBeginPersistedPrepareXID:
+      case kTypeBeginUnprepareXID:
+        // These don't count as records
+        break;
+      case kTypeEndPrepareXID:
+        if (!GetLengthPrefixedSlice(&input, &xid)) {
+          return Status::Corruption("bad EndPrepare XID");
+        }
+        break;
+      case kTypeCommitXIDAndTimestamp:
+        if (!GetLengthPrefixedSlice(&input, &key)) {
+          return Status::Corruption("bad commit timestamp");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeCommitXID:
+        if (!GetLengthPrefixedSlice(&input, &xid)) {
+          return Status::Corruption("bad Commit XID");
+        }
+        break;
+      case kTypeRollbackXID:
+        if (!GetLengthPrefixedSlice(&input, &xid)) {
+          return Status::Corruption("bad Rollback XID");
+        }
+        break;
+      case kTypeColumnFamilyWideColumnEntity:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch PutEntity");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeWideColumnEntity:
+        if (!GetLengthPrefixedSlice(&input, &key) ||
+            !GetLengthPrefixedSlice(&input, &value)) {
+          return Status::Corruption("bad WriteBatch PutEntity");
+        }
+        (*count)++;
+        break;
+      case kTypeColumnFamilyValuePreferredSeqno:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch TimedPut");
+        }
+        FALLTHROUGH_INTENDED;
+      case kTypeValuePreferredSeqno:
+        if (!GetLengthPrefixedSlice(&input, &key) ||
+            !GetLengthPrefixedSlice(&input, &value)) {
+          return Status::Corruption("bad WriteBatch TimedPut");
+        }
+        (*count)++;
+        break;
+      default:
+        return Status::Corruption(
+            "unknown WriteBatch tag",
+            std::to_string(static_cast<unsigned int>(tag)));
+    }
+  }
+  return Status::OK();
+}
+
+Status WriteBatchInternal::SetSequenceAndRebuildFromBody(WriteBatch* batch,
+                                                         SequenceNumber seq,
+                                                         const Slice& body) {
+  assert(batch != nullptr);
+
+  // Count records in the body
+  uint32_t count = 0;
+  Status s = CountRecordsInBody(body, &count);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Clear the batch and rebuild with proper header + body
+  batch->rep_.clear();
+  batch->rep_.resize(kHeader);
+
+  // Set sequence number (first 8 bytes)
+  EncodeFixed64(batch->rep_.data(), seq);
+
+  // Set count (next 4 bytes)
+  EncodeFixed32(&batch->rep_[8], count);
+
+  // Append the body
+  batch->rep_.append(body.data(), body.size());
+
+  // Mark content flags as deferred so they will be computed lazily
+  batch->content_flags_.store(ContentFlags::DEFERRED,
+                              std::memory_order_relaxed);
+
+  // Clear protection info since we're rebuilding
+  if (batch->prot_info_ != nullptr) {
+    batch->prot_info_->entries_.clear();
+  }
+
+  return Status::OK();
+}
+
+namespace {
+// Helper handler to extract the first column family ID from a WriteBatch.
+// Stops iteration after finding the first CF ID.
+class FirstColumnFamilyIdHandler : public WriteBatch::Handler {
+ public:
+  FirstColumnFamilyIdHandler() : first_cf_id_(0), found_(false) {}
+
+  Status PutCF(uint32_t column_family_id, const Slice& /*key*/,
+               const Slice& /*value*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status TimedPutCF(uint32_t column_family_id, const Slice& /*key*/,
+                    const Slice& /*value*/, uint64_t /*write_time*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status PutEntityCF(uint32_t column_family_id, const Slice& /*key*/,
+                     const Slice& /*entity*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status DeleteCF(uint32_t column_family_id, const Slice& /*key*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status SingleDeleteCF(uint32_t column_family_id,
+                        const Slice& /*key*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& /*begin_key*/,
+                       const Slice& /*end_key*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status MergeCF(uint32_t column_family_id, const Slice& /*key*/,
+                 const Slice& /*value*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status PutBlobIndexCF(uint32_t column_family_id, const Slice& /*key*/,
+                        const Slice& /*value*/) override {
+    return RecordColumnFamily(column_family_id);
+  }
+
+  Status MarkBeginPrepare(bool /*unprepared*/) override { return Status::OK(); }
+
+  Status MarkEndPrepare(const Slice& /*xid*/) override { return Status::OK(); }
+
+  Status MarkRollback(const Slice& /*xid*/) override { return Status::OK(); }
+
+  Status MarkCommit(const Slice& /*xid*/) override { return Status::OK(); }
+
+  Status MarkCommitWithTimestamp(const Slice& /*xid*/,
+                                 const Slice& /*ts*/) override {
+    return Status::OK();
+  }
+
+  Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
+
+  bool Continue() override {
+    // Stop iteration once we find the first CF ID
+    return !found_;
+  }
+
+  uint32_t GetFirstColumnFamilyId() const { return first_cf_id_; }
+
+ private:
+  Status RecordColumnFamily(uint32_t column_family_id) {
+    if (!found_) {
+      first_cf_id_ = column_family_id;
+      found_ = true;
+    }
+    return Status::OK();
+  }
+
+  uint32_t first_cf_id_;
+  bool found_;
+};
+}  // namespace
+
+uint32_t WriteBatchInternal::GetFirstColumnFamilyId(const WriteBatch* batch) {
+  assert(batch != nullptr);
+  if (batch->Count() == 0) {
+    return 0;  // Default column family for empty batches
+  }
+
+  FirstColumnFamilyIdHandler handler;
+  // Ignore errors during iteration - if the batch is malformed, return 0
+  batch->Iterate(&handler).PermitUncheckedError();
+  return handler.GetFirstColumnFamilyId();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -844,6 +844,26 @@ DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
 
+DEFINE_bool(enable_partitioned_wal,
+            ROCKSDB_NAMESPACE::Options().enable_partitioned_wal,
+            "See Options::enable_partitioned_wal");
+
+DEFINE_uint32(num_partitioned_wal_writers,
+              ROCKSDB_NAMESPACE::Options().num_partitioned_wal_writers,
+              "See Options::num_partitioned_wal_writers");
+
+DEFINE_string(partitioned_wal_consistency_mode, "strong",
+              "Consistency mode for partitioned WAL: 'strong' or 'weak'. "
+              "See Options::partitioned_wal_consistency_mode");
+
+DEFINE_uint64(partitioned_wal_sync_interval_ms,
+              ROCKSDB_NAMESPACE::Options().partitioned_wal_sync_interval_ms,
+              "See Options::partitioned_wal_sync_interval_ms");
+
+DEFINE_uint64(partitioned_wal_max_file_size,
+              ROCKSDB_NAMESPACE::Options().partitioned_wal_max_file_size,
+              "See Options::partitioned_wal_max_file_size");
+
 DEFINE_int32(
     remote_compaction_worker_threads, 2,
     "Remote Compaction Worker Thread count. If 0, remote compaction is "

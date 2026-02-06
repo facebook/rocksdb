@@ -575,6 +575,18 @@ enum Tickers : uint32_t {
   // # of seeks that failed validation (out of order, etc.)
   MULTISCAN_SEEK_ERRORS,
 
+  // Partitioned WAL statistics
+  // # of writes to partitioned WAL
+  PARTITIONED_WAL_WRITES,
+  // # of bytes written to partitioned WAL (body size)
+  PARTITIONED_WAL_BYTES_WRITTEN,
+  // # of completion records written to main WAL
+  PARTITIONED_WAL_COMPLETION_RECORDS,
+  // Time in microseconds waiting for visibility in strong consistency mode
+  PARTITIONED_WAL_VISIBILITY_WAIT_MICROS,
+  // # of syncs performed by the partitioned WAL sync thread
+  PARTITIONED_WAL_SYNCS,
+
   TICKER_ENUM_MAX
 };
 
@@ -721,6 +733,14 @@ enum Histograms : uint32_t {
   MULTISCAN_PREPARE_MICROS,
   // Distribution of blocks prefetched per MultiScan Prepare()
   MULTISCAN_BLOCKS_PER_PREPARE,
+
+  // Partitioned WAL histograms
+  // Latency of writes to partitioned WAL (in microseconds)
+  PARTITIONED_WAL_WRITE_LATENCY,
+  // Latency of sequence number allocation (in microseconds)
+  PARTITIONED_WAL_SEQUENCE_ALLOC_LATENCY,
+  // Latency of sync operations (in microseconds)
+  PARTITIONED_WAL_SYNC_LATENCY,
 
   HISTOGRAM_ENUM_MAX
 };

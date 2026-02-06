@@ -1499,6 +1499,9 @@ db_statistics_test: $(OBJ_DIR)/db/db_statistics_test.o $(TEST_LIBRARY) $(LIBRARY
 db_write_test: $(OBJ_DIR)/db/db_write_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_write_partitioned_wal_test: $(OBJ_DIR)/db/db_write_partitioned_wal_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 error_handler_fs_test: $(OBJ_DIR)/db/error_handler_fs_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1658,6 +1661,18 @@ partitioned_filter_block_test: $(OBJ_DIR)/table/block_based/partitioned_filter_b
 log_test: $(OBJ_DIR)/db/log_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+partitioned_log_test: $(OBJ_DIR)/db/partitioned_log_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+partitioned_wal_manager_test: $(OBJ_DIR)/db/partitioned_wal_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+partitioned_wal_sync_thread_test: $(OBJ_DIR)/db/partitioned_wal_sync_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+partitioned_wal_recovery_test: $(OBJ_DIR)/db/partitioned_wal_recovery_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 cleanable_test: $(OBJ_DIR)/table/cleanable_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1806,6 +1821,12 @@ env_logger_test: $(OBJ_DIR)/logging/env_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 memtable_list_test: $(OBJ_DIR)/db/memtable_list_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+memtable_insertion_completion_queue_test: $(OBJ_DIR)/db/memtable_insertion_completion_queue_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+sequence_visibility_tracker_test: $(OBJ_DIR)/db/sequence_visibility_tracker_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRARY)

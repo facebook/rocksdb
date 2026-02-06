@@ -7,10 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <shared_mutex>
 
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/memtable_insertion_completion_queue.h"
+#include "db/partitioned_log_format.h"
+#include "db/partitioned_log_writer.h"
+#include "db/partitioned_wal_manager.h"
+#include "db/write_batch_internal.h"
 #include "logging/logging.h"
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/perf_context_imp.h"
@@ -535,6 +541,104 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                       log_ref, seq, sub_batch_cnt);
     }
     return status;
+  }
+
+  // Use partitioned WAL write path if enabled
+  // Note: partitioned WAL is not compatible with unordered_write,
+  // pipelined_write, two_write_queues, or seq_per_batch
+  if (immutable_db_options_.enable_partitioned_wal) {
+    // Partitioned WAL does not support wbwi ingestion for now
+    if (wbwi) {
+      return Status::NotSupported(
+          "Partitioned WAL does not support WriteBatchWithIndex ingestion");
+    }
+    // Handle write stalls before writing - this is critical for preventing
+    // unbounded memtable accumulation when flush cannot keep up with writes.
+    // Note: Partitioned WAL doesn't use write batch groups, so we implement
+    // a simpler stall mechanism that doesn't use write_thread_.
+    if (UNLIKELY(write_controller_.IsStopped() ||
+                 write_controller_.NeedsDelay())) {
+      if (write_options.no_slowdown) {
+        return Status::Incomplete("Write stall");
+      }
+      uint64_t start_time = immutable_db_options_.clock->NowMicros();
+      bool delayed = false;
+
+      // Handle rate limiting (NeedsDelay)
+      uint64_t delay =
+          write_controller_.GetDelay(immutable_db_options_.clock, 0);
+      if (delay > 0) {
+        delayed = true;
+        uint64_t stall_end = start_time + delay;
+        const uint64_t kDelayInterval = 1001;  // Check every ~1ms
+        while (write_controller_.NeedsDelay()) {
+          if (immutable_db_options_.clock->NowMicros() >= stall_end) {
+            break;
+          }
+          immutable_db_options_.clock->SleepForMicroseconds(kDelayInterval);
+        }
+      }
+
+      // Handle complete stop (IsStopped) - wait for flush to complete
+      if (write_controller_.IsStopped()) {
+        InstrumentedMutexLock l(&mutex_);
+        while ((error_handler_.GetBGError().ok() ||
+                error_handler_.IsRecoveryInProgress()) &&
+               write_controller_.IsStopped() &&
+               !shutting_down_.load(std::memory_order_relaxed)) {
+          delayed = true;
+          bg_cv_.Wait();
+        }
+        if (shutting_down_.load(std::memory_order_relaxed)) {
+          return Status::ShutdownInProgress("stalled writes");
+        }
+        if (!error_handler_.GetBGError().ok() &&
+            !error_handler_.IsRecoveryInProgress()) {
+          return Status::Incomplete(error_handler_.GetBGError().ToString());
+        }
+      }
+
+      if (delayed) {
+        auto time_delayed =
+            immutable_db_options_.clock->NowMicros() - start_time;
+        default_cf_internal_stats_->AddDBStats(
+            InternalStats::kIntStatsWriteStallMicros, time_delayed);
+        RecordTick(stats_, STALL_MICROS, time_delayed);
+        RecordInHistogram(stats_, WRITE_STALL, time_delayed);
+      }
+    }
+    // Schedule flushes if any memtables are ready
+    if (UNLIKELY(!flush_scheduler_.Empty())) {
+      InstrumentedMutexLock l(&mutex_);
+      WriteContext write_context;
+      Status status = ScheduleFlushes(&write_context);
+      if (!status.ok()) {
+        return status;
+      }
+    }
+    // Check write buffer manager flush trigger
+    if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
+      InstrumentedMutexLock l(&mutex_);
+      WriteContext write_context;
+      Status status = HandleWriteBufferManagerFlush(&write_context);
+      if (!status.ok()) {
+        return status;
+      }
+    }
+    // Check write buffer manager stalls (memory pressure from other DBs)
+    if (UNLIKELY(write_buffer_manager_->ShouldStall())) {
+      default_cf_internal_stats_->AddDBStats(
+          InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts, 1,
+          true /* concurrent */);
+      if (write_options.no_slowdown) {
+        return Status::Incomplete("Write stall");
+      }
+      InstrumentedMutexLock l(&mutex_);
+      WriteBufferManagerStallWrites();
+    }
+    return WriteImplPartitionedWAL(
+        write_options, my_batch, callback, wal_used, log_ref, disable_memtable,
+        seq_used, batch_cnt, pre_release_callback, post_memtable_callback);
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
@@ -2630,6 +2734,20 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
       wal_dir_synced_ = false;
       logs_.emplace_back(cur_wal_number_, new_log);
       alive_wal_files_.emplace_back(cur_wal_number_);
+
+      // Rotate partitioned WAL files if enabled
+      if (partitioned_wal_manager_) {
+        Status rotate_s =
+            partitioned_wal_manager_->RotateWALFiles(new_log_number);
+        if (!rotate_s.ok()) {
+          ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                         "Failed to rotate partitioned WAL files: %s",
+                         rotate_s.ToString().c_str());
+        }
+        // Clear the rotation pending flag to allow future rotations
+        partitioned_wal_rotation_pending_.store(false,
+                                                std::memory_order_relaxed);
+      }
     }
   }
 
@@ -2952,6 +3070,332 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     return s;
   }
   return Write(opt, &batch);
+}
+
+Status DBImpl::WriteImplPartitionedWAL(
+    const WriteOptions& write_options, WriteBatch* batch,
+    WriteCallback* callback, uint64_t* log_used, uint64_t log_ref,
+    bool disable_memtable, uint64_t* seq_used, size_t /* batch_cnt */,
+    PreReleaseCallback* pre_release_callback,
+    PostMemTableCallback* post_memtable_callback) {
+  TEST_SYNC_POINT("DBImpl::WriteImplPartitionedWAL:BeforePartitionedWrite");
+
+  // Track in-flight writes for shutdown synchronization.
+  // RAII guard to ensure the counter is decremented on all exit paths.
+  partitioned_wal_in_flight_writes_.fetch_add(1, std::memory_order_relaxed);
+  struct InFlightGuard {
+    std::atomic<uint32_t>& counter;
+    std::condition_variable& cv;
+    ~InFlightGuard() {
+      if (counter.fetch_sub(1, std::memory_order_relaxed) == 1) {
+        // Last in-flight write, notify shutdown waiters
+        cv.notify_all();
+      }
+    }
+  } in_flight_guard{partitioned_wal_in_flight_writes_,
+                    partitioned_wal_shutdown_cv_};
+
+  // Start timing for overall write latency
+  StopWatch write_sw(immutable_db_options_.clock, stats_,
+                     PARTITIONED_WAL_WRITE_LATENCY);
+
+  // Validate inputs
+  if (batch == nullptr) {
+    return Status::InvalidArgument("Batch is nullptr!");
+  }
+  if (batch->Count() == 0) {
+    // Empty batch, nothing to do
+    return Status::OK();
+  }
+
+  // Execute callback if provided
+  if (callback != nullptr) {
+    Status callback_status = callback->Callback(this);
+    if (!callback_status.ok()) {
+      return callback_status;
+    }
+  }
+
+  // A. Get batch body and record count
+  Slice body = WriteBatchInternal::GetBody(batch);
+  uint32_t count = WriteBatchInternal::Count(batch);
+
+  // Note: Size-based rotation of partitioned WAL files is checked at the end
+  // of WriteImplPartitionedWAL. When the max file size is exceeded, we trigger
+  // a memtable switch which rotates both main WAL and partitioned WAL together.
+  // This ensures proper log number tracking for garbage collection.
+
+  // C. Write to partitioned WAL (parallel-capable, NO sync here)
+  // Acquire shared lock to prevent rotation during write.
+  // This lock is held only during the WAL write itself.
+  log::PartitionedLogWriter::WriteResult wal_result;
+  IOStatus io_s;
+  {
+    std::shared_lock<std::shared_mutex> rw_lock(
+        partitioned_wal_manager_->GetSharedMutex());
+
+    uint32_t partition_id = partitioned_wal_manager_->SelectPartition();
+    log::PartitionedLogWriter* partition_writer =
+        partitioned_wal_manager_->GetWriter(partition_id);
+    if (partition_writer == nullptr) {
+      return Status::IOError("Failed to get partition writer");
+    }
+    io_s = partition_writer->WriteBody(write_options, body, count, &wal_result);
+    if (!io_s.ok()) {
+      WALIOStatusCheck(io_s);
+      return static_cast<Status>(io_s);
+    }
+  }  // Release shared lock after write completes
+
+  // Record partitioned WAL write stats
+  RecordTick(stats_, PARTITIONED_WAL_WRITES);
+  RecordTick(stats_, PARTITIONED_WAL_BYTES_WRITTEN, body.size());
+
+  // D. Atomically allocate sequence numbers
+  uint64_t seq_alloc_start = 0;
+  if (stats_) {
+    seq_alloc_start = immutable_db_options_.clock->NowMicros();
+  }
+  SequenceNumber first_seq =
+      versions_->FetchAddLastAllocatedSequence(count) + 1;
+  if (stats_) {
+    uint64_t seq_alloc_elapsed =
+        immutable_db_options_.clock->NowMicros() - seq_alloc_start;
+    RecordInHistogram(stats_, PARTITIONED_WAL_SEQUENCE_ALLOC_LATENCY,
+                      seq_alloc_elapsed);
+  }
+  TEST_SYNC_POINT("DBImpl::WriteImplPartitionedWAL:AfterSequenceAlloc");
+
+  // E. Enqueue to completion queue for visibility tracking
+  auto msg = std::make_shared<MemtableInsertionMessage>(first_seq,
+                                                        first_seq + count - 1);
+  memtable_completion_queue_->Enqueue(msg);
+
+  // F. Write completion record to main WAL
+  // This is critical for recovery - it links the partitioned WAL record
+  // to the main WAL sequence numbers
+  log::CompletionRecord completion;
+  completion.partition_wal_number = wal_result.GetEncodedWalNumber();
+  completion.partition_offset = wal_result.offset;
+  completion.body_size = wal_result.size;
+  completion.body_crc = wal_result.crc;
+  completion.record_count = wal_result.record_count;
+  completion.first_sequence = first_seq;
+  completion.last_sequence = first_seq + count - 1;
+  // Extract the first column family ID from the batch
+  completion.column_family_id =
+      WriteBatchInternal::GetFirstColumnFamilyId(batch);
+
+  TEST_SYNC_POINT("DBImpl::WriteImplPartitionedWAL:BeforeCompletionRecord");
+
+  // Write the completion record to the main WAL
+  // We need to serialize it and write as a regular WAL record
+  {
+    std::string completion_data;
+    completion.EncodeTo(&completion_data);
+
+    // Create a special WriteBatch that contains the completion record
+    // For now, we write it as metadata in the main WAL
+    // The main WAL writer is protected by wal_write_mutex_
+    InstrumentedMutexLock wl(&wal_write_mutex_);
+    if (!logs_.empty()) {
+      log::Writer* main_wal_writer = logs_.back().writer;
+      if (main_wal_writer != nullptr) {
+        // Write a marker record to the main WAL
+        // For simplicity, we encode the completion record as a special batch
+        WriteBatch completion_batch;
+        // Use a special key prefix to identify completion records
+        // Format: __PWAL_COMPLETION__ + encoded completion record
+        completion_batch.Put(Slice("__PWAL_COMPLETION__"),
+                             Slice(completion_data));
+        WriteBatchInternal::SetSequence(&completion_batch, first_seq);
+
+        io_s = main_wal_writer->AddRecord(
+            write_options, WriteBatchInternal::Contents(&completion_batch));
+        if (!io_s.ok()) {
+          WALIOStatusCheck(io_s);
+          // Signal completion with failure
+          msg->memtable_insertion_completed.store(true,
+                                                  std::memory_order_release);
+          msg->cv.notify_one();
+          return static_cast<Status>(io_s);
+        }
+        if (log_used != nullptr) {
+          *log_used = main_wal_writer->get_log_number();
+        }
+        // Mark WAL as non-empty so SwitchMemtable knows to create a new log
+        wal_empty_ = false;
+        // Record completion record written
+        RecordTick(stats_, PARTITIONED_WAL_COMPLETION_RECORDS);
+      }
+    }
+  }
+
+  // G. Insert into memtable
+  // Hold shared lock during memtable insert to coordinate with memtable switch.
+  // WaitForPendingWrites takes exclusive lock, so this ensures:
+  // 1. Multiple writes can insert concurrently (shared lock)
+  // 2. Memtable switch waits for all in-progress inserts (exclusive blocks)
+  // 3. No new inserts start during switch (exclusive blocks shared)
+  Status s = Status::OK();
+  if (!disable_memtable) {
+    std::shared_lock<std::shared_mutex> memtable_lock(
+        partitioned_wal_memtable_mutex_);
+
+    // Set the sequence number in the batch before insertion
+    WriteBatchInternal::SetSequence(batch, first_seq);
+
+    ColumnFamilyMemTablesImpl column_family_memtables(
+        versions_->GetColumnFamilySet());
+    // Use concurrent_memtable_writes=true since in partitioned WAL mode
+    // multiple threads may be inserting into memtable concurrently
+    // NOTE: log_number must be 0 to allow unconditional memtable insertion.
+    // Non-zero log_number causes filtering based on memtable's log number.
+    s = WriteBatchInternal::InsertInto(
+        batch, &column_family_memtables, &flush_scheduler_,
+        &trim_history_scheduler_, write_options.ignore_missing_column_families,
+        0 /*log_number*/, this, true /* concurrent_memtable_writes */,
+        nullptr /* next_seq */, nullptr /* has_valid_writes */, seq_per_batch_,
+        batch_per_txn_);
+    if (!s.ok()) {
+      HandleMemTableInsertFailure(s);
+    }
+  }
+
+  TEST_SYNC_POINT("DBImpl::WriteImplPartitionedWAL:AfterMemtableInsert");
+
+  // H. Signal completion
+  msg->memtable_insertion_completed.store(true, std::memory_order_release);
+  msg->cv.notify_one();
+
+  // I. Wait based on consistency mode
+  if (immutable_db_options_.partitioned_wal_consistency_mode ==
+      PartitionedWALConsistencyMode::kStrong) {
+    uint64_t visibility_wait_start = 0;
+    if (stats_) {
+      visibility_wait_start = immutable_db_options_.clock->NowMicros();
+    }
+    memtable_completion_queue_->WaitForVisibility(msg);
+    if (stats_) {
+      uint64_t visibility_wait_elapsed =
+          immutable_db_options_.clock->NowMicros() - visibility_wait_start;
+      RecordTick(stats_, PARTITIONED_WAL_VISIBILITY_WAIT_MICROS,
+                 visibility_wait_elapsed);
+    }
+  }
+
+  // Execute pre_release_callback if provided
+  if (pre_release_callback != nullptr && s.ok()) {
+    s = pre_release_callback->Callback(first_seq, disable_memtable, log_ref,
+                                       0 /* index */, count /* total */);
+  }
+
+  // Execute post_memtable_callback if provided
+  if (post_memtable_callback != nullptr && s.ok()) {
+    s = (*post_memtable_callback)(first_seq + count - 1, disable_memtable);
+  }
+
+  // Check if flush is needed (similar to regular WriteImpl path)
+  if (UNLIKELY(s.ok() && !trim_history_scheduler_.Empty())) {
+    WriteContext write_context;
+    InstrumentedMutexLock l(&mutex_);
+    s = TrimMemtableHistory(&write_context);
+  }
+
+  if (UNLIKELY(s.ok() && !flush_scheduler_.Empty())) {
+    WriteContext write_context;
+    InstrumentedMutexLock l(&mutex_);
+    WaitForPendingWrites();
+    s = ScheduleFlushes(&write_context);
+  }
+
+  // Check if partitioned WAL size exceeds max and trigger memtable switch
+  // This rotates both main WAL and partitioned WAL together to keep log numbers
+  // in sync for proper garbage collection.
+  //
+  // Rotation is triggered when either:
+  // 1. Any single partition file exceeds partitioned_wal_max_file_size
+  // 2. Total WAL size (main + partitioned) exceeds max_total_wal_size
+  //
+  // The second check is important because partitioned WAL files store the
+  // actual data (much larger than main WAL which only stores completion
+  // records), so we need to bound total disk usage.
+  if (UNLIKELY(
+          s.ok() && partitioned_wal_manager_ &&
+          !partitioned_wal_rotation_pending_.load(std::memory_order_relaxed))) {
+    bool should_rotate = false;
+
+    // Check 1: Single partition file size limit
+    if (immutable_db_options_.partitioned_wal_max_file_size > 0) {
+      uint64_t max_file_size = partitioned_wal_manager_->GetMaxFileSize();
+      if (max_file_size >=
+          immutable_db_options_.partitioned_wal_max_file_size) {
+        should_rotate = true;
+        ROCKS_LOG_DEBUG(
+            immutable_db_options_.info_log,
+            "Triggering WAL rotation: max partition file size %" PRIu64
+            " >= limit %" PRIu64,
+            max_file_size, immutable_db_options_.partitioned_wal_max_file_size);
+      }
+    }
+
+    // Check 2: Total WAL size limit (main WAL + partitioned WAL)
+    if (!should_rotate) {
+      uint64_t max_total_wal = GetMaxTotalWalSize();
+      if (max_total_wal > 0) {
+        uint64_t main_wal_size = wals_total_size_.LoadRelaxed();
+        uint64_t partitioned_wal_size =
+            partitioned_wal_manager_->GetTotalFileSize();
+        uint64_t total_wal_size = main_wal_size + partitioned_wal_size;
+        if (total_wal_size >= max_total_wal) {
+          should_rotate = true;
+          ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                          "Triggering WAL rotation: total WAL size %" PRIu64
+                          " (main=%" PRIu64 " + partitioned=%" PRIu64
+                          ") >= max_total_wal_size %" PRIu64,
+                          total_wal_size, main_wal_size, partitioned_wal_size,
+                          max_total_wal);
+        }
+      }
+    }
+
+    if (should_rotate) {
+      // Set pending flag to avoid multiple concurrent rotation attempts
+      if (partitioned_wal_rotation_pending_.exchange(
+              true, std::memory_order_acq_rel) == false) {
+        // Trigger a memtable switch for the default column family
+        // This will cause SwitchMemtable to rotate both main WAL and
+        // partitioned WAL
+        WriteContext write_context;
+        InstrumentedMutexLock l(&mutex_);
+        ColumnFamilyData* default_cfd =
+            versions_->GetColumnFamilySet()->GetDefault();
+        if (default_cfd != nullptr) {
+          Status switch_s = SwitchMemtable(default_cfd, &write_context);
+          if (!switch_s.ok()) {
+            ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                           "Failed to switch memtable for partitioned WAL "
+                           "rotation: %s",
+                           switch_s.ToString().c_str());
+            // Clear the pending flag so we can try again
+            partitioned_wal_rotation_pending_.store(false,
+                                                    std::memory_order_relaxed);
+          }
+          // Note: SwitchMemtable clears the pending flag on success
+        }
+      }
+    }
+  }
+
+  // Note: Synchronous rotation check is done before the write in step B.
+  // The async rotation logic was removed as it conflicts with the synchronous
+  // check and can leave rotation_pending stuck to true.
+
+  if (seq_used != nullptr) {
+    *seq_used = first_seq;
+  }
+
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -118,6 +118,50 @@ TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
   ASSERT_FALSE(s.ok());
 }
 
+TEST_F(DBOptionsTest, PartitionedWALOptionNotDynamic) {
+  // Test that partitioned WAL options are immutable (not dynamically
+  // configurable)
+  Options options;
+  options.env = env_;
+  options.enable_partitioned_wal = true;
+  options.num_partitioned_wal_writers = 8;
+  options.partitioned_wal_consistency_mode =
+      PartitionedWALConsistencyMode::kStrong;
+  options.partitioned_wal_sync_interval_ms = 2000;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.enable_partitioned_wal);
+  ASSERT_EQ(db_options.num_partitioned_wal_writers, 8u);
+  ASSERT_EQ(db_options.partitioned_wal_consistency_mode,
+            PartitionedWALConsistencyMode::kStrong);
+  ASSERT_EQ(db_options.partitioned_wal_sync_interval_ms, 2000u);
+
+  // Disable partitioned WAL for testing (since the feature is not yet
+  // implemented)
+  options.enable_partitioned_wal = false;
+  Reopen(options);
+
+  // Verify options are properly persisted
+  ASSERT_FALSE(dbfull()->GetDBOptions().enable_partitioned_wal);
+  ASSERT_EQ(dbfull()->GetDBOptions().num_partitioned_wal_writers, 8u);
+  ASSERT_EQ(dbfull()->GetDBOptions().partitioned_wal_consistency_mode,
+            PartitionedWALConsistencyMode::kStrong);
+  ASSERT_EQ(dbfull()->GetDBOptions().partitioned_wal_sync_interval_ms, 2000u);
+
+  // Try to change immutable options - all should fail
+  Status s = dbfull()->SetDBOptions({{"enable_partitioned_wal", "true"}});
+  ASSERT_FALSE(s.ok());
+
+  s = dbfull()->SetDBOptions({{"num_partitioned_wal_writers", "16"}});
+  ASSERT_FALSE(s.ok());
+
+  s = dbfull()->SetDBOptions({{"partitioned_wal_consistency_mode", "kWeak"}});
+  ASSERT_FALSE(s.ok());
+
+  s = dbfull()->SetDBOptions({{"partitioned_wal_sync_interval_ms", "5000"}});
+  ASSERT_FALSE(s.ok());
+}
+
 // RocksDB lite don't support dynamic options.
 
 TEST_F(DBOptionsTest, AvoidUpdatingOptions) {

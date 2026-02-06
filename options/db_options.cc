@@ -40,6 +40,11 @@ static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
     {"kVolatileCompressedTier", CacheTier::kVolatileCompressedTier},
     {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
 
+static std::unordered_map<std::string, PartitionedWALConsistencyMode>
+    partitioned_wal_consistency_mode_string_map = {
+        {"kStrong", PartitionedWALConsistencyMode::kStrong},
+        {"kWeak", PartitionedWALConsistencyMode::kWeak}};
+
 static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
     {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
      {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
@@ -599,6 +604,27 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_write_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"enable_partitioned_wal",
+         {offsetof(struct ImmutableDBOptions, enable_partitioned_wal),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_partitioned_wal_writers",
+         {offsetof(struct ImmutableDBOptions, num_partitioned_wal_writers),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"partitioned_wal_consistency_mode",
+         OptionTypeInfo::Enum<PartitionedWALConsistencyMode>(
+             offsetof(struct ImmutableDBOptions,
+                      partitioned_wal_consistency_mode),
+             &partitioned_wal_consistency_mode_string_map)},
+        {"partitioned_wal_sync_interval_ms",
+         {offsetof(struct ImmutableDBOptions, partitioned_wal_sync_interval_ms),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"partitioned_wal_max_file_size",
+         {offsetof(struct ImmutableDBOptions, partitioned_wal_max_file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -804,7 +830,14 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       metadata_write_temperature(options.metadata_write_temperature),
       wal_write_temperature(options.wal_write_temperature),
       calculate_sst_write_lifetime_hint_set(
-          options.calculate_sst_write_lifetime_hint_set) {
+          options.calculate_sst_write_lifetime_hint_set),
+      enable_partitioned_wal(options.enable_partitioned_wal),
+      num_partitioned_wal_writers(options.num_partitioned_wal_writers),
+      partitioned_wal_consistency_mode(
+          options.partitioned_wal_consistency_mode),
+      partitioned_wal_sync_interval_ms(
+          options.partitioned_wal_sync_interval_ms),
+      partitioned_wal_max_file_size(options.partitioned_wal_max_file_size) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -984,6 +1017,20 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    temperature_to_string[metadata_write_temperature].c_str());
   ROCKS_LOG_HEADER(log, "            Options.wal_write_temperature: %s",
                    temperature_to_string[wal_write_temperature].c_str());
+  ROCKS_LOG_HEADER(log, "            Options.enable_partitioned_wal: %d",
+                   enable_partitioned_wal);
+  ROCKS_LOG_HEADER(log,
+                   "            Options.num_partitioned_wal_writers: %" PRIu32,
+                   num_partitioned_wal_writers);
+  ROCKS_LOG_HEADER(log,
+                   "            Options.partitioned_wal_consistency_mode: %d",
+                   static_cast<int>(partitioned_wal_consistency_mode));
+  ROCKS_LOG_HEADER(
+      log, "            Options.partitioned_wal_sync_interval_ms: %" PRIu64,
+      partitioned_wal_sync_interval_ms);
+  ROCKS_LOG_HEADER(
+      log, "            Options.partitioned_wal_max_file_size: %" PRIu64,
+      partitioned_wal_max_file_size);
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {
