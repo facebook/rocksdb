@@ -2734,6 +2734,10 @@ struct IngestExternalFileOptions {
   //    reassigned).
   bool allow_db_generated_files = false;
 
+
+  // Set to TRUE if user wants to allow writes to the DB during ingestion.
+  // User must ensure no writes overlap with the ingested data.
+  bool allow_write = false;
   // Controls whether data and metadata blocks (e.g. index, filter) read during
   // file ingestion will be added to block cache.
   // Users may wish to set this to false when bulk loading into a CF that is not
