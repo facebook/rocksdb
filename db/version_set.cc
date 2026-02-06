@@ -2618,7 +2618,7 @@ void Version::MultiGetBlob(
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.blob_index;
-      const KeyContext* const key_context = blob.key_context;
+      KeyContext* const key_context = blob.key_context;
       assert(key_context);
       assert(key_context->get_context);
       assert(key_context->s);
@@ -2641,10 +2641,16 @@ void Version::MultiGetBlob(
         continue;
       }
 
+      // Use the per-key compression type output from KeyContext
+      std::optional<CompressionType>* compression_out_ptr =
+          read_options.read_blob_compressed
+              ? &key_context->blob_compression_type
+              : nullptr;
+
       blob_reqs_in_file.emplace_back(
           key_context->get_context->ukey_to_get_blob_value(),
           blob_index.offset(), blob_index.size(), blob_index.compression(),
-          &blob.result, key_context->s);
+          &blob.result, key_context->s, compression_out_ptr);
     }
     if (blob_reqs_in_file.size() > 0) {
       const auto file_size = blob_file_meta->GetBlobFileSize();

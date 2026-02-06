@@ -30,6 +30,7 @@ Status BlobFileReader::Create(
     const FileOptions& file_options, uint32_t column_family_id,
     HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
     const std::shared_ptr<IOTracer>& io_tracer,
+    const std::shared_ptr<CompressionManager>& compression_manager,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -72,8 +73,9 @@ Status BlobFileReader::Create(
   std::shared_ptr<Decompressor> decompressor;
   if (compression_type != kNoCompression) {
     // The blob format has always used compression format 2
-    decompressor = GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
-        compression_type);
+    auto mgr = compression_manager ? compression_manager
+                                   : GetBuiltinV2CompressionManager();
+    decompressor = mgr->GetDecompressorOptimizeFor(compression_type);
   }
 
   blob_file_reader->reset(new BlobFileReader(
@@ -307,7 +309,8 @@ Status BlobFileReader::GetBlob(
     const ReadOptions& read_options, const Slice& user_key, uint64_t offset,
     uint64_t value_size, CompressionType compression_type,
     FilePrefetchBuffer* prefetch_buffer, MemoryAllocator* allocator,
-    std::unique_ptr<BlobContents>* result, uint64_t* bytes_read) const {
+    std::unique_ptr<BlobContents>* result, uint64_t* bytes_read,
+    std::optional<CompressionType>* compression_type_out) const {
   assert(result);
 
   const uint64_t key_size = user_key.size();
@@ -383,7 +386,15 @@ Status BlobFileReader::GetBlob(
 
   const Slice value_slice(record_slice.data() + adjustment, value_size);
 
-  {
+  // Check if caller wants compressed data (skip decompression)
+  if (read_options.read_blob_compressed) {
+    // Return raw compressed bytes without decompressing
+    BlobContentsCreator::Create(result, nullptr, value_slice, compression_type,
+                                allocator);
+    if (compression_type_out) {
+      *compression_type_out = compression_type;
+    }
+  } else {
     const Status s = UncompressBlobIfNeeded(value_slice, compression_type,
                                             decompressor_.get(), allocator,
                                             clock_, statistics_, result);
@@ -532,11 +543,24 @@ void BlobFileReader::MultiGetBlob(
       }
     }
 
-    // Uncompress blob if needed
+    // Get the raw value slice
     Slice value_slice(record_slice.data() + adjustments[i], req->len);
-    *req->status = UncompressBlobIfNeeded(
-        value_slice, compression_type_, decompressor_.get(), allocator, clock_,
-        statistics_, &blob_reqs[i].second);
+
+    // Check if caller wants compressed data (skip decompression)
+    if (read_options.read_blob_compressed) {
+      // Return raw compressed bytes without decompressing
+      BlobContentsCreator::Create(&blob_reqs[i].second, nullptr, value_slice,
+                                  compression_type_, allocator);
+      // Set the output compression type if requested
+      if (req->compression_type_out) {
+        *req->compression_type_out = compression_type_;
+      }
+    } else {
+      // Uncompress blob if needed
+      *req->status = UncompressBlobIfNeeded(
+          value_slice, compression_type_, decompressor_.get(), allocator,
+          clock_, statistics_, &blob_reqs[i].second);
+    }
     if (req->status->ok()) {
       total_bytes += record_slice.size();
     }
@@ -629,7 +653,8 @@ Status BlobFileReader::UncompressBlobIfNeeded(
     return Status::Corruption(s.ToString());
   }
 
-  result->reset(new BlobContents(std::move(output), args.uncompressed_size));
+  result->reset(new BlobContents(std::move(output), args.uncompressed_size,
+                                 kNoCompression));
 
   return Status::OK();
 }

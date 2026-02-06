@@ -114,7 +114,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+                                blob_file_read_hist, nullptr /*IOTracer*/,
+                                nullptr /*CompressionManager*/);
 
   // First try: reader should be opened and put in cache
   CacheHandleGuard<BlobFileReader> first;
@@ -162,7 +163,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+                                blob_file_read_hist, nullptr /*IOTracer*/,
+                                nullptr /*CompressionManager*/);
 
   CacheHandleGuard<BlobFileReader> first;
   CacheHandleGuard<BlobFileReader> second;
@@ -212,7 +214,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+                                blob_file_read_hist, nullptr /*IOTracer*/,
+                                nullptr /*CompressionManager*/);
 
   // Note: there is no blob file with the below number
   constexpr uint64_t blob_file_number = 123;
@@ -255,7 +258,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+                                blob_file_read_hist, nullptr /*IOTracer*/,
+                                nullptr /*CompressionManager*/);
 
   // Insert into cache should fail since it has zero capacity and
   // strict_capacity_limit is set

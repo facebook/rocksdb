@@ -4872,6 +4872,116 @@ int main(int argc, char** argv) {
     rocksdb_sst_file_manager_destroy(sst_file_manager);
   }
 
+  StartPhase("blob_compression_type_api");
+  {
+    // Create a separate DB for blob compression type tests
+    // Use no compression to simplify the test - this tests the API plumbing
+    rocksdb_options_t* blob_opts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(blob_opts, 1);
+    rocksdb_options_set_enable_blob_files(blob_opts, 1);
+    rocksdb_options_set_min_blob_size(blob_opts, 0);  // All values go to blobs
+    // Use no compression for simplicity - tests API without compression
+    // dependency
+    rocksdb_options_set_blob_compression_type(blob_opts,
+                                              rocksdb_no_compression);
+
+    char blob_dbname[200];
+    snprintf(blob_dbname, sizeof(blob_dbname), "%s/rocksdb_c_test_blob_comp",
+             GetTempDir());
+
+    rocksdb_t* blob_db = rocksdb_open(blob_opts, blob_dbname, &err);
+    CheckNoError(err);
+
+    // Write data that will be stored as blobs
+    rocksdb_writeoptions_t* blob_woptions = rocksdb_writeoptions_create();
+    rocksdb_put(blob_db, blob_woptions, "key1", 4, "blob_value_data_1", 17,
+                &err);
+    CheckNoError(err);
+    rocksdb_put(blob_db, blob_woptions, "key2", 4, "blob_value_data_2", 17,
+                &err);
+    CheckNoError(err);
+
+    // Flush to ensure blobs are written to blob files
+    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(blob_db, flush_opts, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_destroy(flush_opts);
+
+    // Test 1: Test rocksdb_readoptions_set_blob_compression_types_out with Get
+    {
+      rocksdb_readoptions_t* blob_roptions = rocksdb_readoptions_create();
+      rocksdb_readoptions_set_read_blob_compressed(blob_roptions, 1);
+
+      int compression_type = -1;
+      rocksdb_readoptions_set_blob_compression_types_out(blob_roptions,
+                                                         &compression_type, 1);
+
+      size_t val_len;
+      char* val =
+          rocksdb_get(blob_db, blob_roptions, "key1", 4, &val_len, &err);
+      CheckNoError(err);
+      CheckCondition(val != NULL);
+
+      // Check that compression type was set (should be no_compression = 0)
+      CheckCondition(compression_type == rocksdb_no_compression);
+
+      free(val);
+      rocksdb_readoptions_destroy(blob_roptions);
+    }
+
+    // Test 2: Test rocksdb_iter_get_blob_compression_type with iterator
+    {
+      rocksdb_readoptions_t* iter_roptions = rocksdb_readoptions_create();
+      rocksdb_readoptions_set_read_blob_compressed(iter_roptions, 1);
+
+      rocksdb_iterator_t* iter =
+          rocksdb_create_iterator(blob_db, iter_roptions);
+      rocksdb_iter_seek_to_first(iter);
+      CheckCondition(rocksdb_iter_valid(iter));
+
+      // Check compression type via iterator API
+      // With read_blob_compressed=true and no_compression, should return
+      // no_compression
+      int iter_comp_type = rocksdb_iter_get_blob_compression_type(iter);
+      CheckCondition(iter_comp_type == rocksdb_no_compression);
+
+      // Move to next entry and check again
+      rocksdb_iter_next(iter);
+      CheckCondition(rocksdb_iter_valid(iter));
+      iter_comp_type = rocksdb_iter_get_blob_compression_type(iter);
+      CheckCondition(iter_comp_type == rocksdb_no_compression);
+
+      rocksdb_iter_destroy(iter);
+      rocksdb_readoptions_destroy(iter_roptions);
+    }
+
+    // Test 3: Verify no compression is reported when read_blob_compressed=false
+    {
+      rocksdb_readoptions_t* no_comp_roptions = rocksdb_readoptions_create();
+      // read_blob_compressed is false by default
+
+      rocksdb_iterator_t* iter =
+          rocksdb_create_iterator(blob_db, no_comp_roptions);
+      rocksdb_iter_seek_to_first(iter);
+      CheckCondition(rocksdb_iter_valid(iter));
+
+      // Should return no_compression when read_blob_compressed=false
+      int iter_comp_type = rocksdb_iter_get_blob_compression_type(iter);
+      CheckCondition(iter_comp_type == rocksdb_no_compression);
+
+      rocksdb_iter_destroy(iter);
+      rocksdb_readoptions_destroy(no_comp_roptions);
+    }
+
+    // Cleanup
+    rocksdb_writeoptions_destroy(blob_woptions);
+    rocksdb_close(blob_db);
+    rocksdb_destroy_db(blob_opts, blob_dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(blob_opts);
+  }
+
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
 

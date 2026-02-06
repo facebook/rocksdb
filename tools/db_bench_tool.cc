@@ -1130,6 +1130,11 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
+DEFINE_bool(read_blob_compressed, false,
+            "[Integrated BlobDB] When enabled, return compressed blob values "
+            "from Get/MultiGet/Iterator. Compressed values are also cached in "
+            "blob cache with a separate cache key from uncompressed values.");
+
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
             "Open a RocksDB secondary instance. A primary instance can be "
@@ -3586,6 +3591,7 @@ class Benchmark {
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
+      read_options_.read_blob_compressed = FLAGS_read_blob_compressed;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;

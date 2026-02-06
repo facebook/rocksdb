@@ -9,6 +9,7 @@
 
 #include "cache/typed_cache.h"
 #include "db/blob/blob_file_reader.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/mutexlock.h"
 
@@ -27,7 +28,8 @@ class BlobFileCache {
   BlobFileCache(Cache* cache, const ImmutableOptions* immutable_options,
                 const FileOptions* file_options, uint32_t column_family_id,
                 HistogramImpl* blob_file_read_hist,
-                const std::shared_ptr<IOTracer>& io_tracer);
+                const std::shared_ptr<IOTracer>& io_tracer,
+                const std::shared_ptr<CompressionManager>& compression_manager);
 
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
@@ -58,6 +60,7 @@ class BlobFileCache {
   uint32_t column_family_id_;
   HistogramImpl* blob_file_read_hist_;
   std::shared_ptr<IOTracer> io_tracer_;
+  std::shared_ptr<CompressionManager> compression_manager_;
 
   static constexpr size_t kNumberOfMutexStripes = 1 << 7;
 };

@@ -326,6 +326,19 @@ jbyteArray Java_org_rocksdb_RocksIterator_value0(JNIEnv* env, jclass /*jcls*/,
 
 /*
  * Class:     org_rocksdb_RocksIterator
+ * Method:    getBlobCompressionType0
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_RocksIterator_getBlobCompressionType0(JNIEnv* /*env*/,
+                                                             jclass /*jcls*/,
+                                                             jlong handle) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  return ROCKSDB_NAMESPACE::CompressionTypeJni::toJavaCompressionType(
+      it->GetBlobCompressionType());
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
  * Method:    valueDirect0
  * Signature: (JLjava/nio/ByteBuffer;II)I
  */

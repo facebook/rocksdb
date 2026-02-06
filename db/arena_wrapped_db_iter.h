@@ -90,6 +90,9 @@ class ArenaWrappedDBIter : public Iterator {
   Status status() const override { return db_iter_->status(); }
   Slice timestamp() const override { return db_iter_->timestamp(); }
   bool IsBlob() const { return db_iter_->IsBlob(); }
+  CompressionType GetBlobCompressionType() const override {
+    return db_iter_->GetBlobCompressionType();
+  }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
 

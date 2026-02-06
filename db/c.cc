@@ -202,6 +202,11 @@ struct rocksdb_readoptions_t {
   Slice lower_bound;
   Slice timestamp;
   Slice iter_start_ts;
+  // Storage for per-key compression types in Get/MultiGet
+  std::vector<ROCKSDB_NAMESPACE::CompressionType>
+      blob_compression_types_storage;
+  int* blob_compression_types_int_out;
+  size_t blob_compression_types_num_keys;
 };
 struct rocksdb_writeoptions_t {
   WriteOptions rep;
@@ -2032,6 +2037,12 @@ char* rocksdb_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
       SaveError(errptr, s);
     }
   }
+  // Copy compression type from internal storage to user's int pointer
+  if (options->blob_compression_types_int_out != nullptr &&
+      options->blob_compression_types_num_keys > 0) {
+    *options->blob_compression_types_int_out =
+        static_cast<int>(options->blob_compression_types_storage[0]);
+  }
   return result;
 }
 
@@ -2053,6 +2064,12 @@ char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
     if (!s.IsNotFound()) {
       SaveError(errptr, s);
     }
+  }
+  // Copy compression type from internal storage to user's int pointer
+  if (options->blob_compression_types_int_out != nullptr &&
+      options->blob_compression_types_num_keys > 0) {
+    *options->blob_compression_types_int_out =
+        static_cast<int>(options->blob_compression_types_storage[0]);
   }
   return result;
 }
@@ -2146,6 +2163,15 @@ void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
       }
     }
   }
+  // Copy per-key compression types from internal storage to user's int array
+  if (options->blob_compression_types_int_out != nullptr) {
+    size_t copy_count =
+        std::min(num_keys, options->blob_compression_types_num_keys);
+    for (size_t i = 0; i < copy_count; i++) {
+      options->blob_compression_types_int_out[i] =
+          static_cast<int>(options->blob_compression_types_storage[i]);
+    }
+  }
 }
 
 void rocksdb_multi_get_with_ts(rocksdb_t* db,
@@ -2185,6 +2211,15 @@ void rocksdb_multi_get_with_ts(rocksdb_t* db,
       }
     }
   }
+  // Copy per-key compression types from internal storage to user's int array
+  if (options->blob_compression_types_int_out != nullptr) {
+    size_t copy_count =
+        std::min(num_keys, options->blob_compression_types_num_keys);
+    for (size_t i = 0; i < copy_count; i++) {
+      options->blob_compression_types_int_out[i] =
+          static_cast<int>(options->blob_compression_types_storage[i]);
+    }
+  }
 }
 
 void rocksdb_multi_get_cf(
@@ -2219,6 +2254,15 @@ void rocksdb_multi_get_cf(
       } else {
         errs[i] = nullptr;
       }
+    }
+  }
+  // Copy per-key compression types from internal storage to user's int array
+  if (options->blob_compression_types_int_out != nullptr) {
+    size_t copy_count =
+        std::min(num_keys, options->blob_compression_types_num_keys);
+    for (size_t i = 0; i < copy_count; i++) {
+      options->blob_compression_types_int_out[i] =
+          static_cast<int>(options->blob_compression_types_storage[i]);
     }
   }
 }
@@ -2261,6 +2305,15 @@ void rocksdb_multi_get_cf_with_ts(
       } else {
         errs[i] = nullptr;
       }
+    }
+  }
+  // Copy per-key compression types from internal storage to user's int array
+  if (options->blob_compression_types_int_out != nullptr) {
+    size_t copy_count =
+        std::min(num_keys, options->blob_compression_types_num_keys);
+    for (size_t i = 0; i < copy_count; i++) {
+      options->blob_compression_types_int_out[i] =
+          static_cast<int>(options->blob_compression_types_storage[i]);
     }
   }
 }
@@ -2785,6 +2838,10 @@ rocksdb_slice_t rocksdb_iter_timestamp_slice(const rocksdb_iterator_t* iter) {
 
 void rocksdb_iter_refresh(const rocksdb_iterator_t* iter, char** errptr) {
   SaveError(errptr, iter->rep->Refresh());
+}
+
+int rocksdb_iter_get_blob_compression_type(const rocksdb_iterator_t* iter) {
+  return static_cast<int>(iter->rep->GetBlobCompressionType());
 }
 
 rocksdb_writebatch_t* rocksdb_writebatch_create() {
@@ -6018,7 +6075,10 @@ void rocksdb_mergeoperator_destroy(rocksdb_mergeoperator_t* merge_operator) {
 }
 
 rocksdb_readoptions_t* rocksdb_readoptions_create() {
-  return new rocksdb_readoptions_t;
+  rocksdb_readoptions_t* opt = new rocksdb_readoptions_t;
+  opt->blob_compression_types_int_out = nullptr;
+  opt->blob_compression_types_num_keys = 0;
+  return opt;
 }
 
 void rocksdb_readoptions_destroy(rocksdb_readoptions_t* opt) { delete opt; }
@@ -6215,6 +6275,32 @@ void rocksdb_readoptions_set_iter_start_ts(rocksdb_readoptions_t* opt,
 void rocksdb_readoptions_set_auto_readahead_size(rocksdb_readoptions_t* opt,
                                                  unsigned char v) {
   opt->rep.auto_readahead_size = v;
+}
+
+void rocksdb_readoptions_set_read_blob_compressed(rocksdb_readoptions_t* opt,
+                                                  unsigned char v) {
+  opt->rep.read_blob_compressed = v;
+}
+
+unsigned char rocksdb_readoptions_get_read_blob_compressed(
+    rocksdb_readoptions_t* opt) {
+  return opt->rep.read_blob_compressed;
+}
+
+void rocksdb_readoptions_set_blob_compression_types_out(
+    rocksdb_readoptions_t* opt, int* compression_types_array, size_t num_keys) {
+  opt->blob_compression_types_int_out = compression_types_array;
+  opt->blob_compression_types_num_keys = num_keys;
+  if (compression_types_array != nullptr && num_keys > 0) {
+    // Allocate internal storage for CompressionType values
+    opt->blob_compression_types_storage.resize(
+        num_keys, ROCKSDB_NAMESPACE::kNoCompression);
+    // Point internal rep to our storage vector
+    opt->rep.blob_compression_types_out = &opt->blob_compression_types_storage;
+  } else {
+    opt->blob_compression_types_storage.clear();
+    opt->rep.blob_compression_types_out = nullptr;
+  }
 }
 
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {

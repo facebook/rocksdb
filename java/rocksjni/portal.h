@@ -5151,16 +5151,28 @@ class TickerTypeJni {
         return -0x1A;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE:
         return -0x1B;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_MISS:
         return -0x1C;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_HIT:
         return -0x1D;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_ADD:
         return -0x1E;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_ADD_FAILURES:
         return -0x1F;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_BYTES_READ:
         return -0x20;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_BYTES_WRITE:
+        return -0x21;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
+        return -0x22;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
+        return -0x23;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
+        return -0x24;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
+        return -0x25;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
+        return -0x26;
       case ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH:
         return -0x21;
       case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_FROM_TRASH_QUEUE:
@@ -5195,8 +5207,6 @@ class TickerTypeJni {
         return -0x2F;
       case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
         return -0x30;
-      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_RESUMED_BYTES:
-        return -0x5F;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
         return -0x31;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
@@ -5289,6 +5299,8 @@ class TickerTypeJni {
         return -0x5D;
       case ROCKSDB_NAMESPACE::Tickers::SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT:
         return -0x5E;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_RESUMED_BYTES:
+        return -0x5F;
       case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREPARE_CALLS:
         return -0x60;
       case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_PREPARE_ERRORS:
@@ -5644,28 +5656,28 @@ class TickerTypeJni {
       case -0x1B:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE;
       case -0x1C:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_MISS;
       case -0x1D:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_HIT;
       case -0x1E:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_ADD;
       case -0x1F:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
-      case -0x20:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
-      case -0x21:
-        return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
-      case -0x22:
-        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_FROM_TRASH_QUEUE;
-      case -0x23:
-        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
-      case -0x24:
-        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT;
-      case -0x25:
-        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT;
-      case -0x26:
         return ROCKSDB_NAMESPACE::Tickers::
-            ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT;
+            BLOB_DB_COMPRESSED_CACHE_ADD_FAILURES;
+      case -0x20:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_BYTES_READ;
+      case -0x21:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_COMPRESSED_CACHE_BYTES_WRITE;
+      case -0x22:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
+      case -0x23:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
+      case -0x24:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
+      case -0x25:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+      case -0x26:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
       case -0x27:
         return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT;
       case -0x28:
@@ -5764,6 +5776,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
       case -0x53:
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
+      case -0x54:
+        return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
       case -0x55:
         return ROCKSDB_NAMESPACE::Tickers::SST_FOOTER_CORRUPTION_COUNT;
       case -0x56:
@@ -5804,16 +5818,6 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_COALESCED_NONADJACENT;
       case -0x68:
         return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_SEEK_ERRORS;
-      case -0x54:
-        // -0x54 is the max value at this time. Since these values are exposed
-        // directly to Java clients, we'll keep the value the same till the next
-        // major release.
-        //
-        // TODO: This particular case seems confusing and unnecessary to pin the
-        // value since it's meant to be the number of tickers, not an actual
-        // ticker value. But we aren't yet in a position to fix it since the
-        // number of tickers doesn't fit in the Java representation (jbyte).
-        return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
 
       default:
         // undefined/default

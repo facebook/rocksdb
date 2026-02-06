@@ -8516,6 +8516,28 @@ void Java_org_rocksdb_ReadOptions_setAsyncIo(JNIEnv*, jobject, jlong jhandle,
   opt->async_io = static_cast<bool>(jasync_io);
 }
 
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    readBlobCompressed
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_readBlobCompressed(JNIEnv*, jclass,
+                                                         jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  return static_cast<jboolean>(opt->read_blob_compressed);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setReadBlobCompressed
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setReadBlobCompressed(
+    JNIEnv*, jclass, jlong jhandle, jboolean jread_blob_compressed) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  opt->read_blob_compressed = static_cast<bool>(jread_blob_compressed);
+}
+
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ComparatorOptions
 

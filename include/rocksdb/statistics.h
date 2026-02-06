@@ -394,6 +394,20 @@ enum Tickers : uint32_t {
   // # of bytes written into blob cache.
   BLOB_DB_CACHE_BYTES_WRITE,
 
+  // Compressed blob cache statistics (when read_blob_compressed=true)
+  // # of times cache miss when accessing compressed blob from blob cache.
+  BLOB_DB_COMPRESSED_CACHE_MISS,
+  // # of times cache hit when accessing compressed blob from blob cache.
+  BLOB_DB_COMPRESSED_CACHE_HIT,
+  // # of compressed blobs added to blob cache.
+  BLOB_DB_COMPRESSED_CACHE_ADD,
+  // # of failures when adding compressed blobs to blob cache.
+  BLOB_DB_COMPRESSED_CACHE_ADD_FAILURES,
+  // # of bytes read from blob cache for compressed blobs.
+  BLOB_DB_COMPRESSED_CACHE_BYTES_READ,
+  // # of bytes written into blob cache for compressed blobs.
+  BLOB_DB_COMPRESSED_CACHE_BYTES_WRITE,
+
   // These counters indicate a performance issue in WritePrepared transactions.
   // We should not seem them ticking them much.
   // # of times prepare_mutex_ is acquired in the fast path.
