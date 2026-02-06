@@ -8,19 +8,20 @@
 
 #pragma once
 
+#include "c.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Cleanable {
  public:
-  Cleanable();
+  ROCKSDB_LIBRARY_API Cleanable();
   // No copy constructor and copy assignment allowed.
   Cleanable(Cleanable&) = delete;
   Cleanable& operator=(Cleanable&) = delete;
 
   // Executes all the registered cleanups
-  ~Cleanable();
+  ROCKSDB_LIBRARY_API ~Cleanable();
 
   // Move constructor and move assignment is allowed.
   Cleanable(Cleanable&&) noexcept;

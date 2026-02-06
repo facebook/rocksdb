@@ -35,7 +35,7 @@ namespace ROCKSDB_NAMESPACE {
 class Status {
  public:
   // Create a success status.
-  Status()
+  ROCKSDB_LIBRARY_API Status()
       : code_(kOk),
         subcode_(kNone),
         sev_(kNoError),
@@ -512,7 +512,7 @@ class Status {
 
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
-  std::string ToString() const;
+  ROCKSDB_LIBRARY_API std::string ToString() const;
 
  protected:
   Code code_;
@@ -545,7 +545,7 @@ class Status {
         data_loss_(data_loss),
         scope_(scope) {}
 
-  Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
+  ROCKSDB_LIBRARY_API Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
          Severity sev = kNoError);
   Status(Code _code, const Slice& msg, const Slice& msg2)
       : Status(_code, kNone, msg, msg2) {}

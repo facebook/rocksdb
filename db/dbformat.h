@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <rocksdb/c.h>
 #include <stdio.h>
 
 #include <array>
@@ -399,7 +400,7 @@ class InternalKeyComparator
   explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
-  int Compare(const Slice& a, const Slice& b) const override;
+  ROCKSDB_LIBRARY_API int Compare(const Slice& a, const Slice& b) const override;
 
   bool Equal(const Slice& a, const Slice& b) const {
     // TODO Use user_comparator_.Equal(). Perhaps compare seqno before

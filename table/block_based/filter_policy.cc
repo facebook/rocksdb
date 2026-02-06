@@ -1817,7 +1817,7 @@ BuiltinFilterBitsReader* BuiltinFilterPolicy::GetBloomBitsReader(
   return new AlwaysTrueFilter();
 }
 
-const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
+ROCKSDB_LIBRARY_API const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
                                          bool /*use_block_based_builder*/) {
   // NOTE: use_block_based_builder now ignored so block-based filter is no
   // longer accessible in public API.

@@ -1869,7 +1869,7 @@ Status TraceAnalyzer::WriteTraceSequence(const uint32_t& type,
 }
 
 // The entrance function of Trace_Analyzer
-int trace_analyzer_tool(int argc, char** argv) {
+ROCKSDB_LIBRARY_API int trace_analyzer_tool(int argc, char** argv) {
   std::string trace_path;
   std::string output_path;
 

@@ -96,19 +96,22 @@ class SanityTestBasic : public SanityTest {
   std::string Name() const override { return "Basic"; }
 };
 
-class SanityTestSpecialComparator : public SanityTest {
+class ROCKSDB_LIBRARY_API SanityTestSpecialComparator : public SanityTest {
  public:
   explicit SanityTestSpecialComparator(const std::string& path)
       : SanityTest(path) {
     options_.comparator = new NewComparator();
   }
-  ~SanityTestSpecialComparator() { delete options_.comparator; }
+  ROCKSDB_LIBRARY_API ~SanityTestSpecialComparator() { delete options_.comparator; }
   Options GetOptions() const override { return options_; }
   std::string Name() const override { return "SpecialComparator"; }
 
  private:
-  class NewComparator : public Comparator {
+  class ROCKSDB_LIBRARY_API NewComparator : public Comparator {
    public:
+    ROCKSDB_LIBRARY_API NewComparator() = default;
+    ROCKSDB_LIBRARY_API ~NewComparator() = default;
+
     const char* Name() const override { return "rocksdb.NewComparator"; }
     int Compare(const Slice& a, const Slice& b) const override {
       return BytewiseComparator()->Compare(a, b);
