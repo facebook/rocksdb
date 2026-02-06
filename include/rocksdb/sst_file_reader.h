@@ -57,6 +57,10 @@ class SstFileReader {
   // A Corruption status is returned if they do not match.
   Status VerifyNumEntries(const ReadOptions& /*read_options*/);
 
+  // Get to fetch a single key from the SST
+  Status Get(const ReadOptions& read_options, const Slice& key,
+             std::string* value, bool skip_filters = false);
+
  private:
   struct Rep;
   std::unique_ptr<Rep> rep_;

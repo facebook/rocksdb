@@ -856,6 +856,62 @@ TEST_F(SstFileReaderTableMultiGetTest, Basic) {
   Close();
 }
 
+TEST_F(SstFileReaderTest, GetBasic) {
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  for (uint64_t i = 0; i + 2 < kNumKeys; i += 3) {
+    std::string value;
+    Status s = reader.Get(ReadOptions(), keys[i], &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, keys[i]);
+  }
+
+  // Test Get for non-existing keys
+  std::string value;
+  Status s = reader.Get(ReadOptions(), "non_existing_key", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(SstFileReaderTest, GetWithSkipFilters) {
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  // Test Get with skip_filters = true for existing keys (Put operations)
+  for (uint64_t i = 0; i + 2 < kNumKeys; i += 3) {
+    std::string value;
+    Status s = reader.Get(ReadOptions(), keys[i], &value,
+                          /*skip_filters=*/true);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, keys[i]);
+  }
+
+  // Test Get for deleted keys with skip_filters = true
+  for (uint64_t i = 2; i + 2 < kNumKeys; i += 3) {
+    std::string value;
+    Status s = reader.Get(ReadOptions(), keys[i], &value,
+                          /*skip_filters=*/true);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+
+  // Test Get for non-existing keys with skip_filters = true
+  std::string value;
+  Status s = reader.Get(ReadOptions(), "non_existing_key", &value,
+                        /*skip_filters=*/true);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
