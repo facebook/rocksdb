@@ -201,6 +201,35 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * Returns true if files will be hard linked instead of copied.
+   * <p>
+   * See {@link #setLinkFiles(boolean)}.
+   *
+   * @return true if files will be hard linked, false otherwise.
+   */
+  public boolean linkFiles() {
+    return linkFiles(nativeHandle_);
+  }
+
+  /**
+   * Set to true to hard link ingested files to the DB directory instead of
+   * copying them. This preserves the original file links after ingestion.
+   * <p>
+   * Only one of {@link #setMoveFiles(boolean)} and {@link #setLinkFiles(boolean)}
+   * can be set to true at the same time.
+   * <p>
+   * Default: false
+   *
+   * @param linkFiles true to hard link files instead of copying
+   *
+   * @return the reference to the current IngestExternalFileOptions.
+   */
+  public IngestExternalFileOptions setLinkFiles(final boolean linkFiles) {
+    setLinkFiles(nativeHandle_, linkFiles);
+    return this;
+  }
+
   private static native long newIngestExternalFileOptions();
   private static native long newIngestExternalFileOptions(final boolean moveFiles,
       final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
@@ -226,4 +255,6 @@ public class IngestExternalFileOptions extends RocksObject {
   private static native void setIngestBehind(final long handle, final boolean ingestBehind);
   private static native boolean writeGlobalSeqno(final long handle);
   private static native void setWriteGlobalSeqno(final long handle, final boolean writeGlobalSeqNo);
+  private static native boolean linkFiles(final long handle);
+  private static native void setLinkFiles(final long handle, final boolean linkFiles);
 }

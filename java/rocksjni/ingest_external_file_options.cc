@@ -187,6 +187,31 @@ Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
 
 /*
  * Class:     org_rocksdb_IngestExternalFileOptions
+ * Method:    linkFiles
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL
+Java_org_rocksdb_IngestExternalFileOptions_linkFiles(JNIEnv*, jclass,
+                                                     jlong jhandle) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
+  return options->link_files == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_IngestExternalFileOptions
+ * Method:    setLinkFiles
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_IngestExternalFileOptions_setLinkFiles(
+    JNIEnv*, jclass, jlong jhandle, jboolean jlink_files) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
+  options->link_files = jlink_files == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_IngestExternalFileOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */

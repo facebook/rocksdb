@@ -1244,6 +1244,7 @@ int main(int argc, char** argv) {
 
     rocksdb_ingestexternalfileoptions_t* ing_opt =
         rocksdb_ingestexternalfileoptions_create();
+    rocksdb_ingestexternalfileoptions_set_link_files(ing_opt, 0);
     const char* file_list[1] = {sstfilename};
     rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
     CheckNoError(err);
