@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "rocksdb/env.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
@@ -700,7 +701,7 @@ class BackupEngineAppendOnlyBase {
 // unspec = Behavior is unspecified, including possibly trashing the
 //   backup_dir, but is "memory safe" (no C++ undefined behavior)
 //
-class BackupEngine : public BackupEngineReadOnlyBase,
+class ROCKSDB_API BackupEngine : public BackupEngineReadOnlyBase,
                      public BackupEngineAppendOnlyBase {
  public:
   virtual ~BackupEngine() {}

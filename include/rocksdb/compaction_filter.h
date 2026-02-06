@@ -51,7 +51,7 @@ class SliceTransform;
 // * Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class CompactionFilter : public Customizable {
+class ROCKSDB_API CompactionFilter : public Customizable {
  public:
   // Value type of the key-value passed to the compaction filter's FilterV2/V3
   // methods.
@@ -344,7 +344,7 @@ class CompactionFilter : public Customizable {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class CompactionFilterFactory : public Customizable {
+class ROCKSDB_API CompactionFilterFactory : public Customizable {
  public:
   virtual ~CompactionFilterFactory() {}
   static const char* Type() { return "CompactionFilterFactory"; }

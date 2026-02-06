@@ -24,6 +24,7 @@
 #include "rocksdb/metadata.h"
 #include "rocksdb/multi_scan.h"
 #include "rocksdb/options.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
@@ -71,7 +72,7 @@ struct ColumnFamilyDescriptor {
       : name(_name), options(_options) {}
 };
 
-class ColumnFamilyHandle {
+class ROCKSDB_API ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
   // Returns the name of the column family associated with the current handle.
@@ -128,7 +129,7 @@ using TablePropertiesCollection =
 // any external synchronization.
 // DB is an abstract base class with one primary implementation (DBImpl)
 // and a number of wrapper implementations.
-class DB {
+class ROCKSDB_API DB {
  public:
   // Open the database with the specified "name" for reads and writes.
   // Stores a pointer to a heap-allocated database in *dbptr and returns
@@ -2344,9 +2345,12 @@ inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
                                       uint64_t* sizes,
                                       SizeApproximationFlags include_flags) {
   SizeApproximationOptions options;
-  using enum SizeApproximationFlags;  // Require C++20 support
-  options.include_memtables = ((include_flags & INCLUDE_MEMTABLES) != NONE);
-  options.include_files = ((include_flags & INCLUDE_FILES) != NONE);
+  options.include_memtables = 
+      ((include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 
+       SizeApproximationFlags::NONE);
+  options.include_files = 
+      ((include_flags & SizeApproximationFlags::INCLUDE_FILES) != 
+       SizeApproximationFlags::NONE);
   return GetApproximateSizes(options, column_family, ranges, n, sizes);
 }
 
