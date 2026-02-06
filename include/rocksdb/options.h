@@ -2259,23 +2259,26 @@ struct ReadOptions {
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // When true, wide-column entities with blob references will not eagerly
-  // fetch all blob column values. Instead, blob columns will remain unresolved
-  // until explicitly requested via Iterator::ResolveColumn() or
-  // PinnableWideColumns::ResolveColumn(). Inline (non-blob) column values are
-  // always available immediately.
+  // fetch all blob column values during iteration. Instead, blob columns will
+  // remain unresolved until explicitly requested via
+  // Iterator::ResolveColumn(). Inline (non-blob) column values are always
+  // available immediately. The default column (value()) is always eagerly
+  // resolved regardless of this setting.
   //
-  // This can significantly reduce I/O for workloads that read entities with
-  // many blob columns but only access a subset of them.
+  // This can significantly reduce I/O for workloads that iterate over entities
+  // with many blob columns but only access a subset of them.
   //
-  // Applies to: GetEntity(), iterators (columns()), MultiGetEntity().
+  // Currently applies to: iterators (columns()).
+  // Does NOT yet apply to GetEntity() or MultiGetEntity() point lookups,
+  // which always resolve all blob columns eagerly.
   //
   // When false (default), all blob column values are fetched eagerly on access,
   // preserving the existing behavior.
   //
-  // IMPORTANT: When this is true and you access columns() on an iterator or
-  // PinnableWideColumns from GetEntity(), blob column values will contain raw
-  // blob index bytes until resolved. Use IsUnresolvedColumn() to check and
-  // ResolveColumn() to fetch the actual value.
+  // IMPORTANT: When this is true and you access columns() on an iterator,
+  // blob column values will contain raw blob index bytes until resolved.
+  // Use IsUnresolvedColumn() to check and ResolveColumn() to fetch the
+  // actual value.
   //
   // Default: false
   bool lazy_column_resolution = false;

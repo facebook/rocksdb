@@ -461,6 +461,13 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
             size_t col_idx = blob_columns[i].first;
             const BlobIndex& blob_idx = blob_columns[i].second;
 
+            // Handle inlined blobs directly
+            if (blob_idx.IsInlined()) {
+              resolved_blob_values.emplace_back(blob_idx.value().data(),
+                                                blob_idx.value().size());
+              continue;
+            }
+
             FilePrefetchBuffer* prefetch_buffer =
                 prefetch_buffers ? prefetch_buffers->GetOrCreatePrefetchBuffer(
                                        blob_idx.file_number())

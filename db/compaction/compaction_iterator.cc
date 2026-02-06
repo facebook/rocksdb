@@ -93,6 +93,14 @@ Status CompactionBlobResolver::ResolveColumn(size_t column_index,
   const size_t blob_col_idx = it->second;
   const BlobIndex& blob_index = (*blob_columns_)[blob_col_idx].second;
 
+  // Handle inlined blobs (e.g., from legacy stacked BlobDB with TTL)
+  if (blob_index.IsInlined()) {
+    PinnableSlice& cached_value = resolved_cache_[column_index];
+    cached_value.PinSelf(blob_index.value());
+    *resolved_value = Slice(cached_value);
+    return Status::OK();
+  }
+
   FilePrefetchBuffer* prefetch_buffer =
       prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
                               blob_index.file_number())
@@ -1430,11 +1438,13 @@ void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
     return;
   }
 
-  // If there are already blob columns, we skip extraction. This is by design:
-  // entities that already have some columns in blob files are not re-processed.
-  // New large inline columns in such entities will be extracted in a future
-  // compaction after all existing blob refs are resolved back to inline
-  // (e.g., via garbage collection).
+  // If there are already blob columns, we skip extraction to avoid
+  // re-serializing entities that are already in V2 format. This means new
+  // large inline columns added to such entities will not be extracted to
+  // blob files until a full rewrite occurs. This is a simplification:
+  // supporting partial extraction (extracting only the new large inline
+  // columns while preserving existing blob refs) would require merging
+  // old and new blob column sets during serialization.
   if (!existing_blob_columns.empty()) {
     return;
   }
