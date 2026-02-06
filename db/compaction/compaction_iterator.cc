@@ -474,7 +474,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         existing_col = &existing_columns;
       }
 
-      decision = compaction_filter_->FilterV3(
+      decision = compaction_filter_->FilterV4(
           level_, filter_key, value_type, existing_val, existing_col,
           &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep(), blob_resolver.get());
@@ -485,10 +485,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 
   if (decision == CompactionFilter::Decision::kUndetermined) {
-    // Should not reach here, since FilterV2/FilterV3 should never return
+    // Should not reach here, since FilterV2/V3/V4 should never return
     // kUndetermined.
     status_ = Status::NotSupported(
-        "FilterV2/FilterV3 should never return kUndetermined");
+        "FilterV2/V3/V4 should never return kUndetermined");
     validity_info_.Invalidate();
     return false;
   }
@@ -497,7 +497,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
           0) {
     // Can't skip to a key smaller than the current one.
-    // Keep the key as per FilterV2/FilterV3 documentation.
+    // Keep the key as per FilterV2/V3/V4 documentation.
     decision = CompactionFilter::Decision::kKeep;
   }
 

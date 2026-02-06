@@ -1237,7 +1237,7 @@ class LazyLoadingSmallColumnFilter : public CompactionFilter {
         last_small_col_value_(last_small_col_value),
         resolver_check_count_(resolver_check_count) {}
 
-  Decision FilterV3(
+  Decision FilterV4(
       int /*level*/, const Slice& /*key*/, ValueType value_type,
       const Slice* existing_value, const WideColumns* existing_columns,
       std::string* /*new_value*/,
@@ -1399,7 +1399,7 @@ class BlobResolvingFilter : public CompactionFilter {
       : filter_call_count_(filter_call_count),
         resolved_large_col_value_(resolved_large_col_value) {}
 
-  Decision FilterV3(
+  Decision FilterV4(
       int /*level*/, const Slice& /*key*/, ValueType value_type,
       const Slice* existing_value, const WideColumns* existing_columns,
       std::string* /*new_value*/,

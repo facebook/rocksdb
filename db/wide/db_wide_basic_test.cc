@@ -1426,7 +1426,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class KeepFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType /* value_type */,
           const Slice* /* existing_value */,
           const WideColumns* /* existing_columns */,
@@ -1478,7 +1478,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class RemoveFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType /* value_type */,
           const Slice* /* existing_value */,
           const WideColumns* /* existing_columns */,
@@ -1528,7 +1528,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class ChangeValueFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType value_type,
           const Slice* existing_value, const WideColumns* existing_columns,
           std::string* new_value,
@@ -1613,7 +1613,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class ChangeEntityFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType value_type,
           const Slice* existing_value, const WideColumns* existing_columns,
           std::string* /* new_value */,
@@ -2553,7 +2553,7 @@ TEST_F(DBWideBasicTest, CompactionFilterWithBlobGC) {
     explicit TTLCompactionFilter(std::atomic<int>* ttl_threshold)
         : ttl_threshold_(ttl_threshold) {}
 
-    Decision FilterV3(
+    Decision FilterV4(
         int /* level */, const Slice& /* key */, ValueType value_type,
         const Slice* /* existing_value */, const WideColumns* existing_columns,
         std::string* /* new_value */,
@@ -2716,6 +2716,431 @@ TEST_F(DBWideBasicTest, CompactionFilterWithBlobGC) {
       ASSERT_LE(blob_files.size(), static_cast<size_t>(kNumFlushes - round + 1))
           << "Round " << round
           << ": blob files should decrease as records are removed";
+    }
+  }
+
+  // Final verification: database should be empty
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid()) << "Database should be empty";
+    ASSERT_OK(iter->status());
+  }
+
+  // Final verification: no blob files should remain
+  {
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(blob_files.size(), 0) << "All blob files should be removed";
+  }
+}
+
+TEST_F(DBWideBasicTest, EntityBlobAfterFlushUniversal) {
+  // Same as EntityBlobAfterFlush but with universal compaction style
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 64;
+  options.compaction_style = kCompactionStyleUniversal;
+
+  Reopen(options);
+
+  constexpr char key1[] = "flush_key1";
+  constexpr char key2[] = "flush_key2";
+
+  const std::string blob_value = GenerateLargeValue(128);
+  const std::string small_value = "tiny";
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value},
+                       {"col1", small_value}};
+  WideColumns columns2{{"col2", blob_value}, {"col3", blob_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+
+  // Verify before flush (from memtable)
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result));
+    ASSERT_EQ(result.columns(), columns1);
+  }
+
+  // Flush
+  ASSERT_OK(Flush());
+
+  // Verify after flush
+  {
+    PinnableWideColumns result1;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result1));
+    ASSERT_EQ(result1.columns(), columns1);
+
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result2));
+    ASSERT_EQ(result2.columns(), columns2);
+  }
+
+  // Verify with iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Write more data and flush again
+  constexpr char key3[] = "flush_key3";
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"col4", blob_value}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+  ASSERT_OK(Flush());
+
+  // Verify all three keys via MultiGetEntity
+  {
+    constexpr size_t num_keys = 3;
+    std::array<Slice, num_keys> keys{{key1, key2, key3}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns1);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), columns2);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(results[2].columns(), columns3);
+  }
+}
+
+TEST_F(DBWideBasicTest, EntityBlobAfterCompactionUniversal) {
+  // Same as EntityBlobAfterCompaction but with universal compaction style
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 64;
+  options.compaction_style = kCompactionStyleUniversal;
+
+  Reopen(options);
+
+  constexpr char key1[] = "compact_key1";
+  constexpr char key2[] = "compact_key2";
+  constexpr char key3[] = "compact_key3";
+
+  const std::string blob_value1 = GenerateLargeValue(128);
+  const std::string blob_value2 = GenerateLargeValue(256);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value1},
+                       {"attr1", small_value}};
+  WideColumns columns2{{"attr2", blob_value1}, {"attr3", blob_value2}};
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"attr4", blob_value2}};
+
+  // Write and flush first batch
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+  ASSERT_OK(Flush());
+
+  // Write and flush second batch
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+  ASSERT_OK(Flush());
+
+  // Verify before compaction
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result));
+    ASSERT_EQ(result.columns(), columns1);
+  }
+
+  // Compact
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify after compaction - GetEntity
+  {
+    PinnableWideColumns result1;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result1));
+    ASSERT_EQ(result1.columns(), columns1);
+
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result2));
+    ASSERT_EQ(result2.columns(), columns2);
+
+    PinnableWideColumns result3;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key3,
+                             &result3));
+    ASSERT_EQ(result3.columns(), columns3);
+  }
+
+  // Get (for default column)
+  {
+    PinnableSlice result1;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key1, &result1));
+    ASSERT_EQ(result1, blob_value1);
+
+    PinnableSlice result2;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key2, &result2));
+    ASSERT_TRUE(result2.empty());  // No default column
+
+    PinnableSlice result3;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key3, &result3));
+    ASSERT_EQ(result3, small_value);
+  }
+
+  // Iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->columns(), columns1);
+    ASSERT_EQ(iter->value(), blob_value1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key3);
+    ASSERT_EQ(iter->columns(), columns3);
+    ASSERT_EQ(iter->value(), small_value);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // MultiGetEntity
+  {
+    constexpr size_t num_keys = 3;
+    std::array<Slice, num_keys> keys{{key1, key2, key3}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns1);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), columns2);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(results[2].columns(), columns3);
+  }
+
+  // Reopen and verify persistence
+  Reopen(options);
+
+  {
+    PinnableWideColumns result1;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result1));
+    ASSERT_EQ(result1.columns(), columns1);
+
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result2));
+    ASSERT_EQ(result2.columns(), columns2);
+
+    PinnableWideColumns result3;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key3,
+                             &result3));
+    ASSERT_EQ(result3.columns(), columns3);
+  }
+}
+
+TEST_F(DBWideBasicTest, CompactionFilterWithBlobGCUniversal) {
+  // Same as CompactionFilterWithBlobGC but with universal compaction style.
+  // Verifies that blob files are properly garbage collected through passive GC
+  // when using universal compaction.
+
+  class TTLCompactionFilter : public CompactionFilter {
+   public:
+    explicit TTLCompactionFilter(std::atomic<int>* ttl_threshold)
+        : ttl_threshold_(ttl_threshold) {}
+
+    Decision FilterV4(
+        int /* level */, const Slice& /* key */, ValueType value_type,
+        const Slice* /* existing_value */, const WideColumns* existing_columns,
+        std::string* /* new_value */,
+        std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+        std::string* /* skip_until */,
+        WideColumnBlobResolver* /* blob_resolver */ = nullptr) const override {
+      if (value_type != ValueType::kWideColumnEntity || !existing_columns) {
+        return Decision::kKeep;
+      }
+
+      for (const auto& column : *existing_columns) {
+        if (column.name() == "ttl") {
+          int ttl_value = std::stoi(column.value().ToString());
+          if (ttl_value < ttl_threshold_->load()) {
+            return Decision::kRemove;
+          }
+          break;
+        }
+      }
+      return Decision::kKeep;
+    }
+
+    const char* Name() const override { return "TTLCompactionFilter"; }
+
+   private:
+    std::atomic<int>* ttl_threshold_;
+  };
+
+  constexpr int kNumRecords = 100;
+  constexpr int kRecordsPerFlush = 10;
+  constexpr int kNumFlushes = kNumRecords / kRecordsPerFlush;
+  constexpr size_t kBlobValueSize = 1024;  // 1KB
+
+  std::atomic<int> ttl_threshold{0};
+  TTLCompactionFilter filter(&ttl_threshold);
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 100;
+  options.compaction_filter = &filter;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.0;
+  options.compaction_style = kCompactionStyleUniversal;
+
+  DestroyAndReopen(options);
+
+  const std::string blob_value1 = GenerateLargeValue(kBlobValueSize, 'x');
+  const std::string blob_value2 = GenerateLargeValue(kBlobValueSize, 'y');
+
+  // Write 100 records, flushing every 10 records
+  for (int i = 0; i < kNumRecords; ++i) {
+    char key_buf[20];
+    snprintf(key_buf, sizeof(key_buf), "key_%04d", i);
+    std::string key(key_buf);
+
+    std::string ttl_value = std::to_string(i);
+
+    WideColumns columns{
+        {"ttl", ttl_value}, {"value1", blob_value1}, {"value2", blob_value2}};
+
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                             columns));
+
+    if ((i + 1) % kRecordsPerFlush == 0) {
+      ASSERT_OK(Flush());
+    }
+  }
+
+  // Verify we have kNumFlushes blob files
+  {
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(blob_files.size(), static_cast<size_t>(kNumFlushes))
+        << "Expected " << kNumFlushes << " blob files after " << kNumFlushes
+        << " flushes";
+  }
+
+  // Verify all records exist
+  {
+    int count = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ++count;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, kNumRecords);
+  }
+
+  // Incrementally remove records and verify blob files are garbage collected
+  for (int round = 1; round <= kNumFlushes; ++round) {
+    int threshold = round * kRecordsPerFlush;
+    ttl_threshold.store(threshold);
+
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+    int expected_remaining_records = kNumRecords - threshold;
+
+    // Verify remaining records count and all column values
+    {
+      int count = 0;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ++count;
+
+        const WideColumns& columns = iter->columns();
+        ASSERT_EQ(columns.size(), 3)
+            << "Expected 3 columns (ttl, value1, value2)";
+
+        bool found_ttl = false;
+        bool found_value1 = false;
+        bool found_value2 = false;
+
+        for (const auto& column : columns) {
+          if (column.name() == "ttl") {
+            int ttl_value = std::stoi(column.value().ToString());
+            ASSERT_GE(ttl_value, threshold)
+                << "Key with ttl " << ttl_value
+                << " should have been removed (threshold=" << threshold << ")";
+            found_ttl = true;
+          } else if (column.name() == "value1") {
+            ASSERT_EQ(column.value().ToString(), blob_value1)
+                << "Blob value1 mismatch for key " << iter->key().ToString();
+            found_value1 = true;
+          } else if (column.name() == "value2") {
+            ASSERT_EQ(column.value().ToString(), blob_value2)
+                << "Blob value2 mismatch for key " << iter->key().ToString();
+            found_value2 = true;
+          }
+        }
+
+        ASSERT_TRUE(found_ttl)
+            << "TTL column not found for key " << iter->key().ToString();
+        ASSERT_TRUE(found_value1)
+            << "value1 column not found for key " << iter->key().ToString();
+        ASSERT_TRUE(found_value2)
+            << "value2 column not found for key " << iter->key().ToString();
+      }
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(count, expected_remaining_records)
+          << "Round " << round << ": expected " << expected_remaining_records
+          << " records after removing ttl < " << threshold;
+    }
+
+    if (expected_remaining_records == 0) {
+      std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+      ASSERT_EQ(blob_files.size(), 0)
+          << "All blob files should be garbage collected after all records "
+             "are removed";
     }
   }
 
