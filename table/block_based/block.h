@@ -16,6 +16,7 @@
 
 #include "db/kv_checksum.h"
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/iterator.h"
@@ -233,13 +234,19 @@ class Block {
   // It is determined by IndexType property of the table.
   // `user_defined_timestamps_persisted` controls whether a min timestamp is
   // padded while key is being parsed from the block.
+  // `index_search_type` controls which search algorithm to use when reading
+  // the index block. kBinary uses binary search, while
+  // kInterpolation uses interpolation search which can be faster
+  // for uniformly distributed keys.
   IndexBlockIter* NewIndexIterator(
       const Comparator* raw_ucmp, SequenceNumber global_seqno,
       IndexBlockIter* iter, Statistics* stats, bool total_order_seek,
       bool have_first_key, bool key_includes_seq, bool value_is_full,
       bool block_contents_pinned = false,
       bool user_defined_timestamps_persisted = true,
-      BlockPrefixIndex* prefix_index = nullptr);
+      BlockPrefixIndex* prefix_index = nullptr,
+      BlockBasedTableOptions::IndexSearchType index_search_type =
+          BlockBasedTableOptions::kBinary);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -622,6 +629,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
   int CompareCurrentKey(const Slice& other) {
     assert(icmp_.user_comparator() != nullptr);
     if (raw_key_.IsUserKey()) {
+      // Need to add this counter here because .user_comparator() points to the
+      // raw comparator and not the wrapper than increments this counter.
+      PERF_COUNTER_ADD(user_key_comparison_count, 1);
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
       return icmp_.user_comparator()->Compare(raw_key_.GetUserKey(), other);
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
@@ -663,8 +673,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
  protected:
   template <typename DecodeKeyFunc>
-  inline bool BinarySeek(const Slice& target, uint32_t* index,
-                         bool* is_index_key_result);
+  inline bool GetRestartKey(uint32_t index, Slice* key);
+
+  template <typename DecodeKeyFunc, typename SeekFunc>
+  inline bool FindRestartPointIndex(const Slice& target, uint32_t* index,
+                                    bool* is_index_key_result);
 
   // Find the first key in restart interval `index` that is >= `target`.
   // If there is no such key, iterator is positioned at the first key in
@@ -835,7 +848,8 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
                   bool value_is_full, bool block_contents_pinned,
                   bool user_defined_timestamps_persisted,
                   uint8_t protection_bytes_per_key, const char* kv_checksum,
-                  uint32_t block_restart_interval) {
+                  uint32_t block_restart_interval,
+                  BlockBasedTableOptions::IndexSearchType index_search_type) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
                    user_defined_timestamps_persisted, protection_bytes_per_key,
@@ -844,6 +858,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
     have_first_key_ = have_first_key;
+    index_search_type_ = index_search_type;
     if (have_first_key_ && global_seqno != kDisableGlobalSequenceNumber) {
       global_seqno_state_.reset(new GlobalSeqnoState(global_seqno));
     } else {
@@ -937,6 +952,10 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   // Buffers the `first_internal_key` referred by `decoded_value_` when
   // `pad_min_timestamp_` is true.
   std::string first_internal_key_with_ts_;
+
+  // The search algorithm to use when reading the index block.
+  BlockBasedTableOptions::IndexSearchType index_search_type_ =
+      BlockBasedTableOptions::kBinary;
 
   // Set *prefix_may_exist to false if no key possibly share the same prefix
   // as `target`. If not set, the result position should be the same as total

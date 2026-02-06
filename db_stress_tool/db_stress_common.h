@@ -175,6 +175,7 @@ DECLARE_uint32(sqfc_version);
 DECLARE_bool(use_sqfc_for_range_queries);
 DECLARE_int32(index_type);
 DECLARE_int32(data_block_index_type);
+DECLARE_int32(index_search_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
