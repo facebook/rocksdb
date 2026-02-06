@@ -5,6 +5,11 @@
 
 #include "db/wide/wide_column_serialization.h"
 
+#include <chrono>
+#include <cstdio>
+#include <limits>
+
+#include "db/blob/blob_index.h"
 #include "db/wide/wide_columns_helper.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
@@ -174,7 +179,7 @@ TEST(WideColumnSerializationTest, DeserializeNumberOfColumnsError) {
   // Can't decode number of columns
 
   std::string buf;
-  PutVarint32(&buf, WideColumnSerialization::kCurrentVersion);
+  PutVarint32(&buf, WideColumnSerialization::kVersion1);
 
   Slice input(buf);
   WideColumns columns;
@@ -187,7 +192,7 @@ TEST(WideColumnSerializationTest, DeserializeNumberOfColumnsError) {
 TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   std::string buf;
 
-  PutVarint32(&buf, WideColumnSerialization::kCurrentVersion);
+  PutVarint32(&buf, WideColumnSerialization::kVersion1);
 
   constexpr uint32_t num_columns = 2;
   PutVarint32(&buf, num_columns);
@@ -280,7 +285,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
 TEST(WideColumnSerializationTest, DeserializeColumnsOutOfOrder) {
   std::string buf;
 
-  PutVarint32(&buf, WideColumnSerialization::kCurrentVersion);
+  PutVarint32(&buf, WideColumnSerialization::kVersion1);
 
   constexpr uint32_t num_columns = 2;
   PutVarint32(&buf, num_columns);
@@ -300,6 +305,920 @@ TEST(WideColumnSerializationTest, DeserializeColumnsOutOfOrder) {
   const Status s = WideColumnSerialization::Deserialize(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "order"));
+}
+
+TEST(WideColumnSerializationTest, SerializeV2WithBlobIndex) {
+  // Create columns as (name, value) pairs
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"col1", "value1"},
+      {"col2", "value2"},  // This will be replaced by a blob index
+      {"col3", "value3"}};
+
+  // Create a blob index for col2 (index 1)
+  std::string blob_index_str;
+  BlobIndex::EncodeBlob(&blob_index_str, /* file_number */ 100,
+                        /* offset */ 2000, /* size */ 500, kNoCompression);
+
+  // Decode the blob index to create a BlobIndex object
+  BlobIndex blob_idx;
+  Slice blob_slice(blob_index_str);
+  ASSERT_OK(blob_idx.DecodeFrom(blob_slice));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns = {{1, blob_idx}};
+
+  std::string output;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns, &output));
+
+  // Verify version is 2
+  {
+    uint32_t v = 0;
+    ASSERT_OK(WideColumnSerialization::GetVersion(Slice(output), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion2);
+  }
+
+  // Verify HasBlobColumns returns true
+  {
+    bool hb = false;
+    ASSERT_OK(WideColumnSerialization::HasBlobColumns(Slice(output), &hb));
+    ASSERT_TRUE(hb);
+  }
+}
+
+TEST(WideColumnSerializationTest, DeserializeV2WithBlobIndex) {
+  // Create columns with a blob index
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"alpha", "inline_value_alpha"},
+      {"beta", "placeholder"},  // Will be blob
+      {"gamma", "inline_value_gamma"}};
+
+  // Create a blob index for beta (index 1)
+  std::string blob_index_str;
+  BlobIndex::EncodeBlob(&blob_index_str, /* file_number */ 42,
+                        /* offset */ 1024, /* size */ 2048, kNoCompression);
+
+  BlobIndex blob_idx;
+  Slice blob_slice(blob_index_str);
+  ASSERT_OK(blob_idx.DecodeFrom(blob_slice));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_in = {{1, blob_idx}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns_in, &serialized));
+
+  // Now deserialize using DeserializeColumns
+  Slice input(serialized);
+  std::vector<WideColumn> deserialized_columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
+
+  ASSERT_OK(WideColumnSerialization::DeserializeColumns(
+      input, &deserialized_columns, &blob_columns_out));
+
+  // Should have 3 columns
+  ASSERT_EQ(deserialized_columns.size(), 3u);
+
+  // Verify column names
+  ASSERT_EQ(deserialized_columns[0].name(), "alpha");
+  ASSERT_EQ(deserialized_columns[1].name(), "beta");
+  ASSERT_EQ(deserialized_columns[2].name(), "gamma");
+
+  // Verify inline column values
+  ASSERT_EQ(deserialized_columns[0].value(), "inline_value_alpha");
+  ASSERT_EQ(deserialized_columns[2].value(), "inline_value_gamma");
+
+  // Verify blob columns
+  ASSERT_EQ(blob_columns_out.size(), 1u);
+  ASSERT_EQ(blob_columns_out[0].first, 1u);  // column index
+
+  const BlobIndex& decoded_blob = blob_columns_out[0].second;
+  ASSERT_FALSE(decoded_blob.IsInlined());
+  ASSERT_FALSE(decoded_blob.HasTTL());
+  ASSERT_EQ(decoded_blob.file_number(), 42u);
+  ASSERT_EQ(decoded_blob.offset(), 1024u);
+  ASSERT_EQ(decoded_blob.size(), 2048u);
+  ASSERT_EQ(decoded_blob.compression(), kNoCompression);
+}
+
+TEST(WideColumnSerializationTest, V2BackwardCompatibleWithV1) {
+  // Serialize V2 format with NO blob references - all inline columns
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"col_a", "value_a"}, {"col_b", "value_b"}};
+
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  // Verify version is 2
+  {
+    uint32_t v = 0;
+    ASSERT_OK(WideColumnSerialization::GetVersion(Slice(serialized), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion2);
+  }
+
+  // HasBlobColumns should return false since all columns are inline
+  {
+    bool hb = false;
+    ASSERT_OK(
+        WideColumnSerialization::HasBlobColumns(Slice(serialized), &hb));
+    ASSERT_FALSE(hb);
+  }
+
+  // The standard Deserialize() should work since there are no blob columns
+  Slice input(serialized);
+  WideColumns deserialized;
+
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized));
+
+  ASSERT_EQ(deserialized.size(), 2u);
+  ASSERT_EQ(deserialized[0].name(), "col_a");
+  ASSERT_EQ(deserialized[0].value(), "value_a");
+  ASSERT_EQ(deserialized[1].name(), "col_b");
+  ASSERT_EQ(deserialized[1].value(), "value_b");
+}
+
+TEST(WideColumnSerializationTest, V1ForwardCompatibleWithV2NoBlobRefs) {
+  // Serialize using V1 format (the regular Serialize method)
+  WideColumns columns{{"name1", "val1"}, {"name2", "val2"}, {"name3", "val3"}};
+  std::string serialized;
+
+  ASSERT_OK(WideColumnSerialization::Serialize(columns, serialized));
+
+  // Verify version is 1
+  {
+    uint32_t v = 0;
+    ASSERT_OK(WideColumnSerialization::GetVersion(Slice(serialized), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion1);
+  }
+
+  // HasBlobColumns should return false for V1 format
+  {
+    bool hb = false;
+    ASSERT_OK(
+        WideColumnSerialization::HasBlobColumns(Slice(serialized), &hb));
+    ASSERT_FALSE(hb);
+  }
+
+  // DeserializeColumns should be able to read V1 format
+  Slice input(serialized);
+  std::vector<WideColumn> deserialized_columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+
+  ASSERT_OK(WideColumnSerialization::DeserializeColumns(
+      input, &deserialized_columns, &blob_columns));
+
+  // Should have 3 columns, no blob columns
+  ASSERT_EQ(deserialized_columns.size(), 3u);
+  ASSERT_TRUE(blob_columns.empty());
+
+  // Verify values
+  ASSERT_EQ(deserialized_columns[0].name(), "name1");
+  ASSERT_EQ(deserialized_columns[0].value(), "val1");
+  ASSERT_EQ(deserialized_columns[1].name(), "name2");
+  ASSERT_EQ(deserialized_columns[1].value(), "val2");
+  ASSERT_EQ(deserialized_columns[2].name(), "name3");
+  ASSERT_EQ(deserialized_columns[2].value(), "val3");
+}
+
+TEST(WideColumnSerializationTest, MixedInlineAndBlobColumns) {
+  // Test with multiple blob columns mixed with inline columns
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"a_inline", "value_a"},
+      {"b_blob", "placeholder"},
+      {"c_inline", "value_c"},
+      {"d_blob", "placeholder"},
+      {"e_inline", "value_e"}};
+
+  // Create blob indices for columns 1 and 3
+  std::string blob_index_str1;
+  BlobIndex::EncodeBlob(&blob_index_str1, /* file_number */ 10,
+                        /* offset */ 100, /* size */ 1000, kNoCompression);
+  BlobIndex blob_idx1;
+  Slice blob_slice1(blob_index_str1);
+  ASSERT_OK(blob_idx1.DecodeFrom(blob_slice1));
+
+  // Second blob with TTL
+  std::string blob_index_str2;
+  BlobIndex::EncodeBlobTTL(&blob_index_str2, /* expiration */ 9999999,
+                           /* file_number */ 20, /* offset */ 200,
+                           /* size */ 2000, kSnappyCompression);
+  BlobIndex blob_idx2;
+  Slice blob_slice2(blob_index_str2);
+  ASSERT_OK(blob_idx2.DecodeFrom(blob_slice2));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_in = {{1, blob_idx1},
+                                                               {3, blob_idx2}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns_in, &serialized));
+
+  // Verify version and HasBlobColumns
+  {
+    uint32_t v = 0;
+    ASSERT_OK(WideColumnSerialization::GetVersion(Slice(serialized), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion2);
+  }
+  {
+    bool hb = false;
+    ASSERT_OK(
+        WideColumnSerialization::HasBlobColumns(Slice(serialized), &hb));
+    ASSERT_TRUE(hb);
+  }
+
+  // Deserialize
+  Slice input(serialized);
+  std::vector<WideColumn> deserialized_columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
+
+  ASSERT_OK(WideColumnSerialization::DeserializeColumns(
+      input, &deserialized_columns, &blob_columns_out));
+
+  // Should have 5 columns total
+  ASSERT_EQ(deserialized_columns.size(), 5u);
+
+  // Verify column names
+  ASSERT_EQ(deserialized_columns[0].name(), "a_inline");
+  ASSERT_EQ(deserialized_columns[1].name(), "b_blob");
+  ASSERT_EQ(deserialized_columns[2].name(), "c_inline");
+  ASSERT_EQ(deserialized_columns[3].name(), "d_blob");
+  ASSERT_EQ(deserialized_columns[4].name(), "e_inline");
+
+  // Verify inline column values
+  ASSERT_EQ(deserialized_columns[0].value(), "value_a");
+  ASSERT_EQ(deserialized_columns[2].value(), "value_c");
+  ASSERT_EQ(deserialized_columns[4].value(), "value_e");
+
+  // Verify blob columns - should have 2 blob columns
+  ASSERT_EQ(blob_columns_out.size(), 2u);
+
+  // First blob (index 1)
+  ASSERT_EQ(blob_columns_out[0].first, 1u);
+  const BlobIndex& blob1 = blob_columns_out[0].second;
+  ASSERT_FALSE(blob1.IsInlined());
+  ASSERT_FALSE(blob1.HasTTL());
+  ASSERT_EQ(blob1.file_number(), 10u);
+  ASSERT_EQ(blob1.offset(), 100u);
+  ASSERT_EQ(blob1.size(), 1000u);
+  ASSERT_EQ(blob1.compression(), kNoCompression);
+
+  // Second blob (index 3) - with TTL
+  ASSERT_EQ(blob_columns_out[1].first, 3u);
+  const BlobIndex& blob2 = blob_columns_out[1].second;
+  ASSERT_FALSE(blob2.IsInlined());
+  ASSERT_TRUE(blob2.HasTTL());
+  ASSERT_EQ(blob2.expiration(), 9999999u);
+  ASSERT_EQ(blob2.file_number(), 20u);
+  ASSERT_EQ(blob2.offset(), 200u);
+  ASSERT_EQ(blob2.size(), 2000u);
+  ASSERT_EQ(blob2.compression(), kSnappyCompression);
+}
+
+TEST(WideColumnSerializationTest, SerializeResolvedEntityMixedColumns) {
+  // Create a V2 entity with mixed inline and blob columns, then resolve
+  // blob values and verify the result is a valid V1 entity.
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"col_a", "inline_a"},
+      {"col_b", "placeholder"},  // blob column
+      {"col_c", "inline_c"}};
+
+  // Create a blob index for col_b (index 1)
+  std::string blob_index_str;
+  BlobIndex::EncodeBlob(&blob_index_str, /* file_number */ 50,
+                        /* offset */ 500, /* size */ 100, kNoCompression);
+  BlobIndex blob_idx;
+  Slice blob_slice(blob_index_str);
+  ASSERT_OK(blob_idx.DecodeFrom(blob_slice));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_in = {{1, blob_idx}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns_in, &serialized));
+
+  // Deserialize to get columns and blob column info
+  Slice input(serialized);
+  std::vector<WideColumn> deserialized_columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
+  ASSERT_OK(WideColumnSerialization::DeserializeColumns(
+      input, &deserialized_columns, &blob_columns_out));
+  ASSERT_EQ(blob_columns_out.size(), 1u);
+
+  // Simulate resolved blob values
+  std::vector<std::string> resolved_blob_values = {"resolved_blob_b"};
+
+  // Serialize resolved entity
+  std::string resolved_output;
+  ASSERT_OK(WideColumnSerialization::SerializeResolvedEntity(
+      deserialized_columns, blob_columns_out, resolved_blob_values,
+      &resolved_output));
+
+  // The result should be a V1 entity with all values inline
+  {
+    uint32_t v = 0;
+    ASSERT_OK(
+        WideColumnSerialization::GetVersion(Slice(resolved_output), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion1);
+  }
+  {
+    bool hb = false;
+    ASSERT_OK(WideColumnSerialization::HasBlobColumns(Slice(resolved_output),
+                                                      &hb));
+    ASSERT_FALSE(hb);
+  }
+
+  // Deserialize the V1 result and verify
+  Slice resolved_input(resolved_output);
+  WideColumns result_columns;
+  ASSERT_OK(
+      WideColumnSerialization::Deserialize(resolved_input, result_columns));
+
+  ASSERT_EQ(result_columns.size(), 3u);
+  ASSERT_EQ(result_columns[0].name(), "col_a");
+  ASSERT_EQ(result_columns[0].value(), "inline_a");
+  ASSERT_EQ(result_columns[1].name(), "col_b");
+  ASSERT_EQ(result_columns[1].value(), "resolved_blob_b");
+  ASSERT_EQ(result_columns[2].name(), "col_c");
+  ASSERT_EQ(result_columns[2].value(), "inline_c");
+}
+
+TEST(WideColumnSerializationTest, SerializeResolvedEntityAllBlobColumns) {
+  // Test entity where every column is a blob reference
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"x", "placeholder1"}, {"y", "placeholder2"}, {"z", "placeholder3"}};
+
+  // Create blob indices for all columns
+  std::string bi_str1, bi_str2, bi_str3;
+  BlobIndex::EncodeBlob(&bi_str1, 10, 100, 50, kNoCompression);
+  BlobIndex::EncodeBlob(&bi_str2, 20, 200, 60, kNoCompression);
+  BlobIndex::EncodeBlob(&bi_str3, 30, 300, 70, kNoCompression);
+
+  BlobIndex bi1, bi2, bi3;
+  Slice s1(bi_str1), s2(bi_str2), s3(bi_str3);
+  ASSERT_OK(bi1.DecodeFrom(s1));
+  ASSERT_OK(bi2.DecodeFrom(s2));
+  ASSERT_OK(bi3.DecodeFrom(s3));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_in = {
+      {0, bi1}, {1, bi2}, {2, bi3}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns_in, &serialized));
+  {
+    bool hb = false;
+    ASSERT_OK(
+        WideColumnSerialization::HasBlobColumns(Slice(serialized), &hb));
+    ASSERT_TRUE(hb);
+  }
+
+  // Deserialize
+  Slice input(serialized);
+  std::vector<WideColumn> deserialized_columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
+  ASSERT_OK(WideColumnSerialization::DeserializeColumns(
+      input, &deserialized_columns, &blob_columns_out));
+  ASSERT_EQ(blob_columns_out.size(), 3u);
+
+  // Resolve all blobs
+  std::vector<std::string> resolved = {"val_x", "val_y", "val_z"};
+
+  std::string resolved_output;
+  ASSERT_OK(WideColumnSerialization::SerializeResolvedEntity(
+      deserialized_columns, blob_columns_out, resolved, &resolved_output));
+
+  // Verify V1 format result
+  {
+    uint32_t v = 0;
+    ASSERT_OK(
+        WideColumnSerialization::GetVersion(Slice(resolved_output), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion1);
+  }
+  {
+    bool hb = false;
+    ASSERT_OK(WideColumnSerialization::HasBlobColumns(Slice(resolved_output),
+                                                      &hb));
+    ASSERT_FALSE(hb);
+  }
+
+  Slice resolved_input(resolved_output);
+  WideColumns result_columns;
+  ASSERT_OK(
+      WideColumnSerialization::Deserialize(resolved_input, result_columns));
+
+  ASSERT_EQ(result_columns.size(), 3u);
+  ASSERT_EQ(result_columns[0].name(), "x");
+  ASSERT_EQ(result_columns[0].value(), "val_x");
+  ASSERT_EQ(result_columns[1].name(), "y");
+  ASSERT_EQ(result_columns[1].value(), "val_y");
+  ASSERT_EQ(result_columns[2].name(), "z");
+  ASSERT_EQ(result_columns[2].value(), "val_z");
+}
+
+TEST(WideColumnSerializationTest, SerializeResolvedEntityNoBlobColumns) {
+  // Test SerializeResolvedEntity with empty blob columns vector
+  // (should behave like regular Serialize)
+  WideColumns columns{{"alpha", "val_alpha"}, {"beta", "val_beta"}};
+
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+  std::vector<std::string> empty_resolved;
+
+  std::string resolved_output;
+  ASSERT_OK(WideColumnSerialization::SerializeResolvedEntity(
+      columns, empty_blob_columns, empty_resolved, &resolved_output));
+
+  // Should produce valid V1 output
+  {
+    uint32_t v = 0;
+    ASSERT_OK(
+        WideColumnSerialization::GetVersion(Slice(resolved_output), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion1);
+  }
+
+  Slice resolved_input(resolved_output);
+  WideColumns result_columns;
+  ASSERT_OK(
+      WideColumnSerialization::Deserialize(resolved_input, result_columns));
+
+  ASSERT_EQ(result_columns.size(), 2u);
+  ASSERT_EQ(result_columns[0].name(), "alpha");
+  ASSERT_EQ(result_columns[0].value(), "val_alpha");
+  ASSERT_EQ(result_columns[1].name(), "beta");
+  ASSERT_EQ(result_columns[1].value(), "val_beta");
+}
+
+TEST(WideColumnSerializationTest, V2EmptyColumns) {
+  // Serialize V2 with zero columns
+  std::vector<std::pair<std::string, std::string>> columns;
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  {
+    uint32_t v = 0;
+    ASSERT_OK(WideColumnSerialization::GetVersion(Slice(serialized), &v));
+    ASSERT_EQ(v, WideColumnSerialization::kVersion2);
+  }
+  {
+    bool hb = false;
+    ASSERT_OK(
+        WideColumnSerialization::HasBlobColumns(Slice(serialized), &hb));
+    ASSERT_FALSE(hb);
+  }
+
+  // Deserialize via Deserialize
+  {
+    Slice input(serialized);
+    WideColumns deserialized;
+    ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized));
+    ASSERT_TRUE(deserialized.empty());
+  }
+
+  // Deserialize via DeserializeColumns
+  {
+    Slice input(serialized);
+    std::vector<WideColumn> deserialized;
+    std::vector<std::pair<size_t, BlobIndex>> blob_cols;
+    ASSERT_OK(WideColumnSerialization::DeserializeColumns(input, &deserialized,
+                                                          &blob_cols));
+    ASSERT_TRUE(deserialized.empty());
+    ASSERT_TRUE(blob_cols.empty());
+  }
+}
+
+TEST(WideColumnSerializationTest, V2SingleColumn) {
+  // Serialize V2 with a single inline column
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"only_col", "only_val"}};
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  Slice input(serialized);
+  WideColumns deserialized;
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized));
+
+  ASSERT_EQ(deserialized.size(), 1u);
+  ASSERT_EQ(deserialized[0].name(), "only_col");
+  ASSERT_EQ(deserialized[0].value(), "only_val");
+}
+
+TEST(WideColumnSerializationTest, V2GetValueOfDefaultColumnFastPath) {
+  // Test GetValueOfDefaultColumn with V2 format containing default column
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"", "default_value"}, {"col1", "value1"}, {"col2", "value2"}};
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  Slice input(serialized);
+  Slice value;
+  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(input, value));
+  ASSERT_EQ(value, "default_value");
+}
+
+TEST(WideColumnSerializationTest, V2GetValueOfDefaultColumnNoDefault) {
+  // Test GetValueOfDefaultColumn with V2 format where first column is not
+  // default (non-empty name)
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"col1", "value1"}, {"col2", "value2"}};
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  Slice input(serialized);
+  Slice value;
+  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(input, value));
+  ASSERT_TRUE(value.empty());
+}
+
+TEST(WideColumnSerializationTest, V2GetValueOfDefaultColumnV1Fallback) {
+  // Test GetValueOfDefaultColumn with V1 format (fallback path)
+  WideColumns columns{{"", "v1_default"}, {"col1", "v1"}};
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::Serialize(columns, serialized));
+
+  Slice input(serialized);
+  Slice value;
+  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(input, value));
+  ASSERT_EQ(value, "v1_default");
+}
+
+TEST(WideColumnSerializationTest, V2DeserializeBlobColumnRejectsDeserialize) {
+  // Serialize V2 with a blob column, then try to use Deserialize()
+  // which should return NotSupported
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"a", "inline"}, {"b", "placeholder"}};
+
+  std::string blob_index_str;
+  BlobIndex::EncodeBlob(&blob_index_str, 1, 2, 3, kNoCompression);
+  BlobIndex blob_idx;
+  Slice blob_slice(blob_index_str);
+  ASSERT_OK(blob_idx.DecodeFrom(blob_slice));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns = {{1, blob_idx}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns, &serialized));
+
+  Slice input(serialized);
+  WideColumns deserialized;
+  Status s = WideColumnSerialization::Deserialize(input, deserialized);
+  ASSERT_TRUE(s.IsNotSupported());
+}
+
+TEST(WideColumnSerializationTest, V2LayoutStructureVerification) {
+  // Verify the V2 binary layout structure by manually parsing sections
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"aa", "val_aa"}, {"bbb", "val_bbb"}};
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  Slice data(serialized);
+
+  // Section 1: HEADER
+  uint32_t version = 0;
+  ASSERT_TRUE(GetVarint32(&data, &version));
+  ASSERT_EQ(version, WideColumnSerialization::kVersion2);
+
+  uint32_t num_columns = 0;
+  ASSERT_TRUE(GetVarint32(&data, &num_columns));
+  ASSERT_EQ(num_columns, 2u);
+
+  // Section 2: COLUMN TYPES (2 bytes, both inline)
+  ASSERT_GE(data.size(), 2u);
+  ASSERT_EQ(static_cast<uint8_t>(data[0]),
+            WideColumnSerialization::kColumnTypeInline);
+  ASSERT_EQ(static_cast<uint8_t>(data[1]),
+            WideColumnSerialization::kColumnTypeInline);
+  data.remove_prefix(2);
+
+  // Section 3: SKIP INFO (3 varints)
+  uint32_t name_sizes_bytes = 0;
+  uint32_t value_sizes_bytes = 0;
+  uint32_t names_bytes = 0;
+  ASSERT_TRUE(GetVarint32(&data, &name_sizes_bytes));
+  ASSERT_TRUE(GetVarint32(&data, &value_sizes_bytes));
+  ASSERT_TRUE(GetVarint32(&data, &names_bytes));
+  // name sizes: varint(2) + varint(3) = 1 + 1 = 2 bytes
+  ASSERT_EQ(name_sizes_bytes, 2u);
+  // value sizes: varint(6) + varint(7) = 1 + 1 = 2 bytes
+  ASSERT_EQ(value_sizes_bytes, 2u);
+  // names: "aa" + "bbb" = 2 + 3 = 5 bytes
+  ASSERT_EQ(names_bytes, 5u);
+
+  // Section 4: NAME SIZES
+  uint32_t ns0 = 0, ns1 = 0;
+  ASSERT_TRUE(GetVarint32(&data, &ns0));
+  ASSERT_TRUE(GetVarint32(&data, &ns1));
+  ASSERT_EQ(ns0, 2u);
+  ASSERT_EQ(ns1, 3u);
+
+  // Section 5: VALUE SIZES
+  uint32_t vs0 = 0, vs1 = 0;
+  ASSERT_TRUE(GetVarint32(&data, &vs0));
+  ASSERT_TRUE(GetVarint32(&data, &vs1));
+  ASSERT_EQ(vs0, 6u);  // "val_aa" = 6
+  ASSERT_EQ(vs1, 7u);  // "val_bbb" = 7
+
+  // Section 6: COLUMN NAMES
+  ASSERT_GE(data.size(), 5u);
+  ASSERT_EQ(Slice(data.data(), 2), "aa");
+  ASSERT_EQ(Slice(data.data() + 2, 3), "bbb");
+  data.remove_prefix(5);
+
+  // Section 7: COLUMN VALUES
+  ASSERT_GE(data.size(), 13u);
+  ASSERT_EQ(Slice(data.data(), 6), "val_aa");
+  ASSERT_EQ(Slice(data.data() + 6, 7), "val_bbb");
+}
+
+TEST(WideColumnSerializationTest, V2GetValueOfDefaultColumnEmpty) {
+  // Test GetValueOfDefaultColumn with V2 format with zero columns
+  std::vector<std::pair<std::string, std::string>> columns;
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &serialized));
+
+  Slice input(serialized);
+  Slice value;
+  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(input, value));
+  ASSERT_TRUE(value.empty());
+}
+
+// Merged-loops approach: use resize() + 4 raw pointers to write sections 4-7
+// in a single loop instead of 4 separate loops. Since the first loop already
+// computes the exact byte size of each section, we know each section's start
+// offset and can use EncodeVarint32/memcpy with independent pointers.
+static Status SerializeWithBlobIndicesMergedLoops(
+    const std::vector<std::pair<std::string, std::string>>& columns,
+    const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+    std::string* output) {
+  assert(output != nullptr);
+
+  const size_t num_columns = columns.size();
+
+  if (num_columns > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+    return Status::InvalidArgument("Too many wide columns");
+  }
+
+  std::vector<const BlobIndex*> blob_index_map(num_columns, nullptr);
+  for (const auto& blob_col : blob_columns) {
+    if (blob_col.first >= num_columns) {
+      return Status::InvalidArgument("Blob column index out of range");
+    }
+    blob_index_map[blob_col.first] = &blob_col.second;
+  }
+
+  // First pass: validate column ordering, compute sizes, serialize blob
+  // indices, and emit column types.
+  std::vector<std::string> serialized_blob_indices(num_columns);
+  std::vector<uint32_t> name_sizes(num_columns);
+  std::vector<uint32_t> value_sizes(num_columns);
+  std::string column_types;
+  column_types.reserve(num_columns);
+
+  const std::string* prev_name = nullptr;
+  uint32_t name_sizes_bytes = 0;
+  uint32_t names_bytes = 0;
+  uint32_t total_value_sizes_bytes = 0;
+  uint32_t total_values_bytes = 0;
+
+  for (size_t i = 0; i < num_columns; ++i) {
+    const std::string& name = columns[i].first;
+    const std::string& value = columns[i].second;
+
+    if (name.size() >
+        static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+      return Status::InvalidArgument("Wide column name too long");
+    }
+
+    if (prev_name && *prev_name >= name) {
+      return Status::Corruption("Wide columns out of order");
+    }
+
+    name_sizes[i] = static_cast<uint32_t>(name.size());
+    name_sizes_bytes += VarintLength(name_sizes[i]);
+    names_bytes += name_sizes[i];
+
+    if (blob_index_map[i] != nullptr) {
+      const BlobIndex* blob_idx = blob_index_map[i];
+      blob_idx->EncodeTo(&serialized_blob_indices[i]);
+      value_sizes[i] = static_cast<uint32_t>(serialized_blob_indices[i].size());
+      column_types.push_back(
+          static_cast<char>(WideColumnSerialization::kColumnTypeBlobIndex));
+    } else {
+      if (value.size() >
+          static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+        return Status::InvalidArgument("Wide column value too long");
+      }
+      value_sizes[i] = static_cast<uint32_t>(value.size());
+      column_types.push_back(
+          static_cast<char>(WideColumnSerialization::kColumnTypeInline));
+    }
+
+    total_value_sizes_bytes += VarintLength(value_sizes[i]);
+    total_values_bytes += value_sizes[i];
+
+    prev_name = &name;
+  }
+
+  const size_t total_size =
+      VarintLength(WideColumnSerialization::kVersion2) +
+      VarintLength(static_cast<uint32_t>(num_columns)) +
+      num_columns +  // column types
+      VarintLength(name_sizes_bytes) + VarintLength(total_value_sizes_bytes) +
+      VarintLength(names_bytes) + name_sizes_bytes + total_value_sizes_bytes +
+      names_bytes + total_values_bytes;
+
+  const size_t base_offset = output->size();
+  output->reserve(base_offset + total_size);
+
+  // Sections 1-3: write using standard append (small, fixed-size)
+  PutVarint32(output, WideColumnSerialization::kVersion2);
+  PutVarint32(output, static_cast<uint32_t>(num_columns));
+  output->append(column_types);
+  PutVarint32(output, name_sizes_bytes);
+  PutVarint32(output, total_value_sizes_bytes);
+  PutVarint32(output, names_bytes);
+
+  // Record where section 4 starts, then resize to full size
+  const size_t sec4_offset = output->size();
+  output->resize(base_offset + total_size);
+
+  // Set up 4 independent pointers into sections 4-7
+  char* s4 = &(*output)[sec4_offset];       // name sizes
+  char* s5 = s4 + name_sizes_bytes;         // value sizes
+  char* s6 = s5 + total_value_sizes_bytes;  // names
+  char* s7 = s6 + names_bytes;              // values
+
+  // Single loop writes all 4 sections simultaneously
+  for (size_t i = 0; i < num_columns; ++i) {
+    s4 = EncodeVarint32(s4, name_sizes[i]);
+    s5 = EncodeVarint32(s5, value_sizes[i]);
+
+    memcpy(s6, columns[i].first.data(), name_sizes[i]);
+    s6 += name_sizes[i];
+
+    if (blob_index_map[i] != nullptr) {
+      memcpy(s7, serialized_blob_indices[i].data(), value_sizes[i]);
+    } else {
+      memcpy(s7, columns[i].second.data(), value_sizes[i]);
+    }
+    s7 += value_sizes[i];
+  }
+
+  return Status::OK();
+}
+
+// Verify merged-loops approach produces identical output to current approach
+TEST(WideColumnSerializationTest, MergedLoopsCorrectnessNoBlobColumns) {
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"alpha", "value_alpha"},
+      {"beta", "value_beta"},
+      {"gamma", "value_gamma_longer"}};
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  std::string output_current;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, empty_blob_columns, &output_current));
+
+  std::string output_merged;
+  ASSERT_OK(SerializeWithBlobIndicesMergedLoops(columns, empty_blob_columns,
+                                                &output_merged));
+
+  ASSERT_EQ(output_current, output_merged);
+}
+
+TEST(WideColumnSerializationTest, MergedLoopsCorrectnessWithBlobColumns) {
+  std::vector<std::pair<std::string, std::string>> columns = {
+      {"a_inline", "value_a"},
+      {"b_blob", "placeholder"},
+      {"c_inline", "value_c"},
+      {"d_blob", "placeholder"},
+      {"e_inline", "value_e"}};
+
+  std::string bi_str1, bi_str2;
+  BlobIndex::EncodeBlob(&bi_str1, 10, 100, 1000, kNoCompression);
+  BlobIndex::EncodeBlobTTL(&bi_str2, 9999999, 20, 200, 2000,
+                           kSnappyCompression);
+  BlobIndex bi1, bi2;
+  Slice s1(bi_str1), s2(bi_str2);
+  ASSERT_OK(bi1.DecodeFrom(s1));
+  ASSERT_OK(bi2.DecodeFrom(s2));
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns = {{1, bi1}, {3, bi2}};
+
+  std::string output_current;
+  ASSERT_OK(WideColumnSerialization::SerializeWithBlobIndices(
+      columns, blob_columns, &output_current));
+
+  std::string output_merged;
+  ASSERT_OK(SerializeWithBlobIndicesMergedLoops(columns, blob_columns,
+                                                &output_merged));
+
+  ASSERT_EQ(output_current, output_merged);
+}
+
+// Micro benchmark comparing current (4 separate loops) vs merged (1 loop
+// with 4 pointers via resize + EncodeVarint32/memcpy) for sections 4-7.
+TEST(WideColumnSerializationTest, SerializationBenchmark) {
+  const std::vector<int> num_columns_list = {1, 2, 4, 8, 16};
+  const std::vector<int> name_size_list = {4, 8, 16, 32};
+  const std::vector<int> value_size_list = {32, 64, 128};
+
+  constexpr int kWarmupIterations = 10000;
+  constexpr int kBenchmarkIterations = 100000;
+
+  std::vector<std::pair<size_t, BlobIndex>> empty_blob_columns;
+
+  fprintf(stderr, "\n%-8s %-10s %-10s | %12s %12s | %8s\n", "NumCols",
+          "NameSize", "ValueSize", "Current(ns)", "Merged(ns)", "Speedup");
+  fprintf(stderr, "%s\n", std::string(76, '-').c_str());
+
+  for (int num_cols : num_columns_list) {
+    for (int name_sz : name_size_list) {
+      for (int val_sz : value_size_list) {
+        std::vector<std::pair<std::string, std::string>> columns;
+        columns.reserve(num_cols);
+        for (int c = 0; c < num_cols; ++c) {
+          char name_prefix[16];
+          snprintf(name_prefix, sizeof(name_prefix), "col_%04d_", c);
+          std::string name(name_prefix);
+          if (static_cast<int>(name.size()) < name_sz) {
+            name.append(name_sz - name.size(), 'n');
+          } else {
+            name.resize(name_sz);
+          }
+          std::string value(val_sz, 'v');
+          columns.emplace_back(std::move(name), std::move(value));
+        }
+
+        // Warmup current
+        for (int i = 0; i < kWarmupIterations; ++i) {
+          std::string out;
+          WideColumnSerialization::SerializeWithBlobIndices(
+              columns, empty_blob_columns, &out);
+        }
+
+        // Benchmark current approach (4 separate loops)
+        auto t1 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < kBenchmarkIterations; ++i) {
+          std::string out;
+          WideColumnSerialization::SerializeWithBlobIndices(
+              columns, empty_blob_columns, &out);
+        }
+        auto t2 = std::chrono::high_resolution_clock::now();
+        double current_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1)
+                .count() /
+            static_cast<double>(kBenchmarkIterations);
+
+        // Warmup merged
+        for (int i = 0; i < kWarmupIterations; ++i) {
+          std::string out;
+          SerializeWithBlobIndicesMergedLoops(columns, empty_blob_columns,
+                                              &out);
+        }
+
+        // Benchmark merged approach (1 loop with 4 pointers)
+        auto t3 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < kBenchmarkIterations; ++i) {
+          std::string out;
+          SerializeWithBlobIndicesMergedLoops(columns, empty_blob_columns,
+                                              &out);
+        }
+        auto t4 = std::chrono::high_resolution_clock::now();
+        double merged_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t4 - t3)
+                .count() /
+            static_cast<double>(kBenchmarkIterations);
+
+        double speedup = current_ns / merged_ns;
+
+        fprintf(stderr, "%-8d %-10d %-10d | %12.1f %12.1f | %7.2fx\n", num_cols,
+                name_sz, val_sz, current_ns, merged_ns, speedup);
+      }
+    }
+  }
+
+  fprintf(stderr, "\n");
 }
 
 }  // namespace ROCKSDB_NAMESPACE
