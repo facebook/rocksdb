@@ -5,10 +5,8 @@
 
 #include "db/wide/wide_column_serialization.h"
 
-#include <algorithm>
 #include <cassert>
 #include <limits>
-#include <set>
 #include <unordered_map>
 
 #include "db/blob/blob_index.h"
@@ -79,29 +77,19 @@ Status WideColumnSerialization::SerializeWithBlobIndices(
     return Status::InvalidArgument("Too many wide columns");
   }
 
-  // Build a set of column indices that are blob references for O(1) lookup
-  std::set<size_t> blob_column_indices;
+  // Create a map from column index to blob index
+  std::vector<const BlobIndex*> blob_index_map(num_columns, nullptr);
   for (const auto& blob_col : blob_columns) {
     if (blob_col.first >= num_columns) {
       return Status::InvalidArgument("Blob column index out of range");
     }
-    blob_column_indices.insert(blob_col.first);
-  }
-
-  // Create a map from column index to blob index
-  std::vector<const BlobIndex*> blob_index_map(num_columns, nullptr);
-  for (const auto& blob_col : blob_columns) {
     blob_index_map[blob_col.first] = &blob_col.second;
   }
 
-  // Write version 2 header
-  PutVarint32(output, kVersion2);
-  PutVarint32(output, static_cast<uint32_t>(num_columns));
-
+  // Validate column ordering and prepare serialized blob indices
   const std::string* prev_name = nullptr;
-
-  // Prepare serialized blob indices and compute value sizes
   std::vector<std::string> serialized_blob_indices(num_columns);
+  std::vector<uint32_t> name_sizes(num_columns);
   std::vector<uint32_t> value_sizes(num_columns);
 
   for (size_t i = 0; i < num_columns; ++i) {
@@ -117,8 +105,9 @@ Status WideColumnSerialization::SerializeWithBlobIndices(
       return Status::Corruption("Wide columns out of order");
     }
 
+    name_sizes[i] = static_cast<uint32_t>(name.size());
+
     if (blob_index_map[i] != nullptr) {
-      // This column is a blob reference - serialize the blob index
       const BlobIndex* blob_idx = blob_index_map[i];
       std::string& serialized = serialized_blob_indices[i];
 
@@ -137,7 +126,6 @@ Status WideColumnSerialization::SerializeWithBlobIndices(
 
       value_sizes[i] = static_cast<uint32_t>(serialized.size());
     } else {
-      // This column is an inline value
       if (value.size() >
           static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
         return Status::InvalidArgument("Wide column value too long");
@@ -148,29 +136,51 @@ Status WideColumnSerialization::SerializeWithBlobIndices(
     prev_name = &name;
   }
 
-  // Write the index (column names, types, and value sizes)
+  // Compute skip info: byte sizes of NAME SIZES section and NAMES section
+  uint32_t name_sizes_bytes = 0;
+  uint32_t names_bytes = 0;
   for (size_t i = 0; i < num_columns; ++i) {
-    const std::string& name = columns[i].first;
+    name_sizes_bytes += VarintLength(name_sizes[i]);
+    names_bytes += name_sizes[i];
+  }
 
-    PutLengthPrefixedSlice(output, Slice(name));
+  // Section 1: HEADER
+  PutVarint32(output, kVersion2);
+  PutVarint32(output, static_cast<uint32_t>(num_columns));
 
-    // Write column type
-    if (blob_column_indices.count(i) > 0) {
+  // Section 2: COLUMN TYPES (N bytes)
+  for (size_t i = 0; i < num_columns; ++i) {
+    if (blob_index_map[i] != nullptr) {
       output->push_back(static_cast<char>(kColumnTypeBlobIndex));
     } else {
       output->push_back(static_cast<char>(kColumnTypeInline));
     }
+  }
 
+  // Section 3: SKIP INFO (2 varints)
+  PutVarint32(output, name_sizes_bytes);
+  PutVarint32(output, names_bytes);
+
+  // Section 4: NAME SIZES (N varints)
+  for (size_t i = 0; i < num_columns; ++i) {
+    PutVarint32(output, name_sizes[i]);
+  }
+
+  // Section 5: VALUE SIZES (N varints)
+  for (size_t i = 0; i < num_columns; ++i) {
     PutVarint32(output, value_sizes[i]);
   }
 
-  // Write the values
+  // Section 6: COLUMN NAMES (concatenated)
+  for (size_t i = 0; i < num_columns; ++i) {
+    output->append(columns[i].first);
+  }
+
+  // Section 7: COLUMN VALUES (concatenated)
   for (size_t i = 0; i < num_columns; ++i) {
     if (blob_index_map[i] != nullptr) {
-      // Write serialized blob index
       output->append(serialized_blob_indices[i]);
     } else {
-      // Write inline value
       output->append(columns[i].second);
     }
   }
@@ -200,67 +210,135 @@ Status WideColumnSerialization::Deserialize(Slice& input,
     return Status::OK();
   }
 
-  columns.reserve(num_columns);
-
-  autovector<uint32_t, 16> column_value_sizes;
-  column_value_sizes.reserve(num_columns);
-
-  // For version 2, we also need to track column types
-  autovector<uint8_t, 16> column_types;
   if (version >= kVersion2) {
-    column_types.reserve(num_columns);
-  }
+    // V2 layout: TYPES → SKIP_INFO → NAME_SIZES → VALUE_SIZES → NAMES →
+    // VALUES
 
-  for (uint32_t i = 0; i < num_columns; ++i) {
-    Slice name;
-    if (!GetLengthPrefixedSlice(&input, &name)) {
-      return Status::Corruption("Error decoding wide column name");
+    // Section 2: COLUMN TYPES (N bytes)
+    if (input.size() < num_columns) {
+      return Status::Corruption("Error decoding wide column types");
     }
-
-    if (!columns.empty() && columns.back().name().compare(name) >= 0) {
-      return Status::Corruption("Wide columns out of order");
-    }
-
-    columns.emplace_back(name, Slice());
-
-    // For version 2, read the column type
-    if (version >= kVersion2) {
-      if (input.size() < 1) {
-        return Status::Corruption("Error decoding wide column type");
-      }
-      uint8_t col_type = static_cast<uint8_t>(input[0]);
-      input.remove_prefix(1);
-
-      // For the basic Deserialize, we don't support blob columns
-      // Blob columns should be read via DeserializeColumns
-      if (col_type == kColumnTypeBlobIndex) {
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      if (static_cast<uint8_t>(input[i]) == kColumnTypeBlobIndex) {
         return Status::NotSupported(
             "Wide column contains blob references. Use DeserializeColumns.");
       }
-      column_types.emplace_back(col_type);
+    }
+    input.remove_prefix(num_columns);
+
+    // Section 3: SKIP INFO (2 varints)
+    uint32_t name_sizes_bytes = 0;
+    uint32_t names_bytes = 0;
+    if (!GetVarint32(&input, &name_sizes_bytes)) {
+      return Status::Corruption("Error decoding wide column name sizes bytes");
+    }
+    if (!GetVarint32(&input, &names_bytes)) {
+      return Status::Corruption("Error decoding wide column names bytes");
     }
 
-    uint32_t value_size = 0;
-    if (!GetVarint32(&input, &value_size)) {
-      return Status::Corruption("Error decoding wide column value size");
+    // Section 4: NAME SIZES (N varints)
+    if (input.size() < name_sizes_bytes) {
+      return Status::Corruption("Error decoding wide column name sizes");
+    }
+    Slice name_sizes_section(input.data(), name_sizes_bytes);
+    input.remove_prefix(name_sizes_bytes);
+
+    autovector<uint32_t, 16> column_name_sizes;
+    column_name_sizes.reserve(num_columns);
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      uint32_t name_size = 0;
+      if (!GetVarint32(&name_sizes_section, &name_size)) {
+        return Status::Corruption("Error decoding wide column name size");
+      }
+      column_name_sizes.emplace_back(name_size);
     }
 
-    column_value_sizes.emplace_back(value_size);
-  }
-
-  const Slice data(input);
-  size_t pos = 0;
-
-  for (uint32_t i = 0; i < num_columns; ++i) {
-    const uint32_t value_size = column_value_sizes[i];
-
-    if (pos + value_size > data.size()) {
-      return Status::Corruption("Error decoding wide column value payload");
+    // Section 5: VALUE SIZES (N varints)
+    autovector<uint32_t, 16> column_value_sizes;
+    column_value_sizes.reserve(num_columns);
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      uint32_t value_size = 0;
+      if (!GetVarint32(&input, &value_size)) {
+        return Status::Corruption("Error decoding wide column value size");
+      }
+      column_value_sizes.emplace_back(value_size);
     }
 
-    columns[i].value() = Slice(data.data() + pos, value_size);
+    // Section 6: COLUMN NAMES (concatenated)
+    if (input.size() < names_bytes) {
+      return Status::Corruption("Error decoding wide column names");
+    }
+    const char* names_data = input.data();
+    columns.reserve(num_columns);
+    size_t name_pos = 0;
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      const uint32_t ns = column_name_sizes[i];
+      if (name_pos + ns > names_bytes) {
+        return Status::Corruption("Error decoding wide column name");
+      }
+      Slice name(names_data + name_pos, ns);
 
-    pos += value_size;
+      if (!columns.empty() && columns.back().name().compare(name) >= 0) {
+        return Status::Corruption("Wide columns out of order");
+      }
+
+      columns.emplace_back(name, Slice());
+      name_pos += ns;
+    }
+    input.remove_prefix(names_bytes);
+
+    // Section 7: COLUMN VALUES (concatenated)
+    const char* values_data = input.data();
+    size_t value_pos = 0;
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      const uint32_t vs = column_value_sizes[i];
+      if (value_pos + vs > input.size()) {
+        return Status::Corruption("Error decoding wide column value payload");
+      }
+      columns[i].value() = Slice(values_data + value_pos, vs);
+      value_pos += vs;
+    }
+  } else {
+    // V1 layout: interleaved name/value_size pairs followed by values
+    columns.reserve(num_columns);
+
+    autovector<uint32_t, 16> column_value_sizes;
+    column_value_sizes.reserve(num_columns);
+
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      Slice name;
+      if (!GetLengthPrefixedSlice(&input, &name)) {
+        return Status::Corruption("Error decoding wide column name");
+      }
+
+      if (!columns.empty() && columns.back().name().compare(name) >= 0) {
+        return Status::Corruption("Wide columns out of order");
+      }
+
+      columns.emplace_back(name, Slice());
+
+      uint32_t value_size = 0;
+      if (!GetVarint32(&input, &value_size)) {
+        return Status::Corruption("Error decoding wide column value size");
+      }
+
+      column_value_sizes.emplace_back(value_size);
+    }
+
+    const Slice data(input);
+    size_t pos = 0;
+
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      const uint32_t value_size = column_value_sizes[i];
+
+      if (pos + value_size > data.size()) {
+        return Status::Corruption("Error decoding wide column value payload");
+      }
+
+      columns[i].value() = Slice(data.data() + pos, value_size);
+
+      pos += value_size;
+    }
   }
 
   return Status::OK();
@@ -292,72 +370,147 @@ Status WideColumnSerialization::DeserializeColumns(
     return Status::OK();
   }
 
-  columns->reserve(num_columns);
+  if (version >= kVersion2) {
+    // V2 layout: TYPES → SKIP_INFO → NAME_SIZES → VALUE_SIZES → NAMES →
+    // VALUES
 
-  autovector<uint32_t, 16> column_value_sizes;
-  column_value_sizes.reserve(num_columns);
+    // Section 2: COLUMN TYPES (N bytes)
+    if (input.size() < num_columns) {
+      return Status::Corruption("Error decoding wide column types");
+    }
+    autovector<uint8_t, 16> column_types;
+    column_types.reserve(num_columns);
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      column_types.emplace_back(static_cast<uint8_t>(input[i]));
+    }
+    input.remove_prefix(num_columns);
 
-  autovector<uint8_t, 16> column_types;
-  column_types.reserve(num_columns);
-
-  for (uint32_t i = 0; i < num_columns; ++i) {
-    Slice name;
-    if (!GetLengthPrefixedSlice(&input, &name)) {
-      return Status::Corruption("Error decoding wide column name");
+    // Section 3: SKIP INFO (2 varints)
+    uint32_t name_sizes_bytes = 0;
+    uint32_t names_bytes = 0;
+    if (!GetVarint32(&input, &name_sizes_bytes)) {
+      return Status::Corruption("Error decoding wide column name sizes bytes");
+    }
+    if (!GetVarint32(&input, &names_bytes)) {
+      return Status::Corruption("Error decoding wide column names bytes");
     }
 
-    if (!columns->empty() && columns->back().name().compare(name) >= 0) {
-      return Status::Corruption("Wide columns out of order");
+    // Section 4: NAME SIZES (N varints)
+    if (input.size() < name_sizes_bytes) {
+      return Status::Corruption("Error decoding wide column name sizes");
     }
+    Slice name_sizes_section(input.data(), name_sizes_bytes);
+    input.remove_prefix(name_sizes_bytes);
 
-    columns->emplace_back(name, Slice());
-
-    // Read column type (version 2) or assume inline (version 1)
-    uint8_t col_type = kColumnTypeInline;
-    if (version >= kVersion2) {
-      if (input.size() < 1) {
-        return Status::Corruption("Error decoding wide column type");
+    autovector<uint32_t, 16> column_name_sizes;
+    column_name_sizes.reserve(num_columns);
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      uint32_t name_size = 0;
+      if (!GetVarint32(&name_sizes_section, &name_size)) {
+        return Status::Corruption("Error decoding wide column name size");
       }
-      col_type = static_cast<uint8_t>(input[0]);
-      input.remove_prefix(1);
-    }
-    column_types.emplace_back(col_type);
-
-    uint32_t value_size = 0;
-    if (!GetVarint32(&input, &value_size)) {
-      return Status::Corruption("Error decoding wide column value size");
+      column_name_sizes.emplace_back(name_size);
     }
 
-    column_value_sizes.emplace_back(value_size);
-  }
-
-  const Slice data(input);
-  size_t pos = 0;
-
-  for (uint32_t i = 0; i < num_columns; ++i) {
-    const uint32_t value_size = column_value_sizes[i];
-
-    if (pos + value_size > data.size()) {
-      return Status::Corruption("Error decoding wide column value payload");
-    }
-
-    if (column_types[i] == kColumnTypeBlobIndex) {
-      // This is a blob reference - decode the blob index
-      BlobIndex blob_idx;
-      Slice blob_slice(data.data() + pos, value_size);
-      Status s = blob_idx.DecodeFrom(blob_slice);
-      if (!s.ok()) {
-        return Status::Corruption("Error decoding blob index in wide column");
+    // Section 5: VALUE SIZES (N varints)
+    autovector<uint32_t, 16> column_value_sizes;
+    column_value_sizes.reserve(num_columns);
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      uint32_t value_size = 0;
+      if (!GetVarint32(&input, &value_size)) {
+        return Status::Corruption("Error decoding wide column value size");
       }
-      blob_columns->emplace_back(i, blob_idx);
-      // Set the column value to the raw serialized blob index for reference
-      (*columns)[i].value() = Slice(data.data() + pos, value_size);
-    } else {
-      // This is an inline value
-      (*columns)[i].value() = Slice(data.data() + pos, value_size);
+      column_value_sizes.emplace_back(value_size);
     }
 
-    pos += value_size;
+    // Section 6: COLUMN NAMES (concatenated)
+    if (input.size() < names_bytes) {
+      return Status::Corruption("Error decoding wide column names");
+    }
+    const char* names_data = input.data();
+    columns->reserve(num_columns);
+    size_t name_pos = 0;
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      const uint32_t ns = column_name_sizes[i];
+      if (name_pos + ns > names_bytes) {
+        return Status::Corruption("Error decoding wide column name");
+      }
+      Slice name(names_data + name_pos, ns);
+
+      if (!columns->empty() && columns->back().name().compare(name) >= 0) {
+        return Status::Corruption("Wide columns out of order");
+      }
+
+      columns->emplace_back(name, Slice());
+      name_pos += ns;
+    }
+    input.remove_prefix(names_bytes);
+
+    // Section 7: COLUMN VALUES (concatenated)
+    const char* values_data = input.data();
+    size_t value_pos = 0;
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      const uint32_t vs = column_value_sizes[i];
+      if (value_pos + vs > input.size()) {
+        return Status::Corruption("Error decoding wide column value payload");
+      }
+
+      if (column_types[i] == kColumnTypeBlobIndex) {
+        BlobIndex blob_idx;
+        Slice blob_slice(values_data + value_pos, vs);
+        Status s = blob_idx.DecodeFrom(blob_slice);
+        if (!s.ok()) {
+          return Status::Corruption("Error decoding blob index in wide column");
+        }
+        blob_columns->emplace_back(i, blob_idx);
+        (*columns)[i].value() = Slice(values_data + value_pos, vs);
+      } else {
+        (*columns)[i].value() = Slice(values_data + value_pos, vs);
+      }
+
+      value_pos += vs;
+    }
+  } else {
+    // V1 layout: interleaved name/value_size pairs followed by values
+    columns->reserve(num_columns);
+
+    autovector<uint32_t, 16> column_value_sizes;
+    column_value_sizes.reserve(num_columns);
+
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      Slice name;
+      if (!GetLengthPrefixedSlice(&input, &name)) {
+        return Status::Corruption("Error decoding wide column name");
+      }
+
+      if (!columns->empty() && columns->back().name().compare(name) >= 0) {
+        return Status::Corruption("Wide columns out of order");
+      }
+
+      columns->emplace_back(name, Slice());
+
+      uint32_t value_size = 0;
+      if (!GetVarint32(&input, &value_size)) {
+        return Status::Corruption("Error decoding wide column value size");
+      }
+
+      column_value_sizes.emplace_back(value_size);
+    }
+
+    const Slice data(input);
+    size_t pos = 0;
+
+    for (uint32_t i = 0; i < num_columns; ++i) {
+      const uint32_t value_size = column_value_sizes[i];
+
+      if (pos + value_size > data.size()) {
+        return Status::Corruption("Error decoding wide column value payload");
+      }
+
+      (*columns)[i].value() = Slice(data.data() + pos, value_size);
+
+      pos += value_size;
+    }
   }
 
   return Status::OK();
@@ -381,26 +534,18 @@ bool WideColumnSerialization::HasBlobColumns(const Slice& input) {
     return false;
   }
 
-  // Check each column's type
+  if (!num_columns) {
+    return false;
+  }
+
+  // V2: COLUMN TYPES section is N contiguous bytes right after the header.
+  // Scan the contiguous type bytes for any blob column.
+  if (copy.size() < num_columns) {
+    return false;
+  }
   for (uint32_t i = 0; i < num_columns; ++i) {
-    Slice name;
-    if (!GetLengthPrefixedSlice(&copy, &name)) {
-      return false;
-    }
-
-    if (copy.size() < 1) {
-      return false;
-    }
-    uint8_t col_type = static_cast<uint8_t>(copy[0]);
-    copy.remove_prefix(1);
-
-    if (col_type == kColumnTypeBlobIndex) {
+    if (static_cast<uint8_t>(copy[i]) == kColumnTypeBlobIndex) {
       return true;
-    }
-
-    uint32_t value_size = 0;
-    if (!GetVarint32(&copy, &value_size)) {
-      return false;
     }
   }
 
@@ -420,6 +565,100 @@ uint32_t WideColumnSerialization::GetVersion(const Slice& input) {
 
 Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
                                                         Slice& value) {
+  Slice copy = input;
+
+  uint32_t version = 0;
+  if (!GetVarint32(&copy, &version)) {
+    return Status::Corruption("Error decoding wide column version");
+  }
+
+  if (version > kVersion2) {
+    return Status::NotSupported("Unsupported wide column version");
+  }
+
+  uint32_t num_columns = 0;
+  if (!GetVarint32(&copy, &num_columns)) {
+    return Status::Corruption("Error decoding number of wide columns");
+  }
+
+  if (!num_columns) {
+    value.clear();
+    return Status::OK();
+  }
+
+  if (version >= kVersion2) {
+    // V2 fast path: skip types, use skip info to jump to value sizes,
+    // then skip names to reach values.
+
+    // Skip COLUMN TYPES (N bytes)
+    if (copy.size() < num_columns) {
+      return Status::Corruption("Error decoding wide column types");
+    }
+    // Check if default column (index 0) is a blob reference
+    if (static_cast<uint8_t>(copy[0]) == kColumnTypeBlobIndex) {
+      return Status::NotSupported(
+          "Wide column contains blob references. Use DeserializeColumns.");
+    }
+    copy.remove_prefix(num_columns);
+
+    // Read SKIP INFO
+    uint32_t name_sizes_bytes = 0;
+    uint32_t names_bytes = 0;
+    if (!GetVarint32(&copy, &name_sizes_bytes)) {
+      return Status::Corruption("Error decoding wide column name sizes bytes");
+    }
+    if (!GetVarint32(&copy, &names_bytes)) {
+      return Status::Corruption("Error decoding wide column names bytes");
+    }
+
+    // Skip NAME SIZES section
+    if (copy.size() < name_sizes_bytes) {
+      return Status::Corruption("Error decoding wide column name sizes");
+    }
+    // Read the first name size to check if it's the default column (empty name)
+    Slice name_sizes_section(copy.data(), name_sizes_bytes);
+    uint32_t first_name_size = 0;
+    if (!GetVarint32(&name_sizes_section, &first_name_size)) {
+      return Status::Corruption("Error decoding wide column name size");
+    }
+    copy.remove_prefix(name_sizes_bytes);
+
+    // Read first value size from VALUE SIZES section
+    uint32_t first_value_size = 0;
+    if (!GetVarint32(&copy, &first_value_size)) {
+      return Status::Corruption("Error decoding wide column value size");
+    }
+
+    // Skip remaining value sizes (we only need the first one)
+    for (uint32_t i = 1; i < num_columns; ++i) {
+      uint32_t vs = 0;
+      if (!GetVarint32(&copy, &vs)) {
+        return Status::Corruption("Error decoding wide column value size");
+      }
+    }
+
+    // Skip NAMES section
+    if (copy.size() < names_bytes) {
+      return Status::Corruption("Error decoding wide column names");
+    }
+
+    // Check if the first column is the default column (empty name)
+    if (first_name_size != 0) {
+      value.clear();
+      return Status::OK();
+    }
+
+    copy.remove_prefix(names_bytes);
+
+    // Read the first value from VALUES section
+    if (copy.size() < first_value_size) {
+      return Status::Corruption("Error decoding wide column value payload");
+    }
+    value = Slice(copy.data(), first_value_size);
+    return Status::OK();
+  }
+
+  // V1 fallback: full deserialization
   WideColumns columns;
 
   const Status s = Deserialize(input, columns);

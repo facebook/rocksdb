@@ -46,29 +46,58 @@ class Slice;
 //          ...---+----------+-------+----------+-------+---...---+-------+
 //
 // Version 2 Layout (with blob index support):
-// Extends version 1 by adding a column type field after each column name.
-// This allows columns to store either inline values or references to blobs.
+// Groups all metadata upfront before variable-length data. This enables
+// efficient access patterns: index-based value access skips name data
+// entirely, default column access is O(1), and type checks are O(1).
 //
 // Legend: cn = column name, cv = column value, cns = column name size,
 //         cvs = column value size, ct = column type.
 //
-//      +----------+--------------+----------+-------+--------+----------+---...
-//      | version  | # of columns |  cns 1   | cn 1  |  ct 1  |  cvs 1   |
-//      +----------+--------------+----------+-------+--------+----------+---...
-//      | varint32 |   varint32   | varint32 | bytes | 1 byte | varint32 |
-//      +----------+--------------+----------+-------+--------+----------+---...
+// Section 1: HEADER (2 varints)
+//   +----------+--------------+
+//   | version  | # of columns |
+//   | varint32 |   varint32   |
+//   +----------+--------------+
 //
-//      ... continued ...
+// Section 2: COLUMN TYPES (N bytes, fixed-size)
+//   +------+------+---...---+--------+
+//   | ct_0 | ct_1 |         | ct_N-1 |
+//   | byte | byte |         |  byte  |
+//   +------+------+---...---+--------+
+//   ct values: 0 = inline value, 1 = blob index, 2..255 = reserved
 //
-//        ...---+----------+-------+--------+----------+-------+---...---+-------+
-//              |  cns N   | cn N  |  ct N  |  cvs N   | cv 1  |         | cv N
-//              |
-//        ...---+----------+-------+--------+----------+-------+---...---+-------+
-//              | varint32 | bytes | 1 byte | varint32 | bytes |         | bytes
-//              |
-//        ...---+----------+-------+--------+----------+-------+---...---+-------+
+// Section 3: SKIP INFO (2 varints)
+//   +-------------------+------------------+
+//   | name_sizes_bytes  | names_bytes      |
+//   | varint32          | varint32         |
+//   +-------------------+------------------+
+//   name_sizes_bytes = byte size of NAME SIZES section
+//   names_bytes = byte size of NAMES section
 //
-// Column type (ct): 0 = inline value, 1 = blob index
+// Section 4: NAME SIZES (N varints)
+//   +----------+----------+---...---+------------+
+//   | cns_0    | cns_1    |         | cns_{N-1}  |
+//   | varint32 | varint32 |         | varint32   |
+//   +----------+----------+---...---+------------+
+//
+// Section 5: VALUE SIZES (N varints)
+//   +----------+----------+---...---+------------+
+//   | cvs_0    | cvs_1    |         | cvs_{N-1}  |
+//   | varint32 | varint32 |         | varint32   |
+//   +----------+----------+---...---+------------+
+//
+// Section 6: COLUMN NAMES (concatenated, sorted)
+//   +------+------+---...---+--------+
+//   | cn_0 | cn_1 |         | cn_N-1 |
+//   | bytes| bytes|         | bytes  |
+//   +------+------+---...---+--------+
+//
+// Section 7: COLUMN VALUES (concatenated)
+//   +------+------+---...---+--------+
+//   | cv_0 | cv_1 |         | cv_N-1 |
+//   | bytes| bytes|         | bytes  |
+//   +------+------+---...---+--------+
+//
 // When ct = 1, the cv contains a serialized BlobIndex.
 
 class WideColumnSerialization {
