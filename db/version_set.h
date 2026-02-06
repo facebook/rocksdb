@@ -1434,6 +1434,25 @@ class VersionSet {
     return last_allocated_sequence_.fetch_add(s, std::memory_order_seq_cst);
   }
 
+  // Sync last_sequence_ with last_allocated_sequence_. This should be called
+  // during error recovery to ensure that any sequence numbers that were
+  // allocated (written to WAL) but not yet published are accounted for when
+  // creating new memtables/WALs. This prevents the "sequence number going
+  // backwards" corruption on subsequent recovery.
+  //
+  // This is necessary because with two_write_queues=true, writes allocate
+  // sequence numbers via FetchAddLastAllocatedSequence() before the write
+  // is complete, but only publish via SetLastSequence() after success.
+  // If an error occurs and recovery creates new memtables, SwitchMemtable
+  // uses LastSequence() which may be lower than already-allocated sequences.
+  void SyncLastSequenceWithAllocated() {
+    uint64_t alloc_seq = last_allocated_sequence_.load(std::memory_order_seq_cst);
+    uint64_t last_seq = last_sequence_.load(std::memory_order_acquire);
+    if (alloc_seq > last_seq) {
+      last_sequence_.store(alloc_seq, std::memory_order_release);
+    }
+  }
+
   // Mark the specified file number as used.
   // REQUIRED: this is only called during single-threaded recovery or repair.
   void MarkFileNumberUsed(uint64_t number);

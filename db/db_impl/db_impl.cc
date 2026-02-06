@@ -320,6 +320,22 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   WaitForBackgroundWork();
 
+  TEST_SYNC_POINT("DBImpl::ResumeImpl:Start");
+
+  // With two_write_queues=true, sequence numbers are allocated via
+  // FetchAddLastAllocatedSequence() before writes complete, but only
+  // published via SetLastSequence() after success. If we're recovering from
+  // an error, there may be allocated-but-not-published sequence numbers.
+  // We must sync last_sequence_ with last_allocated_sequence_ before creating
+  // any new memtables/WALs, otherwise the new WAL could start with a sequence
+  // number lower than what was already written, causing "sequence number
+  // going backwards" corruption on subsequent recovery.
+  if (immutable_db_options_.two_write_queues) {
+    versions_->SyncLastSequenceWithAllocated();
+  }
+
+  TEST_SYNC_POINT("DBImpl::ResumeImpl:AfterSyncSeq");
+
   Status s;
   if (shutdown_initiated_) {
     // Returning shutdown status to SFM during auto recovery will cause it
