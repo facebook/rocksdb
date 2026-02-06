@@ -362,6 +362,9 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/transactions/write_prepared_txn_db.cc",
         "utilities/transactions/write_unprepared_txn.cc",
         "utilities/transactions/write_unprepared_txn_db.cc",
+        "utilities/trie_index/bitvector.cc",
+        "utilities/trie_index/louds_trie.cc",
+        "utilities/trie_index/trie_index_factory.cc",
         "utilities/ttl/db_ttl_impl.cc",
         "utilities/types_util.cc",
         "utilities/wal_filter.cc",
@@ -5619,6 +5622,12 @@ cpp_unittest_wrapper(name="trace_analyzer_test",
 
 cpp_unittest_wrapper(name="transaction_test",
             srcs=["utilities/transactions/transaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="trie_index_test",
+            srcs=["utilities/trie_index/trie_index_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
