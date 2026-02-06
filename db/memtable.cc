@@ -40,6 +40,7 @@
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "table/merging_iterator.h"
+#include "table/multiget_context.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
@@ -1638,6 +1639,235 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
+}
+
+size_t MemTable::MultiPrefixExists(
+    const ReadOptions& read_options, size_t num_prefixes, const Slice* prefixes,
+    bool* prefix_exists,
+    std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+        tombstoned_keys,
+    bool sorted_input) {
+  if (IsEmpty() || num_prefixes == 0) {
+    return 0;
+  }
+
+  PERF_TIMER_GUARD(get_from_memtable_time);
+
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetDynamicPrefixIterator());
+
+  // Filter optimization: If we have a prefix filter and prefix extractor,
+  // we can skip prefixes that definitely don't exist. However, we disable this
+  // optimization when range deletions exist because they could hide keys that
+  // pass the filter check (since this implementation doesn't handle range
+  // deletions).
+  const bool use_filter = bloom_filter_ && prefix_extractor_ &&
+                          (read_options.ignore_range_deletions ||
+                           is_range_del_table_empty_.LoadRelaxed());
+
+  // Batch bloom filter check: Check all prefixes at once for better cache
+  // locality. DynamicBloom::MayContain prefetches bloom filter data for all
+  // keys before probing, which hides memory latency. This is the same
+  // optimization used by MultiGet.
+  std::vector<Slice> bloom_keys(num_prefixes);
+  std::unique_ptr<bool[]> may_match(new bool[num_prefixes]);
+  std::vector<size_t> bloom_indexes(num_prefixes);
+  size_t num_bloom_checks = 0;
+
+  // Track which prefixes to skip (already found, empty, or filtered by bloom).
+  // Using unique_ptr<bool[]> instead of vector<bool> because vector<bool> is
+  // bit-packed and doesn't support .data().
+  std::unique_ptr<bool[]> skip_prefix(new bool[num_prefixes]());
+  // Note: () above zero-initializes the array
+
+  if (use_filter) {
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      if (prefix_exists[i] || prefixes[i].empty()) {
+        skip_prefix[i] = true;
+        continue;
+      }
+      if (prefix_extractor_->InDomain(prefixes[i])) {
+        bloom_keys[num_bloom_checks] =
+            prefix_extractor_->Transform(prefixes[i]);
+        bloom_indexes[num_bloom_checks] = i;
+        num_bloom_checks++;
+      }
+    }
+
+    // Batch bloom filter check - better cache locality than checking one at a
+    // time. DynamicBloom::MayContain uses internal arrays of MAX_BATCH_SIZE
+    // (32), so we process in chunks to avoid overflow.
+    constexpr size_t kBloomBatchSize =
+        static_cast<size_t>(MultiGetContext::MAX_BATCH_SIZE);
+    for (size_t batch_start = 0; batch_start < num_bloom_checks;
+         batch_start += kBloomBatchSize) {
+      size_t batch_end =
+          std::min(batch_start + kBloomBatchSize, num_bloom_checks);
+      size_t batch_size = batch_end - batch_start;
+
+      bloom_filter_->MayContain(static_cast<int>(batch_size),
+                                bloom_keys.data() + batch_start,
+                                may_match.get() + batch_start);
+
+      for (size_t j = batch_start; j < batch_end; ++j) {
+        if (!may_match[j]) {
+          skip_prefix[bloom_indexes[j]] = true;
+          PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        } else {
+          PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+        }
+      }
+    }
+  } else {
+    // No filter - just mark already-found and empty prefixes to skip
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      if (prefix_exists[i] || prefixes[i].empty()) {
+        skip_prefix[i] = true;
+      }
+    }
+  }
+
+  // Track if iterator is positioned for forward scan optimization.
+  // After processing a prefix, the iterator is at the first key past that
+  // prefix. For sorted input, the next prefix >= current prefix, so we may
+  // be able to skip seeking.
+  bool iter_positioned = false;
+
+  // Count how many prefixes we find (for O(1) early termination tracking)
+  size_t num_found = 0;
+
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    // Skip prefixes filtered out by bloom or already found
+    if (skip_prefix[i]) {
+      continue;
+    }
+
+    const Slice& prefix = prefixes[i];
+
+    // Forward scan optimization for sorted input:
+    // If the iterator is already positioned (from processing a previous
+    // prefix), check if we can skip the seek.
+    bool need_seek = true;
+    if (sorted_input && iter_positioned && iter->Valid()) {
+      // Parse current iterator position to get user key
+      const char* entry = iter->key();
+      uint32_t key_length = 0;
+      const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+      if (key_ptr != nullptr && key_length > 8) {
+        Slice user_key(key_ptr, key_length - 8);
+
+        // If current key >= prefix, check if it starts with prefix
+        if (user_key.compare(prefix) >= 0) {
+          if (user_key.size() >= prefix.size() &&
+              memcmp(user_key.data(), prefix.data(), prefix.size()) == 0) {
+            // Iterator is already at a key with our prefix - no seek needed
+            need_seek = false;
+          } else {
+            // Current key is past our prefix - no keys with this prefix exist
+            iter_positioned = true;
+            continue;
+          }
+        }
+        // If current key < prefix, we need to seek forward
+      }
+    }
+
+    if (need_seek) {
+      // Seek to the first key >= prefix. We use kMaxSequenceNumber to ensure
+      // we see all versions of keys with this prefix.
+      LookupKey lkey(prefix, kMaxSequenceNumber);
+      iter->Seek(lkey.internal_key(), lkey.memtable_key().data());
+    }
+    iter_positioned = true;
+
+    // Lazy tombstone access - only dereference when needed
+    std::unique_ptr<std::unordered_set<std::string>>& tombstones_ptr =
+        tombstoned_keys[i];
+
+    // Iterate through all keys matching this prefix
+    while (iter->Valid()) {
+      // Parse the memtable entry. Format: varint32 length + internal key
+      // Internal key = user_key + 8-byte tag (sequence number + value type)
+      const char* entry = iter->key();
+      uint32_t key_length = 0;
+      const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+      if (key_ptr == nullptr || key_length <= 8) {
+        break;  // Malformed entry
+      }
+
+      // Extract user key
+      Slice user_key(key_ptr, key_length - 8);
+
+      // Check if this key still has our prefix
+      if (user_key.size() < prefix.size() ||
+          memcmp(user_key.data(), prefix.data(), prefix.size()) != 0) {
+        break;  // Moved past keys with this prefix
+      }
+
+      // Check if this key was already marked as deleted. This handles two
+      // cases:
+      // 1. Within this memtable: A DELETE with a higher sequence number shadows
+      //    a PUT with a lower sequence number (since we iterate in seq DESC
+      //    order, we see the DELETE first and record it).
+      // 2. Across levels: A DELETE in a newer level (e.g., mutable memtable)
+      //    shadows a PUT in an older level (e.g., immutable memtable or SST).
+      //    The tombstoned_keys vector is passed through all levels,
+      //    accumulating deleted keys as we traverse from newest to oldest.
+      if (tombstones_ptr && tombstones_ptr->count(user_key.ToString()) > 0) {
+        iter->Next();
+        continue;
+      }
+
+      // Extract value type from the 8-byte tag (sequence number in upper 56
+      // bits, value type in lower 8 bits). The 0xff mask extracts the type.
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      ValueType type = static_cast<ValueType>(tag & 0xff);
+
+      // Check if this is a live value (not a deletion marker)
+      if (type == kTypeValue || type == kTypeBlobIndex ||
+          type == kTypeWideColumnEntity || type == kTypeMerge ||
+          type == kTypeValuePreferredSeqno) {
+        prefix_exists[i] = true;
+        ++num_found;
+        // For sorted input, advance past this prefix's keys so the iterator
+        // is positioned for the next prefix
+        if (sorted_input) {
+          while (iter->Valid()) {
+            const char* next_entry = iter->key();
+            uint32_t next_key_length = 0;
+            const char* next_key_ptr =
+                GetVarint32Ptr(next_entry, next_entry + 5, &next_key_length);
+            if (next_key_ptr == nullptr || next_key_length <= 8) {
+              break;
+            }
+            Slice next_user_key(next_key_ptr, next_key_length - 8);
+            if (next_user_key.size() < prefix.size() ||
+                memcmp(next_user_key.data(), prefix.data(), prefix.size()) !=
+                    0) {
+              break;
+            }
+            iter->Next();
+          }
+        }
+        break;
+      }
+
+      // This is a deletion marker - record it for cross-level shadowing.
+      // Note: We only track point deletions (kTypeDeletion,
+      // kTypeSingleDeletion). Range deletions (kTypeRangeDeletion) are NOT
+      // tracked, which is a documented limitation of this API.
+      // Lazy allocation: only create the set when we actually see a tombstone.
+      // String allocation happens here only when we actually have a tombstone.
+      if (!tombstones_ptr) {
+        tombstones_ptr = std::make_unique<std::unordered_set<std::string>>();
+      }
+      tombstones_ptr->emplace(user_key.data(), user_key.size());
+      iter->Next();
+    }
+  }
+
+  PERF_COUNTER_ADD(get_from_memtable_count, 1);
+  return num_found;
 }
 
 Status MemTable::Update(SequenceNumber seq, ValueType value_type,

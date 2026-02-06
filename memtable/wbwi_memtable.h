@@ -139,6 +139,16 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool immutable_memtable) override;
 
+  // Batched prefix existence check - see ReadOnlyMemTable::MultiPrefixExists.
+  // Uses an InternalIterator-based approach since WBWIMemTable doesn't have
+  // the same internal structure as MemTable.
+  size_t MultiPrefixExists(
+      const ReadOptions& read_options, size_t num_prefixes,
+      const Slice* prefixes, bool* prefix_exists,
+      std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+          tombstoned_keys,
+      bool sorted_input) override;
+
   uint64_t NumEntries() const override { return num_entries_; }
 
   uint64_t NumDeletion() const override {

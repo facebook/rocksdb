@@ -3143,6 +3143,329 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
 }
 
+size_t Version::MultiPrefixExists(
+    const ReadOptions& read_options, size_t num_prefixes, const Slice* prefixes,
+    bool* prefix_exists, Status* statuses,
+    std::vector<std::unique_ptr<std::unordered_set<std::string>>>&
+        tombstoned_keys,
+    bool sorted_input) {
+  // Batched prefix existence check across SST files.
+  //
+  // Performance strategy:
+  // - Instead of creating one iterator per prefix per file (which would be
+  //   O(num_prefixes * num_files) iterator creations), we create ONE iterator
+  //   per file and check ALL pending prefixes against it. For example, with
+  //   100 prefixes and 50 files, this creates 50 iterators instead of 5000.
+  // - Early termination: Once all prefixes are found, we stop processing
+  //   remaining files and levels immediately. This is beneficial when prefixes
+  //   are found early (e.g., in memtable or L0).
+  // - Filters (e.g., Bloom/Ribbon) are checked automatically during Seek()
+  //   operations, avoiding unnecessary data block reads for non-existent
+  //   prefixes.
+  //
+  // Sorted input optimizations (when sorted_input=true):
+  // - Early break from file processing: Once a prefix exceeds the file's
+  //   largest key, all subsequent prefixes (being larger) also exceed it.
+  // - Forward scan: After processing a prefix, the iterator may already be
+  //   positioned at or past the next prefix, avoiding redundant seeks.
+  //
+  // Processing order:
+  // - Levels are processed from L0 to Lmax
+  // - Within each level, files are processed in their natural order
+  //   (L0: newest first by sequence; L1+: sorted by key range)
+  // - This matches RocksDB's standard read path ordering
+  //
+  // Limitations:
+  // - Range deletions are NOT handled (range_del_agg is nullptr)
+  // - ReadOptions::snapshot is ignored (always reads latest data)
+
+  if (num_prefixes == 0) {
+    return 0;
+  }
+
+  ReadOptions ropts = read_options;
+  ropts.total_order_seek = false;
+  ropts.auto_prefix_mode = true;
+
+  // Track how many prefixes are still pending. This enables early termination
+  // when all prefixes have been found, avoiding unnecessary file processing.
+  // We need to count how many are NOT already found (from memtable processing).
+  // Note: Empty prefixes are never "found" (they always return false), so we
+  // exclude them from the count to allow early termination to work correctly.
+  size_t prefixes_remaining = 0;
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (!prefix_exists[i] && !prefixes[i].empty()) {
+      ++prefixes_remaining;
+    }
+  }
+  const size_t initial_pending = prefixes_remaining;
+
+  // Process all levels from L0 to the deepest non-empty level
+  for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
+    // Early termination: stop if all prefixes have been found
+    if (prefixes_remaining == 0) {
+      break;
+    }
+
+    const LevelFilesBrief& level_files =
+        storage_info_.level_files_brief_[level];
+    if (level_files.num_files == 0) {
+      continue;
+    }
+
+    // Level bounds optimization for L1+ (where files are sorted by key range):
+    // If the smallest pending prefix is beyond the level's largest key, or
+    // the largest pending prefix is before the level's smallest key, skip the
+    // entire level. L0 files can overlap, so we can't do this optimization.
+    if (level > 0 && sorted_input) {
+      // For sorted levels, last file has the largest key in the level
+      Slice level_largest = ExtractUserKey(
+          level_files.files[level_files.num_files - 1].largest_key);
+
+      // Find smallest and largest pending prefixes
+      Slice smallest_pending_prefix;
+      Slice largest_pending_prefix;
+      bool found_pending = false;
+      for (size_t i = 0; i < num_prefixes; ++i) {
+        if (!prefix_exists[i] && !prefixes[i].empty()) {
+          if (!found_pending) {
+            smallest_pending_prefix = prefixes[i];
+            largest_pending_prefix = prefixes[i];
+            found_pending = true;
+          } else {
+            // Since sorted_input, first pending is smallest, last pending is
+            // largest
+            largest_pending_prefix = prefixes[i];
+          }
+        }
+      }
+
+      if (found_pending) {
+        // Skip level if all pending prefixes are beyond level's range
+        if (smallest_pending_prefix.compare(level_largest) > 0) {
+          // Smallest pending prefix > level's largest key
+          // All pending prefixes are beyond this level
+          continue;
+        }
+      }
+    }
+
+    // Process each file in this level
+    for (size_t file_idx = 0; file_idx < level_files.num_files; ++file_idx) {
+      // Early termination: stop if all prefixes have been found
+      if (prefixes_remaining == 0) {
+        break;
+      }
+
+      const FdWithKeyRange& f = level_files.files[file_idx];
+
+      // Extract the file's user key bounds (for pre-filtering)
+      Slice file_smallest_key = ExtractUserKey(f.smallest_key);
+      Slice file_largest_key = ExtractUserKey(f.largest_key);
+
+      // Pre-filter: Check if ANY pending prefix could be in this file's range.
+      // This avoids iterator creation for files where no prefix could match.
+      // For sorted input, we can also skip all subsequent files if the smallest
+      // pending prefix is beyond this file's largest key.
+      bool any_prefix_in_range = false;
+      for (size_t i = 0; i < num_prefixes; ++i) {
+        if (prefix_exists[i] || prefixes[i].empty()) {
+          continue;
+        }
+        const Slice& prefix = prefixes[i];
+        // Check if prefix could be in file's range:
+        // - prefix must be <= file_largest_key (otherwise prefix is past file)
+        // - file_smallest_key must start with prefix OR be < prefix
+        //   (a key starting with prefix could exist if file range overlaps)
+        if (file_largest_key.compare(prefix) >= 0) {
+          // File's largest key >= prefix, so prefix might be in range
+          // (unless file's smallest key is past all keys with this prefix)
+          if (file_smallest_key.size() >= prefix.size()) {
+            // Check if file_smallest_key could precede or include keys with
+            // prefix
+            int cmp =
+                Slice(file_smallest_key.data(), prefix.size()).compare(prefix);
+            if (cmp <= 0) {
+              // file_smallest_key's prefix <= our prefix, keys might exist
+              any_prefix_in_range = true;
+              break;
+            }
+            // file_smallest_key's prefix > our prefix, check next prefix
+          } else {
+            // file_smallest_key is shorter than prefix - it could be a prefix
+            // of keys we're looking for
+            any_prefix_in_range = true;
+            break;
+          }
+        } else if (sorted_input) {
+          // For sorted input: if this prefix is past file's largest key,
+          // all subsequent prefixes are also past (they're larger), so no
+          // prefix can match this file.
+          break;
+        }
+      }
+
+      if (!any_prefix_in_range) {
+        continue;  // Skip this file - no prefix could match
+      }
+
+      // Create ONE iterator for this file. We pass nullptr for range_del_agg
+      // because this implementation does not handle range deletions.
+      // Filter checks (e.g., Bloom/Ribbon) happen automatically during Seek()
+      // when skip_filters=false, so we don't need to check them manually.
+      InternalIterator* iter = table_cache_->NewIterator(
+          ropts, file_options_, *internal_comparator(), *f.file_metadata,
+          nullptr /* range_del_agg - NOT SUPPORTED */, mutable_cf_options_,
+          nullptr /* table_reader_ptr */, nullptr /* file_read_hist */,
+          TableReaderCaller::kUserMultiGet, nullptr /* arena */,
+          false /* skip_filters - let Seek() check filters */, level,
+          max_file_size_for_l0_meta_pin_ /* max_file_size_for_l0_meta_pin */,
+          nullptr /* smallest_compaction_key */,
+          nullptr /* largest_compaction_key */,
+          false /* allow_unprepared_value */);
+
+      if (iter == nullptr) {
+        continue;
+      }
+
+      // Track iterator position for forward scan optimization.
+      // After processing a prefix, the iterator is either:
+      // - Invalid (exhausted), or
+      // - Positioned at the first key that doesn't match the prefix
+      // For sorted input, we can often skip seeking if the iterator is already
+      // at or past the next prefix's position.
+      bool iter_positioned = false;
+
+      // Check all pending prefixes in this file
+      for (size_t i = 0; i < num_prefixes; ++i) {
+        if (prefix_exists[i]) {
+          continue;  // Already found
+        }
+
+        const Slice& prefix = prefixes[i];
+        if (prefix.empty()) {
+          continue;
+        }
+
+        // Quick bounds check - skip if prefix is beyond this file's range.
+        // For sorted input, we can break early since all subsequent prefixes
+        // will also be beyond this file's range.
+        if (file_largest_key.compare(prefix) < 0) {
+          if (sorted_input) {
+            break;  // All remaining prefixes are beyond this file
+          }
+          continue;
+        }
+
+        // Lazy tombstone access - only dereference when needed
+        std::unique_ptr<std::unordered_set<std::string>>& tombstones_ptr =
+            tombstoned_keys[i];
+
+        // Forward scan optimization for sorted input:
+        // If the iterator is already positioned and valid, check if we can
+        // skip the seek. The iterator is at a key > previous_prefix, and
+        // current prefix >= previous_prefix (sorted). We need to seek only if
+        // the current iterator position is before the target prefix.
+        bool need_seek = true;
+        if (sorted_input && iter_positioned && iter->Valid()) {
+          Slice current_key = ExtractUserKey(iter->key());
+          // If current key >= prefix, check if it starts with prefix
+          if (current_key.compare(prefix) >= 0) {
+            // Check if current key has the target prefix
+            if (current_key.size() >= prefix.size() &&
+                memcmp(current_key.data(), prefix.data(), prefix.size()) == 0) {
+              // Iterator is already at a key with our prefix - no seek needed
+              need_seek = false;
+            } else {
+              // Current key is past our prefix - no keys with this prefix exist
+              // in this file (for sorted input, we've already passed them)
+              iter_positioned = true;
+              continue;
+            }
+          }
+          // If current key < prefix, we need to seek forward
+        }
+
+        if (need_seek) {
+          InternalKey seek_key(prefix, kMaxSequenceNumber, kValueTypeForSeek);
+          iter->Seek(seek_key.Encode());
+        }
+        iter_positioned = true;
+
+        // Scan through keys with this prefix
+        while (iter->Valid() && iter->status().ok()) {
+          Slice internal_key = iter->key();
+          Slice user_key = ExtractUserKey(internal_key);
+
+          // Check if this key still has the target prefix
+          if (user_key.size() < prefix.size() ||
+              memcmp(user_key.data(), prefix.data(), prefix.size()) != 0) {
+            break;  // Moved past keys with this prefix
+          }
+
+          // Check if this key was already marked as deleted. This handles:
+          // 1. Within this file: A DELETE with a higher sequence number shadows
+          //    a PUT with a lower sequence number.
+          // 2. Across levels: A DELETE in a newer level (memtable, earlier SST
+          //    file, or higher level) shadows a PUT in this older level.
+          //    The tombstoned_keys vector accumulates deleted keys as we
+          //    traverse from newest to oldest.
+          if (tombstones_ptr &&
+              tombstones_ptr->count(user_key.ToString()) > 0) {
+            iter->Next();
+            continue;
+          }
+
+          ValueType type = ExtractValueType(internal_key);
+          if (type == kTypeValue || type == kTypeBlobIndex ||
+              type == kTypeWideColumnEntity || type == kTypeMerge ||
+              type == kTypeValuePreferredSeqno) {
+            prefix_exists[i] = true;
+            prefixes_remaining--;
+            // For sorted input, advance past this prefix's keys so the iterator
+            // is positioned for the next prefix
+            if (sorted_input) {
+              while (iter->Valid()) {
+                Slice next_key = ExtractUserKey(iter->key());
+                if (next_key.size() < prefix.size() ||
+                    memcmp(next_key.data(), prefix.data(), prefix.size()) !=
+                        0) {
+                  break;
+                }
+                iter->Next();
+              }
+            }
+            break;  // Found for this prefix, move to next
+          }
+
+          // Point deletion - record for cross-level shadowing
+          // Note: Range deletions (kTypeRangeDeletion) are NOT tracked
+          // Lazy allocation: only create the set when we actually see a
+          // tombstone. String allocation happens here only when we actually
+          // have a tombstone to record.
+          if (!tombstones_ptr) {
+            tombstones_ptr =
+                std::make_unique<std::unordered_set<std::string>>();
+          }
+          tombstones_ptr->emplace(user_key.data(), user_key.size());
+          iter->Next();
+        }
+
+        // Check for iterator errors after processing this prefix.
+        // If there was an I/O error, record it in statuses[i] if provided.
+        if (!iter->status().ok() && statuses && statuses[i].ok()) {
+          statuses[i] = iter->status();
+        }
+      }
+
+      delete iter;
+    }
+  }
+
+  // Return how many prefixes were newly found in SST files
+  return initial_pending - prefixes_remaining;
+}
+
 #ifdef USE_COROUTINES
 Status Version::ProcessBatch(
     const ReadOptions& read_options, FilePickerMultiGet* batch,

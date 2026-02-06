@@ -674,6 +674,59 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_key_may_exist_cf(
     size_t key_len, char** value, size_t* val_len, const char* timestamp,
     size_t timestamp_len, unsigned char* value_found);
 
+// Batch prefix existence check using default column family.
+// For each prefix, determines if ANY key with that prefix exists in the DB.
+// This provides a definitive answer (1 if exists, 0 if not).
+//
+// Performance notes:
+// - Configure prefix_extractor for optimal filter (Bloom/Ribbon) utilization.
+// - Pass sorted_input=1 if prefixes are pre-sorted for best performance.
+// - Creates one iterator per SST file (not per prefix) for efficiency.
+//
+// Parameters:
+// - db: The database instance
+// - options: Read options (note: snapshot option is ignored)
+// - num_prefixes: Number of prefixes to check
+// - prefixes_list: Array of prefix pointers
+// - prefixes_list_sizes: Array of prefix sizes
+// - prefix_exists: Output array (size = num_prefixes). Each entry will be
+//                  set to 1 if a key with the prefix exists, 0 if it doesn't.
+//                  Must be pre-allocated by the caller.
+// - errs: Output array of error strings (size = num_prefixes). Set to NULL on
+//         success, or a malloc'd error string on failure. Caller must free
+//         non-NULL entries. Pass NULL to ignore errors.
+// - sorted_input: If 1, indicates prefixes are pre-sorted, enabling forward
+//                 scan and early termination optimizations.
+//
+// Limitations:
+// - Range deletions (DeleteRange) are NOT fully supported.
+// - ReadOptions::snapshot is not respected; always reads latest data.
+//
+// Edge cases:
+// - Empty prefixes (size = 0) return 0 with no error.
+// - If num_prefixes is 0, returns immediately with no changes.
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_prefix_exists(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, char** errs, unsigned char sorted_input);
+
+// Batch prefix existence check for a specific column family.
+// See rocksdb_multi_prefix_exists for details.
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* prefix_exists, char** errs, unsigned char sorted_input);
+
+// Optimized batch prefix existence check using rocksdb_slice_t.
+// Same as rocksdb_multi_prefix_exists_cf but avoids string copies
+// by using pre-constructed Slice objects.
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_prefix_exists_cf_slice(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const rocksdb_slice_t* prefixes, unsigned char* prefix_exists, char** errs,
+    unsigned char sorted_input);
+
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options);
 

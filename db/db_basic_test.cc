@@ -5474,6 +5474,1520 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                         ::testing::Values(std::make_tuple(true, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
+
+class DBMultiPrefixExistsTest : public DBTestBase {
+ public:
+  DBMultiPrefixExistsTest()
+      : DBTestBase("db_multi_prefix_exists_test", /*env_do_fsync=*/false) {}
+};
+
+TEST_F(DBMultiPrefixExistsTest, BasicFunctionality) {
+  // Set up prefix extractor and bloom filter
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  // Write some keys with different prefixes
+  ASSERT_OK(Put("foo_key1", "value1"));
+  ASSERT_OK(Put("foo_key2", "value2"));
+  ASSERT_OK(Put("bar_key1", "value3"));
+  ASSERT_OK(Put("bar_key2", "value4"));
+  ASSERT_OK(Put("baz_key1", "value5"));
+
+  // Test MultiPrefixExists with vector API
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar"), Slice("xyz")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  ASSERT_EQ(results.size(), 3);
+  // Definitive semantics: foo and bar should exist, xyz should not
+  EXPECT_TRUE(results[0]);   // foo exists
+  EXPECT_TRUE(results[1]);   // bar exists
+  EXPECT_FALSE(results[2]);  // xyz does NOT exist
+
+  // Test with C-style array API
+  Slice prefix_array[3] = {Slice("foo"), Slice("bar"), Slice("baz")};
+  bool results_array[3] = {false, false, false};
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 3,
+                         prefix_array, results_array);
+
+  EXPECT_TRUE(results_array[0]);  // foo
+  EXPECT_TRUE(results_array[1]);  // bar
+  EXPECT_TRUE(results_array[2]);  // baz
+
+  // Flush to SST and test again
+  ASSERT_OK(Flush());
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 3,
+                         prefix_array, results_array);
+
+  // All three prefixes have data, so they should exist
+  EXPECT_TRUE(results_array[0]);  // foo
+  EXPECT_TRUE(results_array[1]);  // bar
+  EXPECT_TRUE(results_array[2]);  // baz
+}
+
+TEST_F(DBMultiPrefixExistsTest, EmptyPrefixes) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+
+  DestroyAndReopen(options);
+
+  // Test with empty input vector
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), std::vector<Slice>());
+  EXPECT_TRUE(results.empty());
+
+  // Test with zero-length array
+  bool empty_results[1];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 0, nullptr,
+                         empty_results);
+  // Should not crash
+
+  // Test with empty prefix slice (size = 0)
+  // Empty prefixes should return false, not match everything
+  ASSERT_OK(Put("foo_key1", "value1"));
+  std::vector<Slice> prefixes_with_empty = {Slice("foo"), Slice(""),
+                                            Slice("bar")};
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes_with_empty);
+  EXPECT_EQ(results.size(), 3);
+  EXPECT_TRUE(results[0]);   // foo exists
+  EXPECT_FALSE(results[1]);  // empty prefix returns false
+  EXPECT_FALSE(results[2]);  // bar doesn't exist
+}
+
+TEST_F(DBMultiPrefixExistsTest, NoPrefixExtractor) {
+  Options options = CurrentOptions();
+  // No prefix extractor set
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo_key1", "value1"));
+
+  // Without prefix extractor, should still find the key via seek
+  std::vector<Slice> prefixes = {Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_EQ(results.size(), 1);
+  EXPECT_TRUE(results[0]);  // foo exists (found via seek)
+}
+
+TEST_F(DBMultiPrefixExistsTest, LargeBatch) {
+  // Test with a large number of prefixes (600) to verify the implementation
+  // handles large batches correctly. Tests data split across memtable and SST.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+
+  DestroyAndReopen(options);
+
+  // Write 250 keys with different prefixes (every other prefix exists)
+  for (int i = 0; i < 500; i += 2) {
+    std::string key = "p" + std::to_string(i) + "__key";
+    ASSERT_OK(Put(key, "value"));
+  }
+
+  // Flush some data to SST to test across memtable and SST
+  ASSERT_OK(Flush());
+
+  // Write another 50 keys in memtable
+  for (int i = 500; i < 600; i += 2) {
+    std::string key = "p" + std::to_string(i) + "__key";
+    ASSERT_OK(Put(key, "value"));
+  }
+
+  // Test with 600 prefixes
+  std::vector<Slice> prefixes;
+  std::vector<std::string> prefix_storage;
+  prefix_storage.reserve(600);
+  prefixes.reserve(600);
+
+  for (int i = 0; i < 600; i++) {
+    prefix_storage.push_back("p" + std::to_string(i) + "__");
+    prefixes.push_back(Slice(prefix_storage.back()));
+  }
+
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_EQ(results.size(), 600);
+
+  // Verify results - even indices should be true (exist), odd should be false
+  int true_count = 0;
+  int false_count = 0;
+  for (int i = 0; i < 600; i++) {
+    if (i % 2 == 0) {
+      EXPECT_TRUE(results[i]) << "Prefix p" << i << "__ should exist";
+      if (results[i]) true_count++;
+    } else {
+      EXPECT_FALSE(results[i]) << "Prefix p" << i << "__ should NOT exist";
+      if (!results[i]) false_count++;
+    }
+  }
+
+  // Sanity check: should have 300 true and 300 false
+  EXPECT_EQ(true_count, 300);
+  EXPECT_EQ(false_count, 300);
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInput) {
+  // Test the sorted_input optimization
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+
+  DestroyAndReopen(options);
+
+  // Write keys with different prefixes
+  ASSERT_OK(Put("aaa_key1", "value1"));
+  ASSERT_OK(Put("bbb_key2", "value2"));
+  ASSERT_OK(Put("ccc_key3", "value3"));
+  ASSERT_OK(Put("ddd_key4", "value4"));
+
+  // Test with SORTED prefixes (ascending order) and sorted_input=true
+  Slice sorted_prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                             Slice("ddd"), Slice("zzz")};
+  bool sorted_results[5];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 5,
+                         sorted_prefixes, sorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(sorted_results[0]);   // aaa exists
+  EXPECT_TRUE(sorted_results[1]);   // bbb exists
+  EXPECT_TRUE(sorted_results[2]);   // ccc exists
+  EXPECT_TRUE(sorted_results[3]);   // ddd exists
+  EXPECT_FALSE(sorted_results[4]);  // zzz does NOT exist
+
+  // Test with UNSORTED prefixes and sorted_input=false
+  Slice unsorted_prefixes[] = {Slice("ddd"), Slice("aaa"), Slice("zzz"),
+                               Slice("bbb"), Slice("ccc")};
+  bool unsorted_results[5];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 5,
+                         unsorted_prefixes, unsorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_TRUE(unsorted_results[0]);   // ddd exists
+  EXPECT_TRUE(unsorted_results[1]);   // aaa exists
+  EXPECT_FALSE(unsorted_results[2]);  // zzz does NOT exist
+  EXPECT_TRUE(unsorted_results[3]);   // bbb exists
+  EXPECT_TRUE(unsorted_results[4]);   // ccc exists
+
+  // Test the convenience wrapper with sorted_input
+  std::vector<Slice> vec_prefixes = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
+  std::vector<bool> vec_results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), vec_prefixes,
+      /*sorted_input=*/true);
+
+  EXPECT_EQ(vec_results.size(), 3);
+  EXPECT_TRUE(vec_results[0]);  // aaa exists
+  EXPECT_TRUE(vec_results[1]);  // bbb exists
+  EXPECT_TRUE(vec_results[2]);  // ccc exists
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInputWithSSTFiles) {
+  // Test sorted_input optimization with data in SST files.
+  // This exercises the early-break optimization when prefixes exceed file
+  // bounds.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Write keys and flush to create SST files
+  ASSERT_OK(Put("aaa_key1", "value1"));
+  ASSERT_OK(Put("bbb_key2", "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("ccc_key3", "value3"));
+  ASSERT_OK(Put("ddd_key4", "value4"));
+  ASSERT_OK(Flush());
+
+  // Verify we have SST files
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  // Test with SORTED prefixes - should use early break optimization
+  Slice sorted_prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                             Slice("ddd"), Slice("eee"), Slice("zzz")};
+  bool sorted_results[6];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 6,
+                         sorted_prefixes, sorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(sorted_results[0]);   // aaa exists
+  EXPECT_TRUE(sorted_results[1]);   // bbb exists
+  EXPECT_TRUE(sorted_results[2]);   // ccc exists
+  EXPECT_TRUE(sorted_results[3]);   // ddd exists
+  EXPECT_FALSE(sorted_results[4]);  // eee does NOT exist
+  EXPECT_FALSE(sorted_results[5]);  // zzz does NOT exist
+
+  // Test with UNSORTED prefixes - same results, different code path
+  Slice unsorted_prefixes[] = {Slice("zzz"), Slice("ccc"), Slice("aaa"),
+                               Slice("eee"), Slice("ddd"), Slice("bbb")};
+  bool unsorted_results[6];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 6,
+                         unsorted_prefixes, unsorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_FALSE(unsorted_results[0]);  // zzz does NOT exist
+  EXPECT_TRUE(unsorted_results[1]);   // ccc exists
+  EXPECT_TRUE(unsorted_results[2]);   // aaa exists
+  EXPECT_FALSE(unsorted_results[3]);  // eee does NOT exist
+  EXPECT_TRUE(unsorted_results[4]);   // ddd exists
+  EXPECT_TRUE(unsorted_results[5]);   // bbb exists
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInputWithMultipleLevels) {
+  // Test sorted_input optimization with data across multiple levels (L0, L1+).
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+
+  DestroyAndReopen(options);
+
+  // Create data in L2
+  ASSERT_OK(Put("aaa_L2", "value_L2"));
+  ASSERT_OK(Put("ddd_L2", "value_L2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  // Create data in L1
+  ASSERT_OK(Put("bbb_L1", "value_L1"));
+  ASSERT_OK(Put("eee_L1", "value_L1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // Create data in L0
+  ASSERT_OK(Put("ccc_L0", "value_L0"));
+  ASSERT_OK(Put("fff_L0", "value_L0"));
+  ASSERT_OK(Flush());
+
+  // Verify level distribution
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // Test with SORTED prefixes across all levels
+  Slice sorted_prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                             Slice("ddd"), Slice("eee"), Slice("fff"),
+                             Slice("ggg"), Slice("zzz")};
+  bool sorted_results[8];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 8,
+                         sorted_prefixes, sorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(sorted_results[0]);   // aaa exists (L2)
+  EXPECT_TRUE(sorted_results[1]);   // bbb exists (L1)
+  EXPECT_TRUE(sorted_results[2]);   // ccc exists (L0)
+  EXPECT_TRUE(sorted_results[3]);   // ddd exists (L2)
+  EXPECT_TRUE(sorted_results[4]);   // eee exists (L1)
+  EXPECT_TRUE(sorted_results[5]);   // fff exists (L0)
+  EXPECT_FALSE(sorted_results[6]);  // ggg does NOT exist
+  EXPECT_FALSE(sorted_results[7]);  // zzz does NOT exist
+
+  // Test with UNSORTED prefixes
+  Slice unsorted_prefixes[] = {Slice("fff"), Slice("aaa"), Slice("ggg"),
+                               Slice("ccc"), Slice("zzz"), Slice("bbb"),
+                               Slice("eee"), Slice("ddd")};
+  bool unsorted_results[8];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 8,
+                         unsorted_prefixes, unsorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_TRUE(unsorted_results[0]);   // fff exists (L0)
+  EXPECT_TRUE(unsorted_results[1]);   // aaa exists (L2)
+  EXPECT_FALSE(unsorted_results[2]);  // ggg does NOT exist
+  EXPECT_TRUE(unsorted_results[3]);   // ccc exists (L0)
+  EXPECT_FALSE(unsorted_results[4]);  // zzz does NOT exist
+  EXPECT_TRUE(unsorted_results[5]);   // bbb exists (L1)
+  EXPECT_TRUE(unsorted_results[6]);   // eee exists (L1)
+  EXPECT_TRUE(unsorted_results[7]);   // ddd exists (L2)
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInputWithDeletions) {
+  // Test sorted_input with cross-level deletion shadowing.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Write keys to L1
+  ASSERT_OK(Put("aaa_key1", "value1"));
+  ASSERT_OK(Put("bbb_key2", "value2"));
+  ASSERT_OK(Put("ccc_key3", "value3"));
+  ASSERT_OK(Put("ddd_key4", "value4"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // Delete some keys in L0 (newer level)
+  ASSERT_OK(Delete("bbb_key2"));  // Delete bbb
+  ASSERT_OK(Delete("ddd_key4"));  // Delete ddd
+  ASSERT_OK(Flush());
+
+  // Test with SORTED prefixes
+  Slice sorted_prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                             Slice("ddd")};
+  bool sorted_results[4];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 4,
+                         sorted_prefixes, sorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(sorted_results[0]);   // aaa exists (not deleted)
+  EXPECT_FALSE(sorted_results[1]);  // bbb deleted
+  EXPECT_TRUE(sorted_results[2]);   // ccc exists (not deleted)
+  EXPECT_FALSE(sorted_results[3]);  // ddd deleted
+
+  // Test with UNSORTED prefixes - same results expected
+  Slice unsorted_prefixes[] = {Slice("ddd"), Slice("aaa"), Slice("ccc"),
+                               Slice("bbb")};
+  bool unsorted_results[4];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 4,
+                         unsorted_prefixes, unsorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_FALSE(unsorted_results[0]);  // ddd deleted
+  EXPECT_TRUE(unsorted_results[1]);   // aaa exists
+  EXPECT_TRUE(unsorted_results[2]);   // ccc exists
+  EXPECT_FALSE(unsorted_results[3]);  // bbb deleted
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInputWithImmutableMemtables) {
+  // Test sorted_input optimization with immutable memtables.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.write_buffer_size = 1024;  // Small buffer to force immutable
+  options.min_write_buffer_number_to_merge = 3;  // Keep immutables around
+  options.max_write_buffer_number = 4;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Write to create first memtable
+  ASSERT_OK(Put("aaa_1", "val"));
+  ASSERT_OK(Put("bbb_1", "val"));
+
+  // Force switch to immutable
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // Write to create second memtable
+  ASSERT_OK(Put("ccc_2", "val"));
+  ASSERT_OK(Put("ddd_2", "val"));
+
+  // Force switch to immutable
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // Write to active memtable
+  ASSERT_OK(Put("eee_3", "val"));
+  ASSERT_OK(Put("fff_3", "val"));
+
+  // Test with SORTED prefixes
+  Slice sorted_prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                             Slice("ddd"), Slice("eee"), Slice("fff"),
+                             Slice("ggg")};
+  bool sorted_results[7];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 7,
+                         sorted_prefixes, sorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(sorted_results[0]);   // aaa exists (immutable 1)
+  EXPECT_TRUE(sorted_results[1]);   // bbb exists (immutable 1)
+  EXPECT_TRUE(sorted_results[2]);   // ccc exists (immutable 2)
+  EXPECT_TRUE(sorted_results[3]);   // ddd exists (immutable 2)
+  EXPECT_TRUE(sorted_results[4]);   // eee exists (active memtable)
+  EXPECT_TRUE(sorted_results[5]);   // fff exists (active memtable)
+  EXPECT_FALSE(sorted_results[6]);  // ggg does NOT exist
+
+  // Test with UNSORTED prefixes
+  Slice unsorted_prefixes[] = {Slice("fff"), Slice("bbb"), Slice("ggg"),
+                               Slice("ddd"), Slice("aaa"), Slice("eee"),
+                               Slice("ccc")};
+  bool unsorted_results[7];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 7,
+                         unsorted_prefixes, unsorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_TRUE(unsorted_results[0]);   // fff exists
+  EXPECT_TRUE(unsorted_results[1]);   // bbb exists
+  EXPECT_FALSE(unsorted_results[2]);  // ggg does NOT exist
+  EXPECT_TRUE(unsorted_results[3]);   // ddd exists
+  EXPECT_TRUE(unsorted_results[4]);   // aaa exists
+  EXPECT_TRUE(unsorted_results[5]);   // eee exists
+  EXPECT_TRUE(unsorted_results[6]);   // ccc exists
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInputForwardScanOptimization) {
+  // Test that forward scan optimization works correctly when consecutive
+  // prefixes share data proximity.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create keys with consecutive prefixes to test forward scan
+  ASSERT_OK(Put("aa_key1", "val"));
+  ASSERT_OK(Put("ab_key2", "val"));
+  ASSERT_OK(Put("ac_key3", "val"));
+  ASSERT_OK(Put("ad_key4", "val"));
+  ASSERT_OK(Put("ae_key5", "val"));
+  ASSERT_OK(Flush());
+
+  // Test with tightly sorted prefixes - forward scan should skip seeks
+  Slice sorted_prefixes[] = {Slice("aa"), Slice("ab"), Slice("ac"), Slice("ad"),
+                             Slice("ae"), Slice("af"), Slice("ag")};
+  bool sorted_results[7];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 7,
+                         sorted_prefixes, sorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(sorted_results[0]);   // aa exists
+  EXPECT_TRUE(sorted_results[1]);   // ab exists
+  EXPECT_TRUE(sorted_results[2]);   // ac exists
+  EXPECT_TRUE(sorted_results[3]);   // ad exists
+  EXPECT_TRUE(sorted_results[4]);   // ae exists
+  EXPECT_FALSE(sorted_results[5]);  // af does NOT exist
+  EXPECT_FALSE(sorted_results[6]);  // ag does NOT exist
+
+  // Test with unsorted - must seek for each
+  Slice unsorted_prefixes[] = {Slice("ae"), Slice("ab"), Slice("ag"),
+                               Slice("ac"), Slice("af"), Slice("aa"),
+                               Slice("ad")};
+  bool unsorted_results[7];
+
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 7,
+                         unsorted_prefixes, unsorted_results,
+                         /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_TRUE(unsorted_results[0]);   // ae exists
+  EXPECT_TRUE(unsorted_results[1]);   // ab exists
+  EXPECT_FALSE(unsorted_results[2]);  // ag does NOT exist
+  EXPECT_TRUE(unsorted_results[3]);   // ac exists
+  EXPECT_FALSE(unsorted_results[4]);  // af does NOT exist
+  EXPECT_TRUE(unsorted_results[5]);   // aa exists
+  EXPECT_TRUE(unsorted_results[6]);   // ad exists
+}
+
+TEST_F(DBMultiPrefixExistsTest, MultipleKeysWithSamePrefix) {
+  // Test that we correctly find prefixes when multiple keys exist,
+  // including partial deletion scenarios.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Write many keys with same prefix
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("aaa_key" + std::to_string(i), "value"));
+  }
+
+  // Delete the first few but not all
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(Delete("aaa_key" + std::to_string(i)));
+  }
+
+  std::vector<Slice> prefixes = {Slice("aaa")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  // Should still find the prefix since keys 5-9 exist
+  EXPECT_TRUE(results[0]);
+
+  // Now delete all remaining keys
+  for (int i = 5; i < 10; i++) {
+    ASSERT_OK(Delete("aaa_key" + std::to_string(i)));
+  }
+
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+
+  // All keys deleted, prefix should not exist
+  EXPECT_FALSE(results[0]);
+
+  // Test scenario: flush, then write new key and delete it in memtable
+  // This tests that newly written and deleted keys in memtable are handled
+  // correctly when there's unrelated data in SST
+  ASSERT_OK(Put("bbb_key1", "value"));  // Different prefix to keep in SST
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("aaa_key99", "value"));
+  ASSERT_OK(Delete("aaa_key99"));
+
+  prefixes = {Slice("aaa"), Slice("bbb")};
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+
+  EXPECT_FALSE(results[0]);  // aaa should not exist (written and deleted)
+  EXPECT_TRUE(results[1]);   // bbb exists in SST
+}
+
+TEST_F(DBMultiPrefixExistsTest, CrossLevelDeletionShadowing) {
+  // Critical test: Verify that a deletion in a newer level properly shadows
+  // a PUT in an older level. This is the cross-level deletion semantics test.
+  //
+  // Scenario:
+  //   Memtable: DELETE(foo_key1)  <- newer
+  //   SST:      PUT(foo_key1)     <- older
+  //
+  // The key foo_key1 should be considered deleted, so if it's the only key
+  // with prefix "foo", the prefix should NOT exist.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  // Step 1: Put key and flush to SST
+  ASSERT_OK(Put("foo_key1", "value1"));
+  ASSERT_OK(Flush());
+
+  // Verify prefix exists (in SST)
+  std::vector<Slice> prefixes = {Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+  EXPECT_TRUE(results[0]) << "foo should exist in SST";
+
+  // Step 2: Delete the key in memtable (newer than SST)
+  ASSERT_OK(Delete("foo_key1"));
+
+  // Step 3: Check prefix existence
+  // The DELETE in memtable should shadow the PUT in SST
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_FALSE(results[0])
+      << "foo should NOT exist - DELETE in memtable shadows PUT in SST";
+
+  // Step 4: Verify with another key that the basic functionality still works
+  ASSERT_OK(Put("bar_key1", "value1"));
+  prefixes = {Slice("foo"), Slice("bar")};
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_FALSE(results[0]) << "foo should still not exist";
+  EXPECT_TRUE(results[1]) << "bar should exist";
+}
+
+TEST_F(DBMultiPrefixExistsTest, CrossFileDeletionInL0) {
+  // Test that deletions in newer L0 files shadow PUTs in older L0 files.
+  // L0 files can overlap, and newer files take precedence.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.level0_file_num_compaction_trigger = 10;  // Don't auto-compact
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  // Create first L0 file with PUT
+  ASSERT_OK(Put("foo_key1", "value1"));
+  ASSERT_OK(Flush());  // L0 file 1: PUT(foo_key1)
+
+  // Create second L0 file with DELETE (newer)
+  ASSERT_OK(Delete("foo_key1"));
+  ASSERT_OK(Flush());  // L0 file 2: DELETE(foo_key1) - this is newer
+
+  // The DELETE in the newer L0 file should shadow the PUT in the older file
+  std::vector<Slice> prefixes = {Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+  EXPECT_FALSE(results[0])
+      << "foo should NOT exist - DELETE in newer L0 shadows PUT in older L0";
+
+  // Add another key to verify basic functionality
+  ASSERT_OK(Put("foo_key2", "value2"));
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0]) << "foo should exist now - foo_key2 is not deleted";
+}
+
+TEST_F(DBMultiPrefixExistsTest, SingleDelete) {
+  // Test that SingleDelete is handled correctly.
+  // SingleDelete is different from Delete - it can only delete a single PUT.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Put a key and then SingleDelete it
+  ASSERT_OK(Put("foo_key1", "value1"));
+  ASSERT_OK(SingleDelete("foo_key1"));
+
+  std::vector<Slice> prefixes = {Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  // SingleDelete should make the prefix not exist
+  EXPECT_FALSE(results[0]) << "foo should not exist after SingleDelete";
+
+  // Test SingleDelete in SST shadowing PUT in older SST
+  ASSERT_OK(Put("bar_key1", "value1"));
+  ASSERT_OK(Flush());  // SST 1: PUT(bar_key1)
+
+  ASSERT_OK(SingleDelete("bar_key1"));
+  ASSERT_OK(Flush());  // SST 2: SingleDelete(bar_key1)
+
+  prefixes = {Slice("bar")};
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_FALSE(results[0])
+      << "bar should not exist - SingleDelete shadows PUT across SSTs";
+}
+
+TEST_F(DBMultiPrefixExistsTest, MergeOperations) {
+  // Test that Merge operations are detected as "prefix exists".
+  // kTypeMerge should be treated as a valid value (prefix exists).
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  DestroyAndReopen(options);
+
+  // Write a merge operand
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo_key1", "value1"));
+
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "foo should exist (merge operand)";
+  EXPECT_FALSE(results[1]) << "bar should not exist";
+
+  // Test merge after flush
+  ASSERT_OK(Flush());
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0]) << "foo should exist in SST (merge operand)";
+
+  // Test merge chain: multiple merges
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo_key1", "value2"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo_key1", "value3"));
+
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0]) << "foo should exist (merge chain)";
+}
+
+TEST_F(DBMultiPrefixExistsTest, ImmutableMemtables) {
+  // Test with data in immutable memtables (not yet flushed to SST).
+  // This exercises the MemTableListVersion::MultiPrefixExists path.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;  // Keep immutables around
+  // Disable auto flush by setting a large buffer size
+  options.write_buffer_size = 64 * 1024 * 1024;  // 64MB
+
+  DestroyAndReopen(options);
+
+  // Write to first memtable
+  ASSERT_OK(Put("aaa_key1", "value1"));
+  ASSERT_OK(Put("bbb_key1", "value2"));
+
+  // Force switch to immutable memtable (but don't flush)
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // Write to second memtable
+  ASSERT_OK(Put("ccc_key1", "value3"));
+  ASSERT_OK(Put("ddd_key1", "value4"));
+
+  // Force switch to another immutable memtable
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // Write to current (mutable) memtable
+  ASSERT_OK(Put("eee_key1", "value5"));
+
+  // Now we have:
+  // - Mutable memtable: eee_key1
+  // - Immutable memtable 1: ccc_key1, ddd_key1
+  // - Immutable memtable 2: aaa_key1, bbb_key1
+
+  std::vector<Slice> prefixes = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                                 Slice("ddd"), Slice("eee"), Slice("fff")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "aaa should exist (immutable memtable)";
+  EXPECT_TRUE(results[1]) << "bbb should exist (immutable memtable)";
+  EXPECT_TRUE(results[2]) << "ccc should exist (immutable memtable)";
+  EXPECT_TRUE(results[3]) << "ddd should exist (immutable memtable)";
+  EXPECT_TRUE(results[4]) << "eee should exist (mutable memtable)";
+  EXPECT_FALSE(results[5]) << "fff should not exist";
+
+  // Test deletion in mutable memtable shadows PUT in immutable memtable
+  ASSERT_OK(Delete("aaa_key1"));
+
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+
+  EXPECT_FALSE(results[0])
+      << "aaa should not exist (deleted in mutable, was in immutable)";
+  EXPECT_TRUE(results[1]) << "bbb should still exist";
+}
+
+TEST_F(DBMultiPrefixExistsTest, DataInL1AndBeyond) {
+  // Test with data compacted to L1 and beyond.
+  // This ensures the Version::MultiPrefixExists works across all levels.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.num_levels = 4;
+  options.level0_file_num_compaction_trigger = 2;
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  // Write data and flush multiple times to trigger compaction to L1+
+  for (int round = 0; round < 4; round++) {
+    for (int i = 0; i < 10; i++) {
+      std::string key =
+          "aa" + std::to_string(round) + "_key" + std::to_string(i);
+      ASSERT_OK(Put(key, "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Force compaction to move data to L1
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify data is in L1 or below
+  std::string prop;
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level0", &prop));
+  EXPECT_EQ(prop, "0") << "L0 should be empty after compaction";
+
+  // Test prefix existence in compacted data
+  std::vector<Slice> prefixes = {Slice("aa0"), Slice("aa1"), Slice("aa2"),
+                                 Slice("aa3"), Slice("xyz")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "aa0 should exist in L1+";
+  EXPECT_TRUE(results[1]) << "aa1 should exist in L1+";
+  EXPECT_TRUE(results[2]) << "aa2 should exist in L1+";
+  EXPECT_TRUE(results[3]) << "aa3 should exist in L1+";
+  EXPECT_FALSE(results[4]) << "xyz should not exist";
+
+  // Test deletion across levels
+  ASSERT_OK(Delete("aa0_key0"));
+  ASSERT_OK(Delete("aa0_key1"));
+  // The delete is in memtable, PUT is in L1+
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  // aa0 should still exist because we only deleted 2 of 10 keys
+  EXPECT_TRUE(results[0]) << "aa0 should still exist (partial deletion)";
+}
+
+TEST_F(DBMultiPrefixExistsTest, PrefixLongerThanKeys) {
+  // Test edge case where prefix is longer than any existing key.
+  Options options = CurrentOptions();
+  // No prefix extractor - use total order seek
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "value1"));
+  ASSERT_OK(Put("ab", "value2"));
+  ASSERT_OK(Put("abc", "value3"));
+
+  // Prefix longer than all keys - should not find anything
+  std::vector<Slice> prefixes = {Slice("abcdefghij"), Slice("a"), Slice("ab"),
+                                 Slice("abc"), Slice("abcd")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_FALSE(results[0]) << "abcdefghij is longer than any key";
+  EXPECT_TRUE(results[1]) << "a matches key 'a'";
+  EXPECT_TRUE(results[2]) << "ab matches keys 'ab' and 'abc'";
+  EXPECT_TRUE(results[3]) << "abc matches key 'abc'";
+  EXPECT_FALSE(results[4]) << "abcd has no matching keys";
+}
+
+TEST_F(DBMultiPrefixExistsTest, BinaryPrefixes) {
+  // Test with binary/non-printable prefixes to ensure robustness.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  // Create binary keys with null bytes and high bytes
+  std::string key1 = std::string("\x00\x01\x02", 3) + "_key1";
+  std::string key2 = std::string("\xff\xfe\xfd", 3) + "_key2";
+  std::string key3 = std::string("a\x00b", 3) + "_key3";  // Embedded null
+
+  ASSERT_OK(Put(key1, "value1"));
+  ASSERT_OK(Put(key2, "value2"));
+  ASSERT_OK(Put(key3, "value3"));
+
+  // Test with binary prefixes
+  std::string prefix1 = std::string("\x00\x01\x02", 3);
+  std::string prefix2 = std::string("\xff\xfe\xfd", 3);
+  std::string prefix3 = std::string("a\x00b", 3);
+  std::string prefix_not_exist = std::string("\x00\x00\x00", 3);
+
+  std::vector<Slice> prefixes = {Slice(prefix1), Slice(prefix2), Slice(prefix3),
+                                 Slice(prefix_not_exist)};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "Binary prefix \\x00\\x01\\x02 should exist";
+  EXPECT_TRUE(results[1]) << "Binary prefix \\xff\\xfe\\xfd should exist";
+  EXPECT_TRUE(results[2]) << "Binary prefix with embedded null should exist";
+  EXPECT_FALSE(results[3]) << "Binary prefix \\x00\\x00\\x00 should not exist";
+
+  // Test after flush
+  ASSERT_OK(Flush());
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0]);
+  EXPECT_TRUE(results[1]);
+  EXPECT_TRUE(results[2]);
+  EXPECT_FALSE(results[3]);
+}
+
+TEST_F(DBMultiPrefixExistsTest, NullColumnFamily) {
+  // Test that null column family is handled gracefully.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo_key1", "value1"));
+
+  Slice prefixes[] = {Slice("foo")};
+  bool results[1] = {true};  // Initialize to true to verify it's set to false
+
+  // Pass nullptr as column family
+  db_->MultiPrefixExists(ReadOptions(), nullptr, 1, prefixes, results);
+
+  EXPECT_FALSE(results[0]) << "Null CF should return false";
+}
+
+TEST_F(DBMultiPrefixExistsTest, SnapshotBehaviorDocumentation) {
+  // Document and test that ReadOptions::snapshot is ignored.
+  // This is a documented limitation - MultiPrefixExists always reads latest.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Put initial data
+  ASSERT_OK(Put("foo_key1", "value1"));
+
+  // Take a snapshot
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // Add more data after snapshot
+  ASSERT_OK(Put("bar_key1", "value2"));
+
+  // Delete original data after snapshot
+  ASSERT_OK(Delete("foo_key1"));
+
+  // Query with snapshot - but snapshot is IGNORED
+  ReadOptions read_opts;
+  read_opts.snapshot = snapshot;
+
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar")};
+  std::vector<bool> results =
+      db_->MultiPrefixExists(read_opts, db_->DefaultColumnFamily(), prefixes);
+
+  // Even though we pass a snapshot from before the delete and before bar,
+  // the API ignores snapshot and reads latest data:
+  // - foo was deleted (after snapshot), so should not exist
+  // - bar was added (after snapshot), so should exist
+  EXPECT_FALSE(results[0])
+      << "foo should not exist - snapshot is IGNORED, reads latest";
+  EXPECT_TRUE(results[1])
+      << "bar should exist - snapshot is IGNORED, reads latest";
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBMultiPrefixExistsTest, DeleteThenPutSameKey) {
+  // Test the sequence: PUT -> DELETE -> PUT for the same key.
+  // The final PUT should make the prefix exist.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Sequence: PUT, DELETE, PUT
+  ASSERT_OK(Put("foo_key1", "value1"));
+  ASSERT_OK(Delete("foo_key1"));
+  ASSERT_OK(Put("foo_key1", "value2"));
+
+  std::vector<Slice> prefixes = {Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "foo should exist - PUT after DELETE";
+
+  // Same test but with flush between operations
+  ASSERT_OK(Put("bar_key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("bar_key1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("bar_key1", "value2"));
+
+  prefixes = {Slice("bar")};
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0])
+      << "bar should exist - PUT in memtable after DELETE in SST";
+}
+
+TEST_F(DBMultiPrefixExistsTest, EmptyDatabase) {
+  // Test on a completely empty database.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Query without any writes
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar"), Slice("baz")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_FALSE(results[0]);
+  EXPECT_FALSE(results[1]);
+  EXPECT_FALSE(results[2]);
+}
+
+TEST_F(DBMultiPrefixExistsTest, ExactPrefixMatch) {
+  // Test where the key equals the prefix exactly (no suffix).
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  // Key is exactly the prefix
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(Put("bar_suffix", "value2"));
+
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar"), Slice("fo"),
+                                 Slice("fooo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "foo should exist - exact match";
+  EXPECT_TRUE(results[1]) << "bar should exist - bar_suffix starts with bar";
+  EXPECT_TRUE(results[2]) << "fo should exist - foo starts with fo";
+  EXPECT_FALSE(results[3])
+      << "fooo should not exist - foo doesn't start with fooo";
+}
+
+TEST_F(DBMultiPrefixExistsTest, BlobDBValues) {
+  // Test that kTypeBlobIndex values are detected as "prefix exists".
+  // When enable_blob_files is true, large values are stored in blob files
+  // and the LSM contains blob index entries (kTypeBlobIndex).
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;  // Store all values in blobs
+
+  DestroyAndReopen(options);
+
+  // Write a value that will be stored as a blob
+  ASSERT_OK(Put("foo_key1", "blob_value_data"));
+
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "foo should exist (blob index in memtable)";
+  EXPECT_FALSE(results[1]) << "bar should not exist";
+
+  // Flush to SST - blob index will be in SST file
+  ASSERT_OK(Flush());
+
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0]) << "foo should exist (blob index in SST)";
+  EXPECT_FALSE(results[1]) << "bar should not exist";
+
+  // Test deletion of blob value
+  ASSERT_OK(Delete("foo_key1"));
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_FALSE(results[0]) << "foo should not exist after delete";
+}
+
+TEST_F(DBMultiPrefixExistsTest, WideColumnEntities) {
+  // Test that kTypeWideColumnEntity values are detected as "prefix exists".
+  // Wide columns are stored with a special value type.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Write a wide column entity
+  WideColumns columns{{"col1", "value1"}, {"col2", "value2"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "foo_key1", columns));
+
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "foo should exist (wide column in memtable)";
+  EXPECT_FALSE(results[1]) << "bar should not exist";
+
+  // Flush to SST
+  ASSERT_OK(Flush());
+
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_TRUE(results[0]) << "foo should exist (wide column in SST)";
+
+  // Test deletion
+  ASSERT_OK(Delete("foo_key1"));
+  results = db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(),
+                                   prefixes);
+  EXPECT_FALSE(results[0]) << "foo should not exist after delete";
+}
+
+// NOTE: User-defined timestamps (UDT) are NOT currently supported by
+// MultiPrefixExists. The implementation would need to append a max timestamp
+// to the prefix when seeking, which requires significant changes to the
+// LookupKey construction in memtable.cc and version_set.cc.
+//
+// This is documented here as a known limitation. If UDT support is needed,
+// the implementation would need to:
+// 1. Detect if the column family uses UDT (check comparator->timestamp_size())
+// 2. Append max timestamp bytes to the prefix before creating LookupKey
+// 3. Handle timestamp stripping consistently across all levels
+//
+// For now, users should not use MultiPrefixExists with UDT-enabled column
+// families.
+
+TEST_F(DBMultiPrefixExistsTest, DuplicatePrefixes) {
+  // Test that duplicate prefixes in the input are handled correctly.
+  // Each occurrence should get the same result.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo_key1", "value1"));
+
+  // Input with duplicate prefixes
+  std::vector<Slice> prefixes = {Slice("foo"), Slice("bar"), Slice("foo"),
+                                 Slice("bar"), Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_TRUE(results[0]) << "foo[0] should exist";
+  EXPECT_FALSE(results[1]) << "bar[1] should not exist";
+  EXPECT_TRUE(results[2]) << "foo[2] should exist (duplicate)";
+  EXPECT_FALSE(results[3]) << "bar[3] should not exist (duplicate)";
+  EXPECT_TRUE(results[4]) << "foo[4] should exist (duplicate)";
+}
+
+TEST_F(DBMultiPrefixExistsTest, RangeDeletionLimitation) {
+  // Document and test the range deletion limitation.
+  // Range deletions (DeleteRange) are NOT handled - keys covered by range
+  // tombstones may incorrectly be reported as existing.
+  //
+  // This test documents the current behavior (which is a known limitation).
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+
+  DestroyAndReopen(options);
+
+  // Write a key and flush
+  ASSERT_OK(Put("foo_key1", "value1"));
+  ASSERT_OK(Flush());
+
+  // Create a range deletion that covers the key
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             "foo_aaa", "foo_zzz"));
+
+  // The key is covered by the range tombstone, so a regular Get would return
+  // NotFound. But MultiPrefixExists does NOT handle range deletions.
+  std::string value;
+  Status s = db_->Get(ReadOptions(), "foo_key1", &value);
+  EXPECT_TRUE(s.IsNotFound()) << "Regular Get should not find the key";
+
+  std::vector<Slice> prefixes = {Slice("foo")};
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  // KNOWN LIMITATION: MultiPrefixExists incorrectly reports the prefix exists
+  // because it doesn't process range deletions.
+  // This documents the current behavior - change this expectation if/when
+  // range deletion support is added.
+  EXPECT_TRUE(results[0])
+      << "KNOWN LIMITATION: foo incorrectly reported as existing "
+         "(range deletion not handled)";
+}
+
+TEST_F(DBMultiPrefixExistsTest, SSTPreFilterByBounds) {
+  // Test the SST file pre-filtering optimization: files should be skipped
+  // when no pending prefix could possibly be in the file's key range.
+  // This avoids expensive iterator creation for files that can't contain
+  // matching keys.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create SST file 1: keys aaa-bbb
+  ASSERT_OK(Put("aaa_key1", "value1"));
+  ASSERT_OK(Put("bbb_key1", "value2"));
+  ASSERT_OK(Flush());
+
+  // Create SST file 2: keys ddd-eee (gap: no ccc keys)
+  ASSERT_OK(Put("ddd_key1", "value3"));
+  ASSERT_OK(Put("eee_key1", "value4"));
+  ASSERT_OK(Flush());
+
+  // Create SST file 3: keys ggg-hhh (gap: no fff keys)
+  ASSERT_OK(Put("ggg_key1", "value5"));
+  ASSERT_OK(Put("hhh_key1", "value6"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(3, NumTableFilesAtLevel(0));
+
+  // Test 1: Query prefixes that are ONLY in file 3's range
+  // Files 1 and 2 should be skipped by pre-filtering
+  Slice prefixes1[] = {Slice("ggg"), Slice("hhh")};
+  bool results1[2];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 2,
+                         prefixes1, results1, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_TRUE(results1[0]);  // ggg exists
+  EXPECT_TRUE(results1[1]);  // hhh exists
+
+  // Test 2: Query prefixes in the gaps between files
+  // All files should be checked but pre-filter should skip when possible
+  Slice prefixes2[] = {Slice("ccc"), Slice("fff"), Slice("iii")};
+  bool results2[3];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 3,
+                         prefixes2, results2, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_FALSE(results2[0]);  // ccc does not exist (gap between file1 and
+                              // file2)
+  EXPECT_FALSE(results2[1]);  // fff does not exist (gap between file2 and
+                              // file3)
+  EXPECT_FALSE(results2[2]);  // iii does not exist (beyond file3)
+
+  // Test 3: Query prefix before all files
+  Slice prefixes3[] = {Slice("000")};
+  bool results3[1];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 1,
+                         prefixes3, results3, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_FALSE(results3[0]);  // 000 is before all files
+
+  // Test 4: Query prefix after all files
+  Slice prefixes4[] = {Slice("zzz")};
+  bool results4[1];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 1,
+                         prefixes4, results4, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_FALSE(results4[0]);  // zzz is after all files
+}
+
+TEST_F(DBMultiPrefixExistsTest, LevelBoundsSkipForL1Plus) {
+  // Test the level bounds skip optimization for L1+ (sorted levels):
+  // When sorted_input=true and the smallest pending prefix is beyond a level's
+  // largest key, the entire level should be skipped.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+
+  DestroyAndReopen(options);
+
+  // Create data in L2 with keys aaa-bbb
+  ASSERT_OK(Put("aaa_L2", "value_L2"));
+  ASSERT_OK(Put("bbb_L2", "value_L2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  // Create data in L1 with keys ccc-ddd
+  ASSERT_OK(Put("ccc_L1", "value_L1"));
+  ASSERT_OK(Put("ddd_L1", "value_L1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // Verify level distribution
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // Test 1: Query prefixes that are ALL beyond L2's range but within L1's range
+  // L2 should be skipped entirely due to level bounds optimization
+  Slice prefixes1[] = {Slice("ccc"), Slice("ddd")};
+  bool results1[2];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 2,
+                         prefixes1, results1, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_TRUE(results1[0]);  // ccc exists in L1
+  EXPECT_TRUE(results1[1]);  // ddd exists in L1
+
+  // Test 2: Query prefixes beyond ALL levels
+  // Both L1 and L2 should be skipped
+  Slice prefixes2[] = {Slice("eee"), Slice("fff"), Slice("ggg")};
+  bool results2[3];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 3,
+                         prefixes2, results2, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_FALSE(results2[0]);  // eee does not exist
+  EXPECT_FALSE(results2[1]);  // fff does not exist
+  EXPECT_FALSE(results2[2]);  // ggg does not exist
+
+  // Test 3: Query prefixes that span multiple levels
+  // Can't skip any level since prefixes span the range
+  Slice prefixes3[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"), Slice("ddd"),
+                       Slice("eee")};
+  bool results3[5];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 5,
+                         prefixes3, results3, /*statuses=*/nullptr,
+                         /*sorted_input=*/true);
+  EXPECT_TRUE(results3[0]);   // aaa exists in L2
+  EXPECT_TRUE(results3[1]);   // bbb exists in L2
+  EXPECT_TRUE(results3[2]);   // ccc exists in L1
+  EXPECT_TRUE(results3[3]);   // ddd exists in L1
+  EXPECT_FALSE(results3[4]);  // eee does not exist
+}
+
+TEST_F(DBMultiPrefixExistsTest, EarlyTerminationWhenAllFound) {
+  // Test early termination optimization: once all prefixes are found,
+  // processing should stop without checking remaining files/levels.
+  // We can't directly verify this (no internal counters exposed), but we can
+  // verify correctness with a setup that would benefit from early termination.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+
+  DestroyAndReopen(options);
+
+  // Create data spread across many levels and files
+  // L2: file with aaa
+  ASSERT_OK(Put("aaa_L2", "value_L2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  // L1: file with bbb
+  ASSERT_OK(Put("bbb_L1", "value_L1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // L0: multiple files
+  ASSERT_OK(Put("ccc_L0_1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ddd_L0_2", "value2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("eee_L0_3", "value3"));
+  ASSERT_OK(Flush());
+
+  // Memtable: fff
+  ASSERT_OK(Put("fff_mem", "value_mem"));
+
+  ASSERT_EQ(3, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // Query just 2 prefixes that are found early (memtable and L0)
+  // Early termination should skip L1 and L2 entirely
+  Slice prefixes1[] = {Slice("fff"), Slice("eee")};
+  bool results1[2];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 2,
+                         prefixes1, results1, /*statuses=*/nullptr,
+                         /*sorted_input=*/false);
+  EXPECT_TRUE(results1[0]);  // fff found in memtable
+  EXPECT_TRUE(results1[1]);  // eee found in L0
+
+  // Query all prefixes to verify correctness
+  Slice prefixes2[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                       Slice("ddd"), Slice("eee"), Slice("fff")};
+  bool results2[6];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 6,
+                         prefixes2, results2, /*statuses=*/nullptr,
+                         /*sorted_input=*/false);
+  EXPECT_TRUE(results2[0]);  // aaa in L2
+  EXPECT_TRUE(results2[1]);  // bbb in L1
+  EXPECT_TRUE(results2[2]);  // ccc in L0
+  EXPECT_TRUE(results2[3]);  // ddd in L0
+  EXPECT_TRUE(results2[4]);  // eee in L0
+  EXPECT_TRUE(results2[5]);  // fff in memtable
+}
+
+TEST_F(DBMultiPrefixExistsTest, LazyTombstoneAllocationNoDeletions) {
+  // Test lazy tombstone allocation optimization: when there are no deletions,
+  // tombstone sets should never be allocated. We verify this indirectly by
+  // testing that performance is acceptable with a large number of prefixes
+  // and no deletions (would be slow if allocating sets eagerly).
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+
+  DestroyAndReopen(options);
+
+  // Write many keys with NO deletions
+  for (int i = 0; i < 1000; i++) {
+    std::string key = "p" + std::to_string(i) + "__key";
+    ASSERT_OK(Put(key, "value"));
+  }
+  ASSERT_OK(Flush());
+
+  // Query with many prefixes - no tombstone sets should be allocated
+  std::vector<Slice> prefixes;
+  std::vector<std::string> prefix_storage;
+  prefix_storage.reserve(1000);
+  prefixes.reserve(1000);
+
+  for (int i = 0; i < 1000; i++) {
+    prefix_storage.push_back("p" + std::to_string(i) + "__");
+    prefixes.push_back(Slice(prefix_storage.back()));
+  }
+
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_EQ(results.size(), 1000);
+  for (int i = 0; i < 1000; i++) {
+    EXPECT_TRUE(results[i]) << "Prefix p" << i << "__ should exist";
+  }
+}
+
+TEST_F(DBMultiPrefixExistsTest, LazyTombstoneAllocationWithDeletions) {
+  // Test that lazy tombstone allocation works correctly when deletions exist.
+  // Tombstone sets should only be allocated for prefixes that actually have
+  // deletions.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create data in SST
+  ASSERT_OK(Put("aaa_key1", "value1"));
+  ASSERT_OK(Put("bbb_key1", "value2"));
+  ASSERT_OK(Put("ccc_key1", "value3"));
+  ASSERT_OK(Put("ddd_key1", "value4"));
+  ASSERT_OK(Flush());
+
+  // Delete only some keys in memtable
+  ASSERT_OK(Delete("bbb_key1"));  // Only bbb prefix needs tombstone tracking
+  ASSERT_OK(Delete("ddd_key1"));  // Only ddd prefix needs tombstone tracking
+
+  // Query all prefixes - aaa and ccc should NOT allocate tombstone sets
+  Slice prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"), Slice("ddd")};
+  bool results[4];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 4, prefixes,
+                         results, /*statuses=*/nullptr, /*sorted_input=*/false);
+
+  EXPECT_TRUE(results[0]);   // aaa exists (no deletion)
+  EXPECT_FALSE(results[1]);  // bbb deleted
+  EXPECT_TRUE(results[2]);   // ccc exists (no deletion)
+  EXPECT_FALSE(results[3]);  // ddd deleted
+}
+
+TEST_F(DBMultiPrefixExistsTest, BatchBloomFilterMoreThan32Prefixes) {
+  // Test batch bloom filter optimization with more than 32 prefixes.
+  // The implementation processes bloom checks in batches of 32
+  // (MAX_BATCH_SIZE). This test verifies correctness when crossing batch
+  // boundaries.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.memtable_prefix_bloom_size_ratio = 0.1;  // Enable memtable bloom
+
+  DestroyAndReopen(options);
+
+  // Write exactly 50 keys (more than 32, crosses batch boundary)
+  for (int i = 0; i < 50; i++) {
+    std::string key = "k" + std::to_string(i) + "__x";
+    ASSERT_OK(Put(key, "value"));
+  }
+
+  // Query with 64 prefixes (2 full batches) - half exist, half don't
+  std::vector<Slice> prefixes;
+  std::vector<std::string> prefix_storage;
+  prefix_storage.reserve(100);  // 50 existing + 50 non-existing
+  prefixes.reserve(100);
+
+  // Add existing prefixes
+  for (int i = 0; i < 50; i++) {
+    prefix_storage.push_back("k" + std::to_string(i) + "__");
+    prefixes.push_back(Slice(prefix_storage.back()));
+  }
+  // Add non-existing prefixes
+  for (int i = 50; i < 100; i++) {
+    prefix_storage.push_back("k" + std::to_string(i) + "__");
+    prefixes.push_back(Slice(prefix_storage.back()));
+  }
+
+  std::vector<bool> results = db_->MultiPrefixExists(
+      ReadOptions(), db_->DefaultColumnFamily(), prefixes);
+
+  EXPECT_EQ(results.size(), 100);
+
+  // Verify first 50 exist
+  for (int i = 0; i < 50; i++) {
+    EXPECT_TRUE(results[i]) << "Prefix k" << i << "__ should exist";
+  }
+  // Verify last 50 don't exist
+  for (int i = 50; i < 100; i++) {
+    EXPECT_FALSE(results[i]) << "Prefix k" << i << "__ should NOT exist";
+  }
+}
+
+TEST_F(DBMultiPrefixExistsTest, SortedInputEarlyBreakInFile) {
+  // Test the sorted_input early-break optimization within a single file:
+  // When processing a file with sorted input, once a prefix exceeds the file's
+  // largest key, all subsequent prefixes should be skipped for that file.
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create a single SST file with keys in range aaa-ccc
+  ASSERT_OK(Put("aaa_key", "val"));
+  ASSERT_OK(Put("bbb_key", "val"));
+  ASSERT_OK(Put("ccc_key", "val"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // Query with sorted prefixes: some in range, some beyond
+  // The early-break should skip ddd, eee, fff without checking
+  Slice prefixes[] = {Slice("aaa"), Slice("bbb"), Slice("ccc"),
+                      Slice("ddd"), Slice("eee"), Slice("fff")};
+  bool results[6];
+  db_->MultiPrefixExists(ReadOptions(), db_->DefaultColumnFamily(), 6, prefixes,
+                         results, /*statuses=*/nullptr, /*sorted_input=*/true);
+
+  EXPECT_TRUE(results[0]);   // aaa exists
+  EXPECT_TRUE(results[1]);   // bbb exists
+  EXPECT_TRUE(results[2]);   // ccc exists
+  EXPECT_FALSE(results[3]);  // ddd does not exist (beyond file)
+  EXPECT_FALSE(results[4]);  // eee does not exist (beyond file)
+  EXPECT_FALSE(results[5]);  // fff does not exist (beyond file)
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
