@@ -44,6 +44,10 @@ jobs:
       run: python -m pip install --upgrade pip
     - name: Install argparse
       run: pip install argparse
+    - name: Install clang-format
+      run: |
+        pip install https://files.pythonhosted.org/packages/fb/ac/3c04772acc0257f5730e83adb542b2603c1a62d1315010ab593a980af404/clang_format-21.1.2-py2.py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        clang-format --version
     - name: Download clang-format-diff.py
       run: wget https://rocksdb-deps.s3.us-west-2.amazonaws.com/llvm/llvm-project/release/12.x/clang/tools/clang-format/clang-format-diff.py
     - name: Check format
