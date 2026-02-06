@@ -1578,7 +1578,7 @@ class TrieIndexSSTTest : public testing::Test {
 
   void TearDown() override {
     // Clean up SST file.
-    Env::Default()->DeleteFile(sst_path_);
+    Env::Default()->DeleteFile(sst_path_).PermitUncheckedError();
   }
 
   // Generate sorted key-value pairs: "key_NNNN" -> "value_NNNN".
