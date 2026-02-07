@@ -108,6 +108,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/version_set.cc",
         "db/wal_edit.cc",
         "db/wal_manager.cc",
+        "db/wide/read_path_blob_resolver.cc",
         "db/wide/wide_column_serialization.cc",
         "db/wide/wide_columns.cc",
         "db/wide/wide_columns_helper.cc",
@@ -4933,6 +4934,12 @@ cpp_unittest_wrapper(name="db_merge_operand_test",
 
 cpp_unittest_wrapper(name="db_merge_operator_test",
             srcs=["db/db_merge_operator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_open_with_config_test",
+            srcs=["db/db_open_with_config_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

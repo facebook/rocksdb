@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "db/db_test_util.h"
+#include "db/wide/wide_column_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/testutil.h"
 #include "util/overload.h"
@@ -15,10 +16,27 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Use shared test utilities for Wide Column + Blob integration tests
+using wide_column_test_util::GenerateLargeValue;
+using wide_column_test_util::GenerateSmallValue;
+using wide_column_test_util::GetOptionsForBlobTest;
+
 class DBWideBasicTest : public DBTestBase {
  protected:
   explicit DBWideBasicTest()
       : DBTestBase("db_wide_basic_test", /* env_do_fsync */ false) {}
+
+  // Helper: runs the EntityBlobAfterFlush test logic with the given options.
+  void RunEntityBlobAfterFlush(const Options& options);
+
+  // Helper: runs the EntityBlobAfterCompaction test logic with the given
+  // options.
+  void RunEntityBlobAfterCompaction(const Options& options);
+
+  // Helper: runs the CompactionFilterWithBlobGC test logic with the given
+  // options. The options must have compaction_filter already set.
+  void RunCompactionFilterWithBlobGC(const Options& options,
+                                     std::atomic<int>* ttl_threshold);
 };
 
 TEST_F(DBWideBasicTest, PutEntity) {
@@ -1420,13 +1438,15 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class KeepFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType /* value_type */,
           const Slice* /* existing_value */,
           const WideColumns* /* existing_columns */,
           std::string* /* new_value */,
           std::vector<std::pair<std::string, std::string>>* /* new_columns */,
-          std::string* /* skip_until */) const override {
+          std::string* /* skip_until */,
+          WideColumnBlobResolver* /* blob_resolver */ =
+              nullptr) const override {
         return Decision::kKeep;
       }
 
@@ -1470,13 +1490,15 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class RemoveFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType /* value_type */,
           const Slice* /* existing_value */,
           const WideColumns* /* existing_columns */,
           std::string* /* new_value */,
           std::vector<std::pair<std::string, std::string>>* /* new_columns */,
-          std::string* /* skip_until */) const override {
+          std::string* /* skip_until */,
+          WideColumnBlobResolver* /* blob_resolver */ =
+              nullptr) const override {
         return Decision::kRemove;
       }
 
@@ -1518,12 +1540,14 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class ChangeValueFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType value_type,
           const Slice* existing_value, const WideColumns* existing_columns,
           std::string* new_value,
           std::vector<std::pair<std::string, std::string>>* /* new_columns */,
-          std::string* /* skip_until */) const override {
+          std::string* /* skip_until */,
+          WideColumnBlobResolver* /* blob_resolver */ =
+              nullptr) const override {
         assert(new_value);
 
         auto upper = [](const std::string& str) {
@@ -1601,12 +1625,14 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class ChangeEntityFilter : public CompactionFilter {
      public:
-      Decision FilterV3(
+      Decision FilterV4(
           int /* level */, const Slice& /* key */, ValueType value_type,
           const Slice* existing_value, const WideColumns* existing_columns,
           std::string* /* new_value */,
           std::vector<std::pair<std::string, std::string>>* new_columns,
-          std::string* /* skip_until */) const override {
+          std::string* /* skip_until */,
+          WideColumnBlobResolver* /* blob_resolver */ =
+              nullptr) const override {
         assert(new_columns);
 
         auto upper = [](const std::string& str) {
@@ -1794,6 +1820,591 @@ TEST_F(DBWideBasicTest, PinnableWideColumnsMove) {
   test_move(/* fill_cache*/ true);
 }
 
+TEST_F(DBWideBasicTest, PutEntityWithBlobValue) {
+  // Test that PutEntity works and after compaction with blob options,
+  // large columns are stored as blobs
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 100;  // Values >= 100 bytes go to blob files
+
+  Reopen(options);
+
+  // Create columns with values larger than min_blob_size
+  constexpr char key[] = "blob_entity_key";
+  const std::string large_value =
+      GenerateLargeValue(200);  // 200 bytes, larger than threshold
+  const std::string small_value =
+      GenerateSmallValue();  // Less than min_blob_size
+
+  // Columns must be in sorted order by name
+  // kDefaultWideColumnName (empty string) < "large_col" < "small_col"
+  WideColumns columns{{kDefaultWideColumnName, large_value},
+                      {"large_col", large_value},
+                      {"small_col", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+
+  // Verify from memtable
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  // Flush to create SST file (and blob file for large values)
+  ASSERT_OK(Flush());
+
+  // Verify after flush
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  // Compact to ensure blob files are properly created
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify after compaction - blob resolution should return correct values
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  // Explicit verification: blob files were actually created
+  {
+    // Verify at least one blob file exists
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_GE(blob_files.size(), 1)
+        << "Expected at least one blob file after compaction with large values";
+
+    // Verify using DB property
+    uint64_t num_blob_files = 0;
+    ASSERT_TRUE(
+        db_->GetIntProperty(DB::Properties::kNumBlobFiles, &num_blob_files));
+    ASSERT_GE(num_blob_files, 1)
+        << "kNumBlobFiles property should report at least one blob file";
+
+    // Verify blob file size is non-zero (data was written)
+    uint64_t total_blob_file_size = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+                                    &total_blob_file_size));
+    ASSERT_GT(total_blob_file_size, 0)
+        << "Total blob file size should be greater than zero";
+  }
+}
+
+TEST_F(DBWideBasicTest, GetEntityWithBlobResolution) {
+  // Test GetEntity() returns the correct entity with blob values resolved
+  // Also verify blob statistics to confirm data is stored in blob files
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+  options.statistics = CreateDBStatistics();
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first";
+  constexpr char second_key[] = "second";
+
+  const std::string blob_value1 =
+      GenerateLargeValue(100);  // Will be stored as blob
+  const std::string blob_value2 =
+      GenerateLargeValue(150);                // Will be stored as blob
+  const std::string inline_value = "inline";  // Won't be stored as blob
+
+  WideColumns first_columns{{kDefaultWideColumnName, blob_value1},
+                            {"attr1", inline_value},
+                            {"attr2", blob_value2}};
+
+  WideColumns second_columns{{"col1", blob_value1}, {"col2", inline_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           first_key, first_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           second_key, second_columns));
+
+  // Reset statistics before flush/compaction
+  options.statistics->Reset();
+
+  // Flush and compact to ensure data goes to blob files
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify blob statistics - confirm data was written to blob files
+  {
+    uint64_t blob_bytes_written =
+        options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_WRITTEN);
+    ASSERT_GT(blob_bytes_written, 0)
+        << "Expected non-zero bytes written to blob files";
+
+    // The total bytes should account for the large column values
+    // We have 3 blob values: blob_value1 (100 bytes) x 2 + blob_value2 (150
+    // bytes) Each blob record has header overhead, so actual written bytes
+    // will be larger
+    const uint64_t expected_min_bytes =
+        blob_value1.size() * 2 + blob_value2.size();
+    ASSERT_GE(blob_bytes_written, expected_min_bytes)
+        << "Blob bytes written should account for all large column values";
+  }
+
+  // Verify blob files exist
+  {
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_GE(blob_files.size(), 1)
+        << "Expected at least one blob file after compaction";
+  }
+
+  // Verify GetEntity resolves blob references correctly
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             first_key, &result));
+    ASSERT_EQ(result.columns(), first_columns);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             second_key, &result));
+    ASSERT_EQ(result.columns(), second_columns);
+  }
+
+  // Also verify Get returns correct default column value
+  {
+    PinnableSlice result;
+    ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
+                       &result));
+    ASSERT_EQ(result, blob_value1);
+  }
+}
+
+TEST_F(DBWideBasicTest, IterateEntityWithBlobResolution) {
+  // Test that iterating over entities correctly resolves blob columns
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+  constexpr char key3[] = "key3";
+
+  const std::string blob_value =
+      GenerateLargeValue(100);  // Will be stored as blob
+  const std::string small_value =
+      GenerateSmallValue();  // Won't be stored as blob
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value},
+                       {"a", small_value}};
+  WideColumns columns2{{"b", blob_value}, {"c", small_value}};
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"d", blob_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+
+  // Flush and compact to move data to blob files
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Forward iteration
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->columns(), columns1);
+    ASSERT_EQ(iter->value(), blob_value);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->columns(), columns2);
+    ASSERT_TRUE(iter->value().empty());  // No default column
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key3);
+    ASSERT_EQ(iter->columns(), columns3);
+    ASSERT_EQ(iter->value(), small_value);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Backward iteration
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key3);
+    ASSERT_EQ(iter->columns(), columns3);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+}
+
+TEST_F(DBWideBasicTest, MultiGetEntityWithBlobResolution) {
+  // Test MultiGetEntity with entities that have blob columns
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+
+  Reopen(options);
+
+  constexpr size_t num_keys = 4;
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+  constexpr char key3[] = "key3";
+  constexpr char key4[] = "key4";
+
+  const std::string blob_value = GenerateLargeValue(100);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value}};
+  WideColumns columns2{{"attr", blob_value}, {"attr2", small_value}};
+  WideColumns columns3{{kDefaultWideColumnName, small_value}};
+  WideColumns columns4{{"x", blob_value}, {"y", blob_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key4,
+                           columns4));
+
+  // Flush and compact
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Test MultiGetEntity
+  {
+    std::array<Slice, num_keys> keys{{key1, key2, key3, key4}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns1);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), columns2);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(results[2].columns(), columns3);
+
+    ASSERT_OK(statuses[3]);
+    ASSERT_EQ(results[3].columns(), columns4);
+  }
+
+  // Test MultiGet for default column values
+  {
+    std::array<Slice, num_keys> keys{{key1, key2, key3, key4}};
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], blob_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_TRUE(values[1].empty());  // No default column
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], small_value);
+
+    ASSERT_OK(statuses[3]);
+    ASSERT_TRUE(values[3].empty());  // No default column
+  }
+}
+
+void DBWideBasicTest::RunEntityBlobAfterFlush(const Options& options) {
+  Reopen(options);
+
+  constexpr char key1[] = "flush_key1";
+  constexpr char key2[] = "flush_key2";
+
+  const std::string blob_value = GenerateLargeValue(128);
+  const std::string small_value = "tiny";
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value},
+                       {"col1", small_value}};
+  WideColumns columns2{{"col2", blob_value}, {"col3", blob_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+
+  // Verify before flush (from memtable)
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result));
+    ASSERT_EQ(result.columns(), columns1);
+  }
+
+  // Flush
+  ASSERT_OK(Flush());
+
+  // Verify after flush
+  {
+    PinnableWideColumns result1;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result1));
+    ASSERT_EQ(result1.columns(), columns1);
+
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result2));
+    ASSERT_EQ(result2.columns(), columns2);
+  }
+
+  // Verify with iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Write more data and flush again
+  constexpr char key3[] = "flush_key3";
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"col4", blob_value}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+  ASSERT_OK(Flush());
+
+  // Verify all three keys via MultiGetEntity
+  {
+    constexpr size_t num_keys = 3;
+    std::array<Slice, num_keys> keys{{key1, key2, key3}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns1);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), columns2);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(results[2].columns(), columns3);
+  }
+}
+
+TEST_F(DBWideBasicTest, EntityBlobAfterFlush) {
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 64;
+  RunEntityBlobAfterFlush(options);
+}
+
+void DBWideBasicTest::RunEntityBlobAfterCompaction(const Options& options) {
+  Reopen(options);
+
+  constexpr char key1[] = "compact_key1";
+  constexpr char key2[] = "compact_key2";
+  constexpr char key3[] = "compact_key3";
+
+  const std::string blob_value1 = GenerateLargeValue(128);
+  const std::string blob_value2 = GenerateLargeValue(256);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value1},
+                       {"attr1", small_value}};
+  WideColumns columns2{{"attr2", blob_value1}, {"attr3", blob_value2}};
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"attr4", blob_value2}};
+
+  // Write and flush first batch
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+  ASSERT_OK(Flush());
+
+  // Write and flush second batch
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+  ASSERT_OK(Flush());
+
+  // Verify before compaction
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result));
+    ASSERT_EQ(result.columns(), columns1);
+  }
+
+  // Compact
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify after compaction - GetEntity
+  {
+    PinnableWideColumns result1;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result1));
+    ASSERT_EQ(result1.columns(), columns1);
+
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result2));
+    ASSERT_EQ(result2.columns(), columns2);
+
+    PinnableWideColumns result3;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key3,
+                             &result3));
+    ASSERT_EQ(result3.columns(), columns3);
+  }
+
+  // Get (for default column)
+  {
+    PinnableSlice result1;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key1, &result1));
+    ASSERT_EQ(result1, blob_value1);
+
+    PinnableSlice result2;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key2, &result2));
+    ASSERT_TRUE(result2.empty());  // No default column
+
+    PinnableSlice result3;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key3, &result3));
+    ASSERT_EQ(result3, small_value);
+  }
+
+  // Iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->columns(), columns1);
+    ASSERT_EQ(iter->value(), blob_value1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key3);
+    ASSERT_EQ(iter->columns(), columns3);
+    ASSERT_EQ(iter->value(), small_value);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // MultiGetEntity
+  {
+    constexpr size_t num_keys = 3;
+    std::array<Slice, num_keys> keys{{key1, key2, key3}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns1);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), columns2);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(results[2].columns(), columns3);
+  }
+
+  // Reopen and verify persistence
+  Reopen(options);
+
+  {
+    PinnableWideColumns result1;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result1));
+    ASSERT_EQ(result1.columns(), columns1);
+
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result2));
+    ASSERT_EQ(result2.columns(), columns2);
+
+    PinnableWideColumns result3;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key3,
+                             &result3));
+    ASSERT_EQ(result3.columns(), columns3);
+  }
+}
+
+TEST_F(DBWideBasicTest, EntityBlobAfterCompaction) {
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 64;
+  RunEntityBlobAfterCompaction(options);
+}
+
 TEST_F(DBWideBasicTest, SanityChecks) {
   constexpr char foo[] = "foo";
   constexpr char bar[] = "bar";
@@ -1929,6 +2540,485 @@ TEST_F(DBWideBasicTest, SanityChecks) {
                         keys.data(), results.data(), statuses.data());
     ASSERT_TRUE(statuses[0].IsInvalidArgument());
     ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+}
+
+// Compaction filter that removes wide-column entities based on TTL threshold.
+// Used by CompactionFilterWithBlobGC and its universal compaction variant.
+class TTLCompactionFilter : public CompactionFilter {
+ public:
+  explicit TTLCompactionFilter(std::atomic<int>* ttl_threshold)
+      : ttl_threshold_(ttl_threshold) {}
+
+  Decision FilterV4(
+      int /* level */, const Slice& /* key */, ValueType value_type,
+      const Slice* /* existing_value */, const WideColumns* existing_columns,
+      std::string* /* new_value */,
+      std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+      std::string* /* skip_until */,
+      WideColumnBlobResolver* /* blob_resolver */) const override {
+    if (value_type != ValueType::kWideColumnEntity || !existing_columns) {
+      return Decision::kKeep;
+    }
+
+    for (const auto& column : *existing_columns) {
+      if (column.name() == "ttl") {
+        int ttl_value = std::stoi(column.value().ToString());
+        if (ttl_value < ttl_threshold_->load()) {
+          return Decision::kRemove;
+        }
+        break;
+      }
+    }
+    return Decision::kKeep;
+  }
+
+  const char* Name() const override { return "TTLCompactionFilter"; }
+
+ private:
+  std::atomic<int>* ttl_threshold_;
+};
+
+void DBWideBasicTest::RunCompactionFilterWithBlobGC(
+    const Options& options, std::atomic<int>* ttl_threshold) {
+  constexpr int kNumRecords = 100;
+  constexpr int kRecordsPerFlush = 10;
+  constexpr int kNumFlushes = kNumRecords / kRecordsPerFlush;
+  constexpr size_t kBlobValueSize = 1024;  // 1KB
+
+  DestroyAndReopen(options);
+
+  const std::string blob_value1 = GenerateLargeValue(kBlobValueSize, 'x');
+  const std::string blob_value2 = GenerateLargeValue(kBlobValueSize, 'y');
+
+  // Write 100 records, flushing every 10 records
+  for (int i = 0; i < kNumRecords; ++i) {
+    char key_buf[20];
+    snprintf(key_buf, sizeof(key_buf), "key_%04d", i);
+    std::string key(key_buf);
+
+    std::string ttl_value = std::to_string(i);
+
+    WideColumns columns{
+        {"ttl", ttl_value}, {"value1", blob_value1}, {"value2", blob_value2}};
+
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                             columns));
+
+    if ((i + 1) % kRecordsPerFlush == 0) {
+      ASSERT_OK(Flush());
+    }
+  }
+
+  // Verify we have kNumFlushes blob files (one per flush)
+  {
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(blob_files.size(), static_cast<size_t>(kNumFlushes))
+        << "Expected " << kNumFlushes << " blob files after " << kNumFlushes
+        << " flushes";
+  }
+
+  // Verify all records exist
+  {
+    int count = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ++count;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, kNumRecords);
+  }
+
+  // Incrementally remove records and verify blob files are garbage collected
+  for (int round = 1; round <= kNumFlushes; ++round) {
+    int threshold = round * kRecordsPerFlush;
+    ttl_threshold->store(threshold);
+
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+    int expected_remaining_records = kNumRecords - threshold;
+
+    // Verify remaining records count and all column values
+    {
+      int count = 0;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ++count;
+
+        const WideColumns& columns = iter->columns();
+        ASSERT_EQ(columns.size(), 3)
+            << "Expected 3 columns (ttl, value1, value2)";
+
+        bool found_ttl = false;
+        bool found_value1 = false;
+        bool found_value2 = false;
+
+        for (const auto& column : columns) {
+          if (column.name() == "ttl") {
+            int ttl_value = std::stoi(column.value().ToString());
+            ASSERT_GE(ttl_value, threshold)
+                << "Key with ttl " << ttl_value
+                << " should have been removed (threshold=" << threshold << ")";
+            found_ttl = true;
+          } else if (column.name() == "value1") {
+            ASSERT_EQ(column.value().ToString(), blob_value1)
+                << "Blob value1 mismatch for key " << iter->key().ToString();
+            found_value1 = true;
+          } else if (column.name() == "value2") {
+            ASSERT_EQ(column.value().ToString(), blob_value2)
+                << "Blob value2 mismatch for key " << iter->key().ToString();
+            found_value2 = true;
+          }
+        }
+
+        ASSERT_TRUE(found_ttl)
+            << "TTL column not found for key " << iter->key().ToString();
+        ASSERT_TRUE(found_value1)
+            << "value1 column not found for key " << iter->key().ToString();
+        ASSERT_TRUE(found_value2)
+            << "value2 column not found for key " << iter->key().ToString();
+      }
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(count, expected_remaining_records)
+          << "Round " << round << ": expected " << expected_remaining_records
+          << " records after removing ttl < " << threshold;
+    }
+
+    if (expected_remaining_records == 0) {
+      std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+      ASSERT_EQ(blob_files.size(), 0)
+          << "All blob files should be garbage collected after all records "
+             "are removed";
+    }
+  }
+
+  // Final verification: database should be empty
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid()) << "Database should be empty";
+    ASSERT_OK(iter->status());
+  }
+
+  // Final verification: no blob files should remain
+  {
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(blob_files.size(), 0) << "All blob files should be removed";
+  }
+}
+
+TEST_F(DBWideBasicTest, CompactionFilterWithBlobGC) {
+  std::atomic<int> ttl_threshold{0};
+  TTLCompactionFilter filter(&ttl_threshold);
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 100;
+  options.compaction_filter = &filter;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.0;
+
+  RunCompactionFilterWithBlobGC(options, &ttl_threshold);
+}
+
+TEST_F(DBWideBasicTest, EntityBlobAfterFlushUniversal) {
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 64;
+  options.compaction_style = kCompactionStyleUniversal;
+  RunEntityBlobAfterFlush(options);
+}
+
+TEST_F(DBWideBasicTest, EntityBlobAfterCompactionUniversal) {
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 64;
+  options.compaction_style = kCompactionStyleUniversal;
+  RunEntityBlobAfterCompaction(options);
+}
+
+TEST_F(DBWideBasicTest, CompactionFilterWithBlobGCUniversal) {
+  std::atomic<int> ttl_threshold{0};
+  TTLCompactionFilter filter(&ttl_threshold);
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 100;
+  options.compaction_filter = &filter;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.0;
+  options.compaction_style = kCompactionStyleUniversal;
+
+  RunCompactionFilterWithBlobGC(options, &ttl_threshold);
+}
+
+TEST_F(DBWideBasicTest, MergeEntityWithBlobBackwardIteration) {
+  // Test that backward iteration (Prev) correctly resolves blob columns
+  // in entities that are base values for merge operations. This exercises
+  // MergeWithWideColumnBaseValue which must resolve blob references before
+  // passing the entity to TimedFullMerge (which only supports V1 format).
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+  const std::string delim(",");
+  options.merge_operator = MergeOperators::CreateStringAppendOperator(delim);
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+
+  const std::string large_value = GenerateLargeValue(100);
+  const std::string small_value = GenerateSmallValue();
+
+  // PutEntity with a large column value that will be stored as a blob
+  WideColumns columns1{{kDefaultWideColumnName, large_value},
+                       {"attr", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  // A simple key for reference
+  ASSERT_OK(Put(key2, "plain_value"));
+
+  // Flush and compact to move large values to blob files
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Now apply a merge on top of the entity with blob columns
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key1, "merged"));
+  ASSERT_OK(Flush());
+
+  const std::string expected_default = large_value + delim + "merged";
+
+  // Forward iteration: verify merge result
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->value(), expected_default);
+  }
+
+  // Backward iteration: this exercises MergeWithWideColumnBaseValue
+  // with blob entity during reverse scan
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+    ASSERT_EQ(iter->value(), "plain_value");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+    ASSERT_EQ(iter->value(), expected_default);
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Also verify via Get and GetEntity
+  {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), key1, &value));
+    ASSERT_EQ(value, expected_default);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result));
+    // After merge, the result should have the merged default column
+    // and the original non-default columns preserved
+    WideColumns expected{{kDefaultWideColumnName, expected_default},
+                         {"attr", small_value}};
+    ASSERT_EQ(result.columns(), expected);
+  }
+}
+
+TEST_F(DBWideBasicTest, LazyColumnResolutionIterator) {
+  // Test that lazy_column_resolution works correctly with iterators.
+  // When enabled, blob columns should remain unresolved until
+  // ResolveColumn() is called.
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+
+  const std::string blob_value = GenerateLargeValue(100);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns1{{kDefaultWideColumnName, blob_value},
+                       {"a", small_value}};
+  WideColumns columns2{{"b", blob_value}, {"c", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Forward iteration with lazy resolution
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+
+    // The default column (blob) should have been eagerly resolved for value()
+    ASSERT_EQ(iter->value(), blob_value);
+
+    // Non-blob column "a" should NOT be unresolved
+    ASSERT_FALSE(iter->IsUnresolvedColumn(1));
+    ASSERT_EQ(iter->columns()[1].value(), small_value);
+
+    // Column 0 (default) was eagerly resolved
+    ASSERT_FALSE(iter->IsUnresolvedColumn(0));
+
+    // Should have no unresolved columns since default was auto-resolved and
+    // "a" is inline
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+
+    // Move to key2 which has blob column "b" and inline column "c"
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+
+    // "b" (index 0) is a blob column - should be unresolved
+    ASSERT_TRUE(iter->HasUnresolvedColumns());
+    ASSERT_TRUE(iter->IsUnresolvedColumn(0));
+
+    // "c" (index 1) is an inline column - should NOT be unresolved
+    ASSERT_FALSE(iter->IsUnresolvedColumn(1));
+    ASSERT_EQ(iter->columns()[1].value(), small_value);
+
+    // Resolve the blob column
+    ASSERT_OK(iter->ResolveColumn(0));
+    ASSERT_FALSE(iter->IsUnresolvedColumn(0));
+    ASSERT_EQ(iter->columns()[0].value(), blob_value);
+
+    // Now no unresolved columns
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+
+    // Verify the full columns match
+    ASSERT_EQ(iter->columns(), columns2);
+  }
+
+  // Test ResolveAllColumns
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    // Resolve all columns at once
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns2);
+  }
+
+  // Backward iteration with lazy resolution
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key2);
+
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_EQ(iter->columns(), columns2);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_EQ(iter->columns(), columns1);
+  }
+
+  // Without lazy resolution (default behavior), everything works as before
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = false;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns1);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_FALSE(iter->HasUnresolvedColumns());
+    ASSERT_EQ(iter->columns(), columns2);
+  }
+}
+
+TEST_F(DBWideBasicTest, LazyColumnResolutionWithMerge) {
+  // Test that lazy_column_resolution works correctly when merge operations
+  // are involved. Merge should force eager resolution since it needs all
+  // column values.
+
+  Options options = GetOptionsForBlobTest();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+
+  const std::string blob_value = GenerateLargeValue(100);
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns{{kDefaultWideColumnName, blob_value}, {"a", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // The entity should be readable with lazy resolution
+  {
+    ReadOptions read_opts;
+    read_opts.lazy_column_resolution = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key1);
+
+    // Resolve all and check
+    ASSERT_OK(iter->ResolveAllColumns());
+    ASSERT_EQ(iter->columns(), columns);
   }
 }
 

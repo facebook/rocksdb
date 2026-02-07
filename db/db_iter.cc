@@ -11,7 +11,9 @@
 
 #include <limits>
 #include <string>
+#include <vector>
 
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -85,7 +87,11 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expose_blob_index_(expose_blob_index),
       allow_unprepared_value_(read_options.allow_unprepared_value),
       is_blob_(false),
-      arena_mode_(arena_mode) {
+      arena_mode_(arena_mode),
+      lazy_column_resolution_(read_options.lazy_column_resolution),
+      entity_blob_resolver_(version, read_options.read_tier,
+                            read_options.verify_checksums,
+                            read_options.fill_cache, read_options.io_activity) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
@@ -289,10 +295,145 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   assert(value_.empty());
   assert(wide_columns_.empty());
 
-  const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
+  // Fast path: if no blob columns, use the simpler Deserialize
+  if (!WideColumnSerialization::HasBlobColumns(slice)) {
+    const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
 
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      wide_columns_.clear();
+      return false;
+    }
+
+    if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+      value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+    }
+
+    return true;
+  }
+
+  // Entity has blob columns.
+  // First, copy the serialized data to saved_value_ so that column name/value
+  // Slices remain valid after the internal iterator moves.
+  saved_value_.assign(slice.data(), slice.size());
+
+  // Deserialize columns and blob column info from the saved copy
+  lazy_entity_columns_.clear();
+  lazy_blob_columns_.clear();
+
+  {
+    Slice input_copy(saved_value_);
+    const Status s = WideColumnSerialization::DeserializeColumns(
+        input_copy, &lazy_entity_columns_, &lazy_blob_columns_);
+
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      return false;
+    }
+  }
+
+  if (lazy_column_resolution_) {
+    // Lazy path: populate wide_columns_ with column names and inline values,
+    // leaving blob columns with their raw blob-index bytes. The resolver will
+    // fetch actual blob values on demand.
+    wide_columns_.reserve(lazy_entity_columns_.size());
+    for (const auto& col : lazy_entity_columns_) {
+      wide_columns_.emplace_back(col.name(), col.value());
+    }
+
+    // Set up the resolver for on-demand blob fetching
+    entity_blob_resolver_.Reset(saved_key_.GetUserKey(), &lazy_entity_columns_,
+                                &lazy_blob_columns_);
+
+    // For the default column value, check if it's a blob and resolve eagerly
+    // since value() is expected to always be available
+    if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+      // Check if the default column is a blob
+      bool default_is_blob = false;
+      for (const auto& bc : lazy_blob_columns_) {
+        if (bc.first == 0) {  // Default column is always at index 0
+          default_is_blob = true;
+          break;
+        }
+      }
+
+      if (default_is_blob) {
+        // Eagerly resolve the default column so value() works
+        Slice resolved_value;
+        const Status s =
+            entity_blob_resolver_.ResolveColumn(0, &resolved_value);
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+          wide_columns_.clear();
+          return false;
+        }
+        wide_columns_[0].value() = resolved_value;
+        value_ = resolved_value;
+      } else {
+        value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+      }
+    }
+
+    return true;
+  }
+
+  // Eager path: resolve all blob columns immediately
+  std::vector<std::string> resolved_blob_values;
+  resolved_blob_values.reserve(lazy_blob_columns_.size());
+
+  for (const auto& blob_col : lazy_blob_columns_) {
+    const size_t col_idx = blob_col.first;
+    const BlobIndex& blob_idx = blob_col.second;
+
+    assert(col_idx < lazy_entity_columns_.size());
+    if (col_idx >= lazy_entity_columns_.size()) {
+      status_ = Status::Corruption("Blob column index out of bounds");
+      valid_ = false;
+      return false;
+    }
+
+    if (blob_idx.IsInlined()) {
+      resolved_blob_values.emplace_back(blob_idx.value().data(),
+                                        blob_idx.value().size());
+      continue;
+    }
+
+    const Status s = blob_reader_.RetrieveAndSetBlobValue(
+        saved_key_.GetUserKey(), lazy_entity_columns_[col_idx].value());
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      blob_reader_.ResetBlobValue();
+      return false;
+    }
+
+    resolved_blob_values.emplace_back(blob_reader_.GetBlobValue().data(),
+                                      blob_reader_.GetBlobValue().size());
+    blob_reader_.ResetBlobValue();
+  }
+
+  // Re-serialize the entity with all blob values resolved (V1 format).
+  // Write to a new string because lazy_entity_columns_ has Slices pointing
+  // into saved_value_.
+  std::string resolved_entity;
+  const Status s = WideColumnSerialization::SerializeResolvedEntity(
+      lazy_entity_columns_, lazy_blob_columns_, resolved_blob_values,
+      &resolved_entity);
+  saved_value_ = std::move(resolved_entity);
   if (!s.ok()) {
     status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  Slice saved_slice(saved_value_);
+  const Status s2 =
+      WideColumnSerialization::Deserialize(saved_slice, wide_columns_);
+  if (!s2.ok()) {
+    status_ = s2;
     valid_ = false;
     wide_columns_.clear();
     return false;
@@ -346,6 +487,54 @@ bool DBIter::PrepareValue() {
   lazy_blob_index_.clear();
 
   return result;
+}
+
+Status DBIter::ResolveColumn(size_t column_index) {
+  assert(valid_);
+
+  if (!lazy_column_resolution_) {
+    return Status::OK();
+  }
+
+  if (column_index >= wide_columns_.size()) {
+    return Status::InvalidArgument("Column index out of bounds");
+  }
+
+  if (!entity_blob_resolver_.IsUnresolvedColumn(column_index)) {
+    return Status::OK();
+  }
+
+  Slice resolved_value;
+  Status s = entity_blob_resolver_.ResolveColumn(column_index, &resolved_value);
+  if (!s.ok()) {
+    return s;
+  }
+
+  wide_columns_[column_index].value() = resolved_value;
+
+  // If the default column was just resolved, update value_ too
+  if (column_index == 0 && wide_columns_[0].name() == kDefaultWideColumnName) {
+    value_ = resolved_value;
+  }
+
+  return Status::OK();
+}
+
+Status DBIter::ResolveAllColumns() {
+  assert(valid_);
+
+  if (!lazy_column_resolution_) {
+    return Status::OK();
+  }
+
+  for (size_t i = 0; i < wide_columns_.size(); ++i) {
+    Status s = ResolveColumn(i);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  return Status::OK();
 }
 
 // PRE: saved_key_ has the current user key if skipping_saved_key
@@ -1407,6 +1596,74 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
                                           const Slice& user_key) {
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
   // since a failure must be propagated regardless of its value.
+
+  // If the entity has blob columns (V2 format), we need to resolve them first.
+  // TimedFullMerge calls WideColumnSerialization::Deserialize(), which only
+  // supports V1 format. We resolve blob references to produce a V1 entity.
+  if (WideColumnSerialization::HasBlobColumns(entity)) {
+    std::vector<WideColumn> columns;
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+
+    {
+      Slice input_copy = entity;
+      const Status s = WideColumnSerialization::DeserializeColumns(
+          input_copy, &columns, &blob_columns);
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+        return false;
+      }
+    }
+
+    // Fetch each blob value
+    std::vector<std::string> resolved_blob_values;
+    resolved_blob_values.reserve(blob_columns.size());
+
+    for (const auto& blob_col : blob_columns) {
+      const size_t col_idx = blob_col.first;
+      const BlobIndex& blob_idx = blob_col.second;
+
+      if (blob_idx.IsInlined()) {
+        resolved_blob_values.emplace_back(blob_idx.value().data(),
+                                          blob_idx.value().size());
+        continue;
+      }
+
+      assert(col_idx < columns.size());
+      const Status s = blob_reader_.RetrieveAndSetBlobValue(
+          user_key, columns[col_idx].value());
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+        blob_reader_.ResetBlobValue();
+        return false;
+      }
+
+      resolved_blob_values.emplace_back(blob_reader_.GetBlobValue().data(),
+                                        blob_reader_.GetBlobValue().size());
+      blob_reader_.ResetBlobValue();
+    }
+
+    // Serialize into V1 format with all blob values resolved
+    std::string resolved_entity;
+    const Status s = WideColumnSerialization::SerializeResolvedEntity(
+        columns, blob_columns, resolved_blob_values, &resolved_entity);
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      return false;
+    }
+
+    ValueType result_type;
+    const Status s2 = MergeHelper::TimedFullMerge(
+        merge_operator_, user_key, MergeHelper::kWideBaseValue,
+        Slice(resolved_entity), merge_context_.GetOperands(), logger_,
+        statistics_, clock_,
+        /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+        &saved_value_, &pinned_value_, &result_type);
+    return SetValueAndColumnsFromMergeResult(s2, result_type);
+  }
+
   ValueType result_type;
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kWideBaseValue, entity,

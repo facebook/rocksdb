@@ -7,11 +7,13 @@
 #include <string>
 
 #include "db/read_callback.h"
+#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
 class Comparator;
+class Version;
 class Logger;
 class MergeContext;
 class MergeOperator;
@@ -108,7 +110,10 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr,
+             bool lazy_column_resolution = false,
+             const Version* version = nullptr,
+             const ReadOptions* read_options = nullptr);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
@@ -118,7 +123,10 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr,
+             bool lazy_column_resolution = false,
+             const Version* version = nullptr,
+             const ReadOptions* read_options = nullptr);
 
   GetContext() = delete;
 
@@ -246,6 +254,9 @@ class GetContext {
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
   BlobFetcher* blob_fetcher_;
+  bool lazy_column_resolution_;
+  const Version* version_;
+  const ReadOptions* read_options_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

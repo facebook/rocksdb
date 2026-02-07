@@ -98,6 +98,17 @@ class ArenaWrappedDBIter : public Iterator {
 
   bool PrepareValue() override { return db_iter_->PrepareValue(); }
 
+  bool IsUnresolvedColumn(size_t column_index) const override {
+    return db_iter_->IsUnresolvedColumn(column_index);
+  }
+  Status ResolveColumn(size_t column_index) override {
+    return db_iter_->ResolveColumn(column_index);
+  }
+  Status ResolveAllColumns() override { return db_iter_->ResolveAllColumns(); }
+  bool HasUnresolvedColumns() const override {
+    return db_iter_->HasUnresolvedColumns();
+  }
+
   void Prepare(const MultiScanArgs& scan_opts) override {
     db_iter_->Prepare(scan_opts);
   }

@@ -438,11 +438,88 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            &op_failure_scope, &merge_result,
                            /* result_operand */ nullptr, &merge_result_type);
       } else if (ikey.type == kTypeWideColumnEntity) {
-        s = TimedFullMerge(user_merge_operator_, ikey.user_key, kWideBaseValue,
-                           iter->value(), merge_context_.GetOperands(), logger_,
-                           stats_, clock_, /* update_num_ops_stats */ false,
-                           &op_failure_scope, &merge_result,
-                           /* result_operand */ nullptr, &merge_result_type);
+        Slice entity_value = iter->value();
+
+        // Check if entity has blob columns that need to be resolved
+        if (WideColumnSerialization::HasBlobColumns(entity_value)) {
+          // Entity has blob columns - resolve them before merging
+          std::vector<WideColumn> entity_columns;
+          std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+
+          Slice input_copy = entity_value;
+          s = WideColumnSerialization::DeserializeColumns(
+              input_copy, &entity_columns, &blob_columns);
+          if (!s.ok()) {
+            return s;
+          }
+
+          // Fetch blob values
+          std::vector<std::string> resolved_blob_values;
+          resolved_blob_values.reserve(blob_columns.size());
+
+          for (size_t i = 0; i < blob_columns.size(); ++i) {
+            size_t col_idx = blob_columns[i].first;
+            const BlobIndex& blob_idx = blob_columns[i].second;
+
+            // Handle inlined blobs directly
+            if (blob_idx.IsInlined()) {
+              resolved_blob_values.emplace_back(blob_idx.value().data(),
+                                                blob_idx.value().size());
+              continue;
+            }
+
+            FilePrefetchBuffer* prefetch_buffer =
+                prefetch_buffers ? prefetch_buffers->GetOrCreatePrefetchBuffer(
+                                       blob_idx.file_number())
+                                 : nullptr;
+
+            uint64_t bytes_read = 0;
+
+            assert(blob_fetcher);
+
+            // The column value contains the raw serialized blob index
+            PinnableSlice blob_value;
+            s = blob_fetcher->FetchBlob(
+                ikey.user_key, entity_columns[col_idx].value(), prefetch_buffer,
+                &blob_value, &bytes_read);
+            if (!s.ok()) {
+              return s;
+            }
+
+            resolved_blob_values.emplace_back(blob_value.data(),
+                                              blob_value.size());
+
+            if (c_iter_stats) {
+              ++c_iter_stats->num_blobs_read;
+              c_iter_stats->total_blob_bytes_read += bytes_read;
+            }
+          }
+
+          // Serialize resolved entity using V1 format
+          std::string resolved_entity;
+          s = WideColumnSerialization::SerializeResolvedEntity(
+              entity_columns, blob_columns, resolved_blob_values,
+              &resolved_entity);
+          if (!s.ok()) {
+            return s;
+          }
+
+          // Now merge with the resolved entity
+          s = TimedFullMerge(user_merge_operator_, ikey.user_key,
+                             kWideBaseValue, Slice(resolved_entity),
+                             merge_context_.GetOperands(), logger_, stats_,
+                             clock_, /* update_num_ops_stats */ false,
+                             &op_failure_scope, &merge_result,
+                             /* result_operand */ nullptr, &merge_result_type);
+        } else {
+          // No blob columns, use the entity value directly
+          s = TimedFullMerge(
+              user_merge_operator_, ikey.user_key, kWideBaseValue, entity_value,
+              merge_context_.GetOperands(), logger_, stats_, clock_,
+              /* update_num_ops_stats */ false, &op_failure_scope,
+              &merge_result,
+              /* result_operand */ nullptr, &merge_result_type);
+        }
       } else {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kNoBaseValue,
                            merge_context_.GetOperands(), logger_, stats_,
@@ -676,15 +753,16 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
   }
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
-  auto ret = compaction_filter_->FilterV3(
+  auto ret = compaction_filter_->FilterV4(
       level_, user_key, CompactionFilter::ValueType::kMergeOperand,
       &value_slice, /* existing_columns */ nullptr, &compaction_filter_value_,
-      /* new_columns */ nullptr, compaction_filter_skip_until_.rep());
+      /* new_columns */ nullptr, compaction_filter_skip_until_.rep(),
+      /* blob_resolver */ nullptr);
   if (ret == CompactionFilter::Decision::kRemoveAndSkipUntil) {
     if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
                                   user_key) <= 0) {
       // Invalid skip_until returned from compaction filter.
-      // Keep the key as per FilterV2/FilterV3 documentation.
+      // Keep the key as per FilterV2/V3/V4 documentation.
       ret = CompactionFilter::Decision::kKeep;
     } else {
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,

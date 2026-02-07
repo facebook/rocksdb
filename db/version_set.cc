@@ -2727,7 +2727,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       do_merge ? timestamp : nullptr, value_found, merge_context, do_merge,
       max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? pinned_iters_mgr : nullptr, callback, is_blob_to_use,
-      tracing_get_id, &blob_fetcher);
+      tracing_get_id, &blob_fetcher, read_options.lazy_column_resolution, this,
+      &read_options);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
