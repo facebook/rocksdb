@@ -4995,6 +4995,16 @@ unsigned char rocksdb_options_get_use_direct_io_for_flush_and_compaction(
   return opt->rep.use_direct_io_for_flush_and_compaction;
 }
 
+void rocksdb_options_set_use_direct_io_for_wal(rocksdb_options_t* opt,
+                                               unsigned char v) {
+  opt->rep.use_direct_io_for_wal = v;
+}
+
+unsigned char rocksdb_options_get_use_direct_io_for_wal(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_direct_io_for_wal;
+}
+
 void rocksdb_options_set_allow_mmap_reads(rocksdb_options_t* opt,
                                           unsigned char v) {
   opt->rep.allow_mmap_reads = v;

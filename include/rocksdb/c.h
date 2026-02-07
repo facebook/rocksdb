@@ -1850,6 +1850,10 @@ rocksdb_options_set_use_direct_io_for_flush_and_compaction(rocksdb_options_t*,
                                                            unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_use_direct_io_for_flush_and_compaction(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_use_direct_io_for_wal(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_use_direct_io_for_wal(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_is_fd_close_on_exec(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char

@@ -1640,6 +1640,10 @@ DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
             "Use O_DIRECT for background flush and compaction writes");
 
+DEFINE_bool(use_direct_io_for_wal,
+            ROCKSDB_NAMESPACE::Options().use_direct_io_for_wal,
+            "Use O_DIRECT for WAL writes");
+
 DEFINE_bool(advise_random_on_open,
             ROCKSDB_NAMESPACE::Options().advise_random_on_open,
             "Advise random access on table file open");
@@ -4415,6 +4419,7 @@ class Benchmark {
     options.use_direct_reads = FLAGS_use_direct_reads;
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
+    options.use_direct_io_for_wal = FLAGS_use_direct_io_for_wal;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
     options.wal_compression = FLAGS_wal_compression_e;
     options.ttl = FLAGS_fifo_compaction_ttl;
