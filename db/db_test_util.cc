@@ -520,7 +520,7 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithLatestFormat: {
       // In case different from default
-      table_options.format_version = kLatestFormatVersion;
+      table_options.format_version = kLatestBbtFormatVersion;
       break;
     }
     case kOptimizeFiltersForHits: {

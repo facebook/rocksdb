@@ -558,8 +558,9 @@ struct BlockBasedTableOptions {
   uint32_t read_amp_bytes_per_bit = 0;
 
   // We currently have these format versions:
-  // 0 - 1 -- Unsupported for writing new files and quietly sanitized to 2.
-  // Read support is deprecated and could be removed in the future.
+  // 0 - 1 -- No longer supported. Attempting to read files with these format
+  // versions will return an error. To upgrade, load the data with RocksDB
+  // >= 4.6.0 and < 11.0.0, then run a full compaction.
   // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use

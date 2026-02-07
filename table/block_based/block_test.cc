@@ -839,8 +839,7 @@ const BlockBasedTableOptions *kTableOptions() {
   return &opts;
 }
 Decompressor *kDecompressor() {
-  static auto mgr = GetBuiltinCompressionManager(
-      GetCompressFormatForVersion(kTableOptions()->format_version));
+  static auto mgr = GetBuiltinV2CompressionManager();
   static auto decomp = mgr->GetDecompressor();
   return decomp.get();
 }

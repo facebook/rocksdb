@@ -458,8 +458,7 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
 Status SstFileDumper::SetTableOptionsByMagicNumber(
     uint64_t table_magic_number) {
   assert(table_properties_);
-  if (table_magic_number == kBlockBasedTableMagicNumber ||
-      table_magic_number == kLegacyBlockBasedTableMagicNumber) {
+  if (table_magic_number == kBlockBasedTableMagicNumber) {
     // Preserve BlockBasedTableOptions on options_ when possible
     if (!options_.table_factory->IsInstanceOf(
             TableFactory::kBlockBasedTableName())) {

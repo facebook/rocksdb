@@ -162,60 +162,6 @@ class CompressorBase : public Compressor {
   CompressionOptions opts_;
 };
 
-class BuiltinCompressorV1 final : public CompressorBase {
- public:
-  const char* Name() const override { return "BuiltinCompressorV1"; }
-
-  explicit BuiltinCompressorV1(const CompressionOptions& opts,
-                               CompressionType type)
-      : CompressorBase(opts), type_(type) {
-    assert(type != kNoCompression);
-  }
-
-  CompressionType GetPreferredCompressionType() const override { return type_; }
-
-  std::unique_ptr<Compressor> Clone() const override {
-    return std::make_unique<BuiltinCompressorV1>(opts_, type_);
-  }
-
-  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
-                       size_t* compressed_output_size,
-                       CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override {
-    std::optional<CompressionContext> tmp_ctx;
-    CompressionContext* ctx = nullptr;
-    if (wa != nullptr && wa->owner() == this) {
-      ctx = static_cast<CompressionContext*>(wa->get());
-    }
-    if (ctx == nullptr) {
-      tmp_ctx.emplace(type_, opts_);
-      ctx = &*tmp_ctx;
-    }
-    CompressionInfo info(opts_, *ctx, CompressionDict::GetEmptyDict(), type_);
-    std::string str_output;
-    str_output.reserve(uncompressed_data.size());
-    if (!OLD_CompressData(uncompressed_data, info,
-                          1 /*compress_format_version*/, &str_output)) {
-      // Maybe rejected or bypassed
-      *compressed_output_size = str_output.size();
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-    if (str_output.size() > *compressed_output_size) {
-      // Compression rejected
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-    std::memcpy(compressed_output, str_output.data(), str_output.size());
-    *compressed_output_size = str_output.size();
-    *out_compression_type = type_;
-    return Status::OK();
-  }
-
- protected:
-  const CompressionType type_;
-};
-
 class CompressorWithSimpleDictBase : public CompressorBase {
  public:
   explicit CompressorWithSimpleDictBase(const CompressionOptions& opts,
@@ -1038,96 +984,6 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
   const CompressionDict dict_;
 };
 
-// NOTE: this implementation is intentionally SIMPLE based on existing code
-// and NOT EFFICIENT because this is an old/deprecated format.
-class BuiltinDecompressorV1 final : public Decompressor {
- public:
-  const char* Name() const override { return "BuiltinDecompressorV1"; }
-
-  Status ExtractUncompressedSize(Args& args) override {
-    CacheAllocationPtr throw_away_output;
-    return DoUncompress(args, &throw_away_output, &args.uncompressed_size);
-  }
-
-  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
-    uint64_t same_uncompressed_size = 0;
-    CacheAllocationPtr output;
-    Status s = DoUncompress(args, &output, &same_uncompressed_size);
-    if (same_uncompressed_size != args.uncompressed_size) {
-      s = Status::Corruption("Compressed block size mismatch");
-    }
-    if (s.ok()) {
-      // NOTE: simple but inefficient
-      memcpy(uncompressed_output, output.get(), args.uncompressed_size);
-    }
-    return s;
-  }
-
- protected:
-  Status DoUncompress(const Args& args, CacheAllocationPtr* out_data,
-                      uint64_t* out_uncompressed_size) {
-    assert(args.working_area == nullptr);
-    assert(*out_uncompressed_size == 0);
-
-    // NOTE: simple but inefficient
-    UncompressionContext dummy_ctx{args.compression_type};
-    UncompressionInfo info{dummy_ctx, UncompressionDict::GetEmptyDict(),
-                           args.compression_type};
-    const char* error_message = nullptr;
-    size_t size_t_uncompressed_size = 0;
-    *out_data = OLD_UncompressData(
-        info, args.compressed_data.data(), args.compressed_data.size(),
-        &size_t_uncompressed_size, 1 /*compress_format_version*/,
-        nullptr /*allocator*/, &error_message);
-    if (*out_data == nullptr) {
-      if (error_message != nullptr) {
-        return Status::Corruption(error_message);
-      } else {
-        return Status::Corruption("Corrupted compressed block contents");
-      }
-    }
-    *out_uncompressed_size = size_t_uncompressed_size;
-    assert(*out_uncompressed_size > 0);
-    return Status::OK();
-  }
-};
-
-class BuiltinCompressionManagerV1 final : public CompressionManager {
- public:
-  BuiltinCompressionManagerV1() = default;
-  ~BuiltinCompressionManagerV1() override = default;
-
-  const char* Name() const override { return "BuiltinCompressionManagerV1"; }
-
-  const char* CompatibilityName() const override { return "BuiltinV1"; }
-
-  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
-                                            CompressionType type) override {
-    // At the time of deprecating the writing of new format_version=1 files,
-    // ZSTD was the last supported built-in compression type.
-    if (type > kZSTD) {
-      // Unrecognized; fall back on default compression
-      type = ColumnFamilyOptions{}.compression;
-    }
-    if (type == kNoCompression) {
-      return nullptr;
-    } else {
-      return std::make_unique<BuiltinCompressorV1>(opts, type);
-    }
-  }
-
-  std::shared_ptr<Decompressor> GetDecompressor() override {
-    return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
-  }
-
-  bool SupportsCompressionType(CompressionType type) const override {
-    return CompressionTypeSupported(type);
-  }
-
- protected:
-  BuiltinDecompressorV1 decompressor_;
-};
-
 // Subroutines for BuiltinDecompressorV2
 
 Status Snappy_DecompressBlock(const Decompressor::Args& args,
@@ -1697,9 +1553,6 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
   }
 };
 
-const std::shared_ptr<BuiltinCompressionManagerV1>
-    kBuiltinCompressionManagerV1 =
-        std::make_shared<BuiltinCompressionManagerV1>();
 const std::shared_ptr<BuiltinCompressionManagerV2>
     kBuiltinCompressionManagerV2 =
         std::make_shared<BuiltinCompressionManagerV2>();
@@ -1728,14 +1581,6 @@ Status CompressionManager::CreateFromString(
   std::call_once(loaded, [&]() {
     auto& library = *ObjectLibrary::Default();
     // TODO: try to enhance ObjectLibrary to support singletons
-    library.AddFactory<CompressionManager>(
-        kBuiltinCompressionManagerV1->CompatibilityName(),
-        [](const std::string& /*uri*/,
-           std::unique_ptr<CompressionManager>* guard,
-           std::string* /*errmsg*/) {
-          *guard = std::make_unique<BuiltinCompressionManagerV1>();
-          return guard->get();
-        });
     library.AddFactory<CompressionManager>(
         kBuiltinCompressionManagerV2->CompatibilityName(),
         [](const std::string& /*uri*/,
@@ -1782,26 +1627,10 @@ CompressionManager::FindCompatibleCompressionManager(Slice compatibility_name) {
   }
 }
 
-const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
-    int compression_format_version) {
-  static const std::shared_ptr<CompressionManager> v1_as_base =
-      kBuiltinCompressionManagerV1;
+const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager() {
   static const std::shared_ptr<CompressionManager> v2_as_base =
       kBuiltinCompressionManagerV2;
-  static const std::shared_ptr<CompressionManager> none;
-  if (compression_format_version == 1) {
-    return v1_as_base;
-  } else if (compression_format_version == 2) {
-    return v2_as_base;
-  } else {
-    // Unrecognized. In some cases this is unexpected and the caller can
-    // rightfully crash.
-    return none;
-  }
-}
-
-const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager() {
-  return GetBuiltinCompressionManager(2);
+  return v2_as_base;
 }
 
 // ***********************************************************************
