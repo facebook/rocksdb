@@ -301,13 +301,12 @@ class LogicalBlockSizeCache {
 class PosixSequentialFile : public FSSequentialFile {
  private:
   std::string filename_;
-  FILE* file_;
   int fd_;
   bool use_direct_io_;
   size_t logical_sector_size_;
 
  public:
-  PosixSequentialFile(const std::string& fname, FILE* file, int fd,
+  PosixSequentialFile(const std::string& fname, int fd,
                       size_t logical_block_size, const EnvOptions& options);
   virtual ~PosixSequentialFile();
 

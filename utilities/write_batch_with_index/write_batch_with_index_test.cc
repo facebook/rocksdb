@@ -3663,7 +3663,7 @@ TEST_P(WriteBatchWithIndexTest, TrackAndClearCFStats) {
   {
     auto& cf_id_to_count = batch_->GetCFStats();
     ASSERT_EQ(2, cf_id_to_count.size());
-    for (const auto [cf_id, stat] : cf_id_to_count) {
+    for (const auto& [cf_id, stat] : cf_id_to_count) {
       if (cf_id == 0) {
         ASSERT_EQ(2, stat.entry_count);
         ASSERT_EQ(0, stat.overwritten_sd_count);
