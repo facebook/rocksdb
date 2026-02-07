@@ -2188,8 +2188,10 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
 
   // we have a new cache it is empty, then, before we do the Get, we do the
   // dumpload
-  std::shared_ptr<TestSecondaryCache> secondary_cache =
+  std::shared_ptr<SecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048 * 1024, true);
+  std::shared_ptr<TestSecondaryCache> test_secondary_cache =
+      std::static_pointer_cast<TestSecondaryCache>(secondary_cache);
   // This time with secondary cache
   base_cache = NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
                         false /* strict_capacity_limit */, secondary_cache);
@@ -2201,8 +2203,8 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   options.env = fault_env_.get();
 
   // start to load the data to new block cache
-  start_insert = secondary_cache->num_inserts();
-  start_lookup = secondary_cache->num_lookups();
+  start_insert = test_secondary_cache->num_inserts();
+  start_lookup = test_secondary_cache->num_lookups();
   std::unique_ptr<CacheDumpReader> dump_reader;
   s = NewFromFileCacheDumpReader(fault_fs_, FileOptions(), dump_path,
                                  &dump_reader);
@@ -2211,10 +2213,10 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
                                   std::move(dump_reader), &cache_loader);
   ASSERT_OK(s);
-  s = cache_loader->RestoreCacheEntriesToSecondaryCache();
+  s = cache_loader->RestoreCacheEntriesToCache();
   ASSERT_OK(s);
-  uint32_t load_insert = secondary_cache->num_inserts() - start_insert;
-  uint32_t load_lookup = secondary_cache->num_lookups() - start_lookup;
+  uint32_t load_insert = test_secondary_cache->num_inserts() - start_insert;
+  uint32_t load_lookup = test_secondary_cache->num_lookups() - start_lookup;
   // check the number we inserted
   ASSERT_EQ(64, static_cast<int>(load_insert));
   ASSERT_EQ(0, static_cast<int>(load_lookup));
@@ -2223,16 +2225,16 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   Reopen(options);
 
   // After load, we do the Get again
-  start_insert = secondary_cache->num_inserts();
-  start_lookup = secondary_cache->num_lookups();
+  start_insert = test_secondary_cache->num_inserts();
+  start_lookup = test_secondary_cache->num_lookups();
   uint32_t cache_insert = cache->GetInsertCount();
   uint32_t cache_lookup = cache->GetLookupcount();
   for (int i = 0; i < N; i++) {
     v = Get(Key(i));
     ASSERT_EQ(v, value[i]);
   }
-  uint32_t final_insert = secondary_cache->num_inserts() - start_insert;
-  uint32_t final_lookup = secondary_cache->num_lookups() - start_lookup;
+  uint32_t final_insert = test_secondary_cache->num_inserts() - start_insert;
+  uint32_t final_lookup = test_secondary_cache->num_lookups() - start_lookup;
   // no insert to secondary cache
   ASSERT_EQ(0, static_cast<int>(final_insert));
   // lookup the secondary to get all blocks
@@ -2344,8 +2346,10 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
 
   // we have a new cache it is empty, then, before we do the Get, we do the
   // dumpload
-  std::shared_ptr<TestSecondaryCache> secondary_cache =
+  std::shared_ptr<SecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048 * 1024, true);
+  std::shared_ptr<TestSecondaryCache> test_secondary_cache =
+      std::static_pointer_cast<TestSecondaryCache>(secondary_cache);
   // This time with secondary_cache
   base_cache = NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
                         false /* strict_capacity_limit */, secondary_cache);
@@ -2357,8 +2361,8 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   options.env = fault_env_.get();
 
   // Start the cache loading process
-  start_insert = secondary_cache->num_inserts();
-  start_lookup = secondary_cache->num_lookups();
+  start_insert = test_secondary_cache->num_inserts();
+  start_lookup = test_secondary_cache->num_lookups();
   std::unique_ptr<CacheDumpReader> dump_reader;
   s = NewFromFileCacheDumpReader(fault_fs_, FileOptions(), dump_path,
                                  &dump_reader);
@@ -2367,10 +2371,10 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
                                   std::move(dump_reader), &cache_loader);
   ASSERT_OK(s);
-  s = cache_loader->RestoreCacheEntriesToSecondaryCache();
+  s = cache_loader->RestoreCacheEntriesToCache();
   ASSERT_OK(s);
-  uint32_t load_insert = secondary_cache->num_inserts() - start_insert;
-  uint32_t load_lookup = secondary_cache->num_lookups() - start_lookup;
+  uint32_t load_insert = test_secondary_cache->num_inserts() - start_insert;
+  uint32_t load_lookup = test_secondary_cache->num_lookups() - start_lookup;
   // check the number we inserted
   ASSERT_EQ(64, static_cast<int>(load_insert));
   ASSERT_EQ(0, static_cast<int>(load_lookup));
@@ -2384,16 +2388,16 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   // I/O, so we set the file system to false.
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   fault_fs_->SetFilesystemActive(false, error_msg);
-  start_insert = secondary_cache->num_inserts();
-  start_lookup = secondary_cache->num_lookups();
+  start_insert = test_secondary_cache->num_inserts();
+  start_lookup = test_secondary_cache->num_lookups();
   uint32_t cache_insert = cache->GetInsertCount();
   uint32_t cache_lookup = cache->GetLookupcount();
   for (int i = 0; i < N; i++) {
     ASSERT_OK(db1->Get(ro, Key(i), &v));
     ASSERT_EQ(v, value1[i]);
   }
-  uint32_t final_insert = secondary_cache->num_inserts() - start_insert;
-  uint32_t final_lookup = secondary_cache->num_lookups() - start_lookup;
+  uint32_t final_insert = test_secondary_cache->num_inserts() - start_insert;
+  uint32_t final_lookup = test_secondary_cache->num_lookups() - start_lookup;
   // no insert to secondary cache
   ASSERT_EQ(0, static_cast<int>(final_insert));
   // lookup the secondary to get all blocks
