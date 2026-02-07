@@ -3,6 +3,7 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
+import ast
 import copy
 import os
 
@@ -72,6 +73,100 @@ class OptionsSpecParser(IniParser):
 
 
 class DatabaseOptions(DataSource):
+    @staticmethod
+    def safe_eval_expression(expr, local_vars):
+        """
+        Safely evaluate an expression using AST parsing instead of eval().
+        This prevents arbitrary code execution by only allowing safe operations.
+        """
+        import operator
+        import ast
+        
+        # Define allowed operations
+        safe_operators = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.Eq: operator.eq,
+            ast.NotEq: operator.ne,
+            ast.Lt: operator.lt,
+            ast.LtE: operator.le,
+            ast.Gt: operator.gt,
+            ast.GtE: operator.ge,
+            ast.And: lambda a, b: a and b,
+            ast.Or: lambda a, b: a or b,
+            ast.Not: operator.not_,
+            ast.UAdd: operator.pos,
+            ast.USub: operator.neg,
+        }
+        
+        def eval_node(node):
+            if isinstance(node, ast.Constant):  # Python 3.8+
+                return node.value
+            elif isinstance(node, ast.Num):  # Fallback for older Python
+                return node.n
+            elif isinstance(node, ast.Str):  # Fallback for older Python
+                return node.s
+            elif isinstance(node, ast.Name):
+                if node.id in local_vars:
+                    return local_vars[node.id]
+                raise NameError(f"Name '{node.id}' is not defined")
+            elif isinstance(node, ast.BinOp):
+                left = eval_node(node.left)
+                right = eval_node(node.right)
+                op_type = type(node.op)
+                if op_type in safe_operators:
+                    return safe_operators[op_type](left, right)
+                raise ValueError(f"Unsupported binary operator: {op_type}")
+            elif isinstance(node, ast.UnaryOp):
+                operand = eval_node(node.operand)
+                op_type = type(node.op)
+                if op_type in safe_operators:
+                    return safe_operators[op_type](operand)
+                raise ValueError(f"Unsupported unary operator: {op_type}")
+            elif isinstance(node, ast.Compare):
+                left = eval_node(node.left)
+                for op, comparator in zip(node.ops, node.comparators):
+                    right = eval_node(comparator)
+                    op_type = type(op)
+                    if op_type not in safe_operators:
+                        raise ValueError(f"Unsupported comparison: {op_type}")
+                    if not safe_operators[op_type](left, right):
+                        return False
+                    left = right
+                return True
+            elif isinstance(node, ast.BoolOp):
+                op_type = type(node.op)
+                if op_type not in safe_operators:
+                    raise ValueError(f"Unsupported boolean operator: {op_type}")
+                values = [eval_node(val) for val in node.values]
+                if isinstance(node.op, ast.And):
+                    return all(values)
+                elif isinstance(node.op, ast.Or):
+                    return any(values)
+            elif isinstance(node, ast.Subscript):
+                value = eval_node(node.value)
+                if isinstance(node.slice, ast.Index):  # Python < 3.9
+                    index = eval_node(node.slice.value)
+                else:  # Python 3.9+
+                    index = eval_node(node.slice)
+                return value[index]
+            elif isinstance(node, ast.List):
+                return [eval_node(elt) for elt in node.elts]
+            elif isinstance(node, ast.Tuple):
+                return tuple(eval_node(elt) for elt in node.elts)
+            else:
+                raise ValueError(f"Unsupported node type: {type(node)}")
+        
+        try:
+            tree = ast.parse(expr, mode='eval')
+            return eval_node(tree.body)
+        except Exception:
+            raise
     @staticmethod
     def is_misc_option(option_name):
         # these are miscellaneous options that are not yet supported by the
@@ -315,7 +410,8 @@ class DatabaseOptions(DataSource):
             # if all the options are database-wide options
             if not incomplete_option_ix:
                 try:
-                    if eval(cond.eval_expr):
+                    # Use safe AST-based expression evaluation instead of eval()
+                    if self.safe_eval_expression(cond.eval_expr, {"options": options}):
                         cond.set_trigger({NO_COL_FAMILY: options})
                 except Exception as e:
                     print("WARNING(DatabaseOptions) check_and_trigger:" + str(e))
@@ -334,7 +430,8 @@ class DatabaseOptions(DataSource):
                     options[ix] = reqd_options_dict[option][col_fam]
                 if present:
                     try:
-                        if eval(cond.eval_expr):
+                        # Use safe AST-based expression evaluation instead of eval()
+                        if self.safe_eval_expression(cond.eval_expr, {"options": options}):
                             col_fam_options_dict[col_fam] = copy.deepcopy(options)
                     except Exception as e:
                         print("WARNING(DatabaseOptions) check_and_trigger: " + str(e))
