@@ -2903,12 +2903,6 @@ void CompactionJob::RestoreCompactionOutputs(
 // - Status::NotFound(): No valid progress to resume from
 // - Status::Corruption(): Resume key is invalid, beyond input range, or output
 // restoration failed
-// - Other non-OK status: Iterator errors or file system issues during
-// restoration
-//
-// The caller must check for Status::IsIncomplete() to distinguish between
-// "no resume needed" (proceed with `InternalIterator::SeekToFirst()`) vs
-// "resume failed" scenarios.
 Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
     SubcompactionState* sub_compact, InternalIterator* input_iter) {
   const ReadOptions read_options(Env::IOActivity::kCompaction);
