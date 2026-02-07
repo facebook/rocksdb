@@ -566,7 +566,7 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
         new std::vector<bool>(FLAGS_max_key));
     for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
       uint64_t key_val;
-      if (GetIntVal(iterator->key().ToString(), &key_val)) {
+      if (GetIntVal(GetUserKeyForParsing(iterator->key()), &key_val)) {
         (*tmp_bitvec.get())[key_val] = true;
       }
     }
@@ -823,7 +823,7 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
         txn->GetWriteBatch()->NewIterator(column_families_[i]));
     for (wbwi_iter->SeekToFirst(); wbwi_iter->Valid(); wbwi_iter->Next()) {
       uint64_t key_val;
-      if (GetIntVal(wbwi_iter->Entry().key.ToString(), &key_val)) {
+      if (GetIntVal(GetUserKeyForParsing(wbwi_iter->Entry().key), &key_val)) {
         shared->SyncPendingPut(static_cast<int>(i) /* cf_idx */, key_val);
       }
     }
@@ -3207,7 +3207,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
     std::unique_ptr<Iterator> iterator(db_->NewIterator(ropt));
     for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
       uint64_t key_val;
-      if (GetIntVal(iterator->key().ToString(), &key_val)) {
+      if (GetIntVal(GetUserKeyForParsing(iterator->key()), &key_val)) {
         (*key_vec)[key_val] = true;
       }
     }
