@@ -1275,11 +1275,11 @@ rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
 rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
-  if (SaveError(errptr, BackupEngine::Open(
-                            options->rep.env,
-                            BackupEngineOptions(path, nullptr, true,
-                                                options->rep.info_log.get()),
-                            &be))) {
+  BackupEngineOptions opts;
+  opts.backup_dir = path;
+  opts.backup_env = nullptr;
+  opts.info_log = options->rep.info_log.get();
+  if (SaveError(errptr, BackupEngine::Open(options->rep.env, opts, &be))) {
     return nullptr;
   }
   rocksdb_backup_engine_t* result = new rocksdb_backup_engine_t;
@@ -1394,8 +1394,9 @@ void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
 
 rocksdb_backup_engine_options_t* rocksdb_backup_engine_options_create(
     const char* backup_dir) {
-  return new rocksdb_backup_engine_options_t{
-      BackupEngineOptions(std::string(backup_dir))};
+  BackupEngineOptions opts;
+  opts.backup_dir = backup_dir;
+  return new rocksdb_backup_engine_options_t{opts};
 }
 
 void rocksdb_backup_engine_options_set_backup_dir(

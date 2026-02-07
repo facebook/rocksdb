@@ -9053,8 +9053,9 @@ class Benchmark {
 
   void Backup(ThreadState* thread) {
     DB* db = SelectDB(thread);
-    std::unique_ptr<BackupEngineOptions> engine_options(
-        new BackupEngineOptions(FLAGS_backup_dir));
+    BackupEngineOptions opts;
+    auto engine_options = std::make_unique<BackupEngineOptions>();
+    engine_options->backup_dir = FLAGS_backup_dir;
     Status s;
     BackupEngine* backup_engine;
     if (FLAGS_backup_rate_limit > 0) {
@@ -9075,8 +9076,8 @@ class Benchmark {
   }
 
   void Restore(ThreadState* /* thread */) {
-    std::unique_ptr<BackupEngineOptions> engine_options(
-        new BackupEngineOptions(FLAGS_backup_dir));
+    auto engine_options = std::make_unique<BackupEngineOptions>();
+    engine_options->backup_dir = FLAGS_backup_dir;
     if (FLAGS_restore_rate_limit > 0) {
       engine_options->restore_rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_restore_rate_limit, 100000 /* refill_period_us */,

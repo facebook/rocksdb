@@ -4645,8 +4645,9 @@ void BackupCommand::DoCommand() {
   }
   assert(custom_env != nullptr);
 
-  BackupEngineOptions backup_options =
-      BackupEngineOptions(backup_dir_, custom_env);
+  BackupEngineOptions backup_options;
+  backup_options.backup_dir = backup_dir_;
+  backup_options.backup_env = custom_env;
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
   status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
@@ -4693,7 +4694,9 @@ void RestoreCommand::DoCommand() {
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
   {
-    BackupEngineOptions opts(backup_dir_, custom_env);
+    BackupEngineOptions opts;
+    opts.backup_dir = backup_dir_;
+    opts.backup_env = custom_env;
     opts.info_log = logger_.get();
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;

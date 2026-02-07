@@ -12,15 +12,14 @@
 #include <cstdint>
 #include <forward_list>
 #include <functional>
-#include <map>
 #include <string>
 #include <vector>
 
 #include "rocksdb/env.h"
-#include "rocksdb/io_status.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/checkpoint.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BackupEngineReadOnlyBase;
@@ -31,17 +30,11 @@ constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 // The default BackupEngine file checksum function name.
 constexpr char kBackupFileChecksumFuncName[] = "crc32c";
 
-struct BackupEngineOptions {
+struct BackupEngineOptions : public CheckpointEngineOptions {
   // Where to keep the backup files. Has to be different than dbname_
   // Best to set this to dbname_ + "/backups"
   // Required
   std::string backup_dir;
-
-  // Backup Env object. It will be used for backup file I/O. If it's
-  // nullptr, backups will be written out using DBs Env. If it's
-  // non-nullptr, backup's I/O will be performed using this object.
-  // Default: nullptr
-  Env* backup_env;
 
   // share_table_files supports table and blob files.
   //
@@ -50,66 +43,20 @@ struct BackupEngineOptions {
   // enable incremental backups by only copying new files.
   // If share_table_files == false, each backup will be on its own and will not
   // share any data with other backups.
-  //
-  // default: true
-  bool share_table_files;
-
-  // Backup info and error messages will be written to info_log
-  // if non-nullptr.
-  // Default: nullptr
-  Logger* info_log;
-
-  // If sync == true, we can guarantee you'll get consistent backup and
-  // restore even on a machine crash/reboot. Backup and restore processes are
-  // slower with sync enabled. If sync == false, we can only guarantee that
-  // other previously synced backups and restores are not modified while
-  // creating a new one.
-  // Default: true
-  bool sync;
+  bool share_table_files = true;
 
   // If true, it will delete whatever backups there are already
-  // Default: false
-  bool destroy_old_data;
-
-  // If false, we won't backup log files. This option can be useful for backing
-  // up in-memory databases where log file are persisted, but table files are in
-  // memory.
-  // Default: true
-  bool backup_log_files;
-
-  // Size of the buffer in bytes used for reading files.
-  // Enables optimally configuring the IO size based on the storage backend.
-  // If specified, takes precendence over the rate limiter burst size (if
-  // specified) as well as kDefaultCopyFileBufferSize.
-  // If 0, the rate limiter burst size (if specified) or
-  // kDefaultCopyFileBufferSize will be used.
-  // Default: 0
-  uint64_t io_buffer_size;
-
-  // Max bytes that can be transferred in a second during backup.
-  // If 0, go as fast as you can
-  // This limit only applies to writes. To also limit reads,
-  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
-  // have to be passed in through the option "backup_rate_limiter"
-  // Default: 0
-  uint64_t backup_rate_limit;
-
-  // Backup rate limiter. Used to control transfer speed for backup. If this is
-  // not null, backup_rate_limit is ignored.
-  // Default: nullptr
-  std::shared_ptr<RateLimiter> backup_rate_limiter{nullptr};
+  bool destroy_old_data = false;
 
   // Max bytes that can be transferred in a second during restore.
   // If 0, go as fast as you can
   // This limit only applies to writes. To also limit reads,
   // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
   // have to be passed in through the option "restore_rate_limiter"
-  // Default: 0
-  uint64_t restore_rate_limit;
+  uint64_t restore_rate_limit = 0;
 
   // Restore rate limiter. Used to control transfer speed during restore. If
   // this is not null, restore_rate_limit is ignored.
-  // Default: nullptr
   std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
   // share_files_with_checksum supports table and blob files.
@@ -122,19 +69,7 @@ struct BackupEngineOptions {
   // prevents these issues by ensuring that different table files (SSTs) and
   // blob files with the same number are treated as distinct. See
   // share_files_with_checksum_naming and ShareFilesNaming.
-  //
-  // Default: true
-  bool share_files_with_checksum;
-
-  // Up to this many background threads will be used to copy files & compute
-  // checksums for CreateNewBackup() and RestoreDBFromBackup().
-  // Default: 1
-  int max_background_operations;
-
-  // During backup user can get callback every time next
-  // callback_trigger_interval_size bytes being copied.
-  // Default: 4194304
-  uint64_t callback_trigger_interval_size;
+  bool share_files_with_checksum = true;
 
   // For BackupEngineReadOnly, Open() will open at most this many of the
   // latest non-corrupted backups.
@@ -143,9 +78,7 @@ struct BackupEngineOptions {
   // writable BackupEngine because it would inhibit accounting for shared
   // files for proper backup deletion, including purging any incompletely
   // created backups on creation of a new backup.
-  //
-  // Default: INT_MAX
-  int max_valid_backups_to_open;
+  int max_valid_backups_to_open = INT_MAX;
 
   // ShareFilesNaming describes possible naming schemes for backup
   // table and blob file names when they are stored in the
@@ -209,11 +142,10 @@ struct BackupEngineOptions {
   // directory, under the new shared name in addition to the old shared
   // name.
   //
-  // Default: kUseDbSessionId | kFlagIncludeFileSize
-  //
   // Note: This option comes into effect only if both share_files_with_checksum
   // and share_table_files are true.
-  ShareFilesNaming share_files_with_checksum_naming;
+  ShareFilesNaming share_files_with_checksum_naming =
+      static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize);
 
   // Major schema version to use when writing backup meta files
   // 1 (default) - compatible with very old versions of RocksDB.
@@ -221,47 +153,7 @@ struct BackupEngineOptions {
   //   * (Experimental) saving and restoring file temperature metadata
   int schema_version = 1;
 
-  // (Experimental - subject to change or removal) When taking a backup and
-  // saving file temperature info (minimum schema_version is 2), there are
-  // two potential sources of truth for the placement of files into temperature
-  // tiers: (a) the current file temperature reported by the FileSystem or
-  // (b) the expected file temperature recorded in DB manifest. When this
-  // option is false (default), (b) overrides (a) if both are not UNKNOWN.
-  // When true, (a) overrides (b) if both are not UNKNOWN. Regardless of this
-  // setting, a known temperature overrides UNKNOWN.
-  bool current_temperatures_override_manifest = false;
-
   void Dump(Logger* logger) const;
-
-  explicit BackupEngineOptions(
-      const std::string& _backup_dir, Env* _backup_env = nullptr,
-      bool _share_table_files = true, Logger* _info_log = nullptr,
-      bool _sync = true, bool _destroy_old_data = false,
-      bool _backup_log_files = true, uint64_t _io_buffer_size = 0,
-      uint64_t _backup_rate_limit = 0, uint64_t _restore_rate_limit = 0,
-      int _max_background_operations = 1,
-      uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
-      int _max_valid_backups_to_open = INT_MAX,
-      ShareFilesNaming _share_files_with_checksum_naming =
-          static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize))
-      : backup_dir(_backup_dir),
-        backup_env(_backup_env),
-        share_table_files(_share_table_files),
-        info_log(_info_log),
-        sync(_sync),
-        destroy_old_data(_destroy_old_data),
-        backup_log_files(_backup_log_files),
-        io_buffer_size(_io_buffer_size),
-        backup_rate_limit(_backup_rate_limit),
-        restore_rate_limit(_restore_rate_limit),
-        share_files_with_checksum(true),
-        max_background_operations(_max_background_operations),
-        callback_trigger_interval_size(_callback_trigger_interval_size),
-        max_valid_backups_to_open(_max_valid_backups_to_open),
-        share_files_with_checksum_naming(_share_files_with_checksum_naming) {
-    assert(share_table_files || !share_files_with_checksum);
-    assert((share_files_with_checksum_naming & kMaskNoNamingFlags) != 0);
-  }
 };
 
 inline BackupEngineOptions::ShareFilesNaming operator&(
@@ -305,17 +197,15 @@ struct MaybeExcludeBackupFile {
   bool exclude_decision = false;
 };
 
-struct CreateBackupOptions {
+struct CreateBackupOptions : public CreateCheckpointOrBackupOptions {
   // Flush will always trigger if 2PC is enabled.
   // If write-ahead logs are disabled, set flush_before_backup=true to
   // avoid losing unflushed key/value pairs from the memtable.
+  // NOTE/TODO: Reconcile with CreateCheckpointOptions::log_size_for_flush
   bool flush_before_backup = false;
 
-  // Callback for reporting progress, based on callback_trigger_interval_size.
-  //
-  // An exception thrown from the callback will result in Status::Aborted from
-  // the operation.
-  std::function<void()> progress_callback = {};
+  // ***NOCOMMIT***: Consider (for the future) migrating this below to also be
+  // supported by checkpoint.
 
   // A callback that allows the API user to select files for exclusion, such
   // as if the files are known to exist in an alternate backup directory.
@@ -338,14 +228,6 @@ struct CreateBackupOptions {
   std::function<void(MaybeExcludeBackupFile* files_begin,
                      MaybeExcludeBackupFile* files_end)>
       exclude_files_callback = {};
-
-  // If false, background_thread_cpu_priority is ignored.
-  // Otherwise, the cpu priority can be decreased,
-  // if you try to increase the priority, the priority will not change.
-  // The initial priority of the threads is CpuPriority::kNormal,
-  // so you can decrease to priorities lower than kNormal.
-  bool decrease_background_thread_cpu_priority = false;
-  CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
 };
 
 struct RestoreOptions {
