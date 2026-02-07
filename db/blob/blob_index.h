@@ -137,6 +137,18 @@ class BlobIndex {
     return oss.str();
   }
 
+  // Encode this blob index into dst based on its type.
+  void EncodeTo(std::string* dst) const {
+    if (IsInlined()) {
+      EncodeInlinedTTL(dst, expiration_, value_);
+    } else if (HasTTL()) {
+      EncodeBlobTTL(dst, expiration_, file_number_, offset_, size_,
+                    compression_);
+    } else {
+      EncodeBlob(dst, file_number_, offset_, size_, compression_);
+    }
+  }
+
   static void EncodeInlinedTTL(std::string* dst, uint64_t expiration,
                                const Slice& value) {
     assert(dst != nullptr);
