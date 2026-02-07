@@ -24,7 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
+#if defined(OS_AIX) || defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
 #endif
@@ -598,8 +598,15 @@ class PosixFileSystem : public FileSystem {
     while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
-      const bool ignore =
-          entry->d_type == DT_DIR &&
+#if defined(OS_AIX)
+		struct stat entry_stat;
+		stat(entry->d_name, &entry_stat);
+		const bool is_dir = S_ISDIR(entry_stat.st_mode);
+#else
+		const bool is_dir = entry->d_type == DT_DIR;
+#endif
+
+		const bool ignore = is_dir &&
           (strcmp(entry->d_name, ".") == 0 ||
            strcmp(entry->d_name, "..") == 0
 #ifndef ASSERT_STATUS_CHECKED
