@@ -29,6 +29,9 @@ class DBBlockCacheTest : public DBTestBase {
   size_t compressed_hit_count_ = 0;
   size_t compressed_insert_count_ = 0;
   size_t compressed_failure_count_ = 0;
+  size_t range_deletion_miss_count_ = 0;
+  size_t range_deletion_hit_count_ = 0;
+  size_t range_deletion_insert_count_ = 0;
 
  public:
   const size_t kNumBlocks = 10;
@@ -123,6 +126,36 @@ class DBBlockCacheTest : public DBTestBase {
     compression_dict_miss_count_ = new_compression_dict_miss_count;
     compression_dict_hit_count_ = new_compression_dict_hit_count;
     compression_dict_insert_count_ = new_compression_dict_insert_count;
+  }
+
+  void RecordCacheCountersForRangeDeletion(const Options& options) {
+    range_deletion_miss_count_ =
+        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_MISS);
+    range_deletion_hit_count_ =
+        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_HIT);
+    range_deletion_insert_count_ =
+        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_ADD);
+  }
+
+  void CheckCacheCountersForRangeDeletion(
+      const Options& options, size_t expected_range_deletion_misses,
+      size_t expected_range_deletion_hits,
+      size_t expected_range_deletion_inserts) {
+    size_t new_range_deletion_miss_count =
+        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_MISS);
+    size_t new_range_deletion_hit_count =
+        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_HIT);
+    size_t new_range_deletion_insert_count =
+        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_ADD);
+    ASSERT_EQ(range_deletion_miss_count_ + expected_range_deletion_misses,
+              new_range_deletion_miss_count);
+    ASSERT_EQ(range_deletion_hit_count_ + expected_range_deletion_hits,
+              new_range_deletion_hit_count);
+    ASSERT_EQ(range_deletion_insert_count_ + expected_range_deletion_inserts,
+              new_range_deletion_insert_count);
+    range_deletion_miss_count_ = new_range_deletion_miss_count;
+    range_deletion_hit_count_ = new_range_deletion_hit_count;
+    range_deletion_insert_count_ = new_range_deletion_insert_count;
   }
 
   void CheckCompressedCacheCounters(const Options& options,
@@ -885,6 +918,68 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
         1 /* expected_compression_dict_hits */,
         0 /* expected_compression_dict_inserts */);
   }
+}
+
+TEST_F(DBBlockCacheTest, CacheRangeDeletionBlock) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.block_cache = NewLRUCache(1 << 20 /* 1MB */);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Write some data with a range deletion.
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Put("key4", "val4"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             "key2", "key4"));
+  ASSERT_OK(Flush());
+
+  // After flush, the range deletion block should have been read and cached.
+  // Verify that the range deletion stats are tracked separately from data
+  // block stats.
+  uint64_t range_del_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_MISS);
+  uint64_t range_del_hits =
+      TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_HIT);
+  uint64_t range_del_inserts =
+      TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_ADD);
+  uint64_t range_del_bytes =
+      TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT);
+
+  // Range deletion block should have been loaded (miss + insert).
+  ASSERT_EQ(1, range_del_misses);
+  ASSERT_EQ(0, range_del_hits);
+  ASSERT_EQ(1, range_del_inserts);
+  ASSERT_GT(range_del_bytes, 0);
+
+  // These should NOT have been counted as data block stats.
+  // Data block stats should be 0 since we haven't read any data blocks yet.
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
+
+  // Now reopen the DB to force re-reading the range deletion block from the
+  // SST file (cache is cleared on reopen).
+  table_options.block_cache = NewLRUCache(1 << 20 /* 1MB */);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  // After reopen, the range deletion block is read again.
+  // Counters are cumulative, so we expect the previous values plus new ones.
+  range_del_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_MISS);
+  range_del_inserts =
+      TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_ADD);
+  ASSERT_GE(range_del_misses, 2);
+  ASSERT_GE(range_del_inserts, 2);
+
+  // Data block stats should still be 0.
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
 }
 
 #endif  // ROCKSDB_LITE
