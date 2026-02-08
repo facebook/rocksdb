@@ -253,6 +253,11 @@ DEFINE_int32(format_version,
                  ROCKSDB_NAMESPACE::BlockBasedTableOptions().format_version),
              "Format version of SST files.");
 
+DEFINE_bool(separate_key_value_in_data_block,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+                .separate_key_value_in_data_block,
+            "If true, data blocks store keys and values separately.");
+
 DEFINE_int32(
     index_block_restart_interval,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_block_restart_interval,

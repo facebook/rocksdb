@@ -251,7 +251,8 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
     "writepercent": 35,
-    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 8, 8]),
+    "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
@@ -1177,6 +1178,9 @@ def finalize_and_sanitize(src_params):
         if dest_params.get("block_align") == 1:
             dest_params["compression_type"] = "none"
             dest_params["bottommost_compression_type"] = "none"
+    if dest_params.get("separate_key_value_in_data_block") == 1:
+        if dest_params.get("format_version", 0) < 8:
+            dest_params["format_version"] = 8
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""

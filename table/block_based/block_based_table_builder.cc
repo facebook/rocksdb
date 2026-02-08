@@ -1041,13 +1041,17 @@ struct BlockBasedTableBuilder::Rep {
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio, ts_sz,
-                   persist_user_defined_timestamps),
+                   persist_user_defined_timestamps, false /* is_user_key */,
+                   FormatVersionSupportsSeparateKeyValue(
+                       table_options.format_version) &&
+                       table_options.separate_key_value_in_data_block),
         range_del_block(
             1 /* block_restart_interval */, true /* use_delta_encoding */,
             false /* use_value_delta_encoding */,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-            persist_user_defined_timestamps),
+            persist_user_defined_timestamps, false /* is_user_key */,
+            false /* use_separated_kv_storage */),
         internal_prefix_transform(prefix_extractor.get()),
         sample_for_compression(tbo.moptions.sample_for_compression),
         compression_parallel_threads(
@@ -1072,7 +1076,12 @@ struct BlockBasedTableBuilder::Rep {
                        tbo.internal_comparator.user_comparator(),
                        !use_delta_encoding_for_index_values,
                        table_opt.index_type ==
-                           BlockBasedTableOptions::kBinarySearchWithFirstKey),
+                           BlockBasedTableOptions::kBinarySearchWithFirstKey,
+                       FormatVersionSupportsSeparateKeyValue(
+                           table_options.format_version) &&
+                           table_options.separate_key_value_in_data_block,
+                       table_options.block_restart_interval,
+                       table_options.index_block_restart_interval),
         tail_size(0) {
     FilterBuildingContext filter_context(table_options);
 
@@ -1324,6 +1333,14 @@ struct BlockBasedTableBuilder::Rep {
     props.db_session_id = tbo.db_session_id;
     props.db_host_id = ioptions.db_host_id;
     props.format_version = table_options.format_version;
+    props.data_block_restart_interval = table_options.block_restart_interval;
+    props.index_block_restart_interval =
+        table_options.index_block_restart_interval;
+    props.separated_kv_in_data_block =
+        FormatVersionSupportsSeparateKeyValue(table_options.format_version) &&
+                table_options.separate_key_value_in_data_block
+            ? 1
+            : 0;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }
@@ -2707,7 +2724,13 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     auto& data_block = r->data_block_buffers[i];
     assert(!data_block.empty());
 
-    Block reader{BlockContents{data_block}};
+    Block reader{
+        BlockContents{data_block}, 0 /* read_amp_bytes_per_bit */,
+        nullptr /* statistics */,
+        FormatVersionSupportsSeparateKeyValue(
+            r->table_options.format_version) &&
+            r->table_options.separate_key_value_in_data_block,
+        static_cast<uint32_t>(r->table_options.block_restart_interval)};
     DataBlockIter* iter = reader.NewDataIterator(
         r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber,
         nullptr /* iter */, nullptr /* stats */,

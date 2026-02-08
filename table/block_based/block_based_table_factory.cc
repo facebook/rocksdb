@@ -335,6 +335,10 @@ static struct BlockBasedTableTypeInfo {
         {"format_version",
          {offsetof(struct BlockBasedTableOptions, format_version),
           OptionType::kUInt32T, OptionVerificationType::kNormal}},
+        {"separate_key_value_in_data_block",
+         {offsetof(struct BlockBasedTableOptions,
+                   separate_key_value_in_data_block),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
         {"verify_compression",
          {offsetof(struct BlockBasedTableOptions, verify_compression),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
@@ -632,6 +636,12 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
+  }
+  if (table_options_.separate_key_value_in_data_block &&
+      !FormatVersionSupportsSeparateKeyValue(table_options_.format_version)) {
+    return Status::InvalidArgument(
+        "separate_key_value_in_data_block is not supported for "
+        "format_version < 8");
   }
   bool using_builtin_compatible_compression = true;
   if (cf_opts.compression_manager &&

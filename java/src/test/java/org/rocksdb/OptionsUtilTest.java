@@ -296,6 +296,7 @@ public class OptionsUtilTest {
     altCFTableConfig.setVerifyCompression(true);
     altCFTableConfig.setReadAmpBytesPerBit(2);
     altCFTableConfig.setFormatVersion(8);
+    altCFTableConfig.setSeparateKeyValueInDataBlock(true);
     altCFTableConfig.setEnableIndexCompression(false);
     altCFTableConfig.setBlockAlign(true);
     altCFTableConfig.setSuperBlockAlignmentSize(1024 * 1024);
@@ -365,6 +366,8 @@ public class OptionsUtilTest {
     assertThat(actual.verifyCompression()).isEqualTo(expected.verifyCompression());
     assertThat(actual.readAmpBytesPerBit()).isEqualTo(expected.readAmpBytesPerBit());
     assertThat(actual.formatVersion()).isEqualTo(expected.formatVersion());
+    assertThat(actual.separateKeyValueInDataBlock())
+        .isEqualTo(expected.separateKeyValueInDataBlock());
     assertThat(actual.enableIndexCompression()).isEqualTo(expected.enableIndexCompression());
     assertThat(actual.blockAlign()).isEqualTo(expected.blockAlign());
     assertThat(actual.superBlockAlignmentSize()).isEqualTo(expected.superBlockAlignmentSize());

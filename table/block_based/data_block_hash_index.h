@@ -122,7 +122,7 @@ class DataBlockHashIndex {
 
   uint8_t Lookup(const char* data, uint32_t map_offset, const Slice& key) const;
 
-  inline bool Valid() { return num_buckets_ != 0; }
+  inline bool Valid() const { return num_buckets_ != 0; }
 
  private:
   // To make the serialized hash index compact and to save the space overhead,
