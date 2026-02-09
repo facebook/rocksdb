@@ -80,6 +80,7 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_COMPRESSION_DICT_HIT,
   BLOCK_CACHE_COMPRESSION_DICT_ADD,
   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
+  BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
 
   // # of blocks redundantly inserted into block cache.
   // REQUIRES: BLOCK_CACHE_ADD_REDUNDANT <= BLOCK_CACHE_ADD
@@ -97,6 +98,20 @@ enum Tickers : uint32_t {
   // REQUIRES: BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT
   //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
   BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
+
+  // # of times cache miss when accessing range deletion block from block
+  // cache.
+  BLOCK_CACHE_RANGE_DELETION_MISS,
+  // # of times cache hit when accessing range deletion block from block cache.
+  BLOCK_CACHE_RANGE_DELETION_HIT,
+  // # of range deletion blocks added to block cache.
+  BLOCK_CACHE_RANGE_DELETION_ADD,
+  // # of bytes of range deletion blocks inserted into cache
+  BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT,
+  // # of range deletion blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT
+  //           <= BLOCK_CACHE_RANGE_DELETION_ADD
+  BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT,
 
   // Secondary cache statistics
   SECONDARY_CACHE_HITS,
@@ -410,51 +425,6 @@ enum Tickers : uint32_t {
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
   // # of times ::Get returned TryAgain due to expired snapshot seq
   TXN_GET_TRY_AGAIN,
-
-  // Number of keys actually found in MultiGet calls (vs number requested by
-  // caller)
-  // NUMBER_MULTIGET_KEYS_READ gives the number requested by caller
-  NUMBER_MULTIGET_KEYS_FOUND,
-
-  NO_ITERATOR_CREATED,  // number of iterators created
-  NO_ITERATOR_DELETED,  // number of iterators deleted
-
-  BLOCK_CACHE_COMPRESSION_DICT_MISS,
-  BLOCK_CACHE_COMPRESSION_DICT_HIT,
-  BLOCK_CACHE_COMPRESSION_DICT_ADD,
-  BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
-  BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
-
-  // # of blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_ADD_REDUNDANT <= BLOCK_CACHE_ADD
-  BLOCK_CACHE_ADD_REDUNDANT,
-  // # of index blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_INDEX_ADD_REDUNDANT <= BLOCK_CACHE_INDEX_ADD
-  BLOCK_CACHE_INDEX_ADD_REDUNDANT,
-  // # of filter blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_FILTER_ADD_REDUNDANT <= BLOCK_CACHE_FILTER_ADD
-  BLOCK_CACHE_FILTER_ADD_REDUNDANT,
-  // # of data blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_DATA_ADD_REDUNDANT <= BLOCK_CACHE_DATA_ADD
-  BLOCK_CACHE_DATA_ADD_REDUNDANT,
-  // # of dict blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT
-  //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
-  BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
-
-  // # of times cache miss when accessing range deletion block from block
-  // cache.
-  BLOCK_CACHE_RANGE_DELETION_MISS,
-  // # of times cache hit when accessing range deletion block from block cache.
-  BLOCK_CACHE_RANGE_DELETION_HIT,
-  // # of range deletion blocks added to block cache.
-  BLOCK_CACHE_RANGE_DELETION_ADD,
-  // # of bytes of range deletion blocks inserted into cache
-  BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT,
-  // # of range deletion blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT
-  //           <= BLOCK_CACHE_RANGE_DELETION_ADD
-  BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT,
 
   // # of files marked as trash by sst file manager and will be deleted
   // later by background thread.

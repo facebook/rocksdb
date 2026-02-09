@@ -45,10 +45,6 @@ class DBBlockCacheTest : public DBTestBase {
   size_t compression_dict_miss_count_ = 0;
   size_t compression_dict_hit_count_ = 0;
   size_t compression_dict_insert_count_ = 0;
-  size_t compressed_miss_count_ = 0;
-  size_t compressed_hit_count_ = 0;
-  size_t compressed_insert_count_ = 0;
-  size_t compressed_failure_count_ = 0;
   size_t range_deletion_miss_count_ = 0;
   size_t range_deletion_hit_count_ = 0;
   size_t range_deletion_insert_count_ = 0;
@@ -170,27 +166,6 @@ class DBBlockCacheTest : public DBTestBase {
     range_deletion_insert_count_ = new_range_deletion_insert_count;
   }
 
-  void CheckCompressedCacheCounters(const Options& options,
-                                    size_t expected_misses,
-                                    size_t expected_hits,
-                                    size_t expected_inserts,
-                                    size_t expected_failures) {
-    size_t new_miss_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS);
-    size_t new_hit_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT);
-    size_t new_insert_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_ADD);
-    size_t new_failure_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
-    ASSERT_EQ(compressed_miss_count_ + expected_misses, new_miss_count);
-    ASSERT_EQ(compressed_hit_count_ + expected_hits, new_hit_count);
-    ASSERT_EQ(compressed_insert_count_ + expected_inserts, new_insert_count);
-    ASSERT_EQ(compressed_failure_count_ + expected_failures, new_failure_count);
-    compressed_miss_count_ = new_miss_count;
-    compressed_hit_count_ = new_hit_count;
-    compressed_insert_count_ = new_insert_count;
-    compressed_failure_count_ = new_failure_count;
   const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
     std::array<size_t, kNumCacheEntryRoles> cache_entry_role_counts;
@@ -2133,7 +2108,6 @@ TEST_F(DBBlockCacheTest, CacheRangeDeletionBlock) {
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
 }
 
-#endif  // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(DBBlockCacheKeyTest, DBBlockCacheKeyTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));

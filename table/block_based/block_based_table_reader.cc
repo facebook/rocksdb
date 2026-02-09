@@ -1221,15 +1221,13 @@ Status BlockBasedTable::ReadRangeDelBlock(
         "Error when seeking to range delete tombstones block from file: %s",
         s.ToString().c_str());
   } else if (!range_del_handle.IsNull()) {
-    Status tmp_status;
-    std::unique_ptr<InternalIterator> iter(NewDataBlockIterator<DataBlockIter>(
-        read_options, range_del_handle,
-        /*input_iter=*/nullptr, BlockType::kRangeDeletion,
-        /*get_context=*/nullptr, lookup_context, prefetch_buffer,
-        /*for_compaction= */ false, /*async_read= */ false, tmp_status,
-        /*use_block_cache_for_lookup=*/true));
-    assert(iter != nullptr);
-    s = iter->status();
+    CachableEntry<Block_kRangeDeletion> range_del_block;
+    s = RetrieveBlock(
+        prefetch_buffer, read_options, range_del_handle,
+        rep_->decompressor.get(), &range_del_block,
+        /*get_context=*/nullptr, lookup_context,
+        /*for_compaction=*/false, /*use_cache=*/true,
+        /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
     if (!s.ok()) {
       ROCKS_LOG_WARN(
           rep_->ioptions.logger,
@@ -1237,6 +1235,20 @@ Status BlockBasedTable::ReadRangeDelBlock(
           s.ToString().c_str());
       IGNORE_STATUS_IF_ERROR(s);
     } else {
+      assert(range_del_block.GetValue() != nullptr);
+      const bool block_contents_pinned =
+          range_del_block.IsCached() ||
+          (!range_del_block.GetValue()->own_bytes() && rep_->immortal_table);
+      std::unique_ptr<DataBlockIter> iter(
+          range_del_block.GetValue()->NewDataIterator(
+              rep_->internal_comparator.user_comparator(),
+              rep_->get_global_seqno(BlockType::kRangeDeletion),
+              /*iter=*/nullptr, rep_->ioptions.stats, block_contents_pinned,
+              rep_->user_defined_timestamps_persisted));
+      if (range_del_block.IsCached()) {
+        iter->SetCacheHandle(range_del_block.GetCacheHandle());
+      }
+      range_del_block.TransferTo(iter.get());
       std::vector<SequenceNumber> snapshots;
       // When user defined timestamps are not persisted, the range tombstone end
       // key read from the data block doesn't include user timestamp.
