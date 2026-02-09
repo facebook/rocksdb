@@ -7,11 +7,11 @@
 
 #pragma once
 
-#define __PPC_RA(a) (((a)&0x1f) << 16)
-#define __PPC_RB(b) (((b)&0x1f) << 11)
-#define __PPC_XA(a) ((((a)&0x1f) << 16) | (((a)&0x20) >> 3))
-#define __PPC_XB(b) ((((b)&0x1f) << 11) | (((b)&0x20) >> 4))
-#define __PPC_XS(s) ((((s)&0x1f) << 21) | (((s)&0x20) >> 5))
+#define __PPC_RA(a) (((a) & 0x1f) << 16)
+#define __PPC_RB(b) (((b) & 0x1f) << 11)
+#define __PPC_XA(a) ((((a) & 0x1f) << 16) | (((a) & 0x20) >> 3))
+#define __PPC_XB(b) ((((b) & 0x1f) << 11) | (((b) & 0x20) >> 4))
+#define __PPC_XS(s) ((((s) & 0x1f) << 21) | (((s) & 0x20) >> 5))
 #define __PPC_XT(s) __PPC_XS(s)
 #define VSX_XX3(t, a, b) (__PPC_XT(t) | __PPC_XA(a) | __PPC_XB(b))
 #define VSX_XX1(s, a, b) (__PPC_XS(s) | __PPC_RA(a) | __PPC_RB(b))

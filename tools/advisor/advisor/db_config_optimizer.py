@@ -3,16 +3,17 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-from advisor.db_log_parser import NO_COL_FAMILY
-from advisor.db_options_parser import DatabaseOptions
-from advisor.rule_parser import Suggestion
 import copy
 import random
 
+from advisor.db_log_parser import NO_COL_FAMILY
+from advisor.db_options_parser import DatabaseOptions
+from advisor.rule_parser import Suggestion
+
 
 class ConfigOptimizer:
-    SCOPE = 'scope'
-    SUGG_VAL = 'suggested values'
+    SCOPE = "scope"
+    SUGG_VAL = "suggested values"
 
     @staticmethod
     def apply_action_on_value(old_value, action, suggested_values):
@@ -21,7 +22,7 @@ class ConfigOptimizer:
             chosen_sugg_val = random.choice(list(suggested_values))
         new_value = None
         if action is Suggestion.Action.set or not old_value:
-            assert(chosen_sugg_val)
+            assert chosen_sugg_val
             new_value = chosen_sugg_val
         else:
             # For increase/decrease actions, currently the code tries to make
@@ -61,8 +62,8 @@ class ConfigOptimizer:
             # A Suggestion in the rules spec must have the 'option' and
             # 'action' fields defined, always call perform_checks() method
             # after parsing the rules file using RulesSpec
-            assert(option)
-            assert(action)
+            assert option
+            assert action
             required_options.append(option)
             rule_suggestions.append(suggestions_dict[sugg_name])
         current_config = options.get_options(required_options)
@@ -87,8 +88,9 @@ class ConfigOptimizer:
                             updated_config[sugg.option][col_fam] = new_value
                 except AssertionError:
                     print(
-                        'WARNING(ConfigOptimizer): provide suggested_values ' +
-                        'for ' + sugg.option
+                        "WARNING(ConfigOptimizer): provide suggested_values "
+                        + "for "
+                        + sugg.option
                     )
                 continue
             # case: when the option is present in the current configuration
@@ -103,8 +105,9 @@ class ConfigOptimizer:
                     updated_config[sugg.option][NO_COL_FAMILY] = new_value
                 except AssertionError:
                     print(
-                        'WARNING(ConfigOptimizer): provide suggested_values ' +
-                        'for ' + sugg.option
+                        "WARNING(ConfigOptimizer): provide suggested_values "
+                        + "for "
+                        + sugg.option
                     )
             else:
                 for col_fam in rule.get_trigger_column_families():
@@ -120,15 +123,16 @@ class ConfigOptimizer:
                         updated_config[sugg.option][col_fam] = new_value
                     except AssertionError:
                         print(
-                            'WARNING(ConfigOptimizer): provide ' +
-                            'suggested_values for ' + sugg.option
+                            "WARNING(ConfigOptimizer): provide "
+                            + "suggested_values for "
+                            + sugg.option
                         )
         return current_config, updated_config
 
     @staticmethod
     def pick_rule_to_apply(rules, last_rule_name, rules_tried, backtrack):
         if not rules:
-            print('\nNo more rules triggered!')
+            print("\nNo more rules triggered!")
             return None
         # if the last rule provided an improvement in the database performance,
         # and it was triggered again (i.e. it is present in 'rules'), then pick
@@ -143,7 +147,7 @@ class ConfigOptimizer:
         for rule in rules:
             if rule.name not in rules_tried:
                 return rule
-        print('\nAll rules have been exhausted')
+        print("\nAll rules have been exhausted")
         return None
 
     @staticmethod
@@ -153,13 +157,13 @@ class ConfigOptimizer:
         rules_tried,
         backtrack,
         curr_options,
-        suggestions_dict
+        suggestions_dict,
     ):
         curr_rule = ConfigOptimizer.pick_rule_to_apply(
             triggered_rules, current_rule_name, rules_tried, backtrack
         )
         if not curr_rule:
-            return tuple([None]*4)
+            return tuple([None] * 4)
         # if a rule has been picked for improving db_config, update rules_tried
         rules_tried.add(curr_rule.name)
         # get updated config based on the picked rule
@@ -168,17 +172,20 @@ class ConfigOptimizer:
         )
         conf_diff = DatabaseOptions.get_options_diff(curr_conf, updated_conf)
         if not conf_diff:  # the current and updated configs are the same
-            curr_rule, rules_tried, curr_conf, updated_conf = (
-                ConfigOptimizer.apply_suggestions(
-                    triggered_rules,
-                    None,
-                    rules_tried,
-                    backtrack,
-                    curr_options,
-                    suggestions_dict
-                )
+            (
+                curr_rule,
+                rules_tried,
+                curr_conf,
+                updated_conf,
+            ) = ConfigOptimizer.apply_suggestions(
+                triggered_rules,
+                None,
+                rules_tried,
+                backtrack,
+                curr_options,
+                suggestions_dict,
             )
-        print('returning from apply_suggestions')
+        print("returning from apply_suggestions")
         return (curr_rule, rules_tried, curr_conf, updated_conf)
 
     # TODO(poojam23): check if this method is required or can we directly set
@@ -205,52 +212,53 @@ class ConfigOptimizer:
         # RULE from all the triggered rules and apply all its suggestions to
         # the appropriate options.
         # bootstrapping the optimizer
-        print('Bootstrapping optimizer:')
+        print("Bootstrapping optimizer:")
         options = copy.deepcopy(self.db_options)
-        old_data_sources, old_metric = (
-            self.bench_runner.run_experiment(options, self.base_db_path)
+        old_data_sources, old_metric = self.bench_runner.run_experiment(
+            options, self.base_db_path
         )
-        print('Initial metric: ' + str(old_metric))
+        print("Initial metric: " + str(old_metric))
         self.rule_parser.load_rules_from_spec()
         self.rule_parser.perform_section_checks()
         triggered_rules = self.rule_parser.get_triggered_rules(
             old_data_sources, options.get_column_families()
         )
-        print('\nTriggered:')
+        print("\nTriggered:")
         self.rule_parser.print_rules(triggered_rules)
         backtrack = False
         rules_tried = set()
-        curr_rule, rules_tried, curr_conf, updated_conf = (
-            ConfigOptimizer.apply_suggestions(
-                triggered_rules,
-                None,
-                rules_tried,
-                backtrack,
-                options,
-                self.rule_parser.get_suggestions_dict()
-            )
+        (
+            curr_rule,
+            rules_tried,
+            curr_conf,
+            updated_conf,
+        ) = ConfigOptimizer.apply_suggestions(
+            triggered_rules,
+            None,
+            rules_tried,
+            backtrack,
+            options,
+            self.rule_parser.get_suggestions_dict(),
         )
         # the optimizer loop
         while curr_rule:
-            print('\nRule picked for next iteration:')
+            print("\nRule picked for next iteration:")
             print(curr_rule.name)
-            print('\ncurrent config:')
+            print("\ncurrent config:")
             print(curr_conf)
-            print('updated config:')
+            print("updated config:")
             print(updated_conf)
             options.update_options(updated_conf)
             # run bench_runner with updated config
-            new_data_sources, new_metric = (
-                self.bench_runner.run_experiment(options, self.base_db_path)
+            new_data_sources, new_metric = self.bench_runner.run_experiment(
+                options, self.base_db_path
             )
-            print('\nnew metric: ' + str(new_metric))
-            backtrack = not self.bench_runner.is_metric_better(
-                new_metric, old_metric
-            )
+            print("\nnew metric: " + str(new_metric))
+            backtrack = not self.bench_runner.is_metric_better(new_metric, old_metric)
             # update triggered_rules, metric, data_sources, if required
             if backtrack:
                 # revert changes to options config
-                print('\nBacktracking to previous configuration')
+                print("\nBacktracking to previous configuration")
                 backtrack_conf = ConfigOptimizer.get_backtrack_config(
                     curr_conf, updated_conf
                 )
@@ -262,21 +270,24 @@ class ConfigOptimizer:
                 triggered_rules = self.rule_parser.get_triggered_rules(
                     new_data_sources, options.get_column_families()
                 )
-                print('\nTriggered:')
+                print("\nTriggered:")
                 self.rule_parser.print_rules(triggered_rules)
                 old_metric = new_metric
                 old_data_sources = new_data_sources
                 rules_tried = set()
             # pick rule to work on and set curr_rule to that
-            curr_rule, rules_tried, curr_conf, updated_conf = (
-                ConfigOptimizer.apply_suggestions(
-                    triggered_rules,
-                    curr_rule.name,
-                    rules_tried,
-                    backtrack,
-                    options,
-                    self.rule_parser.get_suggestions_dict()
-                )
+            (
+                curr_rule,
+                rules_tried,
+                curr_conf,
+                updated_conf,
+            ) = ConfigOptimizer.apply_suggestions(
+                triggered_rules,
+                curr_rule.name,
+                rules_tried,
+                backtrack,
+                options,
+                self.rule_parser.get_suggestions_dict(),
             )
         # return the final database options configuration
         return options

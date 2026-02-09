@@ -5,14 +5,12 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
+#include <optional>
 #include <string>
-
-#include "port/port.h"
 
 #include "db/compaction/compaction.h"
 #include "file/delete_scheduler.h"
+#include "port/port.h"
 #include "rocksdb/sst_file_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,6 +30,10 @@ class SstFileManagerImpl : public SstFileManager {
                               double max_trash_db_ratio,
                               uint64_t bytes_max_delete_chunk);
 
+  // No copy
+  SstFileManagerImpl(const SstFileManagerImpl& sfm) = delete;
+  SstFileManagerImpl& operator=(const SstFileManagerImpl& sfm) = delete;
+
   ~SstFileManagerImpl();
 
   // DB will call OnAddFile whenever a new sst/blob file is added.
@@ -47,6 +49,9 @@ class SstFileManagerImpl : public SstFileManager {
   // DB will call OnMoveFile whenever a sst/blob file is move to a new path.
   Status OnMoveFile(const std::string& old_path, const std::string& new_path,
                     uint64_t* file_size = nullptr);
+
+  // DB will call OnUntrackFile when closing with an unowned SstFileManager.
+  Status OnUntrackFile(const std::string& file_path);
 
   // Update the maximum allowed space that should be used by RocksDB, if
   // the total size of the SST and blob files exceeds max_allowed_space, writes
@@ -90,16 +95,16 @@ class SstFileManagerImpl : public SstFileManager {
   std::unordered_map<std::string, uint64_t> GetTrackedFiles() override;
 
   // Return delete rate limit in bytes per second.
-  virtual int64_t GetDeleteRateBytesPerSecond() override;
+  int64_t GetDeleteRateBytesPerSecond() override;
 
   // Update the delete rate limit in bytes per second.
-  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
+  void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
 
   // Return trash/DB size ratio where new files will be deleted immediately
-  virtual double GetMaxTrashDBRatio() override;
+  double GetMaxTrashDBRatio() override;
 
   // Update trash/DB size ratio where new files will be deleted immediately
-  virtual void SetMaxTrashDBRatio(double ratio) override;
+  void SetMaxTrashDBRatio(double ratio) override;
 
   // Return the total size of trash files
   uint64_t GetTotalTrashSize() override;
@@ -116,16 +121,39 @@ class SstFileManagerImpl : public SstFileManager {
   // not guaranteed
   bool CancelErrorRecovery(ErrorHandler* db);
 
-  // Mark file as trash and schedule it's deletion. If force_bg is set, it
+  // Mark a file as trash and schedule its deletion. If force_bg is set, it
   // forces the file to be deleting in the background regardless of DB size,
-  // except when rate limited delete is disabled
+  // except when rate limited delete is disabled.
   virtual Status ScheduleFileDeletion(const std::string& file_path,
                                       const std::string& dir_to_sync,
                                       const bool force_bg = false);
 
-  // Wait for all files being deleteing in the background to finish or for
+  // Delete an unaccounted file. The file is deleted immediately if slow
+  // deletion is disabled. A file with more than 1 hard links will be deleted
+  // immediately unless force_bg is set. In other cases, files will be scheduled
+  // for slow deletion, and assigned to the specified bucket if a legitimate one
+  // is provided. A legitimate bucket is one that is created with the
+  // `NewTrashBucket` API, and for which `WaitForEmptyTrashBucket` hasn't been
+  // called yet.
+  virtual Status ScheduleUnaccountedFileDeletion(
+      const std::string& file_path, const std::string& dir_to_sync,
+      const bool force_bg = false,
+      std::optional<int32_t> bucket = std::nullopt);
+
+  // Wait for all files being deleted in the background to finish or for
   // destructor to be called.
   virtual void WaitForEmptyTrash();
+
+  // Creates a new trash bucket. A legitimate bucket is only created and
+  // returned when slow deletion is enabled.
+  // For each bucket that is created and used, the user should also call
+  // `WaitForEmptyTrashBucket` after scheduling file deletions to make sure all
+  // the trash files are cleared.
+  std::optional<int32_t> NewTrashBucket();
+
+  // Wait for all the files in the specified bucket to be deleted in the
+  // background or for destructor to be called.
+  virtual void WaitForEmptyTrashBucket(int32_t bucket);
 
   DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
@@ -134,7 +162,6 @@ class SstFileManagerImpl : public SstFileManager {
   void Close();
 
   void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) override {
-    stats_ = stats;
     delete_scheduler_.SetStatisticsPtr(stats);
   }
 
@@ -166,7 +193,7 @@ class SstFileManagerImpl : public SstFileManager {
   std::unordered_map<std::string, uint64_t> tracked_files_;
   // The maximum allowed space (in bytes) for sst and blob files.
   uint64_t max_allowed_space_;
-  // DeleteScheduler used to throttle file deletition.
+  // DeleteScheduler used to throttle file deletion.
   DeleteScheduler delete_scheduler_;
   port::CondVar cv_;
   // Flag to force error recovery thread to exit
@@ -188,9 +215,6 @@ class SstFileManagerImpl : public SstFileManager {
   std::list<ErrorHandler*> error_handler_list_;
   // Pointer to ErrorHandler instance that is currently processing recovery
   ErrorHandler* cur_instance_;
-  std::shared_ptr<Statistics> stats_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

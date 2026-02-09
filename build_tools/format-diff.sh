@@ -7,13 +7,17 @@ print_usage () {
   echo "Usage:"
   echo "format-diff.sh [OPTIONS]"
   echo "-c: check only."
+  echo "-y: auto-apply formatting without prompts (non-interactive mode)."
   echo "-h: print this message."
 }
 
-while getopts ':ch' OPTION; do
+while getopts ':cyh' OPTION; do
   case "$OPTION" in
     c)
       CHECK_ONLY=1
+      ;;
+    y)
+      AUTO_APPLY=1
       ;;
     h)
       print_usage
@@ -38,7 +42,9 @@ if [ "$CLANG_FORMAT_DIFF" ]; then
   fi
 else
   # First try directly executing the possibilities
-  if clang-format-diff.py --help &> /dev/null < /dev/null; then
+  if clang-format-diff --help &> /dev/null < /dev/null; then
+    CLANG_FORMAT_DIFF=clang-format-diff
+  elif clang-format-diff.py --help &> /dev/null < /dev/null; then
     CLANG_FORMAT_DIFF=clang-format-diff.py
   elif $REPO_ROOT/clang-format-diff.py --help &> /dev/null < /dev/null; then
     CLANG_FORMAT_DIFF=$REPO_ROOT/clang-format-diff.py
@@ -116,37 +122,107 @@ fi
 # fi
 set -e
 
+# Exclude third-party from formatting
+EXCLUDE=':!third-party/'
+
 uncommitted_code=`git diff HEAD`
 
 # If there's no uncommitted changes, we assume user are doing post-commit
 # format check, in which case we'll try to check the modified lines vs. the
-# facebook/rocksdb.git master branch. Otherwise, we'll check format of the
+# facebook/rocksdb.git main branch. Otherwise, we'll check format of the
 # uncommitted code only.
 if [ -z "$uncommitted_code" ]
 then
   # Attempt to get name of facebook/rocksdb.git remote.
-  [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
+  [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(LC_ALL=POSIX LANG=POSIX git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
   # Fall back on 'origin' if that fails
   [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE=origin
-  # Use master branch from that remote
-  [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/master"
+  # Use main branch from that remote
+  [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/$(LC_ALL=POSIX LANG=POSIX git remote show $FORMAT_REMOTE | sed -n '/HEAD branch/s/.*: //p')"
   # Get the common ancestor with that remote branch. Everything after that
   # common ancestor would be considered the contents of a pull request, so
   # should be relevant for formatting fixes.
   FORMAT_UPSTREAM_MERGE_BASE="$(git merge-base "$FORMAT_UPSTREAM" HEAD)"
   # Get the differences
-  diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -p 1)
+  diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" -- $EXCLUDE | $CLANG_FORMAT_DIFF -p 1) || true
   echo "Checking format of changes not yet in $FORMAT_UPSTREAM..."
 else
   # Check the format of uncommitted lines,
-  diffs=$(git diff -U0 HEAD | $CLANG_FORMAT_DIFF -p 1)
+  diffs=$(git diff -U0 HEAD -- $EXCLUDE | $CLANG_FORMAT_DIFF -p 1) || true
   echo "Checking format of uncommitted changes..."
+fi
+
+# Check for missing copyright in new files
+echo "Checking for copyright headers in new files..."
+
+# Get list of new files (added, not just modified)
+if [ -z "$uncommitted_code" ]; then
+  # Post-commit: check files added since merge base
+  new_files=$(git diff --name-only --diff-filter=A "$FORMAT_UPSTREAM_MERGE_BASE" -- '*.h' '*.cc' '*.py' $EXCLUDE)
+else
+  # Pre-commit: check staged new files
+  new_files=$(git diff --name-only --diff-filter=A --cached HEAD -- '*.h' '*.cc' '*.py' $EXCLUDE)
+fi
+
+if [ -n "$new_files" ]; then
+  files_missing_copyright=""
+
+  for file in $new_files; do
+    if [ -f "$file" ]; then
+      # Check if file is missing copyright
+      # For .py files, check for Python-style comment
+      # For .h and .cc files, check for C++-style comment
+      if [[ "$file" == *.py ]]; then
+        if ! grep -q "Copyright (c) Meta Platforms, Inc. and affiliates" "$file"; then
+          files_missing_copyright="$files_missing_copyright $file"
+          # Add copyright header to Python file
+          temp_file=$(mktemp)
+          {
+            echo "#  Copyright (c) Meta Platforms, Inc. and affiliates."
+            echo "#  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)"
+            echo "#  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory)."
+            echo
+            cat "$file"
+          } > "$temp_file"
+          mv "$temp_file" "$file"
+          echo "Added copyright header to $file"
+        fi
+      elif [[ "$file" == *.h ]] || [[ "$file" == *.cc ]]; then
+        if ! grep -q "Copyright (c) Meta Platforms, Inc. and affiliates" "$file"; then
+          files_missing_copyright="$files_missing_copyright $file"
+          # Add copyright header to C++ file
+          temp_file=$(mktemp)
+          {
+            echo "//  Copyright (c) Meta Platforms, Inc. and affiliates. "
+            echo "//  This source code is licensed under both the GPLv2 (found in the "
+            echo "//  COPYING file in the root directory) and Apache 2.0 License "
+            echo "//  (found in the LICENSE.Apache file in the root directory)."
+            echo
+            cat "$file"
+          } > "$temp_file"
+          mv "$temp_file" "$file"
+          echo "Added copyright header to $file"
+        fi
+      fi
+    fi
+  done
+
+  if [ -n "$files_missing_copyright" ]; then
+    echo "Copyright headers were added to new files."
+  else
+    echo "All new files have copyright headers."
+  fi
+else
+  echo "No new files to check for copyright headers."
 fi
 
 if [ -z "$diffs" ]
 then
   echo "Nothing needs to be reformatted!"
   exit 0
+elif [ $? -ne 1 ]; then
+  # CLANG_FORMAT_DIFF will exit on 1 while there is suggested changes.
+  exit $?
 elif [ $CHECK_ONLY ]
 then
   echo "Your change has unformatted code. Please run make format!"
@@ -168,16 +244,16 @@ echo "$diffs" |
   sed -e "s/\(^-.*$\)/`echo -e \"$COLOR_RED\1$COLOR_END\"`/" |
   sed -e "s/\(^+.*$\)/`echo -e \"$COLOR_GREEN\1$COLOR_END\"`/"
 
-if [[ "$OPT" == *"-DTRAVIS"* ]]
-then
-  exit 1
+# Handle auto-apply mode (non-interactive)
+if [ "$AUTO_APPLY" ]; then
+  to_fix="y"
+else
+  echo -e "Would you like to fix the format automatically (y/n): \c"
+
+  # Make sure under any mode, we can read user input.
+  exec < /dev/tty
+  read to_fix
 fi
-
-echo -e "Would you like to fix the format automatically (y/n): \c"
-
-# Make sure under any mode, we can read user input.
-exec < /dev/tty
-read to_fix
 
 if [ "$to_fix" != "y" ]
 then
@@ -187,14 +263,15 @@ fi
 # Do in-place format adjustment.
 if [ -z "$uncommitted_code" ]
 then
-  git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -i -p 1
+  git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" -- $EXCLUDE | $CLANG_FORMAT_DIFF -i -p 1
 else
-  git diff -U0 HEAD | $CLANG_FORMAT_DIFF -i -p 1
+  git diff -U0 HEAD -- $EXCLUDE | $CLANG_FORMAT_DIFF -i -p 1
 fi
 echo "Files reformatted!"
 
 # Amend to last commit if user do the post-commit format check
-if [ -z "$uncommitted_code" ]; then
+# Skip amend prompt in auto-apply mode (user can amend manually if desired)
+if [ -z "$uncommitted_code" ] && [ -z "$AUTO_APPLY" ]; then
   echo -e "Would you like to amend the changes to last commit (`git log HEAD --oneline | head -1`)? (y/n): \c"
   read to_amend
 

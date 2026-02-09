@@ -43,20 +43,24 @@ class BlobLogWriter {
   static void ConstructBlobHeader(std::string* buf, const Slice& key,
                                   const Slice& val, uint64_t expiration);
 
-  Status AddRecord(const Slice& key, const Slice& val, uint64_t* key_offset,
+  Status AddRecord(const WriteOptions& write_options, const Slice& key,
+                   const Slice& val, uint64_t* key_offset,
                    uint64_t* blob_offset);
 
-  Status AddRecord(const Slice& key, const Slice& val, uint64_t expiration,
-                   uint64_t* key_offset, uint64_t* blob_offset);
+  Status AddRecord(const WriteOptions& write_options, const Slice& key,
+                   const Slice& val, uint64_t expiration, uint64_t* key_offset,
+                   uint64_t* blob_offset);
 
-  Status EmitPhysicalRecord(const std::string& headerbuf, const Slice& key,
+  Status EmitPhysicalRecord(const WriteOptions& write_options,
+                            const std::string& headerbuf, const Slice& key,
                             const Slice& val, uint64_t* key_offset,
                             uint64_t* blob_offset);
 
-  Status AppendFooter(BlobLogFooter& footer, std::string* checksum_method,
+  Status AppendFooter(const WriteOptions& write_options, BlobLogFooter& footer,
+                      std::string* checksum_method,
                       std::string* checksum_value);
 
-  Status WriteHeader(BlobLogHeader& header);
+  Status WriteHeader(const WriteOptions& write_options, BlobLogHeader& header);
 
   WritableFileWriter* file() { return dest_.get(); }
 
@@ -64,7 +68,7 @@ class BlobLogWriter {
 
   uint64_t get_log_number() const { return log_number_; }
 
-  Status Sync();
+  Status Sync(const WriteOptions& write_options);
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;

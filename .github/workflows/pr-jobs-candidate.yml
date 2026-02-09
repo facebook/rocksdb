@@ -1,0 +1,47 @@
+name: facebook/rocksdb/pr-jobs-candidate
+on: workflow_dispatch
+permissions: {}
+jobs:
+  # These jobs would be in pr-jobs but are failing or otherwise broken for
+  # some reason.
+  # =========================== ARM Jobs ============================ #
+  build-linux-arm:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: arm64large # GitHub hosted ARM runners do not yet exist
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/install-gflags"
+    - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
+    - uses: "./.github/actions/post-steps"
+  build-linux-arm-cmake-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: arm64large # GitHub hosted ARM runners do not yet exist
+    env:
+      JAVA_HOME: "/usr/lib/jvm/java-8-openjdk-arm64"
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/install-gflags"
+    - name: Set Java Environment
+      run: |-
+        echo "JAVA_HOME=${JAVA_HOME}"
+        echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+        which java && java -version
+        which javac && javac -version
+    - name: Build with cmake
+      run: |-
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=1 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 ..
+        make -j4
+    - name: Build Java with cmake
+      run: |-
+        rm -rf build
+        mkdir build
+        cd build
+        cmake -DJNI=1 -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 ..
+        make -j4 rocksdb rocksdbjni
+    - uses: "./.github/actions/post-steps"

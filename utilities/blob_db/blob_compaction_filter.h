@@ -3,12 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <unordered_set>
 
 #include "db/blob/blob_index.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/compaction_filter.h"
 #include "utilities/blob_db/blob_db_gc_stats.h"
 #include "utilities/blob_db/blob_db_impl.h"
@@ -22,8 +21,6 @@ struct BlobCompactionContext {
   BlobDBImpl* blob_db_impl = nullptr;
   uint64_t next_file_number = 0;
   std::unordered_set<uint64_t> current_blob_files;
-  SequenceNumber fifo_eviction_seq = 0;
-  uint64_t evict_expiration_up_to = 0;
 };
 
 struct BlobCompactionContextGC {
@@ -60,8 +57,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
   bool IsBlobFileOpened() const;
   virtual bool OpenNewBlobFileIfNeeded() const;
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
-                           PinnableSlice* blob, bool need_decompress,
-                           CompressionType* compression_type) const;
+                           PinnableSlice* blob) const;
   bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
                           uint64_t* new_blob_file_number,
                           uint64_t* new_blob_offset) const;
@@ -201,4 +197,3 @@ class BlobIndexCompactionFilterFactoryGC
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

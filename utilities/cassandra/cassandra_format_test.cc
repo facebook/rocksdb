@@ -5,14 +5,13 @@
 
 #include <cstring>
 #include <memory>
+
 #include "test_util/testharness.h"
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/serialize.h"
 #include "utilities/cassandra/test_utils.h"
 
-
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 
 TEST(ColumnTest, Column) {
   char data[4] = {'d', 'a', 't', 'a'};
@@ -51,8 +50,8 @@ TEST(ColumnTest, Column) {
 
   c1->Serialize(&dest);
   EXPECT_EQ(dest.size(), 2 * c.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) ==
+              0);
 
   // Verify the ColumnBase::Deserialization.
   saved_dest = dest;
@@ -60,9 +59,8 @@ TEST(ColumnTest, Column) {
       ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2, c.Size())
-      == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2,
+                          c.Size()) == 0);
 }
 
 TEST(ExpiringColumnTest, ExpiringColumn) {
@@ -71,8 +69,8 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
   int8_t index = 3;
   int64_t timestamp = 1494022807044;
   int32_t ttl = 3600;
-  ExpiringColumn c = ExpiringColumn(mask, index, timestamp,
-                                    sizeof(data), data, ttl);
+  ExpiringColumn c =
+      ExpiringColumn(mask, index, timestamp, sizeof(data), data, ttl);
 
   EXPECT_EQ(c.Index(), index);
   EXPECT_EQ(c.Timestamp(), timestamp);
@@ -107,8 +105,8 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
 
   c1->Serialize(&dest);
   EXPECT_EQ(dest.size(), 2 * c.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) ==
+              0);
 
   // Verify the ColumnBase::Deserialization.
   saved_dest = dest;
@@ -116,23 +114,24 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
       ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2, c.Size())
-      == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2,
+                          c.Size()) == 0);
 }
 
 TEST(TombstoneTest, TombstoneCollectable) {
   int32_t now = (int32_t)time(nullptr);
   int32_t gc_grace_seconds = 16440;
   int32_t time_delta_seconds = 10;
-  EXPECT_TRUE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
-                        now - gc_grace_seconds - time_delta_seconds,
-                        ToMicroSeconds(now - gc_grace_seconds - time_delta_seconds))
-                  .Collectable(gc_grace_seconds));
-  EXPECT_FALSE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
-                         now - gc_grace_seconds + time_delta_seconds,
-                         ToMicroSeconds(now - gc_grace_seconds + time_delta_seconds))
-                   .Collectable(gc_grace_seconds));
+  EXPECT_TRUE(
+      Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                now - gc_grace_seconds - time_delta_seconds,
+                ToMicroSeconds(now - gc_grace_seconds - time_delta_seconds))
+          .Collectable(gc_grace_seconds));
+  EXPECT_FALSE(
+      Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                now - gc_grace_seconds + time_delta_seconds,
+                ToMicroSeconds(now - gc_grace_seconds + time_delta_seconds))
+          .Collectable(gc_grace_seconds));
 }
 
 TEST(TombstoneTest, Tombstone) {
@@ -140,8 +139,8 @@ TEST(TombstoneTest, Tombstone) {
   int8_t index = 2;
   int32_t local_deletion_time = 1494022807;
   int64_t marked_for_delete_at = 1494022807044;
-  Tombstone c = Tombstone(mask, index, local_deletion_time,
-                          marked_for_delete_at);
+  Tombstone c =
+      Tombstone(mask, index, local_deletion_time, marked_for_delete_at);
 
   EXPECT_EQ(c.Index(), index);
   EXPECT_EQ(c.Timestamp(), marked_for_delete_at);
@@ -170,17 +169,16 @@ TEST(TombstoneTest, Tombstone) {
 
   c1->Serialize(&dest);
   EXPECT_EQ(dest.size(), 2 * c.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) ==
+              0);
 
   // Verify the ColumnBase::Deserialization.
   std::shared_ptr<ColumnBase> c2 =
-    ColumnBase::Deserialize(dest.c_str(), c.Size());
+      ColumnBase::Deserialize(dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2, c.Size())
-      == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2,
+                          c.Size()) == 0);
 }
 
 class RowValueTest : public testing::Test {};
@@ -213,8 +211,8 @@ TEST(RowValueTest, RowTombstone) {
 
   r1.Serialize(&dest);
   EXPECT_EQ(dest.size(), 2 * r.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str(), dest.c_str() + r.Size(), r.Size()) == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str(), dest.c_str() + r.Size(), r.Size()) ==
+              0);
 }
 
 TEST(RowValueTest, RowWithColumns) {
@@ -227,23 +225,23 @@ TEST(RowValueTest, RowWithColumns) {
   int64_t e_timestamp = 1494022807044;
   int32_t e_ttl = 3600;
   columns.push_back(std::shared_ptr<ExpiringColumn>(
-    new ExpiringColumn(ColumnTypeMask::EXPIRATION_MASK, e_index,
-      e_timestamp, sizeof(e_data), e_data, e_ttl)));
+      new ExpiringColumn(ColumnTypeMask::EXPIRATION_MASK, e_index, e_timestamp,
+                         sizeof(e_data), e_data, e_ttl)));
   columns_data_size += columns[0]->Size();
 
   char c_data[4] = {'d', 'a', 't', 'a'};
   int8_t c_index = 1;
   int64_t c_timestamp = 1494022807048;
   columns.push_back(std::shared_ptr<Column>(
-    new Column(0, c_index, c_timestamp, sizeof(c_data), c_data)));
+      new Column(0, c_index, c_timestamp, sizeof(c_data), c_data)));
   columns_data_size += columns[1]->Size();
 
   int8_t t_index = 2;
   int32_t t_local_deletion_time = 1494022801;
   int64_t t_marked_for_delete_at = 1494022807043;
   columns.push_back(std::shared_ptr<Tombstone>(
-    new Tombstone(ColumnTypeMask::DELETION_MASK,
-      t_index, t_local_deletion_time, t_marked_for_delete_at)));
+      new Tombstone(ColumnTypeMask::DELETION_MASK, t_index,
+                    t_local_deletion_time, t_marked_for_delete_at)));
   columns_data_size += columns[2]->Size();
 
   RowValue r = RowValue(std::move(columns), last_modified_time);
@@ -260,15 +258,15 @@ TEST(RowValueTest, RowWithColumns) {
   EXPECT_EQ(dest.size(), r.Size());
   std::size_t offset = 0;
   EXPECT_EQ(Deserialize<int32_t>(dest.c_str(), offset),
-    std::numeric_limits<int32_t>::max());
+            std::numeric_limits<int32_t>::max());
   offset += sizeof(int32_t);
   EXPECT_EQ(Deserialize<int64_t>(dest.c_str(), offset),
-    std::numeric_limits<int64_t>::min());
+            std::numeric_limits<int64_t>::min());
   offset += sizeof(int64_t);
 
   // Column0: ExpiringColumn
   EXPECT_EQ(Deserialize<int8_t>(dest.c_str(), offset),
-    ColumnTypeMask::EXPIRATION_MASK);
+            ColumnTypeMask::EXPIRATION_MASK);
   offset += sizeof(int8_t);
   EXPECT_EQ(Deserialize<int8_t>(dest.c_str(), offset), e_index);
   offset += sizeof(int8_t);
@@ -295,7 +293,7 @@ TEST(RowValueTest, RowWithColumns) {
 
   // Column2: Tombstone
   EXPECT_EQ(Deserialize<int8_t>(dest.c_str(), offset),
-    ColumnTypeMask::DELETION_MASK);
+            ColumnTypeMask::DELETION_MASK);
   offset += sizeof(int8_t);
   EXPECT_EQ(Deserialize<int8_t>(dest.c_str(), offset), t_index);
   offset += sizeof(int8_t);
@@ -311,19 +309,20 @@ TEST(RowValueTest, RowWithColumns) {
 
   r1.Serialize(&dest);
   EXPECT_EQ(dest.size(), 2 * r.Size());
-  EXPECT_TRUE(
-    std::memcmp(dest.c_str(), dest.c_str() + r.Size(), r.Size()) == 0);
+  EXPECT_TRUE(std::memcmp(dest.c_str(), dest.c_str() + r.Size(), r.Size()) ==
+              0);
 }
 
 TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired) {
   int64_t now = time(nullptr);
 
-  auto row_value = CreateTestRowValue({
-    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
-    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
-    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
-    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
-  });
+  auto row_value = CreateTestRowValue(
+      {CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
+       CreateTestColumnSpec(kExpiringColumn, 1,
+                            ToMicroSeconds(now - kTtl - 10)),  // expired
+       CreateTestColumnSpec(kExpiringColumn, 2,
+                            ToMicroSeconds(now)),  // not expired
+       CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))});
 
   bool changed = false;
   auto purged = row_value.RemoveExpiredColumns(&changed);
@@ -343,12 +342,13 @@ TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired) {
 TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   int64_t now = time(nullptr);
 
-  auto row_value = CreateTestRowValue({
-    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
-    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
-    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
-    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
-  });
+  auto row_value = CreateTestRowValue(
+      {CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
+       CreateTestColumnSpec(kExpiringColumn, 1,
+                            ToMicroSeconds(now - kTtl - 10)),  // expired
+       CreateTestColumnSpec(kExpiringColumn, 2,
+                            ToMicroSeconds(now)),  // not expired
+       CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))});
 
   bool changed = false;
   auto compacted = row_value.ConvertExpiredColumnsToTombstones(&changed);
@@ -366,10 +366,10 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   compacted.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_FALSE(changed);
 }
-} // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

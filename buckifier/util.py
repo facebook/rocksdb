@@ -2,37 +2,34 @@
 """
 This module keeps commonly used components.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
+
 try:
     from builtins import object
 except ImportError:
     from __builtin__ import object
+import os
 import subprocess
 import sys
-import os
 import time
 
-class ColorString(object):
-    """ Generate colorful strings on terminal """
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
+
+class ColorString:
+    """Generate colorful strings on terminal"""
+
+    HEADER = "\033[95m"
+    BLUE = "\033[94m"
+    GREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
 
     @staticmethod
     def _make_color_str(text, color):
         # In Python2, default encoding for unicode string is ASCII
         if sys.version_info.major <= 2:
-            return "".join(
-                [color, text.encode('utf-8'), ColorString.ENDC])
+            return "".join([color, text.encode("utf-8"), ColorString.ENDC])
         # From Python3, default encoding for unicode string is UTF-8
-        return "".join(
-            [color, text, ColorString.ENDC])
+        return "".join([color, text, ColorString.ENDC])
 
     @staticmethod
     def ok(text):
@@ -68,37 +65,38 @@ class ColorString(object):
 
 
 def run_shell_command(shell_cmd, cmd_dir=None):
-    """ Run a single shell command.
-        @returns a tuple of shell command return code, stdout, stderr """
+    """Run a single shell command.
+    @returns a tuple of shell command return code, stdout, stderr"""
 
     if cmd_dir is not None and not os.path.exists(cmd_dir):
         run_shell_command("mkdir -p %s" % cmd_dir)
 
     start = time.time()
     print("\t>>> Running: " + shell_cmd)
-    p = subprocess.Popen(shell_cmd,
-                         shell=True,
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE,
-                         cwd=cmd_dir)
+    p = subprocess.Popen(  # noqa
+        shell_cmd,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cmd_dir,
+    )
     stdout, stderr = p.communicate()
     end = time.time()
 
     # Report time if we spent more than 5 minutes executing a command
     execution_time = end - start
     if execution_time > (60 * 5):
-        mins = (execution_time / 60)
-        secs = (execution_time % 60)
+        mins = execution_time / 60
+        secs = execution_time % 60
         print("\t>time spent: %d minutes %d seconds" % (mins, secs))
-
 
     return p.returncode, stdout, stderr
 
 
 def run_shell_commands(shell_cmds, cmd_dir=None, verbose=False):
-    """ Execute a sequence of shell commands, which is equivalent to
-        running `cmd1 && cmd2 && cmd3`
-        @returns boolean indication if all commands succeeds.
+    """Execute a sequence of shell commands, which is equivalent to
+    running `cmd1 && cmd2 && cmd3`
+    @returns boolean indication if all commands succeeds.
     """
 
     if cmd_dir:

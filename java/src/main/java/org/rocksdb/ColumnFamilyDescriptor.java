@@ -33,8 +33,9 @@ public class ColumnFamilyDescriptor {
    *     column family.
    * @since 3.10.0
    */
-  public ColumnFamilyDescriptor(final byte[] columnFamilyName,
-                                final ColumnFamilyOptions columnFamilyOptions) {
+  @SuppressWarnings("PMD.ArrayIsStoredDirectly")
+  public ColumnFamilyDescriptor(
+      final byte[] columnFamilyName, final ColumnFamilyOptions columnFamilyOptions) {
     columnFamilyName_ = columnFamilyName;
     columnFamilyOptions_ = columnFamilyOptions;
   }
@@ -45,21 +46,9 @@ public class ColumnFamilyDescriptor {
    * @return column family name.
    * @since 3.10.0
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public byte[] getName() {
     return columnFamilyName_;
-  }
-
-  /**
-   * Retrieve name of column family.
-   *
-   * @return column family name.
-   * @since 3.10.0
-   *
-   * @deprecated Use {@link #getName()} instead.
-   */
-  @Deprecated
-  public byte[] columnFamilyName() {
-    return getName();
   }
 
   /**
@@ -69,18 +58,6 @@ public class ColumnFamilyDescriptor {
    */
   public ColumnFamilyOptions getOptions() {
     return columnFamilyOptions_;
-  }
-
-  /**
-   * Retrieve assigned options instance.
-   *
-   * @return Options instance assigned to this instance.
-   *
-   * @deprecated Use {@link #getOptions()} instead.
-   */
-  @Deprecated
-  public ColumnFamilyOptions columnFamilyOptions() {
-    return getOptions();
   }
 
   @Override

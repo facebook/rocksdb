@@ -41,9 +41,9 @@ void RunBenchmark() {
   std::unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
   std::unique_ptr<WritableFileWriter> writer;
-  writer.reset(new WritableFileWriter(std::move(file), file_name, env_options,
-                                      clock, nullptr /* stats */,
-                                      options.listeners));
+  writer.reset(new WritableFileWriter(
+      std::move(file), file_name, env_options, clock, nullptr /* stats */,
+      Histograms::HISTOGRAM_ENUM_MAX /* hist_type */, options.listeners));
 
   std::string record;
   record.assign(FLAGS_record_size, 'X');

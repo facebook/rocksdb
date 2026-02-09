@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
 
@@ -32,8 +31,8 @@ BlockCacheFile* BlockCacheTierMetadata::Evict() {
 }
 
 void BlockCacheTierMetadata::Clear() {
-  cache_file_index_.Clear([](BlockCacheFile* arg){ delete arg; });
-  block_index_.Clear([](BlockInfo* arg){ delete arg; });
+  cache_file_index_.Clear([](BlockCacheFile* arg) { delete arg; });
+  block_index_.Clear([](BlockInfo* arg) { delete arg; });
 }
 
 BlockInfo* BlockCacheTierMetadata::Insert(const Slice& key, const LBA& lba) {
@@ -82,5 +81,3 @@ void BlockCacheTierMetadata::RemoveAllKeys(BlockCacheFile* f) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif

@@ -35,6 +35,6 @@ public abstract class Cache extends RocksObject {
     return getPinnedUsage(this.nativeHandle_);
   }
 
-  private native static long getUsage(final long handle);
-  private native static long getPinnedUsage(final long handle);
+  private static native long getUsage(final long handle);
+  private static native long getPinnedUsage(final long handle);
 }

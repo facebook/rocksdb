@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+
+<ruleset name="Custom Rules"
+    xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+    <description>
+       Custom rules for checking RocksDB
+    </description>
+
+
+    <!-- Use PMD rules from a few sets, and then make exceptions -->
+    <rule ref="category/java/codestyle.xml">
+        <!-- These problems are acceptable in perpertuity -->
+        <exclude name="AvoidUsingNativeCode"/>
+        <exclude name="LongVariable"/>
+        <exclude name="ShortVariable"/>
+        <exclude name="ShortClassName"/>
+        <exclude name="OnlyOneReturn"/>
+        <exclude name="FieldNamingConventions"/>
+        <exclude name="FormalParameterNamingConventions"/>
+        <exclude name="LinguisticNaming"/>
+        <exclude name="ConfusingTernary"/>
+        <!-- These could be fixed if we take the time to do it -->
+        <exclude name="CommentDefaultAccessModifier"/>
+        <exclude name="FieldDeclarationsShouldBeAtStartOfClass"/>
+        <exclude name="FinalParameterInAbstractMethod"/>
+        <exclude name="EmptyMethodInAbstractClassShouldBeAbstract"/>
+        <exclude name="MethodArgumentCouldBeFinal"/>
+        <exclude name="LocalVariableNamingConventions"/>
+        <exclude name="LocalVariableCouldBeFinal"/>
+        <exclude name="ControlStatementBraces"/>
+        <exclude name="CallSuperInConstructor"/>
+        <exclude name="ControlStatementBraces"/>
+        <exclude name="MethodNamingConventions"/>
+        <exclude name="UselessParentheses"/>
+        <exclude name="AtLeastOneConstructor"/>
+    </rule>
+    <rule ref="category/java/errorprone.xml">
+        <exclude name="AvoidFieldNameMatchingMethodName"/>
+    </rule>
+    <rule ref="category/java/errorprone.xml/AvoidLiteralsInIfCondition">
+        <properties>
+            <property name="ignoreMagicNumbers" value="-1,0,1,2,0x0,0x1,0xff" />
+            <property name="ignoreExpressions" value="true,false" />
+        </properties>
+    </rule>
+    <rule ref="category/java/bestpractices.xml">
+        <exclude name="UseVarargs"/>
+    </rule>
+
+    <rule ref="category/java/errorprone.xml/CloseResource">
+        <properties>
+            <property name="types" value="java.lang.AutoCloseable,java.sql.Connection,java.sql.Statement,java.sql.ResultSet" />
+            <property name="closeAsDefaultTarget" value="true" />
+            <!-- we allow these org.rocksdb types as generally our API is opening them for the user. -->
+            <property name="allowedResourceTypes" value="java.io.ByteArrayOutputStream|java.io.ByteArrayInputStream|java.io.StringWriter|java.io.CharArrayWriter|java.util.stream.Stream|java.util.stream.IntStream|java.util.stream.LongStream|java.util.stream.DoubleStream" />
+            <property name="closeNotInFinally" value="false" />
+        </properties>
+    </rule>
+
+</ruleset>

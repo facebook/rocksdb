@@ -9,16 +9,16 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
-#include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
-#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -34,14 +34,18 @@ class Version;
 // the same as the inner DBIter.
 class ArenaWrappedDBIter : public Iterator {
  public:
-  virtual ~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
+  ~ArenaWrappedDBIter() override {
+    if (db_iter_ != nullptr) {
+      db_iter_->~DBIter();
+    } else {
+      assert(false);
+    }
+  }
 
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
-  virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
-    return db_iter_->GetRangeDelAggregator();
-  }
+
   const ReadOptions& GetReadOptions() { return read_options_; }
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
@@ -50,19 +54,39 @@ class ArenaWrappedDBIter : public Iterator {
     db_iter_->SetIter(iter);
   }
 
+  void SetMemtableRangetombstoneIter(
+      std::unique_ptr<TruncatedRangeDelIterator>* iter) {
+    memtable_range_tombstone_iter_ = iter;
+  }
+
   bool Valid() const override { return db_iter_->Valid(); }
   void SeekToFirst() override { db_iter_->SeekToFirst(); }
   void SeekToLast() override { db_iter_->SeekToLast(); }
   // 'target' does not contain timestamp, even if user timestamp feature is
   // enabled.
-  void Seek(const Slice& target) override { db_iter_->Seek(target); }
+  void Seek(const Slice& target) override {
+    MaybeAutoRefresh(true /* is_seek */, DBIter::kForward);
+    db_iter_->Seek(target);
+  }
+
   void SeekForPrev(const Slice& target) override {
+    MaybeAutoRefresh(true /* is_seek */, DBIter::kReverse);
     db_iter_->SeekForPrev(target);
   }
-  void Next() override { db_iter_->Next(); }
-  void Prev() override { db_iter_->Prev(); }
+
+  void Next() override {
+    db_iter_->Next();
+    MaybeAutoRefresh(false /* is_seek */, DBIter::kForward);
+  }
+
+  void Prev() override {
+    db_iter_->Prev();
+    MaybeAutoRefresh(false /* is_seek */, DBIter::kReverse);
+  }
+
   Slice key() const override { return db_iter_->key(); }
   Slice value() const override { return db_iter_->value(); }
+  const WideColumns& columns() const override { return db_iter_->columns(); }
   Status status() const override { return db_iter_->status(); }
   Slice timestamp() const override { return db_iter_->timestamp(); }
   bool IsBlob() const { return db_iter_->IsBlob(); }
@@ -70,46 +94,55 @@ class ArenaWrappedDBIter : public Iterator {
   Status GetProperty(std::string prop_name, std::string* prop) override;
 
   Status Refresh() override;
+  Status Refresh(const Snapshot*) override;
 
+  bool PrepareValue() override { return db_iter_->PrepareValue(); }
+
+  void Prepare(const MultiScanArgs& scan_opts) override {
+    db_iter_->Prepare(scan_opts);
+  }
+
+  // FIXME: we could just pass SV in for mutable cf option, version and version
+  // number, but this is used by SstFileReader which does not have a SV.
   void Init(Env* env, const ReadOptions& read_options,
-            const ImmutableCFOptions& cf_options,
+            const ImmutableOptions& ioptions,
             const MutableCFOptions& mutable_cf_options, const Version* version,
-            const SequenceNumber& sequence,
-            uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-            ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-            bool expose_blob_index, bool allow_refresh);
+            const SequenceNumber& sequence, uint64_t version_number,
+            ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
+            bool expose_blob_index, bool allow_refresh,
+            ReadOnlyMemTable* active_mem);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
-  void StoreRefreshInfo(DBImpl* db_impl, ColumnFamilyData* cfd,
+  void StoreRefreshInfo(ColumnFamilyHandleImpl* cfh,
                         ReadCallback* read_callback, bool expose_blob_index) {
-    db_impl_ = db_impl;
-    cfd_ = cfd;
+    cfh_ = cfh;
     read_callback_ = read_callback;
     expose_blob_index_ = expose_blob_index;
   }
 
  private:
-  DBIter* db_iter_;
+  void DoRefresh(const Snapshot* snapshot, uint64_t sv_number);
+  void MaybeAutoRefresh(bool is_seek, DBIter::Direction direction);
+
+  DBIter* db_iter_ = nullptr;
   Arena arena_;
   uint64_t sv_number_;
-  ColumnFamilyData* cfd_ = nullptr;
-  DBImpl* db_impl_ = nullptr;
+  ColumnFamilyHandleImpl* cfh_ = nullptr;
   ReadOptions read_options_;
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
+  bool allow_mark_memtable_for_flush_ = true;
+  // If this is nullptr, it means the mutable memtable does not contain range
+  // tombstone when added under this DBIter.
+  std::unique_ptr<TruncatedRangeDelIterator>* memtable_range_tombstone_iter_ =
+      nullptr;
 };
 
-// Generate the arena wrapped iterator class.
-// `db_impl` and `cfd` are used for reneweal. If left null, renewal will not
-// be supported.
-extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options,
-    const MutableCFOptions& mutable_cf_options, const Version* version,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, ReadCallback* read_callback,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool expose_blob_index = false, bool allow_refresh = true);
+ArenaWrappedDBIter* NewArenaWrappedDbIterator(
+    Env* env, const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
+    SuperVersion* sv, const SequenceNumber& sequence,
+    ReadCallback* read_callback, DBImpl* db_impl, bool expose_blob_index,
+    bool allow_refresh, bool allow_mark_memtable_for_flush);
 }  // namespace ROCKSDB_NAMESPACE

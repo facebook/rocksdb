@@ -8,8 +8,6 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.*;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,11 +26,11 @@ public class OptionsTest {
 
   @Test
   public void copyConstructor() {
-    Options origOpts = new Options();
+    final Options origOpts = new Options();
     origOpts.setNumLevels(rand.nextInt(8));
     origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
     origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
-    Options copyOpts = new Options(origOpts);
+    final Options copyOpts = new Options(origOpts);
     assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
     assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
     assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
@@ -275,6 +273,24 @@ public class OptionsTest {
   }
 
   @Test
+  public void experimentalMempurgeThreshold() {
+    try (final Options opt = new Options()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setExperimentalMempurgeThreshold(doubleValue);
+      assertThat(opt.experimentalMempurgeThreshold()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
+  public void memtableWholeKeyFiltering() {
+    try (final Options opt = new Options()) {
+      final boolean booleanValue = rand.nextBoolean();
+      opt.setMemtableWholeKeyFiltering(booleanValue);
+      assertThat(opt.memtableWholeKeyFiltering()).isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void memtableHugePageSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -427,17 +443,6 @@ public class OptionsTest {
       opt.setDeleteObsoleteFilesPeriodMicros(longValue);
       assertThat(opt.deleteObsoleteFilesPeriodMicros()).
           isEqualTo(longValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
-  public void baseBackgroundCompactions() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
     }
   }
 
@@ -668,9 +673,8 @@ public class OptionsTest {
 
   @Test
   public void setWriteBufferManager() throws RocksDBException {
-    try (final Options opt = new Options();
-         final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache)) {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
@@ -678,29 +682,20 @@ public class OptionsTest {
 
   @Test
   public void setWriteBufferManagerWithZeroBufferSize() throws RocksDBException {
-    try (final Options opt = new Options();
-         final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(0l, cache)) {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(0L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
   }
 
   @Test
-  public void accessHintOnCompactionStart() {
-    try (final Options opt = new Options()) {
-      final AccessHint accessHint = AccessHint.SEQUENTIAL;
-      opt.setAccessHintOnCompactionStart(accessHint);
-      assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
-    }
-  }
-
-  @Test
-  public void newTableReaderForCompactionInputs() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
+  public void setWriteBufferManagerWithAllowStall() throws RocksDBException {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000L, cache, true)) {
+      opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
+      assertThat(opt.writeBufferManager().allowStall()).isEqualTo(true);
     }
   }
 
@@ -710,15 +705,6 @@ public class OptionsTest {
       final long longValue = rand.nextLong();
       opt.setCompactionReadaheadSize(longValue);
       assertThat(opt.compactionReadaheadSize()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
-  public void randomAccessMaxBufferSize() {
-    try (final Options opt = new Options()) {
-      final long longValue = rand.nextLong();
-      opt.setRandomAccessMaxBufferSize(longValue);
-      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
     }
   }
 
@@ -917,15 +903,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void failIfOptionsFileError() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFailIfOptionsFileError(boolValue);
-      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void dumpMallocStats() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -959,15 +936,6 @@ public class OptionsTest {
       assertThat(opt.allowIngestBehind()).isFalse();
       opt.setAllowIngestBehind(true);
       assertThat(opt.allowIngestBehind()).isTrue();
-    }
-  }
-
-  @Test
-  public void preserveDeletes() {
-    try (final Options opt = new Options()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
     }
   }
 
@@ -1030,6 +998,18 @@ public class OptionsTest {
             isEqualTo(compressionType);
         assertThat(CompressionType.valueOf("NO_COMPRESSION")).
             isEqualTo(CompressionType.NO_COMPRESSION);
+      }
+    }
+  }
+
+  @Test
+  public void prepopulateBlobCache() {
+    try (final Options options = new Options()) {
+      for (final PrepopulateBlobCache prepopulateBlobCache : PrepopulateBlobCache.values()) {
+        options.setPrepopulateBlobCache(prepopulateBlobCache);
+        assertThat(options.prepopulateBlobCache()).isEqualTo(prepopulateBlobCache);
+        assertThat(PrepopulateBlobCache.valueOf("PREPOPULATE_BLOB_DISABLE"))
+            .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
       }
     }
   }
@@ -1213,19 +1193,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void maxWriteBufferNumberToMaintain() {
-    try (final Options options = new Options()) {
-      int intValue = rand.nextInt();
-      // Size has to be positive
-      intValue = (intValue < 0) ? -intValue : intValue;
-      intValue = (intValue == 0) ? intValue + 1 : intValue;
-      options.setMaxWriteBufferNumberToMaintain(intValue);
-      assertThat(options.maxWriteBufferNumberToMaintain()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void compactionPriorities() {
     try (final Options options = new Options()) {
       for (final CompactionPriority compactionPriority :
@@ -1253,6 +1220,14 @@ public class OptionsTest {
       options.setTtl(1000 * 60);
       assertThat(options.ttl()).
           isEqualTo(1000 * 60);
+    }
+  }
+
+  @Test
+  public void periodicCompactionSeconds() {
+    try (final Options options = new Options()) {
+      options.setPeriodicCompactionSeconds(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
     }
   }
 
@@ -1373,9 +1348,9 @@ public class OptionsTest {
   @Test
   public void writeDbidToManifest() {
     try (final Options options = new Options()) {
-      assertThat(options.writeDbidToManifest()).isEqualTo(false);
-      assertThat(options.setWriteDbidToManifest(true)).isEqualTo(options);
       assertThat(options.writeDbidToManifest()).isEqualTo(true);
+      assertThat(options.setWriteDbidToManifest(false)).isEqualTo(options);
+      assertThat(options.writeDbidToManifest()).isEqualTo(false);
     }
   }
 
@@ -1438,6 +1413,26 @@ public class OptionsTest {
   }
 
   @Test
+  public void memtableMaxRangeDeletions() {
+    try (final Options options = new Options()) {
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(0);
+      final int val = 32;
+      assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
+
+  @Test
+  public void dailyOffpeakTimeUTC() {
+    try (final Options options = new Options()) {
+      assertThat(options.dailyOffpeakTimeUTC()).isEqualTo("");
+      final String offPeak = "03:45-20:15";
+      assertThat(options.setDailyOffpeakTimeUTC(offPeak)).isEqualTo(options);
+      assertThat(options.dailyOffpeakTimeUTC()).isEqualTo(offPeak);
+    }
+  }
+
+  @Test
   public void eventListeners() {
     final AtomicBoolean wasCalled1 = new AtomicBoolean();
     final AtomicBoolean wasCalled2 = new AtomicBoolean();
@@ -1457,17 +1452,33 @@ public class OptionsTest {
                }
              }) {
       assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
-      List<AbstractEventListener> listeners = options.listeners();
+      final List<AbstractEventListener> listeners = options.listeners();
       assertEquals(el1, listeners.get(0));
       assertEquals(el2, listeners.get(1));
-      options.setListeners(Collections.<AbstractEventListener>emptyList());
+      options.setListeners(Collections.emptyList());
       listeners.get(0).onTableFileDeleted(null);
       assertTrue(wasCalled1.get());
       listeners.get(1).onMemTableSealed(null);
       assertTrue(wasCalled2.get());
-      List<AbstractEventListener> listeners2 = options.listeners();
+      final List<AbstractEventListener> listeners2 = options.listeners();
       assertNotNull(listeners2);
       assertEquals(0, listeners2.size());
+    }
+  }
+  @Test
+  public void tablePropertiesCollectorFactory() {
+    try (final Options options = new Options()) {
+      try (TablePropertiesCollectorFactory collectorFactory =
+               TablePropertiesCollectorFactory.NewCompactOnDeletionCollectorFactory(10, 10, 1.0)) {
+        List<TablePropertiesCollectorFactory> factories = Arrays.asList(collectorFactory);
+        options.setTablePropertiesCollectorFactory(factories);
+      }
+      List<TablePropertiesCollectorFactory> factories = options.tablePropertiesCollectorFactory();
+      try {
+        assertThat(factories).hasSize(1);
+      } finally {
+        factories.stream().forEach(TablePropertiesCollectorFactory::close);
+      }
     }
   }
 }

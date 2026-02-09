@@ -135,7 +135,8 @@ std::ostream& operator<<(std::ostream& os,
      << " total_blob_count: " << blob_file_addition.GetTotalBlobCount()
      << " total_blob_bytes: " << blob_file_addition.GetTotalBlobBytes()
      << " checksum_method: " << blob_file_addition.GetChecksumMethod()
-     << " checksum_value: " << blob_file_addition.GetChecksumValue();
+     << " checksum_value: "
+     << Slice(blob_file_addition.GetChecksumValue()).ToString(/* hex */ true);
 
   return os;
 }
@@ -146,7 +147,8 @@ JSONWriter& operator<<(JSONWriter& jw,
      << "TotalBlobCount" << blob_file_addition.GetTotalBlobCount()
      << "TotalBlobBytes" << blob_file_addition.GetTotalBlobBytes()
      << "ChecksumMethod" << blob_file_addition.GetChecksumMethod()
-     << "ChecksumValue" << blob_file_addition.GetChecksumValue();
+     << "ChecksumValue"
+     << Slice(blob_file_addition.GetChecksumValue()).ToString(/* hex */ true);
 
   return jw;
 }

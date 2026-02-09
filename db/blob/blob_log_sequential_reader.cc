@@ -7,7 +7,7 @@
 #include "db/blob/blob_log_sequential_reader.h"
 
 #include "file/random_access_file_reader.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -28,6 +28,7 @@ Status BlobLogSequentialReader::ReadSlice(uint64_t size, Slice* slice,
   assert(file_);
 
   StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+  // TODO: rate limit `BlobLogSequentialReader` reads (it appears unused?)
   Status s = file_->Read(IOOptions(), next_byte_, static_cast<size_t>(size),
                          slice, buf, nullptr);
   next_byte_ += size;

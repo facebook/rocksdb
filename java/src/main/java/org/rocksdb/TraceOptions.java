@@ -13,7 +13,7 @@ public class TraceOptions {
   private final long maxTraceFileSize;
 
   public TraceOptions() {
-    this.maxTraceFileSize = 64 * 1024 * 1024 * 1024;  // 64 GB
+    this.maxTraceFileSize = 64L * 1024L * 1024L * 1024L; // 64 GB
   }
 
   public TraceOptions(final long maxTraceFileSize) {
@@ -21,8 +21,8 @@ public class TraceOptions {
   }
 
   /**
-   * To avoid the trace file size grows large than the storage space,
-   * user can set the max trace file size in Bytes. Default is 64GB
+   * To avoid the trace file size grows larger than the storage space,
+   * user can set the max trace file size in Bytes. Default is 64 GB.
    *
    * @return the max trace size
    */

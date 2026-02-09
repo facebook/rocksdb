@@ -14,8 +14,8 @@ public class TransactionDBOptions extends RocksObject {
   /**
    * Specifies the maximum number of keys that can be locked at the same time
    * per column family.
-   *
-   * If the number of locked keys is greater than {@link #getMaxNumLocks()},
+   * <p>
+   * If the number of locked keys is greater than {@code #getMaxNumLocks()},
    * transaction writes (or GetForUpdate) will return an error.
    *
    * @return The maximum number of keys that can be locked
@@ -28,7 +28,7 @@ public class TransactionDBOptions extends RocksObject {
   /**
    * Specifies the maximum number of keys that can be locked at the same time
    * per column family.
-   *
+   * <p>
    * If the number of locked keys is greater than {@link #getMaxNumLocks()},
    * transaction writes (or GetForUpdate) will return an error.
    *
@@ -57,7 +57,7 @@ public class TransactionDBOptions extends RocksObject {
    * Increasing this value will increase the concurrency by dividing the lock
    * table (per column family) into more sub-tables, each with their own
    * separate mutex.
-   *
+   * <p>
    * Default: 16
    *
    * @param numStripes The number of sub-tables
@@ -94,7 +94,7 @@ public class TransactionDBOptions extends RocksObject {
    * If negative, there is no timeout. Not using a timeout is not recommended
    * as it can lead to deadlocks.  Currently, there is no deadlock-detection to
    * recover from a deadlock.
-   *
+   * <p>
    * Default: 1000
    *
    * @param transactionLockTimeout the default wait timeout in milliseconds
@@ -113,7 +113,7 @@ public class TransactionDBOptions extends RocksObject {
    * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
    * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
    * directly).
-   *
+   * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
    * a lock.
@@ -131,29 +131,28 @@ public class TransactionDBOptions extends RocksObject {
    * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
    * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
    * directly).
-   *
+   * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
    * a lock.
-   *
+   * <p>
    * Not using a timeout can lead to deadlocks. Currently, there
    * is no deadlock-detection to recover from a deadlock.  While DB writes
    * cannot deadlock with other DB writes, they can deadlock with a transaction.
    * A negative timeout should only be used if all transactions have a small
    * expiration set.
-   *
+   * <p>
    * Default: 1000
    *
    * @param defaultLockTimeout the timeout in milliseconds when writing a key
    *     OUTSIDE of a transaction
    * @return this TransactionDBOptions instance
    */
-   public TransactionDBOptions setDefaultLockTimeout(
-       final long defaultLockTimeout) {
-     assert(isOwningHandle());
-     setDefaultLockTimeout(nativeHandle_, defaultLockTimeout);
-     return this;
-   }
+  public TransactionDBOptions setDefaultLockTimeout(final long defaultLockTimeout) {
+    assert (isOwningHandle());
+    setDefaultLockTimeout(nativeHandle_, defaultLockTimeout);
+    return this;
+  }
 
 //  /**
 //   * If set, the {@link TransactionDB} will use this implementation of a mutex
@@ -199,19 +198,22 @@ public class TransactionDBOptions extends RocksObject {
     return this;
   }
 
-  private native static long newTransactionDBOptions();
-  private native long getMaxNumLocks(final long handle);
-  private native void setMaxNumLocks(final long handle,
-      final long maxNumLocks);
-  private native long getNumStripes(final long handle);
-  private native void setNumStripes(final long handle, final long numStripes);
-  private native long getTransactionLockTimeout(final long handle);
-  private native void setTransactionLockTimeout(final long handle,
-      final long transactionLockTimeout);
-  private native long getDefaultLockTimeout(final long handle);
-  private native void setDefaultLockTimeout(final long handle,
-      final long transactionLockTimeout);
-  private native byte getWritePolicy(final long handle);
-  private native void setWritePolicy(final long handle, final byte writePolicy);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long newTransactionDBOptions();
+  private static native long getMaxNumLocks(final long handle);
+  private static native void setMaxNumLocks(final long handle, final long maxNumLocks);
+  private static native long getNumStripes(final long handle);
+  private static native void setNumStripes(final long handle, final long numStripes);
+  private static native long getTransactionLockTimeout(final long handle);
+  private static native void setTransactionLockTimeout(
+      final long handle, final long transactionLockTimeout);
+  private static native long getDefaultLockTimeout(final long handle);
+  private static native void setDefaultLockTimeout(
+      final long handle, final long transactionLockTimeout);
+  private static native byte getWritePolicy(final long handle);
+  private static native void setWritePolicy(final long handle, final byte writePolicy);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

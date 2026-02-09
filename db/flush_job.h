@@ -19,13 +19,13 @@
 
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
@@ -39,7 +39,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
-#include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
@@ -64,15 +63,14 @@ class FlushJob {
            const MutableCFOptions& mutable_cf_options, uint64_t max_memtable_id,
            const FileOptions& file_options, VersionSet* versions,
            InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
-           std::vector<SequenceNumber> existing_snapshots,
-           SequenceNumber earliest_write_conflict_snapshot,
-           SnapshotChecker* snapshot_checker, JobContext* job_context,
+           JobContext* job_context, FlushReason flush_reason,
            LogBuffer* log_buffer, FSDirectory* db_directory,
            FSDirectory* output_file_directory,
            CompressionType output_compression, Statistics* stats,
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+           std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
@@ -82,28 +80,75 @@ class FlushJob {
   // Require db_mutex held.
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
+  // @param skip_since_bg_error If not nullptr and if atomic_flush=false,
+  // then it is set to true if flush installation is skipped and memtable
+  // is rolled back due to existing background error.
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
-             FileMetaData* file_meta = nullptr);
+             FileMetaData* file_meta = nullptr,
+             bool* switched_to_mempurge = nullptr,
+             bool* skipped_since_bg_error = nullptr,
+             ErrorHandler* error_handler = nullptr);
   void Cancel();
-  const autovector<MemTable*>& GetMemTables() const { return mems_; }
+  const autovector<ReadOnlyMemTable*>& GetMemTables() const { return mems_; }
 
-#ifndef ROCKSDB_LITE
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
-#endif  // !ROCKSDB_LITE
-
-  // Return the IO status
-  IOStatus io_status() const { return io_status_; }
 
  private:
+  friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
+
   void ReportStartedFlush();
-  void ReportFlushInputSize(const autovector<MemTable*>& mems);
+  static void ReportFlushInputSize(const autovector<ReadOnlyMemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
-#ifndef ROCKSDB_LITE
+
+  // Memtable Garbage Collection algorithm: a MemPurge takes the list
+  // of immutable memtables and filters out (or "purge") the outdated bytes
+  // out of it. The output (the filtered bytes, or "useful payload") is
+  // then transfered into a new memtable. If this memtable is filled, then
+  // the mempurge is aborted and rerouted to a regular flush process. Else,
+  // depending on the heuristics, placed onto the immutable memtable list.
+  // The addition to the imm list will not trigger a flush operation. The
+  // flush of the imm list will instead be triggered once the mutable memtable
+  // is added to the imm list.
+  // This process is typically intended for workloads with heavy overwrites
+  // when we want to avoid SSD writes (and reads) as much as possible.
+  // "MemPurge" is an experimental feature still at a very early stage
+  // of development. At the moment it is only compatible with the Get, Put,
+  // Delete operations as well as Iterators and CompactionFilters.
+  // For this early version, "MemPurge" is called by setting the
+  // options.experimental_mempurge_threshold value as >0.0. When this is
+  // the case, ALL automatic flush operations (kWRiteBufferManagerFull) will
+  // first go through the MemPurge process. Therefore, we strongly
+  // recommend all users not to set this flag as true given that the MemPurge
+  // process has not matured yet.
+  Status MemPurge();
+  bool MemPurgeDecider(double threshold);
+  // The rate limiter priority (io_priority) is determined dynamically here.
+  Env::IOPriority GetRateLimiterPriority();
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
-#endif  // !ROCKSDB_LITE
+
+  // Require db_mutex held.
+  // Called only when UDT feature is enabled and
+  // `persist_user_defined_timestamps` flag is false. Because we will refrain
+  // from flushing as long as there are still UDTs in a memtable that hasn't
+  // expired w.r.t `full_history_ts_low`. However, flush is continued if there
+  // is risk of entering write stall mode. In that case, we need
+  // to track the effective cutoff timestamp below which all the udts are
+  // removed because of flush, and use it to increase `full_history_ts_low` if
+  // the effective cutoff timestamp is newer. See
+  // `MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT` for details.
+  void GetEffectiveCutoffUDTForPickedMemTables();
+
+  // If this column family enables tiering feature, it will find the current
+  // `preclude_last_level_min_seqno_`, and the smaller one between this and
+  // the `earliset_snapshot_` will later be announced to user property
+  // collectors. It indicates to tiering use cases which data are old enough to
+  // be placed on the last level.
+  void GetPrecludeLastLevelMinSeqno();
+
+  Status MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
 
   const std::string& dbname_;
   const std::string db_id_;
@@ -116,14 +161,13 @@ class FlushJob {
   // this job. All memtables in this column family with an ID smaller than or
   // equal to max_memtable_id_ will be selected for flush.
   uint64_t max_memtable_id_;
-  const FileOptions file_options_;
+  FileOptions file_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;
-  std::vector<SequenceNumber> existing_snapshots_;
-  SequenceNumber earliest_write_conflict_snapshot_;
-  SnapshotChecker* snapshot_checker_;
+  SequenceNumber earliest_snapshot_;
   JobContext* job_context_;
+  FlushReason flush_reason_;
   LogBuffer* log_buffer_;
   FSDirectory* db_directory_;
   FSDirectory* output_file_directory_;
@@ -156,18 +200,38 @@ class FlushJob {
 
   // Variables below are set by PickMemTable():
   FileMetaData meta_;
-  autovector<MemTable*> mems_;
+  // Memtables to be flushed by this job.
+  // Ordered by increasing memtable id, i.e., oldest memtable first.
+  autovector<ReadOnlyMemTable*> mems_;
   VersionEdit* edit_;
   Version* base_;
   bool pick_memtable_called;
   Env::Priority thread_pri_;
-  IOStatus io_status_;
 
   const std::shared_ptr<IOTracer> io_tracer_;
   SystemClock* clock_;
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  // Shared copy of DB's seqno to time mapping stored in SuperVersion. The
+  // ownership is shared with this FlushJob when it's created.
+  // FlushJob accesses and ref counts immutable MemTables directly via
+  // `MemTableListVersion` instead of ref `SuperVersion`, so we need to give
+  // the flush job shared ownership of the mapping.
+  // Note this is only installed when seqno to time recording feature is
+  // enables, so it could be nullptr.
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
+
+  // Keeps track of the newest user-defined timestamp for this flush job if
+  // `persist_user_defined_timestamps` flag is false.
+  std::string cutoff_udt_;
+
+  // The current minimum seqno that compaction jobs will preclude the data from
+  // the last level. Data with seqnos larger than this or larger than
+  // `earliest_snapshot_` will be output to the proximal level had it gone
+  // through a compaction to the last level.
+  SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

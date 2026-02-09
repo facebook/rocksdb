@@ -1,0 +1,38 @@
+#!/usr/bin/env perl
+
+use strict;
+
+open(my $ps, "-|", "ps -wwf");
+my $cols_known = 0;
+my $cmd_col = 0;
+my $pid_col = 0;
+while (<$ps>) {
+  print;
+  my @cols = split(/\s+/);
+
+  if (!$cols_known && /CMD/) {
+    # Parse relevant ps column headers
+    for (my $i = 0; $i <= $#cols; $i++) {
+      if ($cols[$i] eq "CMD") {
+        $cmd_col = $i;
+      }
+      if ($cols[$i] eq "PID") {
+        $pid_col = $i;
+      }
+    }
+    $cols_known = 1;
+  } else {
+    my $pid = $cols[$pid_col];
+    my $cmd = $cols[$cmd_col];
+    # Match numeric PID and relative path command
+    # -> The intention is only to dump stack traces for hangs in code under
+    # test, which means we probably just built it and are executing by
+    # relative path (e.g. ./my_test or foo/bar_test) rather then by absolute
+    # path (e.g. /usr/bin/time) or PATH search (e.g. grep).
+    if ($pid =~ /^[0-9]+$/ && $cmd =~ /^[^\/ ]+[\/]/) {
+      print "Dumping stacks for $pid...\n";
+      system("pstack $pid || gdb -batch -p $pid -ex 'thread apply all bt'");
+    }
+  }
+}
+close $ps;

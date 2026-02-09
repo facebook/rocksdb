@@ -6,14 +6,12 @@
 #pragma once
 
 #include <array>
-#include <string>
-#include "port/port.h"
+#include <atomic>
+
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
+#include "util/atomic.h"
 #include "util/hash.h"
-
-#include <atomic>
-#include <memory>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,22 +48,26 @@ class DynamicBloom {
 
   ~DynamicBloom() {}
 
-  // Assuming single threaded access to this function.
+  // Assuming single thread adding to the DynamicBloom
   void Add(const Slice& key);
 
-  // Like Add, but may be called concurrent with other functions.
+  // Like Add, but may be called concurrently with other functions. Does not
+  // establish happens-before relationship with other functions so requires some
+  // external mechanism to ensure other threads can see the change.
   void AddConcurrently(const Slice& key);
 
   // Assuming single threaded access to this function.
   void AddHash(uint32_t hash);
 
-  // Like AddHash, but may be called concurrent with other functions.
+  // Like AddHash, but may be called concurrently with other functions. Does not
+  // establish happens-before relationship with other functions so requires some
+  // external mechanism to ensure other threads can see the change.
   void AddHashConcurrently(uint32_t hash);
 
   // Multithreaded access to this function is OK
   bool MayContain(const Slice& key) const;
 
-  void MayContain(int num_keys, Slice** keys, bool* may_match) const;
+  void MayContain(int num_keys, Slice* keys, bool* may_match) const;
 
   // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash) const;
@@ -80,7 +82,7 @@ class DynamicBloom {
   // this stores k/2, the number of words to double-probe.
   const uint32_t kNumDoubleProbes;
 
-  std::atomic<uint64_t>* data_;
+  RelaxedAtomic<uint64_t>* data_;
 
   // or_func(ptr, mask) should effect *ptr |= mask with the appropriate
   // concurrency safety, working with bytes.
@@ -97,21 +99,20 @@ inline void DynamicBloom::AddConcurrently(const Slice& key) {
 }
 
 inline void DynamicBloom::AddHash(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint64_t>* ptr, uint64_t mask) {
-    ptr->store(ptr->load(std::memory_order_relaxed) | mask,
-               std::memory_order_relaxed);
+  AddHash(hash, [](RelaxedAtomic<uint64_t>* ptr, uint64_t mask) {
+    ptr->StoreRelaxed(ptr->LoadRelaxed() | mask);
   });
 }
 
 inline void DynamicBloom::AddHashConcurrently(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint64_t>* ptr, uint64_t mask) {
+  AddHash(hash, [](RelaxedAtomic<uint64_t>* ptr, uint64_t mask) {
     // Happens-before between AddHash and MaybeContains is handled by
     // access to versions_->LastSequence(), so all we have to do here is
     // avoid races (so we don't give the compiler a license to mess up
     // our code) and not lose bits.  std::memory_order_relaxed is enough
     // for that.
-    if ((mask & ptr->load(std::memory_order_relaxed)) != mask) {
-      ptr->fetch_or(mask, std::memory_order_relaxed);
+    if ((mask & ptr->LoadRelaxed()) != mask) {
+      ptr->FetchOrRelaxed(mask);
     }
   });
 }
@@ -120,13 +121,13 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(BloomHash(key)));
 }
 
-inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
+inline void DynamicBloom::MayContain(int num_keys, Slice* keys,
                                      bool* may_match) const {
   std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
   std::array<size_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
   for (int i = 0; i < num_keys; ++i) {
-    hashes[i] = BloomHash(*keys[i]);
-    size_t a = FastRange32(kLen, hashes[i]);
+    hashes[i] = BloomHash(keys[i]);
+    size_t a = FastRange32(hashes[i], kLen);
     PREFETCH(data_ + a, 0, 3);
     byte_offsets[i] = a;
   }
@@ -142,7 +143,7 @@ inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
 #pragma warning(disable : 4189)
 #endif
 inline void DynamicBloom::Prefetch(uint32_t h32) {
-  size_t a = FastRange32(kLen, h32);
+  size_t a = FastRange32(h32, kLen);
   PREFETCH(data_ + a, 0, 3);
 }
 #if defined(_MSC_VER)
@@ -171,7 +172,7 @@ inline void DynamicBloom::Prefetch(uint32_t h32) {
 // because of false positives.)
 
 inline bool DynamicBloom::MayContainHash(uint32_t h32) const {
-  size_t a = FastRange32(kLen, h32);
+  size_t a = FastRange32(h32, kLen);
   PREFETCH(data_ + a, 0, 3);
   return DoubleProbe(h32, a);
 }
@@ -183,7 +184,7 @@ inline bool DynamicBloom::DoubleProbe(uint32_t h32, size_t byte_offset) const {
     // Two bit probes per uint64_t probe
     uint64_t mask =
         ((uint64_t)1 << (h & 63)) | ((uint64_t)1 << ((h >> 6) & 63));
-    uint64_t val = data_[byte_offset ^ i].load(std::memory_order_relaxed);
+    uint64_t val = data_[byte_offset ^ i].LoadRelaxed();
     if (i + 1 >= kNumDoubleProbes) {
       return (val & mask) == mask;
     } else if ((val & mask) != mask) {
@@ -195,7 +196,7 @@ inline bool DynamicBloom::DoubleProbe(uint32_t h32, size_t byte_offset) const {
 
 template <typename OrFunc>
 inline void DynamicBloom::AddHash(uint32_t h32, const OrFunc& or_func) {
-  size_t a = FastRange32(kLen, h32);
+  size_t a = FastRange32(h32, kLen);
   PREFETCH(data_ + a, 0, 3);
   // Expand/remix with 64-bit golden ratio
   uint64_t h = 0x9e3779b97f4a7c13ULL * h32;

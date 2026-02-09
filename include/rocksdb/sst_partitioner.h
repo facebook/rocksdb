@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 
@@ -77,15 +78,22 @@ class SstPartitioner {
   };
 };
 
-class SstPartitionerFactory {
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class SstPartitionerFactory : public Customizable {
  public:
-  virtual ~SstPartitionerFactory() {}
+  ~SstPartitionerFactory() override {}
+  static const char* Type() { return "SstPartitionerFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<SstPartitionerFactory>* result);
 
   virtual std::unique_ptr<SstPartitioner> CreatePartitioner(
       const SstPartitioner::Context& context) const = 0;
 
   // Returns a name that identifies this partitioner factory.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 };
 
 /*
@@ -96,7 +104,7 @@ class SstPartitionerFixedPrefix : public SstPartitioner {
  public:
   explicit SstPartitionerFixedPrefix(size_t len) : len_(len) {}
 
-  virtual ~SstPartitionerFixedPrefix() override {}
+  ~SstPartitionerFixedPrefix() override {}
 
   const char* Name() const override { return "SstPartitionerFixedPrefix"; }
 
@@ -114,13 +122,12 @@ class SstPartitionerFixedPrefix : public SstPartitioner {
  */
 class SstPartitionerFixedPrefixFactory : public SstPartitionerFactory {
  public:
-  explicit SstPartitionerFixedPrefixFactory(size_t len) : len_(len) {}
+  explicit SstPartitionerFixedPrefixFactory(size_t len);
 
-  virtual ~SstPartitionerFixedPrefixFactory() {}
+  ~SstPartitionerFixedPrefixFactory() override {}
 
-  const char* Name() const override {
-    return "SstPartitionerFixedPrefixFactory";
-  }
+  static const char* kClassName() { return "SstPartitionerFixedPrefixFactory"; }
+  const char* Name() const override { return kClassName(); }
 
   std::unique_ptr<SstPartitioner> CreatePartitioner(
       const SstPartitioner::Context& /* context */) const override;
@@ -129,7 +136,7 @@ class SstPartitionerFixedPrefixFactory : public SstPartitionerFactory {
   size_t len_;
 };
 
-extern std::shared_ptr<SstPartitionerFactory>
-NewSstPartitionerFixedPrefixFactory(size_t prefix_len);
+std::shared_ptr<SstPartitionerFactory> NewSstPartitionerFixedPrefixFactory(
+    size_t prefix_len);
 
 }  // namespace ROCKSDB_NAMESPACE

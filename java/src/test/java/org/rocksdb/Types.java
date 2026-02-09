@@ -18,7 +18,7 @@ public class Types {
    *
    * @return An integer
    */
-  public static int byteToInt(final byte data[]) {
+  public static int byteToInt(final byte[] data) {
     return (data[0] & 0xff) |
         ((data[1] & 0xff) << 8) |
         ((data[2] & 0xff) << 16) |

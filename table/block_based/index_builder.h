@@ -9,17 +9,18 @@
 
 #pragma once
 
-#include <assert.h>
 #include <cinttypes>
-
 #include <list>
 #include <string>
 #include <unordered_map>
 
+#include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/format.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The interface for building index.
@@ -36,10 +37,10 @@ class IndexBuilder {
  public:
   static IndexBuilder* CreateIndexBuilder(
       BlockBasedTableOptions::IndexType index_type,
-      const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
+      const InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
-      const bool use_value_delta_encoding,
-      const BlockBasedTableOptions& table_opt);
+      bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
+      size_t ts_sz, bool persist_user_defined_timestamps);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -47,31 +48,88 @@ class IndexBuilder {
   //     primary index.
   struct IndexBlocks {
     Slice index_block_contents;
-    std::unordered_map<std::string, Slice> meta_blocks;
+    std::unordered_map<std::string, std::pair<BlockType, Slice>> meta_blocks;
   };
-  explicit IndexBuilder(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
+  IndexBuilder(const InternalKeyComparator* comparator, size_t ts_sz,
+               bool persist_user_defined_timestamps)
+      : comparator_(comparator),
+        ts_sz_(ts_sz),
+        persist_user_defined_timestamps_(persist_user_defined_timestamps) {}
 
-  virtual ~IndexBuilder() {}
+  virtual ~IndexBuilder() = default;
 
   // Add a new index entry to index block.
+  //
   // To allow further optimization, we provide `last_key_in_current_block` and
   // `first_key_in_next_block`, based on which the specific implementation can
   // determine the best index key to be used for the index block.
   // Called before the OnKeyAdded() call for first_key_in_next_block.
-  // @last_key_in_current_block: this parameter maybe overridden with the value
-  //                             "substitute key".
+  // @last_key_in_current_block: TODO lifetime details
   // @first_key_in_next_block: it will be nullptr if the entry being added is
   //                           the last one in the table
-  //
+  // @separator_scratch: a scratch buffer to back a computed separator between
+  //                     those, as needed. May be modified on each call.
+  // @skip_delta_encoding: whether to skip delta encoding for this index entry
+  //                       for cases of violating the assumption that this
+  //                       block_handle starts where the last one ended.
+  // @return: the key or separator stored in the index, which could be
+  //          last_key_in_current_block or a computed separator backed by
+  //          separator_scratch or last_key_in_current_block.
   // REQUIRES: Finish() has not yet been called.
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) = 0;
+  virtual Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                              const Slice* first_key_in_next_block,
+                              const BlockHandle& block_handle,
+                              std::string* separator_scratch,
+                              bool skip_delta_encoding) = 0;
+
+  // An abstract (extensible) holder for passing data from PrepareIndexEntry to
+  // FinishIndexEntry (see below).
+  struct PreparedIndexEntry {
+    virtual ~PreparedIndexEntry() = default;
+  };
+
+  // Parallel compression/construction alternative to AddIndexEntry, 1/3
+  //
+  // This function creates a holder for data that needs to be passed from
+  // PrepareIndexEntry to FinishIndexEntry, depending on the implementation
+  // of those. Few of these are created and reused, so construction/destruction
+  // performance is not critical.
+  virtual std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() = 0;
+
+  // Parallel compression/construction alternative to AddIndexEntry, 2/3
+  //
+  // One thread calls this function for successive index entries to compute and
+  // record in `out` what is needed to build the index entry EXCEPT for the
+  // BlockHandle, which will only be known later. That thread is generally the
+  // same thread as calls every other function such as OnKeyAdded EXCEPT
+  // FinishIndexEntry (see below). This function should be considered "mostly
+  // stateless" but might modify state distinct from what is modified by
+  // FinishIndexEntry. Ideally synchronization within the IndexBuilder can be
+  // avoided.
+  //
+  // The passed-in PreparedIndexEntry object is likely reused so might be
+  // passed-in in any state.
+  virtual void PrepareIndexEntry(const Slice& last_key_in_current_block,
+                                 const Slice* first_key_in_next_block,
+                                 PreparedIndexEntry* out) = 0;
+
+  // Parallel compression/construction alternative to AddIndexEntry, 3/3
+  //
+  // This function is called by a different thread than PrepareIndexEntry, but
+  // is called on entries in the same order as PrepareIndexEntry, passed in the
+  // PreparedIndexEntry objects populated by PrepareIndexEntry. This function
+  // finishes the same effect of AddIndexEntry but split across a few functions.
+  //
+  // External synchronization ensures Finish is only called after all the
+  // FinishIndexEntry calls have completed.
+  virtual void FinishIndexEntry(const BlockHandle& block_handle,
+                                PreparedIndexEntry* entry,
+                                bool skip_delta_encoding) = 0;
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
-  virtual void OnKeyAdded(const Slice& /*key*/) {}
+  virtual void OnKeyAdded(const Slice& /*key*/,
+                          const std::optional<Slice>& /*value*/) {}
 
   // Inform the index builder that all entries has been written. Block builder
   // may therefore perform any operation required for block finalization.
@@ -101,10 +159,53 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
-  virtual bool seperator_is_key_plus_seq() { return true; }
+  // Returns an estimate of the current index size based on the builder's state.
+  // Implementations should cache the estimate and update it via
+  // UpdateIndexSizeEstimate() to avoid recalculating on every key add,
+  // which is critical for performance in the compaction hot path.
+  //
+  // This function is only called by the SST "emit thread" but must be
+  // thread safe with concurrent calls to UpdateIndexSizeEstimate() from another
+  // thread (such as during parallel compression).
+  virtual uint64_t CurrentIndexSizeEstimate() const = 0;
+
+  virtual bool separator_is_key_plus_seq() { return true; }
 
  protected:
+  // Given the last key in current block and the first key in the next block,
+  // return true if internal key should be used as separator, false if user key
+  // can be used as separator.
+  inline bool ShouldUseKeyPlusSeqAsSeparator(
+      const Slice& last_key_in_current_block,
+      const Slice& first_key_in_next_block) const {
+    Slice l_user_key = ExtractUserKey(last_key_in_current_block);
+    Slice r_user_key = ExtractUserKey(first_key_in_next_block);
+    // If user defined timestamps are not persisted. All the user keys will
+    // act like they have minimal timestamp. Only having user key is not
+    // sufficient, even if they are different user keys for now, they have to be
+    // different user keys without the timestamp part.
+    return persist_user_defined_timestamps_
+               ? comparator_->user_comparator()->Compare(l_user_key,
+                                                         r_user_key) == 0
+               : comparator_->user_comparator()->CompareWithoutTimestamp(
+                     l_user_key, r_user_key) == 0;
+  }
+
+  // Updates the cached index size estimate used by CurrentIndexSizeEstimate().
+  //
+  // This function can be called from the SST "write thread" (via
+  // FinishIndexEntry()), and needs to be thread safe with
+  // CurrentIndexSizeEstimate() called from the SST "emit thread".
+  virtual void UpdateIndexSizeEstimate() {}
+
   const InternalKeyComparator* comparator_;
+  // Size of user-defined timestamp in bytes.
+  size_t ts_sz_;
+  // Whether user-defined timestamp in the user key should be persisted when
+  // creating index block. If this flag is false, user-defined timestamp will
+  // be stripped from user key for each index entry, and the
+  // `first_internal_key` in `IndexValue` if it's included.
+  bool persist_user_defined_timestamps_;
   // Set after ::Finish is called
   size_t index_size_ = 0;
 };
@@ -120,61 +221,102 @@ class IndexBuilder {
 //     substitute key that serves the same function.
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
-  explicit ShortenedIndexBuilder(
+  ShortenedIndexBuilder(
       const InternalKeyComparator* comparator,
       const int index_block_restart_interval, const uint32_t format_version,
       const bool use_value_delta_encoding,
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
-      bool include_first_key)
-      : IndexBuilder(comparator),
-        index_block_builder_(index_block_restart_interval,
-                             true /*use_delta_encoding*/,
-                             use_value_delta_encoding),
-        index_block_builder_without_seq_(index_block_restart_interval,
-                                         true /*use_delta_encoding*/,
-                                         use_value_delta_encoding),
+      bool include_first_key, size_t ts_sz,
+      const bool persist_user_defined_timestamps)
+      : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
+        index_block_builder_(
+            index_block_restart_interval, true /*use_delta_encoding*/,
+            use_value_delta_encoding,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps, false /* is_user_key */),
+        index_block_builder_without_seq_(
+            index_block_restart_interval, true /*use_delta_encoding*/,
+            use_value_delta_encoding,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps, true /* is_user_key */),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
     // Making the default true will disable the feature for old versions
-    seperator_is_key_plus_seq_ = (format_version <= 2);
+    must_use_separator_with_seq_.StoreRelaxed(format_version <= 2);
   }
 
-  virtual void OnKeyAdded(const Slice& key) override {
+  void OnKeyAdded(const Slice& key,
+                  const std::optional<Slice>& /*value*/) override {
     if (include_first_key_ && current_block_first_internal_key_.empty()) {
       current_block_first_internal_key_.assign(key.data(), key.size());
     }
   }
 
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) override {
+  Slice GetSeparatorWithSeq(const Slice& last_key_in_current_block,
+                            const Slice* first_key_in_next_block,
+                            std::string* separator_scratch) {
+    Slice separator_with_seq;
     if (first_key_in_next_block != nullptr) {
       if (shortening_mode_ !=
           BlockBasedTableOptions::IndexShorteningMode::kNoShortening) {
-        comparator_->FindShortestSeparator(last_key_in_current_block,
-                                           *first_key_in_next_block);
+        separator_with_seq = FindShortestInternalKeySeparator(
+            *comparator_->user_comparator(), last_key_in_current_block,
+            *first_key_in_next_block, separator_scratch);
+      } else {
+        separator_with_seq = last_key_in_current_block;
       }
-      if (!seperator_is_key_plus_seq_ &&
-          comparator_->user_comparator()->Compare(
-              ExtractUserKey(*last_key_in_current_block),
-              ExtractUserKey(*first_key_in_next_block)) == 0) {
-        seperator_is_key_plus_seq_ = true;
+      if (!must_use_separator_with_seq_.LoadRelaxed() &&
+          ShouldUseKeyPlusSeqAsSeparator(last_key_in_current_block,
+                                         *first_key_in_next_block)) {
+        must_use_separator_with_seq_.StoreRelaxed(true);
       }
     } else {
       if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
                                   kShortenSeparatorsAndSuccessor) {
-        comparator_->FindShortSuccessor(last_key_in_current_block);
+        separator_with_seq = FindShortInternalKeySuccessor(
+            *comparator_->user_comparator(), last_key_in_current_block,
+            separator_scratch);
+      } else {
+        separator_with_seq = last_key_in_current_block;
       }
     }
-    auto sep = Slice(*last_key_in_current_block);
+    return separator_with_seq;
+  }
 
-    assert(!include_first_key_ || !current_block_first_internal_key_.empty());
-    IndexValue entry(block_handle, current_block_first_internal_key_);
+  Slice GetFirstInternalKey(std::string* first_internal_key_buf) const {
+    if (!include_first_key_) {
+      return Slice();
+    }
+    assert(!current_block_first_internal_key_.empty());
+    // When UDT should not be persisted, the index block builders take care of
+    // stripping UDT from the key, for the first internal key contained in the
+    // IndexValue, we need to explicitly do the stripping here before passing
+    // it to the block builders.
+    Slice first_internal_key = current_block_first_internal_key_;
+    if (!current_block_first_internal_key_.empty() && ts_sz_ > 0 &&
+        !persist_user_defined_timestamps_) {
+      first_internal_key_buf->clear();
+      StripTimestampFromInternalKey(first_internal_key_buf,
+                                    current_block_first_internal_key_, ts_sz_);
+      first_internal_key = *first_internal_key_buf;
+    }
+    return first_internal_key;
+  }
+
+  void AddIndexEntryImpl(const Slice& separator_with_seq,
+                         const Slice& first_internal_key,
+                         const BlockHandle& block_handle,
+                         bool must_use_separator_with_seq,
+                         bool skip_delta_encoding) {
+    IndexValue entry(block_handle, first_internal_key);
     std::string encoded_entry;
     std::string delta_encoded_entry;
     entry.EncodeTo(&encoded_entry, include_first_key_, nullptr);
-    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull() &&
+        !skip_delta_encoding) {
       entry.EncodeTo(&delta_encoded_entry, include_first_key_,
                      &last_encoded_handle_);
     } else {
@@ -183,20 +325,108 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
     last_encoded_handle_ = block_handle;
     const Slice delta_encoded_entry_slice(delta_encoded_entry);
-    index_block_builder_.Add(sep, encoded_entry, &delta_encoded_entry_slice);
-    if (!seperator_is_key_plus_seq_) {
-      index_block_builder_without_seq_.Add(ExtractUserKey(sep), encoded_entry,
-                                           &delta_encoded_entry_slice);
+
+    // TODO(yuzhangyu): fix this when "FindShortInternalKeySuccessor"
+    //  optimization is available.
+    // Timestamp aware comparator currently doesn't provide override for
+    // "FindShortInternalKeySuccessor" optimization. So the actual
+    // last key in current block is used as the key for indexing the current
+    // block. As a result, when UDTs should not be persisted, it's safe to strip
+    // away the UDT from key in index block as data block does the same thing.
+    // What are the implications if a "FindShortInternalKeySuccessor"
+    // optimization is provided.
+    index_block_builder_.Add(separator_with_seq, encoded_entry,
+                             &delta_encoded_entry_slice, skip_delta_encoding);
+    if (!must_use_separator_with_seq) {
+      index_block_builder_without_seq_.Add(
+          ExtractUserKey(separator_with_seq), encoded_entry,
+          &delta_encoded_entry_slice, skip_delta_encoding);
     }
 
+    ++num_index_entries_;
+    UpdateIndexSizeEstimate();
+  }
+
+  Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                      const Slice* first_key_in_next_block,
+                      const BlockHandle& block_handle,
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override {
+    Slice separator_with_seq = GetSeparatorWithSeq(
+        last_key_in_current_block, first_key_in_next_block, separator_scratch);
+
+    std::string first_internal_key_buf;
+    Slice first_internal_key = GetFirstInternalKey(&first_internal_key_buf);
+
+    AddIndexEntryImpl(separator_with_seq, first_internal_key, block_handle,
+                      must_use_separator_with_seq_.LoadRelaxed(),
+                      skip_delta_encoding);
+    current_block_first_internal_key_.clear();
+    return separator_with_seq;
+  }
+
+  struct ShortenedPreparedIndexEntry : public PreparedIndexEntry {
+    std::string separator_with_seq;
+    std::string first_internal_key;
+    bool must_use_separator_with_seq = false;
+    void SaveFrom(const Slice& from_separator,
+                  const Slice& from_first_internal_key,
+                  bool from_must_use_separator_with_seq) {
+      assert(from_separator.size() >= kNumInternalBytes);
+      if (from_separator.data() == separator_with_seq.data()) {
+        // No need to copy
+        assert(from_separator.size() == separator_with_seq.size());
+      } else {
+        // Copy the separator
+        separator_with_seq.assign(from_separator.data(), from_separator.size());
+      }
+      // first_internal_key is optional, so it may be empty.
+      assert(from_first_internal_key.empty() ||
+             from_first_internal_key.size() >= kNumInternalBytes);
+      if (from_first_internal_key.data() == first_internal_key.data()) {
+        // No need to copy
+        assert(from_first_internal_key.size() == first_internal_key.size());
+      } else {
+        // Copy the first internal key
+        first_internal_key.assign(from_first_internal_key.data(),
+                                  from_first_internal_key.size());
+      }
+      must_use_separator_with_seq = from_must_use_separator_with_seq;
+    }
+  };
+
+  std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override {
+    return std::make_unique<ShortenedPreparedIndexEntry>();
+  }
+
+  void PrepareIndexEntry(const Slice& last_key_in_current_block,
+                         const Slice* first_key_in_next_block,
+                         PreparedIndexEntry* out) override {
+    ShortenedPreparedIndexEntry* entry =
+        static_cast<ShortenedPreparedIndexEntry*>(out);
+    Slice separator =
+        GetSeparatorWithSeq(last_key_in_current_block, first_key_in_next_block,
+                            &entry->separator_with_seq);
+    Slice first_internal_key = GetFirstInternalKey(&entry->first_internal_key);
+    entry->SaveFrom(separator, first_internal_key,
+                    must_use_separator_with_seq_.LoadRelaxed());
     current_block_first_internal_key_.clear();
   }
 
+  void FinishIndexEntry(const BlockHandle& block_handle,
+                        PreparedIndexEntry* base_entry,
+                        bool skip_delta_encoding) override {
+    ShortenedPreparedIndexEntry* entry =
+        static_cast<ShortenedPreparedIndexEntry*>(base_entry);
+    AddIndexEntryImpl(entry->separator_with_seq, entry->first_internal_key,
+                      block_handle, entry->must_use_separator_with_seq,
+                      skip_delta_encoding);
+  }
+
   using IndexBuilder::Finish;
-  virtual Status Finish(
-      IndexBlocks* index_blocks,
-      const BlockHandle& /*last_partition_block_handle*/) override {
-    if (seperator_is_key_plus_seq_) {
+  Status Finish(IndexBlocks* index_blocks,
+                const BlockHandle& /*last_partition_block_handle*/) override {
+    if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
     } else {
       index_blocks->index_block_contents =
@@ -206,23 +436,48 @@ class ShortenedIndexBuilder : public IndexBuilder {
     return Status::OK();
   }
 
-  virtual size_t IndexSize() const override { return index_size_; }
+  size_t IndexSize() const override { return index_size_; }
 
-  virtual bool seperator_is_key_plus_seq() override {
-    return seperator_is_key_plus_seq_;
+  uint64_t CurrentIndexSizeEstimate() const override {
+    return estimated_index_size_.LoadRelaxed();
   }
+
+  // Updates the cached size estimate to minimize CPU usage in hot path
+  void UpdateIndexSizeEstimate() override;
+
+  bool separator_is_key_plus_seq() override {
+    return must_use_separator_with_seq_.LoadRelaxed();
+  }
+
+  // Changes *key to a short string >= *key.
+  //
+  static Slice FindShortestInternalKeySeparator(const Comparator& comparator,
+                                                const Slice& start,
+                                                const Slice& limit,
+                                                std::string* scratch);
+
+  static Slice FindShortInternalKeySuccessor(const Comparator& comparator,
+                                             const Slice& key,
+                                             std::string* scratch);
 
   friend class PartitionedIndexBuilder;
 
  private:
   BlockBuilder index_block_builder_;
+  // TODO: consider optimizing to only one builder. When discovering that
+  // sequence numbers are needed, read existing entries without seq and rewrite
+  // them with seq (which should be trivial to populate since seq wasn't needed
+  // before).
   BlockBuilder index_block_builder_without_seq_;
   const bool use_value_delta_encoding_;
-  bool seperator_is_key_plus_seq_;
+  RelaxedAtomic<bool> must_use_separator_with_seq_;
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   std::string current_block_first_internal_key_;
+  uint64_t num_index_entries_ = 0;
+  // Cache for index size estimate to avoid recalculating in hot path
+  RelaxedAtomic<uint64_t> estimated_index_size_{0};
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -254,27 +509,51 @@ class ShortenedIndexBuilder : public IndexBuilder {
 // data copy or small heap allocations for prefixes.
 class HashIndexBuilder : public IndexBuilder {
  public:
-  explicit HashIndexBuilder(
-      const InternalKeyComparator* comparator,
-      const SliceTransform* hash_key_extractor,
-      int index_block_restart_interval, int format_version,
-      bool use_value_delta_encoding,
-      BlockBasedTableOptions::IndexShorteningMode shortening_mode)
-      : IndexBuilder(comparator),
+  HashIndexBuilder(const InternalKeyComparator* comparator,
+                   const SliceTransform* hash_key_extractor,
+                   int index_block_restart_interval, int format_version,
+                   bool use_value_delta_encoding,
+                   BlockBasedTableOptions::IndexShorteningMode shortening_mode,
+                   size_t ts_sz, const bool persist_user_defined_timestamps)
+      : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
-                               shortening_mode, /* include_first_key */ false),
+                               shortening_mode, /* include_first_key */ false,
+                               ts_sz, persist_user_defined_timestamps),
         hash_key_extractor_(hash_key_extractor) {}
 
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) override {
+  Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                      const Slice* first_key_in_next_block,
+                      const BlockHandle& block_handle,
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override {
     ++current_restart_index_;
-    primary_index_builder_.AddIndexEntry(last_key_in_current_block,
-                                         first_key_in_next_block, block_handle);
+    return primary_index_builder_.AddIndexEntry(
+        last_key_in_current_block, first_key_in_next_block, block_handle,
+        separator_scratch, skip_delta_encoding);
   }
 
-  virtual void OnKeyAdded(const Slice& key) override {
+  std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override {
+    return primary_index_builder_.CreatePreparedIndexEntry();
+  }
+
+  void PrepareIndexEntry(const Slice& last_key_in_current_block,
+                         const Slice* first_key_in_next_block,
+                         PreparedIndexEntry* out) override {
+    ++current_restart_index_;
+    primary_index_builder_.PrepareIndexEntry(last_key_in_current_block,
+                                             first_key_in_next_block, out);
+  }
+
+  void FinishIndexEntry(const BlockHandle& block_handle,
+                        PreparedIndexEntry* entry,
+                        bool skip_delta_encoding) override {
+    primary_index_builder_.FinishIndexEntry(block_handle, entry,
+                                            skip_delta_encoding);
+  }
+
+  void OnKeyAdded(const Slice& key,
+                  const std::optional<Slice>& /*value*/) override {
     auto key_prefix = hash_key_extractor_->Transform(key);
     bool is_first_entry = pending_block_num_ == 0;
 
@@ -285,8 +564,8 @@ class HashIndexBuilder : public IndexBuilder {
       }
 
       // need a hard copy otherwise the underlying data changes all the time.
-      // TODO(kailiu) ToString() is expensive. We may speed up can avoid data
-      // copy.
+      // TODO(kailiu) std::to_string() is expensive. We may speed up can avoid
+      // data copy.
       pending_entry_prefix_ = key_prefix.ToString();
       pending_block_num_ = 1;
       pending_entry_index_ = static_cast<uint32_t>(current_restart_index_);
@@ -301,28 +580,29 @@ class HashIndexBuilder : public IndexBuilder {
     }
   }
 
-  virtual Status Finish(
-      IndexBlocks* index_blocks,
-      const BlockHandle& last_partition_block_handle) override {
+  Status Finish(IndexBlocks* index_blocks,
+                const BlockHandle& last_partition_block_handle) override {
     if (pending_block_num_ != 0) {
       FlushPendingPrefix();
     }
     Status s = primary_index_builder_.Finish(index_blocks,
                                              last_partition_block_handle);
     index_blocks->meta_blocks.insert(
-        {kHashIndexPrefixesBlock.c_str(), prefix_block_});
-    index_blocks->meta_blocks.insert(
-        {kHashIndexPrefixesMetadataBlock.c_str(), prefix_meta_block_});
+        {kHashIndexPrefixesBlock.c_str(), {BlockType::kIndex, prefix_block_}});
+    index_blocks->meta_blocks.insert({kHashIndexPrefixesMetadataBlock.c_str(),
+                                      {BlockType::kIndex, prefix_meta_block_}});
     return s;
   }
 
-  virtual size_t IndexSize() const override {
+  size_t IndexSize() const override {
     return primary_index_builder_.IndexSize() + prefix_block_.size() +
            prefix_meta_block_.size();
   }
 
-  virtual bool seperator_is_key_plus_seq() override {
-    return primary_index_builder_.seperator_is_key_plus_seq();
+  uint64_t CurrentIndexSizeEstimate() const override { return 0; }
+
+  bool separator_is_key_plus_seq() override {
+    return primary_index_builder_.separator_is_key_plus_seq();
   }
 
  private:
@@ -366,27 +646,42 @@ class HashIndexBuilder : public IndexBuilder {
 class PartitionedIndexBuilder : public IndexBuilder {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
-      const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
-      const bool use_value_delta_encoding,
-      const BlockBasedTableOptions& table_opt);
+      const InternalKeyComparator* comparator, bool use_value_delta_encoding,
+      const BlockBasedTableOptions& table_opt, size_t ts_sz,
+      bool persist_user_defined_timestamps);
 
-  explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
-                                   const BlockBasedTableOptions& table_opt,
-                                   const bool use_value_delta_encoding);
+  PartitionedIndexBuilder(const InternalKeyComparator* comparator,
+                          const BlockBasedTableOptions& table_opt,
+                          bool use_value_delta_encoding, size_t ts_sz,
+                          bool persist_user_defined_timestamps);
 
-  virtual ~PartitionedIndexBuilder();
+  Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                      const Slice* first_key_in_next_block,
+                      const BlockHandle& block_handle,
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override;
 
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) override;
+  std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override;
+  void PrepareIndexEntry(const Slice& last_key_in_current_block,
+                         const Slice* first_key_in_next_block,
+                         PreparedIndexEntry* out) override;
+  void FinishIndexEntry(const BlockHandle& block_handle,
+                        PreparedIndexEntry* entry,
+                        bool skip_delta_encoding) override;
+  void MaybeFlush(const Slice& index_key, const BlockHandle& index_value);
 
-  virtual Status Finish(
-      IndexBlocks* index_blocks,
-      const BlockHandle& last_partition_block_handle) override;
+  Status Finish(IndexBlocks* index_blocks,
+                const BlockHandle& last_partition_block_handle) override;
 
-  virtual size_t IndexSize() const override { return index_size_; }
+  size_t IndexSize() const override { return index_size_; }
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
+
+  // Returns a cached estimate of the current index size. This
+  // estimate is updated when data blocks are added.
+  uint64_t CurrentIndexSizeEstimate() const override {
+    return estimated_index_size_.LoadRelaxed();
+  }
 
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
@@ -397,17 +692,24 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return false;
   }
 
-  std::string& GetPartitionKey() { return sub_index_last_key_; }
+  const std::string& GetPartitionKey() {
+    static const std::string kEmptyKey;
+    return entries_.empty() ? kEmptyKey : entries_.back().key;
+  }
 
   // Called when an external entity (such as filter partition builder) request
   // cutting the next partition
   void RequestPartitionCut();
 
-  virtual bool seperator_is_key_plus_seq() override {
-    return seperator_is_key_plus_seq_;
+  // This function must be thread safe because multiple worker threads might
+  // update the index builder state during parallel compression.
+  bool separator_is_key_plus_seq() override {
+    return must_use_separator_with_seq_.LoadRelaxed();
   }
 
-  bool get_use_value_delta_encoding() { return use_value_delta_encoding_; }
+  bool get_use_value_delta_encoding() const {
+    return use_value_delta_encoding_;
+  }
 
  private:
   // Set after ::Finish is called
@@ -416,23 +718,27 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t partition_cnt_ = 0;
 
   void MakeNewSubIndexBuilder();
+  void UpdateIndexSizeEstimate() override;
 
   struct Entry {
     std::string key;
     std::unique_ptr<ShortenedIndexBuilder> value;
   };
-  std::list<Entry> entries_;  // list of partitioned indexes and their keys
+  // List of partitioned indexes and their keys. Note that when
+  // sub_index_builder_ is not null (during construction), there
+  // will be a placeholder entry at the back of this list tracking
+  // the possible key for that next entry.
+  std::list<Entry> entries_;
   BlockBuilder index_block_builder_;              // top-level index builder
   BlockBuilder index_block_builder_without_seq_;  // same for user keys
-  // the active partition index builder
+  // the active partition index builder (owned by an Entry in entries_)
   ShortenedIndexBuilder* sub_index_builder_;
   // the last key in the active partition index builder
-  std::string sub_index_last_key_;
-  std::unique_ptr<FlushBlockPolicy> flush_policy_;
+  std::unique_ptr<RetargetableFlushBlockPolicy> flush_policy_;
   // true if Finish is called once but not complete yet.
-  bool finishing_indexes = false;
+  bool finishing_indexes_ = false;
   const BlockBasedTableOptions& table_opt_;
-  bool seperator_is_key_plus_seq_;
+  RelaxedAtomic<bool> must_use_separator_with_seq_;
   bool use_value_delta_encoding_;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition
@@ -440,5 +746,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
+  // Cached estimate of current index size, updated when data blocks are added
+  RelaxedAtomic<uint64_t> estimated_index_size_{0};
+  // Running estimate of completed partitions total size
+  RelaxedAtomic<uint64_t> estimated_completed_partitions_size_{0};
 };
 }  // namespace ROCKSDB_NAMESPACE

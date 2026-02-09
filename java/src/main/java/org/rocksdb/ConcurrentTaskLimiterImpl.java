@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
@@ -38,5 +44,9 @@ public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
   private static native void resetMaxOutstandingTask(final long handle);
   private static native int outstandingTask(final long handle);
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

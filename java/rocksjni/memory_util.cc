@@ -3,18 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/utilities/memory_util.h"
+
 #include <jni.h>
+
 #include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "include/org_rocksdb_MemoryUtil.h"
-
 #include "rocksjni/portal.h"
-
-#include "rocksdb/utilities/memory_util.h"
-
 
 /*
  * Class:     org_rocksdb_MemoryUtil
@@ -34,8 +33,9 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
 
   std::unordered_set<const ROCKSDB_NAMESPACE::Cache *> cache_set;
   jsize cache_handle_count = env->GetArrayLength(jcache_handles);
-  if(cache_handle_count > 0) {
-    jlong *ptr_jcache_handles = env->GetLongArrayElements(jcache_handles, nullptr);
+  if (cache_handle_count > 0) {
+    jlong *ptr_jcache_handles =
+        env->GetLongArrayElements(jcache_handles, nullptr);
     if (ptr_jcache_handles == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
@@ -46,7 +46,8 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
               ptr_jcache_handles[i]);
       cache_set.insert(cache_ptr->get());
     }
-    env->ReleaseLongArrayElements(jcache_handles, ptr_jcache_handles, JNI_ABORT);
+    env->ReleaseLongArrayElements(jcache_handles, ptr_jcache_handles,
+                                  JNI_ABORT);
   }
 
   std::map<ROCKSDB_NAMESPACE::MemoryUtil::UsageType, uint64_t> usage_by_type;
@@ -85,8 +86,7 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
         }
         // Construct and return pointer to pair of jobjects
         return std::unique_ptr<std::pair<jobject, jobject>>(
-            new std::pair<jobject, jobject>(jusage_type,
-                                            jusage_value));
+            new std::pair<jobject, jobject>(jusage_type, jusage_value));
       };
 
   if (!ROCKSDB_NAMESPACE::HashMapJni::putAll(env, jusage_by_type,

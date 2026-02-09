@@ -5,8 +5,7 @@
 
 #include "test_utils.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 const char kData[] = {'d', 'a', 't', 'a'};
 const char kExpiringData[] = {'e', 'd', 'a', 't', 'a'};
 const int32_t kTtl = 86400;
@@ -14,18 +13,17 @@ const int8_t kColumn = 0;
 const int8_t kTombstone = 1;
 const int8_t kExpiringColumn = 2;
 
-std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask,
-                                             int8_t index,
+std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask, int8_t index,
                                              int64_t timestamp) {
   if ((mask & ColumnTypeMask::DELETION_MASK) != 0) {
     return std::shared_ptr<Tombstone>(
         new Tombstone(mask, index, ToSeconds(timestamp), timestamp));
   } else if ((mask & ColumnTypeMask::EXPIRATION_MASK) != 0) {
     return std::shared_ptr<ExpiringColumn>(new ExpiringColumn(
-      mask, index, timestamp, sizeof(kExpiringData), kExpiringData, kTtl));
+        mask, index, timestamp, sizeof(kExpiringData), kExpiringData, kTtl));
   } else {
     return std::shared_ptr<Column>(
-      new Column(mask, index, timestamp, sizeof(kData), kData));
+        new Column(mask, index, timestamp, sizeof(kData), kData));
   }
 }
 
@@ -39,10 +37,10 @@ RowValue CreateTestRowValue(
     std::vector<std::tuple<int8_t, int8_t, int64_t>> column_specs) {
   std::vector<std::shared_ptr<ColumnBase>> columns;
   int64_t last_modified_time = 0;
-  for (auto spec: column_specs) {
+  for (auto spec : column_specs) {
     auto c = CreateTestColumn(std::get<0>(spec), std::get<1>(spec),
                               std::get<2>(spec));
-    last_modified_time = std::max(last_modified_time, c -> Timestamp());
+    last_modified_time = std::max(last_modified_time, c->Timestamp());
     columns.push_back(std::move(c));
   }
   return RowValue(std::move(columns), last_modified_time);
@@ -61,12 +59,9 @@ void VerifyRowValueColumns(
   EXPECT_EQ(expected_index, columns[index_of_vector]->Index());
 }
 
-int64_t ToMicroSeconds(int64_t seconds) {
-  return seconds * (int64_t)1000000;
-}
+int64_t ToMicroSeconds(int64_t seconds) { return seconds * (int64_t)1000000; }
 
 int32_t ToSeconds(int64_t microseconds) {
   return (int32_t)(microseconds / (int64_t)1000000);
 }
-}
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra

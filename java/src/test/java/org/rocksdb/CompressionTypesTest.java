@@ -5,16 +5,21 @@
 
 package org.rocksdb;
 
-import org.junit.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.Test;
 
 public class CompressionTypesTest {
   @Test
   public void getCompressionType() {
     for (final CompressionType compressionType : CompressionType.values()) {
-      String libraryName = compressionType.getLibraryName();
-      compressionType.equals(CompressionType.getCompressionType(
-          libraryName));
+      final String libraryName = compressionType.getLibraryName();
+      if (compressionType == CompressionType.DISABLE_COMPRESSION_OPTION) {
+        assertThat(CompressionType.getCompressionType(libraryName))
+            .isEqualTo(CompressionType.NO_COMPRESSION);
+      } else {
+        assertThat(CompressionType.getCompressionType(libraryName)).isEqualTo(compressionType);
+      }
     }
   }
 }

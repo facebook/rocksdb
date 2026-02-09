@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
@@ -68,8 +67,7 @@ Status BlockCacheFile::Delete(uint64_t* size) {
 // <-- 4 --><-- 4  --><-- 4   --><-- 4     --><-- key size  --><-- v-size -->
 //
 struct CacheRecordHeader {
-  CacheRecordHeader()
-    : magic_(0), crc_(0), key_size_(0), val_size_(0) {}
+  CacheRecordHeader() : magic_(0), crc_(0), key_size_(0), val_size_(0) {}
   CacheRecordHeader(const uint32_t magic, const uint32_t key_size,
                     const uint32_t val_size)
       : magic_(magic), crc_(0), key_size_(key_size), val_size_(val_size) {}
@@ -81,7 +79,7 @@ struct CacheRecordHeader {
 };
 
 struct CacheRecord {
-  CacheRecord() {}
+  CacheRecord() = default;
   CacheRecord(const Slice& key, const Slice& val)
       : hdr_(MAGIC, static_cast<uint32_t>(key.size()),
              static_cast<uint32_t>(val.size())),
@@ -256,7 +254,7 @@ bool RandomAccessCacheFile::ParseRec(const LBA& lba, Slice* key, Slice* val,
 
   CacheRecord rec;
   if (!rec.Deserialize(data)) {
-    assert(!"Error deserializing data");
+    assert(false && "Error deserializing data");
     Error(log_, "Error de-serializing record from file %s off %d",
           Path().c_str(), lba.off_);
     return false;
@@ -341,7 +339,7 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
   CacheRecord rec(key, val);
   if (!rec.Serialize(&bufs_, &buf_woff_)) {
     // unexpected error: unable to serialize the data
-    assert(!"Error serializing record");
+    assert(false && "Error serializing record");
     return false;
   }
 
@@ -607,5 +605,3 @@ void ThreadedWriter::DispatchIO(const IO& io) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif

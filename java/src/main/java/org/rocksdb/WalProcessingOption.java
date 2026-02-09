@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public enum WalProcessingOption {
-  /**
+  /*
    * Continue processing as usual.
    */
   CONTINUE_PROCESSING((byte)0x0),

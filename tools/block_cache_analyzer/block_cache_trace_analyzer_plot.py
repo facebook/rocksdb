@@ -1,4 +1,11 @@
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 #!/usr/bin/env python3
+
 import csv
 import math
 import os
@@ -6,6 +13,7 @@ import random
 import sys
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.backends.backend_pdf
 import matplotlib.pyplot as plt
@@ -35,9 +43,9 @@ random.shuffle(colors)
 def num_to_gb(n):
     one_gb = 1024 * 1024 * 1024
     if float(n) % one_gb == 0:
-        return "{}".format(n / one_gb)
+        return f"{n / one_gb}"
     # Keep two decimal points.
-    return "{0:.2f}".format(float(n) / one_gb)
+    return f"{float(n) / one_gb:.2f}"
 
 
 def plot_miss_stats_graphs(
@@ -49,9 +57,9 @@ def plot_miss_stats_graphs(
             continue
         if not file.endswith(file_suffix):
             continue
-        print("Processing file {}/{}".format(csv_result_dir, file))
+        print(f"Processing file {csv_result_dir}/{file}")
         mrc_file_path = csv_result_dir + "/" + file
-        with open(mrc_file_path, "r") as csvfile:
+        with open(mrc_file_path) as csvfile:
             rows = csv.reader(csvfile, delimiter=",")
             for row in rows:
                 cache_name = row[0]
@@ -59,7 +67,7 @@ def plot_miss_stats_graphs(
                 ghost_capacity = int(row[2])
                 capacity = int(row[3])
                 miss_ratio = float(row[4])
-                config = "{}-{}-{}".format(cache_name, num_shard_bits, ghost_capacity)
+                config = f"{cache_name}-{num_shard_bits}-{ghost_capacity}"
                 if config not in miss_ratios:
                     miss_ratios[config] = {}
                     miss_ratios[config]["x"] = []
@@ -75,10 +83,10 @@ def plot_miss_stats_graphs(
             plt.ylabel(ylabel)
             plt.xscale("log", basex=2)
             plt.ylim(ymin=0)
-            plt.title("{}".format(file))
+            plt.title(f"{file}")
             plt.legend()
             fig.savefig(
-                output_result_dir + "/{}.pdf".format(pdf_file_name), bbox_inches="tight"
+                output_result_dir + f"/{pdf_file_name}.pdf", bbox_inches="tight"
             )
 
 
@@ -91,9 +99,9 @@ def plot_miss_stats_diff_lru_graphs(
             continue
         if not file.endswith(file_suffix):
             continue
-        print("Processing file {}/{}".format(csv_result_dir, file))
+        print(f"Processing file {csv_result_dir}/{file}")
         mrc_file_path = csv_result_dir + "/" + file
-        with open(mrc_file_path, "r") as csvfile:
+        with open(mrc_file_path) as csvfile:
             rows = csv.reader(csvfile, delimiter=",")
             for row in rows:
                 cache_name = row[0]
@@ -101,7 +109,7 @@ def plot_miss_stats_diff_lru_graphs(
                 ghost_capacity = int(row[2])
                 capacity = int(row[3])
                 miss_ratio = float(row[4])
-                config = "{}-{}-{}".format(cache_name, num_shard_bits, ghost_capacity)
+                config = f"{cache_name}-{num_shard_bits}-{ghost_capacity}"
                 if config not in miss_ratios:
                     miss_ratios[config] = {}
                     miss_ratios[config]["x"] = []
@@ -124,10 +132,10 @@ def plot_miss_stats_diff_lru_graphs(
     plt.xlabel("Cache capacity")
     plt.ylabel(ylabel)
     plt.xscale("log", basex=2)
-    plt.title("{}".format(file))
+    plt.title(f"{file}")
     plt.legend()
     fig.savefig(
-        output_result_dir + "/{}.pdf".format(pdf_file_name), bbox_inches="tight"
+        output_result_dir + f"/{pdf_file_name}.pdf", bbox_inches="tight"
     )
 
 
@@ -218,8 +226,8 @@ def plot_line_charts(
             continue
         if not file.startswith(filename_prefix):
             continue
-        print("Processing file {}/{}".format(csv_result_dir, file))
-        with open(csv_result_dir + "/" + file, "r") as csvfile:
+        print(f"Processing file {csv_result_dir}/{file}")
+        with open(csv_result_dir + "/" + file) as csvfile:
             x, labels, label_stats = read_data_for_plot(csvfile, vertical)
             if len(x) == 0 or len(labels) == 0:
                 continue
@@ -239,11 +247,11 @@ def plot_line_charts(
 
             # Translate time unit into x labels.
             if "_60" in file:
-                plt.xlabel("{} (Minute)".format(xlabel))
+                plt.xlabel(f"{xlabel} (Minute)")
             if "_3600" in file:
-                plt.xlabel("{} (Hour)".format(xlabel))
+                plt.xlabel(f"{xlabel} (Hour)")
             plt.ylabel(ylabel)
-            plt.title("{} {}".format(title, file))
+            plt.title(f"{title} {file}")
             if legend:
                 plt.legend()
             pdf.savefig(fig)
@@ -263,13 +271,13 @@ def plot_stacked_bar_charts(
 ):
     global color_index, bar_color_maps, colors
     pdf = matplotlib.backends.backend_pdf.PdfPages(
-        "{}/{}".format(output_result_dir, pdf_name)
+        f"{output_result_dir}/{pdf_name}"
     )
     for file in os.listdir(csv_result_dir):
         if not file.endswith(filename_suffix):
             continue
-        with open(csv_result_dir + "/" + file, "r") as csvfile:
-            print("Processing file {}/{}".format(csv_result_dir, file))
+        with open(csv_result_dir + "/" + file) as csvfile:
+            print(f"Processing file {csv_result_dir}/{file}")
             x, labels, label_stats = read_data_for_plot(csvfile, vertical)
             if len(x) == 0 or len(label_stats) == 0:
                 continue
@@ -302,25 +310,25 @@ def plot_stacked_bar_charts(
                 ind, [x_prefix + x[i] for i in range(len(x))], rotation=20, fontsize=8
             )
             plt.legend(bars, labels)
-            plt.title("{} filename:{}".format(title, file))
+            plt.title(f"{title} filename:{file}")
             pdf.savefig(fig)
     pdf.close()
 
 
 def plot_heatmap(csv_result_dir, output_result_dir, filename_suffix, pdf_name, title):
     pdf = matplotlib.backends.backend_pdf.PdfPages(
-        "{}/{}".format(output_result_dir, pdf_name)
+        f"{output_result_dir}/{pdf_name}"
     )
     for file in os.listdir(csv_result_dir):
         if not file.endswith(filename_suffix):
             continue
-        csv_file_name = "{}/{}".format(csv_result_dir, file)
-        print("Processing file {}/{}".format(csv_result_dir, file))
+        csv_file_name = f"{csv_result_dir}/{file}"
+        print(f"Processing file {csv_result_dir}/{file}")
         corr_table = pd.read_csv(csv_file_name)
         corr_table = corr_table.pivot("label", "corr", "value")
         fig = plt.figure()
         sns.heatmap(corr_table, annot=True, linewidths=0.5, fmt=".2")
-        plt.title("{} filename:{}".format(title, file))
+        plt.title(f"{title} filename:{file}")
         pdf.savefig(fig)
     pdf.close()
 
@@ -352,16 +360,16 @@ def plot_correlation(csv_result_dir, output_result_dir):
     for file in os.listdir(csv_result_dir):
         if not file.endswith("correlation_input"):
             continue
-        csv_file_name = "{}/{}".format(csv_result_dir, file)
-        print("Processing file {}/{}".format(csv_result_dir, file))
+        csv_file_name = f"{csv_result_dir}/{file}"
+        print(f"Processing file {csv_result_dir}/{file}")
         corr_table = pd.read_csv(csv_file_name)
         label_str = file.split("_")[0]
         label = file[len(label_str) + 1 :]
         label = label[: len(label) - len("_correlation_input")]
 
-        output_file = "{}/{}_correlation_output".format(csv_result_dir, label_str)
+        output_file = f"{csv_result_dir}/{label_str}_correlation_output"
         if output_file not in label_str_file:
-            f = open("{}/{}_correlation_output".format(csv_result_dir, label_str), "w+")
+            f = open(f"{csv_result_dir}/{label_str}_correlation_output", "w+")
             label_str_file[output_file] = f
             f.write("label,corr,value\n")
         f = label_str_file[output_file]
@@ -658,9 +666,9 @@ if __name__ == "__main__":
         csv_abs_dir = csv_result_dir + "/" + csv_relative_dir
         result_dir = output_result_dir + "/" + csv_relative_dir
         if not os.path.isdir(csv_abs_dir):
-            print("{} is not a directory".format(csv_abs_dir))
+            print(f"{csv_abs_dir} is not a directory")
             continue
-        print("Processing experiment dir: {}".format(csv_relative_dir))
+        print(f"Processing experiment dir: {csv_relative_dir}")
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
         plot_access_count_summary(csv_abs_dir, result_dir)
@@ -690,32 +698,32 @@ if __name__ == "__main__":
             plot_miss_stats_graphs(
                 csv_abs_dir,
                 result_dir,
-                file_prefix="ml_{}_".format(time_unit),
+                file_prefix=f"ml_{time_unit}_",
                 file_suffix="p95mb",
-                ylabel="p95 number of byte miss per {} seconds".format(time_unit),
-                pdf_file_name="p95mb_per{}_seconds".format(time_unit),
+                ylabel=f"p95 number of byte miss per {time_unit} seconds",
+                pdf_file_name=f"p95mb_per{time_unit}_seconds",
             )
             plot_miss_stats_graphs(
                 csv_abs_dir,
                 result_dir,
-                file_prefix="ml_{}_".format(time_unit),
+                file_prefix=f"ml_{time_unit}_",
                 file_suffix="avgmb",
-                ylabel="Average number of byte miss per {} seconds".format(time_unit),
-                pdf_file_name="avgmb_per{}_seconds".format(time_unit),
+                ylabel=f"Average number of byte miss per {time_unit} seconds",
+                pdf_file_name=f"avgmb_per{time_unit}_seconds",
             )
             plot_miss_stats_diff_lru_graphs(
                 csv_abs_dir,
                 result_dir,
-                file_prefix="ml_{}_".format(time_unit),
+                file_prefix=f"ml_{time_unit}_",
                 file_suffix="p95mb",
-                ylabel="p95 number of byte miss per {} seconds".format(time_unit),
-                pdf_file_name="p95mb_per{}_seconds_diff_lru".format(time_unit),
+                ylabel=f"p95 number of byte miss per {time_unit} seconds",
+                pdf_file_name=f"p95mb_per{time_unit}_seconds_diff_lru",
             )
             plot_miss_stats_diff_lru_graphs(
                 csv_abs_dir,
                 result_dir,
-                file_prefix="ml_{}_".format(time_unit),
+                file_prefix=f"ml_{time_unit}_",
                 file_suffix="avgmb",
-                ylabel="Average number of byte miss per {} seconds".format(time_unit),
-                pdf_file_name="avgmb_per{}_seconds_diff_lru".format(time_unit),
+                ylabel=f"Average number of byte miss per {time_unit} seconds",
+                pdf_file_name=f"avgmb_per{time_unit}_seconds_diff_lru",
             )

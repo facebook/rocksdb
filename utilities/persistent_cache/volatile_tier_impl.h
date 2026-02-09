@@ -5,8 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <atomic>
 #include <limits>
 #include <sstream>
@@ -74,9 +72,8 @@ class VolatileCacheTier : public PersistentCacheTier {
   // Cache data abstraction
   //
   struct CacheData : LRUElement<CacheData> {
-    explicit CacheData(CacheData&& rhs) ROCKSDB_NOEXCEPT
-        : key(std::move(rhs.key)),
-          value(std::move(rhs.value)) {}
+    explicit CacheData(CacheData&& rhs) noexcept
+        : key(std::move(rhs.key)), value(std::move(rhs.value)) {}
 
     explicit CacheData(const std::string& _key, const std::string& _value = "")
         : key(_key), value(_value) {}
@@ -124,8 +121,8 @@ class VolatileCacheTier : public PersistentCacheTier {
     }
   };
 
-  typedef EvictableHashTable<CacheData, CacheDataHash, CacheDataEqual>
-      IndexType;
+  using IndexType =
+      EvictableHashTable<CacheData, CacheDataHash, CacheDataEqual>;
 
   // Evict LRU tail
   bool Evict();
@@ -138,5 +135,3 @@ class VolatileCacheTier : public PersistentCacheTier {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif

@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <atomic>
 #include <condition_variable>
 #include <limits>
@@ -28,7 +26,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/wal_filter.h"
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
@@ -77,9 +74,6 @@ class BlobDBImpl : public BlobDB {
   friend class BlobIndexCompactionFilterGC;
 
  public:
-  // deletions check period
-  static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
-
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
 
@@ -95,27 +89,24 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule expired files eviction.
   static constexpr uint32_t kEvictExpiredFilesPeriodMillisecs = 10 * 1000;
 
-  // when should oldest file be evicted:
-  // on reaching 90% of blob_dir_size
-  static constexpr double kEvictOldestFileAtSize = 0.9;
-
   using BlobDB::Put;
   Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) override;
 
   using BlobDB::Get;
-  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
-  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             uint64_t* expiration) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, uint64_t* expiration) override;
 
   using BlobDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& read_options) override;
+  Iterator* NewIterator(const ReadOptions& read_options) override;
 
   using BlobDB::NewIterators;
-  virtual Status NewIterators(
+  Status NewIterators(
       const ReadOptions& /*read_options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/,
       std::vector<Iterator*>* /*iterators*/) override {
@@ -123,22 +114,19 @@ class BlobDBImpl : public BlobDB {
   }
 
   using BlobDB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& read_options,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+  void MultiGet(const ReadOptions& _read_options, size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input) override;
 
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  using BlobDB::Write;
+  Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
-  virtual Status Close() override;
+  Status Close() override;
 
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
-
-  using BlobDB::PutUntil;
-  Status PutUntil(const WriteOptions& options, const Slice& key,
-                  const Slice& value, uint64_t expiration) override;
 
   using BlobDB::CompactFiles;
   Status CompactFiles(
@@ -148,26 +136,24 @@ class BlobDBImpl : public BlobDB {
       std::vector<std::string>* const output_file_names = nullptr,
       CompactionJobInfo* compaction_job_info = nullptr) override;
 
-  BlobDBOptions GetBlobDBOptions() const override;
-
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
              const DBOptions& db_options,
              const ColumnFamilyOptions& cf_options);
 
-  virtual Status DisableFileDeletions() override;
+  Status DisableFileDeletions() override;
 
-  virtual Status EnableFileDeletions(bool force) override;
+  Status EnableFileDeletions() override;
 
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size,
-                              bool flush_memtable = true) override;
-  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
+  Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
+                      bool flush_memtable = true) override;
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
+  Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override;
 
   ~BlobDBImpl();
 
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
-
-  Status SyncBlobFiles() override;
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
@@ -196,9 +182,9 @@ class BlobDBImpl : public BlobDB {
                              SequenceNumber obsolete_seq = 0,
                              bool update_size = true);
 
-  void TEST_EvictExpiredFiles();
-
   void TEST_DeleteObsoleteFiles();
+
+  void TEST_EvictExpiredFiles();
 
   uint64_t TEST_live_sst_size();
 
@@ -220,6 +206,8 @@ class BlobDBImpl : public BlobDB {
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
+  Status SyncBlobFiles(const WriteOptions& write_options);
+
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, uint64_t* expiration = nullptr);
@@ -229,15 +217,7 @@ class BlobDBImpl : public BlobDB {
 
   Status GetRawBlobFromFile(const Slice& key, uint64_t file_number,
                             uint64_t offset, uint64_t size,
-                            PinnableSlice* value,
-                            CompressionType* compression_type);
-
-  Slice GetCompressedSlice(const Slice& raw,
-                           std::string* compression_output) const;
-
-  Status DecompressSlice(const Slice& compressed_value,
-                         CompressionType compression_type,
-                         PinnableSlice* value_output) const;
+                            PinnableSlice* value);
 
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
@@ -245,11 +225,13 @@ class BlobDBImpl : public BlobDB {
   // to a single thread (like in the case of new files written during
   // compaction/GC), the locks on write_mutex_ and the blob file's mutex_ can be
   // avoided.
-  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
+  Status CloseBlobFile(const WriteOptions& write_options,
+                       std::shared_ptr<BlobFile> bfile);
 
   // Close a file if its size exceeds blob_file_size
   // REQUIRES: lock held on write_mutex_.
-  Status CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile);
+  Status CloseBlobFileIfNeeded(const WriteOptions& write_options,
+                               std::shared_ptr<BlobFile>& bfile);
 
   // Mark file as obsolete and move the file to obsolete file list.
   //
@@ -261,13 +243,15 @@ class BlobDBImpl : public BlobDB {
                       const Slice& value, uint64_t expiration,
                       WriteBatch* batch);
 
-  Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
+  Status AppendBlob(const WriteOptions& write_options,
+                    const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
                     const Slice& value, uint64_t expiration,
                     std::string* index_entry);
 
   // Create a new blob file and associated writer.
-  Status CreateBlobFileAndWriter(bool has_ttl,
+  Status CreateBlobFileAndWriter(const WriteOptions& write_options,
+                                 bool has_ttl,
                                  const ExpirationRange& expiration_range,
                                  const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
@@ -275,11 +259,13 @@ class BlobDBImpl : public BlobDB {
 
   // Get the open non-TTL blob log file, or create a new one if no such file
   // exists.
-  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
+  Status SelectBlobFile(const WriteOptions& write_options,
+                        std::shared_ptr<BlobFile>* blob_file);
 
   // Get the open TTL blob log file for a certain expiration, or create a new
   // one if no such file exists.
-  Status SelectBlobFileTTL(uint64_t expiration,
+  Status SelectBlobFileTTL(const WriteOptions& write_options,
+                           uint64_t expiration,
                            std::shared_ptr<BlobFile>* blob_file);
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
@@ -291,16 +277,13 @@ class BlobDBImpl : public BlobDB {
   // or GC). Check whether any snapshots exist which refer to the same.
   std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
 
-  // periodically check if open blob files and their TTL's has expired
-  // if expired, close the sequential writer and make the file immutable
-  std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
-
   // if the number of open files, approaches ULIMIT's this
   // task will close random readers, which are kept around for
   // efficiency
   std::pair<bool, int64_t> ReclaimOpenFiles(bool aborted);
 
-  std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
+  // Evict expired blob files from the TTL queue.
+  std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
 
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
@@ -365,6 +348,10 @@ class BlobDBImpl : public BlobDB {
 
   void UpdateLiveSSTSize();
 
+  // Check if writing blob_size bytes would exceed max_db_size limit.
+  // Returns Status::NoSpace() if limit would be exceeded.
+  Status CheckDbSizeLimit(uint64_t blob_size);
+
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
                            std::shared_ptr<RandomAccessFileReader>* reader);
 
@@ -384,18 +371,10 @@ class BlobDBImpl : public BlobDB {
   // checks if there is no snapshot which is referencing the
   // blobs
   bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
-  bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
-
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   uint64_t EpochNow() { return clock_->NowMicros() / 1000000; }
 
-  // Check if inserting a new blob will make DB grow out of space.
-  // If is_fifo = true, FIFO eviction will be triggered to make room for the
-  // new blob. If force_evict = true, FIFO eviction will evict blob files
-  // even eviction will not make enough room for the new blob.
-  Status CheckSizeAndEvictBlobFiles(uint64_t blob_size,
-                                    bool force_evict = false);
+  Status CloseImpl();
 
   // name of the database directory
   std::string dbname_;
@@ -419,7 +398,7 @@ class BlobDBImpl : public BlobDB {
   std::string blob_dir_;
 
   // pointer to directory
-  std::unique_ptr<Directory> dir_ent_;
+  std::unique_ptr<FSDirectory> dir_ent_;
 
   // Read Write Mutex, which protects all the data structures
   // HEAVILY TRAFFICKED
@@ -463,16 +442,6 @@ class BlobDBImpl : public BlobDB {
   // total size of SST files.
   std::atomic<uint64_t> live_sst_size_;
 
-  // Latest FIFO eviction timestamp
-  //
-  // REQUIRES: access with metex_ lock held.
-  uint64_t fifo_eviction_seq_;
-
-  // The expiration up to which latest FIFO eviction evicts.
-  //
-  // REQUIRES: access with metex_ lock held.
-  uint64_t evict_expiration_up_to_;
-
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
 
   // DeleteObsoleteFiles, DiableFileDeletions and EnableFileDeletions block
@@ -490,14 +459,11 @@ class BlobDBImpl : public BlobDB {
 
   // Each call of DisableFileDeletions will increase disable_file_deletion_
   // by 1. EnableFileDeletions will either decrease the count by 1 or reset
-  // it to zeor, depending on the force flag.
+  // it to zero, depending on the force flag.
   //
   // REQUIRES: access with delete_file_mutex_ held.
   int disable_file_deletions_ = 0;
-
-  uint32_t debug_level_;
 };
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -120,18 +120,18 @@ class CacheEntry:
 
     def cost_class(self, cost_class_label):
         if cost_class_label == "table_bt":
-            return "{}-{}".format(self.table_id, self.block_type)
+            return f"{self.table_id}-{self.block_type}"
         elif cost_class_label == "table":
-            return "{}".format(self.table_id)
+            return f"{self.table_id}"
         elif cost_class_label == "bt":
-            return "{}".format(self.block_type)
+            return f"{self.block_type}"
         elif cost_class_label == "cf":
-            return "{}".format(self.cf_id)
+            return f"{self.cf_id}"
         elif cost_class_label == "cf_bt":
-            return "{}-{}".format(self.cf_id, self.block_type)
+            return f"{self.cf_id}-{self.block_type}"
         elif cost_class_label == "table_level_bt":
-            return "{}-{}-{}".format(self.table_id, self.level, self.block_type)
-        assert False, "Unknown cost class label {}".format(cost_class_label)
+            return f"{self.table_id}-{self.level}-{self.block_type}"
+        assert False, f"Unknown cost class label {cost_class_label}"
         return None
 
 
@@ -144,7 +144,7 @@ class HashEntry:
         self.value = value
 
     def __repr__(self):
-        return "k={},h={},v=[{}]".format(self.key, self.hash, self.value)
+        return f"k={self.key},h={self.hash},v=[{self.value}]"
 
 
 class HashTable:
@@ -190,7 +190,7 @@ class HashTable:
             for j in range(len(self.table[i])):
                 if self.table[i][j] is not None:
                     all_entries.append(self.table[i][j])
-        return "{}".format(all_entries)
+        return f"{all_entries}"
 
     def values(self):
         all_values = []
@@ -366,15 +366,15 @@ class MissRatioStats:
             with open(header_file_path, "w+") as header_file:
                 header = "time"
                 for trace_time in range(start, end):
-                    header += ",{}".format(trace_time)
+                    header += f",{trace_time}"
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-miss-timeline-{}-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size, target_cf_name
         )
         with open(file_path, "w+") as file:
-            row = "{}".format(cache_type)
+            row = f"{cache_type}"
             for trace_time in range(start, end):
-                row += ",{}".format(self.time_misses.get(trace_time, 0))
+                row += f",{self.time_misses.get(trace_time, 0)}"
             file.write(row + "\n")
 
     def write_miss_ratio_timeline(
@@ -389,13 +389,13 @@ class MissRatioStats:
             with open(header_file_path, "w+") as header_file:
                 header = "time"
                 for trace_time in range(start, end):
-                    header += ",{}".format(trace_time)
+                    header += f",{trace_time}"
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-miss-ratio-timeline-{}-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size, target_cf_name
         )
         with open(file_path, "w+") as file:
-            row = "{}".format(cache_type)
+            row = f"{cache_type}"
             for trace_time in range(start, end):
                 naccesses = self.time_accesses.get(trace_time, 0)
                 miss_ratio = 0
@@ -403,7 +403,7 @@ class MissRatioStats:
                     miss_ratio = float(
                         self.time_misses.get(trace_time, 0) * 100.0
                     ) / float(naccesses)
-                row += ",{0:.2f}".format(miss_ratio)
+                row += f",{miss_ratio:.2f}"
             file.write(row + "\n")
 
 
@@ -440,7 +440,7 @@ class PolicyStats:
             with open(header_file_path, "w+") as header_file:
                 header = "time"
                 for trace_time in range(start, end):
-                    header += ",{}".format(trace_time)
+                    header += f",{trace_time}"
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-policy-timeline-{}-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size, target_cf_name
@@ -448,7 +448,7 @@ class PolicyStats:
         with open(file_path, "w+") as file:
             for policy in self.policy_names:
                 policy_name = self.policy_names[policy]
-                row = "{}-{}".format(cache_type, policy_name)
+                row = f"{cache_type}-{policy_name}"
                 for trace_time in range(start, end):
                     row += ",{}".format(
                         self.time_selected_polices.get(trace_time, {}).get(
@@ -469,7 +469,7 @@ class PolicyStats:
             with open(header_file_path, "w+") as header_file:
                 header = "time"
                 for trace_time in range(start, end):
-                    header += ",{}".format(trace_time)
+                    header += f",{trace_time}"
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-policy-ratio-timeline-{}-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size, target_cf_name
@@ -477,7 +477,7 @@ class PolicyStats:
         with open(file_path, "w+") as file:
             for policy in self.policy_names:
                 policy_name = self.policy_names[policy]
-                row = "{}-{}".format(cache_type, policy_name)
+                row = f"{cache_type}-{policy_name}"
                 for trace_time in range(start, end):
                     naccesses = self.time_accesses.get(trace_time, 0)
                     ratio = 0
@@ -488,11 +488,11 @@ class PolicyStats:
                             )
                             * 100.0
                         ) / float(naccesses)
-                    row += ",{0:.2f}".format(ratio)
+                    row += f",{ratio:.2f}"
                 file.write(row + "\n")
 
 
-class Policy(object):
+class Policy:
     """
     A policy maintains a set of evicted keys. It returns a reward of one to
     itself if it has not evicted a missing key. Otherwise, it gives itself 0
@@ -654,7 +654,7 @@ class CostClassPolicy(Policy):
         return "cc"
 
 
-class Cache(object):
+class Cache:
     """
     This is the base class for the implementations of alternative cache
     replacement policies.
@@ -674,10 +674,10 @@ class Cache(object):
         self.retain_get_id_range = 100000
 
     def block_key(self, trace_record):
-        return "b{}".format(trace_record.block_id)
+        return f"b{trace_record.block_id}"
 
     def row_key(self, trace_record):
-        return "g{}-{}".format(trace_record.fd, trace_record.key_id)
+        return f"g{trace_record.fd}-{trace_record.key_id}"
 
     def _lookup(self, trace_record, key, hash):
         """
@@ -893,7 +893,7 @@ class MLCache(Cache):
     """
 
     def __init__(self, cache_size, enable_cache_row_key, policies, cost_class_label):
-        super(MLCache, self).__init__(cache_size, enable_cache_row_key)
+        super().__init__(cache_size, enable_cache_row_key)
         self.table = HashTable()
         self.policy_stats = PolicyStats(kSecondsInMinute, policies)
         self.per_hour_policy_stats = PolicyStats(kSecondsInHour, policies)
@@ -1015,7 +1015,7 @@ class ThompsonSamplingCache(MLCache):
         init_a=1,
         init_b=1,
     ):
-        super(ThompsonSamplingCache, self).__init__(
+        super().__init__(
             cache_size, enable_cache_row_key, policies, cost_class_label
         )
         self._as = {}
@@ -1042,7 +1042,7 @@ class ThompsonSamplingCache(MLCache):
             return "Hybrid ThompsonSampling with cost class {} (ts_hybrid)".format(
                 self.cost_class_label
             )
-        return "ThompsonSampling with cost class {} (ts)".format(self.cost_class_label)
+        return f"ThompsonSampling with cost class {self.cost_class_label} (ts)"
 
 
 class LinUCBCache(MLCache):
@@ -1057,7 +1057,7 @@ class LinUCBCache(MLCache):
     """
 
     def __init__(self, cache_size, enable_cache_row_key, policies, cost_class_label):
-        super(LinUCBCache, self).__init__(
+        super().__init__(
             cache_size, enable_cache_row_key, policies, cost_class_label
         )
         self.nfeatures = 4  # Block type, level, cf.
@@ -1101,7 +1101,7 @@ class LinUCBCache(MLCache):
             return "Hybrid LinUCB with cost class {} (linucb_hybrid)".format(
                 self.cost_class_label
             )
-        return "LinUCB with cost class {} (linucb)".format(self.cost_class_label)
+        return f"LinUCB with cost class {self.cost_class_label} (linucb)"
 
 
 class OPTCacheEntry:
@@ -1198,7 +1198,7 @@ class OPTCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(OPTCache, self).__init__(cache_size, enable_cache_row_key=0)
+        super().__init__(cache_size, enable_cache_row_key=0)
         self.table = PQTable()
 
     def _lookup(self, trace_record, key, hash):
@@ -1271,7 +1271,7 @@ class GDSizeCache(Cache):
     """
 
     def __init__(self, cache_size, enable_cache_row_key):
-        super(GDSizeCache, self).__init__(cache_size, enable_cache_row_key)
+        super().__init__(cache_size, enable_cache_row_key)
         self.table = PQTable()
         self.L = 0.0
 
@@ -1310,7 +1310,7 @@ class GDSizeCache(Cache):
         return True
 
 
-class Deque(object):
+class Deque:
     """A Deque class facilitates the implementation of LRU and ARC."""
 
     def __init__(self):
@@ -1340,7 +1340,7 @@ class Deque(object):
         return reversed(self.od)
 
     def __repr__(self):
-        return "Deque(%r)" % (list(self),)
+        return "Deque({!r})".format(list(self))
 
 
 class ARCCache(Cache):
@@ -1361,7 +1361,7 @@ class ARCCache(Cache):
     """
 
     def __init__(self, cache_size, enable_cache_row_key):
-        super(ARCCache, self).__init__(cache_size, enable_cache_row_key)
+        super().__init__(cache_size, enable_cache_row_key)
         self.table = {}
         self.c = cache_size / 16 * 1024  # Number of elements in the cache.
         self.p = 0  # Target size for the list T1
@@ -1459,7 +1459,7 @@ class LRUCache(Cache):
     """
 
     def __init__(self, cache_size, enable_cache_row_key):
-        super(LRUCache, self).__init__(cache_size, enable_cache_row_key)
+        super().__init__(cache_size, enable_cache_row_key)
         self.table = {}
         self.lru = Deque()
 
@@ -1505,7 +1505,7 @@ class TraceCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(TraceCache, self).__init__(cache_size, enable_cache_row_key=0)
+        super().__init__(cache_size, enable_cache_row_key=0)
 
     def _lookup(self, trace_record, key, hash):
         return trace_record.is_hit
@@ -1629,7 +1629,7 @@ def create_cache(cache_type, cache_size, downsample_size):
     elif cache_type == "gdsize":
         return GDSizeCache(cache_size, enable_cache_row_key)
     else:
-        print("Unknown cache type {}".format(cache_type))
+        print(f"Unknown cache type {cache_type}")
         assert False
     return None
 
@@ -1692,7 +1692,7 @@ def run(
         # can use this information to evict the cached key which next access is
         # the furthest in the future.
         print("Preprocessing block traces.")
-        with open(trace_file_path, "r") as trace_file:
+        with open(trace_file_path) as trace_file:
             for line in trace_file:
                 if (
                     max_accesses_to_process != -1
@@ -1735,9 +1735,9 @@ def run(
                     )
                     time_interval += 1
             print(
-                "Trace contains {0} blocks, {1}({2:.2f}%) blocks with no size."
-                "{3} accesses, {4}({5:.2f}%) accesses with no_insert,"
-                "{6}({7:.2f}%) accesses that want to insert but block size is 0.".format(
+                "Trace contains {} blocks, {}({:.2f}%) blocks with no size."
+                "{} accesses, {}({:.2f}%) accesses with no_insert,"
+                "{}({:.2f}%) accesses that want to insert but block size is 0.".format(
                     len(block_access_timelines),
                     num_blocks_with_no_size,
                     percent(num_blocks_with_no_size, len(block_access_timelines)),
@@ -1754,8 +1754,8 @@ def run(
     start_time = time.time()
     trace_start_time = 0
     trace_duration = 0
-    print("Running simulated {} cache on block traces.".format(cache.cache_name()))
-    with open(trace_file_path, "r") as trace_file:
+    print(f"Running simulated {cache.cache_name()} cache on block traces.")
+    with open(trace_file_path) as trace_file:
         for line in trace_file:
             if (
                 max_accesses_to_process != -1
@@ -1871,8 +1871,8 @@ def report_stats(
     trace_start_time,
     trace_end_time,
 ):
-    cache_label = "{}-{}-{}".format(cache_type, cache_size, target_cf_name)
-    with open("{}/data-ml-mrc-{}".format(result_dir, cache_label), "w+") as mrc_file:
+    cache_label = f"{cache_type}-{cache_size}-{target_cf_name}"
+    with open(f"{result_dir}/data-ml-mrc-{cache_label}", "w+") as mrc_file:
         mrc_file.write(
             "{},0,0,{},{},{}\n".format(
                 cache_type,
@@ -1897,7 +1897,7 @@ def report_stats(
             "w+",
         ) as mb_file:
             mb_file.write(
-                "{},0,0,{},{}\n".format(cache_type, cache_size, avg_miss_bytes)
+                f"{cache_type},0,0,{cache_size},{avg_miss_bytes}\n"
             )
 
         with open(
@@ -1907,7 +1907,7 @@ def report_stats(
             "w+",
         ) as mb_file:
             mb_file.write(
-                "{},0,0,{},{}\n".format(cache_type, cache_size, p95_miss_bytes)
+                f"{cache_type},0,0,{cache_size},{p95_miss_bytes}\n"
             )
 
         cache_stats[i].write_miss_timeline(
@@ -1970,7 +1970,7 @@ if __name__ == "__main__":
             "it will run against all accesses.)"
         )
         exit(1)
-    print("Arguments: {}".format(sys.argv))
+    print(f"Arguments: {sys.argv}")
     cache_type = sys.argv[1]
     cache_size = parse_cache_size(sys.argv[2])
     downsample_size = int(sys.argv[3])

@@ -4,21 +4,23 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#if !defined(OS_WIN) && !defined(ROCKSDB_LITE)
+#if !defined(OS_WIN)
 
 #ifndef GFLAGS
 #include <cstdio>
 int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #else
 
+#include <sys/time.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <functional>
 #include <string>
 #include <unordered_map>
-#include <unistd.h>
-#include <sys/time.h>
 
 #include "port/port_posix.h"
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
@@ -152,8 +154,8 @@ class HashTableBenchmark {
   }
 
   static uint64_t NowInMillSec() {
-    timeval tv;
-    gettimeofday(&tv, /*tz=*/nullptr);
+    port::TimeVal tv;
+    port::GetTimeOfDay(&tv, /*tz=*/nullptr);
     return tv.tv_sec * 1000 + tv.tv_usec / 1000;
   }
 
@@ -161,15 +163,15 @@ class HashTableBenchmark {
   //  Wrapper functions for thread entry
   //
   static void WriteMain(void* args) {
-    reinterpret_cast<HashTableBenchmark*>(args)->RunWrite();
+    static_cast<HashTableBenchmark*>(args)->RunWrite();
   }
 
   static void ReadMain(void* args) {
-    reinterpret_cast<HashTableBenchmark*>(args)->RunRead();
+    static_cast<HashTableBenchmark*>(args)->RunRead();
   }
 
   static void EraseMain(void* args) {
-    reinterpret_cast<HashTableBenchmark*>(args)->RunErase();
+    static_cast<HashTableBenchmark*>(args)->RunErase();
   }
 
   HashTableImpl<size_t, std::string>* impl_;         // Implementation to test

@@ -7,11 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db_stress_tool/db_stress_shared_state.h"
 #ifdef GFLAGS
 #pragma once
 #include "db_stress_tool/db_stress_test_base.h"
 namespace ROCKSDB_NAMESPACE {
-extern void ThreadBody(void* /*thread_state*/);
-extern bool RunStressTest(StressTest*);
+void ThreadBody(void* /*thread_state*/);
+bool RunStressTest(SharedState*);
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

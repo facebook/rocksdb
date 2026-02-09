@@ -52,9 +52,9 @@ public final class BytewiseComparator extends AbstractComparator {
     return r;
   }
 
+  @SuppressWarnings("PMD.EmptyControlStatement")
   @Override
-  public void findShortestSeparator(final ByteBuffer start,
-      final ByteBuffer limit) {
+  public void findShortestSeparator(final ByteBuffer start, final ByteBuffer limit) {
     // Find length of common prefix
     final int minLength = Math.min(start.remaining(), limit.remaining());
     int diffIndex = 0;

@@ -9,7 +9,6 @@
 #pragma once
 
 #include "table/block_based/block_based_table_reader.h"
-
 #include "table/block_based/reader_common.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,6 +23,9 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
       : table_(t), index_block_(std::move(index_block)) {
     assert(table_ != nullptr);
   }
+
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
 
  protected:
   static Status ReadIndexBlock(const BlockBasedTable* table,
@@ -66,9 +68,16 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return table_->get_rep()->table_options.cache_index_and_filter_blocks;
   }
 
-  Status GetOrReadIndexBlock(bool no_io, GetContext* get_context,
+  bool user_defined_timestamps_persisted() const {
+    assert(table_ != nullptr);
+    assert(table_->get_rep() != nullptr);
+    return table_->get_rep()->user_defined_timestamps_persisted;
+  }
+
+  Status GetOrReadIndexBlock(GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             CachableEntry<Block>* index_block) const;
+                             CachableEntry<Block>* index_block,
+                             const ReadOptions& read_options) const;
 
   size_t ApproximateIndexBlockMemoryUsage() const {
     assert(!index_block_.GetOwnValue() || index_block_.GetValue() != nullptr);

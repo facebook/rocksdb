@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/utilities/env_mirror.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -27,13 +25,17 @@ class SequentialFileMirror : public SequentialFile {
     if (as == Status::OK()) {
       char* bscratch = new char[n];
       Slice bslice;
+#ifndef NDEBUG
       size_t off = 0;
+#endif
       size_t left = aslice.size();
       while (left) {
         Status bs = b_->Read(left, &bslice, bscratch);
+#ifndef NDEBUG
         assert(as == bs);
         assert(memcmp(bscratch, scratch + off, bslice.size()) == 0);
         off += bslice.size();
+#endif
         left -= bslice.size();
       }
       delete[] bscratch;
@@ -56,7 +58,7 @@ class SequentialFileMirror : public SequentialFile {
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);
     return as;
-  };
+  }
 };
 
 class RandomAccessFileMirror : public RandomAccessFile {
@@ -91,6 +93,16 @@ class RandomAccessFileMirror : public RandomAccessFile {
   size_t GetUniqueId(char* id, size_t max_size) const override {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);
+  }
+
+  Status GetFileSize(uint64_t* file_size) override {
+    uint64_t asize = 0, bsize = 0;
+    Status as = a_->GetFileSize(&asize);
+    Status bs = b_->GetFileSize(&bsize);
+    assert(as == bs);
+    assert(asize == bsize);
+    *file_size = asize;
+    return as;
   }
 };
 
@@ -211,10 +223,11 @@ Status EnvMirror::NewSequentialFile(const std::string& f,
   Status as = a_->NewSequentialFile(f, &mf->a_, options);
   Status bs = b_->NewSequentialFile(f, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
@@ -228,25 +241,29 @@ Status EnvMirror::NewRandomAccessFile(const std::string& f,
   Status as = a_->NewRandomAccessFile(f, &mf->a_, options);
   Status bs = b_->NewRandomAccessFile(f, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
 Status EnvMirror::NewWritableFile(const std::string& f,
                                   std::unique_ptr<WritableFile>* r,
                                   const EnvOptions& options) {
-  if (f.find("/proc/") == 0) return a_->NewWritableFile(f, r, options);
+  if (f.find("/proc/") == 0) {
+    return a_->NewWritableFile(f, r, options);
+  }
   WritableFileMirror* mf = new WritableFileMirror(f, options);
   Status as = a_->NewWritableFile(f, &mf->a_, options);
   Status bs = b_->NewWritableFile(f, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
@@ -254,18 +271,19 @@ Status EnvMirror::ReuseWritableFile(const std::string& fname,
                                     const std::string& old_fname,
                                     std::unique_ptr<WritableFile>* r,
                                     const EnvOptions& options) {
-  if (fname.find("/proc/") == 0)
+  if (fname.find("/proc/") == 0) {
     return a_->ReuseWritableFile(fname, old_fname, r, options);
+  }
   WritableFileMirror* mf = new WritableFileMirror(fname, options);
   Status as = a_->ReuseWritableFile(fname, old_fname, &mf->a_, options);
   Status bs = b_->ReuseWritableFile(fname, old_fname, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif

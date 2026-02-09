@@ -5,15 +5,15 @@
 
 package org.rocksdb;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class OptimisticTransactionDBTest {
 
@@ -53,6 +53,21 @@ public class OptimisticTransactionDBTest {
           }
         }
       }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void open_columnFamilies_no_default() throws RocksDBException {
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Collections.singletonList(new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts));
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+
+      OptimisticTransactionDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors, columnFamilyHandles);
     }
   }
 
@@ -126,6 +141,23 @@ public class OptimisticTransactionDBTest {
       final RocksDB db = otdb.getBaseDB();
       assertThat(db).isNotNull();
       assertThat(db.isOwningHandle()).isFalse();
+    }
+  }
+
+  @Test
+  public void otdbSimpleIterator() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final OptimisticTransactionDB otdb =
+             OptimisticTransactionDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      otdb.put("keyI".getBytes(), "valueI".getBytes());
+      try (final RocksIterator iterator = otdb.newIterator()) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("keyI".getBytes());
+        assertThat(iterator.value()).isEqualTo("valueI".getBytes());
+        iterator.next();
+        assertThat(iterator.isValid()).isFalse();
+      }
     }
   }
 }

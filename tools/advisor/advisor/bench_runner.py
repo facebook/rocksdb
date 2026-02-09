@@ -3,8 +3,8 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-from abc import ABC, abstractmethod
 import re
+from abc import ABC, abstractmethod
 
 
 class BenchmarkRunner(ABC):
@@ -25,15 +25,15 @@ class BenchmarkRunner(ABC):
         # 'dev_shm_LOG' and its location will be /tmp/rocks. If db_log_dir is
         # not specified in the OPTIONS file, then the location of the log file
         # will be /dev/shm and the name of the file will be 'LOG'
-        file_name = ''
+        file_name = ""
         if log_dir:
             # refer GetInfoLogPrefix() in rocksdb/util/filename.cc
             # example db_path: /dev/shm/dbbench
             file_name = db_path[1:]  # to ignore the leading '/' character
-            to_be_replaced = re.compile('[^0-9a-zA-Z\-_\.]')
+            to_be_replaced = re.compile(r"[^0-9a-zA-Z\-_\.]")  # noqa
             for character in to_be_replaced.findall(db_path):
-                file_name = file_name.replace(character, '_')
-            if not file_name.endswith('_'):
-                file_name += '_'
-        file_name += 'LOG'
+                file_name = file_name.replace(character, "_")
+            if not file_name.endswith("_"):
+                file_name += "_"
+        file_name += "LOG"
         return file_name

@@ -22,7 +22,7 @@ static std::string NEW_VALUE = "NewValue";
 class DBTestCompactionFilter : public DBTestBase {
  public:
   DBTestCompactionFilter()
-      : DBTestBase("/db_compaction_filter_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_compaction_filter_test", /*env_do_fsync=*/true) {}
 };
 
 // Param variant of DBTestBase::ChangeCompactOptions
@@ -46,7 +46,7 @@ class DBTestCompactionFilterWithCompactParam
   }
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     CompactionFilterWithOption, DBTestCompactionFilterWithCompactParam,
     ::testing::Values(DBTestBase::OptionConfig::kDefault,
@@ -55,11 +55,11 @@ INSTANTIATE_TEST_CASE_P(
                       DBTestBase::OptionConfig::kLevelSubcompactions,
                       DBTestBase::OptionConfig::kUniversalSubcompactions));
 #else
-// Run fewer cases in valgrind
+// Run fewer cases in non-full valgrind to save time.
 INSTANTIATE_TEST_CASE_P(CompactionFilterWithOption,
                         DBTestCompactionFilterWithCompactParam,
                         ::testing::Values(DBTestBase::OptionConfig::kDefault));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class KeepFilter : public CompactionFilter {
  public:
@@ -79,6 +79,11 @@ class DeleteFilter : public CompactionFilter {
               std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
     cfilter_count++;
+    return true;
+  }
+
+  bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
+                          const Slice& /*operand*/) const override {
     return true;
   }
 
@@ -145,7 +150,7 @@ class ConditionalFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter() {}
+  explicit ChangeFilter() = default;
 
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
               std::string* new_value, bool* value_changed) const override {
@@ -161,9 +166,12 @@ class ChangeFilter : public CompactionFilter {
 class KeepFilterFactory : public CompactionFilterFactory {
  public:
   explicit KeepFilterFactory(bool check_context = false,
-                             bool check_context_cf_id = false)
+                             bool check_context_cf_id = false,
+                             bool check_context_input_table_properties = false)
       : check_context_(check_context),
         check_context_cf_id_(check_context_cf_id),
+        check_context_input_table_properties_(
+            check_context_input_table_properties),
         compaction_filter_created_(false) {}
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
@@ -171,6 +179,11 @@ class KeepFilterFactory : public CompactionFilterFactory {
     if (check_context_) {
       EXPECT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
       EXPECT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
+      EXPECT_EQ(expect_input_start_level_.load(), context.input_start_level);
+    }
+    if (check_context_input_table_properties_) {
+      EXPECT_TRUE(expect_input_table_properties_ ==
+                  context.input_table_properties);
     }
     if (check_context_cf_id_) {
       EXPECT_EQ(expect_cf_id_.load(), context.column_family_id);
@@ -184,24 +197,48 @@ class KeepFilterFactory : public CompactionFilterFactory {
   const char* Name() const override { return "KeepFilterFactory"; }
   bool check_context_;
   bool check_context_cf_id_;
+  // `check_context_input_table_properties_` can be true only when access to
+  // `expect_input_table_properties_` is syncronized since we can't have
+  // std::atomic<TablePropertiesCollection> unfortunately
+  bool check_context_input_table_properties_;
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
   std::atomic<uint32_t> expect_cf_id_;
+  std::atomic<int> expect_input_start_level_;
+  TablePropertiesCollection expect_input_table_properties_;
   bool compaction_filter_created_;
 };
 
+// This filter factory is configured with a `TableFileCreationReason`. Only
+// table files created for that reason will undergo filtering. This
+// configurability makes it useful to tests for filtering non-compaction table
+// files, such as "CompactionFilterFlush" and "CompactionFilterRecovery".
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
+  explicit DeleteFilterFactory(TableFileCreationReason reason)
+      : reason_(reason) {}
+
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
-    if (context.is_manual_compaction) {
-      return std::unique_ptr<CompactionFilter>(new DeleteFilter());
-    } else {
+    EXPECT_EQ(reason_, context.reason);
+    if (context.reason == TableFileCreationReason::kCompaction &&
+        !context.is_manual_compaction) {
+      // Table files created by automatic compaction do not undergo filtering.
+      // Presumably some tests rely on this.
       return std::unique_ptr<CompactionFilter>(nullptr);
     }
+    return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason_ == reason;
   }
 
   const char* Name() const override { return "DeleteFilterFactory"; }
+
+ private:
+  const TableFileCreationReason reason_;
 };
 
 // Delete Filter Factory which ignores snapshots
@@ -252,7 +289,7 @@ class ConditionalFilterFactory : public CompactionFilterFactory {
 
 class ChangeFilterFactory : public CompactionFilterFactory {
  public:
-  explicit ChangeFilterFactory() {}
+  explicit ChangeFilterFactory() = default;
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
@@ -262,7 +299,6 @@ class ChangeFilterFactory : public CompactionFilterFactory {
   const char* Name() const override { return "ChangeFilterFactory"; }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Options options = CurrentOptions();
   options.max_open_files = -1;
@@ -305,11 +341,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Arena arena;
   {
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregator range_del_agg(&icmp,
-                                         kMaxSequenceNumber /* upper_bound */);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
+        read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -349,7 +383,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>(
+      TableFileCreationReason::kCompaction);
   options.create_if_missing = true;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -398,11 +433,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   count = 0;
   {
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregator range_del_agg(&icmp,
-                                         kMaxSequenceNumber /* upper_bound */);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
+        read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -421,7 +454,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 // entries in VersionEdit, but none of the 'AddFile's.
 TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   Options options = CurrentOptions();
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>(
+      TableFileCreationReason::kCompaction);
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   DestroyAndReopen(options);
@@ -429,7 +463,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   // put some data
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
   }
@@ -448,7 +482,64 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 
   delete itr;
 }
-#endif  // ROCKSDB_LITE
+
+TEST_F(DBTestCompactionFilter, CompactionFilterFlush) {
+  // Tests a `CompactionFilterFactory` that filters when table file is created
+  // by flush.
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<DeleteFilterFactory>(TableFileCreationReason::kFlush);
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Puts and Merges are purged in flush.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+
+  // However, Puts and Merges are preserved by recovery.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  Reopen(options);
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+
+  // Likewise, compaction does not apply filtering.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+}
+
+TEST_F(DBTestCompactionFilter, CompactionFilterRecovery) {
+  // Tests a `CompactionFilterFactory` that filters when table file is created
+  // by recovery.
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<DeleteFilterFactory>(TableFileCreationReason::kRecovery);
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Puts and Merges are purged in recovery.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+
+  // However, Puts and Merges are preserved by flush.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+
+  // Likewise, compaction does not apply filtering.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+}
 
 TEST_P(DBTestCompactionFilterWithCompactParam,
        CompactionFilterWithValueChange) {
@@ -576,9 +667,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_EQ(newvalue, four);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
-  KeepFilterFactory* filter = new KeepFilterFactory(true, true);
+  KeepFilterFactory* filter = new KeepFilterFactory(
+      true /* check_context */, true /* check_context_cf_id */,
+      true /* check_context_input_table_properties */);
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -586,8 +678,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 8;
   Reopen(options);
+  const int kNumFiles = 3;
   int num_keys_per_file = 400;
-  for (int j = 0; j < 3; j++) {
+  for (int j = 0; j < kNumFiles; j++) {
     // Write several keys.
     const std::string value(10, 'x');
     for (int i = 0; i < num_keys_per_file; i++) {
@@ -607,6 +700,11 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   filter->expect_manual_compaction_.store(true);
   filter->expect_full_compaction_.store(true);
   filter->expect_cf_id_.store(0);
+  filter->expect_input_start_level_.store(0);
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(
+      &filter->expect_input_table_properties_));
+  ASSERT_TRUE(filter->expect_input_table_properties_.size() == kNumFiles);
+
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(cfilter_count, 700);
   ASSERT_EQ(NumSortedRuns(0), 1);
@@ -618,11 +716,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int total = 0;
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregator range_del_agg(&icmp,
-                                         kMaxSequenceNumber /* snapshots */);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        read_options, &arena, &range_del_agg, kMaxSequenceNumber));
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
+        read_options, &arena, kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -638,7 +734,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(count, 0);
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   KeepFilterFactory* filter = new KeepFilterFactory(false, true);
@@ -669,10 +764,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   ASSERT_TRUE(filter->compaction_filter_created());
 }
 
-#ifndef ROCKSDB_LITE
-// Compaction filters aplies to all records, regardless snapshots.
+// Compaction filters applies to all records, regardless snapshots.
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
-  std::string five = ToString(5);
+  std::string five = std::to_string(5);
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<DeleteISFilterFactory>();
   options.disable_auto_compactions = true;
@@ -683,7 +777,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   const Snapshot* snapshot = nullptr;
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
 
@@ -711,6 +805,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       count++;
       iter->Next();
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 6);
     read_options.snapshot = nullptr;
     std::unique_ptr<Iterator> iter1(db_->NewIterator(read_options));
@@ -721,6 +816,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       count++;
       iter1->Next();
     }
+    ASSERT_OK(iter1->status());
     // We have deleted 10 keys from 40 using the compaction filter
     //  Keys 6-9 before the snapshot and 100-105 after the snapshot
     ASSERT_EQ(count, 30);
@@ -730,7 +826,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   // removed.
   db_->ReleaseSnapshot(snapshot);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, SkipUntil) {
   Options options = CurrentOptions();
@@ -840,6 +935,114 @@ TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalse) {
                   .IsNotSupported());
 
   delete options.compaction_filter;
+}
+
+class TestNotSupportedFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit TestNotSupportedFilterFactory(TableFileCreationReason reason)
+      : reason_(reason) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason_ == reason;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /* context */) override {
+    return std::unique_ptr<CompactionFilter>(new TestNotSupportedFilter());
+  }
+
+  const char* Name() const override { return "TestNotSupportedFilterFactory"; }
+
+ private:
+  const TableFileCreationReason reason_;
+};
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseDuringFlush) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<TestNotSupportedFilterFactory>(
+          TableFileCreationReason::kFlush);
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_TRUE(Flush().IsNotSupported());
+}
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseRecovery) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<TestNotSupportedFilterFactory>(
+          TableFileCreationReason::kRecovery);
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
+TEST_F(DBTestCompactionFilter, DropKeyWithSingleDelete) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v0"));
+  ASSERT_OK(Put("b", "v0"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ASSERT_OK(SingleDelete("b"));
+  ASSERT_OK(Flush());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = options.num_levels - 1;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+
+  db_->ReleaseSnapshot(snapshot);
+  Close();
+
+  class DeleteFilterV2 : public CompactionFilter {
+   public:
+    Decision FilterV2(int /*level*/, const Slice& key, ValueType /*value_type*/,
+                      const Slice& /*existing_value*/,
+                      std::string* /*new_value*/,
+                      std::string* /*skip_until*/) const override {
+      if (key.starts_with("b")) {
+        return Decision::kPurge;
+      }
+      return Decision::kRemove;
+    }
+
+    const char* Name() const override { return "DeleteFilterV2"; }
+  } delete_filter_v2;
+
+  options.compaction_filter = &delete_filter_v2;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("b", "v1"));
+  ASSERT_OK(Put("x", "v1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("r", "v1"));
+  ASSERT_OK(Put("z", "v1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Close();
+
+  options.compaction_filter = nullptr;
+  Reopen(options);
+  ASSERT_OK(SingleDelete("b"));
+  ASSERT_OK(Flush());
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

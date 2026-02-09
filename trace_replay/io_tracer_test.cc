@@ -5,9 +5,11 @@
 
 #include "trace_replay/io_tracer.h"
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
@@ -143,7 +145,8 @@ TEST_F(IOTracerTest, MultipleRecordsWithDifferentIOOpOptions) {
     // Write record with IODebugContext.
     io_op_data = 0;
     IODebugContext dbg;
-    dbg.SetRequestId("request_id_1");
+    const std::string test_request_id = "request_id_1";
+    dbg.SetRequestId(&test_request_id);
     IOTraceRecord record5(0, TraceType::kIOTracer, io_op_data,
                           GetFileOperation(5), 10 /*latency*/,
                           IOStatus::OK().ToString(), file_name);
@@ -345,6 +348,7 @@ TEST_F(IOTracerTest, AtomicMultipleWrites) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

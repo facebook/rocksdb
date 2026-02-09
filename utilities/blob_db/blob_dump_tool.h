@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <string>
@@ -29,8 +28,7 @@ class BlobDumpTool {
   BlobDumpTool();
 
   Status Run(const std::string& filename, DisplayType show_key,
-             DisplayType show_blob, DisplayType show_uncompressed_blob,
-             bool show_summary);
+             DisplayType show_blob, bool show_summary);
 
  private:
   std::unique_ptr<RandomAccessFileReader> reader_;
@@ -38,14 +36,11 @@ class BlobDumpTool {
   size_t buffer_size_;
 
   Status Read(uint64_t offset, size_t size, Slice* result);
-  Status DumpBlobLogHeader(uint64_t* offset, CompressionType* compression);
+  Status DumpBlobLogHeader(uint64_t* offset);
   Status DumpBlobLogFooter(uint64_t file_size, uint64_t* footer_offset);
   Status DumpRecord(DisplayType show_key, DisplayType show_blob,
-                    DisplayType show_uncompressed_blob, bool show_summary,
-                    CompressionType compression, uint64_t* offset,
-                    uint64_t* total_records, uint64_t* total_key_size,
-                    uint64_t* total_blob_size,
-                    uint64_t* total_uncompressed_blob_size);
+                    uint64_t* offset, uint64_t* total_records,
+                    uint64_t* total_key_size, uint64_t* total_blob_size);
   void DumpSlice(const Slice s, DisplayType type);
 
   template <class T>
@@ -54,5 +49,3 @@ class BlobDumpTool {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

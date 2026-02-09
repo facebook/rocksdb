@@ -6,10 +6,10 @@
 // A checkpoint is an openable snapshot of a database at a point in time.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,14 +32,19 @@ class Checkpoint {
   // same filesystem as the database, and copied otherwise.
   // (2) other required files (like MANIFEST) are always copied.
   // log_size_for_flush: if the total log file size is equal or larger than
-  // this value, then a flush is triggered for all the column families. The
-  // default value is 0, which means flush is always triggered. If you move
+  // this value, then a flush is triggered for all the column families.
+  // The archived log size will not be included when calculating the total log
+  // size.
+  // The default value is 0, which means flush is always triggered. If you move
   // away from the default, the checkpoint may not contain up-to-date data
   // if WAL writing is not always enabled.
   // Flush will always trigger if it is 2PC.
   // sequence_number_ptr: if it is not nullptr, the value it points to will be
-  // set to the DB's sequence number. The default value of this parameter is
-  // nullptr.
+  // set to a sequence number guaranteed to be part of the DB, not necessarily
+  // the latest. The default value of this parameter is nullptr.
+  // NOTE: db_paths and cf_paths are not supported for creating checkpoints
+  // and NotSupported will be returned when the DB (without WALs) uses more
+  // than one directory.
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
                                   uint64_t log_size_for_flush = 0,
                                   uint64_t* sequence_number_ptr = nullptr);
@@ -58,4 +63,3 @@ class Checkpoint {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

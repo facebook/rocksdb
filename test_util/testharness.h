@@ -51,7 +51,14 @@
     GTEST_SUCCESS_("BYPASSED: " m);     \
   } while (false) /* user ; */
 
+// Avoid "loss of precision" warnings when passing in 64-bit integers
+#define EXPECT_NEAR2(val1, val2, abs_error)                         \
+  EXPECT_NEAR(static_cast<double>(val1), static_cast<double>(val2), \
+              static_cast<double>(abs_error))
+
 #include <string>
+
+#include "port/stack_trace.h"
 #include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -78,5 +85,40 @@ int RandomSeed();
 #define EXPECT_OK(s) \
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
+
+// Useful for testing
+// * No need to deal with Status like in Regex public API
+// * No triggering lint reports on use of std::regex in tests
+// * Available in LITE (unlike public API)
+class TestRegex {
+ public:
+  // These throw on bad pattern
+  /*implicit*/ TestRegex(const std::string& pattern);
+  /*implicit*/ TestRegex(const char* pattern);
+
+  // Checks that the whole of str is matched by this regex
+  bool Matches(const std::string& str) const;
+
+  const std::string& GetPattern() const;
+
+ private:
+  class Impl;
+  std::shared_ptr<Impl> impl_;  // shared_ptr for simple implementation
+  std::string pattern_;
+};
+
+::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
+                                              const char* pattern_expr,
+                                              const std::string& str,
+                                              const TestRegex& pattern);
+
+#define ASSERT_MATCHES_REGEX(str, pattern) \
+  ASSERT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
+#define EXPECT_MATCHES_REGEX(str, pattern) \
+  EXPECT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
+
 }  // namespace test
+
+using test::TestRegex;
+
 }  // namespace ROCKSDB_NAMESPACE

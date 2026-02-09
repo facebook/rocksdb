@@ -19,52 +19,53 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobFileCache::BlobFileCache(Cache* cache,
-                             const ImmutableCFOptions* immutable_cf_options,
+                             const ImmutableOptions* immutable_options,
                              const FileOptions* file_options,
                              uint32_t column_family_id,
                              HistogramImpl* blob_file_read_hist,
                              const std::shared_ptr<IOTracer>& io_tracer)
     : cache_(cache),
-      mutex_(kNumberOfMutexStripes, kGetSliceNPHash64UnseededFnPtr),
-      immutable_cf_options_(immutable_cf_options),
+      mutex_(kNumberOfMutexStripes),
+      immutable_options_(immutable_options),
       file_options_(file_options),
       column_family_id_(column_family_id),
       blob_file_read_hist_(blob_file_read_hist),
       io_tracer_(io_tracer) {
   assert(cache_);
-  assert(immutable_cf_options_);
+  assert(immutable_options_);
   assert(file_options_);
 }
 
 Status BlobFileCache::GetBlobFileReader(
-    uint64_t blob_file_number,
+    const ReadOptions& read_options, uint64_t blob_file_number,
     CacheHandleGuard<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
 
-  const Slice key = GetSlice(&blob_file_number);
+  // NOTE: sharing same Cache with table_cache
+  const Slice key = GetSliceForKey(&blob_file_number);
 
   assert(cache_);
 
-  Cache::Handle* handle = cache_->Lookup(key);
+  TypedHandle* handle = cache_.Lookup(key);
   if (handle) {
-    *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
+    *blob_file_reader = cache_.Guard(handle);
     return Status::OK();
   }
 
   TEST_SYNC_POINT("BlobFileCache::GetBlobFileReader:DoubleCheck");
 
   // Check again while holding mutex
-  MutexLock lock(mutex_.get(key));
+  MutexLock lock(&mutex_.Get(key));
 
-  handle = cache_->Lookup(key);
+  handle = cache_.Lookup(key);
   if (handle) {
-    *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
+    *blob_file_reader = cache_.Guard(handle);
     return Status::OK();
   }
 
-  assert(immutable_cf_options_);
-  Statistics* const statistics = immutable_cf_options_->statistics;
+  assert(immutable_options_);
+  Statistics* const statistics = immutable_options_->stats;
 
   RecordTick(statistics, NO_FILE_OPENS);
 
@@ -73,7 +74,7 @@ Status BlobFileCache::GetBlobFileReader(
   {
     assert(file_options_);
     const Status s = BlobFileReader::Create(
-        *immutable_cf_options_, *file_options_, column_family_id_,
+        *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
@@ -84,8 +85,7 @@ Status BlobFileCache::GetBlobFileReader(
   {
     constexpr size_t charge = 1;
 
-    const Status s = cache_->Insert(key, reader.get(), charge,
-                                    &DeleteCacheEntry<BlobFileReader>, &handle);
+    const Status s = cache_.Insert(key, reader.get(), charge, &handle);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;
@@ -94,9 +94,18 @@ Status BlobFileCache::GetBlobFileReader(
 
   reader.release();
 
-  *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
+  *blob_file_reader = cache_.Guard(handle);
 
   return Status::OK();
+}
+
+void BlobFileCache::Evict(uint64_t blob_file_number) {
+  // NOTE: sharing same Cache with table_cache
+  const Slice key = GetSliceForKey(&blob_file_number);
+
+  assert(cache_);
+
+  cache_.get()->Erase(key);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

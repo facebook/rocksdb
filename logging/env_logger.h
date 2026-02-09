@@ -12,13 +12,16 @@
 #pragma once
 
 #include <time.h>
+
 #include <atomic>
 #include <memory>
-#include "port/sys_time.h"
 
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
@@ -45,11 +48,35 @@ class EnvLogger : public Logger {
   }
 
  private:
+  // A guard to prepare file operations, such as mutex and skip
+  // I/O context.
+  class FileOpGuard {
+   public:
+    explicit FileOpGuard(EnvLogger& logger)
+        : logger_(logger), prev_perf_level_(GetPerfLevel()) {
+      // Preserve iostats not to pollute writes from user writes. We might
+      // need a better solution than this.
+      SetPerfLevel(PerfLevel::kDisable);
+      IOSTATS_SET_DISABLE(true);
+      logger.mutex_.Lock();
+    }
+    ~FileOpGuard() {
+      logger_.mutex_.Unlock();
+      IOSTATS_SET_DISABLE(false);
+      SetPerfLevel(prev_perf_level_);
+    }
+
+   private:
+    EnvLogger& logger_;
+    PerfLevel prev_perf_level_;
+  };
+
   void FlushLocked() {
     mutex_.AssertHeld();
     if (flush_pending_) {
       flush_pending_ = false;
-      file_.Flush().PermitUncheckedError();
+      file_.Flush(IOOptions()).PermitUncheckedError();
+      file_.reset_seen_error();
     }
     last_flush_micros_ = clock_->NowMicros();
   }
@@ -58,16 +85,15 @@ class EnvLogger : public Logger {
     TEST_SYNC_POINT("EnvLogger::Flush:Begin1");
     TEST_SYNC_POINT("EnvLogger::Flush:Begin2");
 
-    MutexLock l(&mutex_);
+    FileOpGuard guard(*this);
     FlushLocked();
   }
 
   Status CloseImpl() override { return CloseHelper(); }
 
   Status CloseHelper() {
-    mutex_.Lock();
-    const auto close_status = file_.Close();
-    mutex_.Unlock();
+    FileOpGuard guard(*this);
+    const auto close_status = file_.Close(IOOptions());
 
     if (close_status.ok()) {
       return close_status;
@@ -100,12 +126,12 @@ class EnvLogger : public Logger {
       char* p = base;
       char* limit = base + bufsize;
 
-      struct timeval now_tv;
-      gettimeofday(&now_tv, nullptr);
+      port::TimeVal now_tv;
+      port::GetTimeOfDay(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
       struct tm t;
-      localtime_r(&seconds, &t);
-      p += snprintf(p, limit - p, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx ",
+      port::LocalTimeR(&seconds, &t);
+      p += snprintf(p, limit - p, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llu ",
                     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour,
                     t.tm_min, t.tm_sec, static_cast<int>(now_tv.tv_usec),
                     static_cast<long long unsigned int>(thread_id));
@@ -133,15 +159,17 @@ class EnvLogger : public Logger {
       }
 
       assert(p <= limit);
-      mutex_.Lock();
-      // We will ignore any error returned by Append().
-      file_.Append(Slice(base, p - base)).PermitUncheckedError();
-      flush_pending_ = true;
-      const uint64_t now_micros = clock_->NowMicros();
-      if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
-        FlushLocked();
+      {
+        FileOpGuard guard(*this);
+        // We will ignore any error returned by Append().
+        file_.Append(IOOptions(), Slice(base, p - base)).PermitUncheckedError();
+        file_.reset_seen_error();
+        flush_pending_ = true;
+        const uint64_t now_micros = clock_->NowMicros();
+        if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
+          FlushLocked();
+        }
       }
-      mutex_.Unlock();
       if (base != buffer) {
         delete[] base;
       }

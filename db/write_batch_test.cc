@@ -12,14 +12,17 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
+#include "dbformat.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,7 +36,7 @@ static std::string PrintContents(WriteBatch* b,
   if (merge_operator_supported) {
     options.merge_operator.reset(new TestPutOperator());
   }
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                                kMaxSequenceNumber, 0 /* column_family_id */);
@@ -44,21 +47,25 @@ static std::string PrintContents(WriteBatch* b,
       WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr, nullptr);
   uint32_t count = 0;
   int put_count = 0;
+  int timed_put_count = 0;
   int delete_count = 0;
   int single_delete_count = 0;
   int delete_range_count = 0;
   int merge_count = 0;
   for (int i = 0; i < 2; ++i) {
     Arena arena;
-    ScopedArenaIterator arena_iter_guard;
+    ScopedArenaPtr<InternalIterator> arena_iter_guard;
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = mem->NewIterator(ReadOptions(), &arena);
-      arena_iter_guard.set(iter);
+      iter = mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
+                              &arena, /*prefix_extractor=*/nullptr,
+                              /*for_flush=*/false);
+      arena_iter_guard.reset(iter);
     } else {
       iter = mem->NewRangeTombstoneIterator(ReadOptions(),
-                                            kMaxSequenceNumber /* read_seq */);
+                                            kMaxSequenceNumber /* read_seq */,
+                                            false /* immutable_memtable */);
       iter_guard.reset(iter);
     }
     if (iter == nullptr) {
@@ -111,17 +118,32 @@ static std::string PrintContents(WriteBatch* b,
           count++;
           merge_count++;
           break;
+        case kTypeValuePreferredSeqno: {
+          state.append("TimedPut(");
+          state.append(ikey.user_key.ToString());
+          state.append(", ");
+          auto [unpacked_value, unix_write_time] =
+              ParsePackedValueWithWriteTime(iter->value());
+          state.append(unpacked_value.ToString());
+          state.append(", ");
+          state.append(std::to_string(unix_write_time));
+          state.append(")");
+          count++;
+          timed_put_count++;
+          break;
+        }
         default:
           assert(false);
           break;
       }
       state.append("@");
-      state.append(NumberToString(ikey.sequence));
+      state.append(std::to_string(ikey.sequence));
     }
     EXPECT_OK(iter->status());
   }
   if (s.ok()) {
     EXPECT_EQ(b->HasPut(), put_count > 0);
+    EXPECT_EQ(b->HasTimedPut(), timed_put_count > 0);
     EXPECT_EQ(b->HasDelete(), delete_count > 0);
     EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
     EXPECT_EQ(b->HasDeleteRange(), delete_range_count > 0);
@@ -171,9 +193,10 @@ TEST_F(WriteBatchTest, Corruption) {
   Slice contents = WriteBatchInternal::Contents(&batch);
   ASSERT_OK(WriteBatchInternal::SetContents(
       &batch, Slice(contents.data(), contents.size() - 1)));
-  ASSERT_EQ("Put(foo, bar)@200"
-            "Corruption: bad WriteBatch Delete",
-            PrintContents(&batch));
+  ASSERT_EQ(
+      "Put(foo, bar)@200"
+      "Corruption: bad WriteBatch Delete",
+      PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, Append) {
@@ -181,28 +204,28 @@ TEST_F(WriteBatchTest, Append) {
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("",
-            PrintContents(&b1));
+  ASSERT_EQ("", PrintContents(&b1));
   ASSERT_EQ(0u, b1.Count());
   ASSERT_OK(b2.Put("a", "va"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200",
-            PrintContents(&b1));
+  ASSERT_EQ("Put(a, va)@200", PrintContents(&b1));
   ASSERT_EQ(1u, b1.Count());
   b2.Clear();
   ASSERT_OK(b2.Put("b", "vb"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200"
-            "Put(b, vb)@201",
-            PrintContents(&b1));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@201",
+      PrintContents(&b1));
   ASSERT_EQ(2u, b1.Count());
   ASSERT_OK(b2.Delete("foo"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200"
-            "Put(b, vb)@202"
-            "Put(b, vb)@201"
-            "Delete(foo)@203",
-            PrintContents(&b1));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@202"
+      "Put(b, vb)@201"
+      "Delete(foo)@203",
+      PrintContents(&b1));
   ASSERT_EQ(4u, b1.Count());
   b2.Clear();
   ASSERT_OK(b2.Put("c", "cc"));
@@ -243,85 +266,132 @@ TEST_F(WriteBatchTest, SingleDeletion) {
   ASSERT_EQ(2u, batch.Count());
 }
 
-namespace {
-  struct TestHandler : public WriteBatch::Handler {
-    std::string seen;
-    Status PutCF(uint32_t column_family_id, const Slice& key,
-                 const Slice& value) override {
-      if (column_family_id == 0) {
-        seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
-      } else {
-        seen += "PutCF(" + ToString(column_family_id) + ", " +
-                key.ToString() + ", " + value.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      if (column_family_id == 0) {
-        seen += "Delete(" + key.ToString() + ")";
-      } else {
-        seen += "DeleteCF(" + ToString(column_family_id) + ", " +
-                key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status SingleDeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
-      if (column_family_id == 0) {
-        seen += "SingleDelete(" + key.ToString() + ")";
-      } else {
-        seen += "SingleDeleteCF(" + ToString(column_family_id) + ", " +
-                key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                         const Slice& end_key) override {
-      if (column_family_id == 0) {
-        seen += "DeleteRange(" + begin_key.ToString() + ", " +
-                end_key.ToString() + ")";
-      } else {
-        seen += "DeleteRangeCF(" + ToString(column_family_id) + ", " +
-                begin_key.ToString() + ", " + end_key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status MergeCF(uint32_t column_family_id, const Slice& key,
-                   const Slice& value) override {
-      if (column_family_id == 0) {
-        seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
-      } else {
-        seen += "MergeCF(" + ToString(column_family_id) + ", " +
-                key.ToString() + ", " + value.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    void LogData(const Slice& blob) override {
-      seen += "LogData(" + blob.ToString() + ")";
-    }
-    Status MarkBeginPrepare(bool unprepare) override {
-      seen +=
-          "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
-      return Status::OK();
-    }
-    Status MarkEndPrepare(const Slice& xid) override {
-      seen += "MarkEndPrepare(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-    Status MarkNoop(bool empty_batch) override {
-      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
-      return Status::OK();
-    }
-    Status MarkCommit(const Slice& xid) override {
-      seen += "MarkCommit(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-    Status MarkRollback(const Slice& xid) override {
-      seen += "MarkRollback(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-  };
+TEST_F(WriteBatchTest, OwnershipTransfer) {
+  Random rnd(301);
+  WriteBatch put_batch;
+  ASSERT_OK(put_batch.Put(rnd.RandomString(16) /* key */,
+                          rnd.RandomString(1024) /* value */));
+
+  // (1) Verify `Release()` transfers string data ownership
+  const char* expected_data = put_batch.Data().data();
+  std::string batch_str = put_batch.Release();
+  ASSERT_EQ(expected_data, batch_str.data());
+
+  // (2) Verify constructor transfers string data ownership
+  WriteBatch move_batch(std::move(batch_str));
+  ASSERT_EQ(expected_data, move_batch.Data().data());
 }
+
+namespace {
+struct TestHandler : public WriteBatch::Handler {
+  std::string seen;
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    if (column_family_id == 0) {
+      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    } else {
+      seen += "PutCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status TimedPutCF(uint32_t column_family_id, const Slice& key,
+                    const Slice& value, uint64_t unix_write_time) override {
+    if (column_family_id == 0) {
+      seen += "TimedPut(" + key.ToString() + ", " + value.ToString() + ", " +
+              std::to_string(unix_write_time) + ")";
+    } else {
+      seen += "TimedPutCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ", " +
+              std::to_string(unix_write_time) + ")";
+    }
+    return Status::OK();
+  }
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                     const Slice& entity) override {
+    std::ostringstream oss;
+    Status s = WideColumnsHelper::DumpSliceAsWideColumns(entity, oss, false);
+    if (!s.ok()) {
+      return s;
+    }
+    if (column_family_id == 0) {
+      seen += "PutEntity(" + key.ToString() + ", " + oss.str() + ")";
+    } else {
+      seen += "PutEntityCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + oss.str() + ")";
+    }
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (column_family_id == 0) {
+      seen += "Delete(" + key.ToString() + ")";
+    } else {
+      seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (column_family_id == 0) {
+      seen += "SingleDelete(" + key.ToString() + ")";
+    } else {
+      seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                       const Slice& end_key) override {
+    if (column_family_id == 0) {
+      seen += "DeleteRange(" + begin_key.ToString() + ", " +
+              end_key.ToString() + ")";
+    } else {
+      seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
+              begin_key.ToString() + ", " + end_key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
+    if (column_family_id == 0) {
+      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+    } else {
+      seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  void LogData(const Slice& blob) override {
+    seen += "LogData(" + blob.ToString() + ")";
+  }
+  Status MarkBeginPrepare(bool unprepare) override {
+    seen +=
+        "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
+    return Status::OK();
+  }
+  Status MarkEndPrepare(const Slice& xid) override {
+    seen += "MarkEndPrepare(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+  Status MarkNoop(bool empty_batch) override {
+    seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
+    return Status::OK();
+  }
+  Status MarkCommit(const Slice& xid) override {
+    seen += "MarkCommit(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+  Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
+    seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
+            ts.ToString(true) + ")";
+    return Status::OK();
+  }
+  Status MarkRollback(const Slice& xid) override {
+    seen += "MarkRollback(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+};
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, PutNotImplemented) {
   WriteBatch batch;
@@ -331,6 +401,24 @@ TEST_F(WriteBatchTest, PutNotImplemented) {
 
   WriteBatch::Handler handler;
   ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST_F(WriteBatchTest, TimedPutNotImplemented) {
+  WriteBatch batch;
+  ASSERT_OK(
+      batch.TimedPut(0, Slice("k1"), Slice("v1"), /*write_unix_time=*/30));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ("TimedPut(k1, v1, 30)@0", PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_TRUE(batch.Iterate(&handler).IsInvalidArgument());
+
+  batch.Clear();
+  ASSERT_OK(
+      batch.TimedPut(0, Slice("k1"), Slice("v1"),
+                     /*write_unix_time=*/std::numeric_limits<uint64_t>::max()));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0", PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, DeleteNotImplemented) {
@@ -601,24 +689,25 @@ TEST_F(WriteBatchTest, PutGatherSlices) {
   {
     // Try a write where the key is one slice but the value is two
     Slice key_slice("baz");
-    Slice value_slices[2] = { Slice("header"), Slice("payload") };
+    Slice value_slices[2] = {Slice("header"), Slice("payload")};
     ASSERT_OK(
         batch.Put(SliceParts(&key_slice, 1), SliceParts(value_slices, 2)));
   }
 
   {
     // One where the key is composite but the value is a single slice
-    Slice key_slices[3] = { Slice("key"), Slice("part2"), Slice("part3") };
+    Slice key_slices[3] = {Slice("key"), Slice("part2"), Slice("part3")};
     Slice value_slice("value");
     ASSERT_OK(
         batch.Put(SliceParts(key_slices, 3), SliceParts(&value_slice, 1)));
   }
 
   WriteBatchInternal::SetSequence(&batch, 100);
-  ASSERT_EQ("Put(baz, headerpayload)@101"
-            "Put(foo, bar)@100"
-            "Put(keypart2part3, value)@102",
-            PrintContents(&batch));
+  ASSERT_EQ(
+      "Put(baz, headerpayload)@101"
+      "Put(foo, bar)@100"
+      "Put(keypart2part3, value)@102",
+      PrintContents(&batch));
   ASSERT_EQ(3u, batch.Count());
 }
 
@@ -627,15 +716,94 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
   explicit ColumnFamilyHandleImplDummy(int id)
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
+  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* ucmp)
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+        id_(id),
+        ucmp_(ucmp) {}
   uint32_t GetID() const override { return id_; }
-  const Comparator* GetComparator() const override {
-    return BytewiseComparator();
-  }
+  const Comparator* GetComparator() const override { return ucmp_; }
 
  private:
   uint32_t id_;
+  const Comparator* const ucmp_ = BytewiseComparator();
 };
-}  // namespace anonymous
+}  // anonymous namespace
+
+TEST_F(WriteBatchTest, AttributeGroupTest) {
+  WriteBatch batch;
+  ColumnFamilyHandleImplDummy zero(0), two(2);
+  AttributeGroups foo_ags;
+  WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
+  WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
+  WideColumns zero_col_1_col_2{zero_col_1, zero_col_2};
+
+  WideColumn two_col_1{"2_c_1_n", "2_c_1_v"};
+  WideColumn two_col_2{"2_c_2_n", "2_c_2_v"};
+  WideColumns two_col_1_col_2{two_col_1, two_col_2};
+
+  foo_ags.emplace_back(&zero, zero_col_1_col_2);
+  foo_ags.emplace_back(&two, two_col_1_col_2);
+
+  ASSERT_OK(batch.PutEntity("foo", foo_ags));
+
+  TestHandler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(
+      "PutEntity(foo, 0_c_1_n:0_c_1_v "
+      "0_c_2_n:0_c_2_v)"
+      "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v "
+      "2_c_2_n:2_c_2_v)",
+      handler.seen);
+}
+
+TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
+  WriteBatch batch;
+  batch.SetSavePoint();
+
+  ColumnFamilyHandleImplDummy zero(0), two(2), three(3);
+  AttributeGroups foo_ags;
+  WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
+  WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
+  WideColumns zero_col_1_col_2{zero_col_1, zero_col_2};
+
+  WideColumn two_col_1{"2_c_1_n", "2_c_1_v"};
+  WideColumn two_col_2{"2_c_2_n", "2_c_2_v"};
+  WideColumns two_col_1_col_2{two_col_1, two_col_2};
+
+  foo_ags.emplace_back(&zero, zero_col_1_col_2);
+  foo_ags.emplace_back(&two, two_col_1_col_2);
+
+  AttributeGroups bar_ags;
+  WideColumn three_col_1{"3_c_1_n", "3_c_1_v"};
+  WideColumn three_col_2{"3_c_2_n", "3_c_2_v"};
+  WideColumns three_col_1_col_2{three_col_1, three_col_2};
+
+  bar_ags.emplace_back(&zero, zero_col_1_col_2);
+  bar_ags.emplace_back(&three, three_col_1_col_2);
+
+  ASSERT_OK(batch.PutEntity("foo", foo_ags));
+  batch.SetSavePoint();
+
+  ASSERT_OK(batch.PutEntity("bar", bar_ags));
+
+  TestHandler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(
+      "PutEntity(foo, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
+      "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v 2_c_2_n:2_c_2_v)"
+      "PutEntity(bar, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
+      "PutEntityCF(3, bar, 3_c_1_n:3_c_1_v 3_c_2_n:3_c_2_v)",
+      handler.seen);
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+
+  handler.seen.clear();
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(
+      "PutEntity(foo, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
+      "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v 2_c_2_n:2_c_2_v)",
+      handler.seen);
+}
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
@@ -649,6 +817,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  ASSERT_OK(batch.TimedPut(&zero, Slice("foo"), Slice("bar"),
+                           /*write_unix_time*/ 0u));
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
@@ -661,11 +831,11 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
       "DeleteRangeCF(2, 3foo, 4foo)"
       "MergeCF(3, threethree, 3three)"
       "Put(foo, bar)"
-      "Merge(omom, nom)",
+      "Merge(omom, nom)"
+      "TimedPut(foo, bar, 0)",
       handler.seen);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   WriteBatchWithIndex batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
@@ -677,6 +847,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   std::unique_ptr<WBWIIterator> iter;
 
@@ -684,15 +856,16 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   iter->Seek("eightfoo");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
+  // For the same key, most recent update is ordered first.
+  ASSERT_EQ(WriteType::kDeleteRecord, iter->Entry().type);
   ASSERT_EQ("eightfoo", iter->Entry().key.ToString());
-  ASSERT_EQ("bar8", iter->Entry().value.ToString());
 
   iter->Next();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(WriteType::kDeleteRecord, iter->Entry().type);
+  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
   ASSERT_EQ("eightfoo", iter->Entry().key.ToString());
+  ASSERT_EQ("bar8", iter->Entry().value.ToString());
 
   iter->Next();
   ASSERT_OK(iter->status());
@@ -702,15 +875,15 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   iter->Seek("twofoo");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
+  ASSERT_EQ(WriteType::kSingleDeleteRecord, iter->Entry().type);
   ASSERT_EQ("twofoo", iter->Entry().key.ToString());
-  ASSERT_EQ("bar2", iter->Entry().value.ToString());
 
   iter->Next();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(WriteType::kSingleDeleteRecord, iter->Entry().type);
+  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
   ASSERT_EQ("twofoo", iter->Entry().key.ToString());
+  ASSERT_EQ("bar2", iter->Entry().value.ToString());
 
   iter->Next();
   ASSERT_OK(iter->status());
@@ -767,7 +940,6 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
       "Merge(omom, nom)",
       handler.seen);
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(WriteBatchTest, SavePointTest) {
   Status s;
@@ -899,9 +1071,204 @@ TEST_F(WriteBatchTest, MemoryLimitTest) {
   ASSERT_TRUE(s.IsMemoryLimit());
 }
 
+namespace {
+class TimestampChecker : public WriteBatch::Handler {
+ public:
+  explicit TimestampChecker(
+      std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps, Slice ts)
+      : cf_to_ucmps_(std::move(cf_to_ucmps)), timestamp_(std::move(ts)) {}
+  Status PutCF(uint32_t cf, const Slice& key, const Slice& /*value*/) override {
+    auto cf_iter = cf_to_ucmps_.find(cf);
+    if (cf_iter == cf_to_ucmps_.end()) {
+      return Status::Corruption();
+    }
+    const Comparator* const ucmp = cf_iter->second;
+    assert(ucmp);
+    size_t ts_sz = ucmp->timestamp_size();
+    if (ts_sz == 0) {
+      return Status::OK();
+    }
+    if (key.size() < ts_sz) {
+      return Status::Corruption();
+    }
+    Slice ts = ExtractTimestampFromUserKey(key, ts_sz);
+    if (ts.compare(timestamp_) != 0) {
+      return Status::Corruption();
+    }
+    return Status::OK();
+  }
+
+ private:
+  std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps_;
+  Slice timestamp_;
+};
+
+Status CheckTimestampsInWriteBatch(
+    WriteBatch& wb, Slice timestamp,
+    std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps) {
+  TimestampChecker ts_checker(cf_to_ucmps, timestamp);
+  return wb.Iterate(&ts_checker);
+}
+}  // anonymous namespace
+
+TEST_F(WriteBatchTest, SanityChecks) {
+  ColumnFamilyHandleImplDummy cf0(0,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+  ColumnFamilyHandleImplDummy cf4(4);
+
+  WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
+
+  // Sanity checks for the new WriteBatch APIs with extra 'ts' arg.
+  ASSERT_TRUE(wb.Put(nullptr, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.DeleteRange(nullptr, "begin_key", "end_key", "ts")
+                  .IsInvalidArgument());
+
+  ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsInvalidArgument());
+
+  constexpr size_t wrong_ts_sz = 1 + sizeof(uint64_t);
+  std::string ts(wrong_ts_sz, '\0');
+
+  ASSERT_TRUE(wb.Put(&cf0, "key", ts, "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsInvalidArgument());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsInvalidArgument());
+
+  // Sanity checks for the new WriteBatch APIs without extra 'ts' arg.
+  WriteBatch wb1(0, 0, 0, wrong_ts_sz);
+  ASSERT_TRUE(wb1.Put(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Delete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.SingleDelete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Merge(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(
+      wb1.DeleteRange(&cf0, "begin_key", "end_key").IsInvalidArgument());
+}
+
+TEST_F(WriteBatchTest, UpdateTimestamps) {
+  // We assume the last eight bytes of each key is reserved for timestamps.
+  // Therefore, we must make sure each key is longer than eight bytes.
+  constexpr size_t key_size = 16;
+  constexpr size_t num_of_keys = 10;
+  std::vector<std::string> key_strs(num_of_keys, std::string(key_size, '\0'));
+
+  ColumnFamilyHandleImplDummy cf0(0);
+  ColumnFamilyHandleImplDummy cf4(4,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+  ColumnFamilyHandleImplDummy cf5(5,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+
+  const std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps = {
+      {0, cf0.GetComparator()},
+      {4, cf4.GetComparator()},
+      {5, cf5.GetComparator()}};
+
+  static constexpr size_t timestamp_size = sizeof(uint64_t);
+
+  {
+    WriteBatch wb1, wb2, wb3, wb4, wb5, wb6, wb7;
+    ASSERT_OK(wb1.Put(&cf0, "key", "value"));
+    ASSERT_FALSE(WriteBatchInternal::HasKeyWithTimestamp(wb1));
+    ASSERT_OK(wb2.Put(&cf4, "key", "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb2));
+    ASSERT_OK(wb3.Put(&cf4, "key", /*ts=*/std::string(timestamp_size, '\xfe'),
+                      "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb3));
+    ASSERT_OK(wb4.Delete(&cf4, "key",
+                         /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb4));
+    ASSERT_OK(wb5.Delete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb5));
+    ASSERT_OK(wb6.SingleDelete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb6));
+    ASSERT_OK(wb7.SingleDelete(&cf4, "key",
+                               /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb7));
+  }
+
+  WriteBatch batch;
+  // Write to the batch. We will assign timestamps later.
+  for (const auto& key_str : key_strs) {
+    ASSERT_OK(batch.Put(&cf0, key_str, "value"));
+    ASSERT_OK(batch.Put(&cf4, key_str, "value"));
+    ASSERT_OK(batch.Put(&cf5, key_str, "value"));
+  }
+
+  const auto checker1 = [](uint32_t cf) {
+    if (cf == 4 || cf == 5) {
+      return timestamp_size;
+    } else if (cf == 0) {
+      return static_cast<size_t>(0);
+    } else {
+      return std::numeric_limits<size_t>::max();
+    }
+  };
+  ASSERT_OK(
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xfe'), checker1));
+  ASSERT_OK(CheckTimestampsInWriteBatch(
+      batch, std::string(timestamp_size, '\xfe'), cf_to_ucmps));
+
+  // We use indexed_cf_to_ucmps, non_indexed_cfs_with_ts and timestamp_size to
+  // simulate the case in which a transaction enables indexing for some writes
+  // while disables indexing for other writes. A transaction uses a
+  // WriteBatchWithIndex object to buffer writes (we consider Write-committed
+  // policy only). If indexing is enabled, then writes go through
+  // WriteBatchWithIndex API populating a WBWI internal data structure, i.e. a
+  // mapping from cf to user comparators. If indexing is disabled, a transaction
+  // writes directly to the underlying raw WriteBatch. We will need to track the
+  // comparator information for the column families to which un-indexed writes
+  // are performed. When calling UpdateTimestamp API of WriteBatch, we need
+  // indexed_cf_to_ucmps, non_indexed_cfs_with_ts, and timestamp_size to perform
+  // checking.
+  std::unordered_map<uint32_t, const Comparator*> indexed_cf_to_ucmps = {
+      {0, cf0.GetComparator()}, {4, cf4.GetComparator()}};
+  std::unordered_set<uint32_t> non_indexed_cfs_with_ts = {cf5.GetID()};
+  const auto checker2 = [&indexed_cf_to_ucmps,
+                         &non_indexed_cfs_with_ts](uint32_t cf) {
+    if (non_indexed_cfs_with_ts.count(cf) > 0) {
+      return timestamp_size;
+    }
+    auto cf_iter = indexed_cf_to_ucmps.find(cf);
+    if (cf_iter == indexed_cf_to_ucmps.end()) {
+      assert(false);
+      return std::numeric_limits<size_t>::max();
+    }
+    const Comparator* const ucmp = cf_iter->second;
+    assert(ucmp);
+    return ucmp->timestamp_size();
+  };
+  ASSERT_OK(
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xef'), checker2));
+  ASSERT_OK(CheckTimestampsInWriteBatch(
+      batch, std::string(timestamp_size, '\xef'), cf_to_ucmps));
+}
+
+TEST_F(WriteBatchTest, CommitWithTimestamp) {
+  WriteBatch wb;
+  const std::string txn_name = "xid1";
+  std::string ts;
+  constexpr uint64_t commit_ts = 23;
+  PutFixed64(&ts, commit_ts);
+  ASSERT_OK(WriteBatchInternal::MarkCommitWithTimestamp(&wb, txn_name, ts));
+  TestHandler handler;
+  ASSERT_OK(wb.Iterate(&handler));
+  ASSERT_EQ("MarkCommitWithTimestamp(" + txn_name + ", " +
+                Slice(ts).ToString(true) + ")",
+            handler.seen);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

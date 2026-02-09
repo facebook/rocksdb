@@ -15,6 +15,7 @@
 
 #include "include/org_rocksdb_SstPartitionerFixedPrefixFactory.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -26,7 +27,7 @@ jlong Java_org_rocksdb_SstPartitionerFixedPrefixFactory_newSstPartitionerFixedPr
     JNIEnv*, jclass, jlong prefix_len) {
   auto* ptr = new std::shared_ptr<ROCKSDB_NAMESPACE::SstPartitionerFactory>(
       ROCKSDB_NAMESPACE::NewSstPartitionerFixedPrefixFactory(prefix_len));
-  return reinterpret_cast<jlong>(ptr);
+  return GET_CPLUSPLUS_POINTER(ptr);
 }
 
 /*
@@ -34,8 +35,8 @@ jlong Java_org_rocksdb_SstPartitionerFixedPrefixFactory_newSstPartitionerFixedPr
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstPartitionerFixedPrefixFactory_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
+void Java_org_rocksdb_SstPartitionerFixedPrefixFactory_disposeInternalJni(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* ptr = reinterpret_cast<
       std::shared_ptr<ROCKSDB_NAMESPACE::SstPartitionerFactory>*>(jhandle);
   delete ptr;  // delete std::shared_ptr

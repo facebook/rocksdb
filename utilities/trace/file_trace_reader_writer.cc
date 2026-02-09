@@ -31,6 +31,14 @@ Status FileTraceReader::Close() {
   return Status::OK();
 }
 
+Status FileTraceReader::Reset() {
+  if (file_reader_ == nullptr) {
+    return Status::IOError("TraceReader is closed.");
+  }
+  offset_ = 0;
+  return Status::OK();
+}
+
 Status FileTraceReader::Read(std::string* data) {
   assert(file_reader_ != nullptr);
   Status s = file_reader_->Read(IOOptions(), offset_, kTraceMetadataSize,
@@ -76,6 +84,10 @@ Status FileTraceReader::Read(std::string* data) {
   return s;
 }
 
+FileTraceWriter::FileTraceWriter(
+    std::unique_ptr<WritableFileWriter>&& file_writer)
+    : file_writer_(std::move(file_writer)) {}
+
 FileTraceWriter::~FileTraceWriter() { Close().PermitUncheckedError(); }
 
 Status FileTraceWriter::Close() {
@@ -84,7 +96,7 @@ Status FileTraceWriter::Close() {
 }
 
 Status FileTraceWriter::Write(const Slice& data) {
-  return file_writer_->Append(data);
+  return file_writer_->Append(IOOptions(), data);
 }
 
 uint64_t FileTraceWriter::GetFileSize() { return file_writer_->GetFileSize(); }

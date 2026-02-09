@@ -5,10 +5,8 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
-#include "rocksdb/options.h"
 #include "port/port.h"
+#include "rocksdb/options.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction_db.h"
 
@@ -33,6 +31,23 @@ class Random64;
 // RandomTransactionInserter with similar arguments using the same DB.
 class RandomTransactionInserter {
  public:
+  static bool RollbackDeletionTypeCallback(const Slice& key) {
+    // These are hard-coded atm. See how RandomTransactionInserter::DoInsert()
+    // determines whether to use SingleDelete or Delete for a key.
+    assert(key.size() >= 4);
+    const char* ptr = key.data();
+    assert(ptr);
+    while (ptr && ptr < key.data() + 4 && *ptr == '0') {
+      ++ptr;
+    }
+    std::string prefix(ptr, 4 - (ptr - key.data()));
+    unsigned long set_i = std::stoul(prefix);
+    assert(set_i > 0);
+    assert(set_i <= 9999);
+    --set_i;
+    return ((set_i % 4) != 0);
+  }
+
   // num_keys is the number of keys in each set.
   // num_sets is the number of sets of keys.
   // cmt_delay_ms is the delay between prepare (if there is any) and commit
@@ -128,5 +143,3 @@ class RandomTransactionInserter {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

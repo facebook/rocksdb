@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 
@@ -83,9 +82,9 @@ bool PersistentCacheTier::Erase(const Slice& /*key*/) {
 
 std::string PersistentCacheTier::PrintStats() {
   std::ostringstream os;
-  for (auto tier_stats : Stats()) {
+  for (const auto& tier_stats : Stats()) {
     os << "---- next tier -----" << std::endl;
-    for (auto stat : tier_stats) {
+    for (const auto& stat : tier_stats) {
       os << stat.first << ": " << stat.second << std::endl;
     }
   }
@@ -163,5 +162,3 @@ bool PersistentTieredCache::IsCompressed() {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/volatile_tier_impl.h"
 
@@ -107,7 +106,7 @@ Status VolatileCacheTier::Lookup(const Slice& page_key,
 }
 
 bool VolatileCacheTier::Erase(const Slice& /*key*/) {
-  assert(!"not supported");
+  assert(false && "not supported");
   return true;
 }
 
@@ -136,5 +135,3 @@ bool VolatileCacheTier::Evict() {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif

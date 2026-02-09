@@ -3,14 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "utilities/transactions/transaction_base.h"
 
 #include <cinttypes>
 
+#include "db/attribute_group_iterator_impl.h"
+#include "db/coalescing_iterator.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
@@ -19,6 +20,43 @@
 #include "utilities/transactions/lock/lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+Status Transaction::CommitAndTryCreateSnapshot(
+    std::shared_ptr<TransactionNotifier> notifier, TxnTimestamp ts,
+    std::shared_ptr<const Snapshot>* snapshot) {
+  if (snapshot) {
+    snapshot->reset();
+  }
+  TxnTimestamp commit_ts = GetCommitTimestamp();
+  if (commit_ts == kMaxTxnTimestamp) {
+    if (ts == kMaxTxnTimestamp) {
+      return Status::InvalidArgument("Commit timestamp unset");
+    } else {
+      const Status s = SetCommitTimestamp(ts);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  } else if (ts != kMaxTxnTimestamp) {
+    if (ts != commit_ts) {
+      // For now we treat this as error.
+      return Status::InvalidArgument("Different commit ts specified");
+    }
+  }
+  SetSnapshotOnNextOperation(notifier);
+  Status s = Commit();
+  if (!s.ok()) {
+    return s;
+  }
+  assert(s.ok());
+  // If we reach here, we must return ok status for this function.
+  std::shared_ptr<const Snapshot> new_snapshot = GetTimestampedSnapshot();
+
+  if (snapshot) {
+    *snapshot = new_snapshot;
+  }
+  return Status::OK();
+}
 
 TransactionBaseImpl::TransactionBaseImpl(
     DB* db, const WriteOptions& write_options,
@@ -29,8 +67,11 @@ TransactionBaseImpl::TransactionBaseImpl(
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       lock_tracker_factory_(lock_tracker_factory),
       start_time_(dbimpl_->GetSystemClock()->NowMicros()),
-      write_batch_(cmp_, 0, true, 0),
+      write_batch_(cmp_, 0, true, 0, write_options.protection_bytes_per_key),
       tracked_locks_(lock_tracker_factory_.Create()),
+      commit_time_batch_(0 /* reserved_bytes */, 0 /* max_bytes */,
+                         write_options.protection_bytes_per_key,
+                         0 /* default_cf_ts_sz */),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -50,6 +91,7 @@ void TransactionBaseImpl::Clear() {
   commit_time_batch_.Clear();
   tracked_locks_->Clear();
   num_puts_ = 0;
+  num_put_entities_ = 0;
   num_deletes_ = 0;
   num_merges_ = 0;
 
@@ -70,6 +112,14 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
+  WriteBatchInternal::SetDefaultColumnFamilyTimestampSize(
+      write_batch_.GetWriteBatch(), cmp_->timestamp_size());
+  WriteBatchInternal::UpdateProtectionInfo(
+      write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key)
+      .PermitUncheckedError();
+  WriteBatchInternal::UpdateProtectionInfo(
+      &commit_time_batch_, write_options_.protection_bytes_per_key)
+      .PermitUncheckedError();
 }
 
 void TransactionBaseImpl::SetSnapshot() {
@@ -124,10 +174,12 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
 
 void TransactionBaseImpl::SetSavePoint() {
   if (save_points_ == nullptr) {
-    save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>());
+    save_points_.reset(
+        new std::stack<TransactionBaseImpl::SavePoint,
+                       autovector<TransactionBaseImpl::SavePoint>>());
   }
   save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
-                        num_puts_, num_deletes_, num_merges_,
+                        num_puts_, num_put_entities_, num_deletes_, num_merges_,
                         lock_tracker_factory_);
   write_batch_.SetSavePoint();
 }
@@ -140,6 +192,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     snapshot_needed_ = save_point.snapshot_needed_;
     snapshot_notifier_ = save_point.snapshot_notifier_;
     num_puts_ = save_point.num_puts_;
+    num_put_entities_ = save_point.num_put_entities_;
     num_deletes_ = save_point.num_deletes_;
     num_merges_ = save_point.num_merges_;
 
@@ -160,8 +213,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
 }
 
 Status TransactionBaseImpl::PopSavePoint() {
-  if (save_points_ == nullptr ||
-      save_points_->empty()) {
+  if (save_points_ == nullptr || save_points_->empty()) {
     // No SavePoint yet.
     assert(write_batch_.PopSavePoint().IsNotFound());
     return Status::NotFound();
@@ -185,24 +237,65 @@ Status TransactionBaseImpl::PopSavePoint() {
   return write_batch_.PopSavePoint();
 }
 
-Status TransactionBaseImpl::Get(const ReadOptions& read_options,
+Status TransactionBaseImpl::Get(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, std::string* value) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+  auto s = GetImpl(read_options, column_family, key, value);
+  return s;
+}
+
+Status TransactionBaseImpl::GetImpl(const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key, std::string* value) {
   assert(value != nullptr);
   PinnableSlice pinnable_val(value);
   assert(!pinnable_val.IsPinned());
-  auto s = Get(read_options, column_family, key, &pinnable_val);
+  auto s = GetImpl(read_options, column_family, key, &pinnable_val);
   if (s.ok() && pinnable_val.IsPinned()) {
     value->assign(pinnable_val.data(), pinnable_val.size());
   }  // else value is already assigned
   return s;
 }
 
-Status TransactionBaseImpl::Get(const ReadOptions& read_options,
+Status TransactionBaseImpl::Get(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+  return GetImpl(read_options, column_family, key, pinnable_val);
+}
+
+Status TransactionBaseImpl::GetImpl(const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key,
+                                    PinnableSlice* pinnable_val) {
   return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
                                         pinnable_val);
+}
+
+Status TransactionBaseImpl::GetEntity(const ReadOptions& read_options,
+                                      ColumnFamilyHandle* column_family,
+                                      const Slice& key,
+                                      PinnableWideColumns* columns) {
+  return GetEntityImpl(read_options, column_family, key, columns);
 }
 
 Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
@@ -215,6 +308,11 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
   }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
@@ -222,7 +320,7 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
     assert(value != nullptr);
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
-    s = Get(read_options, column_family, key, &pinnable_val);
+    s = GetImpl(read_options, column_family, key, &pinnable_val);
     if (s.ok() && pinnable_val.IsPinned()) {
       value->assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
@@ -241,46 +339,116 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
   }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
   if (s.ok() && pinnable_val != nullptr) {
-    s = Get(read_options, column_family, key, pinnable_val);
+    s = GetImpl(read_options, column_family, key, pinnable_val);
   }
   return s;
 }
 
+Status TransactionBaseImpl::GetEntityForUpdate(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, bool exclusive,
+    bool do_validate) {
+  if (!do_validate && read_options.snapshot != nullptr) {
+    return Status::InvalidArgument(
+        "Snapshot must not be set if validation is disabled");
+  }
+
+  const Status s =
+      TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return GetEntityImpl(read_options, column_family, key, columns);
+}
+
 std::vector<Status> TransactionBaseImpl::MultiGet(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   size_t num_keys = keys.size();
-  values->resize(num_keys);
-
   std::vector<Status> stat_list(num_keys);
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      stat_list[i] = s;
+    }
+    return stat_list;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
+  values->resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
+    stat_list[i] =
+        GetImpl(read_options, column_family[i], keys[i], &(*values)[i]);
   }
 
   return stat_list;
 }
 
-void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
+void TransactionBaseImpl::MultiGet(const ReadOptions& _read_options,
                                    ColumnFamilyHandle* column_family,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
                                    const bool sorted_input) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
   write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
+}
+
+void TransactionBaseImpl::MultiGetEntity(const ReadOptions& read_options,
+                                         ColumnFamilyHandle* column_family,
+                                         size_t num_keys, const Slice* keys,
+                                         PinnableWideColumns* results,
+                                         Status* statuses, bool sorted_input) {
+  MultiGetEntityImpl(read_options, column_family, num_keys, keys, results,
+                     statuses, sorted_input);
 }
 
 std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  // Regardless of whether the MultiGet succeeded, track these keys.
   size_t num_keys = keys.size();
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    Status s = Status::InvalidArgument(
+        "Cannot call MultiGetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+    return std::vector<Status>(num_keys, s);
+  }
+  // Regardless of whether the MultiGet succeeded, track these keys.
   values->resize(num_keys);
 
   // Lock all keys
@@ -296,7 +464,8 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
   // TODO(agiardullo): optimize multiget?
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
+    stat_list[i] =
+        GetImpl(read_options, column_family[i], keys[i], &(*values)[i]);
   }
 
   return stat_list;
@@ -306,7 +475,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(db_->DefaultColumnFamily(), db_iter,
+                                          &read_options);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
@@ -316,6 +486,99 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
 
   return write_batch_.NewIteratorWithBase(column_family, db_iter,
                                           &read_options);
+}
+
+template <typename IterType, typename ImplType, typename ErrorIteratorFuncType>
+std::unique_ptr<IterType> TransactionBaseImpl::NewMultiCfIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    ErrorIteratorFuncType error_iterator_func) {
+  if (column_families.empty()) {
+    return error_iterator_func(
+        Status::InvalidArgument("No Column Family was provided"));
+  }
+
+  const Comparator* const first_comparator =
+      column_families[0]->GetComparator();
+  assert(first_comparator);
+
+  for (size_t i = 1; i < column_families.size(); ++i) {
+    const Comparator* cf_comparator = column_families[i]->GetComparator();
+    assert(cf_comparator);
+
+    if (first_comparator != cf_comparator &&
+        first_comparator->GetId() != cf_comparator->GetId()) {
+      return error_iterator_func(Status::InvalidArgument(
+          "Different comparators are being used across CFs"));
+    }
+  }
+
+  std::vector<Iterator*> child_iterators;
+  const Status s =
+      db_->NewIterators(read_options, column_families, &child_iterators);
+  if (!s.ok()) {
+    return error_iterator_func(s);
+  }
+
+  assert(column_families.size() == child_iterators.size());
+
+  std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
+      cfh_iter_pairs;
+  cfh_iter_pairs.reserve(column_families.size());
+  for (size_t i = 0; i < column_families.size(); ++i) {
+    cfh_iter_pairs.emplace_back(
+        column_families[i],
+        write_batch_.NewIteratorWithBase(column_families[i], child_iterators[i],
+                                         &read_options));
+  }
+
+  return std::make_unique<ImplType>(read_options,
+                                    column_families[0]->GetComparator(),
+                                    std::move(cfh_iter_pairs));
+}
+
+std::unique_ptr<Iterator> TransactionBaseImpl::GetCoalescingIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<Iterator, CoalescingIterator>(
+      read_options, column_families, [](const Status& s) {
+        return std::unique_ptr<Iterator>(NewErrorIterator(s));
+      });
+}
+
+std::unique_ptr<AttributeGroupIterator>
+TransactionBaseImpl::GetAttributeGroupIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<AttributeGroupIterator, AttributeGroupIteratorImpl>(
+      read_options, column_families,
+      [](const Status& s) { return NewAttributeGroupErrorIterator(s); });
+}
+
+Status TransactionBaseImpl::PutEntityImpl(ColumnFamilyHandle* column_family,
+                                          const Slice& key,
+                                          const WideColumns& columns,
+                                          bool do_validate,
+                                          bool assume_tracked) {
+  {
+    constexpr bool read_only = false;
+    constexpr bool exclusive = true;
+    const Status s = TryLock(column_family, key, read_only, exclusive,
+                             do_validate, assume_tracked);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  {
+    const Status s = GetBatchForWrite()->PutEntity(column_family, key, columns);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  ++num_put_entities_;
+  return Status::OK();
 }
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
@@ -545,6 +808,10 @@ uint64_t TransactionBaseImpl::GetElapsedTime() const {
 
 uint64_t TransactionBaseImpl::GetNumPuts() const { return num_puts_; }
 
+uint64_t TransactionBaseImpl::GetNumPutEntities() const {
+  return num_put_entities_;
+}
+
 uint64_t TransactionBaseImpl::GetNumDeletes() const { return num_deletes_; }
 
 uint64_t TransactionBaseImpl::GetNumMerges() const { return num_merges_; }
@@ -572,7 +839,8 @@ void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
   }
 }
 
-// Gets the write batch that should be used for Put/Merge/Deletes.
+// Gets the write batch that should be used for Put/PutEntity/Merge/Delete
+// operations.
 //
 // Returns either a WriteBatch or WriteBatchWithIndex depending on whether
 // DisableIndexing() has been called.
@@ -633,19 +901,37 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     }
 
     Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      return txn_->Put(db_->GetColumnFamilyHandle(cf), key, val);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->Put(db_->GetColumnFamilyHandle(cf), user_key, val);
+    }
+
+    Status PutEntityCF(uint32_t cf, const Slice& key,
+                       const Slice& entity) override {
+      Slice user_key = GetUserKey(cf, key);
+      Slice entity_copy = entity;
+      WideColumns columns;
+      const Status s =
+          WideColumnSerialization::Deserialize(entity_copy, columns);
+      if (!s.ok()) {
+        return s;
+      }
+
+      return txn_->PutEntity(db_->GetColumnFamilyHandle(cf), user_key, columns);
     }
 
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      return txn_->Delete(db_->GetColumnFamilyHandle(cf), key);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->Delete(db_->GetColumnFamilyHandle(cf), user_key);
     }
 
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-      return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), key);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), user_key);
     }
 
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      return txn_->Merge(db_->GetColumnFamilyHandle(cf), key, val);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->Merge(db_->GetColumnFamilyHandle(cf), user_key, val);
     }
 
     // this is used for reconstructing prepared transactions upon
@@ -661,8 +947,27 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       return Status::InvalidArgument();
     }
 
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
+    }
+    size_t GetTimestampSize(uint32_t cf_id) {
+      auto cfd = db_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      const Comparator* ucmp = cfd->user_comparator();
+      assert(ucmp);
+      return ucmp->timestamp_size();
+    }
+
+    Slice GetUserKey(uint32_t cf_id, const Slice& key) {
+      size_t ts_sz = GetTimestampSize(cf_id);
+      if (ts_sz == 0) {
+        return key;
+      }
+      assert(key.size() >= ts_sz);
+      return Slice(key.data(), key.size() - ts_sz);
     }
   };
 
@@ -674,5 +979,3 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
   return &commit_time_batch_;
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

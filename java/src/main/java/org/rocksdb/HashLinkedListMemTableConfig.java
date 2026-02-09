@@ -6,7 +6,7 @@ package org.rocksdb;
  * Such memtable contains a fix-sized array of buckets, where
  * each bucket points to a sorted singly-linked
  * list (or null if the bucket is empty).
- *
+ * <p>
  * Note that since this mem-table representation relies on the
  * key prefix, it is required to invoke one of the usePrefixExtractor
  * functions to specify how to extract key prefix given a key.
@@ -15,7 +15,7 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashLinkedListMemTableConfig extends MemTableConfig {
-  public static final long DEFAULT_BUCKET_COUNT = 50000;
+  public static final long DEFAULT_BUCKET_COUNT = 50_000;
   public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
   public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
   public static final boolean
@@ -125,7 +125,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * Returns information about logging the distribution of
    *  number of entries on flush.
    *
-   * @return if distrubtion of number of entries shall be logged.
+   * @return if distribution of number of entries shall be logged.
    */
   public boolean ifLogBucketDistWhenFlush() {
     return ifLogBucketDistWhenFlush_;
@@ -161,9 +161,8 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
         thresholdUseSkiplist_);
   }
 
-  private native long newMemTableFactoryHandle(long bucketCount,
-      long hugePageTlbSize, int bucketEntriesLoggingThreshold,
-      boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
+  private static native long newMemTableFactoryHandle(long bucketCount, long hugePageTlbSize,
+      int bucketEntriesLoggingThreshold, boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
       throws IllegalArgumentException;
 
   private long bucketCount_;

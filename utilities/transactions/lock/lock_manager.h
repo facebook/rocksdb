@@ -4,7 +4,6 @@
 // (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/transaction.h"
@@ -78,5 +77,3 @@ std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
                                             const TransactionDBOptions& opt);
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

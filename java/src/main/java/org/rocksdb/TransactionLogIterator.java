@@ -103,10 +103,13 @@ public class TransactionLogIterator extends RocksObject {
     private final WriteBatch writeBatch_;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
-  private native boolean isValid(long handle);
-  private native void next(long handle);
-  private native void status(long handle)
-      throws RocksDBException;
-  private native BatchResult getBatch(long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
+  private static native boolean isValid(long handle);
+  private static native void next(long handle);
+  private static native void status(long handle) throws RocksDBException;
+  private static native BatchResult getBatch(long handle);
 }

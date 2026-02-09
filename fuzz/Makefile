@@ -20,10 +20,10 @@ PROTO_IN = $(ROOT_DIR)/fuzz/proto
 PROTO_OUT = $(ROOT_DIR)/fuzz/proto/gen
 
 ifneq ($(FUZZ_ENV), ossfuzz)
-CC = clang++
+CC = $(CXX)
 CCFLAGS += -Wall -fsanitize=address,fuzzer
 CFLAGS += $(PLATFORM_CXXFLAGS) $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKSDB_INCLUDE_DIR) -I$(ROCKSDB_LIB_DIR)
-LDFLAGS += $(PLATFORM_LDFLAGS) $(PROTOBUF_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
+LDFLAGS += $(PLATFORM_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) $(PROTOBUF_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
 else
 # OSS-Fuzz sets various environment flags that are used for compilation.
 # These environment flags depend on which type of sanitizer build is being
@@ -42,14 +42,20 @@ CFLAGS += $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKS
 LDFLAGS += $(PLATFORM_LDFLAGS) $(LIB_FUZZING_ENGINE) $(PROTOBUF_MUTATOR_LDFLAGS) $(PROTOBUF_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
 endif
 
-.PHONY: gen_proto
+.PHONY: gen_proto clean
+
+# Set PROTOC_BIN when invoking `make` if a custom protoc is required.
+PROTOC_BIN ?= protoc
 
 gen_proto:
 	mkdir -p $(PROTO_OUT)
-	protoc \
+	$(PROTOC_BIN) \
 		--proto_path=$(PROTO_IN) \
 		--cpp_out=$(PROTO_OUT) \
 		$(PROTO_IN)/*.proto
+
+clean:
+	rm -rf db_fuzzer db_map_fuzzer sst_file_writer_fuzzer $(PROTO_OUT)
 
 db_fuzzer: db_fuzzer.cc
 	$(CC) $(CCFLAGS) -o db_fuzzer db_fuzzer.cc $(CFLAGS) $(LDFLAGS)

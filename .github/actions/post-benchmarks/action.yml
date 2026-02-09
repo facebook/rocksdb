@@ -1,0 +1,17 @@
+name: post-benchmarks
+runs:
+  using: composite
+  steps:
+  - name: Upload Benchmark Results artifact
+    uses: actions/upload-artifact@v4.0.0
+    with:
+      name: benchmark-results
+      path: "${{ runner.temp }}/benchmark-results/**"
+      if-no-files-found: error
+  - name: Send benchmark report to visualisation
+    run: |-
+      set +e
+      set +o pipefail
+      ./build_tools/benchmark_log_tool.py --tsvfile ${{ runner.temp }}/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3_rix/_doc
+      true
+    shell: bash

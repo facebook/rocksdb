@@ -7,8 +7,8 @@ package org.rocksdb;
 /**
  * A CompactionFilter allows an application to modify/delete a key-value at
  * the time of compaction.
- *
- * At present we just permit an overriding Java class to wrap a C++
+ * <p>
+ * At present, we just permit an overriding Java class to wrap a C++
  * implementation
  */
 public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
@@ -49,10 +49,10 @@ public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
 
   /**
    * Deletes underlying C++ compaction pointer.
-   *
+   * <p>
    * Note that this function should be called only after all
    * RocksDB instances referencing the compaction filter are closed.
-   * Otherwise an undefined behavior will occur.
+   * Otherwise, an undefined behavior will occur.
    */
   @Override
   protected final native void disposeInternal(final long handle);

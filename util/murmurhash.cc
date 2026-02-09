@@ -10,6 +10,7 @@
   is under the MIT license.
 */
 #include "murmurhash.h"
+
 #include "port/lang.h"
 
 #if defined(__x86_64__)
@@ -28,6 +29,7 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
+// clang-format off
 uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
 {
     const uint64_t m = 0xc6a4a7935bd1e995;
@@ -62,7 +64,7 @@ uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
     case 2: h ^= ((uint64_t)data2[1]) << 8;  FALLTHROUGH_INTENDED;
     case 1: h ^= ((uint64_t)data2[0]);
         h *= m;
-    };
+    }
 
     h ^= h >> r;
     h *= m;
@@ -70,6 +72,7 @@ uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
 
     return h;
 }
+// clang-format on
 
 #elif defined(__i386__)
 
@@ -85,7 +88,7 @@ uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
 // 1. It will not work incrementally.
 // 2. It will not produce the same results on little-endian and big-endian
 //    machines.
-
+// clang-format off
 unsigned int MurmurHash2 ( const void * key, int len, unsigned int seed )
 {
     // 'm' and 'r' are mixing constants generated offline.
@@ -136,6 +139,7 @@ unsigned int MurmurHash2 ( const void * key, int len, unsigned int seed )
 
     return h;
 }
+// clang-format on
 
 #else
 
@@ -143,7 +147,7 @@ unsigned int MurmurHash2 ( const void * key, int len, unsigned int seed )
 //
 // Same as MurmurHash2, but endian- and alignment-neutral.
 // Half the speed though, alas.
-
+// clang-format off
 unsigned int MurmurHashNeutral2 ( const void * key, int len, unsigned int seed )
 {
     const unsigned int m = 0x5bd1e995;
@@ -187,5 +191,6 @@ unsigned int MurmurHashNeutral2 ( const void * key, int len, unsigned int seed )
 
     return h;
 }
+// clang-format on
 
 #endif

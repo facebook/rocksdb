@@ -25,9 +25,9 @@ void MockSystemClock::InstallTimedWaitFixCallback() {
   // but is interpreted in real clock time.)
   SyncPoint::GetInstance()->SetCallBack(
       "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        uint64_t time_us = *static_cast<uint64_t*>(arg);
         if (time_us < this->RealNowMicros()) {
-          *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
+          *static_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
         }
       });
 #endif  // OS_MACOSX

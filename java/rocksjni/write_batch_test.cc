@@ -5,6 +5,8 @@
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::WriteBatch methods testing from Java side.
+#include "rocksdb/write_batch.h"
+
 #include <memory>
 
 #include "db/memtable.h"
@@ -18,10 +20,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 
@@ -47,7 +47,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   ROCKSDB_NAMESPACE::WriteBufferManager wb(options.db_write_buffer_size);
   options.memtable_factory = factory;
   ROCKSDB_NAMESPACE::MemTable* mem = new ROCKSDB_NAMESPACE::MemTable(
-      cmp, ROCKSDB_NAMESPACE::ImmutableCFOptions(options),
+      cmp, ROCKSDB_NAMESPACE::ImmutableOptions(options),
       ROCKSDB_NAMESPACE::MutableCFOptions(options), &wb,
       ROCKSDB_NAMESPACE::kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();
@@ -58,8 +58,10 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
                                                         nullptr, nullptr);
   unsigned int count = 0;
   ROCKSDB_NAMESPACE::Arena arena;
-  ROCKSDB_NAMESPACE::ScopedArenaIterator iter(
-      mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(), &arena));
+  ROCKSDB_NAMESPACE::ScopedArenaPtr<ROCKSDB_NAMESPACE::InternalIterator> iter(
+      mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(),
+                       /*seqno_to_time_mapping=*/nullptr, &arena,
+                       /*prefix_extractor=*/nullptr, /*for_flush=*/false));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ROCKSDB_NAMESPACE::ParsedInternalKey ikey;
     ikey.clear();
@@ -119,7 +121,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
     }
     state.append("@");
-    state.append(ROCKSDB_NAMESPACE::NumberToString(ikey.sequence));
+    state.append(std::to_string(ikey.sequence));
   }
   if (!s.ok()) {
     state.append(s.ToString());

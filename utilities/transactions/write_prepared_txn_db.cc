@@ -3,8 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 #include <algorithm>
@@ -15,6 +13,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -25,6 +24,18 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
+// This function is for testing only. If it returns true, then all entries in
+// the commit cache will be evicted. Unit and/or stress tests (db_stress)
+// can implement this function and customize how frequently commit cache
+// eviction occurs.
+// TODO: remove this function once we can configure commit cache to be very
+// small so that eviction occurs very frequently. This requires the commit
+// cache entry to be able to encode prepare and commit sequence numbers so that
+// the commit sequence number does not have to be within a certain range of
+// prepare sequence number.
+extern "C" bool rocksdb_write_prepared_TEST_ShouldClearCommitCache(void)
+    __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
 Status WritePreparedTxnDB::Initialize(
@@ -34,7 +45,7 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     // There should only one batch for WritePrepared policy.
     assert(rtxn.second->batches_.size() == 1);
     const auto& seq = rtxn.second->batches_.begin()->first;
@@ -96,7 +107,7 @@ Status WritePreparedTxnDB::VerifyCFOptions(
   if (!cf_options.memtable_factory->CanHandleDuplicatedKey()) {
     return Status::InvalidArgument(
         "memtable_factory->CanHandleDuplicatedKey() cannot be false with "
-        "WritePrpeared transactions");
+        "WritePrepared transactions");
   }
   return Status::OK();
 }
@@ -153,6 +164,15 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     // increased for this batch.
     return Status::OK();
   }
+
+  if (write_options_orig.protection_bytes_per_key > 0) {
+    auto s = WriteBatchInternal::UpdateProtectionInfo(
+        batch, write_options_orig.protection_bytes_per_key);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
     SubBatchCounter counter(*GetCFComparatorMap());
@@ -176,14 +196,14 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ZERO_PREPARES = 0;
-  const bool kSeperatePrepareCommitBatches = true;
+  const bool kSeparatePrepareCommitBatches = true;
   // Since this is not 2pc, there is no need for AddPrepared but having it in
   // the PreReleaseCallback enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       this, db_impl_, batch_cnt,
       db_impl_->immutable_db_options().two_write_queues,
-      !kSeperatePrepareCommitBatches);
+      !kSeparatePrepareCommitBatches);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       this, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, batch_cnt);
   PreReleaseCallback* pre_release_callback;
@@ -192,8 +212,8 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   } else {
     pre_release_callback = &add_prepared_callback;
   }
-  s = db_impl_->WriteImpl(write_options, batch, nullptr, nullptr, no_log_ref,
-                          !DISABLE_MEMTABLE, &seq_used, batch_cnt,
+  s = db_impl_->WriteImpl(write_options, batch, nullptr, nullptr, nullptr,
+                          no_log_ref, !DISABLE_MEMTABLE, &seq_used, batch_cnt,
                           pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   uint64_t prepare_seq = seq_used;
@@ -219,16 +239,38 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   write_options.sync = false;
   const size_t ONE_BATCH = 1;  // Just to inc the seq
   s = db_impl_->WriteImpl(write_options, &empty_batch, nullptr, nullptr,
-                          no_log_ref, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_prepare);
+                          nullptr, no_log_ref, DISABLE_MEMTABLE, &seq_used,
+                          ONE_BATCH, &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Note: RemovePrepared is called from within PreReleaseCallback
   return s;
 }
 
-Status WritePreparedTxnDB::Get(const ReadOptions& options,
+Status WritePreparedTxnDB::Get(const ReadOptions& _read_options,
                                ColumnFamilyHandle* column_family,
-                               const Slice& key, PinnableSlice* value) {
+                               const Slice& key, PinnableSlice* value,
+                               std::string* timestamp) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  return GetImpl(read_options, column_family, key, value);
+}
+
+Status WritePreparedTxnDB::GetImpl(const ReadOptions& options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
@@ -245,6 +287,7 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                                   backed_by_snapshot))) {
     return res;
   } else {
+    res.PermitUncheckedError();
     WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }
@@ -286,20 +329,45 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   handle_map_.reset(handle_map);
 }
 
-
-std::vector<Status> WritePreparedTxnDB::MultiGet(
-    const ReadOptions& options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+void WritePreparedTxnDB::MultiGet(const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool /*sorted_input*/) {
   assert(values);
-  size_t num_keys = keys.size();
-  values->resize(num_keys);
 
-  std::vector<Status> stat_list(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = this->Get(options, column_family[i], keys[i], &(*values)[i]);
+  Status s;
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
   }
-  return stat_list;
+
+  if (s.ok()) {
+    if (timestamps) {
+      s = Status::NotSupported(
+          "MultiGet() returning timestamps not implemented.");
+    }
+  }
+
+  if (!s.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    statuses[i] =
+        this->GetImpl(read_options, column_families[i], keys[i], &values[i]);
+  }
 }
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
@@ -316,21 +384,31 @@ struct WritePreparedTxnDB::IteratorState {
 
 namespace {
 static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
-  delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
+  delete static_cast<WritePreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
 
-Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
+Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& _read_options,
                                           ColumnFamilyHandle* column_family) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   constexpr bool expose_blob_index = false;
   constexpr bool allow_refresh = false;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    snapshot_seq = options.snapshot->GetSequenceNumber();
+  if (read_options.snapshot != nullptr) {
+    snapshot_seq = read_options.snapshot->GetSequenceNumber();
     min_uncommitted =
-        static_cast_with_check<const SnapshotImpl>(options.snapshot)
+        static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
             ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
@@ -342,30 +420,42 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
   assert(snapshot_seq != kMaxSequenceNumber);
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto* cfd = cfh->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-  auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                expose_blob_index, allow_refresh);
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
+  auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfh, super_version,
+                                            snapshot_seq, &state->callback,
+                                            expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
 
 Status WritePreparedTxnDB::NewIterators(
-    const ReadOptions& options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   constexpr bool expose_blob_index = false;
   constexpr bool allow_refresh = false;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    snapshot_seq = options.snapshot->GetSequenceNumber();
+  if (read_options.snapshot != nullptr) {
+    snapshot_seq = read_options.snapshot->GetSequenceNumber();
     min_uncommitted =
-        static_cast_with_check<const SnapshotImpl>(options.snapshot)
+        static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
             ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
@@ -379,21 +469,22 @@ Status WritePreparedTxnDB::NewIterators(
   iterators->clear();
   iterators->reserve(column_families.size());
   for (auto* column_family : column_families) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    auto* cfd = cfh->cfd();
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-    auto* db_iter =
-        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                  expose_blob_index, allow_refresh);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
+    auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfh, super_version,
+                                              snapshot_seq, &state->callback,
+                                              expose_blob_index, allow_refresh);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
     iterators->push_back(db_iter);
   }
   return Status::OK();
 }
 
-void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
-  // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
+void WritePreparedTxnDB::Init(const TransactionDBOptions& txn_db_opts) {
+  // Advance max_evicted_seq_ no more than 100 times before the cache wraps
   // around.
   INC_STEP_FOR_MAX_EVICTED =
       std::max(COMMIT_CACHE_SIZE / 100, static_cast<size_t>(1));
@@ -402,6 +493,8 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
   commit_cache_ = std::unique_ptr<std::atomic<CommitEntry64b>[]>(
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
   dummy_max_snapshot_.number_ = kMaxSequenceNumber;
+  rollback_deletion_type_callback_ =
+      txn_db_opts.rollback_deletion_type_callback;
 }
 
 void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
@@ -431,7 +524,7 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
       delayed_prepared_.insert(to_be_popped);
       ROCKS_LOG_WARN(info_log_,
                      "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
-                     " new_max=%" PRIu64,
+                     " new_max=%" PRIu64 ")",
                      static_cast<uint64_t>(delayed_prepared_.size()),
                      to_be_popped, new_max);
       delayed_prepared_empty_.store(false, std::memory_order_release);
@@ -501,6 +594,12 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
         // legit when a commit entry in a write batch overwrite the previous one
         max_evicted_seq = evicted.commit_seq;
       }
+#ifdef OS_LINUX
+      if (rocksdb_write_prepared_TEST_ShouldClearCommitCache &&
+          rocksdb_write_prepared_TEST_ShouldClearCommitCache()) {
+        max_evicted_seq = last;
+      }
+#endif  // OS_LINUX
       ROCKS_LOG_DETAILS(info_log_,
                         "%lu Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64
                         " => %lu",
@@ -508,24 +607,22 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                         prev_max, max_evicted_seq);
       AdvanceMaxEvictedSeq(prev_max, max_evicted_seq);
     }
+    if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
+      WriteLock wl(&prepared_mutex_);
+      auto dp_iter = delayed_prepared_.find(evicted.prep_seq);
+      if (dp_iter != delayed_prepared_.end()) {
+        // This is a rare case that txn is committed but prepared_txns_ is not
+        // cleaned up yet. Refer to delayed_prepared_commits_ definition for
+        // why it should be kept updated.
+        delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
+        ROCKS_LOG_DEBUG(info_log_,
+                        "delayed_prepared_commits_[%" PRIu64 "]=%" PRIu64,
+                        evicted.prep_seq, evicted.commit_seq);
+      }
+    }
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
     CheckAgainstSnapshots(evicted);
-    if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
-      WriteLock wl(&prepared_mutex_);
-      for (auto dp : delayed_prepared_) {
-        if (dp == evicted.prep_seq) {
-          // This is a rare case that txn is committed but prepared_txns_ is not
-          // cleaned up yet. Refer to delayed_prepared_commits_ definition for
-          // why it should be kept updated.
-          delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
-          ROCKS_LOG_DEBUG(info_log_,
-                          "delayed_prepared_commits_[%" PRIu64 "]=%" PRIu64,
-                          evicted.prep_seq, evicted.commit_seq);
-          break;
-        }
-      }
-    }
   }
   bool succ =
       ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
@@ -550,7 +647,7 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
                                         const size_t batch_cnt) {
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
-      const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+      const_cast<void*>(static_cast<const void*>(&prepare_seq)));
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:pause");
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:resume");
   ROCKS_LOG_DETAILS(info_log_,
@@ -579,7 +676,8 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) const {
-  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(std::memory_order_acquire);
+  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(
+      std::memory_order_acquire);
   bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
   return valid;
 }
@@ -588,8 +686,9 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
                                         const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
-  CommitEntry64b evicted_entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
-      new_entry_64b, std::memory_order_acq_rel);
+  CommitEntry64b evicted_entry_64b =
+      commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
+          new_entry_64b, std::memory_order_acq_rel);
   bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
   return valid;
 }
@@ -632,7 +731,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
   bool update_snapshots = false;
   if (new_snapshots_version > snapshots_version_) {
     // This is to avoid updating the snapshots_ if it already updated
-    // with a more recent vesion by a concrrent thread
+    // with a more recent version by a concurrent thread
     update_snapshots = true;
     // We only care about snapshots lower then max
     snapshots = GetSnapshotListFromDB(new_max);
@@ -706,9 +805,10 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     assert(snap_impl->GetSequenceNumber() > max);
     if (snap_impl->GetSequenceNumber() <= max) {
       throw std::runtime_error(
-          "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
-          " after " + ToString(retry) +
-          " retries is still less than futre_max_evicted_seq_" + ToString(max));
+          "Snapshot seq " + std::to_string(snap_impl->GetSequenceNumber()) +
+          " after " + std::to_string(retry) +
+          " retries is still less than future_max_evicted_seq_" +
+          std::to_string(max));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);
@@ -724,6 +824,7 @@ void WritePreparedTxnDB::AdvanceSeqByOne() {
   // Inserting an empty value will i) let the max evicted entry to be
   // published, i.e., max == last_published, increase the last published to
   // be one beyond max, i.e., max < last_published.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   WriteOptions woptions;
   TransactionOptions txn_options;
   Transaction* txn0 = BeginTransaction(woptions, txn_options, nullptr);
@@ -829,9 +930,9 @@ void WritePreparedTxnDB::UpdateSnapshots(
   // both new and old lists, it will appear upper in the new list. So if
   // we simply insert the new snapshots in order, if an overwritten item
   // is still valid in the new list is either written to the same place in
-  // the array or it is written in a higher palce before it gets
-  // overwritten by another item. This guarantess a reader that reads the
-  // list bottom-up will eventaully see a snapshot that repeats in the
+  // the array or it is written in a higher place before it gets
+  // overwritten by another item. This guarantee a reader that reads the
+  // list bottom-up will eventually see a snapshot that repeats in the
   // update, either before it gets overwritten by the writer or
   // afterwards.
   size_t i = 0;
@@ -880,7 +981,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   // reader should be able to read all the snapshots that are still valid
   // after the update. Since the survived snapshots are written in a higher
   // place before gets overwritten the reader that reads bottom-up will
-  // eventully see it.
+  // eventually see it.
   const bool next_is_larger = true;
   // We will set to true if the border line snapshot suggests that.
   bool search_larger_list = false;
@@ -902,7 +1003,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
     }
   }
 #ifndef NDEBUG
-  // Release the remaining sync points before accquiring the lock
+  // Release the remaining sync points before acquiring the lock
   for (++sync_i; sync_i <= 10; ++sync_i) {
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:", sync_i);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
@@ -919,7 +1020,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
                    evicted.prep_seq, evicted.commit_seq, cnt);
     ReadLock rl(&snapshots_mutex_);
     // Items could have moved from the snapshots_ to snapshot_cache_ before
-    // accquiring the lock. To make sure that we do not miss a valid snapshot,
+    // acquiring the lock. To make sure that we do not miss a valid snapshot,
     // read snapshot_cache_ again while holding the lock.
     for (size_t i = 0; i < SNAPSHOT_CACHE_SIZE; i++) {
       SequenceNumber snapshot_seq =
@@ -996,4 +1097,3 @@ void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

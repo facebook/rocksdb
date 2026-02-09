@@ -43,14 +43,15 @@
 #pragma once
 #include <assert.h>
 #include <stdlib.h>
-#include <algorithm>
-#include <atomic>
+
 #include <type_traits>
+
 #include "memory/allocator.h"
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
-#include "util/coding.h"
+#include "test_util/sync_point.h"
+#include "util/atomic.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -62,8 +63,8 @@ class InlineSkipList {
   struct Splice;
 
  public:
-  using DecodedKey = \
-    typename std::remove_reference<Comparator>::type::DecodedType;
+  using DecodedKey =
+      typename std::remove_reference<Comparator>::type::DecodedType;
 
   static const uint16_t kMaxPossibleHeight = 32;
 
@@ -138,8 +139,9 @@ class InlineSkipList {
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const;
 
-  // Return estimated number of entries smaller than `key`.
-  uint64_t EstimateCount(const char* key) const;
+  // Return estimated number of entries from `start_ikey` to `end_ikey`.
+  uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                 const Slice& end_ikey) const;
 
   // Validate correctness of the skip-list.
   void TEST_Validate() const;
@@ -167,15 +169,28 @@ class InlineSkipList {
     // REQUIRES: Valid()
     void Next();
 
+    [[nodiscard]] Status NextAndValidate(bool allow_data_in_errors);
+
     // Advances to the previous position.
     // REQUIRES: Valid()
     void Prev();
 
+    [[nodiscard]] Status PrevAndValidate(bool allow_data_in_errors);
+
     // Advance to the first entry with a key >= target
     void Seek(const char* target);
 
+    [[nodiscard]] Status SeekAndValidate(
+        const char* target, bool allow_data_in_errors,
+        bool detect_key_out_of_order,
+        const std::function<Status(const char*, bool)>&
+            key_validation_callback);
+
     // Retreat to the last entry with a key <= target
     void SeekForPrev(const char* target);
+
+    // Advance to a random entry in the list.
+    void RandomSeek();
 
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
@@ -201,18 +216,17 @@ class InlineSkipList {
   Comparator const compare_;
   Node* const head_;
 
-  // Modified only by Insert().  Read racily by readers, but stale
-  // values are ok.
-  std::atomic<int> max_height_;  // Height of the entire list
+  // Maximum height of any node in the list (or in the process of being added).
+  //  Modified only by Insert().  Relaxed reads are always OK because starting
+  // from higher levels only helps efficiency, not correctness.
+  RelaxedAtomic<int> max_height_;
 
   // seq_splice_ is a Splice used for insertions in the non-concurrent
   // case.  It caches the prev and next found during the most recent
   // non-concurrent insertion.
   Splice* seq_splice_;
 
-  inline int GetMaxHeight() const {
-    return max_height_.load(std::memory_order_relaxed);
-  }
+  inline int GetMaxHeight() const { return max_height_.LoadRelaxed(); }
 
   int RandomHeight();
 
@@ -232,25 +246,30 @@ class InlineSkipList {
   bool KeyIsAfterNode(const DecodedKey& key, Node* n) const;
 
   // Returns the earliest node with a key >= key.
-  // Return nullptr if there is no such node.
-  Node* FindGreaterOrEqual(const char* key) const;
+  // Returns OK, if no corruption is found.
+  // node is set to the found node, or to nullptr if no node is found.
+  // Returns Corruption if a corruption is found.
+  Status FindGreaterOrEqual(const char* key, Node** node,
+                            bool detect_key_out_of_order,
+                            bool allow_data_in_errors,
+                            const std::function<Status(const char*, bool)>&
+                                key_validation_callback) const;
 
-  // Return the latest node with a key < key.
-  // Return head_ if there is no such node.
+  // Returns the latest node with a key < key.
+  // Returns head_ if there is no such node.
   // Fills prev[level] with pointer to previous node at "level" for every
   // level in [0..max_height_-1], if prev is non-null.
-  Node* FindLessThan(const char* key, Node** prev = nullptr) const;
-
-  // Return the latest node with a key < key on bottom_level. Start searching
-  // from root node on the level below top_level.
-  // Fills prev[level] with pointer to previous node at "level" for every
-  // level in [bottom_level..top_level-1], if prev is non-null.
-  Node* FindLessThan(const char* key, Node** prev, Node* root, int top_level,
-                     int bottom_level) const;
+  // @param corrupted_node If not null, will validate the order of visited
+  // nodes. If a pair of out-of-order nodes n1 and n2 are found, n1 will be
+  // returned and *corrupted_node will be set to n2.
+  Node* FindLessThan(const char* key, Node** corrupted_node) const;
 
   // Return the last node in the list.
   // Return head_ if list is empty.
   Node* FindLast() const;
+
+  // Returns a random entry.
+  Node* FindRandomEntry() const;
 
   // Traverses a single level of the list, setting *out_prev to the last
   // node before the key and *out_next to the first node after. Assumes
@@ -258,14 +277,16 @@ class InlineSkipList {
   // point to a node that is before the key, and after should point to
   // a node that is after the key.  after should be nullptr if a good after
   // node isn't conveniently available.
-  template<bool prefetch_before>
-  void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after, int level,
-                          Node** out_prev, Node** out_next);
+  template <bool prefetch_before>
+  void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after,
+                          int level, Node** out_prev, Node** out_next);
 
   // Recomputes Splice levels from highest_level (inclusive) down to
   // lowest_level (inclusive).
   void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
                              int recompute_level);
+
+  static Status Corruption(Node* prev, Node* next, bool allow_data_in_errors);
 };
 
 // Implementation details follow
@@ -293,7 +314,7 @@ struct InlineSkipList<Comparator>::Node {
   // Stores the height of the node in the memory location normally used for
   // next_[0].  This is used for passing data from AllocateKey to Insert.
   void StashHeight(const int height) {
-    assert(sizeof(int) <= sizeof(next_[0]));
+    static_assert(sizeof(int) <= sizeof(next_[0]));
     memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
   }
 
@@ -314,30 +335,30 @@ struct InlineSkipList<Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return ((&next_[0] - n)->load(std::memory_order_acquire));
+    return ((&next_[0] - n)->Load());
   }
 
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    (&next_[0] - n)->store(x, std::memory_order_release);
+    (&next_[0] - n)->Store(x);
   }
 
   bool CASNext(int n, Node* expected, Node* x) {
     assert(n >= 0);
-    return (&next_[0] - n)->compare_exchange_strong(expected, x);
+    return (&next_[0] - n)->CasStrong(expected, x);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return (&next_[0] - n)->load(std::memory_order_relaxed);
+    return (&next_[0] - n)->LoadRelaxed();
   }
 
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    (&next_[0] - n)->store(x, std::memory_order_relaxed);
+    (&next_[0] - n)->StoreRelaxed(x);
   }
 
   // Insert node after prev on specific level.
@@ -351,7 +372,7 @@ struct InlineSkipList<Comparator>::Node {
  private:
   // next_[0] is the lowest level link (level 0).  Higher levels are
   // stored _earlier_, so level 1 is at next_[-1].
-  std::atomic<Node*> next_[1];
+  Atomic<Node*> next_[1];
 };
 
 template <class Comparator>
@@ -381,7 +402,36 @@ inline const char* InlineSkipList<Comparator>::Iterator::key() const {
 template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::Next() {
   assert(Valid());
+
+  // Capture the key before move on to next node
+  TEST_SYNC_POINT_CALLBACK(
+      "InlineSkipList::Iterator::Next::key",
+      static_cast<void*>(const_cast<char*>((node_->Key()))));
+
   node_ = node_->Next(0);
+}
+
+template <class Comparator>
+inline Status InlineSkipList<Comparator>::Iterator::NextAndValidate(
+    bool allow_data_in_errors) {
+  assert(Valid());
+
+  // Capture the key before move on to next node
+  TEST_SYNC_POINT_CALLBACK(
+      "InlineSkipList::Iterator::Next::key",
+      static_cast<void*>(const_cast<char*>((node_->Key()))));
+
+  Node* prev_node = node_;
+  node_ = node_->Next(0);
+  // Verify that keys are increasing.
+  if (prev_node != list_->head_ && node_ != nullptr &&
+      list_->compare_(prev_node->Key(), node_->Key()) >= 0) {
+    Node* node = node_;
+    // invalidates the iterator
+    node_ = nullptr;
+    return Corruption(prev_node, node, allow_data_in_errors);
+  }
+  return Status::OK();
 }
 
 template <class Comparator>
@@ -389,15 +439,45 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
-  node_ = list_->FindLessThan(node_->Key());
+  node_ = list_->FindLessThan(node_->Key(), nullptr);
   if (node_ == list_->head_) {
     node_ = nullptr;
   }
 }
 
 template <class Comparator>
+inline Status InlineSkipList<Comparator>::Iterator::PrevAndValidate(
+    const bool allow_data_in_errors) {
+  assert(Valid());
+  // Skip list validation is done in FindLessThan().
+  Node* corrupted_node = nullptr;
+  node_ = list_->FindLessThan(node_->Key(), &corrupted_node);
+  if (corrupted_node) {
+    Node* node = node_;
+    node_ = nullptr;
+    return Corruption(node, corrupted_node, allow_data_in_errors);
+  }
+  if (node_ == list_->head_) {
+    node_ = nullptr;
+  }
+  return Status::OK();
+}
+
+template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
-  node_ = list_->FindGreaterOrEqual(target);
+  auto status =
+      list_->FindGreaterOrEqual(target, &node_, false, false, nullptr);
+  assert(status.ok());
+}
+
+template <class Comparator>
+inline Status InlineSkipList<Comparator>::Iterator::SeekAndValidate(
+    const char* target, const bool allow_data_in_errors,
+    bool check_key_out_of_order,
+    const std::function<Status(const char*, bool)>& key_validation_callback) {
+  return list_->FindGreaterOrEqual(target, &node_, allow_data_in_errors,
+                                   check_key_out_of_order,
+                                   key_validation_callback);
 }
 
 template <class Comparator>
@@ -410,6 +490,11 @@ inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
   while (Valid() && list_->LessThan(target, key())) {
     Prev();
   }
+}
+
+template <class Comparator>
+inline void InlineSkipList<Comparator>::Iterator::RandomSeek() {
+  node_ = list_->FindRandomEntry();
 }
 
 template <class Comparator>
@@ -435,6 +520,7 @@ int InlineSkipList<Comparator>::RandomHeight() {
          rnd->Next() < kScaledInverseBranching_) {
     height++;
   }
+  TEST_SYNC_POINT_CALLBACK("InlineSkipList::RandomHeight::height", &height);
   assert(height > 0);
   assert(height <= kMaxHeight_);
   assert(height <= kMaxPossibleHeight);
@@ -458,14 +544,18 @@ bool InlineSkipList<Comparator>::KeyIsAfterNode(const DecodedKey& key,
 }
 
 template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
+Status InlineSkipList<Comparator>::FindGreaterOrEqual(
+    const char* key, Node** node, bool allow_data_in_errors,
+    bool detect_key_out_of_order,
+    const std::function<Status(const char*, bool)>& key_validation_callback)
+    const {
   // Note: It looks like we could reduce duplication by implementing
   // this function as FindLessThan(key)->Next(0), but we wouldn't be able
   // to exit early on equality and the result wouldn't even be correct.
   // A concurrent insert might occur after FindLessThan(key) but before
   // we get a chance to call Next(0).
   Node* x = head_;
+  *node = nullptr;
   int level = GetMaxHeight() - 1;
   Node* last_bigger = nullptr;
   const DecodedKey key_decoded = compare_.decode_key(key);
@@ -473,6 +563,17 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
     Node* next = x->Next(level);
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
+      if (detect_key_out_of_order && x != head_ &&
+          compare_(x->Key(), next->Key()) >= 0) {
+        return Corruption(x, next, allow_data_in_errors);
+      }
+      if (key_validation_callback != nullptr) {
+        auto status =
+            key_validation_callback(next->Key(), allow_data_in_errors);
+        if (!status.ok()) {
+          return status;
+        }
+      }
     }
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
@@ -482,7 +583,8 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
                   ? 1
                   : compare_(next->Key(), key_decoded);
     if (cmp == 0 || (cmp > 0 && level == 0)) {
-      return next;
+      *node = next;
+      return Status::OK();
     } else if (cmp < 0) {
       // Keep searching in this list
       x = next;
@@ -496,18 +598,11 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
 
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev) const {
-  return FindLessThan(key, prev, head_, GetMaxHeight(), 0);
-}
-
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
-                                         Node* root, int top_level,
-                                         int bottom_level) const {
-  assert(top_level > bottom_level);
-  int level = top_level - 1;
-  Node* x = root;
+InlineSkipList<Comparator>::FindLessThan(const char* key,
+                                         Node** const out_of_order_node) const {
+  int level = GetMaxHeight() - 1;
+  assert(level >= 0);
+  Node* x = head_;
   // KeyIsAfter(key, last_not_after) is definitely false
   Node* last_not_after = nullptr;
   const DecodedKey key_decoded = compare_.decode_key(key);
@@ -516,6 +611,11 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
     Node* next = x->Next(level);
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
+      if (out_of_order_node && x != head_ &&
+          compare_(x->Key(), next->Key()) >= 0) {
+        *out_of_order_node = next;
+        return x;
+      }
     }
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     assert(x == head_ || KeyIsAfterNode(key_decoded, x));
@@ -524,10 +624,7 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
       assert(next != nullptr);
       x = next;
     } else {
-      if (prev != nullptr) {
-        prev[level] = x;
-      }
-      if (level == bottom_level) {
+      if (level == 0) {
         return x;
       } else {
         // Switch to next list, reuse KeyIsAfterNode() result
@@ -559,31 +656,130 @@ InlineSkipList<Comparator>::FindLast() const {
 }
 
 template <class Comparator>
-uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
-  uint64_t count = 0;
+typename InlineSkipList<Comparator>::Node*
+InlineSkipList<Comparator>::FindRandomEntry() const {
+  // TODO(bjlemaire): consider adding PREFETCH calls.
+  Node *x = head_, *scan_node = nullptr, *limit_node = nullptr;
 
-  Node* x = head_;
+  // We start at the max level.
+  // FOr each level, we look at all the nodes at the level, and
+  // we randomly pick one of them. Then decrement the level
+  // and reiterate the process.
+  // eg: assume GetMaxHeight()=5, and there are #100 elements (nodes).
+  // level 4 nodes: lvl_nodes={#1, #15, #67, #84}. Randomly pick #15.
+  // We will consider all the nodes between #15 (inclusive) and #67
+  // (exclusive). #67 is called 'limit_node' here.
+  // level 3 nodes: lvl_nodes={#15, #21, #45, #51}. Randomly choose
+  // #51. #67 remains 'limit_node'.
+  // [...]
+  // level 0 nodes: lvl_nodes={#56,#57,#58,#59}. Randomly pick $57.
+  // Return Node #57.
+  std::vector<Node*> lvl_nodes;
+  Random* rnd = Random::GetTLSInstance();
   int level = GetMaxHeight() - 1;
-  const DecodedKey key_decoded = compare_.decode_key(key);
-  while (true) {
-    assert(x == head_ || compare_(x->Key(), key_decoded) < 0);
-    Node* next = x->Next(level);
-    if (next != nullptr) {
-      PREFETCH(next->Next(level), 0, 1);
+
+  while (level >= 0) {
+    lvl_nodes.clear();
+    scan_node = x;
+    while (scan_node != limit_node) {
+      lvl_nodes.push_back(scan_node);
+      scan_node = scan_node->Next(level);
     }
-    if (next == nullptr || compare_(next->Key(), key_decoded) >= 0) {
-      if (level == 0) {
-        return count;
-      } else {
-        // Switch to next list
-        count *= kBranching_;
-        level--;
+    uint32_t rnd_idx = rnd->Next() % lvl_nodes.size();
+    x = lvl_nodes[rnd_idx];
+    if (rnd_idx + 1 < lvl_nodes.size()) {
+      limit_node = lvl_nodes[rnd_idx + 1];
+    }
+    level--;
+  }
+  // There is a special case where x could still be the head_
+  // (note that the head_ contains no key).
+  return x == head_ && head_ != nullptr ? head_->Next(0) : x;
+}
+
+template <class Comparator>
+uint64_t InlineSkipList<Comparator>::ApproximateNumEntries(
+    const Slice& start_ikey, const Slice& end_ikey) const {
+  // The number of entries at a given level for the given range, in terms of
+  // the actual number of entries in that range (level 0), follows a binomial
+  // distribution, which is very well approximated by the Poisson distribution.
+  // That has stddev sqrt(x) where x is the expected number of entries (mean)
+  // at this level, and the best predictor of x is the number of observed
+  // entries (at this level). To predict the number of entries on level 0 we use
+  // x * kBranchinng ^ level. From the standard deviation, the P99+ relative
+  // error is roughly 3 * sqrt(x) / x. Thus, a reasonable approach would be to
+  // find the smallest level with at least some moderate constant number entries
+  // in range. E.g. with at least ~40 entries, we expect P99+ relative error
+  // (approximation accuracy) of ~ 50% = 3 * sqrt(40) / 40; P95 error of
+  // ~30%; P75 error of < 20%.
+  //
+  // However, there are two issues with this approach, and an observation:
+  // * Pointer chasing on the larger (bottom) levels is much slower because of
+  // cache hierarchy effects, so when the result is smaller, getting the result
+  // will be substantially slower, despite traversing a similar number of
+  // entries. (We could be clever about pipelining our pointer chasing but
+  // that's complicated.)
+  // * The larger (bottom) levels also have lower variance because there's a
+  // chance (or certainty) that we reach level 0 and return the exact answer.
+  // * For applications in query planning, we can also tolerate more variance on
+  // small results because the impact of misestimating is likely smaller.
+  //
+  // These factors point us to an approach in which we have a higher minimum
+  // threshold number of samples for higher levels and lower for lower levels
+  // (see sufficient_samples below). This seems to yield roughly consistent
+  // relative error (stddev around 20%, less for large results) and roughly
+  // consistent query time around the time of two memtable point queries.
+  //
+  // Engineering observation: it is tempting to think that taking into account
+  // what we already found in how many entries occur on higher levels, not just
+  // the first iterated level with a sufficient number of samples, would yield
+  // a more accurate estimate. But that doesn't work because of the particular
+  // correlations and independences of the data: each level higher is just an
+  // independently probabilistic filtering of the level below it. That
+  // filtering from level l to l+1 has no more information about levels
+  // 0 .. l-1 than we can get from level l. The structure of RandomHeight() is
+  // a clue to these correlations and independences.
+
+  Node* lb = head_;
+  Node* ub = nullptr;
+  uint64_t count = 0;
+  for (int level = GetMaxHeight() - 1; level >= 0; level--) {
+    auto sufficient_samples = static_cast<uint64_t>(level) * kBranching_ + 10U;
+    if (count >= sufficient_samples) {
+      // No more counting; apply powers of kBranching and avoid floating point
+      count *= kBranching_;
+      continue;
+    }
+    count = 0;
+    Node* next;
+    // Get a more precise lower bound (for start key)
+    for (;;) {
+      next = lb->Next(level);
+      if (next == ub) {
+        break;
       }
-    } else {
-      x = next;
+      assert(next != nullptr);
+      if (compare_(next->Key(), start_ikey) >= 0) {
+        break;
+      }
+      lb = next;
+    }
+    // Count entries on this level until upper bound (for end key)
+    for (;;) {
+      if (next == ub) {
+        break;
+      }
+      assert(next != nullptr);
+      if (compare_(next->Key(), end_ikey) >= 0) {
+        // Save refined upper bound to potentially save key comparison
+        ub = next;
+        break;
+      }
       count++;
+      next = next->Next(level);
     }
   }
+  return count;
 }
 
 template <class Comparator>
@@ -617,7 +813,7 @@ char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
-  auto prefix = sizeof(std::atomic<Node*>) * (height - 1);
+  auto prefix = sizeof(Atomic<Node*>) * (height - 1);
 
   // prefix is space for the height - 1 pointers that we store before
   // the Node instance (next_[-(height - 1) .. -1]).  Node starts at
@@ -684,7 +880,7 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
     splice = AllocateSplice();
-    *hint = reinterpret_cast<void*>(splice);
+    *hint = splice;
   }
   return Insert<false>(key, splice, true);
 }
@@ -696,7 +892,7 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
     splice = AllocateSpliceOnHeap();
-    *hint = reinterpret_cast<void*>(splice);
+    *hint = splice;
   }
   return Insert<true>(key, splice, true);
 }
@@ -713,8 +909,8 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
       PREFETCH(next->Next(level), 0, 1);
     }
     if (prefetch_before == true) {
-      if (next != nullptr && level>0) {
-        PREFETCH(next->Next(level-1), 0, 1);
+      if (next != nullptr && level > 0) {
+        PREFETCH(next->Next(level - 1), 0, 1);
       }
     }
     assert(before == head_ || next == nullptr ||
@@ -738,7 +934,7 @@ void InlineSkipList<Comparator>::RecomputeSpliceLevels(const DecodedKey& key,
   assert(recompute_level <= splice->height_);
   for (int i = recompute_level - 1; i >= 0; --i) {
     FindSpliceForLevel<true>(key, splice->prev_[i + 1], splice->next_[i + 1], i,
-                       &splice->prev_[i], &splice->next_[i]);
+                             &splice->prev_[i], &splice->next_[i]);
   }
 }
 
@@ -751,9 +947,9 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
   int height = x->UnstashHeight();
   assert(height >= 1 && height <= kMaxHeight_);
 
-  int max_height = max_height_.load(std::memory_order_relaxed);
+  int max_height = max_height_.LoadRelaxed();
   while (height > max_height) {
-    if (max_height_.compare_exchange_weak(max_height, height)) {
+    if (max_height_.CasWeakRelaxed(max_height, height)) {
       // successfully updated it
       max_height = height;
       break;
@@ -828,8 +1024,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
           // we're pessimistic, recompute everything
           recompute_height = max_height;
         }
-      } else if (KeyIsAfterNode(key_decoded,
-                                splice->next_[recompute_height])) {
+      } else if (KeyIsAfterNode(key_decoded, splice->next_[recompute_height])) {
         // key is from after splice
         if (allow_partial_splice_fix) {
           Node* bad = splice->next_[recompute_height];
@@ -856,12 +1051,12 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
       while (true) {
         // Checking for duplicate keys on the level 0 is sufficient
         if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&
-                     compare_(x->Key(), splice->next_[i]->Key()) >= 0)) {
+                     compare_(splice->next_[i]->Key(), key_decoded) <= 0)) {
           // duplicate key
           return false;
         }
         if (UNLIKELY(i == 0 && splice->prev_[i] != head_ &&
-                     compare_(splice->prev_[i]->Key(), x->Key()) >= 0)) {
+                     compare_(splice->prev_[i]->Key(), key_decoded) >= 0)) {
           // duplicate key
           return false;
         }
@@ -899,12 +1094,12 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
       }
       // Checking for duplicate keys on the level 0 is sufficient
       if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&
-                   compare_(x->Key(), splice->next_[i]->Key()) >= 0)) {
+                   compare_(splice->next_[i]->Key(), key_decoded) <= 0)) {
         // duplicate key
         return false;
       }
       if (UNLIKELY(i == 0 && splice->prev_[i] != head_ &&
-                   compare_(splice->prev_[i]->Key(), x->Key()) >= 0)) {
+                   compare_(splice->prev_[i]->Key(), key_decoded) >= 0)) {
         // duplicate key
         return false;
       }
@@ -945,7 +1140,9 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
 
 template <class Comparator>
 bool InlineSkipList<Comparator>::Contains(const char* key) const {
-  Node* x = FindGreaterOrEqual(key);
+  Node* x = nullptr;
+  auto status = FindGreaterOrEqual(key, &x, false, false, nullptr);
+  assert(status.ok());
   if (x != nullptr && Equal(key, x->Key())) {
     return true;
   } else {
@@ -994,4 +1191,14 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
   }
 }
 
+template <class Comparator>
+Status InlineSkipList<Comparator>::Corruption(Node* prev, Node* next,
+                                              bool allow_data_in_errors) {
+  std::string msg = "Out-of-order keys found in skiplist.";
+  if (allow_data_in_errors) {
+    msg.append(" prev key: " + Slice(prev->Key()).ToString(true));
+    msg.append(" next key: " + Slice(next->Key()).ToString(true));
+  }
+  return Status::Corruption(msg);
+}
 }  // namespace ROCKSDB_NAMESPACE

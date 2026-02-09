@@ -5,10 +5,8 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <array>
-#include "db/dbformat.h"
+
 #include "rocksdb/slice.h"
 #include "table/plain/plain_table_reader.h"
 
@@ -197,5 +195,3 @@ class PlainTableKeyDecoder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

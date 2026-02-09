@@ -7,11 +7,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "monitoring/in_memory_stats_history.h"
+
 #include "db/db_impl/db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-InMemoryStatsHistoryIterator::~InMemoryStatsHistoryIterator() {}
+InMemoryStatsHistoryIterator::~InMemoryStatsHistoryIterator() = default;
 
 bool InMemoryStatsHistoryIterator::Valid() const { return valid_; }
 

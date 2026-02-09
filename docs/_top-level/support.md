@@ -19,4 +19,4 @@ Use the [RocksDB Facebook group](https://www.facebook.com/groups/rocksdb.dev/) f
 
 ### FAQ
 
-Check out a list of [commonly asked questions](/docs/support/faq) about RocksDB.
+Check out a list of [commonly asked questions](https://github.com/facebook/rocksdb/wiki/RocksDB-FAQ) about RocksDB.

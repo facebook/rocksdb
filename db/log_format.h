@@ -12,12 +12,14 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace log {
 
-enum RecordType {
+enum RecordType : uint8_t {
   // Zero is reserved for preallocated files
   kZeroType = 0,
   kFullType = 1,
@@ -32,17 +34,31 @@ enum RecordType {
   kRecyclableFirstType = 6,
   kRecyclableMiddleType = 7,
   kRecyclableLastType = 8,
-};
-static const int kMaxRecordType = kRecyclableLastType;
 
-static const unsigned int kBlockSize = 32768;
+  // Compression Type
+  kSetCompressionType = 9,
+
+  // For all the values >= 10, the 1 bit indicates whether it's recyclable
+  // User-defined timestamp sizes
+  kUserDefinedTimestampSizeType = 10,
+  kRecyclableUserDefinedTimestampSizeType = 11,
+
+  // For WAL verification
+  kPredecessorWALInfoType = 130,
+  kRecyclePredecessorWALInfoType = 131,
+};
+// Unknown type of value with the 8-th bit set will be ignored
+constexpr uint8_t kRecordTypeSafeIgnoreMask = 1 << 7;
+constexpr uint8_t kMaxRecordType = kRecyclePredecessorWALInfoType;
+
+constexpr unsigned int kBlockSize = 32768;
 
 // Header is checksum (4 bytes), length (2 bytes), type (1 byte)
-static const int kHeaderSize = 4 + 2 + 1;
+constexpr int kHeaderSize = 4 + 2 + 1;
 
 // Recyclable header is checksum (4 bytes), length (2 bytes), type (1 byte),
 // log number (4 bytes).
-static const int kRecyclableHeaderSize = 4 + 2 + 1 + 4;
+constexpr int kRecyclableHeaderSize = 4 + 2 + 1 + 4;
 
 }  // namespace log
 }  // namespace ROCKSDB_NAMESPACE

@@ -20,7 +20,7 @@ interface TransactionalOptions<T extends TransactionalOptions<T>>
   /**
    * Setting the setSnapshot to true is the same as calling
    * {@link Transaction#setSnapshot()}.
-   *
+   * <p>
    * Default: false
    *
    * @param setSnapshot Whether to set a snapshot

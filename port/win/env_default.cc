@@ -26,18 +26,18 @@ namespace port {
 //    dead-lock.
 //    in this manner any remaining threads are terminated OK.
 namespace {
-  std::once_flag winenv_once_flag;
-  Env* envptr;
-};
-}
+std::once_flag winenv_once_flag;
+Env* envptr;
+};  // namespace
+}  // namespace port
 
 Env* Env::Default() {
-  using namespace port;
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
-  std::call_once(winenv_once_flag, []() { envptr = new WinEnv(); });
-  return envptr;
+  std::call_once(port::winenv_once_flag,
+                 []() { port::envptr = new port::WinEnv(); });
+  return port::envptr;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

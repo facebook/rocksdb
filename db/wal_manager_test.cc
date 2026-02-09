@@ -3,8 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "db/wal_manager.h"
 
 #include <map>
@@ -21,6 +19,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -32,16 +31,16 @@ namespace ROCKSDB_NAMESPACE {
 class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
-      : env_(new MockEnv(Env::Default())),
-        dbname_(test::PerThreadDBPath("wal_manager_test")),
+      : dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         current_log_number_(0) {
-    DestroyDB(dbname_, Options());
+    env_.reset(MockEnv::Create(Env::Default()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
-  void Init() {
+  void Init(SystemClock* clock_override) {
     ASSERT_OK(env_->CreateDirIfMissing(dbname_));
     ASSERT_OK(env_->CreateDirIfMissing(ArchivalDirectory(dbname_)));
     db_options_.db_paths.emplace_back(dbname_,
@@ -49,12 +48,18 @@ class WalManagerTest : public testing::Test {
     db_options_.wal_dir = dbname_;
     db_options_.env = env_.get();
     db_options_.fs = env_->GetFileSystem();
-    db_options_.clock = env_->GetSystemClock().get();
+    if (clock_override == nullptr) {
+      db_options_.clock = env_->GetSystemClock().get();
+    } else {
+      db_options_.clock = clock_override;
+    }
 
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, MutableDBOptions{}, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr, /*read_only=*/false));
 
     wal_manager_.reset(
         new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));
@@ -68,12 +73,12 @@ class WalManagerTest : public testing::Test {
   // NOT thread safe
   void Put(const std::string& key, const std::string& value) {
     assert(current_log_writer_.get() != nullptr);
-    uint64_t seq =  versions_->LastSequence() + 1;
+    uint64_t seq = versions_->LastSequence() + 1;
     WriteBatch batch;
     ASSERT_OK(batch.Put(key, value));
     WriteBatchInternal::SetSequence(&batch, seq);
-    ASSERT_OK(
-        current_log_writer_->AddRecord(WriteBatchInternal::Contents(&batch)));
+    ASSERT_OK(current_log_writer_->AddRecord(
+        WriteOptions(), WriteBatchInternal::Contents(&batch)));
     versions_->SetLastAllocatedSequence(seq);
     versions_->SetLastPublishedSequence(seq);
     versions_->SetLastSequence(seq);
@@ -87,14 +92,15 @@ class WalManagerTest : public testing::Test {
     std::unique_ptr<WritableFileWriter> file_writer;
     ASSERT_OK(WritableFileWriter::Create(fs, fname, env_options_, &file_writer,
                                          nullptr));
-    current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
+    current_log_writer_.reset(
+        new log::Writer(std::move(file_writer), 0, false));
   }
 
   void CreateArchiveLogs(int num_logs, int entries_per_log) {
     for (int i = 1; i <= num_logs; ++i) {
       RollTheLog(true);
       for (int k = 0; k < entries_per_log; ++k) {
-        Put(ToString(k), std::string(1024, 'a'));
+        Put(std::to_string(k), std::string(1024, 'a'));
       }
     }
   }
@@ -123,7 +129,7 @@ class WalManagerTest : public testing::Test {
 };
 
 TEST_F(WalManagerTest, ReadFirstRecordCache) {
-  Init();
+  Init(nullptr /* clock_override */);
   std::string path = dbname_ + "/000001.log";
   std::unique_ptr<FSWritableFile> file;
   ASSERT_OK(env_->GetFileSystem()->NewWritableFile(path, FileOptions(), &file,
@@ -144,7 +150,8 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
   WriteBatch batch;
   ASSERT_OK(batch.Put("foo", "bar"));
   WriteBatchInternal::SetSequence(&batch, 10);
-  ASSERT_OK(writer.AddRecord(WriteBatchInternal::Contents(&batch)));
+  ASSERT_OK(
+      writer.AddRecord(WriteOptions(), WriteBatchInternal::Contents(&batch)));
 
   // TODO(icanadi) move SpecialEnv outside of db_test, so we can reuse it here.
   // Waiting for lei to finish with db_test
@@ -214,19 +221,19 @@ int CountRecords(TransactionLogIterator* iter) {
   EXPECT_OK(iter->status());
   return count;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WalManagerTest, WALArchivalSizeLimit) {
-  db_options_.wal_ttl_seconds = 0;
-  db_options_.wal_size_limit_mb = 1000;
-  Init();
+  db_options_.WAL_ttl_seconds = 0;
+  db_options_.WAL_size_limit_MB = 1000;
+  Init(nullptr /* clock_override */);
 
   // TEST : Create WalManager with huge size limit and no ttl.
   // Create some archived files and call PurgeObsoleteWALFiles().
   // Count the archived log files that survived.
   // Assert that all of them did.
   // Change size limit. Re-open WalManager.
-  // Assert that archive is not greater than wal_size_limit_mb after
+  // Assert that archive is not greater than WAL_size_limit_MB after
   // PurgeObsoleteWALFiles()
   // Set ttl and time_to_check_ to small values. Re-open db.
   // Assert that there are no archived logs left.
@@ -238,15 +245,15 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
       ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_EQ(log_files.size(), 20U);
 
-  db_options_.wal_size_limit_mb = 8;
+  db_options_.WAL_size_limit_MB = 8;
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
   uint64_t archive_size = GetLogDirSize(archive_dir, env_.get());
-  ASSERT_TRUE(archive_size <= db_options_.wal_size_limit_mb * 1024 * 1024);
+  ASSERT_TRUE(archive_size <= db_options_.WAL_size_limit_MB * 1024 * 1024);
 
-  db_options_.wal_ttl_seconds = 1;
-  env_->FakeSleepForMicroseconds(2 * 1000 * 1000);
+  db_options_.WAL_ttl_seconds = 1;
+  env_->SleepForMicroseconds(2 * 1000 * 1000);
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
@@ -255,8 +262,8 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
 }
 
 TEST_F(WalManagerTest, WALArchivalTtl) {
-  db_options_.wal_ttl_seconds = 1000;
-  Init();
+  db_options_.WAL_ttl_seconds = 1000;
+  Init(nullptr /* clock_override */);
 
   // TEST : Create WalManager with a ttl and no size limit.
   // Create some archived log files and call PurgeObsoleteWALFiles().
@@ -271,8 +278,8 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
       ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_GT(log_files.size(), 0U);
 
-  db_options_.wal_ttl_seconds = 1;
-  env_->FakeSleepForMicroseconds(3 * 1000 * 1000);
+  db_options_.WAL_ttl_seconds = 1;
+  env_->SleepForMicroseconds(3 * 1000 * 1000);
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
@@ -280,8 +287,41 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
   ASSERT_TRUE(log_files.empty());
 }
 
+TEST_F(WalManagerTest, WALArchivalTtlClockGoesBackwards) {
+  // This test used to trigger an unsigned underflow bug, where WAL files were
+  // incorrectly deleted when the system time moved backwards between writing
+  // to a WAL and running `WalManager::PurgeObsoleteWALFiles()`.
+  constexpr int kNumLogs = 5;
+  constexpr int kEntriesPerLog = 100;
+
+  db_options_.WAL_ttl_seconds = 86400;  // One day
+
+  // Configure mock clock to lag one second behind system time. That way, the
+  // WAL file's mtime will appear to be in the future when
+  // `WalManager::PurgeObsoleteWALFiles()` runs.
+  int64_t now_seconds;
+  ASSERT_OK(env_->GetSystemClock()->GetCurrentTime(&now_seconds));
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  mock_clock->SetCurrentTime(static_cast<uint64_t>(now_seconds - 1));
+  db_options_.clock = mock_clock.get();
+
+  Init(mock_clock.get() /* clock */);
+
+  CreateArchiveLogs(kNumLogs, kEntriesPerLog);
+
+  const std::string archive_dir = ArchivalDirectory(dbname_);
+  ASSERT_EQ(kNumLogs,
+            ListSpecificFiles(env_.get(), archive_dir, kWalFile).size());
+
+  wal_manager_->PurgeObsoleteWALFiles();
+
+  // All files must still be present because TTL has not elapsed.
+  ASSERT_EQ(kNumLogs,
+            ListSpecificFiles(env_.get(), archive_dir, kWalFile).size());
+}
+
 TEST_F(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
-  Init();
+  Init(nullptr /* clock_override */);
   RollTheLog(false);
   Put("key1", std::string(1024, 'a'));
   // Create a zero record WAL file.
@@ -295,7 +335,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
 }
 
 TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
-  Init();
+  Init(nullptr /* clock_override */);
   RollTheLog(false);
   auto iter = OpenTransactionLogIter(0);
   // Check that an empty iterator is returned
@@ -303,7 +343,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
 }
 
 TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
-  Init();
+  Init(nullptr /* clock_override */);
   CreateArchiveLogs(2, 100);
   auto iter = OpenTransactionLogIter(0);
   CreateArchiveLogs(1, 100);
@@ -328,16 +368,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as WalManager is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

@@ -116,12 +116,23 @@ public interface RocksIteratorInterface {
   void status() throws RocksDBException;
 
   /**
-   * <p>If supported, renew the iterator to represent the latest state. The iterator will be
-   * invalidated after the call. Not supported if {@link ReadOptions#setSnapshot(Snapshot)} was
-   * specified when creating the iterator.</p>
+   * <p>If supported, the DB state that the iterator reads from is updated to
+   * the latest state. The iterator will be invalidated after the call.
+   * Regardless of whether the iterator was created/refreshed previously with
+   * or without a snapshot, the iterator will be reading the latest DB state
+   * after this call.</p>
+   * <p>Note that you will need to call a Seek*() function to get the iterator
+   * back into a valid state before calling a function that assumes the
+   * state is already valid, like Next().</p>
    *
    * @throws RocksDBException thrown if the operation is not supported or an error happens in the
    *     underlying native library
    */
   void refresh() throws RocksDBException;
+
+  /**
+   * Similar to {@link #refresh()} but the iterator will be reading the latest DB state under the
+   * given snapshot.
+   */
+  void refresh(Snapshot snapshot) throws RocksDBException;
 }

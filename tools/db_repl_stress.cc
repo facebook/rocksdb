@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -35,7 +34,17 @@ DEFINE_uint64(wal_size_limit_MB, 10,
               "the wal size limit for the run"
               "(in MB)");
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::BatchResult;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::DestroyDB;
+using ROCKSDB_NAMESPACE::Env;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::Random;
+using ROCKSDB_NAMESPACE::SequenceNumber;
+using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::TransactionLogIterator;
+using ROCKSDB_NAMESPACE::WriteOptions;
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;
@@ -45,7 +54,7 @@ struct DataPumpThread {
 };
 
 static void DataPumpThreadBody(void* arg) {
-  DataPumpThread* t = reinterpret_cast<DataPumpThread*>(arg);
+  DataPumpThread* t = static_cast<DataPumpThread*>(arg);
   DB* db = t->db;
   Random rnd(301);
   uint64_t i = 0;
@@ -120,11 +129,3 @@ int main(int argc, const char** argv) {
 }
 
 #endif  // GFLAGS
-
-#else  // ROCKSDB_LITE
-#include <stdio.h>
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "Not supported in lite mode.\n");
-  return 1;
-}
-#endif  // ROCKSDB_LITE

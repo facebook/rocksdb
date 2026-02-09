@@ -29,28 +29,27 @@ namespace {
 
 // Creates a test blob file with a single blob in it.
 void WriteBlobFile(uint32_t column_family_id,
-                   const ImmutableCFOptions& immutable_cf_options,
+                   const ImmutableOptions& immutable_options,
                    uint64_t blob_file_number) {
-  assert(!immutable_cf_options.cf_paths.empty());
+  assert(!immutable_options.cf_paths.empty());
 
-  const std::string blob_file_path = BlobFileName(
-      immutable_cf_options.cf_paths.front().path, blob_file_number);
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
+  ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
                             FileOptions()));
 
-  std::unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
-                             immutable_cf_options.clock));
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(file), blob_file_path, FileOptions(), immutable_options.clock));
 
   constexpr Statistics* statistics = nullptr;
   constexpr bool use_fsync = false;
   constexpr bool do_flush = false;
 
-  BlobLogWriter blob_log_writer(std::move(file_writer),
-                                immutable_cf_options.clock, statistics,
-                                blob_file_number, use_fsync, do_flush);
+  BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
+                                statistics, blob_file_number, use_fsync,
+                                do_flush);
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
@@ -58,7 +57,7 @@ void WriteBlobFile(uint32_t column_family_id,
   BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
                        expiration_range);
 
-  ASSERT_OK(blob_log_writer.WriteHeader(header));
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
 
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
@@ -68,7 +67,8 @@ void WriteBlobFile(uint32_t column_family_id,
   uint64_t key_offset = 0;
   uint64_t blob_offset = 0;
 
-  ASSERT_OK(blob_log_writer.AddRecord(key, blob, &key_offset, &blob_offset));
+  ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), key, blob, &key_offset,
+                                      &blob_offset));
 
   BlobLogFooter footer;
   footer.blob_count = 1;
@@ -77,33 +77,34 @@ void WriteBlobFile(uint32_t column_family_id,
   std::string checksum_method;
   std::string checksum_value;
 
-  ASSERT_OK(
-      blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
+                                         &checksum_method, &checksum_value));
 }
 
 }  // anonymous namespace
 
 class BlobFileCacheTest : public testing::Test {
  protected:
-  BlobFileCacheTest() : mock_env_(Env::Default()) {}
+  BlobFileCacheTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
 
-  MockEnv mock_env_;
+  std::unique_ptr<Env> mock_env_;
 };
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileCacheTest_GetBlobFileReader"),
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlobFileCacheTest_GetBlobFileReader"),
       0);
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   constexpr uint64_t blob_file_number = 123;
 
-  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+  WriteBlobFile(column_family_id, immutable_options, blob_file_number);
 
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
@@ -111,14 +112,16 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
   // First try: reader should be opened and put in cache
   CacheHandleGuard<BlobFileReader> first;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  const ReadOptions read_options;
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -126,7 +129,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   // Second try: reader should be served from cache
   CacheHandleGuard<BlobFileReader> second;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              &second));
   ASSERT_NE(second.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -136,19 +140,19 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileCacheTest_GetBlobFileReader_Race"),
       0);
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   constexpr uint64_t blob_file_number = 123;
 
-  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+  WriteBlobFile(column_family_id, immutable_options, blob_file_number);
 
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
@@ -156,26 +160,28 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
   CacheHandleGuard<BlobFileReader> first;
   CacheHandleGuard<BlobFileReader> second;
 
+  const ReadOptions read_options;
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
         // Disabling sync points to prevent infinite recursion
         SyncPoint::GetInstance()->DisableProcessing();
-
-        ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+        ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options,
+                                                    blob_file_number, &second));
         ASSERT_NE(second.GetValue(), nullptr);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -188,10 +194,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileCacheTest_GetBlobFileReader_IOError"),
       0);
   options.enable_blob_files = true;
@@ -199,12 +205,12 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   FileOptions file_options;
   constexpr uint32_t column_family_id = 1;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
@@ -213,8 +219,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
 
   CacheHandleGuard<BlobFileReader> reader;
 
+  const ReadOptions read_options;
   ASSERT_TRUE(
-      blob_file_cache.GetBlobFileReader(blob_file_number, &reader).IsIOError());
+      blob_file_cache.GetBlobFileReader(read_options, blob_file_number, &reader)
+          .IsIOError());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
@@ -222,19 +230,19 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileCacheTest_GetBlobFileReader_CacheFull"),
       0);
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   constexpr uint64_t blob_file_number = 123;
 
-  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+  WriteBlobFile(column_family_id, immutable_options, blob_file_number);
 
   constexpr size_t capacity = 0;
   constexpr int num_shard_bits = -1;  // determined automatically
@@ -245,7 +253,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
@@ -253,8 +261,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   // strict_capacity_limit is set
   CacheHandleGuard<BlobFileReader> reader;
 
-  ASSERT_TRUE(blob_file_cache.GetBlobFileReader(blob_file_number, &reader)
-                  .IsIncomplete());
+  const ReadOptions read_options;
+  ASSERT_TRUE(
+      blob_file_cache.GetBlobFileReader(read_options, blob_file_number, &reader)
+          .IsMemoryLimit());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
@@ -263,6 +273,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -86,7 +86,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
-  const ImmutableCFOptions ioptions(opts);
+  const ImmutableOptions ioptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   std::unique_ptr<WritableFileWriter> file_writer;
@@ -95,16 +95,17 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                          FileOptions(env_options), &file_writer,
                                          nullptr));
 
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
-        int_tbl_prop_collector_factories;
+    InternalTblPropCollFactories internal_tbl_prop_coll_factories;
 
     int unknown_level = -1;
+    const WriteOptions write_options;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
-            ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, CompressionOptions(),
-            false /* skip_filters */, kDefaultColumnFamilyName, unknown_level),
-        0 /* column_family_id */, file_writer.get());
+            ioptions, moptions, read_options, write_options, ikc,
+            &internal_tbl_prop_coll_factories, CompressionType::kNoCompression,
+            CompressionOptions(), 0 /* column_family_id */,
+            kDefaultColumnFamilyName, unknown_level, kUnknownNewestKeyTime),
+        file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
@@ -123,7 +124,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   }
   if (!through_db) {
     tb->Finish();
-    file_writer->Close();
+    file_writer->Close(IOOptions());
   } else {
     db->Flush(FlushOptions());
   }
@@ -144,8 +145,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(raf), file_name));
     s = opts.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
-                           env_options, ikc),
+        TableReaderOptions(ioptions, moptions.prefix_extractor,
+                           moptions.compression_manager.get(), env_options, ikc,
+                           0 /* block_protection_bytes_per_key */),
         std::move(file_reader), file_size, &table_reader);
     if (!s.ok()) {
       fprintf(stderr, "Open Table Error: %s\n", s.ToString().c_str());
@@ -175,11 +177,11 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             PinnableSlice value;
             MergeContext merge_context;
             SequenceNumber max_covering_tombstone_seq = 0;
-            GetContext get_context(ioptions.user_comparator,
-                                   ioptions.merge_operator, ioptions.info_log,
-                                   ioptions.statistics, GetContext::kNotFound,
-                                   Slice(key), &value, nullptr, &merge_context,
-                                   true, &max_covering_tombstone_seq, clock);
+            GetContext get_context(
+                ioptions.user_comparator, ioptions.merge_operator.get(),
+                ioptions.logger, ioptions.stats, GetContext::kNotFound,
+                Slice(key), &value, /*columns=*/nullptr, /*timestamp=*/nullptr,
+                &merge_context, true, &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
@@ -225,9 +227,10 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             }
           }
           if (count != r2_len) {
-            fprintf(
-                stderr, "Iterator cannot iterate expected number of entries. "
-                "Expected %d but got %d\n", r2_len, count);
+            fprintf(stderr,
+                    "Iterator cannot iterate expected number of entries. "
+                    "Expected %d but got %d\n",
+                    r2_len, count);
             assert(false);
           }
           delete iter;
@@ -262,16 +265,16 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE
 
-DEFINE_bool(query_empty, false, "query non-existing keys instead of existing "
-            "ones.");
+DEFINE_bool(query_empty, false,
+            "query non-existing keys instead of existing ones.");
 DEFINE_int32(num_keys1, 4096, "number of distinguish prefix of keys");
 DEFINE_int32(num_keys2, 512, "number of distinguish keys for each prefix");
 DEFINE_int32(iter, 3, "query non-existing keys instead of existing ones");
 DEFINE_int32(prefix_len, 16, "Prefix length used for iterators and indexes");
 DEFINE_bool(iterator, false, "For test iterator");
-DEFINE_bool(through_db, false, "If enable, a DB instance will be created and "
-            "the query will be against DB. Otherwise, will be directly against "
-            "a table reader.");
+DEFINE_bool(through_db, false,
+            "If enable, a DB instance will be created and the query will be "
+            "against DB. Otherwise, will be directly against a table reader.");
 DEFINE_bool(mmap_read, true, "Whether use mmap read");
 DEFINE_string(table_factory, "block_based",
               "Table factory to use: `block_based` (default), `plain_table` or "
@@ -297,18 +300,12 @@ int main(int argc, char** argv) {
   options.compression = ROCKSDB_NAMESPACE::CompressionType::kNoCompression;
 
   if (FLAGS_table_factory == "cuckoo_hash") {
-#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = FLAGS_mmap_read;
     env_options.use_mmap_reads = FLAGS_mmap_read;
     ROCKSDB_NAMESPACE::CuckooTableOptions table_options;
     table_options.hash_table_ratio = 0.75;
     tf.reset(ROCKSDB_NAMESPACE::NewCuckooTableFactory(table_options));
-#else
-    fprintf(stderr, "Plain table is not supported in lite mode\n");
-    exit(1);
-#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "plain_table") {
-#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = FLAGS_mmap_read;
     env_options.use_mmap_reads = FLAGS_mmap_read;
 
@@ -320,10 +317,6 @@ int main(int argc, char** argv) {
     tf.reset(new ROCKSDB_NAMESPACE::PlainTableFactory(plain_table_options));
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_len));
-#else
-    fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
-    exit(1);
-#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "block_based") {
     tf.reset(new ROCKSDB_NAMESPACE::BlockBasedTableFactory());
   } else {

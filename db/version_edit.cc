@@ -13,24 +13,42 @@
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-}  // anonymous namespace
+namespace {}  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
   return number | (path_id * (kFileNumberMask + 1));
 }
 
-void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
-                                    SequenceNumber seqno,
-                                    ValueType value_type) {
+Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
+                                      SequenceNumber seqno,
+                                      ValueType value_type) {
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    const Status s = blob_index.DecodeFrom(value);
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
+      if (blob_index.file_number() == kInvalidBlobFileNumber) {
+        return Status::Corruption("Invalid blob file number");
+      }
+
+      if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+          oldest_blob_file_number > blob_index.file_number()) {
+        oldest_blob_file_number = blob_index.file_number();
+      }
+    }
+  }
+
   if (smallest.size() == 0) {
     smallest.DecodeFrom(key);
   }
@@ -38,73 +56,20 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
   fd.largest_seqno = std::max(fd.largest_seqno, seqno);
 
-  if (value_type == kTypeBlobIndex) {
-    BlobIndex blob_index;
-    const Status s = blob_index.DecodeFrom(value);
-    if (!s.ok()) {
-      return;
-    }
-
-    if (blob_index.IsInlined()) {
-      return;
-    }
-
-    if (blob_index.HasTTL()) {
-      return;
-    }
-
-    // Paranoid check: this should not happen because BlobDB numbers the blob
-    // files starting from 1.
-    if (blob_index.file_number() == kInvalidBlobFileNumber) {
-      return;
-    }
-
-    if (oldest_blob_file_number == kInvalidBlobFileNumber ||
-        oldest_blob_file_number > blob_index.file_number()) {
-      oldest_blob_file_number = blob_index.file_number();
-    }
-  }
+  return Status::OK();
 }
 
-void VersionEdit::Clear() {
-  max_level_ = 0;
-  db_id_.clear();
-  comparator_.clear();
-  log_number_ = 0;
-  prev_log_number_ = 0;
-  next_file_number_ = 0;
-  max_column_family_ = 0;
-  min_log_number_to_keep_ = 0;
-  last_sequence_ = 0;
-  has_db_id_ = false;
-  has_comparator_ = false;
-  has_log_number_ = false;
-  has_prev_log_number_ = false;
-  has_next_file_number_ = false;
-  has_max_column_family_ = false;
-  has_min_log_number_to_keep_ = false;
-  has_last_sequence_ = false;
-  deleted_files_.clear();
-  new_files_.clear();
-  blob_file_additions_.clear();
-  blob_file_garbages_.clear();
-  wal_additions_.clear();
-  wal_deletion_.Reset();
-  column_family_ = 0;
-  is_column_family_add_ = false;
-  is_column_family_drop_ = false;
-  column_family_name_.clear();
-  is_in_atomic_group_ = false;
-  remaining_entries_ = 0;
-  full_history_ts_low_.clear();
-}
+void VersionEdit::Clear() { *this = VersionEdit(); }
 
-bool VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst,
+                           std::optional<size_t> ts_sz) const {
+  assert(!IsNoManifestWriteDummy());
   if (has_db_id_) {
     PutVarint32(dst, kDbId);
     PutLengthPrefixedSlice(dst, db_id_);
   }
   if (has_comparator_) {
+    assert(has_persist_user_defined_timestamps_);
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
   }
@@ -120,8 +85,18 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_max_column_family_) {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
   }
+  if (has_min_log_number_to_keep_) {
+    PutVarint32Varint64(dst, kMinLogNumberToKeep, min_log_number_to_keep_);
+  }
   if (has_last_sequence_) {
     PutVarint32Varint64(dst, kLastSequence, last_sequence_);
+  }
+  for (size_t i = 0; i < compact_cursors_.size(); i++) {
+    if (compact_cursors_[i].second.Valid()) {
+      PutVarint32(dst, kCompactCursor);
+      PutVarint32(dst, compact_cursors_[i].first);  // level
+      PutLengthPrefixedSlice(dst, compact_cursors_[i].second.Encode());
+    }
   }
   for (const auto& deleted : deleted_files_) {
     PutVarint32Varint32Varint64(dst, kDeletedFile, deleted.first /* level */,
@@ -129,90 +104,17 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   bool min_log_num_written = false;
+
+  assert(new_files_.empty() || ts_sz.has_value());
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    if (!f.smallest.Valid() || !f.largest.Valid()) {
+    if (!f.smallest.Valid() || !f.largest.Valid() ||
+        f.epoch_number == kUnknownEpochNumber) {
       return false;
     }
-    PutVarint32(dst, kNewFile4);
-    PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
-    PutVarint64(dst, f.fd.GetFileSize());
-    PutLengthPrefixedSlice(dst, f.smallest.Encode());
-    PutLengthPrefixedSlice(dst, f.largest.Encode());
-    PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
-    // Customized fields' format:
-    // +-----------------------------+
-    // | 1st field's tag (varint32)  |
-    // +-----------------------------+
-    // | 1st field's size (varint32) |
-    // +-----------------------------+
-    // |    bytes for 1st field      |
-    // |  (based on size decoded)    |
-    // +-----------------------------+
-    // |                             |
-    // |          ......             |
-    // |                             |
-    // +-----------------------------+
-    // | last field's size (varint32)|
-    // +-----------------------------+
-    // |    bytes for last field     |
-    // |  (based on size decoded)    |
-    // +-----------------------------+
-    // | terminating tag (varint32)  |
-    // +-----------------------------+
-    //
-    // Customized encoding for fields:
-    //   tag kPathId: 1 byte as path_id
-    //   tag kNeedCompaction:
-    //        now only can take one char value 1 indicating need-compaction
-    //
-    PutVarint32(dst, NewFileCustomTag::kOldestAncesterTime);
-    std::string varint_oldest_ancester_time;
-    PutVarint64(&varint_oldest_ancester_time, f.oldest_ancester_time);
-    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
-                             &varint_oldest_ancester_time);
-    PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
-
-    PutVarint32(dst, NewFileCustomTag::kFileCreationTime);
-    std::string varint_file_creation_time;
-    PutVarint64(&varint_file_creation_time, f.file_creation_time);
-    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
-                             &varint_file_creation_time);
-    PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
-
-    PutVarint32(dst, NewFileCustomTag::kFileChecksum);
-    PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
-
-    PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
-    PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
-
-    if (f.fd.GetPathId() != 0) {
-      PutVarint32(dst, NewFileCustomTag::kPathId);
-      char p = static_cast<char>(f.fd.GetPathId());
-      PutLengthPrefixedSlice(dst, Slice(&p, 1));
-    }
-    if (f.marked_for_compaction) {
-      PutVarint32(dst, NewFileCustomTag::kNeedCompaction);
-      char p = static_cast<char>(1);
-      PutLengthPrefixedSlice(dst, Slice(&p, 1));
-    }
-    if (has_min_log_number_to_keep_ && !min_log_num_written) {
-      PutVarint32(dst, NewFileCustomTag::kMinLogNumberToKeepHack);
-      std::string varint_log_number;
-      PutFixed64(&varint_log_number, min_log_number_to_keep_);
-      PutLengthPrefixedSlice(dst, Slice(varint_log_number));
-      min_log_num_written = true;
-    }
-    if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
-      PutVarint32(dst, NewFileCustomTag::kOldestBlobFileNumber);
-      std::string oldest_blob_file_number;
-      PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
-      PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
-    }
-    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
-                             dst);
-
-    PutVarint32(dst, NewFileCustomTag::kTerminate);
+    EncodeToNewFile4(f, new_files_[i].first, ts_sz.value(),
+                     has_min_log_number_to_keep_, min_log_number_to_keep_,
+                     min_log_num_written, dst);
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -262,9 +164,160 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kFullHistoryTsLow);
     PutLengthPrefixedSlice(dst, full_history_ts_low_);
   }
+
+  if (HasPersistUserDefinedTimestamps()) {
+    // persist_user_defined_timestamps flag should be logged in the same
+    // VersionEdit as the user comparator name.
+    assert(has_comparator_);
+    PutVarint32(dst, kPersistUserDefinedTimestamps);
+    char p = static_cast<char>(persist_user_defined_timestamps_);
+    PutLengthPrefixedSlice(dst, Slice(&p, 1));
+  }
+
+  if (HasSubcompactionProgress()) {
+    PutVarint32(dst, kSubcompactionProgress);
+    std::string progress_data;
+    subcompaction_progress_.EncodeTo(&progress_data);
+    PutLengthPrefixedSlice(dst, progress_data);
+  }
+
   return true;
 }
 
+void VersionEdit::EncodeToNewFile4(const FileMetaData& f, int level,
+                                   size_t ts_sz,
+                                   bool has_min_log_number_to_keep,
+                                   uint64_t min_log_number_to_keep,
+                                   bool& min_log_num_written,
+                                   std::string* dst) {
+  PutVarint32(dst, kNewFile4);
+  PutVarint32Varint64(dst, level, f.fd.GetNumber());
+  PutVarint64(dst, f.fd.GetFileSize());
+  EncodeFileBoundaries(dst, f, ts_sz);
+  PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
+  // Customized fields' format:
+  // +-----------------------------+
+  // | 1st field's tag (varint32)  |
+  // +-----------------------------+
+  // | 1st field's size (varint32) |
+  // +-----------------------------+
+  // |    bytes for 1st field      |
+  // |  (based on size decoded)    |
+  // +-----------------------------+
+  // |                             |
+  // |          ......             |
+  // |                             |
+  // +-----------------------------+
+  // | last field's size (varint32)|
+  // +-----------------------------+
+  // |    bytes for last field     |
+  // |  (based on size decoded)    |
+  // +-----------------------------+
+  // | terminating tag (varint32)  |
+  // +-----------------------------+
+  //
+  // Customized encoding for fields:
+  //   tag kPathId: 1 byte as path_id
+  //   tag kNeedCompaction:
+  //        now only can take one char value 1 indicating need-compaction
+  //
+  PutVarint32(dst, NewFileCustomTag::kOldestAncesterTime);
+  std::string varint_oldest_ancester_time;
+  PutVarint64(&varint_oldest_ancester_time, f.oldest_ancester_time);
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
+                           &varint_oldest_ancester_time);
+  PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
+
+  PutVarint32(dst, NewFileCustomTag::kFileCreationTime);
+  std::string varint_file_creation_time;
+  PutVarint64(&varint_file_creation_time, f.file_creation_time);
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
+                           &varint_file_creation_time);
+  PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
+
+  PutVarint32(dst, NewFileCustomTag::kEpochNumber);
+  std::string varint_epoch_number;
+  PutVarint64(&varint_epoch_number, f.epoch_number);
+  PutLengthPrefixedSlice(dst, Slice(varint_epoch_number));
+
+  if (f.file_checksum_func_name != kUnknownFileChecksumFuncName) {
+    PutVarint32(dst, NewFileCustomTag::kFileChecksum);
+    PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
+
+    PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
+    PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
+  }
+
+  if (f.fd.GetPathId() != 0) {
+    PutVarint32(dst, NewFileCustomTag::kPathId);
+    char p = static_cast<char>(f.fd.GetPathId());
+    PutLengthPrefixedSlice(dst, Slice(&p, 1));
+  }
+  if (f.temperature != Temperature::kUnknown) {
+    PutVarint32(dst, NewFileCustomTag::kTemperature);
+    char p = static_cast<char>(f.temperature);
+    PutLengthPrefixedSlice(dst, Slice(&p, 1));
+  }
+  if (f.marked_for_compaction) {
+    PutVarint32(dst, NewFileCustomTag::kNeedCompaction);
+    char p = static_cast<char>(1);
+    PutLengthPrefixedSlice(dst, Slice(&p, 1));
+  }
+  if (has_min_log_number_to_keep && !min_log_num_written) {
+    PutVarint32(dst, NewFileCustomTag::kMinLogNumberToKeepHack);
+    std::string varint_log_number;
+    PutFixed64(&varint_log_number, min_log_number_to_keep);
+    PutLengthPrefixedSlice(dst, Slice(varint_log_number));
+    min_log_num_written = true;
+  }
+  if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+    PutVarint32(dst, NewFileCustomTag::kOldestBlobFileNumber);
+    std::string oldest_blob_file_number;
+    PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
+    PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
+  }
+  UniqueId64x2 unique_id = f.unique_id;
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:UniqueId", &unique_id);
+  if (unique_id != kNullUniqueId64x2) {
+    PutVarint32(dst, NewFileCustomTag::kUniqueId);
+    std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
+    PutLengthPrefixedSlice(dst, Slice(unique_id_str));
+  }
+  if (f.compensated_range_deletion_size) {
+    PutVarint32(dst, NewFileCustomTag::kCompensatedRangeDeletionSize);
+    std::string compensated_range_deletion_size;
+    PutVarint64(&compensated_range_deletion_size,
+                f.compensated_range_deletion_size);
+    PutLengthPrefixedSlice(dst, Slice(compensated_range_deletion_size));
+  }
+  if (f.tail_size) {
+    PutVarint32(dst, NewFileCustomTag::kTailSize);
+    std::string varint_tail_size;
+    PutVarint64(&varint_tail_size, f.tail_size);
+    PutLengthPrefixedSlice(dst, Slice(varint_tail_size));
+  }
+  if (!f.user_defined_timestamps_persisted) {
+    // The default value for the flag is true, it's only explicitly persisted
+    // when it's false. We are putting 0 as the value here to signal false
+    // (i.e. UDTS not persisted).
+    PutVarint32(dst, NewFileCustomTag::kUserDefinedTimestampsPersisted);
+    char p = static_cast<char>(0);
+    PutLengthPrefixedSlice(dst, Slice(&p, 1));
+  }
+  // Encode min/max timestamp if they are non-empty
+  if (!f.min_timestamp.empty()) {
+    PutVarint32(dst, NewFileCustomTag::kMinTimestamp);
+    PutLengthPrefixedSlice(dst, Slice(f.min_timestamp));
+  }
+  if (!f.max_timestamp.empty()) {
+    PutVarint32(dst, NewFileCustomTag::kMaxTimestamp);
+    PutLengthPrefixedSlice(dst, Slice(f.max_timestamp));
+  }
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
+                           dst);
+
+  PutVarint32(dst, NewFileCustomTag::kTerminate);
+}
 static bool GetInternalKey(Slice* input, InternalKey* dst) {
   Slice str;
   if (GetLengthPrefixedSlice(input, &str)) {
@@ -275,12 +328,12 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
   }
 }
 
-bool VersionEdit::GetLevel(Slice* input, int* level, const char** /*msg*/) {
+bool VersionEdit::GetLevel(Slice* input, int* level, int& max_level) {
   uint32_t v = 0;
   if (GetVarint32(input, &v)) {
     *level = v;
-    if (max_level_ < *level) {
-      max_level_ = *level;
+    if (max_level < *level) {
+      max_level = *level;
     }
     return true;
   } else {
@@ -288,16 +341,18 @@ bool VersionEdit::GetLevel(Slice* input, int* level, const char** /*msg*/) {
   }
 }
 
-const char* VersionEdit::DecodeNewFile4From(Slice* input) {
-  const char* msg = nullptr;
+const char* VersionEdit::DecodeNewFile4From(Slice* input, int& max_level,
+                                            uint64_t& min_log_number_to_keep,
+                                            bool& has_min_log_number_to_keep,
+                                            NewFiles& new_files,
+                                            FileMetaData& f) {
   int level = 0;
-  FileMetaData f;
   uint64_t number = 0;
   uint32_t path_id = 0;
   uint64_t file_size = 0;
   SequenceNumber smallest_seqno = 0;
   SequenceNumber largest_seqno = kMaxSequenceNumber;
-  if (GetLevel(input, &level, &msg) && GetVarint64(input, &number) &&
+  if (GetLevel(input, &level, max_level) && GetVarint64(input, &number) &&
       GetVarint64(input, &file_size) && GetInternalKey(input, &f.smallest) &&
       GetInternalKey(input, &f.largest) &&
       GetVarint64(input, &smallest_seqno) &&
@@ -335,6 +390,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "invalid file creation time";
           }
           break;
+        case kEpochNumber:
+          if (!GetVarint64(&field, &f.epoch_number)) {
+            return "invalid epoch number";
+          }
+          break;
         case kFileChecksum:
           f.file_checksum = field.ToString();
           break;
@@ -350,15 +410,53 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kMinLogNumberToKeepHack:
           // This is a hack to encode kMinLogNumberToKeep in a
           // forward-compatible fashion.
-          if (!GetFixed64(&field, &min_log_number_to_keep_)) {
+          if (!GetFixed64(&field, &min_log_number_to_keep)) {
             return "deleted log number malformatted";
           }
-          has_min_log_number_to_keep_ = true;
+          has_min_log_number_to_keep = true;
           break;
         case kOldestBlobFileNumber:
           if (!GetVarint64(&field, &f.oldest_blob_file_number)) {
             return "invalid oldest blob file number";
           }
+          break;
+        case kTemperature:
+          if (field.size() != 1) {
+            return "temperature field wrong size";
+          } else {
+            Temperature casted_field = static_cast<Temperature>(field[0]);
+            if (casted_field < Temperature::kLastTemperature) {
+              f.temperature = casted_field;
+            }
+          }
+          break;
+        case kUniqueId:
+          if (!DecodeUniqueIdBytes(field.ToString(), &f.unique_id).ok()) {
+            f.unique_id = kNullUniqueId64x2;
+            return "invalid unique id";
+          }
+          break;
+        case kCompensatedRangeDeletionSize:
+          if (!GetVarint64(&field, &f.compensated_range_deletion_size)) {
+            return "Invalid compensated range deletion size";
+          }
+          break;
+        case kTailSize:
+          if (!GetVarint64(&field, &f.tail_size)) {
+            return "invalid tail start offset";
+          }
+          break;
+        case kUserDefinedTimestampsPersisted:
+          if (field.size() != 1) {
+            return "user-defined timestamps persisted field wrong size";
+          }
+          f.user_defined_timestamps_persisted = (field[0] == 1);
+          break;
+        case kMinTimestamp:
+          f.min_timestamp = field.ToString();
+          break;
+        case kMaxTimestamp:
+          f.max_timestamp = field.ToString();
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -373,8 +471,23 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   }
   f.fd =
       FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
-  new_files_.push_back(std::make_pair(level, f));
+  new_files.emplace_back(level, f);
   return nullptr;
+}
+
+void VersionEdit::EncodeFileBoundaries(std::string* dst,
+                                       const FileMetaData& meta, size_t ts_sz) {
+  if (ts_sz == 0 || meta.user_defined_timestamps_persisted) {
+    PutLengthPrefixedSlice(dst, meta.smallest.Encode());
+    PutLengthPrefixedSlice(dst, meta.largest.Encode());
+    return;
+  }
+  std::string smallest_buf;
+  std::string largest_buf;
+  StripTimestampFromInternalKey(&smallest_buf, meta.smallest.Encode(), ts_sz);
+  StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
+  PutLengthPrefixedSlice(dst, smallest_buf);
+  PutLengthPrefixedSlice(dst, largest_buf);
 }
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
@@ -465,22 +578,23 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kCompactPointer:
-        if (GetLevel(&input, &level, &msg) &&
+      case kCompactCursor:
+        if (GetLevel(&input, &level, max_level_) &&
             GetInternalKey(&input, &key)) {
-          // we don't use compact pointers anymore,
-          // but we should not fail if they are still
-          // in manifest
+          // Here we re-use the output format of compact pointer in LevelDB
+          // to persist compact_cursors_
+          compact_cursors_.push_back(std::make_pair(level, key));
         } else {
           if (!msg) {
-            msg = "compaction pointer";
+            msg = "compaction cursor";
           }
         }
         break;
 
       case kDeletedFile: {
         uint64_t number = 0;
-        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number)) {
+        if (GetLevel(&input, &level, max_level_) &&
+            GetVarint64(&input, &number)) {
           deleted_files_.insert(std::make_pair(level, number));
         } else {
           if (!msg) {
@@ -493,8 +607,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kNewFile: {
         uint64_t number = 0;
         uint64_t file_size = 0;
-        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
-            GetVarint64(&input, &file_size) &&
+        if (GetLevel(&input, &level, max_level_) &&
+            GetVarint64(&input, &number) && GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest)) {
           f.fd = FileDescriptor(number, 0, file_size);
@@ -511,8 +625,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         uint64_t file_size = 0;
         SequenceNumber smallest_seqno = 0;
         SequenceNumber largest_seqno = kMaxSequenceNumber;
-        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
-            GetVarint64(&input, &file_size) &&
+        if (GetLevel(&input, &level, max_level_) &&
+            GetVarint64(&input, &number) && GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &smallest_seqno) &&
@@ -534,8 +648,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         uint64_t file_size = 0;
         SequenceNumber smallest_seqno = 0;
         SequenceNumber largest_seqno = kMaxSequenceNumber;
-        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
-            GetVarint32(&input, &path_id) && GetVarint64(&input, &file_size) &&
+        if (GetLevel(&input, &level, max_level_) &&
+            GetVarint64(&input, &number) && GetVarint32(&input, &path_id) &&
+            GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &smallest_seqno) &&
@@ -552,7 +667,10 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       }
 
       case kNewFile4: {
-        msg = DecodeNewFile4From(&input);
+        FileMetaData ignored_file;
+        msg = DecodeNewFile4From(&input, max_level_, min_log_number_to_keep_,
+                                 has_min_log_number_to_keep_, new_files_,
+                                 ignored_file);
         break;
       }
 
@@ -678,6 +796,34 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kPersistUserDefinedTimestamps:
+        if (!GetLengthPrefixedSlice(&input, &str)) {
+          msg = "persist_user_defined_timestamps";
+        } else if (str.size() != 1) {
+          msg = "persist_user_defined_timestamps field wrong size";
+        } else {
+          persist_user_defined_timestamps_ = (str[0] == 1);
+          has_persist_user_defined_timestamps_ = true;
+        }
+        break;
+
+      case kSubcompactionProgress: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "SubcompactionProgress not prefixed by length";
+          break;
+        }
+
+        SubcompactionProgress progress;
+        Status s = progress.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        SetSubcompactionProgress(progress);
+        break;
+      }
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -720,6 +866,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  Comparator: ");
     r.append(comparator_);
   }
+  if (has_persist_user_defined_timestamps_) {
+    r.append("\n  PersistUserDefinedTimestamps: ");
+    r.append(persist_user_defined_timestamps_ ? "true" : "false");
+  }
   if (has_log_number_) {
     r.append("\n  LogNumber: ");
     AppendNumberTo(&r, log_number_);
@@ -743,6 +893,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (has_last_sequence_) {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
+  }
+  for (const auto& level_and_compact_cursor : compact_cursors_) {
+    r.append("\n  CompactCursor: ");
+    AppendNumberTo(&r, level_and_compact_cursor.first);
+    r.append(" ");
+    r.append(level_and_compact_cursor.second.DebugString(hex_key));
   }
   for (const auto& deleted_file : deleted_files_) {
     r.append("\n  DeleteFile: ");
@@ -770,10 +926,30 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
+    r.append(" epoch_number:");
+    AppendNumberTo(&r, f.epoch_number);
     r.append(" file_checksum:");
-    r.append(f.file_checksum);
+    r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
+    if (f.temperature != Temperature::kUnknown) {
+      r.append(" temperature: ");
+      // Maybe change to human readable format whenthe feature becomes
+      // permanent
+      r.append(std::to_string(static_cast<int>(f.temperature)));
+    }
+    if (f.unique_id != kNullUniqueId64x2) {
+      r.append(" unique_id(internal): ");
+      UniqueId64x2 id = f.unique_id;
+      r.append(InternalUniqueIdToHumanString(&id));
+      r.append(" public_unique_id: ");
+      InternalUniqueIdToExternal(&id);
+      r.append(UniqueIdToHumanString(EncodeUniqueIdBytes(&id)));
+    }
+    r.append(" tail size: ");
+    AppendNumberTo(&r, f.tail_size);
+    r.append(" User-defined timestamps persisted: ");
+    r.append(f.user_defined_timestamps_persisted ? "true" : "false");
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -813,6 +989,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (HasFullHistoryTsLow()) {
     r.append("\n FullHistoryTsLow: ");
     r.append(Slice(full_history_ts_low_).ToString(hex_key));
+  }
+  if (HasSubcompactionProgress()) {
+    r.append("\n SubcompactionProgress: ");
+    r.append(subcompaction_progress_.ToString());
   }
   r.append("\n}\n");
   return r;
@@ -873,9 +1053,25 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
+      jw << "OldestAncesterTime" << f.oldest_ancester_time;
+      jw << "FileCreationTime" << f.file_creation_time;
+      jw << "EpochNumber" << f.epoch_number;
+      jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
+      jw << "FileChecksumFuncName" << f.file_checksum_func_name;
+      if (f.temperature != Temperature::kUnknown) {
+        jw << "temperature" << std::to_string(static_cast<int>(f.temperature));
+      }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
       }
+      if (f.temperature != Temperature::kUnknown) {
+        // Maybe change to human readable format whenthe feature becomes
+        // permanent
+        jw << "Temperature" << static_cast<int>(f.temperature);
+      }
+      jw << "TailSize" << f.tail_size;
+      jw << "UserDefinedTimestampsPersisted"
+         << f.user_defined_timestamps_persisted;
       jw.EndArrayedObject();
     }
 
@@ -947,9 +1143,301 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw << "FullHistoryTsLow" << Slice(full_history_ts_low_).ToString(hex_key);
   }
 
+  if (HasSubcompactionProgress()) {
+    jw << "SubcompactionProgress" << subcompaction_progress_.ToString();
+  }
+
   jw.EndObject();
 
   return jw.Get();
 }
 
+void SubcompactionProgressPerLevel::EncodeTo(std::string* dst) const {
+  if (num_processed_output_records_ > 0) {
+    PutVarint32(
+        dst,
+        SubcompactionProgressPerLevelCustomTag::kNumProcessedOutputRecords);
+    std::string varint_records;
+    PutVarint64(&varint_records, num_processed_output_records_);
+    PutLengthPrefixedSlice(dst, varint_records);
+  }
+
+  if (!output_files_.empty()) {
+    PutVarint32(dst, SubcompactionProgressPerLevelCustomTag::kOutputFilesDelta);
+    std::string files_data;
+    EncodeOutputFiles(&files_data);
+    PutLengthPrefixedSlice(dst, files_data);
+  }
+
+  PutVarint32(dst, SubcompactionProgressPerLevelCustomTag::
+                       kSubcompactionProgressPerLevelTerminate);
+}
+
+Status SubcompactionProgressPerLevel::DecodeFrom(Slice* input) {
+  Clear();
+
+  while (true) {
+    uint32_t tag = 0;
+    if (!GetVarint32(input, &tag)) {
+      return Status::Corruption("SubcompactionProgressPerLevel", "tag error");
+    }
+
+    if (tag == SubcompactionProgressPerLevelCustomTag::
+                   kSubcompactionProgressPerLevelTerminate) {
+      break;
+    }
+
+    Slice field;
+    if (!GetLengthPrefixedSlice(input, &field)) {
+      return Status::Corruption("SubcompactionProgressPerLevel",
+                                "field length prefixed slice error");
+    }
+
+    switch (tag) {
+      case SubcompactionProgressPerLevelCustomTag::kNumProcessedOutputRecords: {
+        if (!GetVarint64(&field, &num_processed_output_records_)) {
+          return Status::Corruption("SubcompactionProgressPerLevel",
+                                    "invalid num_processed_output_records_");
+        }
+        break;
+      }
+
+      case SubcompactionProgressPerLevelCustomTag::kOutputFilesDelta: {
+        Status s = DecodeOutputFiles(&field, output_files_);
+        if (!s.ok()) {
+          return s;
+        }
+        break;
+      }
+
+      default:
+        // Forward compatibility: Handle unknown tags
+        if ((tag & SubcompactionProgressPerLevelCustomTag::
+                       kSubcompactionProgressPerLevelCustomTagSafeIgnoreMask) !=
+            0) {
+          break;
+        } else {
+          return Status::NotSupported("SubcompactionProgress",
+                                      "unsupported critical custom field");
+        }
+    }
+  }
+
+  return Status::OK();
+}
+
+void SubcompactionProgressPerLevel::EncodeOutputFiles(std::string* dst) const {
+  size_t new_files_count =
+      output_files_.size() > last_persisted_output_files_count_
+          ? output_files_.size() - last_persisted_output_files_count_
+          : 0;
+
+  assert(new_files_count > 0);
+
+  PutVarint32(dst, static_cast<uint32_t>(new_files_count));
+
+  for (size_t i = last_persisted_output_files_count_; i < output_files_.size();
+       ++i) {
+    std::string file_dst;
+    bool ignored_min_log_written = false;
+
+    VersionEdit::EncodeToNewFile4(
+        output_files_[i], -1 /* level */, 0 /* ts_sz */,
+        false /* has_min_log_number_to_keep */, 0 /* min_log_number_to_keep */,
+        ignored_min_log_written, &file_dst);
+
+    PutLengthPrefixedSlice(dst, file_dst);
+  }
+}
+
+Status SubcompactionProgressPerLevel::DecodeOutputFiles(
+    Slice* input, autovector<FileMetaData>& output_files) {
+  uint32_t new_file_count = 0;
+  if (!GetVarint32(input, &new_file_count)) {
+    return Status::Corruption("SubcompactionProgressPerLevel",
+                              "new output file count");
+  }
+
+  assert(output_files.size() == 0);
+
+  output_files.reserve(new_file_count);
+
+  for (uint32_t i = 0; i < new_file_count; ++i) {
+    Slice file_input;
+    if (!GetLengthPrefixedSlice(input, &file_input)) {
+      return Status::Corruption("SubcompactionProgressPerLevel",
+                                "output file metadata");
+    }
+
+    uint32_t tag = 0;
+    if (!GetVarint32(&file_input, &tag) || tag != kNewFile4) {
+      return Status::Corruption("SubcompactionProgressPerLevel",
+                                "expected kNewFile4 tag");
+    }
+
+    int ignored_max_level = -1;
+    uint64_t ignored_min_log_number_to_keep = 0;
+    bool ignored_has_min_log_number_to_keep = false;
+    VersionEdit::NewFiles ignored_new_files;
+    FileMetaData file;
+
+    const char* err = VersionEdit::DecodeNewFile4From(
+        &file_input, ignored_max_level, ignored_min_log_number_to_keep,
+        ignored_has_min_log_number_to_keep, ignored_new_files, file);
+
+    if (err != nullptr) {
+      return Status::Corruption("SubcompactionProgressPerLevel", err);
+    }
+
+    output_files.push_back(std::move(file));
+  }
+
+  return Status::OK();
+}
+
+void SubcompactionProgress::EncodeTo(std::string* dst) const {
+  if (!next_internal_key_to_compact.empty()) {
+    PutVarint32(dst, SubcompactionProgressCustomTag::kNextInternalKeyToCompact);
+    PutLengthPrefixedSlice(dst, next_internal_key_to_compact);
+  }
+
+  PutVarint32(dst, SubcompactionProgressCustomTag::kNumProcessedInputRecords);
+  std::string varint_records;
+  PutVarint64(&varint_records, num_processed_input_records);
+  PutLengthPrefixedSlice(dst, varint_records);
+
+  if (output_level_progress.GetOutputFiles().size() >
+      output_level_progress.GetLastPersistedOutputFilesCount()) {
+    PutVarint32(dst, SubcompactionProgressCustomTag::kOutputLevelProgress);
+    std::string level_progress_data;
+    output_level_progress.EncodeTo(&level_progress_data);
+    PutLengthPrefixedSlice(dst, level_progress_data);
+  }
+
+  if (proximal_output_level_progress.GetOutputFiles().size() >
+      proximal_output_level_progress.GetLastPersistedOutputFilesCount()) {
+    PutVarint32(dst,
+                SubcompactionProgressCustomTag::kProximalOutputLevelProgress);
+    std::string level_progress_data;
+    proximal_output_level_progress.EncodeTo(&level_progress_data);
+    PutLengthPrefixedSlice(dst, level_progress_data);
+  }
+  PutVarint32(dst,
+              SubcompactionProgressCustomTag::kSubcompactionProgressTerminate);
+}
+
+Status SubcompactionProgress::DecodeFrom(Slice* input) {
+  Clear();
+
+  while (true) {
+    uint32_t custom_tag = 0;
+    if (!GetVarint32(input, &custom_tag)) {
+      return Status::Corruption("SubcompactionProgress",
+                                "custom field tag error");
+    }
+
+    if (custom_tag ==
+        SubcompactionProgressCustomTag::kSubcompactionProgressTerminate) {
+      break;
+    }
+
+    Slice field;
+    if (!GetLengthPrefixedSlice(input, &field)) {
+      return Status::Corruption("SubcompactionProgress",
+                                "custom field length prefixed slice error");
+    }
+
+    switch (custom_tag) {
+      case SubcompactionProgressCustomTag::kNextInternalKeyToCompact:
+        next_internal_key_to_compact = field.ToString();
+        break;
+
+      case SubcompactionProgressCustomTag::kNumProcessedInputRecords:
+        if (!GetVarint64(&field, &num_processed_input_records)) {
+          return Status::Corruption("SubcompactionProgress",
+                                    "invalid num_processed_input_records");
+        }
+        break;
+
+      case SubcompactionProgressCustomTag::kOutputLevelProgress: {
+        Status s = output_level_progress.DecodeFrom(&field);
+        if (!s.ok()) {
+          return s;
+        }
+        break;
+      }
+
+      case SubcompactionProgressCustomTag::kProximalOutputLevelProgress: {
+        Status s = proximal_output_level_progress.DecodeFrom(&field);
+        if (!s.ok()) {
+          return s;
+        }
+        break;
+      }
+
+      default:
+        if ((custom_tag & SubcompactionProgressCustomTag::
+                              kSubcompactionProgressCustomTagSafeIgnoreMask) !=
+            0) {
+          break;
+        } else {
+          return Status::NotSupported("SubcompactionProgress",
+                                      "unsupported critical custom field");
+        }
+    }
+  }
+
+  return Status::OK();
+}
+
+bool SubcompactionProgressBuilder::ProcessVersionEdit(const VersionEdit& edit) {
+  if (!edit.HasSubcompactionProgress()) {
+    return false;
+  }
+
+  const SubcompactionProgress& progress = edit.GetSubcompactionProgress();
+
+  MergeDeltaProgress(progress);
+
+  has_subcompaction_progress_ = true;
+
+  return true;
+}
+
+void SubcompactionProgressBuilder::MergeDeltaProgress(
+    const SubcompactionProgress& delta_progress) {
+  accumulated_subcompaction_progress_.next_internal_key_to_compact =
+      delta_progress.next_internal_key_to_compact;
+
+  accumulated_subcompaction_progress_.num_processed_input_records =
+      delta_progress.num_processed_input_records;
+
+  MaybeMergeDeltaProgressPerLevel(
+      accumulated_subcompaction_progress_.output_level_progress,
+      delta_progress.output_level_progress);
+
+  MaybeMergeDeltaProgressPerLevel(
+      accumulated_subcompaction_progress_.proximal_output_level_progress,
+      delta_progress.proximal_output_level_progress);
+}
+
+void SubcompactionProgressBuilder::MaybeMergeDeltaProgressPerLevel(
+    SubcompactionProgressPerLevel& accumulated_level_progress,
+    const SubcompactionProgressPerLevel& delta_level_progress) {
+  const auto& delta_files = delta_level_progress.GetOutputFiles();
+  if (delta_files.empty()) {
+    return;
+  }
+  for (const FileMetaData& file : delta_files) {
+    accumulated_level_progress.AddToOutputFiles(file);  // Stored as copy
+  }
+
+  accumulated_level_progress.SetNumProcessedOutputRecords(
+      delta_level_progress.GetNumProcessedOutputRecords());
+}
+
+void SubcompactionProgressBuilder::Clear() {
+  accumulated_subcompaction_progress_.Clear();
+  has_subcompaction_progress_ = false;
+}
 }  // namespace ROCKSDB_NAMESPACE

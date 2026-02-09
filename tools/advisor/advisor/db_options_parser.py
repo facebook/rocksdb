@@ -4,25 +4,26 @@
 #  (found in the LICENSE.Apache file in the root directory).
 
 import copy
+import os
+
 from advisor.db_log_parser import DataSource, NO_COL_FAMILY
 from advisor.ini_parser import IniParser
-import os
 
 
 class OptionsSpecParser(IniParser):
     @staticmethod
     def is_new_option(line):
-        return '=' in line
+        return "=" in line
 
     @staticmethod
     def get_section_type(line):
-        '''
+        """
         Example section header: [TableOptions/BlockBasedTable "default"]
         Here ConfigurationOptimizer returned would be
         'TableOptions.BlockBasedTable'
-        '''
+        """
         section_path = line.strip()[1:-1].split()[0]
-        section_type = '.'.join(section_path.split('/'))
+        section_type = ".".join(section_path.split("/"))
         return section_type
 
     @staticmethod
@@ -39,20 +40,20 @@ class OptionsSpecParser(IniParser):
         # Example:
         # Case 1: get_section_str('DBOptions', NO_COL_FAMILY)
         # Case 2: get_section_str('TableOptions.BlockBasedTable', 'default')
-        section_type = '/'.join(section_type.strip().split('.'))
+        section_type = "/".join(section_type.strip().split("."))
         # Case 1: section_type = 'DBOptions'
         # Case 2: section_type = 'TableOptions/BlockBasedTable'
-        section_str = '[' + section_type
+        section_str = "[" + section_type
         if section_name == NO_COL_FAMILY:
             # Case 1: '[DBOptions]'
-            return (section_str + ']')
+            return section_str + "]"
         else:
             # Case 2: '[TableOptions/BlockBasedTable "default"]'
             return section_str + ' "' + section_name + '"]'
 
     @staticmethod
     def get_option_str(key, values):
-        option_str = key + '='
+        option_str = key + "="
         # get_option_str('db_log_dir', None), returns 'db_log_dir='
         if values:
             # example:
@@ -61,7 +62,7 @@ class OptionsSpecParser(IniParser):
             # 'max_bytes_for_level_multiplier_additional=1:1:1:1:1:1:1'
             if isinstance(values, list):
                 for value in values:
-                    option_str += (str(value) + ':')
+                    option_str += str(value) + ":"
                 option_str = option_str[:-1]
             else:
                 # example: get_option_str('write_buffer_size', 1048576)
@@ -71,13 +72,12 @@ class OptionsSpecParser(IniParser):
 
 
 class DatabaseOptions(DataSource):
-
     @staticmethod
     def is_misc_option(option_name):
         # these are miscellaneous options that are not yet supported by the
         # Rocksdb options file, hence they are not prefixed with any section
         # name
-        return '.' not in option_name
+        return "." not in option_name
 
     @staticmethod
     def get_options_diff(opt_old, opt_new):
@@ -102,7 +102,7 @@ class DatabaseOptions(DataSource):
                         if opt_old[opt][col_fam] != opt_new[opt][col_fam]:
                             diff[opt][col_fam] = (
                                 opt_old[opt][col_fam],
-                                opt_new[opt][col_fam]
+                                opt_new[opt][col_fam],
                             )
                     else:
                         diff[opt][col_fam] = (opt_old[opt][col_fam], None)
@@ -111,7 +111,7 @@ class DatabaseOptions(DataSource):
                         if opt_old[opt][col_fam] != opt_new[opt][col_fam]:
                             diff[opt][col_fam] = (
                                 opt_old[opt][col_fam],
-                                opt_new[opt][col_fam]
+                                opt_new[opt][col_fam],
                             )
                     else:
                         diff[opt][col_fam] = (None, opt_new[opt][col_fam])
@@ -137,21 +137,19 @@ class DatabaseOptions(DataSource):
         self.misc_options = {}
         if misc_options:
             for option_pair_str in misc_options:
-                option_name = option_pair_str.split('=')[0].strip()
-                option_value = option_pair_str.split('=')[1].strip()
+                option_name = option_pair_str.split("=")[0].strip()
+                option_value = option_pair_str.split("=")[1].strip()
                 self.misc_options[option_name] = option_value
 
     def load_from_source(self, options_path):
         self.options_dict = {}
-        with open(options_path, 'r') as db_options:
+        with open(options_path) as db_options:
             for line in db_options:
                 line = OptionsSpecParser.remove_trailing_comment(line)
                 if not line:
                     continue
                 if OptionsSpecParser.is_section_header(line):
-                    curr_sec_type = (
-                        OptionsSpecParser.get_section_type(line)
-                    )
+                    curr_sec_type = OptionsSpecParser.get_section_type(line)
                     curr_sec_name = OptionsSpecParser.get_section_name(line)
                     if curr_sec_type not in self.options_dict:
                         self.options_dict[curr_sec_type] = {}
@@ -163,17 +161,15 @@ class DatabaseOptions(DataSource):
                     # CFOptions and 'default' is the name of a column family
                     # that for this database, so it's added to the list of
                     # column families stored in this object
-                    if curr_sec_type == 'CFOptions':
+                    if curr_sec_type == "CFOptions":
                         if not self.column_families:
                             self.column_families = []
                         self.column_families.append(curr_sec_name)
                 elif OptionsSpecParser.is_new_option(line):
                     key, value = OptionsSpecParser.get_key_value_pair(line)
-                    self.options_dict[curr_sec_type][curr_sec_name][key] = (
-                        value
-                    )
+                    self.options_dict[curr_sec_type][curr_sec_name][key] = value
                 else:
-                    error = 'Not able to parse line in Options file.'
+                    error = "Not able to parse line in Options file."
                     OptionsSpecParser.exit_with_parse_error(line, error)
 
     def get_misc_options(self):
@@ -193,7 +189,7 @@ class DatabaseOptions(DataSource):
         for sec_type in self.options_dict:
             for col_fam in self.options_dict[sec_type]:
                 for opt_name in self.options_dict[sec_type][col_fam]:
-                    option = sec_type + '.' + opt_name
+                    option = sec_type + "." + opt_name
                     all_options.append(option)
         all_options.extend(list(self.misc_options.keys()))
         return self.get_options(all_options)
@@ -211,24 +207,22 @@ class DatabaseOptions(DataSource):
                     continue
                 if option not in reqd_options_dict:
                     reqd_options_dict[option] = {}
-                reqd_options_dict[option][NO_COL_FAMILY] = (
-                    self.misc_options[option]
-                )
+                reqd_options_dict[option][NO_COL_FAMILY] = self.misc_options[option]
             else:
                 # Example: option = 'TableOptions.BlockBasedTable.block_align'
                 # then, sec_type = 'TableOptions.BlockBasedTable'
-                sec_type = '.'.join(option.split('.')[:-1])
+                sec_type = ".".join(option.split(".")[:-1])
                 # opt_name = 'block_align'
-                opt_name = option.split('.')[-1]
+                opt_name = option.split(".")[-1]
                 if sec_type not in self.options_dict:
                     continue
                 for col_fam in self.options_dict[sec_type]:
                     if opt_name in self.options_dict[sec_type][col_fam]:
                         if option not in reqd_options_dict:
                             reqd_options_dict[option] = {}
-                        reqd_options_dict[option][col_fam] = (
-                            self.options_dict[sec_type][col_fam][opt_name]
-                        )
+                        reqd_options_dict[option][col_fam] = self.options_dict[
+                            sec_type
+                        ][col_fam][opt_name]
         return reqd_options_dict
 
     def update_options(self, options):
@@ -244,16 +238,19 @@ class DatabaseOptions(DataSource):
                 # misc_options dictionary
                 if NO_COL_FAMILY not in options[option]:
                     print(
-                        'WARNING(DatabaseOptions.update_options): not ' +
-                        'updating option ' + option + ' because it is in ' +
-                        'misc_option format but its scope is not ' +
-                        NO_COL_FAMILY + '. Check format of option.'
+                        "WARNING(DatabaseOptions.update_options): not "
+                        + "updating option "
+                        + option
+                        + " because it is in "
+                        + "misc_option format but its scope is not "
+                        + NO_COL_FAMILY
+                        + ". Check format of option."
                     )
                     continue
                 self.misc_options[option] = options[option][NO_COL_FAMILY]
             else:
-                sec_name = '.'.join(option.split('.')[:-1])
-                opt_name = option.split('.')[-1]
+                sec_name = ".".join(option.split(".")[:-1])
+                opt_name = option.split(".")[-1]
                 if sec_name not in self.options_dict:
                     self.options_dict[sec_name] = {}
                 for col_fam in options[option]:
@@ -262,30 +259,26 @@ class DatabaseOptions(DataSource):
                     # value
                     if col_fam not in self.options_dict[sec_name]:
                         self.options_dict[sec_name][col_fam] = {}
-                    self.options_dict[sec_name][col_fam][opt_name] = (
-                        copy.deepcopy(options[option][col_fam])
+                    self.options_dict[sec_name][col_fam][opt_name] = copy.deepcopy(
+                        options[option][col_fam]
                     )
 
     def generate_options_config(self, nonce):
         # this method generates a Rocksdb OPTIONS file in the INI format from
         # the options stored in self.options_dict
         this_path = os.path.abspath(os.path.dirname(__file__))
-        file_name = '../temp/OPTIONS_' + str(nonce) + '.tmp'
+        file_name = "../temp/OPTIONS_" + str(nonce) + ".tmp"
         file_path = os.path.join(this_path, file_name)
-        with open(file_path, 'w') as fp:
+        with open(file_path, "w") as fp:
             for section in self.options_dict:
                 for col_fam in self.options_dict[section]:
-                    fp.write(
-                        OptionsSpecParser.get_section_str(section, col_fam) +
-                        '\n'
-                    )
+                    fp.write(OptionsSpecParser.get_section_str(section, col_fam) + "\n")
                     for option in self.options_dict[section][col_fam]:
                         values = self.options_dict[section][col_fam][option]
                         fp.write(
-                            OptionsSpecParser.get_option_str(option, values) +
-                            '\n'
+                            OptionsSpecParser.get_option_str(option, values) + "\n"
                         )
-                fp.write('\n')
+                fp.write("\n")
         return file_path
 
     def check_and_trigger_conditions(self, conditions):
@@ -299,10 +292,14 @@ class DatabaseOptions(DataSource):
             for ix, option in enumerate(cond.options):
                 if option not in reqd_options_dict:
                     print(
-                        'WARNING(DatabaseOptions.check_and_trigger): ' +
-                        'skipping condition ' + cond.name + ' because it '
-                        'requires option ' + option + ' but this option is' +
-                        ' not available'
+                        "WARNING(DatabaseOptions.check_and_trigger): "
+                        + "skipping condition "
+                        + cond.name
+                        + " because it "
+                        "requires option "
+                        + option
+                        + " but this option is"
+                        + " not available"
                     )
                     missing_reqd_option = True
                     break  # required option is absent
@@ -321,9 +318,7 @@ class DatabaseOptions(DataSource):
                     if eval(cond.eval_expr):
                         cond.set_trigger({NO_COL_FAMILY: options})
                 except Exception as e:
-                    print(
-                        'WARNING(DatabaseOptions) check_and_trigger:' + str(e)
-                    )
+                    print("WARNING(DatabaseOptions) check_and_trigger:" + str(e))
                 continue
 
             # for all the options that are not database-wide, we look for their
@@ -340,14 +335,9 @@ class DatabaseOptions(DataSource):
                 if present:
                     try:
                         if eval(cond.eval_expr):
-                            col_fam_options_dict[col_fam] = (
-                                copy.deepcopy(options)
-                            )
+                            col_fam_options_dict[col_fam] = copy.deepcopy(options)
                     except Exception as e:
-                        print(
-                            'WARNING(DatabaseOptions) check_and_trigger: ' +
-                            str(e)
-                        )
+                        print("WARNING(DatabaseOptions) check_and_trigger: " + str(e))
             # Trigger for an OptionCondition object is of the form:
             # Dict[col_fam_name: List[option_value]]
             # where col_fam_name is the name of a column family for which

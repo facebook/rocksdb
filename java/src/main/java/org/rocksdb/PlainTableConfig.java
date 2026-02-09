@@ -48,7 +48,7 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param keySize the length of the user key.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setKeySize(int keySize) {
+  public PlainTableConfig setKeySize(final int keySize) {
     keySize_ = keySize;
     return this;
   }
@@ -68,7 +68,7 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param bitsPerKey the number of bits per key for bloom filer.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setBloomBitsPerKey(int bitsPerKey) {
+  public PlainTableConfig setBloomBitsPerKey(final int bitsPerKey) {
     bloomBitsPerKey_ = bitsPerKey;
     return this;
   }
@@ -89,7 +89,7 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param ratio the hash table ratio.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setHashTableRatio(double ratio) {
+  public PlainTableConfig setHashTableRatio(final double ratio) {
     hashTableRatio_ = ratio;
     return this;
   }
@@ -110,7 +110,7 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param sparseness the index sparseness.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setIndexSparseness(int sparseness) {
+  public PlainTableConfig setIndexSparseness(final int sparseness) {
     indexSparseness_ = sparseness;
     return this;
   }
@@ -134,7 +134,7 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param hugePageTlbSize huge page tlb size
    * @return the reference to the current config.
    */
-  public PlainTableConfig setHugePageTlbSize(int hugePageTlbSize) {
+  public PlainTableConfig setHugePageTlbSize(final int hugePageTlbSize) {
     this.hugePageTlbSize_ = hugePageTlbSize;
     return this;
   }
@@ -166,7 +166,7 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param encodingType {@link org.rocksdb.EncodingType} value.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setEncodingType(EncodingType encodingType) {
+  public PlainTableConfig setEncodingType(final EncodingType encodingType) {
     this.encodingType_ = encodingType;
     return this;
   }
@@ -188,7 +188,7 @@ public class PlainTableConfig extends TableFormatConfig {
    *     scan mode shall be enabled.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setFullScanMode(boolean fullScanMode) {
+  public PlainTableConfig setFullScanMode(final boolean fullScanMode) {
     this.fullScanMode_ = fullScanMode;
     return this;
   }
@@ -212,7 +212,7 @@ public class PlainTableConfig extends TableFormatConfig {
    *     be stored in a file
    * @return the reference to the current config.
    */
-  public PlainTableConfig setStoreIndexInFile(boolean storeIndexInFile) {
+  public PlainTableConfig setStoreIndexInFile(final boolean storeIndexInFile) {
     this.storeIndexInFile_ = storeIndexInFile;
     return this;
   }
@@ -234,10 +234,8 @@ public class PlainTableConfig extends TableFormatConfig {
         storeIndexInFile_);
   }
 
-  private native long newTableFactoryHandle(
-      int keySize, int bloomBitsPerKey,
-      double hashTableRatio, int indexSparseness,
-      int hugePageTlbSize, byte encodingType,
+  private static native long newTableFactoryHandle(int keySize, int bloomBitsPerKey,
+      double hashTableRatio, int indexSparseness, int hugePageTlbSize, byte encodingType,
       boolean fullScanMode, boolean storeIndexInFile);
 
   private int keySize_;

@@ -8,7 +8,7 @@ package org.rocksdb;
  * This class controls the behaviour
  * of Java implementations of
  * AbstractComparator
- *
+ * <p>
  * Note that dispose() must be called before a ComparatorOptions
  * instance becomes out-of-scope to release the allocated memory in C++.
  */
@@ -48,10 +48,10 @@ public class ComparatorOptions extends RocksObject {
   }
 
   /**
-   * Indicates if a direct byte buffer (i.e. outside of the normal
+   * Indicates if a direct byte buffer (i.e. outside the normal
    * garbage-collected heap) is used, as opposed to a non-direct byte buffer
    * which is a wrapper around an on-heap byte[].
-   *
+   * <p>
    * Default: true
    *
    * @return true if a direct byte buffer will be used, false otherwise
@@ -62,10 +62,10 @@ public class ComparatorOptions extends RocksObject {
   }
 
   /**
-   * Controls whether a direct byte buffer (i.e. outside of the normal
+   * Controls whether a direct byte buffer (i.e. outside the normal
    * garbage-collected heap) is used, as opposed to a non-direct byte buffer
    * which is a wrapper around an on-heap byte[].
-   *
+   * <p>
    * Default: true
    *
    * @param useDirectBuffer true if a direct byte buffer should be used,
@@ -86,7 +86,7 @@ public class ComparatorOptions extends RocksObject {
    * if it requires less than {@code maxReuseBufferSize}, then an
    * existing buffer will be reused, else a new buffer will be
    * allocated just for that callback.
-   *
+   * <p>
    * Default: 64 bytes
    *
    * @return the maximum size of a buffer which is reused,
@@ -105,7 +105,7 @@ public class ComparatorOptions extends RocksObject {
    * if it requires less than {@code maxReuseBufferSize}, then an
    * existing buffer will be reused, else a new buffer will be
    * allocated just for that callback.
-   *
+   * <p>
    * Default: 64 bytes
    *
    * @param maxReusedBufferSize the maximum size for a buffer to reuse, or 0 to
@@ -119,15 +119,18 @@ public class ComparatorOptions extends RocksObject {
     return this;
   }
 
-  private native static long newComparatorOptions();
-  private native byte reusedSynchronisationType(final long handle);
-  private native void setReusedSynchronisationType(final long handle,
-      final byte reusedSynchronisationType);
-  private native boolean useDirectBuffer(final long handle);
-  private native void setUseDirectBuffer(final long handle,
-      final boolean useDirectBuffer);
-  private native int maxReusedBufferSize(final long handle);
-  private native void setMaxReusedBufferSize(final long handle,
-      final int maxReuseBufferSize);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long newComparatorOptions();
+  private static native byte reusedSynchronisationType(final long handle);
+  private static native void setReusedSynchronisationType(
+      final long handle, final byte reusedSynchronisationType);
+  private static native boolean useDirectBuffer(final long handle);
+  private static native void setUseDirectBuffer(final long handle, final boolean useDirectBuffer);
+  private static native int maxReusedBufferSize(final long handle);
+  private static native void setMaxReusedBufferSize(
+      final long handle, final int maxReuseBufferSize);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

@@ -9,9 +9,9 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_OptimisticTransactionOptions.h"
-
 #include "rocksdb/comparator.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionOptions
@@ -22,7 +22,7 @@ jlong Java_org_rocksdb_OptimisticTransactionOptions_newOptimisticTransactionOpti
     JNIEnv* /*env*/, jclass /*jcls*/) {
   ROCKSDB_NAMESPACE::OptimisticTransactionOptions* opts =
       new ROCKSDB_NAMESPACE::OptimisticTransactionOptions();
-  return reinterpret_cast<jlong>(opts);
+  return GET_CPLUSPLUS_POINTER(opts);
 }
 
 /*
@@ -31,7 +31,7 @@ jlong Java_org_rocksdb_OptimisticTransactionOptions_newOptimisticTransactionOpti
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_OptimisticTransactionOptions_isSetSnapshot(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           jhandle);
@@ -44,7 +44,7 @@ jboolean Java_org_rocksdb_OptimisticTransactionOptions_isSetSnapshot(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_OptimisticTransactionOptions_setSetSnapshot(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jboolean jset_snapshot) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jboolean jset_snapshot) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           jhandle);
@@ -57,8 +57,7 @@ void Java_org_rocksdb_OptimisticTransactionOptions_setSetSnapshot(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_OptimisticTransactionOptions_setComparator(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jcomparator_handle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jlong jcomparator_handle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           jhandle);
@@ -71,8 +70,8 @@ void Java_org_rocksdb_OptimisticTransactionOptions_setComparator(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_OptimisticTransactionOptions_disposeInternal(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+void Java_org_rocksdb_OptimisticTransactionOptions_disposeInternalJni(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   delete reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
       jhandle);
 }

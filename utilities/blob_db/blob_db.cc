@@ -3,15 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db.h"
 
 #include <cinttypes>
+
+#include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
+namespace ROCKSDB_NAMESPACE::blob_db {
 
 Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
                     const std::string& dbname, BlobDB** blob_db) {
@@ -19,8 +19,7 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   Status s = BlobDB::Open(db_options, bdb_options, dbname, column_families,
                           &handles, blob_db);
@@ -70,43 +69,20 @@ BlobDB::BlobDB() : StackableDB(nullptr) {}
 
 void BlobDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
-      log, "                                  BlobDBOptions.blob_dir: %s",
-      blob_dir.c_str());
-  ROCKS_LOG_HEADER(
-      log, "                             BlobDBOptions.path_relative: %d",
-      path_relative);
-  ROCKS_LOG_HEADER(
-      log, "                                   BlobDBOptions.is_fifo: %d",
-      is_fifo);
-  ROCKS_LOG_HEADER(
       log, "                               BlobDBOptions.max_db_size: %" PRIu64,
       max_db_size);
   ROCKS_LOG_HEADER(
       log, "                            BlobDBOptions.ttl_range_secs: %" PRIu64,
       ttl_range_secs);
   ROCKS_LOG_HEADER(
-      log, "                             BlobDBOptions.min_blob_size: %" PRIu64,
-      min_blob_size);
-  ROCKS_LOG_HEADER(
-      log, "                            BlobDBOptions.bytes_per_sync: %" PRIu64,
-      bytes_per_sync);
-  ROCKS_LOG_HEADER(
       log, "                            BlobDBOptions.blob_file_size: %" PRIu64,
       blob_file_size);
   ROCKS_LOG_HEADER(
-      log, "                               BlobDBOptions.compression: %d",
-      static_cast<int>(compression));
-  ROCKS_LOG_HEADER(
       log, "                 BlobDBOptions.enable_garbage_collection: %d",
       enable_garbage_collection);
-  ROCKS_LOG_HEADER(
-      log, "                 BlobDBOptions.garbage_collection_cutoff: %f",
-      garbage_collection_cutoff);
   ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);
 }
 
-}  // namespace blob_db
-}  // namespace ROCKSDB_NAMESPACE
-#endif
+}  // namespace ROCKSDB_NAMESPACE::blob_db

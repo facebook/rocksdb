@@ -6,7 +6,7 @@ package org.rocksdb;
  * Such mem-table representation contains a fix-sized array of
  * buckets, where each bucket points to a skiplist (or null if the
  * bucket is empty).
- *
+ * <p>
  * Note that since this mem-table representation relies on the
  * key prefix, it is required to invoke one of the usePrefixExtractor
  * functions to specify how to extract key prefix given a key.
@@ -15,7 +15,7 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashSkipListMemTableConfig extends MemTableConfig {
-  public static final int DEFAULT_BUCKET_COUNT = 1000000;
+  public static final int DEFAULT_BUCKET_COUNT = 1_000_000;
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
   public static final int DEFAULT_HEIGHT = 4;
 
@@ -96,9 +96,8 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
         bucketCount_, height_, branchingFactor_);
   }
 
-  private native long newMemTableFactoryHandle(
-      long bucketCount, int height, int branchingFactor)
-      throws IllegalArgumentException;
+  private static native long newMemTableFactoryHandle(
+      long bucketCount, int height, int branchingFactor) throws IllegalArgumentException;
 
   private long bucketCount_;
   private int branchingFactor_;

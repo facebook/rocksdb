@@ -3,8 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table.h"
@@ -24,7 +22,7 @@ class MemoryTest : public testing::Test {
     assert(Env::Default()->CreateDirIfMissing(kDbDir).ok());
   }
 
-  std::string GetDBName(int id) { return kDbDir + "db_" + ToString(id); }
+  std::string GetDBName(int id) { return kDbDir + "db_" + std::to_string(id); }
 
   void UpdateUsagesHistory(const std::vector<DB*>& dbs) {
     std::map<MemoryUtil::UsageType, uint64_t> usage_by_type;
@@ -32,16 +30,6 @@ class MemoryTest : public testing::Test {
     for (int i = 0; i < MemoryUtil::kNumUsageTypes; ++i) {
       usage_history_[i].push_back(
           usage_by_type[static_cast<MemoryUtil::UsageType>(i)]);
-    }
-  }
-
-  void GetCachePointersFromTableFactory(
-      const TableFactory* factory,
-      std::unordered_set<const Cache*>* cache_set) {
-    const auto bbto = factory->GetOptions<BlockBasedTableOptions>();
-    if (bbto != nullptr) {
-      cache_set->insert(bbto->block_cache.get());
-      cache_set->insert(bbto->block_cache_compressed.get());
     }
   }
 
@@ -63,12 +51,8 @@ class MemoryTest : public testing::Test {
       cache_set->insert(db->GetDBOptions().row_cache.get());
 
       // Cache from table factories
-      std::unordered_map<std::string, const ImmutableCFOptions*> iopts_map;
       if (db_impl != nullptr) {
-        ASSERT_OK(db_impl->TEST_GetAllImmutableCFOptions(&iopts_map));
-      }
-      for (auto pair : iopts_map) {
-        GetCachePointersFromTableFactory(pair.second->table_factory, cache_set);
+        db_impl->TEST_GetAllBlockCaches(cache_set);
       }
     }
   }
@@ -145,8 +129,10 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   std::vector<uint64_t> usage_by_type;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
   const int kNumDBs = 10;
+  // These key/value sizes ensure each KV has its own memtable. Note that the
+  // minimum write_buffer_size allowed is 64 KB.
   const int kKeySize = 100;
-  const int kValueSize = 500;
+  const int kValueSize = 1 << 16;
   Options opt;
   opt.create_if_missing = true;
   opt.create_missing_column_families = true;
@@ -258,18 +244,10 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
   return 0;
 #endif
 }
-
-#else
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  printf("Skipped in RocksDBLite as utilities are not supported.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

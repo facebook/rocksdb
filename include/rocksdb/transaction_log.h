@@ -7,14 +7,17 @@
 
 #include <memory>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class LogFile;
-typedef std::vector<std::unique_ptr<LogFile>> VectorLogPtr;
+class WalFile;
+using VectorWalPtr = std::vector<std::unique_ptr<WalFile>>;
+// DEPRECATED old name
+using VectorLogPtr = VectorWalPtr;
 
 enum WalFileType {
   /* Indicates that WAL file is in archive directory. WAL files are moved from
@@ -29,10 +32,10 @@ enum WalFileType {
   kAliveLogFile = 1
 };
 
-class LogFile {
+class WalFile {
  public:
-  LogFile() {}
-  virtual ~LogFile() {}
+  WalFile() {}
+  virtual ~WalFile() {}
 
   // Returns log file's pathname relative to the main db dir
   // Eg. For a live-log-file = /000003.log
@@ -49,9 +52,13 @@ class LogFile {
   // Starting sequence number of writebatch written in this log file
   virtual SequenceNumber StartSequence() const = 0;
 
-  // Size of log file on disk in Bytes
+  // The position of the last flushed write to the file (which for
+  // recycled WAL files is typically less than the full file size).
   virtual uint64_t SizeFileBytes() const = 0;
 };
+
+// DEPRECATED old name for WalFile. (Confusing with "Logger" etc.)
+using LogFile = WalFile;
 
 struct BatchResult {
   SequenceNumber sequence = 0;

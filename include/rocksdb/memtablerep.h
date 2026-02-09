@@ -35,11 +35,16 @@
 
 #pragma once
 
-#include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#include <functional>
 #include <memory>
 #include <stdexcept>
+#include <unordered_set>
+
+#include "rocksdb/customizable.h"
+#include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -48,10 +53,11 @@ class Allocator;
 class LookupKey;
 class SliceTransform;
 class Logger;
+struct DBOptions;
 
-typedef void* KeyHandle;
+using KeyHandle = void*;
 
-extern Slice GetLengthPrefixedSlice(const char* data);
+Slice GetLengthPrefixedSlice(const char* data);
 
 class MemTableRep {
  public:
@@ -59,7 +65,7 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    typedef ROCKSDB_NAMESPACE::Slice DecodedType;
+    using DecodedType = ROCKSDB_NAMESPACE::Slice;
 
     virtual DecodedType decode_key(const char* key) const {
       // The format of key is frozen and can be treated as a part of the API
@@ -157,6 +163,12 @@ class MemTableRep {
     return true;
   }
 
+  // Only used after concurrent memtable inserts.
+  // This function will be called by each writer after all writes are done
+  // through InsertConcurrently().
+  // This is used by VectorRep to do batched writes for concurrent inserts.
+  virtual void BatchPostProcess() {}
+
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
 
@@ -189,9 +201,30 @@ class MemTableRep {
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg, const char* entry));
 
+  // Same as Get() but performs data integrity validation.
+  virtual Status GetAndValidate(
+      const LookupKey& /* k */, void* /* callback_args */,
+      bool (* /* callback_func */)(void* arg, const char* entry),
+      bool /* allow_data_in_error */, bool /* detect_key_out_of_order */,
+      const std::function<Status(const char*, bool)>&
+      /* key_validation_callback */) {
+    return Status::NotSupported("GetAndValidate() not implemented.");
+  }
+
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
     return 0;
+  }
+
+  // Returns a vector of unique random memtable entries of approximate
+  // size 'target_sample_size' (this size is not strictly enforced).
+  virtual void UniqueRandomSample(const uint64_t num_entries,
+                                  const uint64_t target_sample_size,
+                                  std::unordered_set<const char*>* entries) {
+    (void)num_entries;
+    (void)target_sample_size;
+    (void)entries;
+    assert(false);
   }
 
   // Report an approximation of how much memory has been used other than memory
@@ -219,16 +252,45 @@ class MemTableRep {
     // REQUIRES: Valid()
     virtual void Next() = 0;
 
+    // Advances to the next position and performs integrity validations on the
+    // skip list. Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    // REQUIRES: Valid()
+    virtual Status NextAndValidate(bool /* allow_data_in_errors */) {
+      return Status::NotSupported("NextAndValidate() not implemented.");
+    }
+
     // Advances to the previous position.
     // REQUIRES: Valid()
     virtual void Prev() = 0;
 
+    // Advances to the previous position and performs integrity validations on
+    // the skip list. Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    // REQUIRES: Valid()
+    virtual Status PrevAndValidate(bool /* allow_data_in_errors */) {
+      return Status::NotSupported("PrevAndValidate() not implemented.");
+    }
+
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& internal_key, const char* memtable_key) = 0;
+
+    // Seek and perform integrity validations on the skip list.
+    // Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    virtual Status SeekAndValidate(
+        const Slice& /* internal_key */, const char* /* memtable_key */,
+        bool /* allow_data_in_errors */, bool /* detect_key_out_of_order */,
+        const std::function<Status(const char*, bool)>&
+        /* key_validation_callback */) {
+      return Status::NotSupported("SeekAndValidate() not implemented.");
+    }
 
     // retreat to the first entry with a key <= target
     virtual void SeekForPrev(const Slice& internal_key,
                              const char* memtable_key) = 0;
+
+    virtual void RandomSeek() {}
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -274,9 +336,17 @@ class MemTableRep {
 
 // This is the base class for all factories that are used by RocksDB to create
 // new MemTableRep objects
-class MemTableRepFactory {
+class MemTableRepFactory : public Customizable {
  public:
-  virtual ~MemTableRepFactory() {}
+  ~MemTableRepFactory() override {}
+
+  static const char* Type() { return "MemTableRepFactory"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::unique_ptr<MemTableRepFactory>* factory);
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<MemTableRepFactory>* factory);
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
@@ -288,7 +358,7 @@ class MemTableRepFactory {
     return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
   }
 
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Return true if the current MemTableRep supports concurrent inserts
   // Default: false
@@ -310,43 +380,61 @@ class MemTableRepFactory {
 //     seeks with consecutive keys.
 class SkipListFactory : public MemTableRepFactory {
  public:
-  explicit SkipListFactory(size_t lookahead = 0) : lookahead_(lookahead) {}
+  explicit SkipListFactory(size_t lookahead = 0);
 
+  // Methods for Configurable/Customizable class overrides
+  static const char* kClassName() { return "SkipListFactory"; }
+  static const char* kNickName() { return "skip_list"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
+  std::string GetId() const override;
+
+  // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Allocator*, const SliceTransform*,
-                                         Logger* logger) override;
-  virtual const char* Name() const override { return "SkipListFactory"; }
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
+                                 const SliceTransform*,
+                                 Logger* logger) override;
 
   bool IsInsertConcurrentlySupported() const override { return true; }
 
   bool CanHandleDuplicatedKey() const override { return true; }
 
  private:
-  const size_t lookahead_;
+  size_t lookahead_;
 };
 
-#ifndef ROCKSDB_LITE
 // This creates MemTableReps that are backed by an std::vector. On iteration,
 // the vector is sorted. This is useful for workloads where iteration is very
 // rare and writes are generally not issued after reads begin.
+//
+// Concurrent inserts are supported by buffering writes in thread-local vectors
+// for each write batch. To optimize performance for concurrent inserts, it is
+// recommended to perform batched writes, and enable unordered_write (refer to
+// the option comment for its impact on read consistency).
 //
 // Parameters:
 //   count: Passed to the constructor of the underlying std::vector of each
 //     VectorRep. On initialization, the underlying array will be at least count
 //     bytes reserved for usage.
 class VectorRepFactory : public MemTableRepFactory {
-  const size_t count_;
+  size_t count_;
 
  public:
-  explicit VectorRepFactory(size_t count = 0) : count_(count) {}
+  explicit VectorRepFactory(size_t count = 0);
 
+  // Methods for Configurable/Customizable class overrides
+  static const char* kClassName() { return "VectorRepFactory"; }
+  static const char* kNickName() { return "vector"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
+
+  // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Allocator*, const SliceTransform*,
-                                         Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
+                                 const SliceTransform*,
+                                 Logger* logger) override;
 
-  virtual const char* Name() const override { return "VectorRepFactory"; }
+  bool IsInsertConcurrentlySupported() const override { return true; }
 };
 
 // This class contains a fixed array of buckets, each
@@ -355,7 +443,7 @@ class VectorRepFactory : public MemTableRepFactory {
 // skiplist_height: the max height of the skiplist
 // skiplist_branching_factor: probabilistic size ratio between adjacent
 //                            link lists in the skiplist
-extern MemTableRepFactory* NewHashSkipListRepFactory(
+MemTableRepFactory* NewHashSkipListRepFactory(
     size_t bucket_count = 1000000, int32_t skiplist_height = 4,
     int32_t skiplist_branching_factor = 4);
 
@@ -375,11 +463,10 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 //                                 entries when flushing.
 // @threshold_use_skiplist: a bucket switches to skip list if number of
 //                          entries exceed this parameter.
-extern MemTableRepFactory* NewHashLinkListRepFactory(
+MemTableRepFactory* NewHashLinkListRepFactory(
     size_t bucket_count = 50000, size_t huge_page_tlb_size = 0,
     int bucket_entries_logging_threshold = 4096,
     bool if_log_bucket_dist_when_flash = true,
     uint32_t threshold_use_skiplist = 256);
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

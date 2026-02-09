@@ -57,10 +57,27 @@ public class CheckPointTest {
     }
   }
 
+  @Test
+  public void exportColumnFamily() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      try (final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        db.put("key".getBytes(), "value".getBytes());
+        try (final Checkpoint checkpoint = Checkpoint.create(db)) {
+          ExportImportFilesMetaData metadata1 =
+              checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
+                  checkpointFolder.getRoot().getAbsolutePath() + "/export_column_family1");
+          db.put("key2".getBytes(), "value2".getBytes());
+          ExportImportFilesMetaData metadata2 =
+              checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
+                  checkpointFolder.getRoot().getAbsolutePath() + "/export_column_family2");
+        }
+      }
+    }
+  }
+
   @Test(expected = IllegalArgumentException.class)
   public void failIfDbIsNull() {
-    try (final Checkpoint checkpoint = Checkpoint.create(null)) {
-
+    try (final Checkpoint ignored = Checkpoint.create(null)) {
     }
   }
 

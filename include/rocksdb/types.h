@@ -6,6 +6,10 @@
 #pragma once
 
 #include <stdint.h>
+
+#include <memory>
+#include <unordered_map>
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -15,9 +19,26 @@ namespace ROCKSDB_NAMESPACE {
 using ColumnFamilyId = uint32_t;
 
 // Represents a sequence number in a WAL file.
-typedef uint64_t SequenceNumber;
+using SequenceNumber = uint64_t;
+
+struct TableProperties;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
+
+enum class TableFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+  kMisc,
+};
+
+enum class BlobFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+};
 
 // The types of files RocksDB uses in a DB directory. (Available for
 // advanced options.)
@@ -32,7 +53,8 @@ enum FileType {
   kMetaDatabase,
   kIdentityFile,
   kOptionsFile,
-  kBlobFile
+  kBlobFile,
+  kCompactionProgressFile
 };
 
 // User-oriented representation of internal key types.
@@ -45,30 +67,64 @@ enum EntryType {
   kEntryRangeDeletion,
   kEntryBlobIndex,
   kEntryDeleteWithTimestamp,
+  kEntryWideColumnEntity,
+  kEntryTimedPut,  // That hasn't yet converted to a standard Put entry
   kEntryOther,
 };
 
-// <user key, sequence number, and entry type> tuple.
-struct FullKey {
+// Structured user-oriented representation of an internal key. It includes user
+// key, sequence number, and type.
+// If user-defined timestamp is enabled, `timestamp` contains the user-defined
+// timestamp, it's otherwise an empty Slice.
+struct ParsedEntryInfo {
   Slice user_key;
+  Slice timestamp;
   SequenceNumber sequence;
   EntryType type;
-
-  FullKey() : sequence(0) {}  // Intentionally left uninitialized (for speed)
-  FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
-      : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool hex = false) const;
-
-  void clear() {
-    user_key.clear();
-    sequence = 0;
-    type = EntryType::kEntryPut;
-  }
 };
 
-// Parse slice representing internal key to FullKey
-// Parsed FullKey is valid for as long as the memory pointed to by
-// internal_key is alive.
-bool ParseFullKey(const Slice& internal_key, FullKey* result);
+enum class WriteStallCause {
+  // Beginning of CF-scope write stall causes
+  //
+  // Always keep `kMemtableLimit` as the first stat in this section
+  kMemtableLimit,
+  kL0FileCountLimit,
+  kPendingCompactionBytes,
+  kCFScopeWriteStallCauseEnumMax,
+  // End of CF-scope write stall causes
+
+  // Beginning of DB-scope write stall causes
+  //
+  // Always keep `kWriteBufferManagerLimit` as the first stat in this section
+  kWriteBufferManagerLimit,
+  kDBScopeWriteStallCauseEnumMax,
+  // End of DB-scope write stall causes
+
+  // Always add new WriteStallCause before `kNone`
+  kNone,
+};
+
+enum class WriteStallCondition {
+  kDelayed,
+  kStopped,
+  // Always add new WriteStallCondition before `kNormal`
+  kNormal,
+};
+
+// Temperature of a file. Used to pass to FileSystem for a different
+// placement and/or coding.
+// Reserve some numbers in the middle, in case we need to insert new tier
+// there.
+enum class Temperature : uint8_t {
+  kUnknown = 0,
+  kHot = 0x04,
+  kWarm = 0x08,
+  kCool = 0x0A,
+  kCold = 0x0C,
+  kIce = 0x10,
+  // XXX: this is mis-named. It is instead an invalid temperature beyond the
+  // rest
+  kLastTemperature,
+};
 
 }  // namespace ROCKSDB_NAMESPACE

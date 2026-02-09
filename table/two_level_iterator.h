@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
 #include "table/iterator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -36,7 +36,7 @@ struct TwoLevelIteratorState {
 // Uses a supplied function to convert an index_iter value into
 // an iterator over the contents of the corresponding block.
 // Note: this function expects first_level_iter was not created using the arena
-extern InternalIteratorBase<IndexValue>* NewTwoLevelIterator(
+InternalIteratorBase<IndexValue>* NewTwoLevelIterator(
     TwoLevelIteratorState* state,
     InternalIteratorBase<IndexValue>* first_level_iter);
 

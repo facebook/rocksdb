@@ -15,8 +15,8 @@ for base in ["buckifier", "build_tools", "coverage", "tools"]:
         filenames += glob.glob(base + "/" + suff + ".py")
 
 for filename in filenames:
-    source = open(filename, 'r').read() + '\n'
+    source = open(filename).read() + "\n"
     # Parses and syntax checks the file, throwing on error. (No pyc written.)
-    _ = compile(source, filename, 'exec')
+    _ = compile(source, filename, "exec")
 
-print("No syntax errors in {0} .py files".format(len(filenames)))
+print(f"No syntax errors in {len(filenames)} .py files")

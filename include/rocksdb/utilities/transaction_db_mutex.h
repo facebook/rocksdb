@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 
@@ -18,7 +17,6 @@ namespace ROCKSDB_NAMESPACE {
 //
 // To open a TransactionDB with a custom TransactionDBMutexFactory, set
 // TransactionDBOptions.custom_mutex_factory.
-
 class TransactionDBMutex {
  public:
   virtual ~TransactionDBMutex() {}
@@ -88,5 +86,3 @@ class TransactionDBMutexFactory {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

@@ -5,30 +5,14 @@
 
 #include "db/snapshot_checker.h"
 
-#ifdef ROCKSDB_LITE
-#include <assert.h>
-#endif  // ROCKSDB_LITE
-
+#include "port/lang.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_LITE
-WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
-    WritePreparedTxnDB* /*txn_db*/) {}
-
-SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
-    SequenceNumber /*sequence*/, SequenceNumber /*snapshot_sequence*/) const {
-  // Should never be called in LITE mode.
-  assert(false);
-  return SnapshotCheckerResult::kInSnapshot;
-}
-
-#else
-
 WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
     WritePreparedTxnDB* txn_db)
-    : txn_db_(txn_db){};
+    : txn_db_(txn_db) {}
 
 SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
     SequenceNumber sequence, SequenceNumber snapshot_sequence) const {
@@ -43,7 +27,25 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
                      : SnapshotCheckerResult::kNotInSnapshot;
 }
 
-#endif  // ROCKSDB_LITE
-DisableGCSnapshotChecker DisableGCSnapshotChecker::instance_;
+DisableGCSnapshotChecker* DisableGCSnapshotChecker::Instance() {
+  STATIC_AVOID_DESTRUCTION(DisableGCSnapshotChecker, instance);
+  return &instance;
+}
 
+bool DataIsDefinitelyInSnapshot(SequenceNumber seqno, SequenceNumber snapshot,
+                                const SnapshotChecker* snapshot_checker) {
+  return ((seqno) <= (snapshot) &&
+          (snapshot_checker == nullptr ||
+           LIKELY(snapshot_checker->CheckInSnapshot((seqno), (snapshot)) ==
+                  SnapshotCheckerResult::kInSnapshot)));
+}
+
+bool DataIsDefinitelyNotInSnapshot(SequenceNumber seqno,
+                                   SequenceNumber snapshot,
+                                   const SnapshotChecker* snapshot_checker) {
+  return ((seqno) > (snapshot) ||
+          (snapshot_checker != nullptr &&
+           UNLIKELY(snapshot_checker->CheckInSnapshot((seqno), (snapshot)) ==
+                    SnapshotCheckerResult::kNotInSnapshot)));
+}
 }  // namespace ROCKSDB_NAMESPACE

@@ -11,7 +11,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class UtilMergeOperatorTest : public testing::Test {
  public:
-  UtilMergeOperatorTest() {}
+  UtilMergeOperatorTest() = default;
 
   std::string FullMergeV2(std::string existing_value,
                           std::vector<std::string> operands,
@@ -94,6 +94,7 @@ TEST_F(UtilMergeOperatorTest, MaxMergeOperator) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

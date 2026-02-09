@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -18,8 +16,8 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/transaction_util.h"
@@ -97,5 +95,3 @@ class OptimisticTransactionCallback : public WriteCallback {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

@@ -4,10 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/convenience.h"
 
+#include "db/convenience_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 
@@ -26,8 +25,18 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 }
 
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
-                           const RangePtr* ranges, size_t n,
-                           bool include_end) {
+                           const RangePtr* ranges, size_t n, bool include_end) {
+  std::vector<RangeOpt> range_opts(n);
+  for (size_t i = 0; i < n; ++i) {
+    range_opts[i] = {OptSlice::CopyFromPtr(ranges[i].start),
+                     OptSlice::CopyFromPtr(ranges[i].limit)};
+  }
+  return DeleteFilesInRanges(db, column_family, range_opts.data(), n,
+                             include_end);
+}
+
+Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
+                           const RangeOpt* ranges, size_t n, bool include_end) {
   return (static_cast_with_check<DBImpl>(db->GetRootDB()))
       ->DeleteFilesInRanges(column_family, ranges, n, include_end);
 }
@@ -35,36 +44,63 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const std::string& file_path) {
-  return VerifySstFileChecksum(options, env_options, ReadOptions(), file_path);
+  // TODO: plumb Env::IOActivity, Env::IOPriority
+  const ReadOptions read_options;
+  return VerifySstFileChecksum(options, env_options, read_options, file_path);
 }
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const ReadOptions& read_options,
-                             const std::string& file_path) {
+                             const ReadOptions& _read_options,
+                             const std::string& file_path,
+                             const SequenceNumber& largest_seqno) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Can only call VerifySstFileChecksum with `ReadOptions::io_activity` "
+        "is "
+        "`Env::IOActivity::kUnknown`");
+  }
+  ReadOptions read_options(_read_options);
+  return VerifySstFileChecksumInternal(options, env_options, read_options,
+                                       file_path, largest_seqno);
+}
+
+Status VerifySstFileChecksumInternal(const Options& options,
+                                     const EnvOptions& env_options,
+                                     const ReadOptions& read_options,
+                                     const std::string& file_path,
+                                     const SequenceNumber& largest_seqno) {
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
 
-  Status s = ioptions.fs->NewRandomAccessFile(file_path,
-                                              FileOptions(env_options),
-                                              &file, nullptr);
+  Status s = ioptions.fs->NewRandomAccessFile(
+      file_path, FileOptions(env_options), &file, nullptr);
   if (s.ok()) {
     s = ioptions.fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   } else {
     return s;
   }
+  if (!s.ok()) {
+    return s;
+  }
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), file_path));
+      new RandomAccessFileReader(
+          std::move(file), file_path, ioptions.clock, nullptr /* io_tracer */,
+          ioptions.stats /* stats */,
+          Histograms::SST_READ_MICROS /* hist_type */,
+          nullptr /* file_read_hist */, ioptions.rate_limiter.get()));
   const bool kImmortal = true;
-  s = ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
-                         internal_comparator, false /* skip_filters */,
-                         !kImmortal, false /* force_direct_prefetch */,
-                         -1 /* level */),
-      std::move(file_reader), file_size, &table_reader,
-      false /* prefetch_index_and_filter_in_cache */);
+  auto reader_options = TableReaderOptions(
+      ioptions, options.prefix_extractor, options.compression_manager.get(),
+      env_options, internal_comparator, options.block_protection_bytes_per_key,
+      false /* skip_filters */, !kImmortal, false /* force_direct_prefetch */,
+      -1 /* level */);
+  reader_options.largest_seqno = largest_seqno;
+  s = options.table_factory->NewTableReader(
+      read_options, reader_options, std::move(file_reader), file_size,
+      &table_reader, false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
     return s;
   }
@@ -74,5 +110,3 @@ Status VerifySstFileChecksum(const Options& options,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

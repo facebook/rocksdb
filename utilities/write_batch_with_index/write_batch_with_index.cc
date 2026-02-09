@@ -3,19 +3,18 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/utilities/write_batch_with_index.h"
 
+#include <cassert>
 #include <memory>
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/wide/wide_columns_helper.h"
 #include "memory/arena.h"
-#include "memtable/skiplist.h"
-#include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/cast_util.h"
@@ -25,20 +24,20 @@
 namespace ROCKSDB_NAMESPACE {
 struct WriteBatchWithIndex::Rep {
   explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
-               size_t max_bytes = 0, bool _overwrite_key = false)
-      : write_batch(reserved_bytes, max_bytes),
+               size_t max_bytes = 0, bool _overwrite_key = false,
+               size_t protection_bytes_per_key = 0)
+      : write_batch(reserved_bytes, max_bytes, protection_bytes_per_key,
+                    index_comparator ? index_comparator->timestamp_size() : 0),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
-        overwrite_key(_overwrite_key),
-        last_entry_offset(0),
         last_sub_batch_offset(0),
-        sub_batch_cnt(1) {}
+        sub_batch_cnt(1),
+        overwrite_key(_overwrite_key),
+        op_count(0) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
   WriteBatchEntrySkipList skip_list;
-  bool overwrite_key;
-  size_t last_entry_offset;
   // The starting offset of the last sub-batch. A sub-batch starts right before
   // inserting a key that is a duplicate of a key in the last sub-batch. Zero,
   // the default, means that no duplicate key is detected so far.
@@ -46,24 +45,52 @@ struct WriteBatchWithIndex::Rep {
   // Total number of sub-batches in the write batch. Default is 1.
   size_t sub_batch_cnt;
 
-  // Remember current offset of internal write batch, which is used as
-  // the starting offset of the next record.
-  void SetLastEntryOffset() { last_entry_offset = write_batch.GetDataSize(); }
+  const bool overwrite_key;
+  // Tracks ids of CFs that have updates in this WBWI, number of updates and
+  // number of overwritten single deletions per cf. Useful for WBWIMemTable
+  // when this WBWI is ingested into a DB.
+  std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat> cf_id_to_stat;
+  size_t op_count;
 
   // In overwrite mode, find the existing entry for the same key and update it
-  // to point to the current entry.
+  // to point to the current entry if this is not a Merge operation.
   // Return true if the key is found and updated.
-  bool UpdateExistingEntry(ColumnFamilyHandle* column_family, const Slice& key);
-  bool UpdateExistingEntryWithCfId(uint32_t column_family_id, const Slice& key);
+  // most_recent_entry_update_count will be set to the update count of the
+  // most recent index entry for `key` if exists.
+  bool UpdateExistingEntryWithCfId(uint32_t column_family_id, const Slice& key,
+                                   WriteType type, size_t last_entry_offset,
+                                   uint32_t* most_recent_entry_update_count);
 
-  // Add the recent entry to the update.
-  // In overwrite mode, if key already exists in the index, update it.
-  void AddOrUpdateIndex(ColumnFamilyHandle* column_family, const Slice& key);
-  void AddOrUpdateIndex(const Slice& key);
+  // Add or update the index for the given `key` of `type`
+  // at `last_entry_offset` in the write batch.
+  //
+  // The index is updated in place if this WBWI is in overwrite mode
+  // and this is not a Merge operation.
+  //
+  // If `cf_cmp` is provided and there is no compartor stored
+  // for this cf, it will be stored as the comparator to use for this cf.
+  void AddOrUpdateIndexWithCfId(uint32_t cf_id, const Slice& key,
+                                WriteType type, size_t last_entry_offset,
+                                const Comparator* cf_cmp = nullptr);
 
-  // Allocate an index entry pointing to the last entry in the write batch and
-  // put it to skip list.
-  void AddNewEntry(uint32_t column_family_id);
+  void AddOrUpdateIndex(ColumnFamilyHandle* cfh, const Slice& key,
+                        WriteType type, size_t last_entry_offset) {
+    AddOrUpdateIndexWithCfId(GetColumnFamilyID(cfh), key, type,
+                             last_entry_offset,
+                             GetColumnFamilyUserComparator(cfh));
+  }
+
+  void AddOrUpdateIndex(const Slice& key, WriteType type,
+                        size_t last_entry_offset) {
+    AddOrUpdateIndexWithCfId(0, key, type, last_entry_offset);
+  }
+
+  // Add a new index entry pointing to the the entry at `last_entry_offset`
+  // in the write batch. `most_recent_entry_update_count` will be used to
+  // initialize the update count of the new index entry.
+  void AddNewEntry(uint32_t column_family_id, WriteType type,
+                   size_t last_entry_offset,
+                   uint32_t most_recent_entry_update_count);
 
   // Clear all updates buffered in this batch.
   void Clear();
@@ -74,14 +101,10 @@ struct WriteBatchWithIndex::Rep {
   Status ReBuildIndex();
 };
 
-bool WriteBatchWithIndex::Rep::UpdateExistingEntry(
-    ColumnFamilyHandle* column_family, const Slice& key) {
-  uint32_t cf_id = GetColumnFamilyID(column_family);
-  return UpdateExistingEntryWithCfId(cf_id, key);
-}
-
 bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
-    uint32_t column_family_id, const Slice& key) {
+    uint32_t column_family_id, const Slice& key, WriteType type,
+    size_t last_entry_offset, uint32_t* most_recent_entry_update_count) {
+  assert(most_recent_entry_update_count);
   if (!overwrite_key) {
     return false;
   }
@@ -91,54 +114,92 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   iter.Seek(key);
   if (!iter.Valid()) {
     return false;
-  }
-  if (!iter.MatchesKey(column_family_id, key)) {
+  } else if (!iter.MatchesKey(column_family_id, key)) {
     return false;
   }
-  WriteBatchIndexEntry* non_const_entry =
+  // Seek() and MatchesKey() guarantees that we are at the first entry with
+  // key == `key`, which is the most recently update to `key`.
+  WriteBatchIndexEntry* most_recent_entry =
       const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-  if (LIKELY(last_sub_batch_offset <= non_const_entry->offset)) {
+  *most_recent_entry_update_count = most_recent_entry->update_count;
+
+  if (LIKELY(last_sub_batch_offset <= most_recent_entry->offset)) {
     last_sub_batch_offset = last_entry_offset;
     sub_batch_cnt++;
   }
-  non_const_entry->offset = last_entry_offset;
-  return true;
+  if (most_recent_entry->has_single_del &&
+      !most_recent_entry->has_overwritten_single_del) {
+    cf_id_to_stat[column_family_id].overwritten_sd_count++;
+    most_recent_entry->has_overwritten_single_del = true;
+  }
+  if (type == kSingleDeleteRecord) {
+    most_recent_entry->has_single_del = true;
+  }
+  // Some sanity check for using Merge and SD on the same key.
+  if (iter.Entry().type == kSingleDeleteRecord) {
+    assert(type != kMergeRecord);
+  }
+  if (type == kMergeRecord) {
+    assert(iter.Entry().type != kSingleDeleteRecord);
+    return false;
+  } else {
+    // We still increment the update count when updating in-place. This is
+    // useful for WBWIMemTable when it needs to emit overwritten SingleDeletes.
+    // The overwritten SingleDelete will be assigned sequence number as if
+    // update_count is 0. So any later update should have update_count > 0.
+    most_recent_entry->update_count++;
+    most_recent_entry->offset = last_entry_offset;
+    return true;
+  }
 }
 
-void WriteBatchWithIndex::Rep::AddOrUpdateIndex(
-    ColumnFamilyHandle* column_family, const Slice& key) {
-  if (!UpdateExistingEntry(column_family, key)) {
-    uint32_t cf_id = GetColumnFamilyID(column_family);
-    const auto* cf_cmp = GetColumnFamilyUserComparator(column_family);
-    if (cf_cmp != nullptr) {
+void WriteBatchWithIndex::Rep::AddOrUpdateIndexWithCfId(
+    uint32_t cf_id, const Slice& key, WriteType type, size_t last_entry_offset,
+    const Comparator* cf_cmp) {
+  op_count++;
+  uint32_t update_count = 0;
+  if (!UpdateExistingEntryWithCfId(cf_id, key, type, last_entry_offset,
+                                   &update_count)) {
+    if (cf_cmp) {
       comparator.SetComparatorForCF(cf_id, cf_cmp);
     }
-    AddNewEntry(cf_id);
+    AddNewEntry(cf_id, type, last_entry_offset, update_count + 1);
   }
 }
 
-void WriteBatchWithIndex::Rep::AddOrUpdateIndex(const Slice& key) {
-  if (!UpdateExistingEntryWithCfId(0, key)) {
-    AddNewEntry(0);
-  }
-}
-
-void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
+void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id,
+                                           WriteType type,
+                                           size_t last_entry_offset,
+                                           uint32_t update_count) {
   const std::string& wb_data = write_batch.Data();
   Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
                           wb_data.size() - last_entry_offset);
   // Extract key
   Slice key;
-  bool success __attribute__((__unused__));
-  success =
+  bool success =
       ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
+#ifdef NDEBUG
+  (void)success;
+#endif
   assert(success);
 
+  const Comparator* const ucmp = comparator.GetComparator(column_family_id);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+
+  if (ts_sz > 0) {
+    key.remove_suffix(ts_sz);
+  }
+
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
-  auto* index_entry =
-      new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
-                                      key.data() - wb_data.data(), key.size());
+  auto* index_entry = new (mem) WriteBatchIndexEntry(
+      last_entry_offset, column_family_id, key.data() - wb_data.data(),
+      key.size(), update_count);
   skip_list.Insert(index_entry);
+
+  if (type == kSingleDeleteRecord) {
+    index_entry->has_single_del = true;
+  }
+  cf_id_to_stat[column_family_id].entry_count++;
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
@@ -151,9 +212,10 @@ void WriteBatchWithIndex::Rep::ClearIndex() {
   arena.~Arena();
   new (&arena) Arena();
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
-  last_entry_offset = 0;
   last_sub_batch_offset = 0;
   sub_batch_cnt = 1;
+  cf_id_to_stat.clear();
+  op_count = 0;
 }
 
 Status WriteBatchWithIndex::Rep::ReBuildIndex() {
@@ -176,13 +238,14 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
+    uint64_t unix_write_time = 0;
     char tag = 0;
 
     // set offset of current entry for call to AddNewEntry()
-    last_entry_offset = input.data() - write_batch.Data().data();
+    size_t last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid, &unix_write_time);
     if (!s.ok()) {
       break;
     }
@@ -190,16 +253,27 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     switch (tag) {
       case kTypeColumnFamilyValue:
       case kTypeValue:
+        found++;
+        AddOrUpdateIndexWithCfId(column_family_id, key, kPutRecord,
+                                 last_entry_offset);
+        break;
       case kTypeColumnFamilyDeletion:
       case kTypeDeletion:
+        found++;
+        AddOrUpdateIndexWithCfId(column_family_id, key, kDeleteRecord,
+                                 last_entry_offset);
+        break;
       case kTypeColumnFamilySingleDeletion:
       case kTypeSingleDeletion:
+        found++;
+        AddOrUpdateIndexWithCfId(column_family_id, key, kSingleDeleteRecord,
+                                 last_entry_offset);
+        break;
       case kTypeColumnFamilyMerge:
       case kTypeMerge:
         found++;
-        if (!UpdateExistingEntryWithCfId(column_family_id, key)) {
-          AddNewEntry(column_family_id);
-        }
+        AddOrUpdateIndexWithCfId(column_family_id, key, kMergeRecord,
+                                 last_entry_offset);
         break;
       case kTypeLogData:
       case kTypeBeginPrepareXID:
@@ -207,12 +281,26 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeBeginUnprepareXID:
       case kTypeEndPrepareXID:
       case kTypeCommitXID:
+      case kTypeCommitXIDAndTimestamp:
       case kTypeRollbackXID:
       case kTypeNoop:
         break;
+      case kTypeColumnFamilyWideColumnEntity:
+      case kTypeWideColumnEntity:
+        found++;
+        AddOrUpdateIndexWithCfId(column_family_id, key, kPutEntityRecord,
+                                 last_entry_offset);
+        break;
+      case kTypeColumnFamilyValuePreferredSeqno:
+      case kTypeValuePreferredSeqno:
+        // TimedPut is not supported in Transaction APIs.
+        return Status::Corruption(
+            "unexpected WriteBatch tag in ReBuildIndex",
+            std::to_string(static_cast<unsigned int>(tag)));
       default:
-        return Status::Corruption("unknown WriteBatch tag in ReBuildIndex",
-                                  ToString(static_cast<unsigned int>(tag)));
+        return Status::Corruption(
+            "unknown WriteBatch tag in ReBuildIndex",
+            std::to_string(static_cast<unsigned int>(tag)));
     }
   }
 
@@ -225,11 +313,11 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
 
 WriteBatchWithIndex::WriteBatchWithIndex(
     const Comparator* default_index_comparator, size_t reserved_bytes,
-    bool overwrite_key, size_t max_bytes)
+    bool overwrite_key, size_t max_bytes, size_t protection_bytes_per_key)
     : rep(new Rep(default_index_comparator, reserved_bytes, max_bytes,
-                  overwrite_key)) {}
+                  overwrite_key, protection_bytes_per_key)) {}
 
-WriteBatchWithIndex::~WriteBatchWithIndex() {}
+WriteBatchWithIndex::~WriteBatchWithIndex() = default;
 
 WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
 
@@ -252,100 +340,164 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
                               &(rep->comparator));
 }
 
+WBWIIterator* WriteBatchWithIndex::NewIterator(uint32_t cf_id) const {
+  return new WBWIIteratorImpl(cf_id, &(rep->skip_list), &rep->write_batch,
+                              &(rep->comparator));
+}
+
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
     const ReadOptions* read_options) {
-  if (rep->overwrite_key == false) {
-    assert(false);
-    return nullptr;
+  WBWIIteratorImpl* wbwiii;
+  if (read_options != nullptr) {
+    wbwiii = new WBWIIteratorImpl(
+        GetColumnFamilyID(column_family), &(rep->skip_list), &rep->write_batch,
+        &rep->comparator, read_options->iterate_lower_bound,
+        read_options->iterate_upper_bound);
+  } else {
+    wbwiii = new WBWIIteratorImpl(GetColumnFamilyID(column_family),
+                                  &(rep->skip_list), &rep->write_batch,
+                                  &rep->comparator);
   }
-  return new BaseDeltaIterator(base_iterator, NewIterator(column_family),
+
+  return new BaseDeltaIterator(column_family, base_iterator, wbwiii,
                                GetColumnFamilyUserComparator(column_family),
                                read_options);
 }
 
-Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
-  if (rep->overwrite_key == false) {
-    assert(false);
-    return nullptr;
-  }
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    Iterator* base_iterator, const ReadOptions* read_options) {
+  WBWIIteratorImpl* wbwiii;
   // default column family's comparator
-  return new BaseDeltaIterator(base_iterator, NewIterator(),
-                               rep->comparator.default_comparator());
+  if (read_options != nullptr) {
+    wbwiii = new WBWIIteratorImpl(
+        0, &(rep->skip_list), &rep->write_batch, &rep->comparator,
+        read_options->iterate_lower_bound, read_options->iterate_upper_bound);
+  } else {
+    wbwiii = new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch,
+                                  &rep->comparator);
+  }
+
+  return new BaseDeltaIterator(nullptr, base_iterator, wbwiii,
+                               rep->comparator.default_comparator(),
+                               /* read_options */ nullptr);
 }
 
 Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.Put(column_family, key, value);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, key);
+    rep->AddOrUpdateIndex(column_family, key, kPutRecord, last_entry_offset);
   }
   return s;
 }
 
 Status WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.Put(key, value);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(key);
+    rep->AddOrUpdateIndex(key, kPutRecord, last_entry_offset);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
+                                const Slice& /*key*/, const Slice& /*ts*/,
+                                const Slice& /*value*/) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be nullptr");
+  }
+  // TODO: support WBWI::Put() with timestamp.
+  return Status::NotSupported();
+}
+
+Status WriteBatchWithIndex::PutEntity(ColumnFamilyHandle* column_family,
+                                      const Slice& key,
+                                      const WideColumns& columns) {
+  assert(rep);
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
+  const Status s = rep->write_batch.PutEntity(column_family, key, columns);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key, kPutEntityRecord,
+                          last_entry_offset);
   }
   return s;
 }
 
 Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
                                    const Slice& key) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.Delete(column_family, key);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, key);
+    rep->AddOrUpdateIndex(column_family, key, kDeleteRecord, last_entry_offset);
   }
   return s;
 }
 
 Status WriteBatchWithIndex::Delete(const Slice& key) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.Delete(key);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(key);
+    rep->AddOrUpdateIndex(key, kDeleteRecord, last_entry_offset);
   }
   return s;
 }
 
+Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
+                                   const Slice& /*key*/, const Slice& /*ts*/) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be nullptr");
+  }
+  // TODO: support WBWI::Delete() with timestamp.
+  return Status::NotSupported();
+}
+
 Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
                                          const Slice& key) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.SingleDelete(column_family, key);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, key);
+    rep->AddOrUpdateIndex(column_family, key, kSingleDeleteRecord,
+                          last_entry_offset);
   }
   return s;
 }
 
 Status WriteBatchWithIndex::SingleDelete(const Slice& key) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.SingleDelete(key);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(key);
+    rep->AddOrUpdateIndex(key, kSingleDeleteRecord, last_entry_offset);
   }
   return s;
 }
 
+Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
+                                         const Slice& /*key*/,
+                                         const Slice& /*ts*/) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be nullptr");
+  }
+  // TODO: support WBWI::SingleDelete() with timestamp.
+  return Status::NotSupported();
+}
+
 Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
                                   const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.Merge(column_family, key, value);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, key);
+    rep->AddOrUpdateIndex(column_family, key, kMergeRecord, last_entry_offset);
   }
   return s;
 }
 
 Status WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
+  size_t last_entry_offset = rep->write_batch.GetDataSize();
   auto s = rep->write_batch.Merge(key, value);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(key);
+    rep->AddOrUpdateIndex(key, kMergeRecord, last_entry_offset);
   }
   return s;
 }
@@ -356,30 +508,56 @@ Status WriteBatchWithIndex::PutLogData(const Slice& blob) {
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
-Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
-                                         const DBOptions& options,
-                                         const Slice& key, std::string* value) {
-  Status s;
-  WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, value, rep->overwrite_key, &s);
-
-  switch (result) {
-    case WriteBatchWithIndexInternal::Result::kFound:
-    case WriteBatchWithIndexInternal::Result::kError:
-      // use returned status
-      break;
-    case WriteBatchWithIndexInternal::Result::kDeleted:
-    case WriteBatchWithIndexInternal::Result::kNotFound:
-      s = Status::NotFound();
-      break;
-    case WriteBatchWithIndexInternal::Result::kMergeInProgress:
-      s = Status::MergeInProgress();
-      break;
-    default:
-      assert(false);
+namespace {
+Status PostprocessStatusBatchOnly(const Status& s,
+                                  WBWIIteratorImpl::Result result) {
+  if (result == WBWIIteratorImpl::kDeleted ||
+      result == WBWIIteratorImpl::kNotFound) {
+    s.PermitUncheckedError();
+    return Status::NotFound();
   }
 
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    s.PermitUncheckedError();
+    return Status::MergeInProgress();
+  }
+
+  assert(result == WBWIIteratorImpl::kFound ||
+         result == WBWIIteratorImpl::kError);
   return s;
+}
+}  // anonymous namespace
+
+Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
+                                         const DBOptions& /* options */,
+                                         const Slice& key, std::string* value) {
+  MergeContext merge_context;
+  Status s;
+  auto result = WriteBatchWithIndexInternal::GetFromBatch(
+      this, column_family, key, &merge_context, value, &s);
+
+  return PostprocessStatusBatchOnly(s, result);
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatch(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    PinnableWideColumns* columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a column family handle");
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a PinnableWideColumns object");
+  }
+
+  MergeContext merge_context;
+  Status s;
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  return PostprocessStatusBatchOnly(s, result);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
@@ -430,66 +608,126 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                            nullptr);
 }
 
+void WriteBatchWithIndex::MergeAcrossBatchAndDBImpl(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    std::string* value, PinnableWideColumns* columns, Status* status) {
+  assert(value || columns);
+  assert(!value || !columns);
+  assert(status);
+
+  if (status->ok()) {
+    if (WideColumnsHelper::HasDefaultColumnOnly(existing.columns())) {
+      *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
+          column_family, key, MergeHelper::kPlainBaseValue,
+          WideColumnsHelper::GetDefaultColumn(existing.columns()),
+          merge_context, value, columns);
+    } else {
+      *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
+          column_family, key, MergeHelper::kWideBaseValue, existing.columns(),
+          merge_context, value, columns);
+    }
+  } else {
+    assert(status->IsNotFound());
+    *status = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+        column_family, key, merge_context, value, columns);
+  }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableSlice* value, Status* status) {
+  assert(value);
+  assert(status);
+
+  std::string result_value;
+  constexpr PinnableWideColumns* result_entity = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context,
+                            &result_value, result_entity, status);
+
+  if (status->ok()) {
+    *value->GetSelf() = std::move(result_value);
+    value->PinSelf();
+  }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableWideColumns* columns, Status* status) {
+  assert(columns);
+  assert(status);
+
+  constexpr std::string* value = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context, value,
+                            columns, status);
+}
+
 Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
-  Status s;
-  WriteBatchWithIndexInternal wbwii(db, column_family);
+  assert(db);
+  assert(pinnable_val);
+
+  if (!column_family) {
+    column_family = db->DefaultColumnFamily();
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0 && !read_options.timestamp) {
+    return Status::InvalidArgument("Must specify timestamp");
+  }
+
+  pinnable_val->Reset();
 
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
-  std::string& batch_value = *pinnable_val->GetSelf();
-  auto result =
-      wbwii.GetFromBatch(this, key, &batch_value, rep->overwrite_key, &s);
+  MergeContext merge_context;
+  Status s;
 
-  if (result == WriteBatchWithIndexInternal::Result::kFound) {
+  auto result = WriteBatchWithIndexInternal::GetFromBatch(
+      this, column_family, key, &merge_context, pinnable_val->GetSelf(), &s);
+
+  if (result == WBWIIteratorImpl::kFound) {
     pinnable_val->PinSelf();
     return s;
   }
-  if (result == WriteBatchWithIndexInternal::Result::kDeleted) {
-    return Status::NotFound();
-  }
-  if (result == WriteBatchWithIndexInternal::Result::kError) {
+
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+  if (result == WBWIIteratorImpl::kError) {
     return s;
   }
-  if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
-      rep->overwrite_key == true) {
-    // Since we've overwritten keys, we do not know what other operations are
-    // in this batch for this key, so we cannot do a Merge to compute the
-    // result.  Instead, we will simply return MergeInProgress.
-    return Status::MergeInProgress();
-  }
 
-  assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
-         result == WriteBatchWithIndexInternal::Result::kNotFound);
+  if (result == WBWIIteratorImpl::kDeleted) {
+    return Status::NotFound();
+  }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
-  if (!callback) {
-    s = db->Get(read_options, column_family, key, pinnable_val);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+
+  // Note: we have to retrieve all columns if we have to merge KVs from the
+  // batch and the DB; otherwise, the default column is sufficient.
+  PinnableWideColumns existing;
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    get_impl_options.columns = &existing;
   } else {
-    DBImpl::GetImplOptions get_impl_options;
-    get_impl_options.column_family = column_family;
+    assert(result == WBWIIteratorImpl::kNotFound);
     get_impl_options.value = pinnable_val;
-    get_impl_options.callback = callback;
-    s = static_cast_with_check<DBImpl>(db->GetRootDB())
-            ->GetImpl(read_options, key, get_impl_options);
   }
 
-  if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
-    if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress) {
-      // Merge result from DB with merges in Batch
-      std::string merge_result;
-      if (s.ok()) {
-        s = wbwii.MergeKey(key, pinnable_val, &merge_result);
-      } else {  // Key not present in db (s.IsNotFound())
-        s = wbwii.MergeKey(key, nullptr, &merge_result);
-      }
-      if (s.ok()) {
-        pinnable_val->Reset();
-        *pinnable_val->GetSelf() = std::move(merge_result);
-        pinnable_val->PinSelf();
-      }
+  get_impl_options.callback = callback;
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            pinnable_val, &s);
     }
   }
 
@@ -508,81 +746,396 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const size_t num_keys, const Slice* keys, PinnableSlice* values,
     Status* statuses, bool sorted_input, ReadCallback* callback) {
-  WriteBatchWithIndexInternal wbwii(db, column_family);
+  assert(db);
+  assert(keys);
+  assert(values);
+  assert(statuses);
 
-  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-  // To hold merges from the write batch
-  autovector<std::pair<WriteBatchWithIndexInternal::Result, MergeContext>,
-             MultiGetContext::MAX_BATCH_SIZE>
-      merges;
+  if (!column_family) {
+    column_family = db->DefaultColumnFamily();
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0 && !read_options.timestamp) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::InvalidArgument("Must specify timestamp");
+    }
+    return;
+  }
+
+  struct MergeTuple {
+    MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
+               PinnableSlice* _value)
+        : key(_key),
+          s(_s),
+          merge_context(std::move(_merge_context)),
+          value(_value) {
+      assert(s);
+      assert(value);
+    }
+
+    Slice key;
+    Status* s;
+    PinnableWideColumns existing;
+    MergeContext merge_context;
+    PinnableSlice* value;
+  };
+
+  autovector<MergeTuple, MultiGetContext::MAX_BATCH_SIZE> merges;
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_contexts;
+
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
   for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
     MergeContext merge_context;
-    PinnableSlice* pinnable_val = &values[i];
-    std::string& batch_value = *pinnable_val->GetSelf();
-    Status* s = &statuses[i];
-    auto result = wbwii.GetFromBatch(this, keys[i], &merge_context,
-                                     &batch_value, rep->overwrite_key, s);
+    std::string batch_value;
+    Status* const s = &statuses[i];
+    auto result = WriteBatchWithIndexInternal::GetFromBatch(
+        this, column_family, key, &merge_context, &batch_value, s);
 
-    if (result == WriteBatchWithIndexInternal::Result::kFound) {
+    PinnableSlice* const pinnable_val = &values[i];
+    pinnable_val->Reset();
+
+    if (result == WBWIIteratorImpl::kFound) {
+      *pinnable_val->GetSelf() = std::move(batch_value);
       pinnable_val->PinSelf();
       continue;
     }
-    if (result == WriteBatchWithIndexInternal::Result::kDeleted) {
+
+    if (result == WBWIIteratorImpl::kDeleted) {
       *s = Status::NotFound();
       continue;
     }
-    if (result == WriteBatchWithIndexInternal::Result::kError) {
-      continue;
-    }
-    if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
-        rep->overwrite_key == true) {
-      // Since we've overwritten keys, we do not know what other operations are
-      // in this batch for this key, so we cannot do a Merge to compute the
-      // result.  Instead, we will simply return MergeInProgress.
-      *s = Status::MergeInProgress();
+
+    if (result == WBWIIteratorImpl::kError) {
       continue;
     }
 
-    assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
-           result == WriteBatchWithIndexInternal::Result::kNotFound);
-    key_context.emplace_back(column_family, keys[i], &values[i],
-                             /*timestamp*/ nullptr, &statuses[i]);
-    merges.emplace_back(result, std::move(merge_context));
+    // Note: we have to retrieve all columns if we have to merge KVs from the
+    // batch and the DB; otherwise, the default column is sufficient.
+    // The columns field will be populated by the loop below to prevent issues
+    // with dangling pointers.
+    if (result == WBWIIteratorImpl::kMergeInProgress) {
+      merges.emplace_back(key, s, std::move(merge_context), pinnable_val);
+      key_contexts.emplace_back(column_family, key, /* value */ nullptr,
+                                /* columns */ nullptr, /* timestamp */ nullptr,
+                                s);
+      continue;
+    }
+
+    assert(result == WBWIIteratorImpl::kNotFound);
+    key_contexts.emplace_back(column_family, key, pinnable_val,
+                              /* columns */ nullptr,
+                              /* timestamp */ nullptr, s);
   }
 
-  for (KeyContext& key : key_context) {
-    sorted_keys.emplace_back(&key);
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.reserve(key_contexts.size());
+
+  size_t merges_idx = 0;
+  for (KeyContext& key_context : key_contexts) {
+    if (!key_context.value) {
+      assert(*key_context.key == merges[merges_idx].key);
+
+      key_context.columns = &merges[merges_idx].existing;
+      ++merges_idx;
+    }
+
+    sorted_keys.emplace_back(&key_context);
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
   static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
+      ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
   static_cast_with_check<DBImpl>(db->GetRootDB())
       ->MultiGetWithCallback(read_options, column_family, callback,
                              &sorted_keys);
 
-  for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
-    KeyContext& key = *iter;
-    if (key.s->ok() || key.s->IsNotFound()) {  // DB Get Succeeded
-      size_t index = iter - key_context.begin();
-      std::pair<WriteBatchWithIndexInternal::Result, MergeContext>&
-          merge_result = merges[index];
-      if (merge_result.first ==
-          WriteBatchWithIndexInternal::Result::kMergeInProgress) {
-        // Merge result from DB with merges in Batch
-        if (key.s->ok()) {
-          *key.s = wbwii.MergeKey(*key.key, iter->value, merge_result.second,
-                                  key.value->GetSelf());
-        } else {  // Key not present in db (s.IsNotFound())
-          *key.s = wbwii.MergeKey(*key.key, nullptr, merge_result.second,
-                                  key.value->GetSelf());
-        }
-        key.value->PinSelf();
+  for (const auto& merge : merges) {
+    if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
+                            merge.merge_context, merge.value, merge.s);
+    }
+  }
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, ReadCallback* callback) {
+  if (!db) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a DB object");
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityFromBatchAndDB with `ReadOptions::io_activity` "
+        "set to `Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a column family handle");
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      return Status::InvalidArgument("Must specify timestamp");
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      return Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+    }
+  } else {
+    if (read_options.timestamp) {
+      return Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+    }
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a PinnableWideColumns "
+        "object");
+  }
+
+  columns->Reset();
+
+  MergeContext merge_context;
+  Status s;
+
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+
+  if (result == WBWIIteratorImpl::kFound ||
+      result == WBWIIteratorImpl::kError) {
+    return s;
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
+    return Status::NotFound();
+  }
+
+  assert(result == WBWIIteratorImpl::kMergeInProgress ||
+         result == WBWIIteratorImpl::kNotFound);
+
+  PinnableWideColumns existing;
+
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns =
+      (result == WBWIIteratorImpl::kMergeInProgress) ? &existing : columns;
+  get_impl_options.callback = callback;
+
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            columns, &s);
+    }
+  }
+
+  return s;
+}
+
+void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    size_t num_keys, const Slice* keys, PinnableWideColumns* results,
+    Status* statuses, bool sorted_input, ReadCallback* callback) {
+  assert(statuses);
+
+  if (!db) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a DB object");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntityFromBatchAndDB with "
+        "`ReadOptions::io_activity` set to `Env::IOActivity::kUnknown` or "
+        "`Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
       }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  if (!column_family) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a column family "
+        "handle");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      const Status s = Status::InvalidArgument("Must specify timestamp");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      const Status s = Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  } else {
+    if (read_options.timestamp) {
+      const Status s = Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+
+  if (!keys) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (!results) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without "
+        "PinnableWideColumns objects");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  struct MergeTuple {
+    MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
+               PinnableWideColumns* _columns)
+        : key(_key),
+          s(_s),
+          merge_context(std::move(_merge_context)),
+          columns(_columns) {
+      assert(s);
+      assert(columns);
+    }
+
+    Slice key;
+    Status* s;
+    PinnableWideColumns existing;
+    MergeContext merge_context;
+    PinnableWideColumns* columns;
+  };
+
+  autovector<MergeTuple, MultiGetContext::MAX_BATCH_SIZE> merges;
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_contexts;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
+    MergeContext merge_context;
+    PinnableWideColumns* const columns = &results[i];
+    Status* const s = &statuses[i];
+
+    columns->Reset();
+
+    auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+        this, column_family, key, &merge_context, columns, s);
+
+    if (result == WBWIIteratorImpl::kFound ||
+        result == WBWIIteratorImpl::kError) {
+      continue;
+    }
+
+    if (result == WBWIIteratorImpl::kDeleted) {
+      *s = Status::NotFound();
+      continue;
+    }
+
+    if (result == WBWIIteratorImpl::kMergeInProgress) {
+      merges.emplace_back(key, s, std::move(merge_context), columns);
+
+      // The columns field will be populated by the loop below to prevent issues
+      // with dangling pointers.
+      key_contexts.emplace_back(column_family, key, /* value */ nullptr,
+                                /* columns */ nullptr, /* timestamp */ nullptr,
+                                s);
+      continue;
+    }
+
+    assert(result == WBWIIteratorImpl::kNotFound);
+    key_contexts.emplace_back(column_family, key, /* value */ nullptr, columns,
+                              /* timestamp */ nullptr, s);
+  }
+
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.reserve(key_contexts.size());
+
+  size_t merges_idx = 0;
+  for (KeyContext& key_context : key_contexts) {
+    if (!key_context.columns) {
+      assert(*key_context.key == merges[merges_idx].key);
+
+      key_context.columns = &merges[merges_idx].existing;
+      ++merges_idx;
+    }
+
+    sorted_keys.emplace_back(&key_context);
+  }
+
+  static_cast_with_check<DBImpl>(db->GetRootDB())
+      ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
+  static_cast_with_check<DBImpl>(db->GetRootDB())
+      ->MultiGetEntityWithCallback(read_options, column_family, callback,
+                                   &sorted_keys);
+
+  for (const auto& merge : merges) {
+    if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
+                            merge.merge_context, merge.columns, merge.s);
     }
   }
 }
@@ -613,5 +1166,18 @@ size_t WriteBatchWithIndex::GetDataSize() const {
   return rep->write_batch.GetDataSize();
 }
 
+const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
+    const WriteBatchWithIndex& wbwi, uint32_t cf_id) {
+  const WriteBatchEntryComparator& ucmps = wbwi.rep->comparator;
+  return ucmps.GetComparator(cf_id);
+}
+
+const std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat>&
+WriteBatchWithIndex::GetCFStats() const {
+  return rep->cf_id_to_stat;
+}
+
+size_t WriteBatchWithIndex::GetWBWIOpCount() const { return rep->op_count; }
+
+bool WriteBatchWithIndex::GetOverwriteKey() const { return rep->overwrite_key; }
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

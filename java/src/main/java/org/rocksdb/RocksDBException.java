@@ -10,7 +10,7 @@ package org.rocksdb;
  * type is used to describe an internal error from the c++ rocksdb library.
  */
 public class RocksDBException extends Exception {
-
+  private static final long serialVersionUID = -5187634878466267120L;
   /* @Nullable */ private final Status status;
 
   /**

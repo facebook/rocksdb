@@ -71,7 +71,7 @@ Status Truncate(Env* env, const std::string& filename, uint64_t length) {
 
 // Trim the tailing "/" in the end of `str`
 std::string TrimDirname(const std::string& str) {
-  size_t found = str.find_last_not_of("/");
+  size_t found = str.find_last_not_of('/');
   if (found == std::string::npos) {
     return str;
   }
@@ -105,6 +105,13 @@ Status TestDirectory::Fsync() {
   }
   env_->SyncDir(dirname_);
   return dir_->Fsync();
+}
+
+Status TestDirectory::Close() {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
+  return dir_->Close();
 }
 
 TestRandomAccessFile::TestRandomAccessFile(
@@ -150,6 +157,11 @@ Status TestRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
 
   assert(target_);
   return target_->MultiRead(reqs, num_reqs);
+}
+
+Status TestRandomAccessFile::GetFileSize(uint64_t* file_size) {
+  assert(target_);
+  return target_->GetFileSize(file_size);
 }
 
 TestWritableFile::TestWritableFile(const std::string& fname,
@@ -288,7 +300,7 @@ Status FaultInjectionTestEnv::NewWritableFile(
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
     MutexLock l(&mutex_);
-    open_files_.insert(fname);
+    open_managed_files_.insert(fname);
     auto dir_and_name = GetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
@@ -302,17 +314,49 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  Status s = target()->ReopenWritableFile(fname, result, soptions);
+
+  bool exists;
+  Status s, exists_s = target()->FileExists(fname);
+  if (exists_s.IsNotFound()) {
+    exists = false;
+  } else if (exists_s.ok()) {
+    exists = true;
+  } else {
+    s = exists_s;
+    exists = false;
+  }
+
   if (s.ok()) {
-    result->reset(new TestWritableFile(fname, std::move(*result), this));
-    // WritableFileWriter* file is opened
-    // again then it will be truncated - so forget our saved state.
-    UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = GetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    s = target()->ReopenWritableFile(fname, result, soptions);
+  }
+
+  // Only track files we created. Files created outside of this
+  // `FaultInjectionTestEnv` are not eligible for tracking/data dropping
+  // (for example, they may contain data a previous db_stress run expects to
+  // be recovered). This could be extended to track/drop data appended once
+  // the file is under `FaultInjectionTestEnv`'s control.
+  if (s.ok()) {
+    bool should_track;
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(fname) != db_file_state_.end()) {
+        // It was written by this `Env` earlier.
+        assert(exists);
+        should_track = true;
+      } else if (!exists) {
+        // It was created by this `Env` just now.
+        should_track = true;
+        open_managed_files_.insert(fname);
+        auto dir_and_name = GetDirAndName(fname);
+        auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+        list.insert(dir_and_name.second);
+      } else {
+        should_track = false;
+      }
+    }
+    if (should_track) {
+      result->reset(new TestWritableFile(fname, std::move(*result), this));
+    }
   }
   return s;
 }
@@ -330,7 +374,7 @@ Status FaultInjectionTestEnv::NewRandomRWFile(
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
     MutexLock l(&mutex_);
-    open_files_.insert(fname);
+    open_managed_files_.insert(fname);
     auto dir_and_name = GetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
@@ -394,17 +438,43 @@ Status FaultInjectionTestEnv::RenameFile(const std::string& s,
   return ret;
 }
 
+Status FaultInjectionTestEnv::LinkFile(const std::string& s,
+                                       const std::string& t) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  Status ret = EnvWrapper::LinkFile(s, t);
+
+  if (ret.ok()) {
+    MutexLock l(&mutex_);
+    if (db_file_state_.find(s) != db_file_state_.end()) {
+      db_file_state_[t] = db_file_state_[s];
+    }
+
+    auto sdn = GetDirAndName(s);
+    auto tdn = GetDirAndName(t);
+    if (dir_to_new_files_since_last_sync_[sdn.first].find(sdn.second) !=
+        dir_to_new_files_since_last_sync_[sdn.first].end()) {
+      auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+      assert(tlist.find(tdn.second) == tlist.end());
+      tlist.insert(tdn.second);
+    }
+  }
+
+  return ret;
+}
+
 void FaultInjectionTestEnv::WritableFileClosed(const FileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     db_file_state_[state.filename_] = state;
-    open_files_.erase(state.filename_);
+    open_managed_files_.erase(state.filename_);
   }
 }
 
 void FaultInjectionTestEnv::WritableFileSynced(const FileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -415,7 +485,7 @@ void FaultInjectionTestEnv::WritableFileSynced(const FileState& state) {
 
 void FaultInjectionTestEnv::WritableFileAppended(const FileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -463,7 +533,7 @@ Status FaultInjectionTestEnv::DeleteFilesCreatedAfterLastDirSync() {
   }
 
   for (auto& pair : map_copy) {
-    for (std::string name : pair.second) {
+    for (const std::string& name : pair.second) {
       Status s = DeleteFile(pair.first + "/" + name);
       if (!s.ok()) {
         return s;
@@ -485,6 +555,6 @@ void FaultInjectionTestEnv::UntrackFile(const std::string& f) {
   dir_to_new_files_since_last_sync_[dir_and_name.first].erase(
       dir_and_name.second);
   db_file_state_.erase(f);
-  open_files_.erase(f);
+  open_managed_files_.erase(f);
 }
 }  // namespace ROCKSDB_NAMESPACE

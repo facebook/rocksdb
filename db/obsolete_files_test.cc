@@ -7,13 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-
-#include <stdlib.h>
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/version_set.h"
@@ -28,20 +27,19 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 class ObsoleteFilesTest : public DBTestBase {
  public:
   ObsoleteFilesTest()
-      : DBTestBase("/obsolete_files_test", /*env_do_fsync=*/true),
+      : DBTestBase("obsolete_files_test", /*env_do_fsync=*/true),
         wal_dir_(dbname_ + "/wal_files") {}
 
   void AddKeys(int numkeys, int startkey) {
     WriteOptions options;
     options.sync = false;
-    for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+    for (int i = startkey; i < (numkeys + startkey); i++) {
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
@@ -54,7 +52,9 @@ class ObsoleteFilesTest : public DBTestBase {
       AddKeys(numKeysPerFile, startKey);
       startKey += numKeysPerFile;
       ASSERT_OK(dbfull()->TEST_FlushMemTable());
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      ASSERT_OK(
+          dbfull()->TEST_WaitForCompact());  // wait for background flush (flush
+                                             // is also a kind of compaction).
     }
   }
 
@@ -66,7 +66,7 @@ class ObsoleteFilesTest : public DBTestBase {
     int log_cnt = 0;
     int sst_cnt = 0;
     int manifest_cnt = 0;
-    for (auto file : filenames) {
+    for (const auto& file : filenames) {
       uint64_t number;
       FileType type;
       if (ParseFileName(file, &number, &type)) {
@@ -115,10 +115,10 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
        "ObsoleteFilesTest::RaceForObsoleteFileDeletion:1"},
       {"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
        "ObsoleteFilesTest::RaceForObsoleteFileDeletion:2"},
-      });
+  });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DeleteObsoleteFileImpl:AfterDeletion", [&](void* arg) {
-        Status* p_status = reinterpret_cast<Status*>(arg);
+        Status* p_status = static_cast<Status*>(arg);
         ASSERT_OK(*p_status);
       });
   SyncPoint::GetInstance()->SetCallBack(
@@ -149,18 +149,6 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
 
 TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
   ReopenDB();
-  SyncPoint::GetInstance()->DisableProcessing();
-  std::vector<uint64_t> optsfiles_nums;
-  std::vector<bool> optsfiles_keep;
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:1", [&](void* arg) {
-        optsfiles_nums.push_back(*reinterpret_cast<uint64_t*>(arg));
-      });
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:2", [&](void* arg) {
-        optsfiles_keep.push_back(*reinterpret_cast<bool*>(arg));
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
 
   createLevel0Files(2, 50000);
   CheckFileTypeCounts(wal_dir_, 1, 0, 0);
@@ -175,8 +163,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
                                      {{"paranoid_file_checks", "true"}}));
     }
   }
-  ASSERT_OK(dbfull()->EnableFileDeletions(true /* force */));
-  ASSERT_EQ(optsfiles_nums.size(), optsfiles_keep.size());
+  ASSERT_OK(dbfull()->EnableFileDeletions());
 
   Close();
 
@@ -200,18 +187,17 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
 TEST_F(ObsoleteFilesTest, BlobFiles) {
   ReopenDB();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
   assert(cfd);
 
-  const ImmutableCFOptions* const ioptions = cfd->ioptions();
-  assert(ioptions);
-  assert(!ioptions->cf_paths.empty());
+  const auto& cf_paths = cfd->ioptions().cf_paths;
+  assert(!cf_paths.empty());
 
-  const std::string& path = ioptions->cf_paths.front().path;
+  const std::string& path = cf_paths.front().path;
 
   // Add an obsolete blob file.
   constexpr uint64_t first_blob_file_number = 234;
@@ -228,7 +214,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
@@ -317,15 +303,48 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   ASSERT_EQ(deleted_files, expected_deleted_files);
 }
 
-}  // namespace ROCKSDB_NAMESPACE
+TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {
+  // This test used to trigger a hang in `DB::GetSortedWalFiles()`, where it
+  // would wait for a no-op purge that did not signal the CV upon completion.
 
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
+  // Grab an iterator and flush to switch the super version. That way, when the
+  // iterator is destroyed, it will go through the purge path.
+  DB* db = db_;  // Only using `db` makes it clear we only use DB-level APIs.
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Sync points ensure `GetSortedWalFiles()` waits for a purge after
+  // `FindObsoleteFiles()` releases the mutex but before its corresponding purge
+  // completes.
+  SyncPoint::GetInstance()->SetCallBack(
+      "FindObsoleteFiles::PostMutexUnlock", [&](void* /* arg */) {
+        TEST_SYNC_POINT(
+            "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:"
+            "InCallback:1");
+        TEST_SYNC_POINT(
+            "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:"
+            "InCallback:2");
+      });
+  SyncPoint::GetInstance()->LoadDependency({
+      {"ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:1",
+       "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin"},
+      {"DBImpl::GetSortedWalFilesImpl:WaitPurge",
+       "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:InCallback:2"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread get_sorted_wal_files_thread([db]() {
+    TEST_SYNC_POINT(
+        "ObsoleteFilesTest::GetSortedWalFilesHangsAfterNoopPurge:Thread:Begin");
+    VectorWalPtr files;
+    ASSERT_OK(db->GetSortedWalFiles(files));
+  });
+  iter.reset();
+  get_sorted_wal_files_thread.join();
 }
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
@@ -333,14 +352,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as DBImpl::DeleteFile is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

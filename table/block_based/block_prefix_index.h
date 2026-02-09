@@ -5,6 +5,8 @@
 #pragma once
 
 #include <stdint.h>
+
+#include "db/dbformat.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -31,6 +33,8 @@ class BlockPrefixIndex {
   }
 
   // Create hash index by reading from the metadata blocks.
+  // Note: table reader (caller) is responsible for keeping shared_ptr to
+  // underlying prefix extractor
   // @params prefixes: a sequence of prefixes.
   // @params prefix_meta: contains the "metadata" to of the prefixes.
   static Status Create(const SliceTransform* hash_key_extractor,
@@ -46,17 +50,17 @@ class BlockPrefixIndex {
   class Builder;
   friend Builder;
 
-  BlockPrefixIndex(const SliceTransform* internal_prefix_extractor,
-                   uint32_t num_buckets, uint32_t* buckets,
-                   uint32_t num_block_array_buffer_entries,
+  BlockPrefixIndex(const SliceTransform* prefix_extractor, uint32_t num_buckets,
+                   uint32_t* buckets, uint32_t num_block_array_buffer_entries,
                    uint32_t* block_array_buffer)
-      : internal_prefix_extractor_(internal_prefix_extractor),
+      : internal_prefix_extractor_(prefix_extractor),
         num_buckets_(num_buckets),
         num_block_array_buffer_entries_(num_block_array_buffer_entries),
         buckets_(buckets),
         block_array_buffer_(block_array_buffer) {}
 
-  const SliceTransform* internal_prefix_extractor_;
+  InternalKeySliceTransform internal_prefix_extractor_;
+
   uint32_t num_buckets_;
   uint32_t num_block_array_buffer_entries_;
   uint32_t* buckets_;

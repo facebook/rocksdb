@@ -1,6 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 // vim: ft=cpp:expandtab:ts=8:sw=4:softtabstop=4:
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 #ident "$Id$"
 /*======
@@ -261,7 +260,7 @@ void locktree_manager::run_escalation(void) {
     static void run(void *extra) {
       locktree_manager *mgr = (locktree_manager *)extra;
       mgr->escalate_all_locktrees();
-    };
+    }
   };
   m_escalator.run(this, escalation_fn::run, this);
 }
@@ -524,4 +523,3 @@ void locktree_manager::kill_waiter(void *extra) {
 
 } /* namespace toku */
 #endif  // OS_WIN
-#endif  // ROCKSDB_LITE

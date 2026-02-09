@@ -8,6 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/arena.h"
+
+#ifndef OS_WIN
+#include <sys/resource.h>
+#endif
+#include "port/jemalloc_helper.h"
+#include "port/port.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
 
@@ -31,7 +37,7 @@ bool CheckMemoryAllocated(size_t allocated, size_t expected) {
 
 void MemoryAllocatedBytesTest(size_t huge_page_size) {
   const int N = 17;
-  size_t req_sz;  // requested size
+  size_t req_sz;           // requested size
   size_t bsz = 32 * 1024;  // block size
   size_t expected_memory_allocated;
 
@@ -165,7 +171,7 @@ static void SimpleTest(size_t huge_page_size) {
       r[b] = i % 256;
     }
     bytes += s;
-    allocated.push_back(std::make_pair(s, r));
+    allocated.emplace_back(s, r);
     ASSERT_GE(arena.ApproximateMemoryUsage(), bytes);
     if (i > N / 10) {
       ASSERT_LE(arena.ApproximateMemoryUsage(), bytes * 1.10);
@@ -196,9 +202,116 @@ TEST_F(ArenaTest, Simple) {
   SimpleTest(0);
   SimpleTest(kHugePageSize);
 }
+
+// Number of minor page faults since last call
+size_t PopMinorPageFaultCount() {
+#ifdef RUSAGE_SELF
+  static long prev = 0;
+  struct rusage usage;
+  EXPECT_EQ(getrusage(RUSAGE_SELF, &usage), 0);
+  size_t rv = usage.ru_minflt - prev;
+  prev = usage.ru_minflt;
+  return rv;
+#else
+  // Conservative
+  return SIZE_MAX;
+#endif  // RUSAGE_SELF
+}
+
+TEST(MmapTest, AllocateLazyZeroed) {
+  // Doesn't have to be page aligned
+  constexpr size_t len = 1234567;    // in bytes
+  constexpr size_t count = len / 8;  // in uint64_t objects
+  // Implicit conversion move
+  TypedMemMapping<uint64_t> pre_arr = MemMapping::AllocateLazyZeroed(len);
+  // Move from same type
+  TypedMemMapping<uint64_t> arr = std::move(pre_arr);
+
+  ASSERT_NE(arr.Get(), nullptr);
+  ASSERT_EQ(arr.Get(), &arr[0]);
+  ASSERT_EQ(arr.Get(), arr.MemMapping::Get());
+
+  ASSERT_EQ(arr.Length(), len);
+  ASSERT_EQ(arr.Count(), count);
+
+  // Start counting page faults
+  PopMinorPageFaultCount();
+
+  // Access half of the allocation
+  size_t i = 0;
+  for (; i < count / 2; ++i) {
+    ASSERT_EQ(arr[i], 0);
+    arr[i] = i;
+  }
+
+  // Appropriate page faults (maybe more)
+  size_t faults = PopMinorPageFaultCount();
+  ASSERT_GE(faults, len / 2 / port::kPageSize);
+
+  // Access rest of the allocation
+  for (; i < count; ++i) {
+    ASSERT_EQ(arr[i], 0);
+    arr[i] = i;
+  }
+
+  // Appropriate page faults (maybe more)
+  faults = PopMinorPageFaultCount();
+  ASSERT_GE(faults, len / 2 / port::kPageSize);
+
+  // Verify data
+  for (i = 0; i < count; ++i) {
+    ASSERT_EQ(arr[i], i);
+  }
+}
+
+TEST_F(ArenaTest, UnmappedAllocation) {
+  // Verify that it's possible to get unmapped pages in large allocations,
+  // for memory efficiency and to ensure we don't accidentally waste time &
+  // space initializing the memory.
+
+#ifdef ROCKSDB_JEMALLOC
+  // With Jemalloc config.fill, the pages are written to before we get them
+  uint8_t fill = 0;
+  size_t fill_sz = sizeof(fill);
+  mallctl("config.fill", &fill, &fill_sz, nullptr, 0);
+  if (fill) {
+    ROCKSDB_GTEST_BYPASS("Test skipped because of config.fill==true");
+    return;
+  }
+#endif  // ROCKSDB_JEMALLOC
+
+  // This block size value is smaller than the smallest x86 huge page size,
+  // so should not be fulfilled by a transparent huge page mapping.
+  constexpr size_t kBlockSize = 1U << 20;
+  Arena arena(kBlockSize);
+
+  // The allocator might give us back recycled memory for a while, but
+  // shouldn't last forever.
+  for (int i = 0;; ++i) {
+    char* p = arena.Allocate(kBlockSize);
+
+    // Start counting page faults
+    PopMinorPageFaultCount();
+
+    // Overwrite the whole allocation
+    for (size_t j = 0; j < kBlockSize; ++j) {
+      p[j] = static_cast<char>(j & 255);
+    }
+
+    size_t faults = PopMinorPageFaultCount();
+    if (faults >= kBlockSize * 3 / 4 / port::kPageSize) {
+      // Most of the access generated page faults => GOOD
+      break;
+    }
+    // Should have succeeded after enough tries
+    ASSERT_LT(i, 1000);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

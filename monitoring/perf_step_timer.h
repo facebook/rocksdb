@@ -5,7 +5,7 @@
 //
 #pragma once
 #include "monitoring/perf_level_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -26,9 +26,7 @@ class PerfStepTimer {
         metric_(metric),
         statistics_(statistics) {}
 
-  ~PerfStepTimer() {
-    Stop();
-  }
+  ~PerfStepTimer() { Stop(); }
 
   void Start() {
     if (perf_counter_enabled_ || statistics_ != nullptr) {

@@ -3,15 +3,15 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-from abc import ABC, abstractmethod
-from calendar import timegm
-from enum import Enum
 import glob
 import re
 import time
+from abc import ABC, abstractmethod
+from calendar import timegm
+from enum import Enum
 
 
-NO_COL_FAMILY = 'DB_WIDE'
+NO_COL_FAMILY = "DB_WIDE"
 
 
 class DataSource(ABC):
@@ -33,7 +33,7 @@ class Log:
     def is_new_log(log_line):
         # The assumption is that a new log will start with a date printed in
         # the below regex format.
-        date_regex = '\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}'
+        date_regex = r"\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}"  # noqa
         return re.match(date_regex, log_line)
 
     def __init__(self, log_line, column_families):
@@ -46,7 +46,7 @@ class Log:
         # "2018/07/25-17:29:05.176080 7f969de68700 [db/compaction_job.cc:1634]
         # [default] [JOB 3] Compacting 24@0 + 16@1 files to L1, score 6.00\n"
         for col_fam in column_families:
-            search_for_str = '\[' + col_fam + '\]'
+            search_for_str = r"\[" + col_fam + r"\]"  # noqa
             if re.search(search_for_str, self.message):
                 self.column_family = col_fam
                 break
@@ -67,21 +67,26 @@ class Log:
         return self.message
 
     def append_message(self, remaining_log):
-        self.message = self.message + '\n' + remaining_log.strip()
+        self.message = self.message + "\n" + remaining_log.strip()
 
     def get_timestamp(self):
         # example: '2018/07/25-11:25:45.782710' will be converted to the GMT
         # Unix timestamp 1532517945 (note: this method assumes that self.time
         # is in GMT)
-        hr_time = self.time + 'GMT'
+        hr_time = self.time + "GMT"
         timestamp = timegm(time.strptime(hr_time, "%Y/%m/%d-%H:%M:%S.%f%Z"))
         return timestamp
 
     def __repr__(self):
         return (
-            'time: ' + self.time + '; context: ' + self.context +
-            '; col_fam: ' + self.column_family +
-            '; message: ' + self.message
+            "time: "
+            + self.time
+            + "; context: "
+            + self.context
+            + "; col_fam: "
+            + self.column_family
+            + "; message: "
+            + self.message
         )
 
 
@@ -106,22 +111,20 @@ class DatabaseLogs(DataSource):
                 cond.set_trigger(trigger)
 
     def check_and_trigger_conditions(self, conditions):
-        for file_name in glob.glob(self.logs_path_prefix + '*'):
+        for file_name in glob.glob(self.logs_path_prefix + "*"):
             # TODO(poojam23): find a way to distinguish between log files
             # - generated in the current experiment but are labeled 'old'
             # because they LOGs exceeded the file size limit  AND
             # - generated in some previous experiment that are also labeled
             # 'old' and were not deleted for some reason
-            if re.search('old', file_name, re.IGNORECASE):
+            if re.search("old", file_name, re.IGNORECASE):
                 continue
-            with open(file_name, 'r') as db_logs:
+            with open(file_name) as db_logs:
                 new_log = None
                 for line in db_logs:
                     if Log.is_new_log(line):
                         if new_log:
-                            self.trigger_conditions_for_log(
-                                conditions, new_log
-                            )
+                            self.trigger_conditions_for_log(conditions, new_log)
                         new_log = Log(line, self.column_families)
                     else:
                         # To account for logs split into multiple lines

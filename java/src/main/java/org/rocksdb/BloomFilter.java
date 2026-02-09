@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * Bloom filter policy that uses a bloom filter with approximately
  * the specified number of bits per key.
@@ -21,7 +23,6 @@ package org.rocksdb;
 public class BloomFilter extends Filter {
 
   private static final double DEFAULT_BITS_PER_KEY = 10.0;
-  private static final boolean DEFAULT_MODE = true;
 
   /**
    * BloomFilter constructor
@@ -31,8 +32,11 @@ public class BloomFilter extends Filter {
    * result has been closed.</p>
    */
   public BloomFilter() {
-    this(DEFAULT_BITS_PER_KEY, DEFAULT_MODE);
+    this(DEFAULT_BITS_PER_KEY);
   }
+
+  // record this for comparison of filters.
+  private final double bitsPerKey;
 
   /**
    * BloomFilter constructor
@@ -48,7 +52,17 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    */
   public BloomFilter(final double bitsPerKey) {
-    this(bitsPerKey, DEFAULT_MODE);
+    this(createNewBloomFilter(bitsPerKey), bitsPerKey);
+  }
+
+  /**
+   *
+   * @param nativeHandle handle to existing bloom filter at RocksDB C++ side
+   * @param bitsPerKey number of bits to use - recorded for comparison
+   */
+  BloomFilter(final long nativeHandle, final double bitsPerKey) {
+    super(nativeHandle);
+    this.bitsPerKey = bitsPerKey;
   }
 
   /**
@@ -59,21 +73,32 @@ public class BloomFilter extends Filter {
    * is 10, which yields a filter with ~ 1% false positive rate.
    * <p><strong>default bits_per_key</strong>: 10</p>
    *
-   * <p>use_block_based_builder: use block based filter rather than full filter.
-   * If you want to builder full filter, it needs to be set to false.
-   * </p>
-   * <p><strong>default mode: block based filter</strong></p>
    * <p>
    * Callers must delete the result after any database that is using the
    * result has been closed.</p>
    *
    * @param bitsPerKey number of bits to use
-   * @param useBlockBasedMode use block based mode or full filter mode
+   * @param IGNORED_useBlockBasedMode obsolete, ignored parameter
    */
-  public BloomFilter(final double bitsPerKey, final boolean useBlockBasedMode) {
-    super(createNewBloomFilter(bitsPerKey, useBlockBasedMode));
+  @SuppressWarnings("PMD.UnusedFormalParameter")
+  public BloomFilter(final double bitsPerKey, final boolean IGNORED_useBlockBasedMode) {
+    this(bitsPerKey);
   }
 
-  private native static long createNewBloomFilter(final double bitsKeyKey,
-      final boolean useBlockBasedMode);
+  @SuppressWarnings("PMD.")
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
+    return bitsPerKey == ((BloomFilter) o).bitsPerKey;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(bitsPerKey);
+  }
+
+  private static native long createNewBloomFilter(final double bitsKeyKey);
 }

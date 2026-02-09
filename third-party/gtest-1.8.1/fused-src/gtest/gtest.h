@@ -53,6 +53,7 @@
 #define GTEST_INCLUDE_GTEST_GTEST_H_
 
 #include <limits>
+#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -2442,6 +2443,10 @@ GTEST_API_ bool IsTrue(bool condition);
 
 // Defines scoped_ptr.
 
+// RocksDB: use unique_ptr to work around some clang-analyze false reports
+template <typename T>
+using scoped_ptr = std::unique_ptr<T>;
+/*
 // This implementation of scoped_ptr is PARTIAL - it only contains
 // enough stuff to satisfy Google Test's need.
 template <typename T>
@@ -2481,6 +2486,7 @@ class scoped_ptr {
 
   GTEST_DISALLOW_COPY_AND_ASSIGN_(scoped_ptr);
 };
+*/
 
 // Defines RE.
 
@@ -3967,7 +3973,7 @@ const char* StringFromGTestEnv(const char* flag, const char* default_val);
 #include <ctype.h>
 #include <float.h>
 #include <string.h>
-#include <iomanip>
+// #include <iomanip> // Not included in newer versions of gtest
 #include <limits>
 #include <map>
 #include <set>
@@ -21445,27 +21451,7 @@ template <typename RawType>
 AssertionResult CmpHelperFloatingPointEQ(const char* lhs_expression,
                                          const char* rhs_expression,
                                          RawType lhs_value,
-                                         RawType rhs_value) {
-  const FloatingPoint<RawType> lhs(lhs_value), rhs(rhs_value);
-
-  if (lhs.AlmostEquals(rhs)) {
-    return AssertionSuccess();
-  }
-
-  ::std::stringstream lhs_ss;
-  lhs_ss << std::setprecision(std::numeric_limits<RawType>::digits10 + 2)
-         << lhs_value;
-
-  ::std::stringstream rhs_ss;
-  rhs_ss << std::setprecision(std::numeric_limits<RawType>::digits10 + 2)
-         << rhs_value;
-
-  return EqFailure(lhs_expression,
-                   rhs_expression,
-                   StringStreamToString(&lhs_ss),
-                   StringStreamToString(&rhs_ss),
-                   false);
-}
+                                         RawType rhs_value);
 
 // Helper function for implementing ASSERT_NEAR.
 //

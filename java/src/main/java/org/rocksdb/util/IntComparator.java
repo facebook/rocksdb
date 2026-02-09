@@ -48,7 +48,7 @@ public final class IntComparator extends AbstractComparator {
    *
    * @return negative if a &lt; b, 0 if a == b, positive otherwise
    */
-  private final int compareIntKeys(final ByteBuffer a, final ByteBuffer b) {
+  private int compareIntKeys(final ByteBuffer a, final ByteBuffer b) {
     final int iA = a.getInt();
     final int iB = b.getInt();
 

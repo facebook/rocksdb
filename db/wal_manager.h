@@ -11,11 +11,11 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include <memory>
 
 #include "db/version_set.h"
 #include "file/file_util.h"
@@ -25,10 +25,9 @@
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-#ifndef ROCKSDB_LITE
 
 // WAL manager provides the abstraction for reading the WAL files as a single
 // unit. Internally, it opens and reads the files using Reader or Writer
@@ -45,10 +44,12 @@ class WalManager {
         fs_(db_options.fs, io_tracer),
         purge_wal_files_last_run_(0),
         seq_per_batch_(seq_per_batch),
-        wal_in_db_path_(IsWalDirSameAsDBPath(&db_options)),
+        wal_dir_(db_options_.GetWalDir()),
+        wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
         io_tracer_(io_tracer) {}
 
-  Status GetSortedWalFiles(VectorLogPtr& files);
+  Status GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos = true,
+                           bool include_archived = true);
 
   // Allow user to tail transaction log to find all recent changes to the
   // database that are newer than `seq_number`.
@@ -63,7 +64,7 @@ class WalManager {
 
   Status DeleteFile(const std::string& fname, uint64_t number);
 
-  Status GetLiveWalFile(uint64_t number, std::unique_ptr<LogFile>* log_file);
+  Status GetLiveWalFile(uint64_t number, std::unique_ptr<WalFile>* log_file);
 
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {
@@ -76,17 +77,33 @@ class WalManager {
   }
 
  private:
-  Status GetSortedWalsOfType(const std::string& path, VectorLogPtr& log_files,
-                             WalFileType type);
+  Status GetSortedWalsOfType(const std::string& path, VectorWalPtr& log_files,
+                             WalFileType type, bool need_seqnos);
   // Requires: all_logs should be sorted with earliest log file first
   // Retains all log files in all_logs which contain updates with seq no.
   // Greater Than or Equal to the requested SequenceNumber.
-  Status RetainProbableWalFiles(VectorLogPtr& all_logs,
+  Status RetainProbableWalFiles(VectorWalPtr& all_logs,
                                 const SequenceNumber target);
 
+  // ReadFirstRecord checks the read_first_record_cache_ to see if the entry
+  // exists or not. If not, it will read the WAL file.
+  // In case of wal_compression, WAL contains a `kSetCompressionType` record
+  // which is not associated with any sequence number. So the sequence_number is
+  // set to 1 if that WAL doesn't include any other record (basically empty) in
+  // order to include that WAL and is inserted in read_first_record_cache_.
+  // Therefore, sequence_number is used as boolean if WAL should be included or
+  // not and that sequence_number shouldn't be use for any other purpose.
   Status ReadFirstRecord(const WalFileType type, const uint64_t number,
                          SequenceNumber* sequence);
 
+  // In case of no wal_compression, ReadFirstLine returns status.ok() and
+  // sequence == 0 if the file exists, but is empty.
+  // In case of wal_compression, WAL contains
+  // `kSetCompressionType` record which is not associated with any sequence
+  // number if that WAL doesn't include any other record (basically empty). As
+  // result for an empty file, GetSortedWalsOfType() will skip these WALs
+  // causing the operations to fail. To avoid that, it sets sequence_number to
+  // 1 inorder to include that WAL.
   Status ReadFirstLine(const std::string& fname, const uint64_t number,
                        SequenceNumber* sequence);
 
@@ -102,18 +119,19 @@ class WalManager {
   port::Mutex read_first_record_cache_mutex_;
 
   // last time when PurgeObsoleteWALFiles ran.
-  uint64_t purge_wal_files_last_run_;
+  RelaxedAtomic<uint64_t> purge_wal_files_last_run_;
 
   bool seq_per_batch_;
+
+  const std::string& wal_dir_;
 
   bool wal_in_db_path_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.
-  static const uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
+  static constexpr uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
 
   std::shared_ptr<IOTracer> io_tracer_;
 };
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

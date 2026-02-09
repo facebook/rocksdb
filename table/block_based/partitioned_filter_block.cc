@@ -7,7 +7,10 @@
 
 #include <utility>
 
+#include "block_cache.h"
+#include "block_type.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -23,17 +26,27 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
     const bool use_value_delta_encoding,
     PartitionedIndexBuilder* const p_index_builder,
-    const uint32_t partition_size)
+    const uint32_t partition_size, size_t ts_sz,
+    const bool persist_user_defined_timestamps,
+    bool decouple_from_index_partitions)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
-      index_on_filter_block_builder_(index_block_restart_interval,
-                                     true /*use_delta_encoding*/,
-                                     use_value_delta_encoding),
-      index_on_filter_block_builder_without_seq_(index_block_restart_interval,
-                                                 true /*use_delta_encoding*/,
-                                                 use_value_delta_encoding),
       p_index_builder_(p_index_builder),
-      keys_added_to_partition_(0) {
+      ts_sz_(ts_sz),
+      decouple_from_index_partitions_(decouple_from_index_partitions),
+      index_on_filter_block_builder_(
+          index_block_restart_interval, true /*use_delta_encoding*/,
+          use_value_delta_encoding,
+          BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+          0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+          persist_user_defined_timestamps, false /* is_user_key */),
+      index_on_filter_block_builder_without_seq_(
+          index_block_restart_interval, true /*use_delta_encoding*/,
+          use_value_delta_encoding,
+          BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+          0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+          persist_user_defined_timestamps, true /* is_user_key */) {
+  // Compute keys_per_partition_
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
   if (keys_per_partition_ < 1) {
@@ -56,57 +69,217 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
       }
     }
   }
+  if (keys_per_partition_ > 1 && prefix_extractor()) {
+    // Correct for adding next prefix in CutAFilterBlock *after* checking
+    // against this threshold
+    keys_per_partition_--;
+  }
 }
 
-PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
+PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
+  partitioned_filters_construction_status_.PermitUncheckedError();
+}
 
-void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
-    const Slice* next_key) {
-  // Use == to send the request only once
-  if (keys_added_to_partition_ == keys_per_partition_) {
-    // Currently only index builder is in charge of cutting a partition. We keep
-    // requesting until it is granted.
-    p_index_builder_->RequestPartitionCut();
+bool PartitionedFilterBlockBuilder::DecideCutAFilterBlock() {
+  size_t added = filter_bits_builder_->EstimateEntriesAdded();
+  if (decouple_from_index_partitions_) {
+    // NOTE: Can't just use ==, because estimated might be incremented by more
+    // than one.
+    return added >= keys_per_partition_;
+  } else {
+    // NOTE: Can't just use ==, because estimated might be incremented by more
+    // than one.
+    if (added >= keys_per_partition_) {
+      // Currently only index builder is in charge of cutting a partition. We
+      // keep requesting until it is granted.
+      p_index_builder_->RequestPartitionCut();
+    }
+    return p_index_builder_->ShouldCutFilterBlock();
   }
-  if (!p_index_builder_->ShouldCutFilterBlock()) {
-    return;
-  }
-  filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
+}
 
-  // Add the prefix of the next key before finishing the partition without
-  // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
-  // where seeking for the prefix would lead us to the previous partition.
-  const bool maybe_add_prefix =
-      next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
-  if (maybe_add_prefix) {
-    const Slice next_key_prefix = prefix_extractor()->Transform(*next_key);
-    if (next_key_prefix.compare(last_prefix_str()) != 0) {
-      AddKey(next_key_prefix);
+void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
+                                                    const Slice* next_prefix,
+                                                    const Slice& prev_key) {
+  // When there is a next partition, add the prefix of the first key in the
+  // next partition before closing this one out. This is needed to support
+  // prefix Seek, because there could exist a key k where
+  // * last_key < k < next_key
+  // * prefix(last_key) != prefix(k)
+  // * prefix(k) == prefix(next_key)
+  // * seeking to k lands in this partition, not the next
+  // in which case the iterator needs to find next_key despite starting in
+  // the partition before it. (This fixes a bug in the original implementation
+  // of format_version=3.)
+  if (next_prefix) {
+    if (whole_key_filtering()) {
+      // NOTE: At the end of building filter bits, we need a special case for
+      // treating prefix as an "alt" entry. See AddKeyAndAlt() comment. This is
+      // a reasonable hack for that.
+      filter_bits_builder_->AddKeyAndAlt(*next_prefix, *next_prefix);
+    } else {
+      filter_bits_builder_->AddKey(*next_prefix);
     }
   }
 
-  Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
-  std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter});
-  keys_added_to_partition_ = 0;
-  Reset();
+  // Cut the partition
+  total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
+  std::unique_ptr<const char[]> filter_data;
+  Status filter_construction_status = Status::OK();
+  Slice filter =
+      filter_bits_builder_->Finish(&filter_data, &filter_construction_status);
+  if (filter_construction_status.ok()) {
+    filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
+  }
+  std::string ikey;
+  if (decouple_from_index_partitions_) {
+    if (ts_sz_ > 0) {
+      AppendKeyWithMinTimestamp(&ikey, prev_key, ts_sz_);
+    } else {
+      ikey = prev_key.ToString();
+    }
+    AppendInternalKeyFooter(&ikey, /*seqno*/ 0, ValueType::kTypeDeletion);
+  } else {
+    ikey = p_index_builder_->GetPartitionKey();
+  }
+  filters_.push_back({std::move(ikey), std::move(filter_data), filter});
+  completed_partitions_size_.FetchAddRelaxed(filter.size());
+  partitioned_filters_construction_status_.UpdateIfOk(
+      filter_construction_status);
+
+  // If we are building another filter partition, the last prefix in the
+  // previous partition should be added to support prefix SeekForPrev.
+  // (Analogous to above fix for prefix Seek.)
+  if (next_key && prefix_extractor() &&
+      prefix_extractor()->InDomain(prev_key)) {
+    // NOTE: At the beginning of building filter bits, we don't need a special
+    // case for treating prefix as an "alt" entry.
+    // See DBBloomFilterTest.FilterBitsBuilderDedup
+    filter_bits_builder_->AddKey(prefix_extractor()->Transform(prev_key));
+  }
 }
 
-void PartitionedFilterBlockBuilder::Add(const Slice& key) {
-  MaybeCutAFilterBlock(&key);
-  FullFilterBlockBuilder::Add(key);
+void PartitionedFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  assert(!DEBUG_add_with_prev_key_called_);
+  AddImpl(key_without_ts, prev_key_without_ts_);
+  prev_key_without_ts_.assign(key_without_ts.data(), key_without_ts.size());
 }
 
-void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
-  FullFilterBlockBuilder::AddKey(key);
-  keys_added_to_partition_++;
+void PartitionedFilterBlockBuilder::AddWithPrevKey(
+    const Slice& key_without_ts, const Slice& prev_key_without_ts) {
+#ifndef NDEBUG
+  if (!DEBUG_add_with_prev_key_called_) {
+    assert(prev_key_without_ts.compare(prev_key_without_ts_) == 0);
+    DEBUG_add_with_prev_key_called_ = true;
+  } else {
+    assert(prev_key_without_ts.compare(DEBUG_prev_key_without_ts_) == 0);
+  }
+  DEBUG_prev_key_without_ts_.assign(key_without_ts.data(),
+                                    key_without_ts.size());
+#endif
+  AddImpl(key_without_ts, prev_key_without_ts);
 }
 
-Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status) {
-  if (finishing_filters == true) {
+void PartitionedFilterBlockBuilder::AddImpl(const Slice& key_without_ts,
+                                            const Slice& prev_key_without_ts) {
+  // When filter partitioning is coupled to index partitioning, we need to
+  // check for cutting a block even if we aren't adding anything this time.
+  bool cut = DecideCutAFilterBlock();
+  if (prefix_extractor() && prefix_extractor()->InDomain(key_without_ts)) {
+    Slice prefix = prefix_extractor()->Transform(key_without_ts);
+    if (cut) {
+      CutAFilterBlock(&key_without_ts, &prefix, prev_key_without_ts);
+    }
+    if (whole_key_filtering()) {
+      filter_bits_builder_->AddKeyAndAlt(key_without_ts, prefix);
+    } else {
+      filter_bits_builder_->AddKey(prefix);
+    }
+  } else {
+    if (cut) {
+      CutAFilterBlock(&key_without_ts, nullptr /*no prefix*/,
+                      prev_key_without_ts);
+    }
+    if (whole_key_filtering()) {
+      filter_bits_builder_->AddKey(key_without_ts);
+    }
+  }
+}
+
+size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
+  return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
+}
+
+size_t PartitionedFilterBlockBuilder::CurrentFilterSizeEstimate() {
+  size_t active_partition_size =
+      filter_bits_builder_->EstimateEntriesAdded() * 2;  // 2 bytes per key
+
+  return estimated_filter_size_.LoadRelaxed() + active_partition_size;
+}
+
+void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
+    uint64_t num_data_blocks) {
+  UpdateFilterSizeEstimate(num_data_blocks);
+}
+
+void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
+    uint64_t num_data_blocks) {
+  size_t partitions_size = completed_partitions_size_.LoadRelaxed();
+
+  // Reserve space if no partitions have been cut
+  size_t active_filter_estimate = 0;
+  if (partitions_size == 0) {
+    size_t avg_bytes_per_entry =
+        2;  // 2 bytes per entry, approx 15 bits per key
+
+    // Estimate using keys_per_partition_ since we expect to cut the first
+    // partition once it reaches approx. this many entries.
+    active_filter_estimate = keys_per_partition_ * avg_bytes_per_entry;
+
+    // Add a 2x buffer (for top-level index, etc.)
+    active_filter_estimate = active_filter_estimate * 2;
+  }
+  size_t filter_estimate = std::max(partitions_size, active_filter_estimate);
+
+  // Estimate top-level partition index size
+  if (p_index_builder_->separator_is_key_plus_seq()) {
+    filter_estimate += index_on_filter_block_builder_.CurrentSizeEstimate();
+  } else {
+    filter_estimate +=
+        index_on_filter_block_builder_without_seq_.CurrentSizeEstimate();
+  }
+
+  // Reserve filter space for the next data block
+  size_t reserved = 0;
+  if (num_data_blocks > 0) {
+    reserved = (filter_estimate / num_data_blocks) *
+               2;  // 2x average size per data block
+    estimated_filter_size_.StoreRelaxed(filter_estimate + reserved);
+  } else {
+    estimated_filter_size_.StoreRelaxed(filter_estimate);
+  }
+}
+
+void PartitionedFilterBlockBuilder::PrevKeyBeforeFinish(
+    const Slice& prev_key_without_ts) {
+  assert(prev_key_without_ts.compare(DEBUG_add_with_prev_key_called_
+                                         ? DEBUG_prev_key_without_ts_
+                                         : prev_key_without_ts_) == 0);
+  if (filter_bits_builder_->EstimateEntriesAdded() > 0) {
+    CutAFilterBlock(nullptr /*no next key*/, nullptr /*no next prefix*/,
+                    prev_key_without_ts);
+  }
+}
+
+Status PartitionedFilterBlockBuilder::Finish(
+    const BlockHandle& last_partition_block_handle, Slice* filter,
+    std::unique_ptr<const char[]>* filter_owner) {
+  if (finishing_front_filter_) {
+    assert(!filters_.empty());
+    auto& e = filters_.front();
+
+    assert(last_partition_block_handle != BlockHandle{});
     // Record the handle of the last written filter block in the index
-    FilterEntry& last_entry = filters.front();
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
@@ -115,42 +288,64 @@ Slice PartitionedFilterBlockBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_on_filter_block_builder_.Add(last_entry.key, handle_encoding,
+
+    index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
                                        &handle_delta_encoding_slice);
-    if (!p_index_builder_->seperator_is_key_plus_seq()) {
+    if (!p_index_builder_->separator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(last_entry.key), handle_encoding,
+          ExtractUserKey(e.ikey), handle_encoding,
           &handle_delta_encoding_slice);
     }
-    filters.pop_front();
+
+    filters_.pop_front();
   } else {
-    MaybeCutAFilterBlock(nullptr);
+    assert(last_partition_block_handle == BlockHandle{});
+    if (filter_bits_builder_->EstimateEntriesAdded() > 0) {
+      // PrevKeyBeforeFinish was not called
+      assert(!DEBUG_add_with_prev_key_called_);
+      CutAFilterBlock(nullptr, nullptr, prev_key_without_ts_);
+    }
+    // Nothing uncommitted
+    assert(filter_bits_builder_->EstimateEntriesAdded() == 0);
   }
-  // If there is no filter partition left, then return the index on filter
-  // partitions
-  if (UNLIKELY(filters.empty())) {
-    *status = Status::OK();
-    if (finishing_filters) {
-      if (p_index_builder_->seperator_is_key_plus_seq()) {
-        return index_on_filter_block_builder_.Finish();
+
+  Status s = partitioned_filters_construction_status_;
+  assert(!s.IsIncomplete());
+
+  if (s.ok()) {
+    // If there is no filter partition left, then return the index on filter
+    // partitions
+    if (UNLIKELY(filters_.empty())) {
+      if (!index_on_filter_block_builder_.empty()) {
+        // Simplest to just add them all at the end
+        if (p_index_builder_->separator_is_key_plus_seq()) {
+          *filter = index_on_filter_block_builder_.Finish();
+        } else {
+          *filter = index_on_filter_block_builder_without_seq_.Finish();
+        }
       } else {
-        return index_on_filter_block_builder_without_seq_.Finish();
+        // This is the rare case where no key was added to the filter
+        *filter = Slice{};
       }
     } else {
-      // This is the rare case where no key was added to the filter
-      return Slice();
+      // Return the next filter partition in line and set Incomplete() status to
+      // indicate we expect more calls to Finish
+      s = Status::Incomplete();
+      finishing_front_filter_ = true;
+
+      auto& e = filters_.front();
+      if (filter_owner != nullptr) {
+        *filter_owner = std::move(e.filter_owner);
+      }
+      *filter = e.filter;
     }
-  } else {
-    // Return the next filter partition in line and set Incomplete() status to
-    // indicate we expect more calls to Finish
-    *status = Status::Incomplete();
-    finishing_filters = true;
-    return filters.front().filter;
   }
+  return s;
 }
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
-    const BlockBasedTable* t, CachableEntry<Block>&& filter_block)
+    const BlockBasedTable* t,
+    CachableEntry<Block_kFilterPartitionIndex>&& filter_block)
     : FilterBlockReaderCommon(t, std::move(filter_block)) {}
 
 std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
@@ -161,7 +356,7 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
   assert(table->get_rep());
   assert(!pin || prefetch);
 
-  CachableEntry<Block> filter_block;
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
                                      nullptr /* get_context */, lookup_context,
@@ -181,71 +376,59 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
 }
 
 bool PartitionedFilterBlockReader::KeyMayMatch(
-    const Slice& key, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io, const Slice* const const_ikey_ptr,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context) {
+    const Slice& key, const Slice* const const_ikey_ptr,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
   assert(const_ikey_ptr != nullptr);
-  assert(block_offset == kNotValid);
   if (!whole_key_filtering()) {
     return true;
   }
 
-  return MayMatch(key, prefix_extractor, block_offset, no_io, const_ikey_ptr,
-                  get_context, lookup_context,
-                  &FullFilterBlockReader::KeyMayMatch);
+  return MayMatch(key, const_ikey_ptr, get_context, lookup_context,
+                  read_options, &FullFilterBlockReader::KeyMayMatch);
 }
 
 void PartitionedFilterBlockReader::KeysMayMatch(
-    MultiGetRange* range, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io,
-    BlockCacheLookupContext* lookup_context) {
-  assert(block_offset == kNotValid);
+    MultiGetRange* range, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
   if (!whole_key_filtering()) {
     return;  // Any/all may match
   }
 
-  MayMatch(range, prefix_extractor, block_offset, no_io, lookup_context,
-           &FullFilterBlockReader::KeysMayMatch);
+  MayMatch(range, nullptr, lookup_context, read_options,
+           &FullFilterBlockReader::KeysMayMatch2);
 }
 
 bool PartitionedFilterBlockReader::PrefixMayMatch(
-    const Slice& prefix, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io, const Slice* const const_ikey_ptr,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context) {
+    const Slice& prefix, const Slice* const const_ikey_ptr,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
   assert(const_ikey_ptr != nullptr);
-  assert(block_offset == kNotValid);
-  if (!table_prefix_extractor() && !prefix_extractor) {
-    return true;
-  }
-
-  return MayMatch(prefix, prefix_extractor, block_offset, no_io, const_ikey_ptr,
-                  get_context, lookup_context,
-                  &FullFilterBlockReader::PrefixMayMatch);
+  return MayMatch(prefix, const_ikey_ptr, get_context, lookup_context,
+                  read_options, &FullFilterBlockReader::PrefixMayMatch);
 }
 
 void PartitionedFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io,
-    BlockCacheLookupContext* lookup_context) {
-  assert(block_offset == kNotValid);
-  if (!table_prefix_extractor() && !prefix_extractor) {
-    return;  // Any/all may match
-  }
-
-  MayMatch(range, prefix_extractor, block_offset, no_io, lookup_context,
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+  assert(prefix_extractor);
+  MayMatch(range, prefix_extractor, lookup_context, read_options,
            &FullFilterBlockReader::PrefixesMayMatch);
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
-    const CachableEntry<Block>& filter_block, const Slice& entry) const {
+    const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
+    const Slice& entry) const {
   IndexBlockIter iter;
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
       comparator->user_comparator(),
-      table()->get_rep()->get_global_seqno(BlockType::kFilter), &iter,
-      kNullStats, true /* total_order_seek */, false /* have_first_key */,
-      index_key_includes_seq(), index_value_is_full());
+      table()->get_rep()->get_global_seqno(BlockType::kFilterPartitionIndex),
+      &iter, kNullStats, true /* total_order_seek */,
+      false /* have_first_key */, index_key_includes_seq(),
+      index_value_is_full(), false /* block_contents_pinned */,
+      user_defined_timestamps_persisted());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -262,8 +445,8 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
 
 Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& fltr_blk_handle,
-    bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options,
     CachableEntry<ParsedFullFilterBlock>* filter_block) const {
   assert(table());
   assert(filter_block);
@@ -279,28 +462,22 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     }
   }
 
-  ReadOptions read_options;
-  if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
-  }
-
-  const Status s =
-      table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
-                             UncompressionDict::GetEmptyDict(), filter_block,
-                             BlockType::kFilter, get_context, lookup_context,
-                             /* for_compaction */ false, /* use_cache */ true);
+  const Status s = table()->RetrieveBlock(
+      prefetch_buffer, read_options, fltr_blk_handle,
+      /* decomp */ nullptr, filter_block, get_context, lookup_context,
+      /* for_compaction */ false, /* use_cache */ true,
+      /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   return s;
 }
 
 bool PartitionedFilterBlockReader::MayMatch(
-    const Slice& slice, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, bool no_io, const Slice* const_ikey_ptr,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    const Slice& slice, const Slice* const_ikey_ptr, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options,
     FilterFunction filter_function) const {
-  CachableEntry<Block> filter_block;
-  Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
+  Status s = GetOrReadFilterBlock(get_context, lookup_context, &filter_block,
+                                  read_options);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -317,7 +494,7 @@ bool PartitionedFilterBlockReader::MayMatch(
 
   CachableEntry<ParsedFullFilterBlock> filter_partition_block;
   s = GetFilterPartitionBlock(nullptr /* prefetch_buffer */, filter_handle,
-                              no_io, get_context, lookup_context,
+                              get_context, lookup_context, read_options,
                               &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
@@ -326,18 +503,17 @@ bool PartitionedFilterBlockReader::MayMatch(
 
   FullFilterBlockReader filter_partition(table(),
                                          std::move(filter_partition_block));
-  return (filter_partition.*filter_function)(
-      slice, prefix_extractor, block_offset, no_io, const_ikey_ptr, get_context,
-      lookup_context);
+  return (filter_partition.*filter_function)(slice, const_ikey_ptr, get_context,
+                                             lookup_context, read_options);
 }
 
 void PartitionedFilterBlockReader::MayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, bool no_io, BlockCacheLookupContext* lookup_context,
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options,
     FilterManyFunction filter_function) const {
-  CachableEntry<Block> filter_block;
-  Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
-                                  lookup_context, &filter_block);
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
+  Status s = GetOrReadFilterBlock(range->begin()->get_context, lookup_context,
+                                  &filter_block, read_options);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
@@ -360,9 +536,8 @@ void PartitionedFilterBlockReader::MayMatch(
     if (!prev_filter_handle.IsNull() &&
         this_filter_handle != prev_filter_handle) {
       MultiGetRange subrange(*range, start_iter_same_handle, iter);
-      MayMatchPartition(&subrange, prefix_extractor, block_offset,
-                        prev_filter_handle, no_io, lookup_context,
-                        filter_function);
+      MayMatchPartition(&subrange, prefix_extractor, prev_filter_handle,
+                        lookup_context, read_options, filter_function);
       range->AddSkipsFrom(subrange);
       start_iter_same_handle = iter;
     }
@@ -377,22 +552,20 @@ void PartitionedFilterBlockReader::MayMatch(
   }
   if (!prev_filter_handle.IsNull()) {
     MultiGetRange subrange(*range, start_iter_same_handle, range->end());
-    MayMatchPartition(&subrange, prefix_extractor, block_offset,
-                      prev_filter_handle, no_io, lookup_context,
-                      filter_function);
+    MayMatchPartition(&subrange, prefix_extractor, prev_filter_handle,
+                      lookup_context, read_options, filter_function);
     range->AddSkipsFrom(subrange);
   }
 }
 
 void PartitionedFilterBlockReader::MayMatchPartition(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, BlockHandle filter_handle, bool no_io,
-    BlockCacheLookupContext* lookup_context,
-    FilterManyFunction filter_function) const {
+    BlockHandle filter_handle, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options, FilterManyFunction filter_function) const {
   CachableEntry<ParsedFullFilterBlock> filter_partition_block;
   Status s = GetFilterPartitionBlock(
-      nullptr /* prefetch_buffer */, filter_handle, no_io,
-      range->begin()->get_context, lookup_context, &filter_partition_block);
+      nullptr /* prefetch_buffer */, filter_handle, range->begin()->get_context,
+      lookup_context, read_options, &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
@@ -400,8 +573,8 @@ void PartitionedFilterBlockReader::MayMatchPartition(
 
   FullFilterBlockReader filter_partition(table(),
                                          std::move(filter_partition_block));
-  (filter_partition.*filter_function)(range, prefix_extractor, block_offset,
-                                      no_io, lookup_context);
+  (filter_partition.*filter_function)(range, prefix_extractor, lookup_context,
+                                      read_options);
 }
 
 size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
@@ -416,8 +589,8 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 // TODO(myabandeh): merge this with the same function in IndexReader
-Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
-                                                       bool pin) {
+Status PartitionedFilterBlockReader::CacheDependencies(
+    const ReadOptions& ro, bool pin, FilePrefetchBuffer* tail_prefetch_buffer) {
   assert(table());
 
   const BlockBasedTable::Rep* const rep = table()->get_rep();
@@ -425,12 +598,12 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
 
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
 
-  CachableEntry<Block> filter_block;
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
 
-  Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
-                                  &lookup_context, &filter_block);
+  Status s = GetOrReadFilterBlock(nullptr /* get_context */, &lookup_context,
+                                  &filter_block, ro);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(rep->ioptions.info_log,
+    ROCKS_LOG_ERROR(rep->ioptions.logger,
                     "Error retrieving top-level filter block while trying to "
                     "cache filter partitions: %s",
                     s.ToString().c_str());
@@ -444,10 +617,11 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
-      comparator->user_comparator(), rep->get_global_seqno(BlockType::kFilter),
-      &biter, kNullStats, true /* total_order_seek */,
-      false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full());
+      comparator->user_comparator(),
+      rep->get_global_seqno(BlockType::kFilterPartitionIndex), &biter,
+      kNullStats, true /* total_order_seek */, false /* have_first_key */,
+      index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -457,21 +631,27 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   // Read the last block's offset
   biter.SeekToLast();
   handle = biter.value().handle;
-  uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
+  uint64_t last_off =
+      handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled() ||
+      tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
+    rep->CreateFilePrefetchBuffer(ReadaheadParams(), &prefetch_buffer,
+                                  /*readaheadsize_cb*/ nullptr,
+                                  /*usage=*/FilePrefetchBufferUsage::kUnknown);
 
-  IOOptions opts;
-  s = rep->file->PrepareIOOptions(ro, opts);
-  if (s.ok()) {
-    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len));
+    IOOptions opts;
+    IODebugContext dbg;
+    s = rep->file->PrepareIOOptions(ro, opts, &dbg);
+    if (s.ok()) {
+      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                    static_cast<size_t>(prefetch_len));
+    }
+    if (!s.ok()) {
+      return s;
+    }
   }
-  if (!s.ok()) {
-    return s;
-  }
-
   // After prefetch, read the partitions one by one
   for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
@@ -480,9 +660,11 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
-        prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        &block, BlockType::kFilter, nullptr /* get_context */, &lookup_context,
-        nullptr /* contents */);
+        prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
+        handle, /* dict */ nullptr,
+        /* for_compaction */ false, &block, nullptr /* get_context */,
+        &lookup_context, nullptr /* contents */, false,
+        /* use_block_cache_for_lookup */ true);
     if (!s.ok()) {
       return s;
     }
@@ -497,6 +679,52 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     }
   }
   return biter.status();
+}
+
+void PartitionedFilterBlockReader::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  // NOTE: essentially a copy of
+  // PartitionIndexReader::EraseFromCacheBeforeDestruction
+  if (uncache_aggressiveness > 0) {
+    CachableEntry<Block_kFilterPartitionIndex> top_level_block;
+
+    ReadOptions ro;
+    ro.read_tier = ReadTier::kBlockCacheTier;
+    GetOrReadFilterBlock(/*get_context=*/nullptr,
+                         /*lookup_context=*/nullptr, &top_level_block, ro)
+        .PermitUncheckedError();
+
+    if (!filter_map_.empty()) {
+      // All partitions present if any
+      for (auto& e : filter_map_) {
+        e.second.ResetEraseIfLastRef();
+      }
+    } else if (!top_level_block.IsEmpty()) {
+      IndexBlockIter biter;
+      const InternalKeyComparator* const comparator = internal_comparator();
+      Statistics* kNullStats = nullptr;
+      top_level_block.GetValue()->NewIndexIterator(
+          comparator->user_comparator(),
+          table()->get_rep()->get_global_seqno(
+              BlockType::kFilterPartitionIndex),
+          &biter, kNullStats, true /* total_order_seek */,
+          false /* have_first_key */, index_key_includes_seq(),
+          index_value_is_full(), false /* block_contents_pinned */,
+          user_defined_timestamps_persisted());
+
+      UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
+      for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();
+           biter.Next()) {
+        bool erased = table()->EraseFromCache(biter.value().handle);
+        advisor.Report(erased);
+      }
+      biter.status().PermitUncheckedError();
+    }
+    top_level_block.ResetEraseIfLastRef();
+  }
+  // Might be needed to un-cache a pinned top-level block
+  FilterBlockReaderCommon<Block_kFilterPartitionIndex>::
+      EraseFromCacheBeforeDestruction(uncache_aggressiveness);
 }
 
 const InternalKeyComparator* PartitionedFilterBlockReader::internal_comparator()
@@ -521,4 +749,10 @@ bool PartitionedFilterBlockReader::index_value_is_full() const {
   return table()->get_rep()->index_value_is_full;
 }
 
+bool PartitionedFilterBlockReader::user_defined_timestamps_persisted() const {
+  assert(table());
+  assert(table()->get_rep());
+
+  return table()->get_rep()->user_defined_timestamps_persisted;
+}
 }  // namespace ROCKSDB_NAMESPACE

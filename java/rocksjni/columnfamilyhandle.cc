@@ -19,7 +19,7 @@
  * Signature: (J)[B
  */
 jbyteArray Java_org_rocksdb_ColumnFamilyHandle_getName(JNIEnv* env,
-                                                       jobject /*jobj*/,
+                                                       jclass /*jobj*/,
                                                        jlong jhandle) {
   auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jhandle);
   std::string cf_name = cfh->GetName();
@@ -31,8 +31,7 @@ jbyteArray Java_org_rocksdb_ColumnFamilyHandle_getName(JNIEnv* env,
  * Method:    getID
  * Signature: (J)I
  */
-jint Java_org_rocksdb_ColumnFamilyHandle_getID(JNIEnv* /*env*/,
-                                               jobject /*jobj*/,
+jint Java_org_rocksdb_ColumnFamilyHandle_getID(JNIEnv* /*env*/, jclass /*jcls*/,
                                                jlong jhandle) {
   auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jhandle);
   const int32_t id = cfh->GetID();
@@ -45,7 +44,7 @@ jint Java_org_rocksdb_ColumnFamilyHandle_getID(JNIEnv* /*env*/,
  * Signature: (J)Lorg/rocksdb/ColumnFamilyDescriptor;
  */
 jobject Java_org_rocksdb_ColumnFamilyHandle_getDescriptor(JNIEnv* env,
-                                                          jobject /*jobj*/,
+                                                          jclass /*jcls*/,
                                                           jlong jhandle) {
   auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jhandle);
   ROCKSDB_NAMESPACE::ColumnFamilyDescriptor desc;
@@ -63,9 +62,9 @@ jobject Java_org_rocksdb_ColumnFamilyHandle_getDescriptor(JNIEnv* env,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ColumnFamilyHandle_disposeInternal(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
-                                                         jlong jhandle) {
+void Java_org_rocksdb_ColumnFamilyHandle_disposeInternalJni(JNIEnv* /*env*/,
+                                                            jclass /*jobj*/,
+                                                            jlong jhandle) {
   auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jhandle);
   assert(cfh != nullptr);
   delete cfh;

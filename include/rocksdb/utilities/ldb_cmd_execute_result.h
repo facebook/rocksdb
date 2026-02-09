@@ -5,9 +5,9 @@
 //
 #pragma once
 
-#ifdef FAILED
-#undef FAILED
-#endif
+#include <string>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 

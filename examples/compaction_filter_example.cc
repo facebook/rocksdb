@@ -3,15 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/db.h>
-#include <rocksdb/merge_operator.h>
-#include <rocksdb/options.h>
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
+#include "rocksdb/options.h"
 
 class MyMerge : public ROCKSDB_NAMESPACE::MergeOperator {
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     merge_out->new_value.clear();
     if (merge_in.existing_value != nullptr) {
       merge_out->new_value.assign(merge_in.existing_value->data(),

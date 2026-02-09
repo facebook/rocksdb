@@ -3,10 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "utilities/transactions/optimistic_transaction.h"
 
+#include <cstdint>
 #include <string>
 
 #include "db/column_family.h"
@@ -16,9 +15,9 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "util/cast_util.h"
+#include "util/defer.h"
 #include "util/string_util.h"
 #include "utilities/transactions/lock/point/point_lock_tracker.h"
-#include "utilities/transactions/optimistic_transaction.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -49,7 +48,7 @@ void OptimisticTransaction::Reinitialize(
   Initialize(txn_options);
 }
 
-OptimisticTransaction::~OptimisticTransaction() {}
+OptimisticTransaction::~OptimisticTransaction() = default;
 
 void OptimisticTransaction::Clear() { TransactionBaseImpl::Clear(); }
 
@@ -97,28 +96,42 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   assert(txn_db_impl);
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
   assert(db_impl);
-  const size_t space = txn_db_impl->GetLockBucketsSize();
-  std::set<size_t> lk_idxes;
-  std::vector<std::unique_lock<std::mutex>> lks;
+  std::set<port::Mutex*> lk_ptrs;
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracked_locks_->GetColumnFamilyIterator());
   assert(cf_it != nullptr);
   while (cf_it->HasNext()) {
     ColumnFamilyId cf = cf_it->Next();
+
+    // To avoid the same key(s) contending across CFs or DBs, seed the
+    // hash independently.
+    uint64_t seed = reinterpret_cast<uintptr_t>(db_impl) +
+                    uint64_t{0xb83c07fbc6ced699} /*random prime*/ * cf;
+
     std::unique_ptr<LockTracker::KeyIterator> key_it(
         tracked_locks_->GetKeyIterator(cf));
     assert(key_it != nullptr);
     while (key_it->HasNext()) {
-      const std::string& key = key_it->Next();
-      lk_idxes.insert(FastRange64(GetSliceNPHash64(key), space));
+      auto lock_bucket_ptr = &txn_db_impl->GetLockBucket(key_it->Next(), seed);
+      TEST_SYNC_POINT_CALLBACK(
+          "OptimisticTransaction::CommitWithParallelValidate::lock_bucket_ptr",
+          lock_bucket_ptr);
+      lk_ptrs.insert(lock_bucket_ptr);
     }
   }
   // NOTE: in a single txn, all bucket-locks are taken in ascending order.
   // In this way, txns from different threads all obey this rule so that
   // deadlock can be avoided.
-  for (auto v : lk_idxes) {
-    lks.emplace_back(txn_db_impl->LockBucket(v));
+  for (auto v : lk_ptrs) {
+    // WART: if an exception is thrown during a Lock(), previously locked will
+    // not be Unlock()ed. But a vector of MutexLock is likely inefficient.
+    v->Lock();
   }
+  Defer unlocks([&]() {
+    for (auto v : lk_ptrs) {
+      v->Unlock();
+    }
+  });
 
   Status s = TransactionUtil::CheckKeysForConflicts(db_impl, *tracked_locks_,
                                                     true /* cache_only */);
@@ -192,5 +205,3 @@ Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

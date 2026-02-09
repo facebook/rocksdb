@@ -3,12 +3,13 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
+import re
 from abc import ABC, abstractmethod
+from enum import Enum
+
 from advisor.db_log_parser import DataSource, NO_COL_FAMILY
 from advisor.db_timeseries_parser import TimeSeriesData
-from enum import Enum
 from advisor.ini_parser import IniParser
-import re
 
 
 class Section(ABC):
@@ -38,17 +39,17 @@ class Rule(Section):
         # value will be a string and not a list. Hence, convert it to a single
         # element list before storing it in self.suggestions or
         # self.conditions.
-        if key == 'conditions':
+        if key == "conditions":
             if isinstance(value, str):
                 self.conditions = [value]
             else:
                 self.conditions = value
-        elif key == 'suggestions':
+        elif key == "suggestions":
             if isinstance(value, str):
                 self.suggestions = [value]
             else:
                 self.suggestions = value
-        elif key == 'overlap_time_period':
+        elif key == "overlap_time_period":
             self.overlap_time_seconds = value
 
     def get_suggestions(self):
@@ -56,35 +57,29 @@ class Rule(Section):
 
     def perform_checks(self):
         if not self.conditions or len(self.conditions) < 1:
-            raise ValueError(
-                self.name + ': rule must have at least one condition'
-            )
+            raise ValueError(self.name + ": rule must have at least one condition")
         if not self.suggestions or len(self.suggestions) < 1:
-            raise ValueError(
-                self.name + ': rule must have at least one suggestion'
-            )
+            raise ValueError(self.name + ": rule must have at least one suggestion")
         if self.overlap_time_seconds:
             if len(self.conditions) != 2:
                 raise ValueError(
-                    self.name + ": rule must be associated with 2 conditions\
+                    self.name
+                    + ": rule must be associated with 2 conditions\
                     in order to check for a time dependency between them"
                 )
-            time_format = '^\d+[s|m|h|d]$'
-            if (
-                not
-                re.match(time_format, self.overlap_time_seconds, re.IGNORECASE)
-            ):
+            time_format = r"^\d+[s|m|h|d]$"  # noqa
+            if not re.match(time_format, self.overlap_time_seconds, re.IGNORECASE):
                 raise ValueError(
-                    self.name + ": overlap_time_seconds format: \d+[s|m|h|d]"
+                    self.name + r": overlap_time_seconds format: \d+[s|m|h|d]"
                 )
             else:  # convert to seconds
                 in_seconds = int(self.overlap_time_seconds[:-1])
-                if self.overlap_time_seconds[-1] == 'm':
+                if self.overlap_time_seconds[-1] == "m":
                     in_seconds *= 60
-                elif self.overlap_time_seconds[-1] == 'h':
-                    in_seconds *= (60 * 60)
-                elif self.overlap_time_seconds[-1] == 'd':
-                    in_seconds *= (24 * 60 * 60)
+                elif self.overlap_time_seconds[-1] == "h":
+                    in_seconds *= 60 * 60
+                elif self.overlap_time_seconds[-1] == "d":
+                    in_seconds *= 24 * 60 * 60
                 self.overlap_time_seconds = in_seconds
 
     def get_overlap_timestamps(self, key1_trigger_epochs, key2_trigger_epochs):
@@ -93,28 +88,25 @@ class Rule(Section):
         # (if present) the first pair of timestamps at which the 2 conditions
         # were triggered within 'overlap_time_seconds' of each other
         key1_lower_bounds = [
-            epoch - self.overlap_time_seconds
-            for epoch in key1_trigger_epochs
+            epoch - self.overlap_time_seconds for epoch in key1_trigger_epochs
         ]
         key1_lower_bounds.sort()
         key2_trigger_epochs.sort()
         trigger_ix = 0
         overlap_pair = None
         for key1_lb in key1_lower_bounds:
-            while (
-                key2_trigger_epochs[trigger_ix] < key1_lb and
-                trigger_ix < len(key2_trigger_epochs)
+            while key2_trigger_epochs[trigger_ix] < key1_lb and trigger_ix < len(
+                key2_trigger_epochs
             ):
                 trigger_ix += 1
             if trigger_ix >= len(key2_trigger_epochs):
                 break
-            if (
-                key2_trigger_epochs[trigger_ix] <=
-                key1_lb + (2 * self.overlap_time_seconds)
+            if key2_trigger_epochs[trigger_ix] <= key1_lb + (
+                2 * self.overlap_time_seconds
             ):
                 overlap_pair = (
                     key2_trigger_epochs[trigger_ix],
-                    key1_lb + self.overlap_time_seconds
+                    key1_lb + self.overlap_time_seconds,
                 )
                 break
         return overlap_pair
@@ -130,10 +122,10 @@ class Rule(Section):
             condition1 = conditions_dict[self.conditions[0]]
             condition2 = conditions_dict[self.conditions[1]]
             if not (
-                condition1.get_data_source() is DataSource.Type.TIME_SERIES and
-                condition2.get_data_source() is DataSource.Type.TIME_SERIES
+                condition1.get_data_source() is DataSource.Type.TIME_SERIES
+                and condition2.get_data_source() is DataSource.Type.TIME_SERIES
             ):
-                raise ValueError(self.name + ': need 2 timeseries conditions')
+                raise ValueError(self.name + ": need 2 timeseries conditions")
 
             map1 = condition1.get_trigger()
             map2 = condition2.get_trigger()
@@ -142,14 +134,10 @@ class Rule(Section):
 
             self.trigger_entities = {}
             is_triggered = False
-            entity_intersection = (
-                set(map1.keys()).intersection(set(map2.keys()))
-            )
+            entity_intersection = set(map1.keys()).intersection(set(map2.keys()))
             for entity in entity_intersection:
-                overlap_timestamps_pair = (
-                    self.get_overlap_timestamps(
-                        list(map1[entity].keys()), list(map2[entity].keys())
-                    )
+                overlap_timestamps_pair = self.get_overlap_timestamps(
+                    list(map1[entity].keys()), list(map2[entity].keys())
                 )
                 if overlap_timestamps_pair:
                     self.trigger_entities[entity] = overlap_timestamps_pair
@@ -166,8 +154,8 @@ class Rule(Section):
                     all_conditions_triggered = False
                     break
                 if (
-                    cond.get_data_source() is DataSource.Type.LOG or
-                    cond.get_data_source() is DataSource.Type.DB_OPTIONS
+                    cond.get_data_source() is DataSource.Type.LOG
+                    or cond.get_data_source() is DataSource.Type.DB_OPTIONS
                 ):
                     cond_col_fam = set(cond.get_trigger().keys())
                     if NO_COL_FAMILY in cond_col_fam:
@@ -180,8 +168,8 @@ class Rule(Section):
                     if self.trigger_entities is None:
                         self.trigger_entities = cond_entities
                     else:
-                        self.trigger_entities = (
-                            self.trigger_entities.intersection(cond_entities)
+                        self.trigger_entities = self.trigger_entities.intersection(
+                            cond_entities
                         )
                 if not (self.trigger_entities or self.trigger_column_families):
                     all_conditions_triggered = False
@@ -200,7 +188,7 @@ class Rule(Section):
                 rule_string += cond
                 is_first = False
             else:
-                rule_string += (" AND " + cond)
+                rule_string += " AND " + cond
         # Append suggestions
         rule_string += "\nsuggestions:: "
         is_first = True
@@ -209,11 +197,11 @@ class Rule(Section):
                 rule_string += sugg
                 is_first = False
             else:
-                rule_string += (", " + sugg)
+                rule_string += ", " + sugg
         if self.trigger_entities:
-            rule_string += (', entities:: ' + str(self.trigger_entities))
+            rule_string += ", entities:: " + str(self.trigger_entities)
         if self.trigger_column_families:
-            rule_string += (', col_fam:: ' + str(self.trigger_column_families))
+            rule_string += ", col_fam:: " + str(self.trigger_column_families)
         # Return constructed string
         return rule_string
 
@@ -232,7 +220,7 @@ class Suggestion(Section):
         self.description = None
 
     def set_parameter(self, key, value):
-        if key == 'option':
+        if key == "option":
             # Note:
             # case 1: 'option' is supported by Rocksdb OPTIONS file; in this
             # case the option belongs to one of the sections in the config
@@ -240,41 +228,35 @@ class Suggestion(Section):
             # case 2: 'option' is not supported by Rocksdb OPTIONS file; the
             # option is not expected to have the character '.' in its name
             self.option = value
-        elif key == 'action':
+        elif key == "action":
             if self.option and not value:
-                raise ValueError(self.name + ': provide action for option')
+                raise ValueError(self.name + ": provide action for option")
             self.action = self.Action[value]
-        elif key == 'suggested_values':
+        elif key == "suggested_values":
             if isinstance(value, str):
                 self.suggested_values = [value]
             else:
                 self.suggested_values = value
-        elif key == 'description':
+        elif key == "description":
             self.description = value
 
     def perform_checks(self):
         if not self.description:
             if not self.option:
-                raise ValueError(self.name + ': provide option or description')
+                raise ValueError(self.name + ": provide option or description")
             if not self.action:
-                raise ValueError(self.name + ': provide action for option')
+                raise ValueError(self.name + ": provide action for option")
             if self.action is self.Action.set and not self.suggested_values:
-                raise ValueError(
-                    self.name + ': provide suggested value for option'
-                )
+                raise ValueError(self.name + ": provide suggested value for option")
 
     def __repr__(self):
         sugg_string = "Suggestion: " + self.name
         if self.description:
-            sugg_string += (' description : ' + self.description)
+            sugg_string += " description : " + self.description
         else:
-            sugg_string += (
-                ' option : ' + self.option + ' action : ' + self.action.name
-            )
+            sugg_string += " option : " + self.option + " action : " + self.action.name
             if self.suggested_values:
-                sugg_string += (
-                    ' suggested_values : ' + str(self.suggested_values)
-                )
+                sugg_string += " suggested_values : " + str(self.suggested_values)
         return sugg_string
 
 
@@ -286,7 +268,7 @@ class Condition(Section):
 
     def perform_checks(self):
         if not self.data_source:
-            raise ValueError(self.name + ': condition not tied to data source')
+            raise ValueError(self.name + ": condition not tied to data source")
 
     def set_data_source(self, data_source):
         self.data_source = data_source
@@ -310,28 +292,28 @@ class Condition(Section):
 
     def set_parameter(self, key, value):
         # must be defined by the subclass
-        raise NotImplementedError(self.name + ': provide source for condition')
+        raise NotImplementedError(self.name + ": provide source for condition")
 
 
 class LogCondition(Condition):
     @classmethod
     def create(cls, base_condition):
-        base_condition.set_data_source(DataSource.Type['LOG'])
+        base_condition.set_data_source(DataSource.Type["LOG"])
         base_condition.__class__ = cls
         return base_condition
 
     def set_parameter(self, key, value):
-        if key == 'regex':
+        if key == "regex":
             self.regex = value
 
     def perform_checks(self):
         super().perform_checks()
         if not self.regex:
-            raise ValueError(self.name + ': provide regex for log condition')
+            raise ValueError(self.name + ": provide regex for log condition")
 
     def __repr__(self):
         log_cond_str = "LogCondition: " + self.name
-        log_cond_str += (" regex: " + self.regex)
+        log_cond_str += " regex: " + self.regex
         # if self.trigger:
         #     log_cond_str += (" trigger: " + str(self.trigger))
         return log_cond_str
@@ -340,90 +322,90 @@ class LogCondition(Condition):
 class OptionCondition(Condition):
     @classmethod
     def create(cls, base_condition):
-        base_condition.set_data_source(DataSource.Type['DB_OPTIONS'])
+        base_condition.set_data_source(DataSource.Type["DB_OPTIONS"])
         base_condition.__class__ = cls
         return base_condition
 
     def set_parameter(self, key, value):
-        if key == 'options':
+        if key == "options":
             if isinstance(value, str):
                 self.options = [value]
             else:
                 self.options = value
-        elif key == 'evaluate':
+        elif key == "evaluate":
             self.eval_expr = value
 
     def perform_checks(self):
         super().perform_checks()
         if not self.options:
-            raise ValueError(self.name + ': options missing in condition')
+            raise ValueError(self.name + ": options missing in condition")
         if not self.eval_expr:
-            raise ValueError(self.name + ': expression missing in condition')
+            raise ValueError(self.name + ": expression missing in condition")
 
     def __repr__(self):
         opt_cond_str = "OptionCondition: " + self.name
-        opt_cond_str += (" options: " + str(self.options))
-        opt_cond_str += (" expression: " + self.eval_expr)
+        opt_cond_str += " options: " + str(self.options)
+        opt_cond_str += " expression: " + self.eval_expr
         if self.trigger:
-            opt_cond_str += (" trigger: " + str(self.trigger))
+            opt_cond_str += " trigger: " + str(self.trigger)
         return opt_cond_str
 
 
 class TimeSeriesCondition(Condition):
     @classmethod
     def create(cls, base_condition):
-        base_condition.set_data_source(DataSource.Type['TIME_SERIES'])
+        base_condition.set_data_source(DataSource.Type["TIME_SERIES"])
         base_condition.__class__ = cls
         return base_condition
 
     def set_parameter(self, key, value):
-        if key == 'keys':
+        if key == "keys":
             if isinstance(value, str):
                 self.keys = [value]
             else:
                 self.keys = value
-        elif key == 'behavior':
+        elif key == "behavior":
             self.behavior = TimeSeriesData.Behavior[value]
-        elif key == 'rate_threshold':
+        elif key == "rate_threshold":
             self.rate_threshold = float(value)
-        elif key == 'window_sec':
+        elif key == "window_sec":
             self.window_sec = int(value)
-        elif key == 'evaluate':
+        elif key == "evaluate":
             self.expression = value
-        elif key == 'aggregation_op':
+        elif key == "aggregation_op":
             self.aggregation_op = TimeSeriesData.AggregationOperator[value]
 
     def perform_checks(self):
         if not self.keys:
-            raise ValueError(self.name + ': specify timeseries key')
+            raise ValueError(self.name + ": specify timeseries key")
         if not self.behavior:
-            raise ValueError(self.name + ': specify triggering behavior')
+            raise ValueError(self.name + ": specify triggering behavior")
         if self.behavior is TimeSeriesData.Behavior.bursty:
             if not self.rate_threshold:
-                raise ValueError(self.name + ': specify rate burst threshold')
+                raise ValueError(self.name + ": specify rate burst threshold")
             if not self.window_sec:
                 self.window_sec = 300  # default window length is 5 minutes
             if len(self.keys) > 1:
-                raise ValueError(self.name + ': specify only one key')
+                raise ValueError(self.name + ": specify only one key")
         elif self.behavior is TimeSeriesData.Behavior.evaluate_expression:
             if not (self.expression):
-                raise ValueError(self.name + ': specify evaluation expression')
+                raise ValueError(self.name + ": specify evaluation expression")
         else:
-            raise ValueError(self.name + ': trigger behavior not supported')
+            raise ValueError(self.name + ": trigger behavior not supported")
 
     def __repr__(self):
         ts_cond_str = "TimeSeriesCondition: " + self.name
-        ts_cond_str += (" statistics: " + str(self.keys))
-        ts_cond_str += (" behavior: " + self.behavior.name)
+        ts_cond_str += " statistics: " + str(self.keys)
+        ts_cond_str += " behavior: " + self.behavior.name
         if self.behavior is TimeSeriesData.Behavior.bursty:
-            ts_cond_str += (" rate_threshold: " + str(self.rate_threshold))
-            ts_cond_str += (" window_sec: " + str(self.window_sec))
+            ts_cond_str += " rate_threshold: " + str(self.rate_threshold)
+            ts_cond_str += " window_sec: " + str(self.window_sec)
         if self.behavior is TimeSeriesData.Behavior.evaluate_expression:
-            ts_cond_str += (" expression: " + self.expression)
-            if hasattr(self, 'aggregation_op'):
-                ts_cond_str += (" aggregation_op: " + self.aggregation_op.name)
+            ts_cond_str += " expression: " + self.expression
+            if hasattr(self, "aggregation_op"):
+                ts_cond_str += " aggregation_op: " + self.aggregation_op.name
         if self.trigger:
-            ts_cond_str += (" trigger: " + str(self.trigger))
+            ts_cond_str += " trigger: " + str(self.trigger)
         return ts_cond_str
 
 
@@ -446,7 +428,7 @@ class RulesSpec:
 
     def load_rules_from_spec(self):
         self.initialise_fields()
-        with open(self.file_path, 'r') as db_rules:
+        with open(self.file_path) as db_rules:
             curr_section = None
             for line in db_rules:
                 line = IniParser.remove_trailing_comment(line)
@@ -472,12 +454,12 @@ class RulesSpec:
                     if curr_section is IniParser.Element.rule:
                         new_rule.set_parameter(key, value)
                     elif curr_section is IniParser.Element.cond:
-                        if key == 'source':
-                            if value == 'LOG':
+                        if key == "source":
+                            if value == "LOG":
                                 new_cond = LogCondition.create(new_cond)
-                            elif value == 'OPTIONS':
+                            elif value == "OPTIONS":
                                 new_cond = OptionCondition.create(new_cond)
-                            elif value == 'TIME_SERIES':
+                            elif value == "TIME_SERIES":
                                 new_cond = TimeSeriesCondition.create(new_cond)
                         else:
                             new_cond.set_parameter(key, value)
@@ -515,14 +497,14 @@ class RulesSpec:
 
     def print_rules(self, rules):
         for rule in rules:
-            print('\nRule: ' + rule.name)
+            print("\nRule: " + rule.name)
             for cond_name in rule.conditions:
                 print(repr(self.conditions_dict[cond_name]))
             for sugg_name in rule.suggestions:
                 print(repr(self.suggestions_dict[sugg_name]))
             if rule.trigger_entities:
-                print('scope: entities:')
+                print("scope: entities:")
                 print(rule.trigger_entities)
             if rule.trigger_column_families:
-                print('scope: col_fam:')
+                print("scope: col_fam:")
                 print(rule.trigger_column_families)

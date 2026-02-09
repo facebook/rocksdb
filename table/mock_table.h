@@ -49,7 +49,8 @@ class MockTableFactory : public TableFactory {
   };
 
   MockTableFactory();
-  const char* Name() const override { return "MockTable"; }
+  static const char* kClassName() { return "MockTable"; }
+  const char* Name() const override { return kClassName(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(
       const ReadOptions& ro, const TableReaderOptions& table_reader_options,
@@ -58,7 +59,7 @@ class MockTableFactory : public TableFactory {
       bool prefetch_index_and_filter_in_cache = true) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_familly_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   // This function will directly create mock table instead of going through
   // MockTableBuilder. file_contents has to have a format of <internal_key,
@@ -66,15 +67,18 @@ class MockTableFactory : public TableFactory {
   Status CreateMockTable(Env* env, const std::string& fname,
                          KVVector file_contents);
 
-  virtual std::string GetPrintableOptions() const override {
-    return std::string();
-  }
+  std::string GetPrintableOptions() const override { return std::string(); }
 
   void SetCorruptionMode(MockCorruptionMode mode) { corrupt_mode_ = mode; }
+
+  void SetKeyValueSize(size_t size) { key_value_size_ = size; }
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
   void AssertSingleFile(const KVVector& file_contents);
-  void AssertLatestFile(const KVVector& file_contents);
+  void AssertLatestFiles(const std::vector<KVVector>& files_contents);
+  std::unique_ptr<TableFactory> Clone() const override {
+    return nullptr;  // Not implemented
+  }
 
  private:
   Status GetAndWriteNextID(WritableFileWriter* file, uint32_t* id) const;
@@ -83,7 +87,59 @@ class MockTableFactory : public TableFactory {
   mutable MockTableFileSystem file_system_;
   mutable std::atomic<uint32_t> next_id_;
   MockCorruptionMode corrupt_mode_;
+
+  size_t key_value_size_ = 1;
 };
 
+class MockTableReader : public TableReader {
+ public:
+  explicit MockTableReader(const mock::KVVector& table) : table_(table) {
+    tp_.num_entries = table_.size();
+    tp_.num_range_deletions = 0;
+    tp_.raw_key_size = 1;
+    tp_.raw_value_size = 1;
+  }
+  explicit MockTableReader(const mock::KVVector& table,
+                           const TableProperties& tp)
+      : table_(table), tp_(tp) {}
+
+  virtual InternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
+      bool skip_filters, TableReaderCaller caller,
+      size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false) override;
+
+  virtual Status Get(const ReadOptions& readOptions, const Slice& key,
+                     GetContext* get_context,
+                     const SliceTransform* prefix_extractor,
+                     bool skip_filters = false) override;
+
+  virtual uint64_t ApproximateOffsetOf(const ReadOptions& /*read_options*/,
+                                       const Slice& /*key*/,
+                                       TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
+  virtual uint64_t ApproximateSize(const ReadOptions& /*read_options*/,
+                                   const Slice& /*start*/, const Slice& /*end*/,
+                                   TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
+  virtual size_t ApproximateMemoryUsage() const override { return 0; }
+
+  virtual void SetupForCompaction() override {}
+
+  virtual std::shared_ptr<const TableProperties> GetTableProperties()
+      const override {
+    return std::make_shared<const TableProperties>(tp_);
+  }
+
+  ~MockTableReader() = default;
+
+ private:
+  const KVVector& table_;
+  TableProperties tp_;
+};
 }  // namespace mock
 }  // namespace ROCKSDB_NAMESPACE

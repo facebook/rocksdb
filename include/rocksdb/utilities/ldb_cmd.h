@@ -5,8 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -25,6 +23,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/ldb_cmd_execute_result.h"
+#include "rocksdb/utilities/transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,6 +35,7 @@ class LDBCommand {
   static const std::string ARG_DB;
   static const std::string ARG_PATH;
   static const std::string ARG_SECONDARY_PATH;
+  static const std::string ARG_LEADER_PATH;
   static const std::string ARG_HEX;
   static const std::string ARG_KEY_HEX;
   static const std::string ARG_VALUE_HEX;
@@ -43,6 +43,8 @@ class LDBCommand {
   static const std::string ARG_TTL;
   static const std::string ARG_TTL_START;
   static const std::string ARG_TTL_END;
+  static const std::string ARG_USE_TXN;
+  static const std::string ARG_TXN_WRITE_POLICY;
   static const std::string ARG_TIMESTAMP;
   static const std::string ARG_TRY_LOAD_OPTIONS;
   static const std::string ARG_IGNORE_UNKNOWN_OPTIONS;
@@ -61,6 +63,19 @@ class LDBCommand {
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
   static const std::string ARG_DISABLE_CONSISTENCY_CHECKS;
+  static const std::string ARG_ENABLE_BLOB_FILES;
+  static const std::string ARG_MIN_BLOB_SIZE;
+  static const std::string ARG_BLOB_FILE_SIZE;
+  static const std::string ARG_BLOB_COMPRESSION_TYPE;
+  static const std::string ARG_ENABLE_BLOB_GARBAGE_COLLECTION;
+  static const std::string ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF;
+  static const std::string ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
+  static const std::string ARG_BLOB_COMPACTION_READAHEAD_SIZE;
+  static const std::string ARG_BLOB_FILE_STARTING_LEVEL;
+  static const std::string ARG_PREPOPULATE_BLOB_CACHE;
+  static const std::string ARG_DECODE_BLOB_INDEX;
+  static const std::string ARG_READ_TIMESTAMP;
+  static const std::string ARG_GET_WRITE_UNIX_TIME;
 
   struct ParsedParams {
     std::string cmd;
@@ -70,6 +85,10 @@ class LDBCommand {
   };
 
   static LDBCommand* SelectCommand(const ParsedParams& parsed_parms);
+
+  static void ParseSingleParam(const std::string& param,
+                               ParsedParams& parsed_params,
+                               std::vector<std::string>& cmd_tokens);
 
   static LDBCommand* InitFromCmdLineArgs(
       const std::vector<std::string>& args, const Options& options,
@@ -144,10 +163,13 @@ class LDBCommand {
   // with this secondary path. When running against a database opened by
   // another process, ldb wll leave the source directory completely intact.
   std::string secondary_path_;
+  std::string leader_path_;
   std::string column_family_name_;
   DB* db_;
   DBWithTTL* db_ttl_;
+  TransactionDB* db_txn_;
   std::map<std::string, ColumnFamilyHandle*> cf_handles_;
+  std::map<uint32_t, const Comparator*> ucmps_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -164,6 +186,13 @@ class LDBCommand {
   /** If true, the value is treated as timestamp suffixed */
   bool is_db_ttl_;
 
+  /** If true, open the DB as TransactionDB */
+  bool is_db_txn_;
+
+  /** Transaction write policy (0=WRITE_COMMITTED, 1=WRITE_PREPARED,
+   * 2=WRITE_UNPREPARED) */
+  int txn_write_policy_;
+
   // If true, the kvs are output with their insert/modify timestamp in a ttl db
   bool timestamp_;
 
@@ -173,7 +202,14 @@ class LDBCommand {
   // The value passed to options.force_consistency_checks.
   bool force_consistency_checks_;
 
+  bool enable_blob_files_;
+
+  bool enable_blob_garbage_collection_;
+
   bool create_if_missing_;
+
+  /** Encoded user provided uint64_t read timestamp. */
+  std::string read_timestamp_;
 
   /**
    * Map of options passed on the command-line.
@@ -205,11 +241,19 @@ class LDBCommand {
   ColumnFamilyHandle* GetCfHandle();
 
   static std::string PrintKeyValue(const std::string& key,
+                                   const std::string& timestamp,
                                    const std::string& value, bool is_key_hex,
-                                   bool is_value_hex);
+                                   bool is_value_hex, const Comparator* ucmp);
 
   static std::string PrintKeyValue(const std::string& key,
-                                   const std::string& value, bool is_hex);
+                                   const std::string& timestamp,
+                                   const std::string& value, bool is_hex,
+                                   const Comparator* ucmp);
+
+  static std::string PrintKeyValueOrWideColumns(
+      const Slice& key, const Slice& timestamp, const Slice& value,
+      const WideColumns& wide_columns, bool is_key_hex, bool is_value_hex,
+      const Comparator* ucmp);
 
   /**
    * Return true if the specified flag is present in the specified flags vector
@@ -233,8 +277,17 @@ class LDBCommand {
                       const std::string& option, int& value,
                       LDBCommandExecuteResult& exec_state);
 
+  bool ParseDoubleOption(const std::map<std::string, std::string>& options,
+                         const std::string& option, double& value,
+                         LDBCommandExecuteResult& exec_state);
+
   bool ParseStringOption(const std::map<std::string, std::string>& options,
                          const std::string& option, std::string* value);
+
+  bool ParseCompressionTypeOption(
+      const std::map<std::string, std::string>& options,
+      const std::string& option, CompressionType& value,
+      LDBCommandExecuteResult& exec_state);
 
   /**
    * Returns the value of the specified option as a boolean.
@@ -244,6 +297,10 @@ class LDBCommand {
    */
   bool ParseBooleanOption(const std::map<std::string, std::string>& options,
                           const std::string& option, bool default_val);
+
+  /* Populate `ropts.timestamp` from command line flag --read_timestamp */
+  Status MaybePopulateReadTimestamp(ColumnFamilyHandle* cfh, ReadOptions& ropts,
+                                    Slice* read_timestamp);
 
   Options options_;
   std::vector<ColumnFamilyDescriptor> column_families_;
@@ -265,6 +322,9 @@ class LDBCommand {
   bool IsValueHex(const std::map<std::string, std::string>& options,
                   const std::vector<std::string>& flags);
 
+  bool IsTryLoadOptions(const std::map<std::string, std::string>& options,
+                        const std::vector<std::string>& flags);
+
   /**
    * Converts val to a boolean.
    * val must be either true or false (case insensitive).
@@ -280,11 +340,9 @@ class LDBCommandRunner {
 
   // Returns the status code to return. 0 is no error.
   static int RunCommand(
-      int argc, char const* const* argv, Options options,
+      int argc, char const* const* argv, const Options& options,
       const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

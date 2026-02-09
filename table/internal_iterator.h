@@ -7,7 +7,10 @@
 #pragma once
 
 #include <string>
+
 #include "db/dbformat.h"
+#include "file/readahead_file_info.h"
+#include "rocksdb/advanced_iterator.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
@@ -16,19 +19,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
-
-enum class IterBoundCheck : char {
-  kUnknown = 0,
-  kOutOfBound,
-  kInbound,
-};
-
-struct IterateResult {
-  Slice key;
-  IterBoundCheck bound_check_result = IterBoundCheck::kUnknown;
-  // If false, PrepareValue() needs to be called before value().
-  bool value_prepared = true;
-};
 
 template <class TValue>
 class InternalIteratorBase : public Cleanable {
@@ -40,6 +30,17 @@ class InternalIteratorBase : public Cleanable {
   InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
 
   virtual ~InternalIteratorBase() {}
+
+  // This iterator will only process range tombstones with sequence
+  // number <= `read_seqno`.
+  // Noop for most child classes.
+  // For range tombstone iterators (TruncatedRangeDelIterator,
+  // FragmentedRangeTombstoneIterator), will only return range tombstones with
+  // sequence number <= `read_seqno`. For LevelIterator, it may open new table
+  // files and create new range tombstone iterators during scanning. It will use
+  // `read_seqno` as the sequence number for creating new range tombstone
+  // iterators.
+  virtual void SetRangeDelReadSeqno(SequenceNumber /* read_seqno */) {}
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
@@ -102,6 +103,14 @@ class InternalIteratorBase : public Cleanable {
   // the iterator.
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
+
+  // Returns the approximate write time of this entry, which is deduced from
+  // sequence number if sequence number to time mapping is available.
+  // The default implementation returns maximum uint64_t and that indicates the
+  // write time is unknown.
+  virtual uint64_t write_unix_time() const {
+    return std::numeric_limits<uint64_t>::max();
+  }
 
   // Return user key for the current entry.
   // REQUIRES: Valid()
@@ -172,8 +181,29 @@ class InternalIteratorBase : public Cleanable {
     return Status::NotSupported("");
   }
 
+  // When iterator moves from one file to another file at same level, new file's
+  // readahead state (details of last block read) is updated with previous
+  // file's readahead state. This way internal readahead_size of Prefetch Buffer
+  // doesn't start from scratch and can fall back to 8KB with no prefetch if
+  // reads are not sequential.
+  //
+  // Default implementation is no-op and its implemented by iterators.
+  virtual void GetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+
+  // Default implementation is no-op and its implemented by iterators.
+  virtual void SetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+
+  // When used under merging iterator, LevelIterator treats file boundaries
+  // as sentinel keys to prevent it from moving to next SST file before range
+  // tombstones in the current SST file are no longer needed. This method makes
+  // it cheap to check if the current key is a sentinel key. This should only be
+  // used by MergingIterator and LevelIterator for now.
+  virtual bool IsDeleteRangeSentinelKey() const { return false; }
+
+  virtual void Prepare(const MultiScanArgs* /*scan_opts*/) {}
+
  protected:
-  void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
+  void SeekForPrevImpl(const Slice& target, const CompareInterface* cmp) {
     Seek(target);
     if (!Valid()) {
       SeekToLast();
@@ -182,24 +212,21 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
-
-  bool is_mutable_;
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;
 
 // Return an empty iterator (yields nothing).
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewEmptyInternalIterator();
+InternalIteratorBase<TValue>* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
-    const Status& status);
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status);
 
 // Return an empty iterator with the specified status, allocated arena.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
-    const Status& status, Arena* arena);
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
+                                                       Arena* arena);
 
 }  // namespace ROCKSDB_NAMESPACE

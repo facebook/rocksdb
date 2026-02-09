@@ -5,15 +5,15 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.List;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import java.util.Collection;
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class DefaultEnvTest {
 
@@ -88,9 +88,14 @@ public class DefaultEnvTest {
 
   @Test
   public void threadList() throws RocksDBException {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
-      final Collection<ThreadStatus> threadList = defaultEnv.getThreadList();
-      assertThat(threadList.size()).isGreaterThan(0);
+    // We need to open DB first to get at least one thread in thread list.
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      db.put("test-key".getBytes(StandardCharsets.UTF_8),
+          "test-value".getBytes(StandardCharsets.UTF_8));
+      try (final Env defaultEnv = RocksEnv.getDefault()) {
+        final Collection<ThreadStatus> threadList = defaultEnv.getThreadList();
+        assertThat(threadList.size()).isGreaterThan(0);
+      }
     }
   }
 

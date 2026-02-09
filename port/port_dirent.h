@@ -33,11 +33,11 @@ int closedir(DIR* dirp);
 
 }  // namespace port
 
-using port::dirent;
+using port::closedir;
 using port::DIR;
+using port::dirent;
 using port::opendir;
 using port::readdir;
-using port::closedir;
 
 }  // namespace ROCKSDB_NAMESPACE
 

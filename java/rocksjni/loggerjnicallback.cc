@@ -6,11 +6,13 @@
 // This file implements the callback "bridge" between Java and C++ for
 // ROCKSDB_NAMESPACE::Logger.
 
-#include "include/org_rocksdb_Logger.h"
+#include "rocksjni/loggerjnicallback.h"
 
 #include <cstdarg>
 #include <cstdio>
-#include "rocksjni/loggerjnicallback.h"
+
+#include "include/org_rocksdb_Logger.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -222,38 +224,16 @@ LoggerJniCallback::~LoggerJniCallback() {
 
 /*
  * Class:     org_rocksdb_Logger
- * Method:    createNewLoggerOptions
+ * Method:    newLogger
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_Logger_createNewLoggerOptions(JNIEnv* env, jobject jobj,
-                                                     jlong joptions) {
+jlong Java_org_rocksdb_Logger_newLogger(JNIEnv* env, jobject jobj,
+                                        jlong jlog_level) {
   auto* sptr_logger = new std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>(
       new ROCKSDB_NAMESPACE::LoggerJniCallback(env, jobj));
-
-  // set log level
-  auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(joptions);
-  sptr_logger->get()->SetInfoLogLevel(options->info_log_level);
-
-  return reinterpret_cast<jlong>(sptr_logger);
-}
-
-/*
- * Class:     org_rocksdb_Logger
- * Method:    createNewLoggerDbOptions
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_Logger_createNewLoggerDbOptions(JNIEnv* env,
-                                                       jobject jobj,
-                                                       jlong jdb_options) {
-  auto* sptr_logger = new std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>(
-      new ROCKSDB_NAMESPACE::LoggerJniCallback(env, jobj));
-
-  // set log level
-  auto* db_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jdb_options);
-  sptr_logger->get()->SetInfoLogLevel(db_options->info_log_level);
-
-  return reinterpret_cast<jlong>(sptr_logger);
+  auto log_level = static_cast<ROCKSDB_NAMESPACE::InfoLogLevel>(jlog_level);
+  sptr_logger->get()->SetInfoLogLevel(log_level);
+  return GET_CPLUSPLUS_POINTER(sptr_logger);
 }
 
 /*

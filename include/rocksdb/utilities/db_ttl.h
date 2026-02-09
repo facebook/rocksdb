@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -64,9 +63,10 @@ class DBWithTTL : public StackableDB {
 
   virtual void SetTtl(ColumnFamilyHandle* h, int32_t ttl) = 0;
 
+  virtual Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) = 0;
+
  protected:
   explicit DBWithTTL(DB* db) : StackableDB(db) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

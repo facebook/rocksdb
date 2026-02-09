@@ -15,7 +15,7 @@
 #include "file/read_write_util.h"
 #include "rocksdb/file_system.h"
 #include "util/aligned_buffer.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -107,6 +107,10 @@ class ReadaheadRandomAccessFile : public FSRandomAccessFile {
   }
 
   bool use_direct_io() const override { return file_->use_direct_io(); }
+
+  IOStatus GetFileSize(uint64_t* result) override {
+    return file_->GetFileSize(result);
+  }
 
  private:
   // Tries to read from buffer_ n bytes starting at offset. If anything was read

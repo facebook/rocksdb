@@ -5,13 +5,10 @@
 
 package org.rocksdb;
 
-
-interface TransactionalDB<T extends TransactionalOptions>
-    extends AutoCloseable {
-
+interface TransactionalDB<T extends TransactionalOptions<T>> extends AutoCloseable {
   /**
    * Starts a new Transaction.
-   *
+   * <p>
    * Caller is responsible for calling {@link #close()} on the returned
    * transaction when it is no longer needed.
    *
@@ -22,7 +19,7 @@ interface TransactionalDB<T extends TransactionalOptions>
 
   /**
    * Starts a new Transaction.
-   *
+   * <p>
    * Caller is responsible for calling {@link #close()} on the returned
    * transaction when it is no longer needed.
    *
@@ -35,7 +32,7 @@ interface TransactionalDB<T extends TransactionalOptions>
 
   /**
    * Starts a new Transaction.
-   *
+   * <p>
    * Caller is responsible for calling {@link #close()} on the returned
    * transaction when it is no longer needed.
    *
@@ -51,7 +48,7 @@ interface TransactionalDB<T extends TransactionalOptions>
 
   /**
    * Starts a new Transaction.
-   *
+   * <p>
    * Caller is responsible for calling {@link #close()} on the returned
    * transaction when it is no longer needed.
    *

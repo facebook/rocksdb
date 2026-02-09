@@ -10,15 +10,11 @@ package org.rocksdb;
  * {@link org.rocksdb.RocksDB}.
  */
 public class FlushOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct a new instance of FlushOptions.
    */
   public FlushOptions(){
-    super(newFlushOptions());
+    super(newFlushOptionsInance());
   }
 
   /**
@@ -47,13 +43,13 @@ public class FlushOptions extends RocksObject {
   }
 
   /**
-   * Set to true so that flush would proceeds immediately even it it means
+   * Set to true so that flush would proceed immediately even if it means
    * writes will stall for the duration of the flush.
-   *
+   * <p>
    * Set to false so that the operation will wait until it's possible to do
    * the flush without causing stall or until required flush is performed by
    * someone else (foreground call or background thread).
-   *
+   * <p>
    * Default: false
    *
    * @param allowWriteStall true to allow writes to stall for flush, false
@@ -77,14 +73,20 @@ public class FlushOptions extends RocksObject {
     assert(isOwningHandle());
     return allowWriteStall(nativeHandle_);
   }
+  private static long newFlushOptionsInance() {
+    RocksDB.loadLibrary();
+    return newFlushOptions();
+  }
+  private static native long newFlushOptions();
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
 
-  private native static long newFlushOptions();
-  @Override protected final native void disposeInternal(final long handle);
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setWaitForFlush(final long handle,
-      final boolean wait);
-  private native boolean waitForFlush(final long handle);
-  private native void setAllowWriteStall(final long handle,
-      final boolean allowWriteStall);
-  private native boolean allowWriteStall(final long handle);
+  private static native void setWaitForFlush(final long handle, final boolean wait);
+  private static native boolean waitForFlush(final long handle);
+  private static native void setAllowWriteStall(final long handle, final boolean allowWriteStall);
+  private static native boolean allowWriteStall(final long handle);
 }

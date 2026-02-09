@@ -13,32 +13,25 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
-#if !defined(ROCKSDB_LITE) && !defined(NROCKSDB_THREAD_STATUS) && \
-    defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#define ROCKSDB_USING_THREAD_STATUS
-#endif
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-// TODO(yhchiang): remove this function once c++14 is available
-//                 as std::max will be able to cover this.
-// Current MS compiler does not support constexpr
-template <int A, int B>
-struct constexpr_max {
-  static const int result = (A > B) ? A : B;
-};
 
 // A structure that describes the current status of a thread.
 // The status of active threads can be fetched using
 // ROCKSDB_NAMESPACE::GetThreadList().
 struct ThreadStatus {
+  // Whether RocksDB was built with !NROCKSDB_THREAD_STATUS for
+  // ROCKSDB_NAMESPACE::GetThreadList() to be supported.
+  static const bool kEnabled;
+
   // The type of a thread.
   enum ThreadType : int {
     HIGH_PRIORITY = 0,  // RocksDB BG thread in high-pri thread pool
@@ -55,6 +48,15 @@ struct ThreadStatus {
     OP_UNKNOWN = 0,
     OP_COMPACTION,
     OP_FLUSH,
+    OP_DBOPEN,
+    OP_GET,
+    OP_MULTIGET,
+    OP_DBITERATOR,
+    OP_VERIFY_DB_CHECKSUM,
+    OP_VERIFY_FILE_CHECKSUMS,
+    OP_GETENTITY,
+    OP_MULTIGETENTITY,
+    OP_GET_FILE_CHECKSUMS_FROM_CURRENT_MANIFEST,
     NUM_OP_TYPES
   };
 
@@ -92,8 +94,8 @@ struct ThreadStatus {
 
   // The maximum number of properties of an operation.
   // This number should be set to the biggest NUM_XXX_PROPERTIES.
-  static const int kNumOperationProperties =
-      constexpr_max<NUM_COMPACTION_PROPERTIES, NUM_FLUSH_PROPERTIES>::result;
+  static constexpr int kNumOperationProperties =
+      std::max(int{NUM_COMPACTION_PROPERTIES}, int{NUM_FLUSH_PROPERTIES});
 
   // The type used to refer to a thread state.
   // A state describes lower-level action of a thread

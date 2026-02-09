@@ -54,7 +54,7 @@ public class TransactionOptions extends RocksObject
 
   /**
    * The wait timeout in milliseconds when a transaction attempts to lock a key.
-   *
+   * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
    * will be used
@@ -69,11 +69,11 @@ public class TransactionOptions extends RocksObject
   /**
    * If positive, specifies the wait timeout in milliseconds when
    * a transaction attempts to lock a key.
-   *
+   * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
    * will be used
-   *
+   * <p>
    * Default: -1
    *
    * @param lockTimeout the lock timeout in milliseconds
@@ -88,7 +88,7 @@ public class TransactionOptions extends RocksObject
 
   /**
    * Expiration duration in milliseconds.
-   *
+   * <p>
    * If non-negative, transactions that last longer than this many milliseconds
    * will fail to commit. If not set, a forgotten transaction that is never
    * committed, rolled back, or deleted will never relinquish any locks it
@@ -103,12 +103,12 @@ public class TransactionOptions extends RocksObject
 
   /**
    * Expiration duration in milliseconds.
-   *
+   * <p>
    * If non-negative, transactions that last longer than this many milliseconds
    * will fail to commit. If not set, a forgotten transaction that is never
    * committed, rolled back, or deleted will never relinquish any locks it
    * holds. This could prevent keys from being written by other writers.
-   *
+   * <p>
    * Default: -1
    *
    * @param expiration the expiration duration in milliseconds
@@ -133,7 +133,7 @@ public class TransactionOptions extends RocksObject
 
   /**
    * Sets the number of traversals to make during deadlock detection.
-   *
+   * <p>
    * Default: 50
    *
    * @param deadlockDetectDepth the number of traversals to make during
@@ -168,22 +168,23 @@ public class TransactionOptions extends RocksObject
     return this;
   }
 
-  private native static long newTransactionOptions();
-  private native boolean isSetSnapshot(final long handle);
-  private native void setSetSnapshot(final long handle,
-      final boolean setSnapshot);
-  private native boolean isDeadlockDetect(final long handle);
-  private native void setDeadlockDetect(final long handle,
-      final boolean deadlockDetect);
-  private native long getLockTimeout(final long handle);
-  private native void setLockTimeout(final long handle, final long lockTimeout);
-  private native long getExpiration(final long handle);
-  private native void setExpiration(final long handle, final long expiration);
-  private native long getDeadlockDetectDepth(final long handle);
-  private native void setDeadlockDetectDepth(final long handle,
-      final long deadlockDetectDepth);
-  private native long getMaxWriteBatchSize(final long handle);
-  private native void setMaxWriteBatchSize(final long handle,
-      final long maxWriteBatchSize);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long newTransactionOptions();
+  private static native boolean isSetSnapshot(final long handle);
+  private static native void setSetSnapshot(final long handle, final boolean setSnapshot);
+  private static native boolean isDeadlockDetect(final long handle);
+  private static native void setDeadlockDetect(final long handle, final boolean deadlockDetect);
+  private static native long getLockTimeout(final long handle);
+  private static native void setLockTimeout(final long handle, final long lockTimeout);
+  private static native long getExpiration(final long handle);
+  private static native void setExpiration(final long handle, final long expiration);
+  private static native long getDeadlockDetectDepth(final long handle);
+  private static native void setDeadlockDetectDepth(
+      final long handle, final long deadlockDetectDepth);
+  private static native long getMaxWriteBatchSize(final long handle);
+  private static native void setMaxWriteBatchSize(final long handle, final long maxWriteBatchSize);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

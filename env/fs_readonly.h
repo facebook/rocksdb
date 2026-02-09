@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/file_system.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -25,6 +23,9 @@ class ReadOnlyFileSystem : public FileSystemWrapper {
  public:
   explicit ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "ReadOnlyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewWritableFile(const std::string& /*fname*/,
                            const FileOptions& /*options*/,
@@ -100,5 +101,3 @@ class ReadOnlyFileSystem : public FileSystemWrapper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

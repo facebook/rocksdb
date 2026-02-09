@@ -5,6 +5,8 @@
 //
 
 #include "table/block_based/uncompression_dict_reader.h"
+
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "util/compression.h"
@@ -21,7 +23,7 @@ Status UncompressionDictReader::Create(
   assert(!pin || prefetch);
   assert(uncompression_dict_reader);
 
-  CachableEntry<UncompressionDict> uncompression_dict;
+  CachableEntry<DecompressorDict> uncompression_dict;
   if (prefetch || !use_cache) {
     const Status s = ReadUncompressionDictionary(
         table, prefetch_buffer, ro, use_cache, nullptr /* get_context */,
@@ -45,7 +47,7 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<UncompressionDict>* uncompression_dict) {
+    CachableEntry<DecompressorDict>* uncompression_dict) {
   // TODO: add perf counter for compression dictionary read time
 
   assert(table);
@@ -58,13 +60,13 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->compression_dict_handle,
-      UncompressionDict::GetEmptyDict(), uncompression_dict,
-      BlockType::kCompressionDictionary, get_context, lookup_context,
-      /* for_compaction */ false, use_cache);
+      /* decomp */ nullptr, uncompression_dict, get_context, lookup_context,
+      /* for_compaction */ false, use_cache,
+      /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(
-        rep->ioptions.info_log,
+        rep->ioptions.logger,
         "Encountered error while reading data from compression dictionary "
         "block %s",
         s.ToString().c_str());
@@ -74,9 +76,9 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 }
 
 Status UncompressionDictReader::GetOrReadUncompressionDictionary(
-    FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    CachableEntry<UncompressionDict>* uncompression_dict) const {
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    CachableEntry<DecompressorDict>* uncompression_dict) const {
   assert(uncompression_dict);
 
   if (!uncompression_dict_.IsEmpty()) {
@@ -84,12 +86,7 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionary(
     return Status::OK();
   }
 
-  ReadOptions read_options;
-  if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
-  }
-
-  return ReadUncompressionDictionary(table_, prefetch_buffer, read_options,
+  return ReadUncompressionDictionary(table_, prefetch_buffer, ro,
                                      cache_dictionary_blocks(), get_context,
                                      lookup_context, uncompression_dict);
 }

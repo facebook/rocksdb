@@ -25,16 +25,16 @@
 #
 # The solution is to move the include out of the #ifdef.
 
-from __future__ import print_function
 
 import argparse
-from os import path
 import re
 import sys
+from os import path
 
 include_re = re.compile('^[ \t]*#include[ \t]+"(.*)"[ \t]*$')
 included = set()
 excluded = set()
+
 
 def find_header(name, abs_path, include_paths):
     samedir = path.join(path.dirname(abs_path), name)
@@ -46,17 +46,31 @@ def find_header(name, abs_path, include_paths):
             return include_path
     return None
 
-def expand_include(include_path, f, abs_path, source_out, header_out, include_paths, public_include_paths):
+
+def expand_include(
+    include_path,
+    f,
+    abs_path,
+    source_out,
+    header_out,
+    include_paths,
+    public_include_paths,
+):
     if include_path in included:
         return False
 
     included.add(include_path)
     with open(include_path) as f:
-        print('#line 1 "{}"'.format(include_path), file=source_out)
-        process_file(f, include_path, source_out, header_out, include_paths, public_include_paths)
+        print(f'#line 1 "{include_path}"', file=source_out)
+        process_file(
+            f, include_path, source_out, header_out, include_paths, public_include_paths
+        )
     return True
 
-def process_file(f, abs_path, source_out, header_out, include_paths, public_include_paths):
+
+def process_file(
+    f, abs_path, source_out, header_out, include_paths, public_include_paths
+):
     for (line, text) in enumerate(f):
         m = include_re.match(text)
         if m:
@@ -68,7 +82,15 @@ def process_file(f, abs_path, source_out, header_out, include_paths, public_incl
                     source_out.write(text)
                     expanded = False
                 else:
-                    expanded = expand_include(include_path, f, abs_path, source_out, header_out, include_paths, public_include_paths)
+                    expanded = expand_include(
+                        include_path,
+                        f,
+                        abs_path,
+                        source_out,
+                        header_out,
+                        include_paths,
+                        public_include_paths,
+                    )
             else:
                 # now try public headers
                 include_path = find_header(filename, abs_path, public_include_paths)
@@ -78,23 +100,52 @@ def process_file(f, abs_path, source_out, header_out, include_paths, public_incl
                     if include_path in excluded:
                         source_out.write(text)
                     else:
-                        expand_include(include_path, f, abs_path, header_out, None, public_include_paths, [])
+                        expand_include(
+                            include_path,
+                            f,
+                            abs_path,
+                            header_out,
+                            None,
+                            public_include_paths,
+                            [],
+                        )
                 else:
-                    sys.exit("unable to find {}, included in {} on line {}".format(filename, abs_path, line))
+                    sys.exit(
+                        "unable to find {}, included in {} on line {}".format(
+                            filename, abs_path, line
+                        )
+                    )
 
             if expanded:
-                print('#line {} "{}"'.format(line+1, abs_path), file=source_out)
+                print(f'#line {line + 1} "{abs_path}"', file=source_out)
         elif text != "#pragma once\n":
             source_out.write(text)
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Transform a unity build into an amalgamation")
+    parser = argparse.ArgumentParser(
+        description="Transform a unity build into an amalgamation"
+    )
     parser.add_argument("source", help="source file")
-    parser.add_argument("-I", action="append", dest="include_paths", help="include paths for private headers")
-    parser.add_argument("-i", action="append", dest="public_include_paths", help="include paths for public headers")
-    parser.add_argument("-x", action="append", dest="excluded", help="excluded header files")
+    parser.add_argument(
+        "-I",
+        action="append",
+        dest="include_paths",
+        help="include paths for private headers",
+    )
+    parser.add_argument(
+        "-i",
+        action="append",
+        dest="public_include_paths",
+        help="include paths for public headers",
+    )
+    parser.add_argument(
+        "-x", action="append", dest="excluded", help="excluded header files"
+    )
     parser.add_argument("-o", dest="source_out", help="output C++ file", required=True)
-    parser.add_argument("-H", dest="header_out", help="output C++ header file", required=True)
+    parser.add_argument(
+        "-H", dest="header_out", help="output C++ header file", required=True
+    )
     args = parser.parse_args()
 
     include_paths = list(map(path.abspath, args.include_paths or []))
@@ -102,10 +153,15 @@ def main():
     excluded.update(map(path.abspath, args.excluded or []))
     filename = args.source
     abs_path = path.abspath(filename)
-    with open(filename) as f, open(args.source_out, 'w') as source_out, open(args.header_out, 'w') as header_out:
-        print('#line 1 "{}"'.format(filename), file=source_out)
-        print('#include "{}"'.format(header_out.name), file=source_out)
-        process_file(f, abs_path, source_out, header_out, include_paths, public_include_paths)
+    with open(filename) as f, open(args.source_out, "w") as source_out, open(
+        args.header_out, "w"
+    ) as header_out:
+        print(f'#line 1 "{filename}"', file=source_out)
+        print(f'#include "{header_out.name}"', file=source_out)
+        process_file(
+            f, abs_path, source_out, header_out, include_paths, public_include_paths
+        )
+
 
 if __name__ == "__main__":
     main()

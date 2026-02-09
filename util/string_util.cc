@@ -5,33 +5,20 @@
 //
 #include "util/string_util.h"
 
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <algorithm>
+#include <cerrno>
 #include <cinttypes>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"
-
-#ifndef __has_cpp_attribute
-#define ROCKSDB_HAS_CPP_ATTRIBUTE(x) 0
-#else
-#define ROCKSDB_HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
-#endif
-
-#if ROCKSDB_HAS_CPP_ATTRIBUTE(maybe_unused) && __cplusplus >= 201703L
-#define ROCKSDB_MAYBE_UNUSED [[maybe_unused]]
-#elif ROCKSDB_HAS_CPP_ATTRIBUTE(gnu::unused) || __GNUC__
-#define ROCKSDB_MAYBE_UNUSED [[gnu::unused]]
-#else
-#define ROCKSDB_MAYBE_UNUSED
-#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -112,15 +99,18 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
   }
 }
 
-std::string NumberToString(uint64_t num) {
-  std::string r;
-  AppendNumberTo(&r, num);
-  return r;
-}
-
 std::string NumberToHumanString(int64_t num) {
-  char buf[19];
-  int64_t absnum = num < 0 ? -num : num;
+  char buf[21];
+  int64_t absnum;
+
+  if (num < 0) {
+    // abs(INT64_MIN) is INT64_MAX+1 which overflows int64_t and become itself.
+    // So we convert it to INT64_MAX to avoid fall into <10000 slot.
+    absnum = num == INT64_MIN ? INT64_MAX : -num;
+  } else {
+    absnum = num;
+  }
+
   if (absnum < 10000) {
     snprintf(buf, sizeof(buf), "%" PRIi64, num);
   } else if (absnum < 10000000) {
@@ -156,7 +146,7 @@ std::string TimeToHumanString(int unixtime) {
   char time_buffer[80];
   time_t rawtime = unixtime;
   struct tm tInfo;
-  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+  struct tm* timeinfo = port::LocalTimeR(&rawtime, &tInfo);
   assert(timeinfo == &tInfo);
   strftime(time_buffer, 80, "%c", timeinfo);
   return std::string(time_buffer);
@@ -261,7 +251,9 @@ std::string UnescapeOptionString(const std::string& escaped_string) {
 }
 
 std::string trim(const std::string& str) {
-  if (str.empty()) return std::string();
+  if (str.empty()) {
+    return std::string();
+  }
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start < end) {
@@ -290,8 +282,6 @@ bool StartsWith(const std::string& string, const std::string& pattern) {
   return string.compare(0, pattern.size(), pattern) == 0;
 }
 
-#ifndef ROCKSDB_LITE
-
 bool ParseBoolean(const std::string& type, const std::string& value) {
   if (value == "true" || value == "1") {
     return true;
@@ -299,6 +289,15 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
     return false;
   }
   throw std::invalid_argument(type);
+}
+
+uint8_t ParseUint8(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 8LL) == 0) {
+    return static_cast<uint8_t>(num);
+  } else {
+    throw std::out_of_range(value);
+  }
 }
 
 uint32_t ParseUint32(const std::string& value) {
@@ -312,14 +311,13 @@ uint32_t ParseUint32(const std::string& value) {
 
 int32_t ParseInt32(const std::string& value) {
   int64_t num = ParseInt64(value);
-  if (num <= port::kMaxInt32 && num >= port::kMinInt32) {
+  if (num <= std::numeric_limits<int32_t>::max() &&
+      num >= std::numeric_limits<int32_t>::min()) {
     return static_cast<int32_t>(num);
   } else {
     throw std::out_of_range(value);
   }
 }
-
-#endif
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;
@@ -333,14 +331,15 @@ uint64_t ParseUint64(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10LL;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20LL;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30LL;
-    else if (c == 't' || c == 'T')
+    } else if (c == 't' || c == 'T') {
       num <<= 40LL;
+    }
   }
 
   return num;
@@ -358,14 +357,15 @@ int64_t ParseInt64(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10LL;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20LL;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30LL;
-    else if (c == 't' || c == 'T')
+    } else if (c == 't' || c == 'T') {
       num <<= 40LL;
+    }
   }
 
   return num;
@@ -383,12 +383,13 @@ int ParseInt(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30;
+    }
   }
 
   return num;
@@ -428,7 +429,46 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
     if (i > 0) {
       *value += ":";
     }
-    *value += ToString(vec[i]);
+    *value += std::to_string(vec[i]);
+  }
+  return true;
+}
+
+int ParseTimeStringToSeconds(const std::string& value) {
+  int hours, minutes;
+  char colon;
+
+  std::istringstream stream(value);
+  stream >> hours >> colon >> minutes;
+
+  if (stream.fail() || !stream.eof() || colon != ':') {
+    return -1;
+  }
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return -1;
+  }
+  return hours * 3600 + minutes * 60;
+}
+
+bool TryParseTimeRangeString(const std::string& value, int& start_time,
+                             int& end_time) {
+  if (value.empty()) {
+    start_time = 0;
+    end_time = 0;
+    return true;
+  }
+  auto split = StringSplit(value, '-');
+  if (split.size() != 2) {
+    return false;
+  }
+  start_time = ParseTimeStringToSeconds(split[0]);
+  if (start_time < 0) {
+    return false;
+  }
+  end_time = ParseTimeStringToSeconds(split[1]);
+  if (end_time < 0) {
+    return false;
   }
   return true;
 }
@@ -447,7 +487,7 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
 // selects proper function.
 
 #if !(defined(_WIN32) && (defined(__MINGW32__) || defined(_MSC_VER)))
-ROCKSDB_MAYBE_UNUSED
+[[maybe_unused]]
 static std::string invoke_strerror_r(int (*strerror_r)(int, char*, size_t),
                                      int err, char* buf, size_t buflen) {
   // Using XSI-compatible strerror_r
@@ -461,7 +501,7 @@ static std::string invoke_strerror_r(int (*strerror_r)(int, char*, size_t),
   return buf;
 }
 
-ROCKSDB_MAYBE_UNUSED
+[[maybe_unused]]
 static std::string invoke_strerror_r(char* (*strerror_r)(int, char*, size_t),
                                      int err, char* buf, size_t buflen) {
   // Using GNU strerror_r

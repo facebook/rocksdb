@@ -25,7 +25,12 @@
 //
 
 #include "util/timer_queue.h"
+
 #include <future>
+
+#include "test_util/testharness.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 namespace Timing {
 
@@ -38,7 +43,9 @@ double now() {
 
 }  // namespace Timing
 
-int main() {
+class TimerQueueTest : public testing::Test {};
+
+TEST_F(TimerQueueTest, BasicFunctionality) {
   TimerQueue q;
 
   double tnow = Timing::now();
@@ -67,6 +74,14 @@ int main() {
   // assert(ret == 1);
   // q.cancelAll();
 
-  return 0;
+  // Test passes if we can create and add timers without crashing
+  ASSERT_TRUE(true);
 }
-//////////////////////////////////////////
+
+}  // namespace ROCKSDB_NAMESPACE
+
+int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

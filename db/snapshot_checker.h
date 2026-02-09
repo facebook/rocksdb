@@ -27,16 +27,15 @@ class SnapshotChecker {
 class DisableGCSnapshotChecker : public SnapshotChecker {
  public:
   virtual ~DisableGCSnapshotChecker() {}
-  virtual SnapshotCheckerResult CheckInSnapshot(
+  SnapshotCheckerResult CheckInSnapshot(
       SequenceNumber /*sequence*/,
       SequenceNumber /*snapshot_sequence*/) const override {
     // By returning kNotInSnapshot, we prevent all the values from being GCed
     return SnapshotCheckerResult::kNotInSnapshot;
   }
-  static DisableGCSnapshotChecker* Instance() { return &instance_; }
+  static DisableGCSnapshotChecker* Instance();
 
  protected:
-  static DisableGCSnapshotChecker instance_;
   explicit DisableGCSnapshotChecker() {}
 };
 
@@ -49,13 +48,18 @@ class WritePreparedSnapshotChecker : public SnapshotChecker {
   explicit WritePreparedSnapshotChecker(WritePreparedTxnDB* txn_db);
   virtual ~WritePreparedSnapshotChecker() {}
 
-  virtual SnapshotCheckerResult CheckInSnapshot(
+  SnapshotCheckerResult CheckInSnapshot(
       SequenceNumber sequence, SequenceNumber snapshot_sequence) const override;
 
  private:
-#ifndef ROCKSDB_LITE
   const WritePreparedTxnDB* const txn_db_;
-#endif  // !ROCKSDB_LITE
 };
+
+bool DataIsDefinitelyInSnapshot(SequenceNumber seqno, SequenceNumber snapshot,
+                                const SnapshotChecker* snapshot_checker);
+
+bool DataIsDefinitelyNotInSnapshot(SequenceNumber seqno,
+                                   SequenceNumber snapshot,
+                                   const SnapshotChecker* snapshot_checker);
 
 }  // namespace ROCKSDB_NAMESPACE

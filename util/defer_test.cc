@@ -3,10 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/defer.h"
+
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
-#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -28,6 +29,17 @@ TEST(DeferTest, FunctionScope) {
   };
   f();
   ASSERT_EQ(4, v);
+}
+
+TEST(SaveAndRestoreTest, BlockScope) {
+  int v = 1;
+  {
+    SaveAndRestore<int> sr(&v);
+    ASSERT_EQ(v, 1);
+    v = 2;
+    ASSERT_EQ(v, 2);
+  }
+  ASSERT_EQ(v, 1);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

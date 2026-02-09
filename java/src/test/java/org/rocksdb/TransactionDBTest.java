@@ -31,10 +31,9 @@ public class TransactionDBTest {
 
   @Test
   public void open_columnFamilies() throws RocksDBException {
-    try(final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true)
-          .setCreateMissingColumnFamilies(true);
-        final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
-
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
           Arrays.asList(
               new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
@@ -53,6 +52,24 @@ public class TransactionDBTest {
             handle.close();
           }
         }
+      }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void open_columnFamilies_no_default() throws RocksDBException {
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Collections.singletonList(new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts));
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+
+      try (
+          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+          final TransactionDB ignored = TransactionDB.open(dbOptions, txnDbOptions,
+              dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {
       }
     }
   }
@@ -130,9 +147,8 @@ public class TransactionDBTest {
          final ReadOptions readOptions = new ReadOptions()) {
 
       try (final Transaction txn = tdb.beginTransaction(writeOptions)) {
-
-        final byte key[] = "key".getBytes(UTF_8);
-        final byte value[] = "value".getBytes(UTF_8);
+        final byte[] key = "key".getBytes(UTF_8);
+        final byte[] value = "value".getBytes(UTF_8);
 
         txn.put(key, value);
         assertThat(txn.getForUpdate(readOptions, key, true)).isEqualTo(value);
@@ -173,6 +189,24 @@ public class TransactionDBTest {
          final TransactionDB tdb = TransactionDB.open(options, txnDbOptions,
              dbFolder.getRoot().getAbsolutePath())) {
       tdb.setDeadlockInfoBufferSize(123);
+    }
+  }
+
+  @Test
+  public void tdbSimpleIterator() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB tdb =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
+      tdb.put("keyI".getBytes(), "valueI".getBytes());
+      try (final RocksIterator iterator = tdb.newIterator()) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("keyI".getBytes());
+        assertThat(iterator.value()).isEqualTo("valueI".getBytes());
+        iterator.next();
+        assertThat(iterator.isValid()).isFalse();
+      }
     }
   }
 }

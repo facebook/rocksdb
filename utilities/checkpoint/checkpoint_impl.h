@@ -4,13 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
-
-#include "rocksdb/utilities/checkpoint.h"
 
 #include <string>
+
 #include "file/filename.h"
 #include "rocksdb/db.h"
+#include "rocksdb/utilities/checkpoint.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -29,14 +28,14 @@ class CheckpointImpl : public Checkpoint {
   // Checkpoint logic can be customized by providing callbacks for link, copy,
   // or create.
   Status CreateCustomCheckpoint(
-      const DBOptions& db_options,
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname, FileType type)>
           link_file_cb,
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname, uint64_t size_limit_bytes,
                            FileType type, const std::string& checksum_func_name,
-                           const std::string& checksum_val)>
+                           const std::string& checksum_val,
+                           const Temperature src_temperature)>
           copy_file_cb,
       std::function<Status(const std::string& fname,
                            const std::string& contents, FileType type)>
@@ -45,7 +44,7 @@ class CheckpointImpl : public Checkpoint {
       bool get_live_table_checksum = false);
 
  private:
-  void CleanStagingDirectory(const std::string& path, Logger* info_log);
+  Status CleanStagingDirectory(const std::string& path, Logger* info_log);
 
   // Export logic customization by providing callbacks for link or copy.
   Status ExportFilesInMetaData(
@@ -62,5 +61,3 @@ class CheckpointImpl : public Checkpoint {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

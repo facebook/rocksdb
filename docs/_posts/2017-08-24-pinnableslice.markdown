@@ -34,4 +34,4 @@ while (!stopped) {
 }
 ```
 
-You can also [initialize the internal buffer](https://github.com/facebook/rocksdb/blob/9e583711144f580390ce21a49a8ceacca338fcd5/include/rocksdb/db.h#L314) of PinnableSlice by passing your own string in the constructor. [simple_example.cc](https://github.com/facebook/rocksdb/blob/master/examples/simple_example.cc) demonstrates that with more examples.
+You can also [initialize the internal buffer](https://github.com/facebook/rocksdb/blob/9e583711144f580390ce21a49a8ceacca338fcd5/include/rocksdb/db.h#L314) of PinnableSlice by passing your own string in the constructor. [simple_example.cc](https://github.com/facebook/rocksdb/blob/main/examples/simple_example.cc) demonstrates that with more examples.

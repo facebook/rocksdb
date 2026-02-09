@@ -3,8 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "env/fs_remap.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -78,6 +76,17 @@ IOStatus RemapFileSystem::NewWritableFile(
                                             result, dbg);
 }
 
+IOStatus RemapFileSystem::ReopenWritableFile(
+    const std::string& fname, const FileOptions& options,
+    std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
+  auto status_and_enc_path = EncodePathWithNewBasename(fname);
+  if (!status_and_enc_path.first.ok()) {
+    return status_and_enc_path.first;
+  }
+  return FileSystemWrapper::ReopenWritableFile(status_and_enc_path.second,
+                                               options, result, dbg);
+}
+
 IOStatus RemapFileSystem::ReuseWritableFile(
     const std::string& fname, const std::string& old_fname,
     const FileOptions& options, std::unique_ptr<FSWritableFile>* result,
@@ -110,12 +119,45 @@ IOStatus RemapFileSystem::NewDirectory(const std::string& dir,
                                        const IOOptions& options,
                                        std::unique_ptr<FSDirectory>* result,
                                        IODebugContext* dbg) {
+  // A hassle to remap DirFsyncOptions::renamed_new_name
+  class RemapFSDirectory : public FSDirectoryWrapper {
+   public:
+    RemapFSDirectory(RemapFileSystem* fs, std::unique_ptr<FSDirectory>&& t)
+        : FSDirectoryWrapper(std::move(t)), fs_(fs) {}
+    IOStatus FsyncWithDirOptions(
+        const IOOptions& options, IODebugContext* dbg,
+        const DirFsyncOptions& dir_fsync_options) override {
+      if (dir_fsync_options.renamed_new_name.empty()) {
+        return FSDirectoryWrapper::FsyncWithDirOptions(options, dbg,
+                                                       dir_fsync_options);
+      } else {
+        auto status_and_enc_path =
+            fs_->EncodePath(dir_fsync_options.renamed_new_name);
+        if (status_and_enc_path.first.ok()) {
+          DirFsyncOptions mapped_options = dir_fsync_options;
+          mapped_options.renamed_new_name = status_and_enc_path.second;
+          return FSDirectoryWrapper::FsyncWithDirOptions(options, dbg,
+                                                         mapped_options);
+        } else {
+          return status_and_enc_path.first;
+        }
+      }
+    }
+
+   private:
+    RemapFileSystem* const fs_;
+  };
+
   auto status_and_enc_path = EncodePathWithNewBasename(dir);
   if (!status_and_enc_path.first.ok()) {
     return status_and_enc_path.first;
   }
-  return FileSystemWrapper::NewDirectory(status_and_enc_path.second, options,
-                                         result, dbg);
+  IOStatus ios = FileSystemWrapper::NewDirectory(status_and_enc_path.second,
+                                                 options, result, dbg);
+  if (ios.ok()) {
+    *result = std::make_unique<RemapFSDirectory>(this, std::move(*result));
+  }
+  return ios;
 }
 
 IOStatus RemapFileSystem::FileExists(const std::string& fname,
@@ -235,6 +277,10 @@ IOStatus RemapFileSystem::RenameFile(const std::string& src,
                                      IODebugContext* dbg) {
   auto status_and_src_enc_path = EncodePath(src);
   if (!status_and_src_enc_path.first.ok()) {
+    if (status_and_src_enc_path.first.IsNotFound()) {
+      const IOStatus& s = status_and_src_enc_path.first;
+      status_and_src_enc_path.first = IOStatus::PathNotFound(s.ToString());
+    }
     return status_and_src_enc_path.first;
   }
   auto status_and_dest_enc_path = EncodePathWithNewBasename(dest);
@@ -293,7 +339,7 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
                                           const IOOptions& options,
                                           std::string* output_path,
                                           IODebugContext* dbg) {
-  auto status_and_enc_path = EncodePath(db_path);
+  auto status_and_enc_path = EncodePathWithNewBasename(db_path);
   if (!status_and_enc_path.first.ok()) {
     return status_and_enc_path.first;
   }
@@ -302,5 +348,3 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

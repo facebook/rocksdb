@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "table/cuckoo/cuckoo_table_factory.h"
 
 #include "db/dbformat.h"
@@ -30,11 +29,8 @@ Status CuckooTableFactory::NewTableReader(
 }
 
 TableBuilder* CuckooTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  // Ignore the skipFIlters flag. Does not apply to this file format
-  //
-
   // TODO: change builder to take the option struct
   return new CuckooTableBuilder(
       file, table_options_.hash_table_ratio, 64,
@@ -42,8 +38,9 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
       table_builder_options.internal_comparator.user_comparator(),
       table_options_.cuckoo_block_size, table_options_.use_module_hash,
       table_options_.identity_as_first_hash, nullptr /* get_slice_hash */,
-      column_family_id, table_builder_options.column_family_name,
-      table_builder_options.db_id, table_builder_options.db_session_id);
+      table_builder_options.column_family_id,
+      table_builder_options.column_family_name, table_builder_options.db_id,
+      table_builder_options.db_session_id, table_builder_options.cur_file_num);
 }
 
 std::string CuckooTableFactory::GetPrintableOptions() const {
@@ -69,7 +66,6 @@ std::string CuckooTableFactory::GetPrintableOptions() const {
 
 static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
     {
-#ifndef ROCKSDB_LITE
         {"hash_table_ratio",
          {offsetof(struct CuckooTableOptions, hash_table_ratio),
           OptionType::kDouble, OptionVerificationType::kNormal,
@@ -90,13 +86,11 @@ static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
          {offsetof(struct CuckooTableOptions, use_module_hash),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 
 CuckooTableFactory::CuckooTableFactory(const CuckooTableOptions& table_options)
     : table_options_(table_options) {
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &cuckoo_table_type_info);
+  RegisterOptions(&table_options_, &cuckoo_table_type_info);
 }
 
 TableFactory* NewCuckooTableFactory(const CuckooTableOptions& table_options) {
@@ -104,4 +98,3 @@ TableFactory* NewCuckooTableFactory(const CuckooTableOptions& table_options) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

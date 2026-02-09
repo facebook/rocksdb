@@ -4,14 +4,23 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.junit.Test;
-import org.rocksdb.MutableDBOptions.MutableDBOptionsBuilder;
-
-import java.util.NoSuchElementException;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.NoSuchElementException;
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.rocksdb.MutableDBOptions.MutableDBOptionsBuilder;
+
 public class MutableDBOptionsTest {
+  @ClassRule
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
+
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void builder() {
@@ -73,7 +82,8 @@ public class MutableDBOptionsTest {
   @Test
   public void mutableDBOptions_parse() {
     final String str = "max_open_files=99;delayed_write_rate=789;"
-        + "avoid_flush_during_shutdown=true";
+        + "avoid_flush_during_shutdown=true;"
+        + "daily_offpeak_time_utc=02\\:20-19\\:50";
 
     final MutableDBOptionsBuilder builder =
         MutableDBOptions.parse(str);
@@ -81,5 +91,36 @@ public class MutableDBOptionsTest {
     assertThat(builder.maxOpenFiles()).isEqualTo(99);
     assertThat(builder.delayedWriteRate()).isEqualTo(789);
     assertThat(builder.avoidFlushDuringShutdown()).isEqualTo(true);
+    assertThat(builder.dailyOffpeakTimeUTC()).isEqualTo("02:20-19:50");
+  }
+
+  @Test
+  public void listDBOptions() throws RocksDBException {
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setDailyOffpeakTimeUTC("23:00-05:30");
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      // Test listColumnFamilies
+      MutableDBOptionsBuilder builder = db.getDBOptions();
+      assertThat(builder.maxOpenFiles()).isEqualTo(-1);
+      assertThat(builder.avoidFlushDuringShutdown()).isEqualTo(false);
+      assertThat(builder.dailyOffpeakTimeUTC()).isEqualTo("23:00-05:30");
+    }
+  }
+
+  @Test
+  public void listDBOptions2() throws RocksDBException {
+    List<ColumnFamilyDescriptor> cfd = new ArrayList<>();
+    cfd.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+    List<ColumnFamilyHandle> cfh = new ArrayList<>();
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setDailyOffpeakTimeUTC("23:00-05:30");
+         final RocksDB db =
+             RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(), cfd, cfh)) {
+      // Test listColumnFamilies
+      MutableDBOptionsBuilder builder = db.getDBOptions();
+      assertThat(builder.maxOpenFiles()).isEqualTo(-1);
+      assertThat(builder.avoidFlushDuringShutdown()).isEqualTo(false);
+      assertThat(builder.dailyOffpeakTimeUTC()).isEqualTo("23:00-05:30");
+    }
   }
 }

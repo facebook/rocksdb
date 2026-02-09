@@ -38,9 +38,9 @@ public class BackupEngineTest {
       prepareDatabase(db);
 
       // Create two backups
-      try(final BackupableDBOptions bopt = new BackupableDBOptions(
-          backupFolder.getRoot().getAbsolutePath());
-          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+      try (final BackupEngineOptions bopt =
+               new BackupEngineOptions(backupFolder.getRoot().getAbsolutePath());
+           final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
         be.createNewBackup(db, false);
         be.createNewBackup(db, true);
         verifyNumberOfValidBackups(be, 2);
@@ -57,9 +57,9 @@ public class BackupEngineTest {
       // Fill database with some test values
       prepareDatabase(db);
       // Create two backups
-      try(final BackupableDBOptions bopt = new BackupableDBOptions(
-          backupFolder.getRoot().getAbsolutePath());
-          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+      try (final BackupEngineOptions bopt =
+               new BackupEngineOptions(backupFolder.getRoot().getAbsolutePath());
+           final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
         be.createNewBackup(db, false);
         be.createNewBackup(db, true);
         final List<BackupInfo> backupInfo =
@@ -85,9 +85,9 @@ public class BackupEngineTest {
       // Fill database with some test values
       prepareDatabase(db);
       // Create four backups
-      try(final BackupableDBOptions bopt = new BackupableDBOptions(
-          backupFolder.getRoot().getAbsolutePath());
-          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+      try (final BackupEngineOptions bopt =
+               new BackupEngineOptions(backupFolder.getRoot().getAbsolutePath());
+           final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
         be.createNewBackup(db, false);
         be.createNewBackup(db, true);
         be.createNewBackup(db, true);
@@ -116,8 +116,8 @@ public class BackupEngineTest {
         // Fill database with some test values
         prepareDatabase(db);
 
-        try (final BackupableDBOptions bopt = new BackupableDBOptions(
-            backupFolder.getRoot().getAbsolutePath());
+        try (final BackupEngineOptions bopt =
+                 new BackupEngineOptions(backupFolder.getRoot().getAbsolutePath());
              final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
           be.createNewBackup(db, true);
           verifyNumberOfValidBackups(be, 1);
@@ -166,8 +166,8 @@ public class BackupEngineTest {
             dbFolder.getRoot().getAbsolutePath());
         // Fill database with some test values
         prepareDatabase(db);
-        try (final BackupableDBOptions bopt = new BackupableDBOptions(
-            backupFolder.getRoot().getAbsolutePath());
+        try (final BackupEngineOptions bopt =
+                 new BackupEngineOptions(backupFolder.getRoot().getAbsolutePath());
              final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
           be.createNewBackup(db, true);
           verifyNumberOfValidBackups(be, 1);
@@ -215,8 +215,8 @@ public class BackupEngineTest {
       prepareDatabase(db);
 
       // Create two backups
-      try (final BackupableDBOptions bopt =
-               new BackupableDBOptions(backupFolder.getRoot().getAbsolutePath());
+      try (final BackupEngineOptions bopt =
+               new BackupEngineOptions(backupFolder.getRoot().getAbsolutePath());
            final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
         final String metadata = String.valueOf(ThreadLocalRandom.current().nextInt());
         be.createNewBackupWithMetadata(db, metadata, true);

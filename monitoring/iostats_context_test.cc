@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/iostats_context.h"
+
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,6 +25,7 @@ TEST(IOStatsContextTest, ToString) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

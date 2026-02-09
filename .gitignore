@@ -36,7 +36,6 @@ manifest_dump
 sst_dump
 blob_dump
 block_cache_trace_analyzer
-db_with_timestamp_basic_test
 tools/block_cache_analyzer/*.pyc
 column_aware_encoding_exp
 util/build_version.cc
@@ -48,16 +47,19 @@ package/
 unity.a
 tags
 etags
+GPATH
+GRTAGS
+GTAGS
 rocksdb_dump
 rocksdb_undump
 db_test2
 trace_analyzer
-trace_analyzer_test
 block_cache_trace_analyzer
 io_tracer_parser
 .DS_Store
 .vs
 .vscode
+.clangd
 
 java/out
 java/target
@@ -86,8 +88,10 @@ fbcode/
 fbcode
 buckifier/*.pyc
 buckifier/__pycache__
+.arcconfig
 
 compile_commands.json
+meta_gen_cpp_compile_commands.json
 clang-format-diff.py
 .py3/
 
@@ -95,3 +99,6 @@ fuzz/proto/gen/
 fuzz/crash-*
 
 cmake-build-*
+third-party/folly/
+.cache
+*.sublime-*

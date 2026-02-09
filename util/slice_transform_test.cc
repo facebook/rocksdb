@@ -91,8 +91,8 @@ class SliceTransformDBTest : public testing::Test {
 };
 
 namespace {
-uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
-  return options.statistics->getTickerCount(ticker_type);
+uint64_t PopTicker(const Options& options, Tickers ticker_type) {
+  return options.statistics->getAndResetTickerCount(ticker_type);
 }
 }  // namespace
 
@@ -121,33 +121,39 @@ TEST_F(SliceTransformDBTest, CapPrefix) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->value().ToString(), "bar");
-  ASSERT_EQ(TestGetTickerCount(last_options_, BLOOM_FILTER_PREFIX_USEFUL), 0U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 1U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTERED), 0U);
 
   iter->Seek("foo2");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
-  ASSERT_EQ(TestGetTickerCount(last_options_, BLOOM_FILTER_PREFIX_USEFUL), 1U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 0U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTERED), 1U);
 
   iter->Seek("barbarbar");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->value().ToString(), "foo");
-  ASSERT_EQ(TestGetTickerCount(last_options_, BLOOM_FILTER_PREFIX_USEFUL), 1U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 1U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTERED), 0U);
 
   iter->Seek("barfoofoo");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
-  ASSERT_EQ(TestGetTickerCount(last_options_, BLOOM_FILTER_PREFIX_USEFUL), 2U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 0U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTERED), 1U);
 
   iter->Seek("foobarbar");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
-  ASSERT_EQ(TestGetTickerCount(last_options_, BLOOM_FILTER_PREFIX_USEFUL), 3U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 0U);
+  EXPECT_EQ(PopTicker(last_options_, NON_LAST_LEVEL_SEEK_FILTERED), 1U);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

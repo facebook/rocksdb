@@ -81,10 +81,9 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
         // time RepeatableThread::wait is called, it is no guarantee that the
         // delay + mock_clock->NowMicros will be greater than the current real
         // time. However, 1000 seconds should be sufficient in most cases.
-        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        uint64_t time_us = *static_cast<uint64_t*>(arg);
         if (time_us < mock_clock_->RealNowMicros()) {
-          *reinterpret_cast<uint64_t*>(arg) =
-              mock_clock_->RealNowMicros() + 1000;
+          *static_cast<uint64_t*>(arg) = mock_clock_->RealNowMicros() + 1000;
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -104,6 +103,7 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
 }
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 
   return RUN_ALL_TESTS();

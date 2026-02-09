@@ -10,19 +10,18 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
-#include "env/mock_env.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/env.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBTestDynamicLevel : public DBTestBase {
  public:
   DBTestDynamicLevel()
-      : DBTestBase("/db_dynamic_level_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_dynamic_level_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
@@ -30,7 +29,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     return;
   }
   // Use InMemoryEnv, or it would be too slow.
-  std::unique_ptr<Env> env(new MockEnv(env_));
+  std::unique_ptr<Env> env(NewMemEnv(env_));
 
   const int kNKeys = 1000;
   int keys[kNKeys];
@@ -69,7 +68,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
       options.level_compaction_dynamic_level_bytes = true;
       options.max_bytes_for_level_base = 10240;
       options.max_bytes_for_level_multiplier = 4;
-      options.soft_rate_limit = 1.1;
       options.max_background_compactions = max_background_compactions;
       options.num_levels = 5;
 
@@ -340,7 +338,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesCompactRange) {
   std::set<int> output_levels;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionPicker::CompactRange:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         output_levels.insert(compaction->output_level());
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -370,7 +368,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.soft_rate_limit = 1.1;
   options.max_background_compactions = 2;
   options.num_levels = 5;
   options.max_compaction_bytes = 100000000;
@@ -422,7 +419,6 @@ TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
   options.level_compaction_dynamic_level_bytes = false;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.soft_rate_limit = 1.1;
   options.num_levels = 8;
 
   DestroyAndReopen(options);
@@ -495,16 +491,8 @@ TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
-
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void) argc;
-  (void) argv;
-  return 0;
-#endif
 }

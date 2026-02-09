@@ -21,9 +21,6 @@ DECLARE_bool(histogram);
 DECLARE_bool(progress_reports);
 
 namespace ROCKSDB_NAMESPACE {
-// Database statistics
-static std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
-static std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
 
 class Stats {
  private:

@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -44,11 +44,42 @@ enum class OccValidationPolicy {
   kValidateParallel = 1
 };
 
+class OccLockBuckets {
+ public:
+  // Most details in internal derived class.
+  // Users should not derive from this class.
+  virtual ~OccLockBuckets() {}
+
+  virtual size_t ApproximateMemoryUsage() const = 0;
+
+ private:
+  friend class OccLockBucketsImplBase;
+  OccLockBuckets() {}
+};
+
+// An object for sharing a pool of locks across DB instances.
+//
+// Making the locks cache-aligned avoids potential false sharing, at the
+// potential cost of extra memory. The implementation has historically
+// used cache_aligned = false.
+std::shared_ptr<OccLockBuckets> MakeSharedOccLockBuckets(
+    size_t bucket_count, bool cache_aligned = false);
+
 struct OptimisticTransactionDBOptions {
   OccValidationPolicy validate_policy = OccValidationPolicy::kValidateParallel;
 
-  // works only if validate_policy == OccValidationPolicy::kValidateParallel
+  // Number of striped/bucketed mutex locks for validating transactions.
+  // Used on only if validate_policy == OccValidationPolicy::kValidateParallel
+  // and shared_lock_buckets (below) is empty. Larger number potentially
+  // reduces contention but uses more memory.
   uint32_t occ_lock_buckets = (1 << 20);
+
+  // A pool of mutex locks for validating transactions. Can be shared among
+  // DBs. Ignored if validate_policy != OccValidationPolicy::kValidateParallel.
+  // If empty and validate_policy == OccValidationPolicy::kValidateParallel,
+  // an OccLockBuckets will be created using the count in occ_lock_buckets.
+  // See MakeSharedOccLockBuckets()
+  std::shared_ptr<OccLockBuckets> shared_lock_buckets;
 };
 
 // Range deletions (including those in `WriteBatch`es passed to `Write()`) are
@@ -71,7 +102,7 @@ class OptimisticTransactionDB : public StackableDB {
                      std::vector<ColumnFamilyHandle*>* handles,
                      OptimisticTransactionDB** dbptr);
 
-  virtual ~OptimisticTransactionDB() {}
+  ~OptimisticTransactionDB() override {}
 
   // Starts a new Transaction.
   //
@@ -96,5 +127,3 @@ class OptimisticTransactionDB : public StackableDB {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

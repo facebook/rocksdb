@@ -6,12 +6,13 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::Iterator methods from Java side.
 
+#include "rocksdb/transaction_log.h"
+
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "include/org_rocksdb_TransactionLogIterator.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -19,9 +20,9 @@
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_TransactionLogIterator_disposeInternal(JNIEnv* /*env*/,
-                                                             jobject /*jobj*/,
-                                                             jlong handle) {
+void Java_org_rocksdb_TransactionLogIterator_disposeInternalJni(JNIEnv* /*env*/,
+                                                                jclass /*jcls*/,
+                                                                jlong handle) {
   delete reinterpret_cast<ROCKSDB_NAMESPACE::TransactionLogIterator*>(handle);
 }
 
@@ -31,7 +32,7 @@ void Java_org_rocksdb_TransactionLogIterator_disposeInternal(JNIEnv* /*env*/,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_TransactionLogIterator_isValid(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
+                                                         jclass /*jcls*/,
                                                          jlong handle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::TransactionLogIterator*>(handle)
       ->Valid();
@@ -43,7 +44,7 @@ jboolean Java_org_rocksdb_TransactionLogIterator_isValid(JNIEnv* /*env*/,
  * Signature: (J)V
  */
 void Java_org_rocksdb_TransactionLogIterator_next(JNIEnv* /*env*/,
-                                                  jobject /*jobj*/,
+                                                  jclass /*jcls*/,
                                                   jlong handle) {
   reinterpret_cast<ROCKSDB_NAMESPACE::TransactionLogIterator*>(handle)->Next();
 }
@@ -54,7 +55,7 @@ void Java_org_rocksdb_TransactionLogIterator_next(JNIEnv* /*env*/,
  * Signature: (J)V
  */
 void Java_org_rocksdb_TransactionLogIterator_status(JNIEnv* env,
-                                                    jobject /*jobj*/,
+                                                    jclass /*jcls*/,
                                                     jlong handle) {
   ROCKSDB_NAMESPACE::Status s =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionLogIterator*>(handle)
@@ -70,7 +71,7 @@ void Java_org_rocksdb_TransactionLogIterator_status(JNIEnv* env,
  * Signature: (J)Lorg/rocksdb/TransactionLogIterator$BatchResult
  */
 jobject Java_org_rocksdb_TransactionLogIterator_getBatch(JNIEnv* env,
-                                                         jobject /*jobj*/,
+                                                         jclass /*jcls*/,
                                                          jlong handle) {
   ROCKSDB_NAMESPACE::BatchResult batch_result =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionLogIterator*>(handle)

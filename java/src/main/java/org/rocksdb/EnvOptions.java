@@ -9,15 +9,11 @@ package org.rocksdb;
  * Options while opening a file to read/write
  */
 public class EnvOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct with default Options
    */
   public EnvOptions() {
-    super(newEnvOptions());
+    super(newEnvOptionsInstance());
   }
 
   /**
@@ -31,7 +27,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable memory mapped reads.
-   *
+   * <p>
    * Default: false
    *
    * @param useMmapReads true to enable memory mapped reads, false to disable.
@@ -55,7 +51,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable memory mapped Writes.
-   *
+   * <p>
    * Default: true
    *
    * @param useMmapWrites true to enable memory mapped writes, false to disable.
@@ -79,7 +75,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable direct reads, i.e. {@code O_DIRECT}.
-   *
+   * <p>
    * Default: false
    *
    * @param useDirectReads true to enable direct reads, false to disable.
@@ -103,7 +99,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable direct writes, i.e. {@code O_DIRECT}.
-   *
+   * <p>
    * Default: false
    *
    * @param useDirectWrites true to enable direct writes, false to disable.
@@ -127,9 +123,9 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable fallocate calls.
-   *
+   * <p>
    * Default: true
-   *
+   * <p>
    * If false, {@code fallocate()} calls are bypassed.
    *
    * @param allowFallocate true to enable fallocate calls, false to disable.
@@ -153,7 +149,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable the {@code FD_CLOEXEC} bit when opening file descriptors.
-   *
+   * <p>
    * Default: true
    *
    * @param setFdCloexec true to enable the {@code FB_CLOEXEC} bit,
@@ -181,7 +177,7 @@ public class EnvOptions extends RocksObject {
    * Allows OS to incrementally sync files to disk while they are being
    * written, in the background. Issue one request for every
    * {@code bytesPerSync} written.
-   *
+   * <p>
    * Default: 0
    *
    * @param bytesPerSync 0 to disable, otherwise the number of bytes.
@@ -255,29 +251,6 @@ public class EnvOptions extends RocksObject {
   }
 
   /**
-   * See {@link DBOptions#setRandomAccessMaxBufferSize(long)}.
-   *
-   * @param randomAccessMaxBufferSize the max buffer size for random access.
-   *
-   * @return the reference to these options.
-   */
-  public EnvOptions setRandomAccessMaxBufferSize(
-      final long randomAccessMaxBufferSize) {
-    setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
-    return this;
-  }
-
-  /**
-   * See {@link DBOptions#randomAccessMaxBufferSize()}.
-   *
-   * @return the max buffer size for random access.
-   */
-  public long randomAccessMaxBufferSize() {
-    assert(isOwningHandle());
-    return randomAccessMaxBufferSize(nativeHandle_);
-  }
-
-  /**
    * See {@link DBOptions#setWritableFileMaxBufferSize(long)}.
    *
    * @param writableFileMaxBufferSize the max buffer size.
@@ -323,44 +296,41 @@ public class EnvOptions extends RocksObject {
     return rateLimiter;
   }
 
-  private native static long newEnvOptions();
-  private native static long newEnvOptions(final long dboptions_handle);
-  @Override protected final native void disposeInternal(final long handle);
+  private static long newEnvOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newEnvOptions();
+  }
+  private static native long newEnvOptions();
+  private static native long newEnvOptions(final long dboptions_handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setUseMmapReads(final long handle,
-      final boolean useMmapReads);
-  private native boolean useMmapReads(final long handle);
-  private native void setUseMmapWrites(final long handle,
-      final boolean useMmapWrites);
-  private native boolean useMmapWrites(final long handle);
-  private native void setUseDirectReads(final long handle,
-      final boolean useDirectReads);
-  private native boolean useDirectReads(final long handle);
-  private native void setUseDirectWrites(final long handle,
-      final boolean useDirectWrites);
-  private native boolean useDirectWrites(final long handle);
-  private native void setAllowFallocate(final long handle,
-      final boolean allowFallocate);
-  private native boolean allowFallocate(final long handle);
-  private native void setSetFdCloexec(final long handle,
-      final boolean setFdCloexec);
-  private native boolean setFdCloexec(final long handle);
-  private native void setBytesPerSync(final long handle,
-      final long bytesPerSync);
-  private native long bytesPerSync(final long handle);
-  private native void setFallocateWithKeepSize(
+  private static native void setUseMmapReads(final long handle, final boolean useMmapReads);
+  private static native boolean useMmapReads(final long handle);
+  private static native void setUseMmapWrites(final long handle, final boolean useMmapWrites);
+  private static native boolean useMmapWrites(final long handle);
+  private static native void setUseDirectReads(final long handle, final boolean useDirectReads);
+  private static native boolean useDirectReads(final long handle);
+  private static native void setUseDirectWrites(final long handle, final boolean useDirectWrites);
+  private static native boolean useDirectWrites(final long handle);
+  private static native void setAllowFallocate(final long handle, final boolean allowFallocate);
+  private static native boolean allowFallocate(final long handle);
+  private static native void setSetFdCloexec(final long handle, final boolean setFdCloexec);
+  private static native boolean setFdCloexec(final long handle);
+  private static native void setBytesPerSync(final long handle, final long bytesPerSync);
+  private static native long bytesPerSync(final long handle);
+  private static native void setFallocateWithKeepSize(
       final long handle, final boolean fallocateWithKeepSize);
-  private native boolean fallocateWithKeepSize(final long handle);
-  private native void setCompactionReadaheadSize(
+  private static native boolean fallocateWithKeepSize(final long handle);
+  private static native void setCompactionReadaheadSize(
       final long handle, final long compactionReadaheadSize);
-  private native long compactionReadaheadSize(final long handle);
-  private native void setRandomAccessMaxBufferSize(
-      final long handle, final long randomAccessMaxBufferSize);
-  private native long randomAccessMaxBufferSize(final long handle);
-  private native void setWritableFileMaxBufferSize(
+  private static native long compactionReadaheadSize(final long handle);
+  private static native void setWritableFileMaxBufferSize(
       final long handle, final long writableFileMaxBufferSize);
-  private native long writableFileMaxBufferSize(final long handle);
-  private native void setRateLimiter(final long handle,
-      final long rateLimiterHandle);
+  private static native long writableFileMaxBufferSize(final long handle);
+  private static native void setRateLimiter(final long handle, final long rateLimiterHandle);
   private RateLimiter rateLimiter;
 }

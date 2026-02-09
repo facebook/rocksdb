@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBlobCorruptionTest : public DBTestBase {
  protected:
   DBBlobCorruptionTest()
-      : DBTestBase("/db_blob_corruption_test", /* env_do_fsync */ false) {}
+      : DBTestBase("db_blob_corruption_test", /* env_do_fsync */ false) {}
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt
@@ -34,7 +34,6 @@ class DBBlobCorruptionTest : public DBTestBase {
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBlobCorruptionTest, VerifyWholeBlobFileChecksum) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -71,11 +70,11 @@ TEST_F(DBBlobCorruptionTest, VerifyWholeBlobFileChecksum) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

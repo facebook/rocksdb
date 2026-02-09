@@ -9,12 +9,7 @@
 
 #include "util/file_checksum_helper.h"
 
-#include <unordered_set>
-
-#include "db/log_reader.h"
-#include "db/version_edit.h"
-#include "db/version_edit_handler.h"
-#include "file/sequence_file_reader.h"
+#include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -30,7 +25,7 @@ Status FileChecksumListImpl::GetAllFileChecksums(
     return Status::InvalidArgument("Pointer has not been initiated");
   }
 
-  for (auto i : checksum_map_) {
+  for (const auto& i : checksum_map_) {
     file_numbers->push_back(i.first);
     checksums->push_back(i.second.first);
     checksum_func_names->push_back(i.second.second);
@@ -90,47 +85,34 @@ std::shared_ptr<FileChecksumGenFactory> GetFileChecksumGenCrc32cFactory() {
   return default_crc32c_gen_factory;
 }
 
-Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
-                                    uint64_t manifest_file_size,
-                                    FileChecksumList* checksum_list) {
-  if (checksum_list == nullptr) {
-    return Status::InvalidArgument("checksum_list is nullptr");
-  }
-  assert(checksum_list);
-  checksum_list->reset();
-  Status s;
-
-  std::unique_ptr<SequentialFileReader> file_reader;
-  {
-    std::unique_ptr<FSSequentialFile> file;
-    const std::shared_ptr<FileSystem>& fs = src_env->GetFileSystem();
-    s = fs->NewSequentialFile(abs_path,
-                              fs->OptimizeForManifestRead(FileOptions()), &file,
-                              nullptr /* dbg */);
-    if (!s.ok()) {
-      return s;
-    }
-    file_reader.reset(new SequentialFileReader(std::move(file), abs_path));
-  }
-
-  struct LogReporter : public log::Reader::Reporter {
-    Status* status_ptr;
-    virtual void Corruption(size_t /*bytes*/, const Status& st) override {
-      if (status_ptr->ok()) {
-        *status_ptr = st;
-      }
-    }
-  } reporter;
-  reporter.status_ptr = &s;
-  log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
-  FileChecksumRetriever retriever(manifest_file_size, *checksum_list);
-  retriever.Iterate(reader, &s);
-  assert(!retriever.status().ok() ||
-         manifest_file_size == std::numeric_limits<uint64_t>::max() ||
-         reader.LastRecordEnd() == manifest_file_size);
-
-  return retriever.status();
+namespace {
+static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
+                                            const std::string& /*arg*/) {
+  library.AddFactory<FileChecksumGenFactory>(
+      FileChecksumGenCrc32cFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FileChecksumGenFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FileChecksumGenCrc32cFactory());
+        return guard->get();
+      });
+  return 1;
 }
+}  // namespace
 
+Status FileChecksumGenFactory::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<FileChecksumGenFactory>* result) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterFileChecksumGenFactories(*(ObjectLibrary::Default().get()), "");
+  });
+  if (value == FileChecksumGenCrc32cFactory::kClassName()) {
+    *result = GetFileChecksumGenCrc32cFactory();
+    return Status::OK();
+  } else {
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, result);
+    return s;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

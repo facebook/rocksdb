@@ -6,18 +6,19 @@
  */
 package org.rocksdb.jmh;
 
-import org.openjdk.jmh.annotations.*;
-import org.rocksdb.*;
-import org.rocksdb.util.FileUtils;
+import static org.rocksdb.util.KVUtils.ba;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.rocksdb.util.KVUtils.ba;
+import org.openjdk.jmh.annotations.*;
+import org.rocksdb.*;
+import org.rocksdb.util.FileUtils;
 
 @State(Scope.Benchmark)
 public class PutBenchmarks {
@@ -30,12 +31,24 @@ public class PutBenchmarks {
   })
   String columnFamilyTestType;
 
+  @Param({"1000", "100000"}) int keyCount;
+
+  @Param({"12", "64", "128"}) int keySize;
+
+  @Param({"64", "1024", "65536"}) int valueSize;
+
+  @Param({"16"}) int bufferListSize;
+
   Path dbDir;
   DBOptions options;
   int cfs = 0;  // number of column families
   private AtomicInteger cfHandlesIdx;
   ColumnFamilyHandle[] cfHandles;
   RocksDB db;
+  List<byte[]> keyBuffers = new ArrayList<>(bufferListSize);
+  List<byte[]> valueBuffers = new ArrayList<>(bufferListSize);
+  List<ByteBuffer> keyBuffersBB = new ArrayList<>(bufferListSize);
+  List<ByteBuffer> valueBuffersBB = new ArrayList<>(bufferListSize);
 
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
@@ -68,6 +81,34 @@ public class PutBenchmarks {
     final List<ColumnFamilyHandle> cfHandlesList = new ArrayList<>(cfDescriptors.size());
     db = RocksDB.open(options, dbDir.toAbsolutePath().toString(), cfDescriptors, cfHandlesList);
     cfHandles = cfHandlesList.toArray(new ColumnFamilyHandle[0]);
+
+    for (int i = 0; i < bufferListSize; i++) {
+      final byte[] keyArr = new byte[keySize];
+      Arrays.fill(keyArr, (byte) 0x30);
+      keyBuffers.add(keyArr);
+    }
+
+    for (int i = 0; i < bufferListSize; i++) {
+      final byte[] valueArr = new byte[valueSize];
+      Arrays.fill(valueArr, (byte) 0x30);
+      valueBuffers.add(valueArr);
+    }
+
+    for (int i = 0; i < bufferListSize; i++) {
+      final ByteBuffer keyBB = ByteBuffer.allocateDirect(keySize);
+      byte[] keyArr = new byte[keySize];
+      Arrays.fill(keyArr, (byte) 0x30);
+      keyBB.put(keyArr);
+      keyBuffersBB.add(keyBB);
+    }
+
+    for (int i = 0; i < bufferListSize; i++) {
+      final ByteBuffer valueBB = ByteBuffer.allocateDirect(valueSize);
+      byte[] valueArr = new byte[valueSize];
+      Arrays.fill(valueArr, (byte) 0x30);
+      valueBB.put(valueArr);
+      valueBuffersBB.add(valueBB);
+    }
   }
 
   @TearDown(Level.Trial)
@@ -104,9 +145,79 @@ public class PutBenchmarks {
     }
   }
 
+  private <T> T borrow(final List<T> buffers) {
+    synchronized (buffers) {
+      while (true) {
+        if (buffers.isEmpty()) {
+          try {
+            Thread.sleep(1000);
+          } catch (InterruptedException ie) {
+            return null;
+          }
+          continue;
+        }
+        return buffers.remove(0);
+      }
+    }
+  }
+
+  private <T> void repay(final List<T> buffers, final T buffer) {
+    synchronized (buffers) {
+      buffers.add(buffer);
+    }
+  }
+
   @Benchmark
-  public void put(final ComparatorBenchmarks.Counter counter) throws RocksDBException {
+  public void put(final Counter counter) throws RocksDBException {
+    byte[] keyBuf = borrow(keyBuffers);
+    byte[] valueBuf = borrow(valueBuffers);
+
     final int i = counter.next();
-    db.put(getColumnFamily(), ba("key" + i), ba("value" + i));
+    final byte[] keyPrefix = ba("key" + i);
+    final byte[] valuePrefix = ba("value" + i);
+    System.arraycopy(keyPrefix, 0, keyBuf, 0, keyPrefix.length);
+    System.arraycopy(valuePrefix, 0, valueBuf, 0, valuePrefix.length);
+    db.put(getColumnFamily(), keyBuf, valueBuf);
+
+    repay(keyBuffers, keyBuf);
+    repay(valueBuffers, valueBuf);
+  }
+
+  @Benchmark
+  public void putByteArrays(final Counter counter) throws RocksDBException {
+    byte[] keyBuf = borrow(keyBuffers);
+    byte[] valueBuf = borrow(valueBuffers);
+
+    final int i = counter.next();
+    final byte[] keyPrefix = ba("key" + i);
+    final byte[] valuePrefix = ba("value" + i);
+    System.arraycopy(keyPrefix, 0, keyBuf, 0, keyPrefix.length);
+    System.arraycopy(valuePrefix, 0, valueBuf, 0, valuePrefix.length);
+    db.put(getColumnFamily(), new WriteOptions(), keyBuf, valueBuf);
+
+    repay(keyBuffers, keyBuf);
+    repay(valueBuffers, valueBuf);
+  }
+
+  @Benchmark
+  public void putByteBuffers(final Counter counter) throws RocksDBException {
+    ByteBuffer keyBuf = borrow(keyBuffersBB);
+    keyBuf.clear();
+    ByteBuffer valueBuf = borrow(valueBuffersBB);
+    valueBuf.clear();
+
+    final int i = counter.next();
+    final byte[] keyPrefix = ba("key" + i);
+    final byte[] valuePrefix = ba("value" + i);
+    keyBuf.put(keyPrefix, 0, keyPrefix.length);
+    keyBuf.position(keySize);
+    keyBuf.flip();
+    valueBuf.put(valuePrefix, 0, valuePrefix.length);
+    valueBuf.position(valueSize);
+    valueBuf.flip();
+    db.put(getColumnFamily(), new WriteOptions(), keyBuf, valueBuf);
+
+    repay(keyBuffersBB, keyBuf);
+    repay(valueBuffersBB, valueBuf);
   }
 }

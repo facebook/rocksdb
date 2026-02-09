@@ -2,11 +2,12 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+#include "table/block_based/data_block_hash_index.h"
+
 #include <string>
 #include <vector>
 
 #include "rocksdb/slice.h"
-#include "table/block_based/data_block_hash_index.h"
 #include "util/coding.h"
 #include "util/hash.h"
 

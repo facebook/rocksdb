@@ -18,15 +18,13 @@
 
 #pragma once
 
-#include <assert.h>
-#include <stddef.h>
-#include <string.h>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
-
-#ifdef __cpp_lib_string_view
 #include <string_view>
-#endif
 
 #include "rocksdb/cleanable.h"
 
@@ -44,11 +42,9 @@ class Slice {
   /* implicit */
   Slice(const std::string& s) : data_(s.data()), size_(s.size()) {}
 
-#ifdef __cpp_lib_string_view
   // Create a slice that refers to the same contents as "sv"
   /* implicit */
-  Slice(std::string_view sv) : data_(sv.data()), size_(sv.size()) {}
-#endif
+  Slice(const std::string_view& sv) : data_(sv.data()), size_(sv.size()) {}
 
   // Create a slice that refers to s[0,strlen(s)-1]
   /* implicit */
@@ -96,12 +92,10 @@ class Slice {
   // when hex is true, returns a string of twice the length hex encoded (0-9A-F)
   std::string ToString(bool hex = false) const;
 
-#ifdef __cpp_lib_string_view
   // Return a string_view that references the same data as this slice.
   std::string_view ToStringView() const {
     return std::string_view(data_, size_);
   }
-#endif
 
   // Decodes the current slice interpreted as an hexadecimal string into result,
   // if successful returns true, if this isn't a valid hex string
@@ -134,6 +128,46 @@ class Slice {
   size_t size_;
 
   // Intentionally copyable
+};
+
+// A likely more efficient alternative to std::optional<Slice>. For example,
+// an empty key might be distinct from "not specified" (and Slice* as an
+// optional is more troublesome to deal with).
+class OptSlice {
+ public:
+  OptSlice() : slice_(nullptr, SIZE_MAX) {}
+  /*implicit*/ OptSlice(const Slice& s) : slice_(s) {}
+  /*implicit*/ OptSlice(const std::string& s) : slice_(s) {}
+  /*implicit*/ OptSlice(const std::string_view& sv) : slice_(sv) {}
+  /*implicit*/ OptSlice(const char* c_str) : slice_(c_str) {}
+  // For easier migrating from APIs uing Slice* as an optional type.
+  // CAUTION: OptSlice{nullptr} is "no value" while Slice{nullptr} is "empty"
+  /*implicit*/ OptSlice(std::nullptr_t) : OptSlice() {}
+
+  bool has_value() const noexcept { return slice_.size() != SIZE_MAX; }
+  explicit operator bool() const noexcept { return has_value(); }
+
+  const Slice& value() const noexcept {
+    assert(has_value());
+    return slice_;
+  }
+  const Slice& operator*() const noexcept { return value(); }
+  const Slice* operator->() const noexcept { return &value(); }
+
+  const Slice* AsPtr() const noexcept {
+    return has_value() ? &slice_ : nullptr;
+  }
+  // Populate from an optional pointer. This is a very explicit conversion
+  // to minimize risk of bugs as in
+  //   Slice start, limit;
+  //   RangeOpt rng = {&start, &limit};
+  //   start = ...;  // BUG: would not affect rng
+  static OptSlice CopyFromPtr(const Slice* ptr) {
+    return ptr ? OptSlice{*ptr} : OptSlice{};
+  }
+
+ protected:
+  Slice slice_;
 };
 
 /**
@@ -169,7 +203,9 @@ class PinnableSlice : public Slice, public Cleanable {
     pinned_ = true;
     data_ = s.data();
     size_ = s.size();
-    cleanable->DelegateCleanupsTo(this);
+    if (cleanable != nullptr) {
+      cleanable->DelegateCleanupsTo(this);
+    }
     assert(pinned_);
   }
 

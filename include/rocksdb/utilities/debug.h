@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
 
@@ -25,9 +23,8 @@ struct KeyVersion {
   std::string user_key;
   std::string value;
   SequenceNumber sequence;
-  // TODO(ajkr): we should provide a helper function that converts the int to a
-  // string describing the type for easier debugging.
   int type;
+  std::string GetTypeName() const;
 };
 
 // Returns listing of all versions of keys in the provided user key range.
@@ -36,14 +33,12 @@ struct KeyVersion {
 // copied to memory, if the range covers too many keys, the memory usage
 // may be huge. `max_num_ikeys` can be used to cap the memory usage.
 // The result is inserted into the provided vector, `key_versions`.
-Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
+Status GetAllKeyVersions(DB* db, OptSlice begin_key, OptSlice end_key,
                          size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions);
 
-Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
-                         Slice end_key, size_t max_num_ikeys,
+Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, OptSlice begin_key,
+                         OptSlice end_key, size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions);
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

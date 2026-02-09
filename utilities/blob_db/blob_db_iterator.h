@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "db/arena_wrapped_db_iter.h"
 #include "rocksdb/iterator.h"
@@ -147,4 +146,3 @@ class BlobDBIterator : public Iterator {
 };
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

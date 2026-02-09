@@ -10,6 +10,7 @@
 #define JAVA_ROCKSJNI_WAL_FILTER_JNICALLBACK_H_
 
 #include <jni.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -21,20 +22,19 @@ namespace ROCKSDB_NAMESPACE {
 
 class WalFilterJniCallback : public JniCallback, public WalFilter {
  public:
-    WalFilterJniCallback(
-        JNIEnv* env, jobject jwal_filter);
-    virtual void ColumnFamilyLogNumberMap(
-        const std::map<uint32_t, uint64_t>& cf_lognumber_map,
-        const std::map<std::string, uint32_t>& cf_name_id_map);
-    virtual WalFilter::WalProcessingOption LogRecordFound(
-        unsigned long long log_number, const std::string& log_file_name,
-        const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed);
-    virtual const char* Name() const;
+  WalFilterJniCallback(JNIEnv* env, jobject jwal_filter);
+  virtual void ColumnFamilyLogNumberMap(
+      const std::map<uint32_t, uint64_t>& cf_lognumber_map,
+      const std::map<std::string, uint32_t>& cf_name_id_map);
+  virtual WalFilter::WalProcessingOption LogRecordFound(
+      unsigned long long log_number, const std::string& log_file_name,
+      const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed);
+  virtual const char* Name() const;
 
  private:
-    std::unique_ptr<const char[]> m_name;
-    jmethodID m_column_family_log_number_map_mid;
-    jmethodID m_log_record_found_proxy_mid;
+  std::unique_ptr<const char[]> m_name;
+  jmethodID m_column_family_log_number_map_mid;
+  jmethodID m_log_record_found_proxy_mid;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -8,6 +8,7 @@
 // found in the LICENSE file.
 
 #include "rocksdb/utilities/info_log_finder.h"
+
 #include "file/filename.h"
 #include "rocksdb/env.h"
 

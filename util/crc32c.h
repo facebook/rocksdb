@@ -10,6 +10,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -17,17 +18,21 @@
 namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
-extern std::string IsFastCrc32Supported();
+std::string IsFastCrc32Supported();
 
 // Return the crc32c of concat(A, data[0,n-1]) where init_crc is the
 // crc32c of some string A.  Extend() is often used to maintain the
 // crc32c of a stream of data.
-extern uint32_t Extend(uint32_t init_crc, const char* data, size_t n);
+uint32_t Extend(uint32_t init_crc, const char* data, size_t n);
+
+// Takes two unmasked crc32c values, and the length of the string from
+// which `crc2` was computed, and computes a crc32c value for the
+// concatenation of the original two input strings. Running time is
+// ~ log(crc2len).
+uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len);
 
 // Return the crc32c of data[0,n-1]
-inline uint32_t Value(const char* data, size_t n) {
-  return Extend(0, data, n);
-}
+inline uint32_t Value(const char* data, size_t n) { return Extend(0, data, n); }
 
 static const uint32_t kMaskDelta = 0xa282ead8ul;
 

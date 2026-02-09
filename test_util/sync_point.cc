@@ -9,7 +9,6 @@
 
 #include "test_util/sync_point_impl.h"
 
-int rocksdb_kill_odds = 0;
 std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 #ifndef NDEBUG
@@ -22,22 +21,20 @@ SyncPoint* SyncPoint::GetInstance() {
 
 SyncPoint::SyncPoint() : impl_(new Data) {}
 
-SyncPoint:: ~SyncPoint() {
-  delete impl_;
-}
+SyncPoint::~SyncPoint() { delete impl_; }
 
 void SyncPoint::LoadDependency(const std::vector<SyncPointPair>& dependencies) {
   impl_->LoadDependency(dependencies);
 }
 
 void SyncPoint::LoadDependencyAndMarkers(
-  const std::vector<SyncPointPair>& dependencies,
-  const std::vector<SyncPointPair>& markers) {
+    const std::vector<SyncPointPair>& dependencies,
+    const std::vector<SyncPointPair>& markers) {
   impl_->LoadDependencyAndMarkers(dependencies, markers);
 }
 
 void SyncPoint::SetCallBack(const std::string& point,
-  const std::function<void(void*)>& callback) {
+                            const std::function<void(void*)>& callback) {
   impl_->SetCallBack(point, callback);
 }
 
@@ -45,23 +42,15 @@ void SyncPoint::ClearCallBack(const std::string& point) {
   impl_->ClearCallBack(point);
 }
 
-void SyncPoint::ClearAllCallBacks() {
-  impl_->ClearAllCallBacks();
-}
+void SyncPoint::ClearAllCallBacks() { impl_->ClearAllCallBacks(); }
 
-void SyncPoint::EnableProcessing() {
-  impl_->EnableProcessing();
-}
+void SyncPoint::EnableProcessing() { impl_->EnableProcessing(); }
 
-void SyncPoint::DisableProcessing() {
-  impl_->DisableProcessing();
-}
+void SyncPoint::DisableProcessing() { impl_->DisableProcessing(); }
 
-void SyncPoint::ClearTrace() {
-  impl_->ClearTrace();
-}
+void SyncPoint::ClearTrace() { impl_->ClearTrace(); }
 
-void SyncPoint::Process(const std::string& point, void* cb_arg) {
+void SyncPoint::Process(const Slice& point, void* cb_arg) {
   impl_->Process(point, cb_arg);
 }
 
@@ -90,4 +79,8 @@ void SetupSyncPointsToMockDirectIO() {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 #endif
 }
+
+#ifndef NDEBUG
+std::atomic<int> g_throw_on_testable_assertion_failure{0};
+#endif  // NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

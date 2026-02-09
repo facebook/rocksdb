@@ -40,7 +40,7 @@ public class VectorMemTableConfig extends MemTableConfig {
     return newMemTableFactoryHandle(reservedSize_);
   }
 
-  private native long newMemTableFactoryHandle(long reservedSize)
+  private static native long newMemTableFactoryHandle(long reservedSize)
       throws IllegalArgumentException;
   private int reservedSize_;
 }

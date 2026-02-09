@@ -14,7 +14,7 @@ import java.util.EnumSet;
 public class Statistics extends RocksObject {
 
   public Statistics() {
-    super(newStatistics());
+    super(newStatisticsInstance());
   }
 
   public Statistics(final Statistics otherStatistics) {
@@ -22,7 +22,7 @@ public class Statistics extends RocksObject {
   }
 
   public Statistics(final EnumSet<HistogramType> ignoreHistograms) {
-    super(newStatistics(toArrayValues(ignoreHistograms)));
+    super(newStatisticsInstance(toArrayValues(ignoreHistograms)));
   }
 
   public Statistics(final EnumSet<HistogramType> ignoreHistograms, final Statistics otherStatistics) {
@@ -31,7 +31,7 @@ public class Statistics extends RocksObject {
 
   /**
    * Intentionally package-private.
-   *
+   * <p>
    * Used from {@link DBOptions#statistics()}
    *
    * @param existingStatisticsHandle The C++ pointer to an existing statistics object
@@ -134,19 +134,32 @@ public class Statistics extends RocksObject {
     return toString(nativeHandle_);
   }
 
-  private native static long newStatistics();
-  private native static long newStatistics(final long otherStatisticsHandle);
-  private native static long newStatistics(final byte[] ignoreHistograms);
-  private native static long newStatistics(final byte[] ignoreHistograms, final long otherStatisticsHandle);
+  private static long newStatisticsInstance() {
+    RocksDB.loadLibrary();
+    return newStatistics();
+  }
+  private static native long newStatistics();
+  private static native long newStatistics(final long otherStatisticsHandle);
+  private static long newStatisticsInstance(final byte[] ignoreHistograms) {
+    RocksDB.loadLibrary();
+    return newStatistics(ignoreHistograms);
+  }
+  private static native long newStatistics(final byte[] ignoreHistograms);
+  private static native long newStatistics(
+      final byte[] ignoreHistograms, final long otherStatisticsHandle);
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native byte statsLevel(final long handle);
-  private native void setStatsLevel(final long handle, final byte statsLevel);
-  private native long getTickerCount(final long handle, final byte tickerType);
-  private native long getAndResetTickerCount(final long handle, final byte tickerType);
-  private native HistogramData getHistogramData(final long handle, final byte histogramType);
-  private native String getHistogramString(final long handle, final byte histogramType);
-  private native void reset(final long nativeHandle) throws RocksDBException;
-  private native String toString(final long nativeHandle);
+  private static native byte statsLevel(final long handle);
+  private static native void setStatsLevel(final long handle, final byte statsLevel);
+  private static native long getTickerCount(final long handle, final byte tickerType);
+  private static native long getAndResetTickerCount(final long handle, final byte tickerType);
+  private static native HistogramData getHistogramData(final long handle, final byte histogramType);
+  private static native String getHistogramString(final long handle, final byte histogramType);
+  private static native void reset(final long nativeHandle) throws RocksDBException;
+  private static native String toString(final long nativeHandle);
 }

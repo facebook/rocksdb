@@ -8,14 +8,22 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory>
 #include <stdint.h>
+
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "util/compression.h"
+#include "util/hash_containers.h"
+#include "util/udt_util.h"
+#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -37,7 +45,10 @@ class Reader {
 
     // Some corruption was detected.  "size" is the approximate number
     // of bytes dropped due to the corruption.
-    virtual void Corruption(size_t bytes, const Status& status) = 0;
+    virtual void Corruption(size_t bytes, const Status& status,
+                            uint64_t log_number = kMaxSequenceNumber) = 0;
+
+    virtual void OldLogRecord(size_t /*bytes*/) {}
   };
 
   // Create a reader that will return log records from "*file".
@@ -48,9 +59,15 @@ class Reader {
   // live while this Reader is in use.
   //
   // If "checksum" is true, verify checksums if available.
+  // TODO(hx235): separate WAL related parameters from general `Reader`
+  // parameters
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num);
+         bool checksum, uint64_t log_num, bool track_and_verify_wals = false,
+         bool stop_replay_for_corruption = false,
+         uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
+         const PredecessorWALInfo& observed_predecessor_wal_info =
+             PredecessorWALInfo());
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -59,12 +76,23 @@ class Reader {
 
   // Read the next record into *record.  Returns true if read
   // successfully, false if we hit end of the input.  May use
-  // "*scratch" as temporary storage.  The contents filled in *record
+  // "*scratch" as temporary storage. The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
+  // If record_checksum is not nullptr, then this function will calculate the
+  // checksum of the record read and set record_checksum to it. The checksum is
+  // calculated from the original buffers that contain the contents of the
+  // record.
   virtual bool ReadRecord(Slice* record, std::string* scratch,
                           WALRecoveryMode wal_recovery_mode =
-                              WALRecoveryMode::kTolerateCorruptedTailRecords);
+                              WALRecoveryMode::kTolerateCorruptedTailRecords,
+                          uint64_t* record_checksum = nullptr);
+
+  // Return the recorded user-defined timestamp size that have been read so
+  // far. This only applies to WAL logs.
+  const UnorderedMap<uint32_t, size_t>& GetRecordedTimestampSize() const {
+    return recorded_cf_to_ts_sz_;
+  }
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -77,9 +105,7 @@ class Reader {
   uint64_t LastRecordEnd();
 
   // returns true if the reader has encountered an eof condition.
-  bool IsEOF() {
-    return eof_;
-  }
+  bool IsEOF() { return eof_; }
 
   // returns true if the reader has encountered read error.
   bool hasReadError() const { return read_error_; }
@@ -101,6 +127,10 @@ class Reader {
     return static_cast<size_t>(end_of_buffer_offset_);
   }
 
+  bool IsCompressedAndEmptyFile() {
+    return !first_record_read_ && compression_type_record_read_;
+  }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
@@ -110,8 +140,8 @@ class Reader {
 
   // Internal state variables used for reading records
   Slice buffer_;
-  bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
-  bool read_error_;   // Error occurred while reading from file
+  bool eof_;         // Last Read() indicated EOF by returning < kBlockSize
+  bool read_error_;  // Error occurred while reading from file
 
   // Offset of the file position indicator within the last block when an
   // EOF was detected.
@@ -125,11 +155,42 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
+  // See `Options::track_and_verify_wals`
+  bool track_and_verify_wals_;
+  // Below variables are used for WAL verification
+  // TODO(hx235): To revise `stop_replay_for_corruption_` inside `LogReader`
+  // since we have `observed_predecessor_wal_info_` to verify against the
+  // `recorded_predecessor_wal_info_` recorded in current WAL. If there is no
+  // WAL hole, we can revise `stop_replay_for_corruption_` to be false.
+  bool stop_replay_for_corruption_;
+  uint64_t min_wal_number_to_keep_;
+  PredecessorWALInfo observed_predecessor_wal_info_;
+
   // Whether this is a recycled log file
   bool recycled_;
 
+  // Whether the first record has been read or not.
+  bool first_record_read_;
+  // Type of compression used
+  CompressionType compression_type_;
+  // Track whether the compression type record has been read or not.
+  bool compression_type_record_read_;
+  StreamingUncompress* uncompress_;
+  // Reusable uncompressed output buffer
+  std::unique_ptr<char[]> uncompressed_buffer_;
+  // Reusable uncompressed record
+  std::string uncompressed_record_;
+  // Used for stream hashing fragment content in ReadRecord()
+  XXH3_state_t* hash_state_;
+  // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
+  XXH3_state_t* uncompress_hash_state_;
+
+  // The recorded user-defined timestamp sizes that have been read so far. This
+  // is only for WAL logs.
+  UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
+
   // Extend record types with the following special values
-  enum {
+  enum : uint8_t {
     kEof = kMaxRecordType + 1,
     // Returned whenever we find an invalid physical record.
     // Currently there are three situations in which this happens:
@@ -147,17 +208,33 @@ class Reader {
   };
 
   // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
+  // If WAL compression is enabled, fragment_checksum is the checksum of the
+  // fragment computed from the original buffer containing uncompressed
+  // fragment.
+  uint8_t ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                             uint64_t* fragment_checksum = nullptr);
 
   // Read some more
-  bool ReadMore(size_t* drop_size, int *error);
+  bool ReadMore(size_t* drop_size, uint8_t* error);
 
   void UnmarkEOFInternal();
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
-  void ReportCorruption(size_t bytes, const char* reason);
-  void ReportDrop(size_t bytes, const Status& reason);
+  void ReportCorruption(size_t bytes, const char* reason,
+                        uint64_t log_number = kMaxSequenceNumber);
+  void ReportDrop(size_t bytes, const Status& reason,
+                  uint64_t log_number = kMaxSequenceNumber);
+  void ReportOldLogRecord(size_t bytes);
+
+  void InitCompression(const CompressionTypeRecord& compression_record);
+
+  Status UpdateRecordedTimestampSize(
+      const std::vector<std::pair<uint32_t, size_t>>& cf_to_ts_sz);
+
+  void MaybeVerifyPredecessorWALInfo(
+      WALRecoveryMode wal_recovery_mode, Slice fragment,
+      const PredecessorWALInfo& recorded_predecessor_wal_info);
 };
 
 class FragmentBufferedReader : public Reader {
@@ -165,13 +242,18 @@ class FragmentBufferedReader : public Reader {
   FragmentBufferedReader(std::shared_ptr<Logger> info_log,
                          std::unique_ptr<SequentialFileReader>&& _file,
                          Reporter* reporter, bool checksum, uint64_t log_num)
-      : Reader(info_log, std::move(_file), reporter, checksum, log_num),
+      : Reader(info_log, std::move(_file), reporter, checksum, log_num,
+               false /*verify_and_track_wals*/,
+               false /*stop_replay_for_corruption*/,
+               std::numeric_limits<uint64_t>::max() /*min_wal_number_to_keep*/,
+               PredecessorWALInfo() /*observed_predecessor_wal_info*/),
         fragments_(),
         in_fragmented_record_(false) {}
   ~FragmentBufferedReader() override {}
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
-                      WALRecoveryMode::kTolerateCorruptedTailRecords) override;
+                      WALRecoveryMode::kTolerateCorruptedTailRecords,
+                  uint64_t* record_checksum = nullptr) override;
   void UnmarkEOF() override;
 
  private:
@@ -179,9 +261,9 @@ class FragmentBufferedReader : public Reader {
   bool in_fragmented_record_;
 
   bool TryReadFragment(Slice* result, size_t* drop_size,
-                       unsigned int* fragment_type_or_err);
+                       uint8_t* fragment_type_or_err);
 
-  bool TryReadMore(size_t* drop_size, int* error);
+  bool TryReadMore(size_t* drop_size, uint8_t* error);
 
   // No copy allowed
   FragmentBufferedReader(const FragmentBufferedReader&);

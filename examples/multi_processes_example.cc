@@ -64,7 +64,7 @@ const std::vector<std::string>& GetColumnFamilyNames() {
 
 inline bool IsLittleEndian() {
   uint32_t x = 1;
-  return *reinterpret_cast<char*>(&x) != 0;
+  return *static_cast<char*>(&x) != 0;
 }
 
 static std::atomic<int>& ShouldSecondaryWait() {
@@ -75,7 +75,7 @@ static std::atomic<int>& ShouldSecondaryWait() {
 static std::string Key(uint64_t k) {
   std::string ret;
   if (IsLittleEndian()) {
-    ret.append(reinterpret_cast<char*>(&k), sizeof(k));
+    ret.append(static_cast<char*>(&k), sizeof(k));
   } else {
     char buf[sizeof(k)];
     buf[0] = k & 0xff;

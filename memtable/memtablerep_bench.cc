@@ -28,6 +28,7 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
@@ -351,7 +352,9 @@ class SeqReadBenchmarkThread : public BenchmarkThread {
 
   void operator()() override {
     for (unsigned int i = 0; i < num_ops_; ++i) {
-      { ReadOneSeq(); }
+      {
+        ReadOneSeq();
+      }
     }
   }
 };
@@ -466,8 +469,8 @@ class FillBenchmark : public Benchmark {
     num_write_ops_per_thread_ = FLAGS_num_operations;
   }
 
-  void RunThreads(std::vector<port::Thread>* /*threads*/, uint64_t* bytes_written,
-                  uint64_t* bytes_read, bool /*write*/,
+  void RunThreads(std::vector<port::Thread>* /*threads*/,
+                  uint64_t* bytes_written, uint64_t* bytes_read, bool /*write*/,
                   uint64_t* read_hits) override {
     FillBenchmarkThread(table_, key_gen_, bytes_written, bytes_read, sequence_,
                         num_write_ops_per_thread_, read_hits)();
@@ -578,26 +581,34 @@ int main(int argc, char** argv) {
   std::unique_ptr<ROCKSDB_NAMESPACE::MemTableRepFactory> factory;
   if (FLAGS_memtablerep == "skiplist") {
     factory.reset(new ROCKSDB_NAMESPACE::SkipListFactory);
-#ifndef ROCKSDB_LITE
   } else if (FLAGS_memtablerep == "vector") {
     factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
-  } else if (FLAGS_memtablerep == "hashskiplist") {
+  } else if (FLAGS_memtablerep == "hashskiplist" ||
+             FLAGS_memtablerep == "prefix_hash") {
     factory.reset(ROCKSDB_NAMESPACE::NewHashSkipListRepFactory(
         FLAGS_bucket_count, FLAGS_hashskiplist_height,
         FLAGS_hashskiplist_branching_factor));
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_length));
-  } else if (FLAGS_memtablerep == "hashlinklist") {
+  } else if (FLAGS_memtablerep == "hashlinklist" ||
+             FLAGS_memtablerep == "hash_linkedlist") {
     factory.reset(ROCKSDB_NAMESPACE::NewHashLinkListRepFactory(
         FLAGS_bucket_count, FLAGS_huge_page_tlb_size,
         FLAGS_bucket_entries_logging_threshold,
         FLAGS_if_log_bucket_dist_when_flash, FLAGS_threshold_use_skiplist));
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_length));
-#endif  // ROCKSDB_LITE
   } else {
-    fprintf(stdout, "Unknown memtablerep: %s\n", FLAGS_memtablerep.c_str());
-    exit(1);
+    ROCKSDB_NAMESPACE::ConfigOptions config_options;
+    config_options.ignore_unsupported_options = false;
+
+    ROCKSDB_NAMESPACE::Status s =
+        ROCKSDB_NAMESPACE::MemTableRepFactory::CreateFromString(
+            config_options, FLAGS_memtablerep, &factory);
+    if (!s.ok()) {
+      fprintf(stdout, "Unknown memtablerep: %s\n", s.ToString().c_str());
+      exit(1);
+    }
   }
 
   ROCKSDB_NAMESPACE::InternalKeyComparator internal_key_comp(

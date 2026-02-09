@@ -8,13 +8,11 @@
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
-#include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/types.h"
 #include "table/internal_iterator.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
 #include "util/heap.h"
 #include "util/kv_map.h"
@@ -30,14 +28,16 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       icmp_(icmp),
       smallest_ikey_(smallest),
       largest_ikey_(largest) {
+  // Set up bounds such that range tombstones from this iterator are
+  // truncated to range [smallest_, largest_).
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
     Status pik_status = ParseInternalKey(smallest->Encode(), &parsed_smallest,
                                          false /* log_err_key */);  // TODO
     pik_status.PermitUncheckedError();
+    parsed_smallest.type = kTypeMaxValid;
     assert(pik_status.ok());
-
     smallest_ = &parsed_smallest;
   }
   if (largest != nullptr) {
@@ -64,17 +64,23 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       //
       // Therefore, we will never truncate a range tombstone at largest, so we
       // can leave it unchanged.
+      // TODO: maybe use kMaxValid here to ensure range tombstone having
+      //  distinct key from point keys.
     } else {
       // The same user key may straddle two sstable boundaries. To ensure that
       // the truncated end key can cover the largest key in this sstable, reduce
       // its sequence number by 1.
       parsed_largest.sequence -= 1;
+      // This line is not needed for correctness, but it ensures that the
+      // truncated end key is not covering keys from the next SST file.
+      parsed_largest.type = kTypeMaxValid;
     }
     largest_ = &parsed_largest;
   }
 }
 
 bool TruncatedRangeDelIterator::Valid() const {
+  assert(iter_ != nullptr);
   return iter_->Valid() &&
          (smallest_ == nullptr ||
           icmp_->Compare(*smallest_, iter_->parsed_end_key()) < 0) &&
@@ -82,13 +88,7 @@ bool TruncatedRangeDelIterator::Valid() const {
           icmp_->Compare(iter_->parsed_start_key(), *largest_) < 0);
 }
 
-void TruncatedRangeDelIterator::Next() { iter_->TopNext(); }
-
-void TruncatedRangeDelIterator::Prev() { iter_->TopPrev(); }
-
-void TruncatedRangeDelIterator::InternalNext() { iter_->Next(); }
-
-// NOTE: target is a user key
+// NOTE: target is a user key, with timestamp if enabled.
 void TruncatedRangeDelIterator::Seek(const Slice& target) {
   if (largest_ != nullptr &&
       icmp_->Compare(*largest_, ParsedInternalKey(target, kMaxSequenceNumber,
@@ -104,7 +104,25 @@ void TruncatedRangeDelIterator::Seek(const Slice& target) {
   iter_->Seek(target);
 }
 
-// NOTE: target is a user key
+void TruncatedRangeDelIterator::SeekInternalKey(const Slice& target) {
+  if (largest_ && icmp_->Compare(*largest_, target) <= 0) {
+    iter_->Invalidate();
+    return;
+  }
+  if (smallest_ && icmp_->Compare(target, *smallest_) < 0) {
+    // Since target < smallest, target < largest_.
+    // This seek must land on a range tombstone where end_key() > target,
+    // so there is no need to check again.
+    iter_->Seek(smallest_->user_key);
+  } else {
+    iter_->Seek(ExtractUserKey(target));
+    while (Valid() && icmp_->Compare(end_key(), target) <= 0) {
+      Next();
+    }
+  }
+}
+
+// NOTE: target is a user key, with timestamp if enabled.
 void TruncatedRangeDelIterator::SeekForPrev(const Slice& target) {
   if (smallest_ != nullptr &&
       icmp_->Compare(ParsedInternalKey(target, 0, kTypeRangeDeletion),
@@ -149,9 +167,8 @@ TruncatedRangeDelIterator::SplitBySnapshot(
   std::for_each(
       split_untruncated_iters.begin(), split_untruncated_iters.end(),
       [&](FragmentedIterPair& iter_pair) {
-        std::unique_ptr<TruncatedRangeDelIterator> truncated_iter(
-            new TruncatedRangeDelIterator(std::move(iter_pair.second), icmp_,
-                                          smallest_ikey_, largest_ikey_));
+        auto truncated_iter = std::make_unique<TruncatedRangeDelIterator>(
+            std::move(iter_pair.second), icmp_, smallest_ikey_, largest_ikey_);
         split_truncated_iters.emplace(iter_pair.first,
                                       std::move(truncated_iter));
       });
@@ -322,9 +339,8 @@ void ReadRangeDelAggregator::AddTombstones(
   if (input_iter == nullptr || input_iter->empty()) {
     return;
   }
-  rep_.AddTombstones(
-      std::unique_ptr<TruncatedRangeDelIterator>(new TruncatedRangeDelIterator(
-          std::move(input_iter), icmp_, smallest, largest)));
+  rep_.AddTombstones(std::make_unique<TruncatedRangeDelIterator>(
+      std::move(input_iter), icmp_, smallest, largest));
 }
 
 bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
@@ -344,11 +360,22 @@ void CompactionRangeDelAggregator::AddTombstones(
   if (input_iter == nullptr || input_iter->empty()) {
     return;
   }
+  // This bounds output of CompactionRangeDelAggregator::NewIterator.
+  if (!trim_ts_.empty()) {
+    assert(icmp_->user_comparator()->timestamp_size() > 0);
+    input_iter->SetTimestampUpperBound(&trim_ts_);
+  }
+
   assert(input_iter->lower_bound() == 0);
   assert(input_iter->upper_bound() == kMaxSequenceNumber);
   parent_iters_.emplace_back(new TruncatedRangeDelIterator(
       std::move(input_iter), icmp_, smallest, largest));
 
+  Slice* ts_upper_bound = nullptr;
+  if (!ts_upper_bound_.empty()) {
+    assert(icmp_->user_comparator()->timestamp_size() > 0);
+    ts_upper_bound = &ts_upper_bound_;
+  }
   auto split_iters = parent_iters_.back()->SplitBySnapshot(*snapshots_);
   for (auto& split_iter : split_iters) {
     auto it = reps_.find(split_iter.first);
@@ -361,6 +388,16 @@ void CompactionRangeDelAggregator::AddTombstones(
       assert(inserted);
     }
     assert(it != reps_.end());
+    // ts_upper_bound is used to bound ShouldDelete() to only consider
+    // range tombstones under full_history_ts_low_ and trim_ts_. Keys covered by
+    // range tombstones that are above full_history_ts_low_ should not be
+    // dropped prematurely: user may read with a timestamp between the range
+    // tombstone and the covered key. Note that we cannot set timestamp
+    // upperbound on the original `input_iter` since `input_iter`s are later
+    // used in CompactionRangeDelAggregator::NewIterator to output range
+    // tombstones for persistence. We do not want to only persist range
+    // tombstones with timestamp lower than ts_upper_bound.
+    split_iter.second->SetTimestampUpperBound(ts_upper_bound);
     it->second.AddTombstones(std::move(split_iter.second));
   }
 }
@@ -376,17 +413,23 @@ bool CompactionRangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
 
 namespace {
 
+// Produce a sorted (by start internal key) stream of range tombstones from
+// `children`. lower_bound and upper_bound on internal key can be
+// optionally specified. Range tombstones that ends before lower_bound or starts
+// after upper_bound are excluded.
+// If user-defined timestamp is enabled, lower_bound and upper_bound should
+// contain timestamp.
 class TruncatedRangeDelMergingIter : public InternalIterator {
  public:
   TruncatedRangeDelMergingIter(
       const InternalKeyComparator* icmp, const Slice* lower_bound,
-      const Slice* upper_bound, bool upper_bound_inclusive,
+      const Slice* upper_bound,
       const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>& children)
       : icmp_(icmp),
         lower_bound_(lower_bound),
         upper_bound_(upper_bound),
-        upper_bound_inclusive_(upper_bound_inclusive),
-        heap_(StartKeyMinComparator(icmp)) {
+        heap_(StartKeyMinComparator(icmp)),
+        ts_sz_(icmp_->user_comparator()->timestamp_size()) {
     for (auto& child : children) {
       if (child != nullptr) {
         assert(child->lower_bound() == 0);
@@ -397,7 +440,7 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
   }
 
   bool Valid() const override {
-    return !heap_.empty() && BeforeEndKey(heap_.top());
+    return !heap_.empty() && !AfterEndKey(heap_.top());
   }
   Status status() const override { return Status::OK(); }
 
@@ -405,7 +448,13 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
     heap_.clear();
     for (auto& child : children_) {
       if (lower_bound_ != nullptr) {
-        child->Seek(*lower_bound_);
+        child->Seek(ExtractUserKey(*lower_bound_));
+        // Since the above `Seek()` operates on a user key while `lower_bound_`
+        // is an internal key, we may need to advance `child` farther for it to
+        // be in bounds.
+        while (child->Valid() && BeforeStartKey(child)) {
+          child->InternalNext();
+        }
       } else {
         child->SeekToFirst();
       }
@@ -427,15 +476,28 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
 
   Slice key() const override {
     auto* top = heap_.top();
-    cur_start_key_.Set(top->start_key().user_key, top->seq(),
-                       kTypeRangeDeletion);
+    if (ts_sz_) {
+      cur_start_key_.Set(top->start_key().user_key, top->seq(),
+                         kTypeRangeDeletion, top->timestamp());
+    } else {
+      cur_start_key_.Set(top->start_key().user_key, top->seq(),
+                         kTypeRangeDeletion);
+    }
+    assert(top->start_key().user_key.size() >= ts_sz_);
     return cur_start_key_.Encode();
   }
 
   Slice value() const override {
     auto* top = heap_.top();
-    assert(top->end_key().sequence == kMaxSequenceNumber);
-    return top->end_key().user_key;
+    if (!ts_sz_) {
+      return top->end_key().user_key;
+    }
+    assert(top->timestamp().size() == ts_sz_);
+    cur_end_key_.clear();
+    cur_end_key_.append(top->end_key().user_key.data(),
+                        top->end_key().user_key.size() - ts_sz_);
+    cur_end_key_.append(top->timestamp().data(), ts_sz_);
+    return cur_end_key_;
   }
 
   // Unused InternalIterator methods
@@ -445,45 +507,47 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
   void SeekToLast() override { assert(false); }
 
  private:
-  bool BeforeEndKey(const TruncatedRangeDelIterator* iter) const {
-    if (upper_bound_ == nullptr) {
-      return true;
+  bool BeforeStartKey(const TruncatedRangeDelIterator* iter) const {
+    if (lower_bound_ == nullptr) {
+      return false;
     }
-    int cmp = icmp_->user_comparator()->Compare(iter->start_key().user_key,
-                                                *upper_bound_);
-    return upper_bound_inclusive_ ? cmp <= 0 : cmp < 0;
+    return icmp_->Compare(iter->end_key(), *lower_bound_) <= 0;
+  }
+
+  bool AfterEndKey(const TruncatedRangeDelIterator* iter) const {
+    if (upper_bound_ == nullptr) {
+      return false;
+    }
+    return icmp_->Compare(iter->start_key(), *upper_bound_) > 0;
   }
 
   const InternalKeyComparator* icmp_;
   const Slice* lower_bound_;
   const Slice* upper_bound_;
-  bool upper_bound_inclusive_;
   BinaryHeap<TruncatedRangeDelIterator*, StartKeyMinComparator> heap_;
   std::vector<TruncatedRangeDelIterator*> children_;
 
   mutable InternalKey cur_start_key_;
+  mutable std::string cur_end_key_;
+  size_t ts_sz_;
 };
 
-}  // namespace
+}  // anonymous namespace
 
 std::unique_ptr<FragmentedRangeTombstoneIterator>
 CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,
-                                          const Slice* upper_bound,
-                                          bool upper_bound_inclusive) {
+                                          const Slice* upper_bound) {
   InvalidateRangeDelMapPositions();
-  std::unique_ptr<TruncatedRangeDelMergingIter> merging_iter(
-      new TruncatedRangeDelMergingIter(icmp_, lower_bound, upper_bound,
-                                       upper_bound_inclusive, parent_iters_));
+  auto merging_iter = std::make_unique<TruncatedRangeDelMergingIter>(
+      icmp_, lower_bound, upper_bound, parent_iters_);
 
   auto fragmented_tombstone_list =
       std::make_shared<FragmentedRangeTombstoneList>(
           std::move(merging_iter), *icmp_, true /* for_compaction */,
           *snapshots_);
 
-  return std::unique_ptr<FragmentedRangeTombstoneIterator>(
-      new FragmentedRangeTombstoneIterator(
-          fragmented_tombstone_list, *icmp_,
-          kMaxSequenceNumber /* upper_bound */));
+  return std::make_unique<FragmentedRangeTombstoneIterator>(
+      fragmented_tombstone_list, *icmp_, kMaxSequenceNumber /* upper_bound */);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

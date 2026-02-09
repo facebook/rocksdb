@@ -49,10 +49,19 @@ class ThreadPool {
   virtual void SubmitJob(const std::function<void()>&) = 0;
   // This moves the function in for efficiency
   virtual void SubmitJob(std::function<void()>&&) = 0;
+
+  // Reserve available background threads. This function does not ensure
+  // so many threads can be reserved, instead it will return the number of
+  // threads that can be reserved against the desired one. In other words,
+  // the number of available threads could be less than the input.
+  virtual int ReserveThreads(int /*threads_to_be_reserved*/) { return 0; }
+
+  // Release a specific number of reserved threads
+  virtual int ReleaseThreads(int /*threads_to_be_released*/) { return 0; }
 };
 
 // NewThreadPool() is a function that could be used to create a ThreadPool
 // with `num_threads` background threads.
-extern ThreadPool* NewThreadPool(int num_threads);
+ThreadPool* NewThreadPool(int num_threads);
 
 }  // namespace ROCKSDB_NAMESPACE

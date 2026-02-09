@@ -8,15 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef ROCKSDB_LITE
-#include <string>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
-#include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "table/table_reader.h"
@@ -25,10 +22,11 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class TableReader;
+struct ImmutableOptions;
 
-class CuckooTableReader: public TableReader {
+class CuckooTableReader : public TableReader {
  public:
-  CuckooTableReader(const ImmutableCFOptions& ioptions,
+  CuckooTableReader(const ImmutableOptions& ioptions,
                     std::unique_ptr<RandomAccessFileReader>&& file,
                     uint64_t file_size, const Comparator* user_comparator,
                     uint64_t (*get_slice_hash)(const Slice&, uint32_t,
@@ -60,12 +58,14 @@ class CuckooTableReader: public TableReader {
   size_t ApproximateMemoryUsage() const override;
 
   // Following methods are not implemented for Cuckoo Table Reader
-  uint64_t ApproximateOffsetOf(const Slice& /*key*/,
+  uint64_t ApproximateOffsetOf(const ReadOptions& /*read_options*/,
+                               const Slice& /*key*/,
                                TableReaderCaller /*caller*/) override {
     return 0;
   }
 
-  uint64_t ApproximateSize(const Slice& /*start*/, const Slice& /*end*/,
+  uint64_t ApproximateSize(const ReadOptions& /* read_options */,
+                           const Slice& /*start*/, const Slice& /*end*/,
                            TableReaderCaller /*caller*/) override {
     return 0;
   }
@@ -94,8 +94,7 @@ class CuckooTableReader: public TableReader {
   uint64_t table_size_;
   const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
-      uint64_t max_num_buckets);
+                              uint64_t max_num_buckets);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE
