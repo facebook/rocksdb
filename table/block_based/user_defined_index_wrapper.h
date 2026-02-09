@@ -36,7 +36,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
         internal_index_builder_(std::move(internal_index_builder)),
         user_defined_index_builder_(std::move(user_defined_index_builder)) {}
 
-  ~UserDefinedIndexBuilderWrapper() override = default;
+  ~UserDefinedIndexBuilderWrapper() override { status_.PermitUncheckedError(); }
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
@@ -178,6 +178,10 @@ class UserDefinedIndexIteratorWrapper
   explicit UserDefinedIndexIteratorWrapper(
       std::unique_ptr<UserDefinedIndexIterator>&& udi_iter)
       : udi_iter_(std::move(udi_iter)), valid_(false) {}
+
+  ~UserDefinedIndexIteratorWrapper() override {
+    status_.PermitUncheckedError();
+  }
 
   bool Valid() const override { return valid_; }
 
