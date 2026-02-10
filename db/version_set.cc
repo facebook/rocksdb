@@ -3444,7 +3444,7 @@ bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
   // Ensure new invariants on old files
   file_meta->num_deletions =
       std::max(tp->num_deletions, tp->num_range_deletions);
-  file_meta->num_entries = std::max(tp->num_entries, tp->num_deletions);
+  file_meta->num_entries = std::max(tp->num_entries, file_meta->num_deletions);
   return true;
 }
 

@@ -224,6 +224,17 @@ compare_db()
     set -e
 }
 
+compact_db()
+{
+    set +e
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/compact_db.sh "$1" "$2" "$3"
+    if [ $? -ne 0 ]; then
+        echo ==== Error compacting DB at $1 ====
+        exit 1
+    fi
+    set -e
+}
+
 write_external_sst()
 {
     set +e
@@ -388,9 +399,15 @@ DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 for checkout_ref in "${checkout_refs[@]}"
 do
-  # We currently assume DB backward compatibility for every branch listed
+  # We assume DB backward compatibility for every branch listed
   echo "== Use $current_checkout_name to open DB generated using $checkout_ref..."
   compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
+
+  echo "== Use $current_checkout_name to compact DB generated using $checkout_ref..."
+  compact_db $db_test_dir/$checkout_ref 1 0
+
+  echo "== After compaction, re-verify DB originally from $checkout_ref..."
+  compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump_after_compact.txt 1 0
 
   if member_of_array "$checkout_ref" "${ext_backward_only_refs[@]}" ||
     member_of_array "$checkout_ref" "${ext_forward_refs[@]}"
