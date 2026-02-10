@@ -2061,8 +2061,8 @@ TEST_F(DBBlockCacheTest, CacheRangeDeletionBlock) {
   ASSERT_OK(Put("key2", "val2"));
   ASSERT_OK(Put("key3", "val3"));
   ASSERT_OK(Put("key4", "val4"));
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
-                             "key2", "key4"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key2",
+                             "key4"));
   ASSERT_OK(Flush());
 
   // After flush, the range deletion block should have been read and cached.

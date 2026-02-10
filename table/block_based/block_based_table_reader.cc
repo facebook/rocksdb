@@ -470,15 +470,14 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
           ++get_context->get_context_stats_
                 .num_cache_range_deletion_add_redundant;
         }
-        get_context->get_context_stats_
-            .num_cache_range_deletion_bytes_insert += usage;
+        get_context->get_context_stats_.num_cache_range_deletion_bytes_insert +=
+            usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_ADD);
         if (redundant) {
           RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT);
         }
-        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT,
-                   usage);
+        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT, usage);
       }
       break;
 
@@ -1222,12 +1221,12 @@ Status BlockBasedTable::ReadRangeDelBlock(
         s.ToString().c_str());
   } else if (!range_del_handle.IsNull()) {
     CachableEntry<Block_kRangeDeletion> range_del_block;
-    s = RetrieveBlock(
-        prefetch_buffer, read_options, range_del_handle,
-        rep_->decompressor.get(), &range_del_block,
-        /*get_context=*/nullptr, lookup_context,
-        /*for_compaction=*/false, /*use_cache=*/true,
-        /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
+    s = RetrieveBlock(prefetch_buffer, read_options, range_del_handle,
+                      rep_->decompressor.get(), &range_del_block,
+                      /*get_context=*/nullptr, lookup_context,
+                      /*for_compaction=*/false, /*use_cache=*/true,
+                      /*async_read=*/false,
+                      /*use_block_cache_for_lookup=*/true);
     if (!s.ok()) {
       ROCKS_LOG_WARN(
           rep_->ioptions.logger,
