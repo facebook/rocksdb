@@ -3744,32 +3744,35 @@ void TestAbortIOWithRequests(
   std::shared_ptr<FileSystem> fs = env->GetFileSystem();
   std::string fname = test::PerThreadDBPath(env, "testfile_abortio");
 
-  constexpr size_t kSectorSize = 4096;
+  // 1. Create test file once (content doesn't change between iterations)
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    FileOptions file_opts;
+    file_opts.use_direct_writes = true;
+    ASSERT_OK(fs->NewWritableFile(fname, file_opts, &wfile, nullptr));
 
-  for (int iter = 0; iter < iterations; iter++) {
-    // 1. Create test file of specified size using direct IO
-    {
-      std::unique_ptr<FSWritableFile> wfile;
-      FileOptions file_opts;
-      file_opts.use_direct_writes = true;
-      ASSERT_OK(fs->NewWritableFile(fname, file_opts, &wfile, nullptr));
+    // Query the file's required buffer alignment (logical block size)
+    // instead of hardcoding 4096, to support devices with different
+    // sector sizes.
+    size_t sector_size = wfile->GetRequiredBufferAlignment();
 
-      // Round up to full sectors for direct IO writes
-      size_t num_sectors = (file_size + kSectorSize - 1) / kSectorSize;
-      for (size_t i = 0; i < num_sectors; ++i) {
-        auto data = NewAligned(kSectorSize, static_cast<char>(i + 1));
-        Slice slice(data.get(), kSectorSize);
-        ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
-      }
-
-      // Truncate to exact file size if not aligned to sector boundary
-      if (file_size % kSectorSize != 0) {
-        ASSERT_OK(wfile->Truncate(file_size, IOOptions(), nullptr));
-      }
-
-      ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+    // Round up to full sectors for direct IO writes
+    size_t num_sectors = (file_size + sector_size - 1) / sector_size;
+    for (size_t i = 0; i < num_sectors; ++i) {
+      auto data = NewAligned(sector_size, static_cast<char>(i + 1));
+      Slice slice(data.get(), sector_size);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
     }
 
+    // Truncate to exact file size if not aligned to sector boundary
+    if (file_size % sector_size != 0) {
+      ASSERT_OK(wfile->Truncate(file_size, IOOptions(), nullptr));
+    }
+
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  for (int iter = 0; iter < iterations; iter++) {
     // 2. Submit ReadAsync requests and immediately abort
     {
       FileOptions file_opts;
@@ -3784,6 +3787,7 @@ void TestAbortIOWithRequests(
       std::vector<std::unique_ptr<char, Deleter>> data;
       std::vector<size_t> vals;
       IOHandleDeleter del_fn;
+      std::atomic<int> callbacks_invoked{0};
 
       // Initialize read requests from specs
       for (size_t i = 0; i < num_reads; i++) {
@@ -3799,6 +3803,7 @@ void TestAbortIOWithRequests(
           [&](FSReadRequest& req, void* cb_arg) {
             size_t i = *(reinterpret_cast<size_t*>(cb_arg));
             reqs[i].status = req.status;
+            callbacks_invoked++;
           };
 
       // Submit all ReadAsync requests
@@ -3825,6 +3830,15 @@ void TestAbortIOWithRequests(
       // Immediately call AbortIO - this should NOT hang
       ASSERT_OK(fs->AbortIO(io_handles));
 
+      // Verify all handles are finished and all callbacks were invoked.
+      // Since all handles are passed to AbortIO, every handle is guaranteed
+      // to be finalized (either completed or cancelled).
+      for (size_t i = 0; i < num_reads; i++) {
+        Posix_IOHandle* h = static_cast<Posix_IOHandle*>(io_handles[i]);
+        ASSERT_TRUE(h->is_finished);
+      }
+      ASSERT_EQ(callbacks_invoked.load(), static_cast<int>(num_reads));
+
       // Clean up handles
       for (size_t i = 0; i < num_reads; i++) {
         if (io_handles[i]) {
@@ -3832,9 +3846,9 @@ void TestAbortIOWithRequests(
         }
       }
     }
-
-    ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
   }
+
+  ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
 
   fprintf(stderr, "TestAbortIOWithRequests: completed %d iterations\n",
           iterations);
@@ -4026,19 +4040,17 @@ TEST_F(TestAsyncRead, AbortIOPartialHandlesBug) {
     ASSERT_TRUE(h0->is_finished);
     ASSERT_EQ(h0->req_count, 2u);  // original + cancel
 
-    // Verify H1 and H2 are finished (read completed, not aborted)
-    Posix_IOHandle* h1 = static_cast<Posix_IOHandle*>(io_handles[1]);
-    Posix_IOHandle* h2 = static_cast<Posix_IOHandle*>(io_handles[2]);
-    ASSERT_TRUE(h1->is_finished);
-    ASSERT_TRUE(h2->is_finished);
-    ASSERT_EQ(h1->req_count, 1u);  // only original (no cancel)
-    ASSERT_EQ(h2->req_count, 1u);  // only original (no cancel)
+    // Note: H1 and H2 may or may not be finished at this point. AbortIO
+    // finalizes non-aborted handles whose CQEs arrive while waiting for
+    // aborted handles, but CQE ordering is non-deterministic. If H0's
+    // completions arrived first, H1/H2's CQEs are still in the queue.
+    // Poll handles either case correctly.
 
-    // Poll on H1, H2 - should return immediately since they're already finished
-    // Note: Poll must be called from the same thread (io_uring is thread-local)
+    // Poll on H1, H2 - completes them if not already finalized by AbortIO
     std::vector<void*> poll_handles = {io_handles[1], io_handles[2]};
 
-    // Use a watchdog to detect hang (regression test)
+    // Use a watchdog to detect hang (regression test for the original bug
+    // where AbortIO consumed non-aborted CQEs without finalizing them)
     std::atomic<bool> poll_completed{false};
     std::thread watchdog([&]() {
       for (int i = 0; i < 500; i++) {  // 5 seconds timeout
@@ -4052,6 +4064,12 @@ TEST_F(TestAsyncRead, AbortIOPartialHandlesBug) {
     fs->Poll(poll_handles, poll_handles.size());
     poll_completed = true;
     watchdog.join();
+
+    // After Poll, H1 and H2 must be finished
+    Posix_IOHandle* h1 = static_cast<Posix_IOHandle*>(io_handles[1]);
+    Posix_IOHandle* h2 = static_cast<Posix_IOHandle*>(io_handles[2]);
+    ASSERT_TRUE(h1->is_finished);
+    ASSERT_TRUE(h2->is_finished);
 
     // Verify all callbacks were invoked
     ASSERT_EQ(callbacks_invoked.load(), 3);
