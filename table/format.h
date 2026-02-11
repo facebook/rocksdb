@@ -167,17 +167,19 @@ constexpr uint32_t kLatestBbtFormatVersion = 7;
 // Minimum format version supported for reading SST files in block-based format.
 //
 // When phasing out old format versions, first increase the write minimum,
-// then later increase the read minimum when removing the implementation for
-// both read and write.
+// then later (>= 6 mo) increase the read minimum when removing the
+// implementation for both read and write.
 constexpr uint32_t kMinSupportedBbtFormatVersionForRead = 2;
 
 // Minimum format version supported for writing new SST files in block-based
 // format. This should be >= kMinSupportedFormatVersionForRead.
 //
 // When phasing out old format versions, first increase the write minimum,
-// then later increase the read minimum when removing the implementation for
-// both read and write.
+// then later (>= 6 mo) increase the read minimum when removing the
+// implementation for both read and write.
 constexpr uint32_t kMinSupportedBbtFormatVersionForWrite = 2;
+static_assert(kMinSupportedBbtFormatVersionForWrite >=
+              kMinSupportedBbtFormatVersionForRead);
 
 inline bool IsSupportedFormatVersionForRead(uint64_t magic, uint32_t version) {
   if (magic == kBlockBasedTableMagicNumber) {
