@@ -917,7 +917,8 @@ TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
 // whether WriteBufferManager limits are respected during WAL recovery.
 // When enabled, flushes are triggered to keep memory bounded.
 // When disabled (default), memory can grow beyond the configured limit.
-TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
+TEST_P(DBWriteBufferManagerTest,
+       WriteBufferManagerLimitDuringWALRecoverySingleDB) {
   const size_t kWbmLimit = 1 * 1024 * 1024;             // 1 MB
   const size_t kWbmLimitForWrites = 100 * 1024 * 1024;  // 100 MB (no flush)
   cost_cache_ = GetParam();
@@ -1028,6 +1029,127 @@ TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_EQ(Get(Key(i)).size(), kValueSize);
   }
+}
+
+TEST_P(DBWriteBufferManagerTest,
+       WriteBufferManagerLimitDuringWALRecoveryMultipleDBs) {
+  // Two DBs with 4MB WBM limit.
+  // First DB writes 2.5MB and closes, no flush (mem usage goes back to 0)
+  // Second DB writes 2.5MB then first DB reopens.
+  const size_t kWbmLimitForTwoDbs = 4 * 1024 * 1024;
+
+  Options options = CurrentOptions();
+  options.arena_block_size = 2048;
+  options.write_buffer_size = 10 * 1024 * 1024;  // 10MB per CF, never hit
+  options.max_write_buffer_number = 10;          // Allow many memtables
+  options.level0_file_num_compaction_trigger =
+      1000;  // To avoid compaction in this test
+
+  // Use avoid_flush_during_recovery = true to prevent any flushes triggered
+  // after the recovery
+  options.avoid_flush_during_recovery = true;
+
+  std::shared_ptr<Cache> cache;
+  if (cost_cache_) {
+    cache = NewLRUCache(100 * 1024 * 1024, 2);
+  }
+
+  const int kNumKeys = 50;
+  const int kValueSize = 50 * 1024;
+
+  // Helper lambda to set up WBM with given limit
+  auto resetWbm = [&](size_t limit) {
+    if (cost_cache_) {
+      options.write_buffer_manager.reset(
+          new WriteBufferManager(limit, cache, true));
+    } else {
+      options.write_buffer_manager.reset(
+          new WriteBufferManager(limit, nullptr, true));
+    }
+  };
+
+  // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
+  // WBM limits are not enforced during recovery
+  options.enforce_write_buffer_manager_during_recovery = false;
+
+  resetWbm(kWbmLimitForTwoDbs);
+  DestroyAndReopen(options);
+
+  // Use of 2.5MB shouldn't trigger flush
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(kValueSize)));
+  }
+  ASSERT_EQ(0, TotalTableFiles());
+
+  size_t mem_usage_first_db_only =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+
+  ASSERT_LT(mem_usage_first_db_only, kWbmLimitForTwoDbs)
+      << "Memory (" << mem_usage_first_db_only
+      << ") should be less than the limit " << kWbmLimitForTwoDbs << ")";
+
+  Close();
+  ASSERT_EQ(0, options.write_buffer_manager->mutable_memtable_memory_usage());
+
+  // Open a second DB sharing the same WBM, write data to consume memory
+  std::string second_dbname = test::PerThreadDBPath("db_shared_wbm_recovery");
+  DB* second_db = nullptr;
+  ASSERT_OK(DestroyDB(second_dbname, options));
+  ASSERT_OK(DB::Open(options, second_dbname, &second_db));
+
+  WriteOptions wo;
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(second_db->Put(wo, Key(i), DummyString(kValueSize)));
+  }
+
+  // First DB reopens without enforcement
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // No flush
+  ASSERT_EQ(0, TotalTableFiles());
+
+  // Verify data integrity
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
+  }
+
+  size_t memory_usage_for_both =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+  ASSERT_GT(memory_usage_for_both, kWbmLimitForTwoDbs)
+      << "Without enforcement + shared WBM, memory (" << memory_usage_for_both
+      << ") should be greater than the limit (" << kWbmLimitForTwoDbs << ")";
+
+  // Close the first DB
+  Close();
+
+  // ========== Part 2: Test with enforcement ENABLED =====
+  // WBM limits  enforced during recovery
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  // Reopen the first DB with enforcement option enabled.
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // With enforcement enabled, there were flushes
+  ASSERT_GT(TotalTableFiles(), 0);
+
+  memory_usage_for_both =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+  ASSERT_LT(memory_usage_for_both, kWbmLimitForTwoDbs)
+      << "With enforcement + shared WBM, memory (" << memory_usage_for_both
+      << ") should be less than the limit (" << kWbmLimitForTwoDbs << ")";
+
+  // Verify data integrity
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
+  }
+  Close();
+
+  // Clean up second DB
+  ASSERT_OK(second_db->Close());
+  ASSERT_OK(DestroyDB(second_dbname, options));
+  delete second_db;
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
