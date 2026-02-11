@@ -1037,6 +1037,7 @@ TEST_P(DBWriteBufferManagerTest,
   // First DB writes 2.5MB and closes, no flush (mem usage goes back to 0)
   // Second DB writes 2.5MB then first DB reopens.
   const size_t kWbmLimitForTwoDbs = 4 * 1024 * 1024;
+  cost_cache_ = GetParam();
 
   Options options = CurrentOptions();
   options.arena_block_size = 2048;
