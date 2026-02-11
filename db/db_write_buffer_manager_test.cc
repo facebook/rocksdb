@@ -929,6 +929,10 @@ TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
   options.level0_file_num_compaction_trigger =
       1000;  // To avoid compaction in this test
 
+  // Use avoid_flush_during_recovery = true to prevent any flushes triggered
+  // after the recovery
+  options.avoid_flush_during_recovery = true;
+
   std::shared_ptr<Cache> cache;
   if (cost_cache_) {
     cache = NewLRUCache(100 * 1024 * 1024, 2);
@@ -949,10 +953,8 @@ TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
   };
 
   // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
-  // Use avoid_flush_during_recovery = true to prevent any flushes, showing
-  // that without the new option, WBM limits are not enforced during recovery.
-  options.avoid_flush_during_recovery = true;
-  options.enforce_write_buffer_manager_during_recovery = false;  // default
+  // WBM limits are not enforced during recovery
+  options.enforce_write_buffer_manager_during_recovery = false;
 
   // Use large WBM limit during writes to avoid triggering flushes
   resetWbm(kWbmLimitForWrites);
@@ -987,7 +989,6 @@ TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
   ASSERT_EQ(0, TotalTableFiles());
 
   // ========== Part 2: Test with enforcement ENABLED ==========================
-  options.avoid_flush_during_recovery = false;
   options.enforce_write_buffer_manager_during_recovery = true;
 
   // Use large WBM limit during writes to avoid triggering flushes
@@ -1010,8 +1011,11 @@ TEST_P(DBWriteBufferManagerTest, WriteBufferManagerLimitDuringWALRecovery) {
   // Wait for flush to finish
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
-  // Now we have one L0 file
-  ASSERT_EQ(1, TotalTableFiles());
+  // WBM's ShouldFlush() compares active memtable mem usage against
+  // mutable_limit_ which is 7/8 of buffer_size.
+  size_t expected_num_l0_files =
+      memory_without_enforcement / (kWbmLimit * 7 / 8) + 1;
+  ASSERT_EQ(expected_num_l0_files, TotalTableFiles());
 
   size_t memory_with_enforcement =
       options.write_buffer_manager->mutable_memtable_memory_usage();
