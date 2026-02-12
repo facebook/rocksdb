@@ -77,6 +77,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     wal_bytes_per_sync(ValueType.LONG),
     strict_bytes_per_sync(ValueType.BOOLEAN),
     compaction_readahead_size(ValueType.LONG),
+    max_manifest_space_amp_pct(ValueType.INT),
 
     daily_offpeak_time_utc(ValueType.STRING);
 
@@ -130,6 +131,16 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public int maxBackgroundJobs() {
       return getInt(DBOption.max_background_jobs);
+    }
+
+    @Override
+    public MutableDBOptionsBuilder setMaxManifestSpaceAmpPet(final int maxManifestSpaceAmpPet) {
+      return setInt(DBOption.max_manifest_space_amp_pct, maxManifestSpaceAmpPet);
+    }
+
+    @Override
+    public int maxManifestSpaceAmpPet() {
+      return getInt(DBOption.max_manifest_space_amp_pct);
     }
 
     @Override
