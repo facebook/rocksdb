@@ -29,6 +29,7 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 #ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}

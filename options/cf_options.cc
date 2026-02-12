@@ -30,6 +30,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
+#include "util/string_util.h"
 
 // NOTE: in this file, many option flags that were deprecated
 // and removed from the rest of the code have to be kept here
