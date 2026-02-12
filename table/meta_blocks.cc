@@ -29,8 +29,6 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kPropertiesBlockName = "rocksdb.properties";
 // NB: only used with format_version >= 6
 const std::string kIndexBlockName = "rocksdb.index";
-// Old property block name for backward compatibility
-const std::string kPropertiesBlockOldName = "rocksdb.stats";
 const std::string kCompressionDictBlockName = "rocksdb.compression_dict";
 const std::string kRangeDelBlockName = "rocksdb.range_del";
 
@@ -545,14 +543,6 @@ Status FindOptionalMetaBlock(InternalIterator* meta_index_iter,
     if (meta_index_iter->Valid() && meta_index_iter->key() == meta_block_name) {
       Slice v = meta_index_iter->value();
       return block_handle->DecodeFrom(&v);
-    } else if (meta_block_name == kPropertiesBlockName) {
-      // Have to try old name for compatibility
-      meta_index_iter->Seek(kPropertiesBlockOldName);
-      if (meta_index_iter->status().ok() && meta_index_iter->Valid() &&
-          meta_index_iter->key() == kPropertiesBlockOldName) {
-        Slice v = meta_index_iter->value();
-        return block_handle->DecodeFrom(&v);
-      }
     }
   }
   // else

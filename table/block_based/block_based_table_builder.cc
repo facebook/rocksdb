@@ -2559,9 +2559,6 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
   assert(LIKELY(ok()));
   Rep* r = rep_.get();
-  // this is guaranteed by BlockBasedTableBuilder's constructor
-  assert(r->table_options.checksum == kCRC32c ||
-         r->table_options.format_version != 0);
   FooterBuilder footer;
   Status s = footer.Build(kBlockBasedTableMagicNumber,
                           r->table_options.format_version, r->get_offset(),
