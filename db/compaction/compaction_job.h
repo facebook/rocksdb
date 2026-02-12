@@ -253,17 +253,17 @@ class CompactionJob {
   //
   // @param num_input_range_del if non-null, will be set to the number of range
   // deletion entries in this compaction input.
-  // @param has_unreliable_input_entry_count if non-null, will be set to true
-  // if any input file has potentially unreliable num_entries count (old SST
-  // files - details in implementation).
+  //
+  // If any input file has potentially unreliable num_entries count (old SST
+  // files - details in implementation),
+  // job_stats_->has_accurate_num_input_records is set to false.
   //
   // Returns true iff internal_stats_.output_level_stats.num_input_records and
   // num_input_range_del are calculated successfully.
   //
   // This should be called only once for compactions (not per subcompaction)
   bool UpdateInternalStatsFromInputFiles(
-      uint64_t* num_input_range_del = nullptr,
-      bool* has_unreliable_input_entry_count = nullptr);
+      uint64_t* num_input_range_del = nullptr);
 
   void UpdateCompactionJobInputStatsFromInternalStats(
       const InternalStats::CompactionStatsFull& internal_stats,

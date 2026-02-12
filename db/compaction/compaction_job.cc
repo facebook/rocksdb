@@ -1099,11 +1099,10 @@ Status CompactionJob::Run() {
   AggregateSubcompactionOutputAndJobStats();
 
   uint64_t num_input_range_del = 0;
-  bool has_unreliable_input_entry_count = false;
-  bool stats_built_from_input_table_prop = UpdateInternalStatsFromInputFiles(
-      &num_input_range_del, &has_unreliable_input_entry_count);
+  bool stats_built_from_input_table_prop =
+      UpdateInternalStatsFromInputFiles(&num_input_range_del);
 
-  if (status.ok() && !has_unreliable_input_entry_count) {
+  if (status.ok()) {
     status = VerifyCompactionRecordCounts(stats_built_from_input_table_prop,
                                           num_input_range_del);
   }
@@ -2528,7 +2527,7 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }  // namespace
 
 bool CompactionJob::UpdateInternalStatsFromInputFiles(
-    uint64_t* num_input_range_del, bool* has_unreliable_input_entry_count) {
+    uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
@@ -2536,15 +2535,12 @@ bool CompactionJob::UpdateInternalStatsFromInputFiles(
   internal_stats_.output_level_stats.num_input_files_in_output_level = 0;
 
   bool has_error = false;
-  if (has_unreliable_input_entry_count) {
-    *has_unreliable_input_entry_count = false;
-  }
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const auto& input_table_properties = compaction->GetInputTableProperties();
 
   // Check all input files for old block-based SST format_version. Why? Old
   // block-based SST files from roughly version 5.0 to 5.18 could produce
-  // inaccurate num_entries counts due in the evolution of its handling along
+  // inaccurate num_entries counts due to the evolution of its handling along
   // with num_range_deletions. We have to disable some paranoid checks when
   // compacting files from such an old release. However, we don't have great
   // information to identify those files, so we heuristically over-approximate
@@ -2555,16 +2551,14 @@ bool CompactionJob::UpdateInternalStatsFromInputFiles(
   // format_version markers, and do not support DeleteRange), we also require
   // the presence of the user property "rocksdb.block.based.table.index.type",
   // which was added in RocksDB 2.8 and is always present in block-based tables.
-  if (has_unreliable_input_entry_count) {
-    for (const auto& tp_pair : input_table_properties) {
-      if (tp_pair.second && tp_pair.second->format_version < 5) {
-        // Check for block-based table by looking for its index type property
-        const auto& user_props = tp_pair.second->user_collected_properties;
-        if (user_props.find(BlockBasedTablePropertyNames::kIndexType) !=
-            user_props.end()) {
-          *has_unreliable_input_entry_count = true;
-          break;
-        }
+  for (const auto& tp_pair : input_table_properties) {
+    if (tp_pair.second && tp_pair.second->format_version < 5) {
+      // Check for block-based table by looking for its index type property
+      const auto& user_props = tp_pair.second->user_collected_properties;
+      if (user_props.find(BlockBasedTablePropertyNames::kIndexType) !=
+          user_props.end()) {
+        job_stats_->has_accurate_num_input_records = false;
+        break;
       }
     }
   }
