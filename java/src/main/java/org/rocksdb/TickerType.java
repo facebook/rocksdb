@@ -130,6 +130,31 @@ public enum TickerType {
     BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT((byte) 0x1A),
 
     /**
+     * # of times cache miss when accessing range deletion block from block cache.
+     */
+    BLOCK_CACHE_RANGE_DELETION_MISS((byte) -0x69),
+
+    /**
+     * # of times cache hit when accessing range deletion block from block cache.
+     */
+    BLOCK_CACHE_RANGE_DELETION_HIT((byte) -0x6A),
+
+    /**
+     * # of range deletion blocks added to block cache.
+     */
+    BLOCK_CACHE_RANGE_DELETION_ADD((byte) -0x6B),
+
+    /**
+     * # of bytes of range deletion blocks inserted into cache.
+     */
+    BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT((byte) -0x6C),
+
+    /**
+     * # of range deletion blocks redundantly inserted into block cache.
+     */
+    BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT((byte) -0x6D),
+
+    /**
      * Number of secondary cache hits
      */
     SECONDARY_CACHE_HITS((byte) 0x1B),
@@ -252,6 +277,11 @@ public enum TickerType {
      * Compactions cancelled to prevent ENOSPC
      */
     COMPACTION_CANCELLED((byte) 0x38),
+
+    /**
+     * Number of compactions aborted via AbortAllCompactions()
+     */
+    COMPACTION_ABORTED((byte) -0x6E),
 
     /**
      * Number of keys written to the database via the Put and Write call's.
