@@ -2280,6 +2280,44 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
             "Corruption: Corrupt or unsupported checksum type: 123 in test");
 }
 
+TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
+  // Test that reserved metadata bits in data block footer are detected.
+  // We construct a block directly rather than going through the full table
+  // iterator path to avoid issues with iterator error handling.
+
+  // Build a simple data block
+  BlockBuilder builder(16 /* restart_interval */);
+  InternalKey key("abc", 1, kTypeValue);
+  builder.Add(key.Encode(), "test_value");
+  Slice block_contents = builder.Finish();
+  std::string block_data = block_contents.ToString();
+
+  // The footer is the last 4 bytes - corrupt it by setting reserved bit 28
+  ASSERT_GE(block_data.size(), sizeof(uint32_t));
+  size_t footer_offset = block_data.size() - sizeof(uint32_t);
+  uint32_t footer = DecodeFixed32(block_data.data() + footer_offset);
+  footer |= (1u << 28);  // Set lowest reserved bit
+  EncodeFixed32(&block_data[footer_offset], footer);
+
+  // Try to construct a Block from the corrupted data
+  BlockContents contents(std::move(block_data));
+  Block block(std::move(contents), 0 /* read_amp_bytes_per_bit */);
+
+  // Block should have size() == 0 indicating error
+  ASSERT_EQ(block.size(), 0u);
+
+  // Try to get an iterator - it should be invalid with corruption status
+  DataBlockIter iter;
+  block.NewDataIterator(BytewiseComparator(), kMaxSequenceNumber, &iter,
+                        /*stats=*/nullptr, /*block_contents_pinned=*/false);
+  ASSERT_FALSE(iter.Valid());
+  ASSERT_EQ(iter.status().code(), Status::kCorruption)
+      << iter.status().ToString();
+  ASSERT_NE(iter.status().ToString().find("reserved bits set"),
+            std::string::npos)
+      << iter.status().ToString();
+}
+
 class BuiltinChecksumTest : public testing::Test,
                             public testing::WithParamInterface<ChecksumType> {};
 
