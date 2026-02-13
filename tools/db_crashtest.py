@@ -264,6 +264,10 @@ default_params = {
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "fifo_allow_compaction": lambda: random.randint(0, 1),
+    "fifo_compaction_max_data_files_size_mb": lambda: random.choice(
+        [0, 100, 500]
+    ),
+    "fifo_compaction_use_kv_ratio_compaction": lambda: random.randint(0, 1),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size": lambda: random.choice(
@@ -968,9 +972,21 @@ def finalize_and_sanitize(src_params):
         # Disable irrelevant tiering options
         dest_params["preclude_last_level_data_seconds"] = 0
         dest_params["last_level_temperature"] = "kUnknown"
+        # use_kv_ratio_compaction requires allow_compaction and
+        # max_data_files_size > 0
+        if dest_params.get("fifo_compaction_use_kv_ratio_compaction", 0) == 1:
+            if (
+                dest_params.get("fifo_allow_compaction", 0) != 1
+                or dest_params.get("fifo_compaction_max_data_files_size_mb", 0)
+                == 0
+            ):
+                dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     else:
         # Disable irrelevant tiering options
         dest_params["file_temperature_age_thresholds"] = ""
+        # Disable FIFO-specific options for non-FIFO compaction styles
+        dest_params["fifo_compaction_max_data_files_size_mb"] = 0
+        dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0

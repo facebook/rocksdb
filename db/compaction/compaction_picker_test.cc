@@ -7,6 +7,8 @@
 #include <string>
 #include <utility>
 
+#include "db/blob/blob_file_meta.h"
+#include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -17,6 +19,7 @@
 #include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -218,6 +221,46 @@ class CompactionPickerTestBase : public testing::Test {
     vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_,
                                       full_history_ts_low);
     vstorage_->SetFinalized();
+  }
+
+  void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_bytes,
+                   BlobFileMetaData::LinkedSsts linked_ssts = {}) {
+    auto shared_meta = SharedBlobFileMetaData::Create(
+        blob_file_number, /*total_blob_count=*/1, total_blob_bytes,
+        /*checksum_method=*/"", /*checksum_value=*/"");
+    auto meta =
+        BlobFileMetaData::Create(std::move(shared_meta), std::move(linked_ssts),
+                                 /*garbage_blob_count=*/0,
+                                 /*garbage_blob_bytes=*/0);
+    vstorage_->AddBlobFile(std::move(meta));
+  }
+
+  // Helper to set up FIFO ratio-based compaction options and version storage.
+  // Call before Add()/AddBlobFile(), then create FIFOCompactionPicker after.
+  void SetupFIFORatioBased(uint64_t max_table_files_size,
+                           uint64_t max_data_files_size, int trigger,
+                           bool allow_compaction = true,
+                           bool use_kv_ratio = true) {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    NewVersionStorage(1, kCompactionStyleFIFO);
+    mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+        max_table_files_size;
+    mutable_cf_options_.compaction_options_fifo.max_data_files_size =
+        max_data_files_size;
+    mutable_cf_options_.compaction_options_fifo.allow_compaction =
+        allow_compaction;
+    mutable_cf_options_.compaction_options_fifo.use_kv_ratio_compaction =
+        use_kv_ratio;
+    mutable_cf_options_.level0_file_num_compaction_trigger = trigger;
+  }
+
+  // Helper to finalize version storage and pick a FIFO compaction.
+  std::unique_ptr<Compaction> PickFIFOCompaction(FIFOCompactionPicker& picker) {
+    UpdateVersionStorageInfo();
+    return std::unique_ptr<Compaction>(picker.PickCompaction(
+        cf_name_, mutable_cf_options_, mutable_db_options_,
+        /*existing_snapshots=*/{}, /*snapshot_checker=*/nullptr,
+        vstorage_.get(), &log_buffer_, /*full_history_ts_low=*/""));
   }
 
  private:
@@ -4959,6 +5002,828 @@ TEST_F(CompactionPickerU64TsTest, UniversalPickCompactionWithFullHistoryTsLow) {
   // Universal compaction should be picked
   ASSERT_NE(nullptr, compaction);
   ASSERT_EQ(2U, compaction->num_input_files(0));
+}
+
+// ============================================================================
+// FIFO Ratio-Based Compaction Picker Unit Tests
+// Tests the actual FIFOCompactionPicker with use_kv_ratio_compaction option
+// (PickRatioBasedIntraL0Compaction path).
+// ============================================================================
+
+TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
+  // Test three file count scenarios relative to trigger (= 4):
+  //   - fewer than trigger: no compaction
+  //   - exactly trigger: compaction fires
+  //   - more than trigger: compaction fires, picks >= 2 files
+
+  // Sub-test 1: fewer than trigger (3 files < trigger 4) → no compaction
+  {
+    SetupFIFORatioBased(10 * 1024 * 1024, 1ULL * 1024 * 1024 * 1024, 4);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 64 * 1024);
+    Add(0, 3U, "300", "400", 64 * 1024);
+    AddBlobFile(100, 64ULL * 1024 * 1024);
+    AddBlobFile(101, 64ULL * 1024 * 1024);
+    AddBlobFile(102, 64ULL * 1024 * 1024);
+
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_EQ(nullptr, compaction.get())
+        << "Should not compact when file count < trigger";
+  }
+
+  // Sub-test 2: exactly trigger (4 files = trigger 4) → compaction fires
+  {
+    SetupFIFORatioBased(10 * 1024 * 1024, 1ULL * 1024 * 1024 * 1024, 4);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 32 * 1024);
+    Add(0, 3U, "300", "400", 48 * 1024);
+    Add(0, 4U, "400", "500", 96 * 1024);
+    // sst_ratio ≈ 240KB/256MB ≈ 0.001, target ≈ 250KB
+    AddBlobFile(100, 64ULL * 1024 * 1024);
+    AddBlobFile(101, 64ULL * 1024 * 1024);
+    AddBlobFile(102, 64ULL * 1024 * 1024);
+    AddBlobFile(103, 64ULL * 1024 * 1024);
+
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get())
+        << "Should compact when file count == trigger";
+    ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+              compaction->compaction_reason());
+    ASSERT_EQ(0, compaction->output_level());
+  }
+
+  // Sub-test 3: more than trigger (8 files > trigger 4) → compaction fires
+  {
+    SetupFIFORatioBased(100 * 1024 * 1024, 500ULL * 1024 * 1024, 4);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "199", 64 * 1024);
+    Add(0, 2U, "200", "299", 32 * 1024);
+    Add(0, 3U, "300", "399", 48 * 1024);
+    Add(0, 4U, "400", "499", 96 * 1024);
+    Add(0, 5U, "500", "599", 64 * 1024);
+    Add(0, 6U, "600", "699", 48 * 1024);
+    Add(0, 7U, "700", "799", 64 * 1024);
+    Add(0, 8U, "800", "899", 64 * 1024);
+    for (uint64_t i = 0; i < 8; i++) {
+      AddBlobFile(100 + i, 50ULL * 1024 * 1024);
+    }
+
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get())
+        << "Should compact when file count > trigger";
+    ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+              compaction->compaction_reason());
+    ASSERT_GE(compaction->num_input_files(0), 2);
+  }
+}
+
+TEST_F(CompactionPickerTest, FIFORatioBasedCompactionNoBlobsFallback) {
+  // When total_blob == 0, sst_ratio = 1.0 and target becomes huge
+  // (max_data_files_size / trigger). With the tiered algorithm, the tier
+  // boundaries descend from target, and the lowest boundary where files
+  // can accumulate will be found. The algorithm should still work
+  // correctly (not crash) and produce a compaction at a low tier boundary.
+  SetupFIFORatioBased(10 * 1024 * 1024, 10ULL * 1024 * 1024 * 1024, 4);
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+  // Small SST files, no blob files
+  Add(0, 1U, "100", "200", 64 * 1024);
+  Add(0, 2U, "200", "300", 64 * 1024);
+  Add(0, 3U, "300", "400", 64 * 1024);
+  Add(0, 4U, "400", "500", 64 * 1024);
+
+  // No blob files added — total_blob == 0
+
+  // With sst_ratio=1.0 and 10GB cap, target = 10GB/4 = 2.5GB.
+  // Tiered boundaries descend: 2.5GB, 625MB, ..., ~152KB, ~38KB, ...
+  // At boundary ~152KB, 4 files of 64KB accumulate to 256KB >= 152KB.
+  // The tiered algorithm finds a viable batch and compacts.
+  auto compaction = PickFIFOCompaction(picker);
+  ASSERT_NE(nullptr, compaction.get());
+  ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+            compaction->compaction_reason());
+  ASSERT_GE(compaction->num_input_files(0), 2);
+}
+
+TEST_F(CompactionPickerTest, FIFORatioBasedCompactionNoRecompaction) {
+  // When all files are at or above the target size (graduated),
+  // no re-compaction should happen. Files >= target are skipped at every
+  // tier boundary.
+  SetupFIFORatioBased(100 * 1024 * 1024, 500ULL * 1024 * 1024, 4);
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
+  // Use max_compaction_bytes to set an explicit target of 256KB.
+  // Make all files >= 256KB so they are "graduated" (at or above target).
+  mutable_cf_options_.max_compaction_bytes = 256 * 1024;
+
+  // All files at 300KB, which is >= target (256KB) → graduated
+  Add(0, 1U, "100", "199", 300 * 1024);
+  Add(0, 2U, "200", "299", 300 * 1024);
+  Add(0, 3U, "300", "399", 300 * 1024);
+  Add(0, 4U, "400", "499", 300 * 1024);
+
+  // All files are at/above target → graduated → no compaction.
+  auto compaction = PickFIFOCompaction(picker);
+  ASSERT_EQ(nullptr, compaction.get());
+}
+
+TEST_F(CompactionPickerTest,
+       FIFORatioBasedCompactionWithExplicitMaxCompactionBytes) {
+  // When max_compaction_bytes > 0, it overrides the auto-calculated target.
+  SetupFIFORatioBased(100 * 1024 * 1024, 10ULL * 1024 * 1024 * 1024, 4);
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
+  // Explicitly set target to 256KB
+  mutable_cf_options_.max_compaction_bytes = 256 * 1024;
+
+  // 6 small SST files
+  Add(0, 1U, "100", "199", 64 * 1024);
+  Add(0, 2U, "200", "299", 64 * 1024);
+  Add(0, 3U, "300", "399", 64 * 1024);
+  Add(0, 4U, "400", "499", 64 * 1024);
+  Add(0, 5U, "500", "599", 64 * 1024);
+  Add(0, 6U, "600", "699", 64 * 1024);
+
+  // No blob files needed when max_compaction_bytes is explicitly set
+
+  // target = max_compaction_bytes = 256KB.
+  // Tier boundaries descend from 256KB: [25KB, 256KB] (trigger=4, floor=10KB).
+  // At boundary 25KB: each 64KB file >= 25KB → skipped.
+  // At boundary 256KB: all 64KB files < 256KB → accumulated until >= 256KB.
+  auto compaction = PickFIFOCompaction(picker);
+  ASSERT_NE(nullptr, compaction.get());
+  ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+            compaction->compaction_reason());
+  ASSERT_EQ(0, compaction->output_level());
+}
+
+TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
+  // When use_kv_ratio_compaction is false, PickIntraL0Compaction should
+  // fall through to the old PickCostBasedIntraL0Compaction path.
+
+  // Sub-test 1: allow_compaction = false → no intra-L0 at all
+  {
+    SetupFIFORatioBased(10 * 1024 * 1024, 0, 4,
+                        /*allow_compaction=*/false, /*use_kv_ratio=*/false);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 64 * 1024);
+    Add(0, 3U, "300", "400", 64 * 1024);
+    Add(0, 4U, "400", "500", 64 * 1024);
+
+    // Total size (256KB) < max_table_files_size (10MB), so no deletion.
+    // allow_compaction=false, so no intra-L0 either.
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_EQ(nullptr, compaction.get());
+  }
+
+  // Sub-test 2: allow_compaction = true, use_kv_ratio = false
+  // → falls through to old PickCostBasedIntraL0Compaction path
+  {
+    SetupFIFORatioBased(10 * 1024 * 1024, 0, 4,
+                        /*allow_compaction=*/true, /*use_kv_ratio=*/false);
+    // The old path uses max_compaction_bytes to cap total input size.
+    // In production this is sanitized to target_file_size_base * 25,
+    // but tests bypass sanitization, so set it explicitly.
+    mutable_cf_options_.max_compaction_bytes = 64 * 1024 * 1024;  // 64MB
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 64 * 1024);
+    Add(0, 3U, "300", "400", 64 * 1024);
+    Add(0, 4U, "400", "500", 64 * 1024);
+
+    // Total size (256KB) < max_table_files_size (10MB), so no deletion.
+    // allow_compaction=true and use_kv_ratio=false → old path.
+    // 4 files >= trigger(4), per_del = 256KB/3 ≈ 85KB < 1.1*WBS → passes.
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get())
+        << "Old path should compact when allow_compaction=true";
+    ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+              compaction->compaction_reason());
+  }
+}
+
+// ============================================================================
+// FIFO Option Validation Tests
+// Tests that ColumnFamilyData::ValidateOptions rejects invalid configurations
+// for use_kv_ratio_compaction.
+// ============================================================================
+
+TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresFIFO) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.compaction_style = kCompactionStyleLevel;
+  cf_opts.compaction_options_fifo.allow_compaction = true;
+  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
+  cf_opts.compaction_options_fifo.max_data_files_size =
+      1ULL * 1024 * 1024 * 1024;
+  DBOptions db_opts;
+  ASSERT_TRUE(
+      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
+}
+
+TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresAllowCompaction) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.compaction_style = kCompactionStyleFIFO;
+  cf_opts.compaction_options_fifo.allow_compaction = false;
+  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
+  cf_opts.compaction_options_fifo.max_data_files_size =
+      1ULL * 1024 * 1024 * 1024;
+  DBOptions db_opts;
+  ASSERT_TRUE(
+      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
+}
+
+TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresMaxDataFilesSize) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.compaction_style = kCompactionStyleFIFO;
+  cf_opts.compaction_options_fifo.allow_compaction = true;
+  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
+  cf_opts.compaction_options_fifo.max_data_files_size = 0;
+  DBOptions db_opts;
+  ASSERT_TRUE(
+      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
+}
+
+TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresSingleLevel) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.compaction_style = kCompactionStyleFIFO;
+  cf_opts.compaction_options_fifo.allow_compaction = true;
+  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
+  cf_opts.compaction_options_fifo.max_data_files_size =
+      1ULL * 1024 * 1024 * 1024;
+  cf_opts.num_levels = 4;
+  DBOptions db_opts;
+  ASSERT_TRUE(
+      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
+}
+
+TEST_F(CompactionPickerTest, FIFOKvRatioValidationAcceptsValidConfig) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.compaction_style = kCompactionStyleFIFO;
+  cf_opts.compaction_options_fifo.allow_compaction = true;
+  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
+  cf_opts.compaction_options_fifo.max_data_files_size =
+      1ULL * 1024 * 1024 * 1024;
+  cf_opts.num_levels = 1;
+  DBOptions db_opts;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_opts, cf_opts));
+}
+
+// ============================================================================
+// FIFO Blob-Aware Size-Based Dropping Tests
+// Tests that PickSizeCompaction correctly accounts for blob data when
+// max_data_files_size > 0.
+// ============================================================================
+
+TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
+  // With max_data_files_size, effective size includes blobs.
+  // SST total = 200KB, blob total = 500MB. effective_size ≈ 500MB.
+  // max_data_files_size = 200MB → over limit → should drop oldest files.
+  SetupFIFORatioBased(/*max_table=*/100ULL * 1024 * 1024 * 1024,
+                      /*max_data=*/200ULL * 1024 * 1024,
+                      /*trigger=*/4,
+                      /*allow_compaction=*/true,
+                      /*use_kv_ratio=*/false);
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+  // 5 SST files, 40KB each = 200KB total SST
+  Add(0, 1U, "100", "199", 40 * 1024);
+  Add(0, 2U, "200", "299", 40 * 1024);
+  Add(0, 3U, "300", "399", 40 * 1024);
+  Add(0, 4U, "400", "499", 40 * 1024);
+  Add(0, 5U, "500", "599", 40 * 1024);
+
+  // Blob files totaling 500MB — way over the 200MB limit
+  AddBlobFile(100, 100ULL * 1024 * 1024);
+  AddBlobFile(101, 100ULL * 1024 * 1024);
+  AddBlobFile(102, 100ULL * 1024 * 1024);
+  AddBlobFile(103, 100ULL * 1024 * 1024);
+  AddBlobFile(104, 100ULL * 1024 * 1024);
+
+  auto compaction = PickFIFOCompaction(picker);
+  ASSERT_NE(nullptr, compaction.get());
+  // Should be dropping files (kFIFOMaxSize), not intra-L0
+  ASSERT_EQ(CompactionReason::kFIFOMaxSize, compaction->compaction_reason());
+  // Should have picked at least 1 file for deletion
+  ASSERT_GE(compaction->num_input_files(0), 1);
+}
+
+TEST_F(CompactionPickerTest, FIFOBlobAwareNoDroppingUnderLimit) {
+  // When effective size (SST + blob) is under max_data_files_size,
+  // no dropping should happen. Intra-L0 may fire instead.
+  SetupFIFORatioBased(/*max_table=*/100ULL * 1024 * 1024 * 1024,
+                      /*max_data=*/1ULL * 1024 * 1024 * 1024,
+                      /*trigger=*/4,
+                      /*allow_compaction=*/true,
+                      /*use_kv_ratio=*/true);
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+  // 4 SST files, 64KB each = 256KB total SST
+  Add(0, 1U, "100", "199", 64 * 1024);
+  Add(0, 2U, "200", "299", 64 * 1024);
+  Add(0, 3U, "300", "399", 64 * 1024);
+  Add(0, 4U, "400", "499", 64 * 1024);
+
+  // Blob files totaling 200MB — under the 1GB limit
+  AddBlobFile(100, 50ULL * 1024 * 1024);
+  AddBlobFile(101, 50ULL * 1024 * 1024);
+  AddBlobFile(102, 50ULL * 1024 * 1024);
+  AddBlobFile(103, 50ULL * 1024 * 1024);
+
+  auto compaction = PickFIFOCompaction(picker);
+  // Should NOT be dropping. Could be intra-L0 or nullptr.
+  if (compaction) {
+    ASSERT_NE(CompactionReason::kFIFOMaxSize, compaction->compaction_reason());
+  }
+}
+
+// ============================================================================
+// FIFO Blob-Aware Score Computation Test
+// Tests that ComputeCompactionScore includes blob sizes when
+// max_data_files_size > 0.
+// ============================================================================
+
+TEST_F(CompactionPickerTest, FIFOBlobAwareScoreComputation) {
+  // Without blob-aware sizing: score = total_sst / max_table_files_size
+  // With blob-aware sizing: score = (total_sst + total_blob) /
+  // max_data_files_size
+  //
+  // Set up a scenario where SST-only score < 1 but blob-aware score >= 1.
+  ioptions_.compaction_style = kCompactionStyleFIFO;
+  NewVersionStorage(1, kCompactionStyleFIFO);
+
+  // SST = 100KB total, blob = 500MB total
+  mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+      1ULL * 1024 * 1024 * 1024;  // 1GB — SST-only score ≈ 0
+  mutable_cf_options_.compaction_options_fifo.max_data_files_size =
+      200ULL * 1024 * 1024;  // 200MB — blob-aware score > 1
+  mutable_cf_options_.compaction_options_fifo.allow_compaction = false;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
+
+  Add(0, 1U, "100", "199", 25 * 1024);
+  Add(0, 2U, "200", "299", 25 * 1024);
+  Add(0, 3U, "300", "399", 25 * 1024);
+  Add(0, 4U, "400", "499", 25 * 1024);
+  AddBlobFile(100, 500ULL * 1024 * 1024);  // 500MB blob
+
+  UpdateVersionStorageInfo();
+
+  // effective_size = 100KB + 500MB ≈ 500MB
+  // effective_max = 200MB
+  // score = 500MB / 200MB ≈ 2.5
+  double score = vstorage_->CompactionScore(0);
+  ASSERT_GE(score, 1.0)
+      << "Score should be >= 1 when blob-aware total exceeds limit";
+  ASSERT_GT(score, 2.0) << "Score should reflect 500MB/200MB ≈ 2.5";
+}
+
+TEST_F(CompactionPickerTest, FIFOBlobAwareScoreWithoutBlobOption) {
+  // When max_data_files_size == 0 (default), score should only use SST sizes.
+  ioptions_.compaction_style = kCompactionStyleFIFO;
+  NewVersionStorage(1, kCompactionStyleFIFO);
+
+  mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+      1ULL * 1024 * 1024;  // 1MB
+  mutable_cf_options_.compaction_options_fifo.max_data_files_size = 0;
+  mutable_cf_options_.compaction_options_fifo.allow_compaction = false;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
+
+  // 400KB total SST < 1MB → score < 1
+  Add(0, 1U, "100", "199", 100 * 1024);
+  Add(0, 2U, "200", "299", 100 * 1024);
+  Add(0, 3U, "300", "399", 100 * 1024);
+  Add(0, 4U, "400", "499", 100 * 1024);
+  AddBlobFile(100, 500ULL * 1024 * 1024);  // 500MB blob — should be ignored
+
+  UpdateVersionStorageInfo();
+
+  // score = 400KB / 1MB = 0.4 (blobs not counted)
+  double score = vstorage_->CompactionScore(0);
+  ASSERT_LT(score, 1.0)
+      << "Score should be < 1 when only SST sizes are counted";
+}
+
+// ============================================================================
+// FIFO + BlobDB Intra-L0 Compaction Picking Tests
+//
+// These tests validate the tiered intra-L0 compaction picking algorithm
+// over multiple flush/compaction cycles. Each round:
+//   1. Add a flush file to the L0 file list
+//   2. Rebuild VersionStorageInfo and call FIFOCompactionPicker::PickCompaction
+//   3. If compaction is picked, update the file list accordingly
+//   4. Repeat
+//
+// The compaction PICKING uses the real FIFOCompactionPicker — this ensures
+// the tests always match the production picking logic. The rest of the
+// system (compaction execution, file metadata updates, FIFO dropping) is
+// handled by test helpers, since wiring up the full compaction execution
+// pipeline (CompactionJob, VersionEdit, etc.) would add significant
+// complexity without testing the picking logic more thoroughly.
+//
+// ============================================================================
+
+class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
+ protected:
+  struct L0File {
+    uint64_t size;       // SST file size in bytes
+    uint64_t blob_size;  // Associated blob data size
+    uint64_t age;        // Creation order (lower = older)
+    bool is_compacted;   // Created by compaction (vs flush)
+  };
+
+  // Pick compaction using FIFOCompactionPicker.
+  //
+  // Rebuilds VersionStorageInfo from the files vector and calls
+  // PickCompaction on the given picker. Maps the returned
+  // Compaction's input files back to vector indices.
+  //
+  // Returns the picked indices, or empty if no compaction.
+  // Also returns the compaction reason via out-parameter.
+  std::vector<size_t> PickCompactionFromFiles(
+      FIFOCompactionPicker& picker, const std::vector<L0File>& files,
+      uint64_t max_table_files_size, uint64_t max_data_files_size, int trigger,
+      CompactionReason* out_reason = nullptr) {
+    // Rebuild VersionStorageInfo from the current file list
+    NewVersionStorage(1, kCompactionStyleFIFO);
+    mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+        max_table_files_size;
+    mutable_cf_options_.compaction_options_fifo.max_data_files_size =
+        max_data_files_size;
+    mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
+    mutable_cf_options_.compaction_options_fifo.use_kv_ratio_compaction = true;
+    mutable_cf_options_.level0_file_num_compaction_trigger = trigger;
+
+    // Add files: newest first. Use descending file numbers so L0 sort
+    // (newest-first by epoch/seqno/file_number) matches our order.
+    uint32_t base_fn = static_cast<uint32_t>(files.size());
+    for (size_t i = 0; i < files.size(); i++) {
+      uint32_t fn = base_fn - static_cast<uint32_t>(i);
+      std::string smallest = "k" + std::to_string(10000 + fn * 10);
+      std::string largest = "k" + std::to_string(10000 + fn * 10 + 9);
+      Add(0, fn, smallest.c_str(), largest.c_str(), files[i].size);
+    }
+
+    // Add one blob file with the total blob size
+    uint64_t total_blob = 0;
+    for (const auto& f : files) {
+      total_blob += f.blob_size;
+    }
+    if (total_blob > 0) {
+      AddBlobFile(9999, total_blob);
+    }
+
+    UpdateVersionStorageInfo();
+
+    std::unique_ptr<Compaction> compaction(picker.PickCompaction(
+        cf_name_, mutable_cf_options_, mutable_db_options_,
+        /*existing_snapshots=*/{}, /*snapshot_checker=*/nullptr,
+        vstorage_.get(), &log_buffer_, /*full_history_ts_low=*/""));
+
+    if (!compaction) return {};
+
+    if (out_reason) {
+      *out_reason = compaction->compaction_reason();
+    }
+
+    // For size-based dropping (kFIFOMaxSize / kFIFOTtl), map input files
+    // back to sim indices, same as for intra-L0.
+    std::vector<size_t> result;
+    for (size_t j = 0; j < compaction->num_input_files(0); j++) {
+      uint32_t fn =
+          static_cast<uint32_t>(compaction->input(0, j)->fd.GetNumber());
+      size_t idx = base_fn - fn;
+      result.push_back(idx);
+    }
+
+    // Unregister so the picker allows the next compaction
+    picker.UnregisterCompaction(compaction.get());
+
+    return result;
+  }
+
+  // Execute one compaction: merge input files into 1 output
+  void ExecuteCompaction(std::vector<L0File>& files,
+                         const std::vector<size_t>& input_indices,
+                         uint64_t& global_age) {
+    uint64_t output_size = 0;
+    uint64_t output_blob = 0;
+    for (size_t idx : input_indices) {
+      output_size += files[idx].size;
+      output_blob += files[idx].blob_size;
+    }
+
+    size_t oldest_input_pos = 0;
+    for (size_t idx : input_indices) {
+      oldest_input_pos = std::max(oldest_input_pos, idx);
+    }
+
+    std::vector<size_t> sorted_indices = input_indices;
+    std::sort(sorted_indices.rbegin(), sorted_indices.rend());
+    for (size_t idx : sorted_indices) {
+      files.erase(files.begin() + idx);
+    }
+
+    size_t insert_pos = oldest_input_pos;
+    for (size_t idx : sorted_indices) {
+      if (idx < oldest_input_pos) insert_pos--;
+    }
+    insert_pos = std::min(insert_pos, files.size());
+    files.insert(files.begin() + insert_pos,
+                 {output_size, output_blob, global_age++, true});
+  }
+
+  // Compute statistics about compacted file sizes
+  struct FileStats {
+    uint64_t count;
+    uint64_t min_size;
+    uint64_t max_size;
+    double mean_size;
+    double cv;
+  };
+
+  FileStats ComputeStats(const std::vector<L0File>& files,
+                         bool compacted_only) {
+    std::vector<uint64_t> sizes;
+    for (const auto& f : files) {
+      if (!compacted_only || f.is_compacted) {
+        sizes.push_back(f.size);
+      }
+    }
+    if (sizes.empty()) return {0, 0, 0, 0.0, 0.0};
+
+    uint64_t sum = 0;
+    uint64_t min_s = UINT64_MAX, max_s = 0;
+    for (uint64_t s : sizes) {
+      sum += s;
+      min_s = std::min(min_s, s);
+      max_s = std::max(max_s, s);
+    }
+    double mean = static_cast<double>(sum) / sizes.size();
+
+    double variance = 0;
+    for (uint64_t s : sizes) {
+      double diff = static_cast<double>(s) - mean;
+      variance += diff * diff;
+    }
+    variance /= sizes.size();
+    double stddev = std::sqrt(variance);
+    double cv = mean > 0 ? stddev / mean : 0;
+
+    return {sizes.size(), min_s, max_s, mean, cv};
+  }
+
+  // Track write amplification
+  struct WriteAmpTracker {
+    uint64_t bytes_flushed = 0;
+    uint64_t bytes_compacted = 0;
+
+    double sst_write_amp() const {
+      return bytes_flushed > 0
+                 ? static_cast<double>(bytes_flushed + bytes_compacted) /
+                       bytes_flushed
+                 : 1.0;
+    }
+  };
+
+  struct TestState {
+    std::vector<L0File> files;
+    uint64_t global_age = 0;
+    WriteAmpTracker wa;
+    int compaction_count = 0;
+    uint64_t max_file_count_seen = 0;
+  };
+
+  using FlushGenerator =
+      std::function<std::pair<uint64_t, uint64_t>(int round)>;
+
+  // Core test loop: flush → pick → execute → repeat.
+  void RunFlushAndCompact(TestState& s, int num_rounds, int trigger,
+                          uint64_t max_data_files_size,
+                          const FlushGenerator& gen) {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+    // Use a large max_table_files_size so SST-only check doesn't trigger
+    // dropping; we rely on max_data_files_size for blob-aware dropping.
+    const uint64_t max_table_files_size = 100ULL * 1024 * 1024 * 1024;
+
+    for (int round = 0; round < num_rounds; round++) {
+      auto [sst_size, blob_size] = gen(round);
+      s.files.insert(s.files.begin(),
+                     {sst_size, blob_size, s.global_age++, false});
+      s.wa.bytes_flushed += sst_size;
+
+      // Pick compaction. Handle both dropping and intra-L0 results.
+      CompactionReason reason;
+      auto inputs =
+          PickCompactionFromFiles(picker, s.files, max_table_files_size,
+                                  max_data_files_size, trigger, &reason);
+      if (!inputs.empty()) {
+        if (reason == CompactionReason::kFIFOMaxSize ||
+            reason == CompactionReason::kFIFOTtl) {
+          // Size/TTL dropping: remove the picked files
+          std::vector<size_t> sorted = inputs;
+          std::sort(sorted.rbegin(), sorted.rend());
+          for (size_t idx : sorted) {
+            s.files.erase(s.files.begin() + idx);
+          }
+        } else {
+          // Intra-L0 compaction: merge picked files
+          uint64_t compaction_input = 0;
+          for (size_t idx : inputs) {
+            compaction_input += s.files[idx].size;
+          }
+          s.wa.bytes_compacted += compaction_input;
+          ExecuteCompaction(s.files, inputs, s.global_age);
+          s.compaction_count++;
+        }
+      }
+      s.max_file_count_seen = std::max(s.max_file_count_seen,
+                                       static_cast<uint64_t>(s.files.size()));
+    }
+  }
+
+  // Assertion helpers
+  void AssertFileCountBounded(const std::vector<L0File>& files,
+                              uint64_t max_count, uint64_t multiplier = 3) {
+    ASSERT_LE(files.size(), max_count * multiplier)
+        << "File count " << files.size() << " exceeds "
+        << max_count * multiplier;
+  }
+
+  void AssertCompactedUniform(const std::vector<L0File>& files, double max_cv) {
+    auto stats = ComputeStats(files, true);
+    if (stats.count >= 2) {
+      ASSERT_LE(stats.cv, max_cv)
+          << "Compacted CV=" << stats.cv << " exceeds " << max_cv
+          << " (min=" << stats.min_size << " max=" << stats.max_size
+          << " mean=" << stats.mean_size << " count=" << stats.count << ")";
+    }
+  }
+
+  void AssertLowWriteAmp(const WriteAmpTracker& wa, double max_wa = 3.0) {
+    ASSERT_LE(wa.sst_write_amp(), max_wa)
+        << "Write amp=" << wa.sst_write_amp() << " exceeds " << max_wa;
+  }
+
+  void AssertStandardGoals(const TestState& s, uint64_t max_count,
+                           double max_cv = 0.30, double max_wa = 3.0,
+                           uint64_t file_mult = 3) {
+    AssertFileCountBounded(s.files, max_count, file_mult);
+    AssertCompactedUniform(s.files, max_cv);
+    AssertLowWriteAmp(s.wa, max_wa);
+  }
+
+  // Verify that graduated files (>= target) are never picked for compaction.
+  void AssertGraduatedNotPicked(const std::vector<L0File>& files, int trigger,
+                                uint64_t max_data_files_size) {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    const uint64_t max_table_files_size = 100ULL * 1024 * 1024 * 1024;
+
+    CompactionReason reason;
+    auto inputs =
+        PickCompactionFromFiles(picker, files, max_table_files_size,
+                                max_data_files_size, trigger, &reason);
+    if (!inputs.empty() && reason == CompactionReason::kFIFOReduceNumFiles) {
+      // Compute target from the picker's perspective: we need to estimate
+      // it the same way the picker does.
+      uint64_t total_sst = 0, total_blob = 0;
+      for (const auto& f : files) {
+        total_sst += f.size;
+        total_blob += f.blob_size;
+      }
+      double sst_ratio = total_blob > 0 ? static_cast<double>(total_sst) /
+                                              (total_sst + total_blob)
+                                        : 1.0;
+      uint64_t target =
+          static_cast<uint64_t>(max_data_files_size * sst_ratio) / trigger;
+
+      for (size_t idx : inputs) {
+        ASSERT_LT(files[idx].size, target)
+            << "Should not re-compact graduated file at index " << idx
+            << " size=" << files[idx].size << " target=" << target;
+      }
+    }
+  }
+};
+
+// Variable flush + FIFO dropping — the full scenario.
+// Variable SST sizes (32-128KB), variable blob sizes (32-96MB), with
+// FIFO size-based dropping active. This covers constant flush, variable
+// flush, and FIFO dropping behaviors in a single test.
+TEST_F(FIFORatioBasedCompactionPickingTest, VariableFlushWithFIFODropping) {
+  const uint64_t kCap = 500ULL * 1024 * 1024;
+  Random rng(42);
+  TestState s;
+  RunFlushAndCompact(s, 200, /*trigger=*/10, kCap, [&](int) {
+    return std::make_pair((32 + rng.Next() % 97) * 1024ULL,
+                          (32 + rng.Next() % 65) * 1024ULL * 1024);
+  });
+  AssertStandardGoals(s, 10, /*max_cv=*/0.40);
+}
+
+// Verify graduated files are never re-compacted.
+// With the tiered algorithm, intermediate compacted files CAN be merged
+// at higher tier boundaries (that's the whole point of tiering). But files
+// that have reached the target size ("graduated") should never be picked.
+TEST_F(FIFORatioBasedCompactionPickingTest, NoCascadingReCompaction) {
+  const uint64_t kCap = 10ULL * 1024 * 1024 * 1024;
+  TestState s;
+  RunFlushAndCompact(s, 200, /*trigger=*/10, kCap, [](int) {
+    return std::make_pair(64ULL * 1024, 64ULL * 1024 * 1024);
+  });
+
+  AssertGraduatedNotPicked(s.files, 10, kCap);
+  // Write amp should be bounded (k=2 tiers for this config, so wa <= 3+margin)
+  AssertLowWriteAmp(s.wa, 4.0);
+}
+
+// Early memtable flush — very small flushes
+TEST_F(FIFORatioBasedCompactionPickingTest, EarlyMemtableFlush) {
+  const uint64_t kCap = 1ULL * 1024 * 1024 * 1024;
+  Random rng(123);
+  TestState s;
+  RunFlushAndCompact(s, 100, /*trigger=*/10, kCap, [&](int) {
+    uint64_t sst = (rng.Next() % 5 == 0) ? (64 + rng.Next() % 65) * 1024ULL
+                                         : (8 + rng.Next() % 25) * 1024ULL;
+    return std::make_pair(sst, 32ULL * 1024 * 1024);
+  });
+
+  AssertStandardGoals(s, 10, /*max_cv=*/0.50, /*max_wa=*/4.0,
+                      /*file_mult=*/5);
+}
+
+// Blob compression variation — data per flush varies, shifting
+// the SST/blob ratio. The target is recomputed on every PickCompaction call
+// (no caching), so the picker naturally adapts to ratio changes.
+TEST_F(FIFORatioBasedCompactionPickingTest, BlobCompressionVariation) {
+  const uint64_t kCap = 300ULL * 1024 * 1024;
+  Random rng(456);
+  TestState s;
+  RunFlushAndCompact(s, 150, /*trigger=*/10, kCap, [&](int) {
+    return std::make_pair(64ULL * 1024,
+                          (20 + rng.Next() % 61) * 1024ULL * 1024);
+  });
+  AssertCompactedUniform(s.files, 0.30);
+}
+
+// Large target/flush ratio — verify logarithmic write amp with tiering
+TEST_F(FIFORatioBasedCompactionPickingTest, TieredLargeRatio) {
+  // target/flush ≈ 1000x with trigger=10 → k=3 tiers, write amp ≈ 4.
+  // Without tiering (flat merge), write amp would be ~57x.
+  const uint64_t kCap = 10ULL * 1024 * 1024 * 1024;  // 10GB
+  TestState s;
+  // SST = 1KB, blob = 1MB. sst_ratio ≈ 0.001.
+  // target = 10GB * 0.001 / 10 = 1MB. ratio = 1MB/1KB = 1024.
+  // k = ceil(log_10(1024)) = 4. Tier boundaries: ~10KB, ~100KB, 1MB.
+  // (10KB floor means lowest boundary is 10KB, not 1KB)
+  RunFlushAndCompact(s, 500, /*trigger=*/10, kCap, [](int) {
+    return std::make_pair(1ULL * 1024, 1ULL * 1024 * 1024);
+  });
+
+  // Write amp should be logarithmic: k+1 = 4 (with 10KB floor, 3 tiers).
+  // Allow some margin for ramp-up and boundary effects.
+  AssertLowWriteAmp(s.wa, 6.0);
+
+  // File count should be bounded: trigger * (k+1) ≈ 10 * 4 = 40
+  AssertFileCountBounded(s.files, 10, /*multiplier=*/6);
+}
+
+// Tiered progression — verify intermediate tiers form and merge up
+TEST_F(FIFORatioBasedCompactionPickingTest, TieredProgression) {
+  // SST = 10KB, blob = 1MB, cap = 100MB, trigger=4.
+  // sst_ratio ≈ 10KB/1010KB ≈ 0.0099.
+  // target = 100MB * 0.0099 / 4 ≈ 248KB. ratio ≈ 25.
+  // k = ceil(log_4(25)) = ceil(2.32) = 3. Boundaries: ~16KB, ~62KB, ~248KB.
+  const uint64_t kCap = 100ULL * 1024 * 1024;
+  TestState s;
+  RunFlushAndCompact(s, 200, /*trigger=*/4, kCap, [](int) {
+    return std::make_pair(10ULL * 1024, 1ULL * 1024 * 1024);
+  });
+
+  // Should have compacted files at multiple tier sizes
+  auto stats = ComputeStats(s.files, true);
+  ASSERT_GE(stats.count, 1u) << "Should have at least one compacted file";
+
+  // Write amp should be bounded: k+1 = 4, plus margin
+  AssertLowWriteAmp(s.wa, 5.0);
+}
+
+// Graduated files should never be re-compacted
+TEST_F(FIFORatioBasedCompactionPickingTest, GraduatedFilesNotRecompacted) {
+  // Build a state with graduated files (>= target), then verify they are
+  // never selected for compaction.
+  const uint64_t kCap = 500ULL * 1024 * 1024;  // 500MB
+  TestState s;
+  // SST = 64KB, blob = 50MB. sst_ratio ≈ 0.00125.
+  // target = 500MB * 0.00125 / 4 ≈ 156KB.
+  // k = ceil(log_4(156/64)) = ceil(log_4(2.44)) = 1.
+  RunFlushAndCompact(s, 60, /*trigger=*/4, kCap, [](int) {
+    return std::make_pair(64ULL * 1024, 50ULL * 1024 * 1024);
+  });
+
+  AssertGraduatedNotPicked(s.files, 4, kCap);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

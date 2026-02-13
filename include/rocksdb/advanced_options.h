@@ -128,6 +128,50 @@ struct CompactionOptionsFIFO {
   // not be used. The minmum buffer size must be at least 4KiB
   uint64_t trivial_copy_buffer_size = 4096;
 
+  // When non-zero, FIFO compaction uses the combined size of SST files and
+  // blob files for size-based trimming decisions. When the total data size
+  // (SST + blob) exceeds this limit, the oldest SST files are dropped along
+  // with their associated blob files.
+  //
+  // When non-zero, this takes precedence over max_table_files_size for all
+  // FIFO compaction decisions: size-based dropping, TTL threshold checks,
+  // and compaction score computation. max_table_files_size is ignored.
+  //
+  // When zero (default), FIFO compaction uses max_table_files_size which
+  // only considers SST file sizes, maintaining backward compatibility.
+  //
+  // This option is primarily intended for use with integrated BlobDB where
+  // blob files can represent a significant portion of the total data.
+  //
+  // Dynamically changeable through SetOptions() API.
+  // Default: 0 (use max_table_files_size behavior)
+  uint64_t max_data_files_size = 0;
+
+  // When true, enables a capacity-derived intra-L0 compaction strategy
+  // optimized for BlobDB workloads where SST files are much smaller than
+  // write_buffer_size. Uses the observed key/value size ratio (SST vs blob
+  // file sizes) to compute a target compacted file size, producing uniform
+  // files for predictable FIFO trimming.
+  //
+  // Uses level0_file_num_compaction_trigger as the target max L0 file count.
+  //
+  // When max_compaction_bytes is 0, the target is auto-calculated from the
+  // data capacity and observed SST/blob ratio. When max_compaction_bytes is
+  // explicitly set to a non-zero value, it overrides the auto-calculated
+  // target.
+  //
+  // Requires:
+  //   - allow_compaction = true (master switch for intra-L0 compaction)
+  //   - max_data_files_size > 0 (needed to compute the target file size)
+  // Setting this to true without these will fail option validation.
+  //
+  // When false, the old intra-L0 strategy is used if allow_compaction is
+  // true (PickCostBasedIntraL0Compaction with 1.1 * write_buffer_size guard).
+  //
+  // Dynamically changeable through SetOptions() API.
+  // Default: false
+  bool use_kv_ratio_compaction = false;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
   CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
@@ -642,6 +686,15 @@ struct AdvancedColumnFamilyOptions {
   // Value 0 will be sanitized.
   //
   // Default: target_file_size_base * 25
+  //
+  // For FIFO compaction with use_kv_ratio_compaction=true:
+  // When set to 0 (and compaction_style is FIFO), the value is NOT sanitized
+  // to the default. Instead, the target compacted file size is automatically
+  // calculated from the data capacity (max_data_files_size) and observed
+  // SST/blob ratio. When explicitly set to a non-zero value, it overrides
+  // the auto-calculated target and is used directly as the max compaction
+  // input size. Note: for FIFO, this controls the output file size target,
+  // not a general compaction byte limit as in level/universal compaction.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;

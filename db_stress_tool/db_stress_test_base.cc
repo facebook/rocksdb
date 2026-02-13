@@ -4375,6 +4375,12 @@ void InitializeOptionsFromFlags(
       ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
     options.compaction_options_fifo.allow_compaction =
         FLAGS_fifo_allow_compaction;
+    if (FLAGS_fifo_compaction_max_data_files_size_mb > 0) {
+      options.compaction_options_fifo.max_data_files_size =
+          FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
+    }
+    options.compaction_options_fifo.use_kv_ratio_compaction =
+        FLAGS_fifo_compaction_use_kv_ratio_compaction;
   }
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);

@@ -415,6 +415,17 @@ DEFINE_bool(fifo_allow_compaction, false,
             "If true, set `Options::compaction_options_fifo.allow_compaction = "
             "true`. It only take effect when FIFO compaction is used.");
 
+DEFINE_uint64(fifo_compaction_max_data_files_size_mb, 0,
+              "If non-zero, set "
+              "`Options::compaction_options_fifo.max_data_files_size` to this "
+              "value (in MB). Only takes effect with FIFO compaction.");
+
+DEFINE_bool(fifo_compaction_use_kv_ratio_compaction, false,
+            "If true, set "
+            "`Options::compaction_options_fifo.use_kv_ratio_compaction = "
+            "true`. Requires fifo_allow_compaction and "
+            "fifo_compaction_max_data_files_size_mb > 0.");
+
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 

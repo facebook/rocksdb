@@ -1034,6 +1034,14 @@ DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
 
 DEFINE_uint64(fifo_age_for_warm, 0, "age_for_warm for FIFO compaction.");
 
+DEFINE_uint64(fifo_compaction_max_data_files_size_mb, 0,
+              "Combined SST + blob file size limit for FIFO compaction "
+              "trimming. 0 means use max_table_files_size (SST-only).");
+
+DEFINE_bool(fifo_compaction_use_kv_ratio_compaction, false,
+            "Enable capacity-derived intra-L0 compaction for FIFO with "
+            "BlobDB. Requires fifo_compaction_max_data_files_size_mb > 0.");
+
 // Stacked BlobDB Options
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Open a BlobDB instance.");
 
@@ -4422,6 +4430,10 @@ class Benchmark {
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
         FLAGS_fifo_compaction_allow_compaction);
     options.compaction_options_fifo.age_for_warm = FLAGS_fifo_age_for_warm;
+    options.compaction_options_fifo.max_data_files_size =
+        FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
+    options.compaction_options_fifo.use_kv_ratio_compaction =
+        FLAGS_fifo_compaction_use_kv_ratio_compaction;
     options.prefix_extractor = prefix_extractor_;
     if (FLAGS_use_uint64_comparator) {
       options.comparator = test::Uint64Comparator();

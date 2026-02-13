@@ -7041,6 +7041,27 @@ uint64_t rocksdb_fifo_compaction_options_get_max_table_files_size(
   return fifo_opts->rep.max_table_files_size;
 }
 
+void rocksdb_fifo_compaction_options_set_max_data_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size) {
+  fifo_opts->rep.max_data_files_size = size;
+}
+
+uint64_t rocksdb_fifo_compaction_options_get_max_data_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  return fifo_opts->rep.max_data_files_size;
+}
+
+void rocksdb_fifo_compaction_options_set_use_kv_ratio_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts,
+    unsigned char use_kv_ratio_compaction) {
+  fifo_opts->rep.use_kv_ratio_compaction = use_kv_ratio_compaction;
+}
+
+unsigned char rocksdb_fifo_compaction_options_get_use_kv_ratio_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  return fifo_opts->rep.use_kv_ratio_compaction;
+}
+
 void rocksdb_fifo_compaction_options_destroy(
     rocksdb_fifo_compaction_options_t* fifo_opts) {
   delete fifo_opts;

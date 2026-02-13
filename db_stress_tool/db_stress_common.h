@@ -161,6 +161,8 @@ DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_string(daily_offpeak_time_utc);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(fifo_allow_compaction);
+DECLARE_uint64(fifo_compaction_max_data_files_size_mb);
+DECLARE_bool(fifo_compaction_use_kv_ratio_compaction);
 DECLARE_bool(allow_concurrent_memtable_write);
 DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);

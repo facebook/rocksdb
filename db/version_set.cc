@@ -3792,15 +3792,20 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
 
       if (compaction_style_ == kCompactionStyleFIFO) {
-        auto max_table_files_size =
-            mutable_cf_options.compaction_options_fifo.max_table_files_size;
-        if (max_table_files_size == 0) {
-          // avoid divide 0
-          max_table_files_size = 1;
+        const auto& fifo_opts = mutable_cf_options.compaction_options_fifo;
+        uint64_t effective_size = total_size;
+        uint64_t effective_max = fifo_opts.max_table_files_size;
+        if (fifo_opts.max_data_files_size > 0) {
+          // Blob-aware: include blob file sizes in the total
+          effective_size += GetBlobStats().total_file_size;
+          effective_max = fifo_opts.max_data_files_size;
         }
-        score = static_cast<double>(total_size) / max_table_files_size;
-        if (score < 1 &&
-            mutable_cf_options.compaction_options_fifo.allow_compaction) {
+        if (effective_max == 0) {
+          // avoid divide 0
+          effective_max = 1;
+        }
+        score = static_cast<double>(effective_size) / effective_max;
+        if (score < 1 && fifo_opts.allow_compaction) {
           score = std::max(
               static_cast<double>(num_sorted_runs) /
                   mutable_cf_options.level0_file_num_compaction_trigger,
