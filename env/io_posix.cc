@@ -610,7 +610,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
 
 IOStatus PosixRandomAccessFile::GetFileSize(uint64_t* result) {
-  struct stat sbuf {};
+  struct stat sbuf{};
   if (fstat(fd_, &sbuf) != 0) {
     *result = 0;
     return IOError("While fstat with fd " + std::to_string(fd_), filename_,

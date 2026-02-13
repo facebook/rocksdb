@@ -101,23 +101,23 @@ class CacheEntryStatsCollector {
   }
 
   // Gets saved stats, regardless of age
-  void GetStats(Stats *stats) {
+  void GetStats(Stats* stats) {
     std::lock_guard<std::mutex> lock(saved_mutex_);
     *stats = saved_stats_;
   }
 
-  Cache *GetCache() const { return cache_; }
+  Cache* GetCache() const { return cache_; }
 
   // Gets or creates a shared instance of CacheEntryStatsCollector in the
   // cache itself, and saves into `ptr`. This shared_ptr will hold the
   // entry in cache until all refs are destroyed.
-  static Status GetShared(Cache *raw_cache, SystemClock *clock,
-                          std::shared_ptr<CacheEntryStatsCollector> *ptr) {
+  static Status GetShared(Cache* raw_cache, SystemClock* clock,
+                          std::shared_ptr<CacheEntryStatsCollector>* ptr) {
     assert(raw_cache);
     BasicTypedCacheInterface<CacheEntryStatsCollector, CacheEntryRole::kMisc>
         cache{raw_cache};
 
-    const Slice &cache_key = GetCacheKey();
+    const Slice& cache_key = GetCacheKey();
     auto h = cache.Lookup(cache_key);
     if (h == nullptr) {
       // Not yet in cache, but Cache doesn't provide a built-in way to
@@ -152,7 +152,7 @@ class CacheEntryStatsCollector {
   }
 
  private:
-  explicit CacheEntryStatsCollector(Cache *cache, SystemClock *clock)
+  explicit CacheEntryStatsCollector(Cache* cache, SystemClock* clock)
       : saved_stats_(),
         working_stats_(),
         last_start_time_micros_(0),
@@ -160,7 +160,7 @@ class CacheEntryStatsCollector {
         cache_(cache),
         clock_(clock) {}
 
-  static const Slice &GetCacheKey() {
+  static const Slice& GetCacheKey() {
     // For each template instantiation
     static CacheKey ckey = CacheKey::CreateUniqueForProcessLifetime();
     static Slice ckey_slice = ckey.AsSlice();
@@ -175,8 +175,8 @@ class CacheEntryStatsCollector {
   uint64_t last_start_time_micros_;
   uint64_t last_end_time_micros_;
 
-  Cache *const cache_;
-  SystemClock *const clock_;
+  Cache* const cache_;
+  SystemClock* const clock_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

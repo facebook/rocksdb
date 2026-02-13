@@ -719,7 +719,6 @@ TEST_F(IODispatcherTest, ReadSetDestroysUnpinsBlocks) {
       << " final=" << final_pinned_usage;
 }
 
-
 // Test that verifies the coalescing logic: adjacent blocks within the
 // coalesce threshold should be combined into a single read request.
 TEST_F(IODispatcherTest, VerifyCoalescing) {
