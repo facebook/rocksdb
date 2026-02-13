@@ -195,9 +195,11 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
-  std::atomic_bool canceled_{false};
   std::atomic<CompactionServiceJobStatus> final_updated_status_{
       CompactionServiceJobStatus::kUseLocal};
+
+ protected:
+  std::atomic_bool canceled_{false};
 };
 
 class CompactionServiceTest : public DBTestBase {
@@ -2137,6 +2139,12 @@ class ResumableCompactionService : public MyTestCompactionService {
                                 {} /* table_properties_collector_factories */),
         scenario_(scenario) {}
 
+  // Set the user key where cancellation should happen.
+  void SetCancelAtKey(const std::string& key, SequenceNumber seqno) {
+    cancel_at_key_ = key;
+    cancel_at_seqno_ = seqno;
+  }
+
   CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
                                   std::string* result) override {
     std::string compaction_input = ExtractCompactionInput(scheduled_job_id);
@@ -2149,25 +2157,50 @@ class ResumableCompactionService : public MyTestCompactionService {
     // ASSUMPTION: This makes stats.count directly proportional to keys
     // processed.
     SyncPoint::GetInstance()->SetCallBack(
-        "CompactionOutputs::ShouldStopBefore::manual_decision", [](void* p) {
+        "CompactionOutputs::ShouldStopBefore::manual_decision",
+        [this](void* p) {
           auto* pair = static_cast<std::pair<bool*, const Slice>*>(p);
-          *(pair->first) = true;
+          *(pair->first) = true;  // Force file cut at every key
+
+          // If cancel_at_key_ is set, cancel when we encounter that key
+          if (!cancel_at_key_.empty() && !already_canceled_) {
+            ParsedInternalKey parsed_key;
+            if (ParseInternalKey(pair->second, &parsed_key, true).ok()) {
+              if (parsed_key.user_key.ToString() == cancel_at_key_) {
+                // Check sequence number if specified
+                if (cancel_at_seqno_ == kMaxSequenceNumber ||
+                    parsed_key.sequence == cancel_at_seqno_) {
+                  canceled_ = true;
+                  already_canceled_ = true;
+                }
+              }
+            }
+          }
         });
+
+    // If no cancel_at_key_ is set, use the original behavior:
     // Simulate cancelled compaction by overriding status at completion. So
     // compaction processes all keys before this point to make stats.count
     // comparison straightforward.
-    SyncPoint::GetInstance()->SetCallBack(
-        "DBImplSecondary::CompactWithoutInstallation::End", [&](void* status) {
-          auto s = static_cast<Status*>(status);
-          *s = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-        });
+    if (cancel_at_key_.empty()) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "DBImplSecondary::CompactWithoutInstallation::End",
+          [&](void* status) {
+            auto s = static_cast<Status*>(status);
+            *s = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+          });
+    }
     SyncPoint::GetInstance()->EnableProcessing();
 
     // Phase 1: Run compaction with resumption enabled and cancel it
-    // - Processes all input keys
+    // - Processes input keys until cancellation point
     // - Creates output files and saves progress
     // - Status overridden to "paused"
     open_and_compaction_options.allow_resumption = true;
+    open_and_compaction_options.canceled = &canceled_;
+    already_canceled_ = false;
+    canceled_ = false;
+
     auto phase1_stats =
         RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
                                compaction_input, override_options);
@@ -2188,6 +2221,9 @@ class ResumableCompactionService : public MyTestCompactionService {
       EXPECT_TRUE(cleanup_status.ok());
       EXPECT_OK(override_options.env->CreateDir(output_dir));
 
+      already_canceled_ = false;
+      canceled_ = false;
+
       phase2_stats =
           RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
                                  compaction_input, override_options);
@@ -2198,9 +2234,6 @@ class ResumableCompactionService : public MyTestCompactionService {
       // (after processing), both phases create the same number of output files.
       EXPECT_EQ(phase2_stats.count, phase1_stats.count);
     }
-
-    SyncPoint::GetInstance()->ClearCallBack(
-        "DBImplSecondary::CompactWithoutInstallation::End");
 
     // Final phase: Run compaction to completion (no cancellation)
     if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
@@ -2220,6 +2253,12 @@ class ResumableCompactionService : public MyTestCompactionService {
       EXPECT_OK(override_options.env->CreateDir(output_dir));
     }
 
+    // Prevent triggering of cancellation
+    SyncPoint::GetInstance()->ClearCallBack(
+        "DBImplSecondary::CompactWithoutInstallation::End");
+    already_canceled_ = true;
+    canceled_ = false;
+
     auto final_phase_stats =
         RunCompaction(open_and_compaction_options, scheduled_job_id,
                       compaction_input, override_options, result);
@@ -2227,36 +2266,38 @@ class ResumableCompactionService : public MyTestCompactionService {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
 
-    // Validate statistics based on scenario
-    if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
-      // ASSUMPTION: Phase 1 processes all keys before cancellation
-      EXPECT_GT(phase1_stats.count, 0);
+    // Validate statistics based on scenario (only when cancelling at end)
+    if (cancel_at_key_.empty()) {
+      if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
+        // ASSUMPTION: Phase 1 processes all keys before cancellation
+        EXPECT_GT(phase1_stats.count, 0);
 
-      // ASSUMPTION: Phase 2 runs with allow_resumption=false and an empty
-      // folder. Phase 2 then creates its own output files (but doesn't save
-      // progress). When Phase 3 starts with allow_resumption=true, it finds no
-      // progress file exists, so it cannot resume and must start from scratch,
-      // processing all input keys again.
-      // Result: Phase 3 does the same amount of work as Phase 1.
-      EXPECT_EQ(final_phase_stats.count, phase1_stats.count);
+        // ASSUMPTION: Phase 2 runs with allow_resumption=false and an empty
+        // folder. Phase 2 then creates its own output files (but doesn't save
+        // progress). When Phase 3 starts with allow_resumption=true, it finds
+        // no progress file exists, so it cannot resume and must start from
+        // scratch, processing all input keys again. Result: Phase 3 does the
+        // same amount of work as Phase 1.
+        EXPECT_EQ(final_phase_stats.count, phase1_stats.count);
 
-    } else if (scenario_ == TestScenario::kCancelThenResume) {
-      // ASSUMPTION: Phase 1 processes all keys before cancellation
-      EXPECT_GT(phase1_stats.count, 0);
+      } else if (scenario_ == TestScenario::kCancelThenResume) {
+        // ASSUMPTION: Phase 1 processes all keys before cancellation
+        EXPECT_GT(phase1_stats.count, 0);
 
-      // ASSUMPTION: Phase 1 processes all keys and saves progress before
-      // cancellation. Final phase resumes from Phase 1's saved progress.
-      // Since Phase 1 completed all processing before being cancelled, the
-      // final phase should do less work than Phase 1.
-      EXPECT_LT(final_phase_stats.count, phase1_stats.count);
+        // ASSUMPTION: Phase 1 processes all keys and saves progress before
+        // cancellation. Final phase resumes from Phase 1's saved progress.
+        // Since Phase 1 completed all processing before being cancelled, the
+        // final phase should do less work than Phase 1.
+        EXPECT_LT(final_phase_stats.count, phase1_stats.count);
 
-    } else {  // kCancelThenFreshStart
-      // ASSUMPTION: Phase 1 processes all keys before cancellation
-      EXPECT_GT(phase1_stats.count, 0);
+      } else {  // kCancelThenFreshStart
+                // ASSUMPTION: Phase 1 processes all keys before cancellation
+        EXPECT_GT(phase1_stats.count, 0);
 
-      // ASSUMPTION: Final phase starts fresh without resumption, so it
-      // processes all input keys again and creates the same number of files
-      EXPECT_EQ(final_phase_stats.count, phase1_stats.count);
+        // ASSUMPTION: Final phase starts fresh without resumption, so it
+        // processes all input keys again and creates the same number of files
+        EXPECT_EQ(final_phase_stats.count, phase1_stats.count);
+      }
     }
 
     StoreResult(*result);
@@ -2326,6 +2367,9 @@ class ResumableCompactionService : public MyTestCompactionService {
   }
 
   TestScenario scenario_;
+  std::string cancel_at_key_;
+  SequenceNumber cancel_at_seqno_ = kMaxSequenceNumber;
+  std::atomic<bool> already_canceled_{false};
 };
 
 class ResumableCompactionServiceTest : public CompactionServiceTest {
@@ -2431,6 +2475,387 @@ TEST_F(ResumableCompactionServiceTest,
        CompactionMultipleCancelToggleResumption) {
   RunCompactionCancelTest(ResumableCompactionService::TestScenario::
                               kMultipleCancelToggleResumption);
+}
+
+class ResumableCompactionKeyTypeTest : public CompactionServiceTest {
+ public:
+  explicit ResumableCompactionKeyTypeTest() : CompactionServiceTest() {}
+
+ protected:
+  void SetupResumableCompactionService(
+      Options& options, const std::string& cancel_at_key = "",
+      SequenceNumber cancel_at_seqno = kMaxSequenceNumber) {
+    options.disable_auto_compactions = true;
+    statistics_ = CreateDBStatistics();
+
+    resume_cs_ = std::make_shared<ResumableCompactionService>(
+        dbname_, options, statistics_,
+        ResumableCompactionService::TestScenario::kCancelThenResume);
+
+    if (!cancel_at_key.empty()) {
+      resume_cs_->SetCancelAtKey(cancel_at_key, cancel_at_seqno);
+    }
+
+    options.compaction_service = resume_cs_;
+    DestroyAndReopen(options);
+  }
+
+  void ResetStatistics() { ASSERT_OK(statistics_->Reset()); }
+
+  void VerifyResumeBytes() {
+    uint64_t resumed_bytes =
+        statistics_->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES);
+    ASSERT_GT(resumed_bytes, 0);
+  }
+
+ private:
+  std::shared_ptr<ResumableCompactionService> resume_cs_;
+  std::shared_ptr<Statistics> statistics_;
+};
+
+// Cancel compaction right before processing key "c" to test resumption at a
+//  deletion at the non-bottom level. When resumed, compaction will continue
+//  from this deletion.
+TEST_F(ResumableCompactionKeyTypeTest,
+       CancelAndResumeWithDeleteAtNonBottomLevel) {
+  Options options = CurrentOptions();
+
+  SetupResumableCompactionService(options, "c");
+
+  ASSERT_OK(Put("c", "old_value"));
+  ASSERT_OK(Put("c_placeholder", "placeholder"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(options.num_levels - 1);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> input_files;
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+
+  for (const auto& file : cf_meta.levels[0].files) {
+    input_files.push_back(file.name);
+  }
+
+  ASSERT_EQ(input_files.size(), 2);
+
+  ResetStatistics();
+
+  CompactionOptions compact_options;
+  ASSERT_OK(
+      db_->CompactFiles(compact_options, input_files, 1 /* output_level*/));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "val4");
+
+  VerifyResumeBytes();
+}
+
+// Cancel compaction right before processing key "c" to test resumption at a
+//  deletion at the ottom level. When resumed, compaction will continue from
+//  the last saved progress point before the delete.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithDeleteAtBottomLevel) {
+  Options options = CurrentOptions();
+
+  SetupResumableCompactionService(options, "c");
+
+  ASSERT_OK(Put("c", "old_value"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(options.num_levels - 1);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  ResetStatistics();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("c", snapshot), "old_value");
+  ASSERT_EQ(Get("d"), "val4");
+  db_->ReleaseSnapshot(snapshot);
+
+  VerifyResumeBytes();
+}
+
+// Cancel compaction right before processing key "c" to test resumption at a
+// merge operand. When resumed, compaction will continue from the last saved
+// progress point before the merge operand.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithMerge) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  SetupResumableCompactionService(options, "c");
+
+  ASSERT_OK(Put("c", "old_value"));
+  ASSERT_OK(Put("c_placeholder", "placeholder"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(options.num_levels - 1);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("c", "new_value"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> input_files;
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+
+  for (const auto& file : cf_meta.levels[0].files) {
+    input_files.push_back(file.name);
+  }
+
+  ASSERT_EQ(input_files.size(), 2);
+
+  ResetStatistics();
+
+  CompactionOptions compact_options;
+  ASSERT_OK(
+      db_->CompactFiles(compact_options, input_files, 1 /* output_level*/));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "old_value,new_value");
+  ASSERT_EQ(Get("d"), "val4");
+
+  VerifyResumeBytes();
+}
+
+// Cancel compaction right before processing key "c" to test resumption at a
+// single delete. When resumed, compaction will continue from the last saved
+// progress point before the single delete.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithSingleDelete) {
+  Options options = CurrentOptions();
+
+  SetupResumableCompactionService(options, "c");
+
+  ASSERT_OK(Put("c", "old_value"));
+  ASSERT_OK(Put("c_placeholder", "placeholder"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(options.num_levels - 1);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(SingleDelete("c"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> input_files;
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+
+  for (const auto& file : cf_meta.levels[0].files) {
+    input_files.push_back(file.name);
+  }
+
+  ASSERT_EQ(input_files.size(), 2);
+
+  ResetStatistics();
+
+  CompactionOptions compact_options;
+  ASSERT_OK(
+      db_->CompactFiles(compact_options, input_files, 1 /* output_level*/));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "val4");
+
+  VerifyResumeBytes();
+}
+
+// Cancel compaction right before processing key "c" to test resumption at a
+// range delete. When resumed, compaction will continue from the last saved
+// progress point before the range delete.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithRangeDelete) {
+  Options options = CurrentOptions();
+
+  SetupResumableCompactionService(options, "c");
+
+  ASSERT_OK(Put("c", "old_value"));
+  ASSERT_OK(Put("c_placeholder", "placeholder"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(options.num_levels - 1);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "c", "c_"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> input_files;
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+
+  for (const auto& file : cf_meta.levels[0].files) {
+    input_files.push_back(file.name);
+  }
+
+  ASSERT_EQ(input_files.size(), 2);
+
+  ResetStatistics();
+
+  CompactionOptions compact_options;
+  ASSERT_OK(
+      db_->CompactFiles(compact_options, input_files, 1 /* output_level*/));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "val4");
+
+  VerifyResumeBytes();
+}
+
+// Test resumption when a key has multiple versions spanning across file
+// boundaries (i.e., the same key exists in multiple SST files).
+//
+// Scenario:
+//   File 1 largest key: key "b"
+//   File 2 smallest key: key "c" with seqno=4 (older version)
+//   File 3 largest key: key "c" with seqno=5 (newer version)
+//
+// Cancel compaction right before processing the older version of key "c".
+// Upon resumption, compaction continues from the saved progress point "b" and
+// correctly processes both versions
+TEST_F(ResumableCompactionKeyTypeTest,
+       CancelAndResumeWithKeySpanningFileBoundaries) {
+  Options options = CurrentOptions();
+
+  // Set up cancellation at the older version of the key which will have
+  // sequence number zero-ed out
+  SetupResumableCompactionService(options, "c" /*cancel_at_key*/, 0 /*seqno*/);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("c", "old_value"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put("c", "new_value"));
+  ASSERT_OK(Flush());
+
+  ResetStatistics();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "new_value");
+  ASSERT_EQ(Get("c", snapshot), "old_value");
+  ASSERT_EQ(Get("d"), "val4");
+  db_->ReleaseSnapshot(snapshot);
+
+  VerifyResumeBytes();
+}
+
+// Cancel compaction right before processing key "c" to test resumption at a
+// wide column. When resumed, compaction will continue
+// from the wide column.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithWideColumn) {
+  Options options = CurrentOptions();
+
+  SetupResumableCompactionService(options, "c" /*cancel_at_key*/);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  WideColumns columns{{"col1", "value1"}, {"col2", "value2"}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "c", columns));
+  ASSERT_OK(Flush());
+
+  ResetStatistics();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "c", &result));
+  WideColumns expected{{"col1", "value1"}, {"col2", "value2"}};
+  ASSERT_EQ(result.columns(), expected);
+
+  ASSERT_EQ(Get("d"), "val4");
+
+  VerifyResumeBytes();
+}
+
+// Cancel compaction right before processing key "c" to test resumption at a
+// timed put. When resumed, compaction will continue
+// from the timed put.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithTimedPut) {
+  Options options = CurrentOptions();
+  options.preclude_last_level_data_seconds = 86400;  // Enable TimedPut feature
+  options.preserve_internal_time_seconds = 86400;    // Preserve write time
+
+  SetupResumableCompactionService(options, "c" /*cancel_at_key*/);
+
+  ASSERT_OK(Put("c", "old_value"));
+  ASSERT_OK(Put("c_placeholder", "placeholder"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(options.num_levels - 1);
+
+  ASSERT_OK(Put("a", "val1"));
+  ASSERT_OK(Put("b", "val2"));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  // Use TimedPut for key "c" with current write time
+  uint64_t write_time = env_->NowMicros() / 1000000;
+  ASSERT_OK(TimedPut("c", "val3", write_time /*write_unix_time*/));
+  ASSERT_OK(Put("d", "val4"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> input_files;
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+
+  for (const auto& file : cf_meta.levels[0].files) {
+    input_files.push_back(file.name);
+  }
+
+  ASSERT_EQ(input_files.size(), 2);
+
+  ResetStatistics();
+
+  CompactionOptions compact_options;
+  ASSERT_OK(
+      db_->CompactFiles(compact_options, input_files, 1 /* output_level*/));
+
+  ASSERT_EQ(Get("a"), "val1");
+  ASSERT_EQ(Get("b"), "val2");
+  ASSERT_EQ(Get("c"), "val3");
+  ASSERT_EQ(Get("d"), "val4");
+
+  VerifyResumeBytes();
 }
 }  // namespace ROCKSDB_NAMESPACE
 

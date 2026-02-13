@@ -987,11 +987,8 @@ Status DBImplSecondary::ParseCompactionProgressFile(
   Slice slice;
   std::string record;
 
-  while (compaction_progress_reader.ReadRecord(&slice, &record)) {
-    if (!reader_status.ok()) {
-      return reader_status;
-    }
-
+  while (compaction_progress_reader.ReadRecord(&slice, &record) &&
+         reader_status.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(slice);
     if (!s.ok()) {
@@ -1002,6 +999,10 @@ Status DBImplSecondary::ParseCompactionProgressFile(
     if (!res) {
       break;
     }
+  }
+
+  if (!reader_status.ok()) {
+    return reader_status;
   }
 
   if (!s.ok()) {
