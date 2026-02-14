@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <memory>
 #include <string>
 
@@ -161,14 +162,17 @@ class TrieIndexFactory : public UserDefinedIndexFactory {
   const char* Name() const override { return kClassName(); }
 
   // Deprecated API (required by base class). Use the overloads that accept
-  // UserDefinedIndexOption instead.
+  // UserDefinedIndexOption instead. These must never be called; the new
+  // overloads with UserDefinedIndexOption are always used by the block-based
+  // table builder/reader. Abort unconditionally (in both debug and release
+  // builds) to surface programming errors immediately.
   UserDefinedIndexBuilder* NewBuilder() const override {
-    assert(false);
+    abort();
     return nullptr;
   }
   std::unique_ptr<UserDefinedIndexReader> NewReader(
       Slice& /*index_block*/) const override {
-    assert(false);
+    abort();
     return nullptr;
   }
 

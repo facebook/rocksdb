@@ -564,6 +564,17 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   memcpy(&max_depth_, p, 4);
   p += 4;
   remaining -= 4;
+
+  // Validate max_depth_ from untrusted data. The iterator allocates a
+  // key_buf_ of size MaxDepth()+1; if max_depth_ == UINT32_MAX, the +1
+  // overflows uint32_t to 0, causing a zero-length allocation and subsequent
+  // buffer overflow. A key longer than 64 KB is unrealistic for a block
+  // index separator (RocksDB keys are typically < 1 KB).
+  static constexpr uint32_t kMaxReasonableDepth = 65536;
+  if (max_depth_ > kMaxReasonableDepth) {
+    return Status::Corruption("Trie index: max_depth exceeds reasonable limit");
+  }
+
   memcpy(&dense_leaf_count_, p, 8);
   p += 8;
   remaining -= 8;

@@ -176,10 +176,12 @@ std::unique_ptr<UserDefinedIndexIterator> TrieIndexReader::NewIterator(
 }
 
 size_t TrieIndexReader::ApproximateMemoryUsage() const {
-  // The trie uses zero-copy pointers into the serialized data for handles,
-  // so memory usage is approximately just the serialized data size plus
-  // the fixed overhead of the LoudsTrie object and its bitvector metadata.
-  return data_size_;
+  // The trie uses zero-copy pointers into the serialized data for bitvectors
+  // and handle arrays, so the base cost is the serialized data size. On top
+  // of that, InitFromData() heap-allocates child position lookup tables
+  // (s_child_start_pos_ and s_child_end_pos_) for Select-free sparse
+  // traversal — 8 bytes per sparse internal node.
+  return data_size_ + trie_.ApproximateAuxMemoryUsage();
 }
 
 // ============================================================================
@@ -189,6 +191,17 @@ size_t TrieIndexReader::ApproximateMemoryUsage() const {
 Status TrieIndexFactory::NewBuilder(
     const UserDefinedIndexOption& option,
     std::unique_ptr<UserDefinedIndexBuilder>& builder) const {
+  // The trie traverses keys byte-by-byte in lexicographic order, so it
+  // requires a bytewise comparator. Non-bytewise comparators (e.g.,
+  // ReverseBytewiseComparator or custom comparators) would produce separator
+  // keys in a different order than the trie's byte-level traversal, causing
+  // incorrect Seek results.
+  if (option.comparator != nullptr &&
+      option.comparator != BytewiseComparator()) {
+    return Status::NotSupported(
+        "TrieIndexFactory requires BytewiseComparator; got: ",
+        option.comparator->Name());
+  }
   builder = std::make_unique<TrieIndexBuilder>(option.comparator);
   return Status::OK();
 }
@@ -196,6 +209,12 @@ Status TrieIndexFactory::NewBuilder(
 Status TrieIndexFactory::NewReader(
     const UserDefinedIndexOption& option, Slice& index_block,
     std::unique_ptr<UserDefinedIndexReader>& reader) const {
+  if (option.comparator != nullptr &&
+      option.comparator != BytewiseComparator()) {
+    return Status::NotSupported(
+        "TrieIndexFactory requires BytewiseComparator; got: ",
+        option.comparator->Name());
+  }
   auto trie_reader = std::make_unique<TrieIndexReader>(option.comparator);
   Status s = trie_reader->InitFromSlice(index_block);
   if (!s.ok()) {

@@ -211,6 +211,14 @@ class LoudsTrie {
   // Get the block handle for the i-th leaf (0-indexed).
   TrieBlockHandle GetHandle(uint64_t leaf_index) const;
 
+  // Approximate heap memory used by auxiliary data structures (child position
+  // lookup tables). Does not include the serialized data itself (which is
+  // typically owned by the block cache).
+  size_t ApproximateAuxMemoryUsage() const {
+    return (s_child_start_pos_.capacity() + s_child_end_pos_.capacity()) *
+           sizeof(uint32_t);
+  }
+
   // Allow the iterator to access internal bitvectors directly for
   // performance-critical rank/select operations during traversal.
   friend class LoudsTrieIterator;

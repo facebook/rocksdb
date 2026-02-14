@@ -421,6 +421,73 @@ TEST_F(BitvectorTest, Select64Exhaustive) {
   }
 }
 
+TEST_F(BitvectorTest, MoveConstructor) {
+  // Build a non-trivial bitvector and verify move constructor preserves
+  // correctness, especially the RecomputePointers() logic.
+  const uint64_t n = 1000;
+  BitvectorBuilder builder;
+  for (uint64_t i = 0; i < n; i++) {
+    builder.Append(i % 3 == 0);
+  }
+
+  Bitvector original;
+  original.BuildFrom(builder);
+  uint64_t orig_ones = original.NumOnes();
+  uint64_t orig_rank_500 = original.Rank1(500);
+  uint64_t orig_select_10 = original.Select1(10);
+
+  // Move-construct a new bitvector.
+  Bitvector moved(std::move(original));
+
+  // Moved-to should preserve all data.
+  ASSERT_EQ(moved.NumBits(), n);
+  ASSERT_EQ(moved.NumOnes(), orig_ones);
+  ASSERT_EQ(moved.Rank1(500), orig_rank_500);
+  ASSERT_EQ(moved.Select1(10), orig_select_10);
+
+  // Verify full rank/select consistency.
+  for (uint64_t i = 0; i < moved.NumOnes(); i++) {
+    uint64_t pos = moved.Select1(i);
+    ASSERT_TRUE(moved.GetBit(pos)) << "Bit not set at Select1(" << i << ")";
+  }
+
+  // Moved-from should be empty/zeroed.
+  ASSERT_EQ(original.NumBits(), 0);
+  ASSERT_EQ(original.NumOnes(), 0);
+}
+
+TEST_F(BitvectorTest, MoveAssignment) {
+  // Build two bitvectors, move-assign the first to the second.
+  const uint64_t n = 500;
+  BitvectorBuilder builder1;
+  for (uint64_t i = 0; i < n; i++) {
+    builder1.Append(i % 5 == 0);
+  }
+  Bitvector bv1;
+  bv1.BuildFrom(builder1);
+
+  BitvectorBuilder builder2;
+  for (uint64_t i = 0; i < 200; i++) {
+    builder2.Append(true);
+  }
+  Bitvector bv2;
+  bv2.BuildFrom(builder2);
+
+  uint64_t bv1_ones = bv1.NumOnes();
+  uint64_t bv1_rank_250 = bv1.Rank1(250);
+
+  // Move-assign bv1 to bv2.
+  bv2 = std::move(bv1);
+
+  // bv2 should now have bv1's data.
+  ASSERT_EQ(bv2.NumBits(), n);
+  ASSERT_EQ(bv2.NumOnes(), bv1_ones);
+  ASSERT_EQ(bv2.Rank1(250), bv1_rank_250);
+
+  // Moved-from should be empty.
+  ASSERT_EQ(bv1.NumBits(), 0);
+}
+
 // ============================================================================
 // LoudsTrie tests
 // ============================================================================
@@ -1252,6 +1319,88 @@ TEST_F(LoudsTrieTest, InitFromDataCorruption) {
   ASSERT_TRUE(trie.InitFromData(Slice(bad)).IsCorruption());
 }
 
+TEST_F(LoudsTrieTest, InitFromDataMaxDepthCorruption) {
+  // A corrupted SST could set max_depth_ = UINT32_MAX, which would cause
+  // an integer overflow in LoudsTrieIterator (key_cap_ = MaxDepth() + 1
+  // wraps to 0). Verify that InitFromData rejects this.
+  //
+  // Build the header manually: magic(4) + version(4) + num_keys(8) +
+  // cutoff_level(4) + max_depth(4) + dense_leaf_count(8) +
+  // sparse_leaf_count(8) + dense_node_count(8) + dense_child_count(8) = 56.
+  std::string header;
+  uint32_t magic = 0x54524945;  // "TRIE"
+  uint32_t version = 1;
+  uint64_t num_keys = 0;
+  uint32_t cutoff_level = 0;
+  uint32_t max_depth = UINT32_MAX;  // Corrupt value
+  uint64_t zeros = 0;
+
+  header.append(reinterpret_cast<const char*>(&magic), 4);
+  header.append(reinterpret_cast<const char*>(&version), 4);
+  header.append(reinterpret_cast<const char*>(&num_keys), 8);
+  header.append(reinterpret_cast<const char*>(&cutoff_level), 4);
+  header.append(reinterpret_cast<const char*>(&max_depth), 4);
+  header.append(reinterpret_cast<const char*>(&zeros), 8);  // dense_leaf_count
+  header.append(reinterpret_cast<const char*>(&zeros), 8);  // sparse_leaf_count
+  header.append(reinterpret_cast<const char*>(&zeros), 8);  // dense_node_count
+  header.append(reinterpret_cast<const char*>(&zeros), 8);  // dense_child_count
+  // Pad with enough data to pass the header size check.
+  header.append(256, '\0');
+
+  LoudsTrie trie2;
+  ASSERT_TRUE(trie2.InitFromData(Slice(header)).IsCorruption());
+
+  // Also test a value just above the limit (65537).
+  max_depth = 65537;
+  std::string header2;
+  header2.append(reinterpret_cast<const char*>(&magic), 4);
+  header2.append(reinterpret_cast<const char*>(&version), 4);
+  header2.append(reinterpret_cast<const char*>(&num_keys), 8);
+  header2.append(reinterpret_cast<const char*>(&cutoff_level), 4);
+  header2.append(reinterpret_cast<const char*>(&max_depth), 4);
+  header2.append(reinterpret_cast<const char*>(&zeros), 8);
+  header2.append(reinterpret_cast<const char*>(&zeros), 8);
+  header2.append(reinterpret_cast<const char*>(&zeros), 8);
+  header2.append(reinterpret_cast<const char*>(&zeros), 8);
+  header2.append(256, '\0');
+
+  LoudsTrie trie3;
+  ASSERT_TRUE(trie3.InitFromData(Slice(header2)).IsCorruption());
+}
+
+TEST_F(LoudsTrieTest, MoveConstructor) {
+  // Verify that move constructor works correctly for LoudsTrie, which
+  // contains Bitvector members with RecomputePointers() logic.
+  std::vector<std::string> keys = {"apple", "banana", "cherry", "date"};
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  LoudsTrie original;
+  ASSERT_OK(original.InitFromData(data));
+  ASSERT_EQ(original.NumKeys(), keys.size());
+
+  // Move-construct a new trie.
+  LoudsTrie moved(std::move(original));
+  ASSERT_EQ(moved.NumKeys(), keys.size());
+
+  // Verify iteration works on the moved trie.
+  LoudsTrieIterator iter(&moved);
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid()) << "Invalid at i=" << i;
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    ASSERT_EQ(iter.Value().offset, i * 100);
+    if (i < keys.size() - 1) {
+      ASSERT_TRUE(iter.Next());
+    }
+  }
+  ASSERT_FALSE(iter.Next());
+}
+
 TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip) {
   // Build a non-trivial trie and verify that serialization round-trips.
   std::vector<std::string> keys = {"alpha", "beta", "gamma", "delta"};
@@ -1422,10 +1571,9 @@ TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
     handle.size = 500;
 
     std::string scratch;
-    const Slice* next =
-        (i < last_keys.size() - 1) ? new Slice(first_keys[i]) : nullptr;
+    Slice next_slice(first_keys[i]);
+    const Slice* next = (i < last_keys.size() - 1) ? &next_slice : nullptr;
     builder->AddIndexEntry(Slice(last_keys[i]), next, handle, &scratch);
-    delete next;
   }
 
   // Finish building.
@@ -1564,6 +1712,75 @@ TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, RejectsNonBytewiseComparator) {
+  // The trie index requires bytewise ordering because it traverses keys
+  // byte-by-byte. Non-bytewise comparators should be rejected.
+  UserDefinedIndexOption option;
+
+  // ReverseBytewiseComparator should be rejected.
+  option.comparator = ReverseBytewiseComparator();
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  Status s = factory_->NewBuilder(option, builder);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_EQ(builder, nullptr);
+
+  // NewReader should also reject non-bytewise comparators.
+  Slice dummy_data;
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  s = factory_->NewReader(option, dummy_data, reader);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_EQ(reader, nullptr);
+
+  // BytewiseComparator should be accepted.
+  option.comparator = BytewiseComparator();
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+  ASSERT_NE(builder, nullptr);
+}
+
+TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
+  // Verify that ApproximateMemoryUsage() accounts for auxiliary heap
+  // allocations (child position lookup tables), not just serialized data.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  // Build a non-trivial index with enough keys to produce sparse internal
+  // nodes (which allocate child position lookup tables).
+  for (int i = 0; i < 100; i++) {
+    char last_buf[32], next_buf[32];
+    snprintf(last_buf, sizeof(last_buf), "key_%04d", i);
+    snprintf(next_buf, sizeof(next_buf), "key_%04d", i + 1);
+
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (i < 99) {
+      Slice next(next_buf);
+      udi_builder->AddIndexEntry(Slice(last_buf), &next, handle, &scratch);
+    } else {
+      udi_builder->AddIndexEntry(Slice(last_buf), nullptr, handle, &scratch);
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+  size_t serialized_size = index_contents.size();
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  size_t mem_usage = reader->ApproximateMemoryUsage();
+  // Memory usage should be at least the serialized data size.
+  ASSERT_GE(mem_usage, serialized_size);
+
+  fprintf(stderr,
+          "ApproximateMemoryUsage: serialized=%zu, reported=%zu, "
+          "aux_overhead=%zu bytes\n",
+          serialized_size, mem_usage, mem_usage - serialized_size);
 }
 
 // ============================================================================
