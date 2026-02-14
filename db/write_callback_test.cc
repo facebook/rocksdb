@@ -419,7 +419,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
-  DB* db;
+  std::unique_ptr<DB> db;
   DBImpl* db_impl;
 
   ASSERT_OK(DestroyDB(dbname, options));
@@ -428,7 +428,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  db_impl = dynamic_cast<DBImpl*>(db);
+  db_impl = dynamic_cast<DBImpl*>(db.get());
   ASSERT_TRUE(db_impl);
 
   WriteBatch wb;
@@ -481,7 +481,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   ASSERT_TRUE(user_write_cb.write_enqueued_.load());
   ASSERT_TRUE(user_write_cb.wal_write_done_.load());
 
-  delete db;
+  db.reset();
   ASSERT_OK(DestroyDB(dbname, options));
 }
 

@@ -758,8 +758,8 @@ class BackupEngineTest : public testing::Test {
     ASSERT_OK(CreateLoggerFromOptions(dbname_, logger_options, &logger_));
   }
 
-  DB* OpenDB() {
-    DB* db;
+  std::unique_ptr<DB> OpenDB() {
+    std::unique_ptr<DB> db;
     EXPECT_OK(DB::Open(options_, dbname_, &db));
     return db;
   }
@@ -770,13 +770,11 @@ class BackupEngineTest : public testing::Test {
 
     // Open DB
     test_db_fs_->SetLimitWrittenFiles(1000000);
-    DB* db;
     if (read_only) {
-      ASSERT_OK(DB::OpenForReadOnly(options_, dbname_, &db));
+      ASSERT_OK(DB::OpenForReadOnly(options_, dbname_, &db_));
     } else {
-      ASSERT_OK(DB::Open(options_, dbname_, &db));
+      ASSERT_OK(DB::Open(options_, dbname_, &db_));
     }
-    db_.reset(db);
   }
 
   void InitializeDBAndBackupEngine(bool dummy = false) {
@@ -784,14 +782,12 @@ class BackupEngineTest : public testing::Test {
     test_db_fs_->SetLimitWrittenFiles(1000000);
     test_db_fs_->SetDummySequentialFile(dummy);
 
-    DB* db;
     if (dummy) {
       dummy_db_ = new DummyDB(options_, dbname_);
-      db = dummy_db_;
+      db_.reset(dummy_db_);
     } else {
-      ASSERT_OK(DB::Open(options_, dbname_, &db));
+      ASSERT_OK(DB::Open(options_, dbname_, &db_));
     }
-    db_.reset(db);
   }
 
   virtual void OpenDBAndBackupEngine(
@@ -914,13 +910,13 @@ class BackupEngineTest : public testing::Test {
       ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
                                                           restore_options));
     }
-    DB* db = OpenDB();
+    auto db = OpenDB();
     // Check DB contents
-    AssertExists(db, start_exist, end_exist);
+    AssertExists(db.get(), start_exist, end_exist);
     if (end != 0) {
-      AssertEmpty(db, end_exist, end);
+      AssertEmpty(db.get(), end_exist, end);
     }
-    delete db;
+    db.reset();
     if (opened_backup_engine) {
       CloseBackupEngine();
     }
@@ -1063,6 +1059,7 @@ class BackupEngineTest : public testing::Test {
   // all the dbs!
   DummyDB* dummy_db_;  // owned as db_ when present
   std::unique_ptr<DB> db_;
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
   std::unique_ptr<BackupEngine> backup_engine_;
 
   // options
@@ -1203,7 +1200,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     // Since we started with a blank db, restore copied all the files.
     test_db_fs_->AssertWrittenFiles(all_files);
 
-    db_.reset(OpenDB());
+    db_ = OpenDB();
 
     // Check DB contents.
     AssertExists(db_.get(), 0, keys_iteration * 2);
@@ -1255,7 +1252,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     test_db_fs_->AssertWrittenFiles(should_have_written);
 
     // Check DB contents.
-    db_.reset(OpenDB());
+    db_ = OpenDB();
     AssertExists(db_.get(), 0, keys_iteration * 2);
 
     db_.reset();  // Close DB.
@@ -1307,7 +1304,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     // 'Hole' has been patched, 'in-policy' db files were retained.
     test_db_fs_->AssertWrittenFiles(should_have_written);
 
-    db_.reset(OpenDB());
+    db_ = OpenDB();
     Status s = db_->VerifyChecksum();
 
     // Check DB contents.
@@ -1424,9 +1421,9 @@ TEST_P(BackupEngineTestWithParam, OfflineIntegrationTest) {
       DestroyDBWithoutCheck(dbname_, options_);
 
       // ---- make sure it's empty ----
-      DB* db = OpenDB();
-      AssertEmpty(db, 0, fill_up_to);
-      delete db;
+      auto db = OpenDB();
+      AssertEmpty(db.get(), 0, fill_up_to);
+      db.reset();
 
       // ---- restore the DB ----
       OpenBackupEngine();
@@ -1478,9 +1475,9 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   DestroyDBWithoutCheck(dbname_, options_);
 
   // ---- make sure it's empty ----
-  DB* db = OpenDB();
-  AssertEmpty(db, 0, max_key);
-  delete db;
+  auto db = OpenDB();
+  AssertEmpty(db.get(), 0, max_key);
+  db.reset();
 
   // ---- restore every backup and verify all the data is there ----
   OpenBackupEngine();
@@ -2091,10 +2088,9 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
           "BackupEngineTest::FlushCompactDuringBackupCheckpoint:Before");
       FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
       ASSERT_OK(db_->Flush(FlushOptions()));
-      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
-      ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-      ASSERT_OK(dbi->TEST_WaitForCompact());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
       TEST_SYNC_POINT(
           "BackupEngineTest::FlushCompactDuringBackupCheckpoint:After");
     }};
@@ -2141,7 +2137,7 @@ TEST_F(BackupEngineTest, BackupOptions) {
     // Must reset() before reset(OpenDB()) again.
     // Calling OpenDB() while *db_ is existing will cause LOCK issue
     db_.reset();
-    db_.reset(OpenDB());
+    db_ = OpenDB();
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
     ASSERT_OK(ROCKSDB_NAMESPACE::GetLatestOptionsFileName(db_->GetName(),
                                                           options_.env, &name));
@@ -2169,13 +2165,12 @@ TEST_F(BackupEngineTest, SetOptionsBackupRaceCondition) {
   ROCKSDB_NAMESPACE::port::Thread setoptions_thread{[this]() {
     TEST_SYNC_POINT(
         "BackupEngineTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
-    DBImpl* dbi = static_cast<DBImpl*>(db_.get());
     // Change arbitrary option to trigger OPTIONS file deletion
-    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+    ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
                               {{"paranoid_file_checks", "false"}}));
-    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+    ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
                               {{"paranoid_file_checks", "true"}}));
-    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+    ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
                               {{"paranoid_file_checks", "false"}}));
     TEST_SYNC_POINT(
         "BackupEngineTest::SetOptionsBackupRaceCondition:AfterSetOptions");
@@ -2433,14 +2428,13 @@ TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
         engine_options_->share_files_with_checksum_naming = option;
       }
       OpenDBAndBackupEngine(true, false, share);
-      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
       // A small SST file
-      ASSERT_OK(dbi->Put(WriteOptions(), "x", "y"));
-      ASSERT_OK(dbi->Flush(FlushOptions()));
+      ASSERT_OK(db_->Put(WriteOptions(), "x", "y"));
+      ASSERT_OK(db_->Flush(FlushOptions()));
       // And a bigger one
-      ASSERT_OK(dbi->Put(WriteOptions(), "y", Random(42).RandomString(500)));
-      ASSERT_OK(dbi->Flush(FlushOptions()));
-      ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+      ASSERT_OK(db_->Put(WriteOptions(), "y", Random(42).RandomString(500)));
+      ASSERT_OK(db_->Flush(FlushOptions()));
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       CloseAndReopenDB(/*read_only*/ true);
 
       std::vector<FileAttributes> table_files;
@@ -2485,9 +2479,8 @@ TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
       db_.reset();
       ASSERT_OK(backup_engine_->RestoreDBFromBackup(2, dbname_, dbname_));
       {
-        DB* db = OpenDB();
+        auto db = OpenDB();
         s = db->VerifyChecksum();
-        delete db;
       }
       if (option != kLegacyCrc32cAndFileSize && !corrupt_before_first_backup) {
         // Second backup is OK because it used (uncorrupt) file from first
@@ -2529,11 +2522,10 @@ TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
 
 TEST_F(BackupEngineTest, PropertiesBlockCorruptionIncremental) {
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
-  DBImpl* dbi = static_cast<DBImpl*>(db_.get());
   // A small SST file
-  ASSERT_OK(dbi->Put(WriteOptions(), "x", "y"));
-  ASSERT_OK(dbi->Flush(FlushOptions()));
-  ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+  ASSERT_OK(db_->Put(WriteOptions(), "x", "y"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
@@ -3350,9 +3342,9 @@ TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   std::vector<std::string> should_have_written;
   test_backup_fs_->AssertWrittenFiles(should_have_written);
 
-  DB* db = OpenDB();
-  AssertExists(db, 0, 200);
-  delete db;
+  auto db = OpenDB();
+  AssertExists(db.get(), 0, 200);
+  db.reset();
 }
 
 TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
@@ -3385,7 +3377,7 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   // Caution: DBOptions only holds a raw pointer to Env, so something else
   // must keep it alive.
   // Case 1: Keeping BackupEngine open suffices to keep Env alive
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   Options opts = options_;
   // Ensure some key defaults are set
   opts.wal_dir = "";
@@ -3397,11 +3389,10 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   backup_info = BackupInfo();
   ASSERT_OK(DB::OpenForReadOnly(opts, name, &db));
 
-  AssertExists(db, 0, 100);
-  AssertEmpty(db, 100, 200);
+  AssertExists(db.get(), 0, 100);
+  AssertEmpty(db.get(), 100, 200);
 
-  delete db;
-  db = nullptr;
+  db.reset();
 
   // Case 2: Keeping BackupInfo alive rather than BackupEngine also suffices
   ASSERT_OK(backup_engine_->GetBackupInfo(/*id*/ 2U, &backup_info,
@@ -3413,12 +3404,14 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   // Note: keeping backup_info alive
   ASSERT_OK(DB::OpenForReadOnly(opts, name, &db));
 
-  AssertExists(db, 0, 200);
-  delete db;
-  db = nullptr;
+  AssertExists(db.get(), 0, 200);
+  db.reset();
 
   // Now try opening read-write and make sure it fails, for safety.
-  ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
+  {
+    std::unique_ptr<DB> dbptr;
+    ASSERT_TRUE(DB::Open(opts, name, &dbptr).IsIOError());
+  }
 }
 
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {
@@ -3565,16 +3558,15 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   // The last manifest roll would've already been cleaned up by the full scan
   // that happens when CreateNewBackup invokes EnableFileDeletions. We need to
   // trigger another roll to verify non-full scan purges stale manifests.
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
   std::string prev_manifest_path =
-      DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
   // Even though manual flush completed above, the background thread may not
   // have finished its cleanup work. `TEST_WaitForBackgroundWork()` will wait
   // until all the background thread's work has completed, including cleanup.
-  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
 
   CloseDBAndBackupEngine();
@@ -3940,7 +3932,7 @@ TEST_F(BackupEngineTest, Concurrency) {
       // by doing it async and ensuring we either get OK or InvalidArgument
       restore_verify_threads[i] =
           std::thread([this, &db_opts, restore_db_dir, to_restore] {
-            DB* restored;
+            std::unique_ptr<DB> restored;
             Status s;
             for (;;) {
               s = DB::Open(db_opts, restore_db_dir, &restored);
@@ -3956,10 +3948,9 @@ TEST_F(BackupEngineTest, Concurrency) {
               }
             }
             int factor = std::min(static_cast<int>(to_restore), max_factor);
-            AssertExists(restored, 0, factor * keys_iteration);
-            AssertEmpty(restored, factor * keys_iteration,
+            AssertExists(restored.get(), 0, factor * keys_iteration);
+            AssertEmpty(restored.get(), factor * keys_iteration,
                         (factor + 1) * keys_iteration);
-            delete restored;
           });
 
       // (Ok now) Restore one of the backups, or "latest"
@@ -4418,14 +4409,13 @@ TEST_F(BackupEngineTest, FileTemperatures) {
                         kShareWithChecksum);
 
   // generate a bottommost file (combined from 2) and a non-bottommost file
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_.get());
   ASSERT_OK(db_->Put(WriteOptions(), "a", "val"));
   ASSERT_OK(db_->Put(WriteOptions(), "c", "val"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->Put(WriteOptions(), "b", "val"));
   ASSERT_OK(db_->Put(WriteOptions(), "d", "val"));
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(dbi->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_OK(db_->Put(WriteOptions(), "e", "val"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
@@ -4583,7 +4573,7 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
 
     // Ensure each backup is same set of files
     db_.reset();
-    DB* db = nullptr;
+    std::unique_ptr<DB> db;
     ASSERT_OK(DB::OpenForReadOnly(options_, dbname_, &db));
 
     // A callback that throws should cleanly fail the backup creation.
@@ -4593,12 +4583,12 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
                                     MaybeExcludeBackupFile* /*files_end*/) {
       throw 42;
     };
-    ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db).IsAborted());
+    ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db.get()).IsAborted());
     cbo.exclude_files_callback = [](MaybeExcludeBackupFile* /*files_begin*/,
                                     MaybeExcludeBackupFile* /*files_end*/) {
       throw std::out_of_range("blah");
     };
-    ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db).IsAborted());
+    ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db.get()).IsAborted());
 
     // Include files only in given bucket, based on modulus and remainder
     constexpr int modulus = 4;
@@ -4619,22 +4609,21 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
     BackupID first_id{};
     BackupID last_alt_id{};
     remainder = 0;
-    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db, &first_id));
+    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db.get(), &first_id));
     AssertBackupInfoConsistency(/*allow excluded*/ true);
     remainder = 1;
-    ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db));
+    ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db.get()));
     AssertBackupInfoConsistency(/*allow excluded*/ true);
     remainder = 2;
-    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db));
+    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db.get()));
     AssertBackupInfoConsistency(/*allow excluded*/ true);
     remainder = 3;
-    ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db, &last_alt_id));
+    ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db.get(), &last_alt_id));
     AssertBackupInfoConsistency(/*allow excluded*/ true);
 
     // Close DB
     ASSERT_OK(db->Close());
-    delete db;
-    db = nullptr;
+    db.reset();
 
     auto backup_engine = backup_engine_.get();
     for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
@@ -4652,8 +4641,8 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
 
       // Check DB contents
       db = OpenDB();
-      AssertExists(db, 0, keys_iteration);
-      delete db;
+      AssertExists(db.get(), 0, keys_iteration);
+      db.reset();
     }
 
     // Should still work after close and re-open

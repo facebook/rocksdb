@@ -229,8 +229,8 @@ class SamePrefixTransform : public SliceTransform {
 
 class PrefixTest : public testing::Test {
  public:
-  std::shared_ptr<DB> OpenDb() {
-    DB* db;
+  std::unique_ptr<DB> OpenDb() {
+    std::unique_ptr<DB> db;
 
     options.create_if_missing = true;
     options.write_buffer_size = FLAGS_write_buffer_size;
@@ -251,7 +251,7 @@ class PrefixTest : public testing::Test {
 
     Status s = DB::Open(options, kDbName, &db);
     EXPECT_OK(s);
-    return std::shared_ptr<DB>(db);
+    return db;
   }
 
   void FirstOption() { option_config_ = kBegin; }
@@ -304,7 +304,7 @@ class PrefixTest : public testing::Test {
 };
 
 TEST(SamePrefixTest, InDomainTest) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   options.prefix_extractor.reset(new SamePrefixTransform("HHKB"));
@@ -331,7 +331,7 @@ TEST(SamePrefixTest, InDomainTest) {
     ASSERT_EQ(db_iter->value(), "idk");
 
     delete db_iter;
-    delete db;
+    db.reset();
     ASSERT_OK(DestroyDB(kDbName, Options()));
   }
 
@@ -348,7 +348,7 @@ TEST(SamePrefixTest, InDomainTest) {
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_OK(db_iter->status());
     delete db_iter;
-    delete db;
+    db.reset();
     ASSERT_OK(DestroyDB(kDbName, Options()));
   }
 }

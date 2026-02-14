@@ -11,6 +11,7 @@
 
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -1222,12 +1223,12 @@ char* rocksdb_open_and_compact_with_options(
 
 rocksdb_t* rocksdb_open(const rocksdb_options_t* options, const char* name,
                         char** errptr) {
-  DB* db;
-  if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
+  std::unique_ptr<DB> dbptr;
+  if (SaveError(errptr, DB::Open(options->rep, std::string(name), &dbptr))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1247,13 +1248,14 @@ rocksdb_t* rocksdb_open_for_read_only(const rocksdb_options_t* options,
                                       const char* name,
                                       unsigned char error_if_wal_file_exists,
                                       char** errptr) {
-  DB* db;
-  if (SaveError(errptr, DB::OpenForReadOnly(options->rep, std::string(name),
-                                            &db, error_if_wal_file_exists))) {
+  std::unique_ptr<DB> dbptr;
+  if (SaveError(errptr,
+                DB::OpenForReadOnly(options->rep, std::string(name), &dbptr,
+                                    error_if_wal_file_exists))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1261,14 +1263,14 @@ rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
                                      const char* name,
                                      const char* secondary_path,
                                      char** errptr) {
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   if (SaveError(errptr,
                 DB::OpenAsSecondary(options->rep, std::string(name),
-                                    std::string(secondary_path), &db))) {
+                                    std::string(secondary_path), &dbptr))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1582,11 +1584,11 @@ rocksdb_t* rocksdb_open_and_trim_history(
 
   std::string trim_ts_(trim_ts, trim_tslen);
 
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
   if (SaveError(errptr, DB::OpenAndTrimHistory(
                             DBOptions(db_options->rep), std::string(name),
-                            column_families, &handles, &db, trim_ts_))) {
+                            column_families, &handles, &dbptr, trim_ts_))) {
     return nullptr;
   }
 
@@ -1598,7 +1600,7 @@ rocksdb_t* rocksdb_open_and_trim_history(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1614,10 +1616,10 @@ rocksdb_t* rocksdb_open_column_families(
         ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
   if (SaveError(errptr, DB::Open(DBOptions(db_options->rep), std::string(name),
-                                 column_families, &handles, &db))) {
+                                 column_families, &handles, &dbptr))) {
     return nullptr;
   }
 
@@ -1629,7 +1631,7 @@ rocksdb_t* rocksdb_open_column_families(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1682,12 +1684,12 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
         ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr,
-                DB::OpenForReadOnly(DBOptions(db_options->rep),
-                                    std::string(name), column_families,
-                                    &handles, &db, error_if_wal_file_exists))) {
+  if (SaveError(errptr, DB::OpenForReadOnly(DBOptions(db_options->rep),
+                                            std::string(name), column_families,
+                                            &handles, &dbptr,
+                                            error_if_wal_file_exists))) {
     return nullptr;
   }
 
@@ -1699,7 +1701,7 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1715,12 +1717,12 @@ rocksdb_t* rocksdb_open_as_secondary_column_families(
         std::string(column_family_names[i]),
         ColumnFamilyOptions(column_family_options[i]->rep));
   }
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr, DB::OpenAsSecondary(DBOptions(db_options->rep),
-                                            std::string(name),
-                                            std::string(secondary_path),
-                                            column_families, &handles, &db))) {
+  if (SaveError(errptr, DB::OpenAsSecondary(
+                            DBOptions(db_options->rep), std::string(name),
+                            std::string(secondary_path), column_families,
+                            &handles, &dbptr))) {
     return nullptr;
   }
   for (size_t i = 0; i != handles.size(); ++i) {
@@ -1731,7 +1733,7 @@ rocksdb_t* rocksdb_open_as_secondary_column_families(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 

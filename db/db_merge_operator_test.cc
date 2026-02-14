@@ -386,7 +386,7 @@ TEST_F(DBMergeOperatorTest, MergeOperandThresholdExceeded) {
   snapshots.reserve(3);
 
   for (size_t i = 0; i < keys.size(); ++i) {
-    snapshots.emplace_back(db_);
+    snapshots.emplace_back(db_.get());
 
     const std::string suffix = std::to_string(i + 1);
 
@@ -985,7 +985,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     // max_successive_merges.
     constexpr size_t max_key_versions = 8;
     std::vector<KeyVersion> key_versions;
-    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+    ASSERT_OK(GetAllKeyVersions(db_.get(), db_->DefaultColumnFamily(), key, key,
                                 max_key_versions, &key_versions));
     ASSERT_EQ(key_versions.size(), 2);
     ASSERT_EQ(key_versions[0].type, kTypeValue);
@@ -1009,7 +1009,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     // max_successive_merges.
     constexpr size_t max_key_versions = 8;
     std::vector<KeyVersion> key_versions;
-    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+    ASSERT_OK(GetAllKeyVersions(db_.get(), db_->DefaultColumnFamily(), key, key,
                                 max_key_versions, &key_versions));
     ASSERT_EQ(key_versions.size(), 3);
     ASSERT_EQ(key_versions[0].type, kTypeValue);
@@ -1038,7 +1038,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     // max_successive_merges.
     constexpr size_t max_key_versions = 8;
     std::vector<KeyVersion> key_versions;
-    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+    ASSERT_OK(GetAllKeyVersions(db_.get(), db_->DefaultColumnFamily(), key, key,
                                 max_key_versions, &key_versions));
     ASSERT_EQ(key_versions.size(), 3);
     ASSERT_EQ(key_versions[0].type, kTypeWideColumnEntity);

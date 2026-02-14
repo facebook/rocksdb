@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -32,7 +33,7 @@ int main() {
   // open DB
   Options options;
   options.create_if_missing = true;
-  DB* db;
+  std::unique_ptr<DB> db;
   Status s = DB::Open(options, kDBPath, &db);
   assert(s.ok());
 
@@ -44,7 +45,7 @@ int main() {
   // close DB
   s = db->DestroyColumnFamilyHandle(cf);
   assert(s.ok());
-  delete db;
+  db.reset();
 
   // open DB with two column families
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -82,7 +83,7 @@ int main() {
     s = db->DestroyColumnFamilyHandle(handle);
     assert(s.ok());
   }
-  delete db;
+  db.reset();
 
   return 0;
 }

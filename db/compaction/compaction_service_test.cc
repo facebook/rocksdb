@@ -1380,8 +1380,9 @@ TEST_F(CompactionServiceTest, CancelCompactionOnPrimarySide) {
 
   // Primary DB calls CancelAllBackgroundWork() while the compaction is running
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Inprogress",
-      [&](void* /*arg*/) { CancelAllBackgroundWork(db_, false /*wait*/); });
+      "CompactionJob::Run():Inprogress", [&](void* /*arg*/) {
+        CancelAllBackgroundWork(db_.get(), false /*wait*/);
+      });
 
   SyncPoint::GetInstance()->EnableProcessing();
 

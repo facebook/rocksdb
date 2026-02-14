@@ -714,7 +714,7 @@ TEST_F(DBWideBasicTest, MergePlainKeyValue) {
     // snapshot in between to make sure they do not get reconciled during the
     // subsequent flush)
     write_base();
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
     write_merge();
     verify();
 
@@ -958,7 +958,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
     // between to make sure they do not get reconciled during the subsequent
     // flush)
     write_base();
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
     write_merge();
     verify_basic();
     verify_merge_ops_pre_compaction();
@@ -1033,7 +1033,7 @@ class DBWideMergeV3Test : public DBWideBasicTest {
                              third_key,
                              third_columns));  // wide-column base value
 
-    snapshots_.emplace_back(db_);
+    snapshots_.emplace_back(db_.get());
 
     // First round of merge operands
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
@@ -1043,7 +1043,7 @@ class DBWideMergeV3Test : public DBWideBasicTest {
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), third_key,
                          third_merge_op1));
 
-    snapshots_.emplace_back(db_);
+    snapshots_.emplace_back(db_.get());
 
     // Second round of merge operands
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
@@ -1053,7 +1053,7 @@ class DBWideMergeV3Test : public DBWideBasicTest {
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), third_key,
                          third_merge_op2));
 
-    snapshots_.emplace_back(db_);
+    snapshots_.emplace_back(db_.get());
   }
 
   void VerifyKeyValues(const WideColumns& first_expected,

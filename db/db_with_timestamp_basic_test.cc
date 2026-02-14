@@ -662,7 +662,7 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(4, 0), "v2"));
   ASSERT_OK(db_->Delete(WriteOptions(), "k1", Timestamp(5, 0)));
   ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(6, 0), "v3"));
-  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v3",
+  check_value_by_ts(db_.get(), "k1", Timestamp(7, 0), Status::OK(), "v3",
                     Timestamp(6, 0));
   ASSERT_OK(Flush());
   Close();
@@ -675,27 +675,27 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   // Trim data whose version > Timestamp(5, 0), read(k1, ts(7)) <- NOT_FOUND.
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(5, 0)));
-  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::NotFound(), "",
+  check_value_by_ts(db_.get(), "k1", Timestamp(7, 0), Status::NotFound(), "",
                     Timestamp(5, 0));
   Close();
 
   // Trim data whose timestamp > Timestamp(4, 0), read(k1, ts(7)) <- v2
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(4, 0)));
-  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v2",
+  check_value_by_ts(db_.get(), "k1", Timestamp(7, 0), Status::OK(), "v2",
                     Timestamp(4, 0));
   Close();
 
   Reopen(options);
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "k1",
                              "k3", Timestamp(7, 0)));
-  check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::NotFound(), "",
+  check_value_by_ts(db_.get(), "k1", Timestamp(8, 0), Status::NotFound(), "",
                     Timestamp(7, 0));
   Close();
   // Trim data whose timestamp > Timestamp(6, 0), read(k1, ts(8)) <- v2
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(6, 0)));
-  check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::OK(), "v2",
+  check_value_by_ts(db_.get(), "k1", Timestamp(8, 0), Status::OK(), "v2",
                     Timestamp(4, 0));
   Close();
 }

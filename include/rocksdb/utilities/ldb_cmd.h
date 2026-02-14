@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -165,7 +166,7 @@ class LDBCommand {
   std::string secondary_path_;
   std::string leader_path_;
   std::string column_family_name_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   DBWithTTL* db_ttl_;
   TransactionDB* db_txn_;
   std::map<std::string, ColumnFamilyHandle*> cf_handles_;

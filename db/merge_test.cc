@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/wide_columns.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
@@ -96,9 +97,9 @@ class EnvMergeTest : public EnvWrapper {
 uint64_t EnvMergeTest::now_nanos_count_{0};
 std::unique_ptr<EnvMergeTest> EnvMergeTest::singleton_;
 
-std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
+std::unique_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
                            const size_t max_successive_merges = 0) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
@@ -109,7 +110,7 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   if (ttl) {
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options, dbname, &db_with_ttl);
-    db = db_with_ttl;
+    db.reset(db_with_ttl);
   } else {
     s = DB::Open(options, dbname, &db);
   }
@@ -118,7 +119,7 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   // Allowed to call NowNanos during DB creation (in GenerateRawUniqueId() for
   // session ID)
   EnvMergeTest::now_nanos_count_ = 0;
-  return std::shared_ptr<DB>(db);
+  return db;
 }
 
 // Imagine we are maintaining a set of uint64 counters.
@@ -128,7 +129,7 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
 // This is a quick implementation without a Merge operation.
 class Counters {
  protected:
-  std::shared_ptr<DB> db_;
+  UnownedPtr<DB> db_;
 
   WriteOptions put_option_;
   ReadOptions get_option_;
@@ -137,7 +138,7 @@ class Counters {
   uint64_t default_;
 
  public:
-  explicit Counters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
+  explicit Counters(UnownedPtr<DB> db, uint64_t defaultCount = 0)
       : db_(db),
         put_option_(),
         get_option_(),
@@ -242,7 +243,7 @@ class MergeBasedCounters : public Counters {
   WriteOptions merge_option_;  // for merge
 
  public:
-  explicit MergeBasedCounters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
+  explicit MergeBasedCounters(UnownedPtr<DB> db, uint64_t defaultCount = 0)
       : Counters(db, defaultCount), merge_option_() {}
 
   // mapped to a rocksdb Merge operation
@@ -261,7 +262,7 @@ class MergeBasedCounters : public Counters {
   }
 };
 
-void dumpDb(DB* db) {
+void dumpDb(const std::unique_ptr<DB>& db) {
   auto it = std::unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     // uint64_t value = DecodeFixed64(it->value().data());
@@ -270,7 +271,8 @@ void dumpDb(DB* db) {
   assert(it->status().ok());  // Check for any errors found during the scan
 }
 
-void testCounters(Counters& counters, DB* db, bool test_compaction) {
+void testCounters(Counters& counters, const std::unique_ptr<DB>& db,
+                  bool test_compaction) {
   FlushOptions o;
   o.wait = true;
 
@@ -320,7 +322,8 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
 }
 
-void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
+void testCountersWithFlushAndCompaction(Counters& counters,
+                                        const std::unique_ptr<DB>& db) {
   ASSERT_OK(db->Put({}, "1", "1"));
   ASSERT_OK(db->Flush(FlushOptions()));
 
@@ -388,12 +391,12 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread set_options_thread([&]() {
-    ASSERT_OK(static_cast<DBImpl*>(db)->SetOptions(
+    ASSERT_OK(static_cast_with_check<DBImpl>(db.get())->SetOptions(
         {{"disable_auto_compactions", "false"}}));
   });
   TEST_SYNC_POINT("testCountersWithCompactionAndFlush:BeforeCompact");
   port::Thread compact_thread([&]() {
-    ASSERT_OK(static_cast<DBImpl*>(db)->CompactRange(
+    ASSERT_OK(static_cast_with_check<DBImpl>(db.get())->CompactRange(
         CompactRangeOptions(), db->DefaultColumnFamily(), nullptr, nullptr));
   });
 
@@ -440,8 +443,8 @@ void testSuccessiveMerge(Counters& counters, size_t max_num_merges,
   }
 }
 
-void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
-                      size_t min_merge, size_t count) {
+void testPartialMerge(Counters* counters, const std::unique_ptr<DB>& db,
+                      size_t max_merge, size_t min_merge, size_t count) {
   FlushOptions o;
   o.wait = true;
 
@@ -481,8 +484,8 @@ void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
   ASSERT_EQ(EnvMergeTest::now_nanos_count_, 0U);
 }
 
-void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
-                                    size_t num_merges) {
+void testSingleBatchSuccessiveMerge(const std::unique_ptr<DB>& db,
+                                    size_t max_num_merges, size_t num_merges) {
   ASSERT_GT(num_merges, max_num_merges);
 
   Slice key("BatchSuccessiveMerge");
@@ -520,13 +523,13 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
     auto db = OpenDb(dbname, use_ttl);
 
     {
-      Counters counters(db, 0);
-      testCounters(counters, db.get(), true);
+      Counters counters(db.get(), 0);
+      testCounters(counters, db, true);
     }
 
     {
-      MergeBasedCounters counters(db, 0);
-      testCounters(counters, db.get(), use_compression);
+      MergeBasedCounters counters(db.get(), 0);
+      testCounters(counters, db, use_compression);
     }
   }
 
@@ -535,10 +538,10 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   {
     size_t max_merge = 5;
     auto db = OpenDb(dbname, use_ttl, max_merge);
-    MergeBasedCounters counters(db, 0);
-    testCounters(counters, db.get(), use_compression);
+    MergeBasedCounters counters(db.get(), 0);
+    testCounters(counters, db, use_compression);
     testSuccessiveMerge(counters, max_merge, max_merge * 2);
-    testSingleBatchSuccessiveMerge(db.get(), 5, 7);
+    testSingleBatchSuccessiveMerge(db, 5, 7);
     ASSERT_OK(db->Close());
     ASSERT_OK(DestroyDB(dbname, Options()));
   }
@@ -549,16 +552,15 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
     uint32_t min_merge = 2;
     for (uint32_t count = min_merge - 1; count <= min_merge + 1; count++) {
       auto db = OpenDb(dbname, use_ttl, max_merge);
-      MergeBasedCounters counters(db, 0);
-      testPartialMerge(&counters, db.get(), max_merge, min_merge, count);
+      MergeBasedCounters counters(db.get(), 0);
+      testPartialMerge(&counters, db, max_merge, min_merge, count);
       ASSERT_OK(db->Close());
       ASSERT_OK(DestroyDB(dbname, Options()));
     }
     {
       auto db = OpenDb(dbname, use_ttl, max_merge);
-      MergeBasedCounters counters(db, 0);
-      testPartialMerge(&counters, db.get(), max_merge, min_merge,
-                       min_merge * 10);
+      MergeBasedCounters counters(db.get(), 0);
+      testPartialMerge(&counters, db, max_merge, min_merge, min_merge * 10);
       ASSERT_OK(db->Close());
       ASSERT_OK(DestroyDB(dbname, Options()));
     }
@@ -567,18 +569,18 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   {
     {
       auto db = OpenDb(dbname);
-      MergeBasedCounters counters(db, 0);
+      MergeBasedCounters counters(db.get(), 0);
       counters.add("test-key", 1);
       counters.add("test-key", 1);
       counters.add("test-key", 1);
       ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     }
 
-    DB* reopen_db;
+    std::unique_ptr<DB> reopen_db;
     ASSERT_OK(DB::Open(Options(), dbname, &reopen_db));
     std::string value;
     ASSERT_NOK(reopen_db->Get(ReadOptions(), "test-key", &value));
-    delete reopen_db;
+    reopen_db.reset();
     ASSERT_OK(DestroyDB(dbname, Options()));
   }
 
@@ -587,13 +589,13 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
     std::cout << "Test merge-operator not set after reopen (recovery case)\n";
     {
       auto db = OpenDb(dbname);
-      MergeBasedCounters counters(db, 0);
+      MergeBasedCounters counters(db.get(), 0);
       counters.add("test-key", 1);
       counters.add("test-key", 1);
       counters.add("test-key", 1);
     }
 
-    DB* reopen_db;
+    std::unique_ptr<DB> reopen_db;
     ASSERT_TRUE(DB::Open(Options(), dbname, &reopen_db).IsInvalidArgument());
   }
   */
@@ -614,8 +616,8 @@ TEST_F(MergeTest, MergeWithCompactionAndFlush) {
   {
     auto db = OpenDb(dbname);
     {
-      MergeBasedCounters counters(db, 0);
-      testCountersWithFlushAndCompaction(counters, db.get());
+      MergeBasedCounters counters(db.get(), 0);
+      testCountersWithFlushAndCompaction(counters, db);
     }
   }
   ASSERT_OK(DestroyDB(dbname, Options()));

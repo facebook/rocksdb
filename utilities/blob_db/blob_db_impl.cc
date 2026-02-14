@@ -113,9 +113,8 @@ Status BlobDBImpl::CloseImpl() {
   // Close base DB before BlobDBImpl destructs to stop event listener and
   // compaction filter call.
   Status s = db_->Close();
-  // delete db_ anyway even if close failed.
-  delete db_;
-  // Reset pointers to avoid StackableDB delete the pointer again.
+  // Reset ownership to free the underlying DB.
+  shared_db_ptr_.reset();
   db_ = nullptr;
   db_impl_ = nullptr;
   if (!s.ok()) {
@@ -202,7 +201,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
   // Open base db.
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
-  s = DB::Open(db_options_, dbname_, {cf_descriptor}, handles, &db_);
+  std::unique_ptr<DB> db;
+  s = DB::Open(db_options_, dbname_, {cf_descriptor}, handles, &db);
+  if (s.ok()) {
+    shared_db_ptr_ = std::move(db);
+    db_ = shared_db_ptr_.get();
+  }
   if (!s.ok()) {
     return s;
   }

@@ -99,7 +99,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // Clear out auto-opened files
   dbfull()->TEST_table_cache()->EraseUnRefEntries();
   ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+  VerifyTableProperties(db_.get(), 10 + 11 + 12 + 13);
 
   // 2. Put two tables to table cache and
   Reopen(options);
@@ -112,7 +112,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     Get(std::to_string(i * 100 + 0));
   }
 
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+  VerifyTableProperties(db_.get(), 10 + 11 + 12 + 13);
 
   // 3. Put all tables to table cache
   Reopen(options);
@@ -120,7 +120,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   for (int i = 0; i < 4; ++i) {
     Get(std::to_string(i * 100 + 0));
   }
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+  VerifyTableProperties(db_.get(), 10 + 11 + 12 + 13);
 
   // 4. Try to read CORRUPT properties (a) directly from file, and (b)
   // through reader on Get

@@ -243,7 +243,7 @@ TEST_F(OptionsUtilTest, SanityCheck) {
   db_opt.create_if_missing = true;
 
   ASSERT_OK(DestroyDB(dbname_, Options(db_opt, cf_descs[0].options)));
-  DB* db;
+  std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   // open and persist the options
   ASSERT_OK(DB::Open(db_opt, dbname_, cf_descs, &handles, &db));
@@ -252,7 +252,7 @@ TEST_F(OptionsUtilTest, SanityCheck) {
   for (auto* handle : handles) {
     delete handle;
   }
-  delete db;
+  db.reset();
 
   ConfigOptions config_options;
   config_options.ignore_unknown_options = false;
@@ -435,7 +435,7 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
   DBOptions db_opts;
   std::vector<ColumnFamilyDescriptor> cf_descs;
   std::vector<ColumnFamilyHandle*> handles;
-  DB* db;
+  std::unique_ptr<DB> db;
   options.create_if_missing = true;
 
   ASSERT_OK(DestroyDB(dbname_, options));
@@ -495,7 +495,7 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
   for (auto* handle : handles) {
     delete handle;
   }
-  delete db;
+  db.reset();
   ASSERT_OK(DestroyDB(dbname_, options, cf_descs));
 }
 
@@ -639,7 +639,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
 }
 
 TEST_F(OptionsUtilTest, RenameDatabaseDirectory) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   DBOptions db_opts;
   std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -652,7 +652,7 @@ TEST_F(OptionsUtilTest, RenameDatabaseDirectory) {
 
   ASSERT_OK(DB::Open(options, dbname_, &db));
   ASSERT_OK(db->Put(WriteOptions(), "foo", "value0"));
-  delete db;
+  db.reset();
 
   auto new_dbname = dbname_ + "_2";
 
@@ -669,14 +669,14 @@ TEST_F(OptionsUtilTest, RenameDatabaseDirectory) {
   for (auto* handle : handles) {
     delete handle;
   }
-  delete db;
+  db.reset();
   Options new_options(db_opts, cf_descs[0].options);
   ASSERT_OK(DestroyDB(new_dbname, new_options, cf_descs));
   ASSERT_OK(DestroyDB(dbname_, options));
 }
 
 TEST_F(OptionsUtilTest, WalDirSettings) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   DBOptions db_opts;
   std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -689,14 +689,14 @@ TEST_F(OptionsUtilTest, WalDirSettings) {
 
   // Open a DB with no wal dir set.  The wal_dir should stay empty
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, "");
 
   // Open a DB with wal_dir == dbname.  The wal_dir should be set to empty
   options.wal_dir = dbname_;
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, "");
 
@@ -705,7 +705,7 @@ TEST_F(OptionsUtilTest, WalDirSettings) {
   options.wal_dir = "";
   options.db_paths.emplace_back(dbname_, std::numeric_limits<uint64_t>::max());
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, "");
 
@@ -714,7 +714,7 @@ TEST_F(OptionsUtilTest, WalDirSettings) {
   options.wal_dir = dbname_ + "/";
   options.db_paths.emplace_back(dbname_, std::numeric_limits<uint64_t>::max());
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, "");
   ASSERT_OK(DestroyDB(dbname_, options));
@@ -725,7 +725,7 @@ TEST_F(OptionsUtilTest, WalDirSettings) {
   options.db_paths.emplace_back(dbname_ + "_0",
                                 std::numeric_limits<uint64_t>::max());
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, dbname_);
   ASSERT_OK(DestroyDB(dbname_, options));
@@ -734,14 +734,14 @@ TEST_F(OptionsUtilTest, WalDirSettings) {
   options.wal_dir = dbname_ + "/wal";
   options.db_paths.clear();
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, dbname_ + "/wal");
   ASSERT_OK(DestroyDB(dbname_, options));
 }
 
 TEST_F(OptionsUtilTest, WalDirInOptins) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   DBOptions db_opts;
   std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -755,7 +755,7 @@ TEST_F(OptionsUtilTest, WalDirInOptins) {
   options.create_if_missing = true;
   options.wal_dir = "";
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   options.wal_dir = dbname_;
   std::string options_file;
   ASSERT_OK(GetLatestOptionsFileName(dbname_, options.env, &options_file));
@@ -766,7 +766,7 @@ TEST_F(OptionsUtilTest, WalDirInOptins) {
   ASSERT_EQ(db_opts.wal_dir, dbname_);
   options.wal_dir = "";
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  delete db;
+  db.reset();
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, "");
 }

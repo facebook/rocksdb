@@ -2574,7 +2574,7 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
         ReadOptions read_options;
         std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
         if (explicit_snapshot) {
-          snapshot = std::make_unique<ManagedSnapshot>(db_);
+          snapshot = std::make_unique<ManagedSnapshot>(db_.get());
         }
         read_options.snapshot =
             explicit_snapshot ? snapshot->snapshot() : nullptr;

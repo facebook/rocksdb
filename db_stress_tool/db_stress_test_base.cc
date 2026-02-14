@@ -74,7 +74,6 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      secondary_db_(nullptr),
       is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
     const Status s = DbStressDestroyDb(FLAGS_db);
@@ -98,11 +97,10 @@ void StressTest::CleanUp() {
   if (db_) {
     db_->Close();
   }
-  delete db_;
+  db_owner_.reset();
   db_ = nullptr;
 
-  delete secondary_db_;
-  secondary_db_ = nullptr;
+  secondary_db_.reset();
 }
 
 void StressTest::CleanUpColumnFamilies() {
@@ -753,12 +751,11 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   }
   if (s.ok()) {
     CleanUpColumnFamilies();
-    delete db_;
+    db_owner_.reset();
     db_ = nullptr;
     txn_db_ = nullptr;
     optimistic_txn_db_ = nullptr;
-    delete secondary_db_;
-    secondary_db_ = nullptr;
+    secondary_db_.reset();
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -2506,7 +2503,7 @@ Status StressTest::TestBackupRestore(
       from = "BackupEngine::PurgeOldBackups";
     }
   }
-  DB* restored_db = nullptr;
+  std::unique_ptr<DB> restored_db;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
 
   // Not yet implemented: opening restored BlobDB or TransactionDB
@@ -2594,8 +2591,7 @@ Status StressTest::TestBackupRestore(
     for (auto* cf_handle : restored_cf_handles) {
       restored_db->DestroyColumnFamilyHandle(cf_handle);
     }
-    delete restored_db;
-    restored_db = nullptr;
+    restored_db.reset();
   }
   if (s.ok() && inplace_not_restore) {
     // Purge late if inplace open read-only
@@ -2830,7 +2826,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   delete checkpoint;
   checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
-  DB* checkpoint_db = nullptr;
+  std::unique_ptr<DB> checkpoint_db;
   if (s.ok()) {
     Options options(options_);
     options.best_efforts_recovery = false;
@@ -2894,8 +2890,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       delete cfh;
     }
     cf_handles.clear();
-    delete checkpoint_db;
-    checkpoint_db = nullptr;
+    checkpoint_db.reset();
   }
 
   //  Temporarily disable error injection for clean-up
@@ -3871,15 +3866,20 @@ void StressTest::Open(SharedState* shared, bool reopen) {
                                     cf_descriptors, &column_families_,
                                     &blob_db);
           if (s.ok()) {
+            db_owner_.reset(blob_db);
             db_ = blob_db;
           }
         } else {
           if (db_preload_finished_.load() && FLAGS_read_only) {
             s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
-                                    cf_descriptors, &column_families_, &db_);
+                                    cf_descriptors, &column_families_,
+                                    &db_owner_);
           } else {
             s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-                         &column_families_, &db_);
+                         &column_families_, &db_owner_);
+          }
+          if (s.ok()) {
+            db_ = db_owner_.get();
           }
         }
 
@@ -3895,10 +3895,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             s = db_->GetRootDB()->WaitForCompact(WaitForCompactOptions());
             if (!s.ok()) {
               CleanUpColumnFamilies();
-              delete db_;
+              db_owner_.reset();
               db_ = nullptr;
-              delete secondary_db_;
-              secondary_db_ = nullptr;
+              secondary_db_.reset();
             }
           }
           if (!s.ok()) {
@@ -3955,6 +3954,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
         assert(s.ok());
         {
+          db_owner_.reset(optimistic_txn_db_);
           db_ = optimistic_txn_db_;
           db_aptr_.store(optimistic_txn_db_, std::memory_order_release);
         }
@@ -3990,6 +3990,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
         // Do not swap the order of the following.
         {
+          db_owner_.reset(txn_db_);
           db_ = txn_db_;
           db_aptr_.store(txn_db_, std::memory_order_release);
         }
@@ -4028,6 +4029,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   } else {
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
+    db_owner_.reset(db_with_ttl);
     db_ = db_with_ttl;
   }
 
@@ -4107,12 +4109,11 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert((txn_db_ == nullptr && optimistic_txn_db_ == nullptr) ||
          (db_ == txn_db_ || db_ == optimistic_txn_db_));
-  delete db_;
+  db_owner_.reset();
   db_ = nullptr;
   txn_db_ = nullptr;
   optimistic_txn_db_ = nullptr;
-  delete secondary_db_;
-  secondary_db_ = nullptr;
+  secondary_db_.reset();
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();

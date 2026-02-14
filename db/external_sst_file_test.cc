@@ -80,8 +80,7 @@ class ExternSSTFileLinkFailFallbackTest
   }
 
   void TearDown() override {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, options_));
   }
 
@@ -4040,7 +4039,7 @@ TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
       std::string db2_path = test::PerThreadDBPath("DB2");
       Options db2_options;
       db2_options.create_if_missing = true;
-      DB* db2 = nullptr;
+      std::unique_ptr<DB> db2;
       ASSERT_OK(DB::Open(db2_options, db2_path, &db2));
       // Write some base data.
       expected_value.emplace_back(rnd.RandomString(100));
@@ -4069,10 +4068,10 @@ TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
       ASSERT_OK(db_->DropColumnFamily(temp_cfh));
       ASSERT_OK(db_->DestroyColumnFamilyHandle(temp_cfh));
       ASSERT_OK(db2->Close());
-      delete db2;
+      db2.reset();
       ASSERT_OK(DB::Open(db2_options, db2_path, &db2));
       ASSERT_OK(db2->Close());
-      delete db2;
+      db2.reset();
       ASSERT_OK(DestroyDB(db2_path, db2_options));
     } else {
       ASSERT_OK(db_->DropColumnFamily(temp_cfh));
@@ -4135,6 +4134,7 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     // Create temp CF/DB
     Options temp_cf_opts;
     ColumnFamilyHandle* temp_cfh = nullptr;
+    std::unique_ptr<DB> temp_db_holder;
     DB* from_db = nullptr;
     std::string temp_db_name;
     // Using a separate DB also validates that latest sequence number
@@ -4155,10 +4155,11 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     if (use_temp_db) {
       temp_cf_opts.create_if_missing = true;
       temp_db_name = dbname_ + "/temp_db_" + std::to_string(rnd->Next());
-      ASSERT_OK(DB::Open(temp_cf_opts, temp_db_name, &from_db));
+      ASSERT_OK(DB::Open(temp_cf_opts, temp_db_name, &temp_db_holder));
+      from_db = temp_db_holder.get();
       temp_cfh = from_db->DefaultColumnFamily();
     } else {
-      from_db = db_;
+      from_db = db_.get();
       ASSERT_OK(
           from_db->CreateColumnFamily(temp_cf_opts, "temp_cf", &temp_cfh));
     }
@@ -4293,7 +4294,7 @@ TEST_P(IngestDBGeneratedFileTest2, NonZeroSeqno) {
     ASSERT_OK(db_->WaitForCompact({}));
     if (use_temp_db) {
       ASSERT_OK(from_db->Close());
-      delete from_db;
+      temp_db_holder.reset();
       ASSERT_OK(DestroyDB(temp_db_name, temp_cf_opts));
     } else {
       ASSERT_OK(db_->DropColumnFamily(temp_cfh));
@@ -4381,7 +4382,7 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
 
     std::string temp_db_name =
         dbname_ + "/temp_db_" + std::to_string(rnd->Next());
-    DB* temp_db = nullptr;
+    std::unique_ptr<DB> temp_db;
     ASSERT_OK(DB::Open(temp_db_opts, temp_db_name, &temp_db));
 
     const Snapshot* snapshot = db_->GetSnapshot();
@@ -4444,7 +4445,7 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
     ASSERT_OK(temp_db->CompactRange(cro, nullptr, nullptr));
     SCOPED_TRACE("Temp DB LSM: " +
-                 FilesPerLevel(temp_db->DefaultColumnFamily(), temp_db));
+                 FilesPerLevel(temp_db->DefaultColumnFamily(), temp_db.get()));
 
     // Base data from snapshot
     std::vector<std::string> sst_file_paths_zero_seqno;
@@ -4539,7 +4540,7 @@ TEST_P(IngestDBGeneratedFileTest2, ZeroAndNonZeroSeqno) {
     ASSERT_OK(db_->DestroyColumnFamilyHandle(live_write_cfh));
 
     ASSERT_OK(temp_db->Close());
-    delete temp_db;
+    temp_db.reset();
     ASSERT_OK(DestroyDB(temp_db_name, temp_db_opts));
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }

@@ -33,12 +33,12 @@ std::string ValueWithWriteTime(std::string value, uint64_t write_time) {
 class MemTableListTest : public testing::Test {
  public:
   std::string dbname;
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   std::vector<ColumnFamilyHandle*> handles;
   std::atomic<uint64_t> file_number;
 
-  MemTableListTest() : db(nullptr), file_number(1) {
+  MemTableListTest() : file_number(1) {
     dbname = test::PerThreadDBPath("memtable_list_test");
     options.create_if_missing = true;
     EXPECT_OK(DestroyDB(dbname, options));
@@ -88,8 +88,7 @@ class MemTableListTest : public testing::Test {
         }
       }
       handles.clear();
-      delete db;
-      db = nullptr;
+      db.reset();
       EXPECT_OK(DestroyDB(dbname, options, cf_descs));
     }
   }

@@ -1072,7 +1072,7 @@ class DBTestBase : public testing::Test {
   SpecialEnv* env_;
   std::shared_ptr<Env> env_read_only_;
   std::shared_ptr<Env> env_guard_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   std::vector<ColumnFamilyHandle*> handles_;
 
   int option_config_;
@@ -1157,7 +1157,7 @@ class DBTestBase : public testing::Test {
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);

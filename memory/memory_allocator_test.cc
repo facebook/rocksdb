@@ -83,7 +83,7 @@ TEST_P(MemoryAllocatorTest, DatabaseBlockCache) {
   auto cache = NewLRUCache(1024 * 1024, 6, false, 0.0, allocator_);
   table_options.block_cache = cache;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
@@ -115,7 +115,7 @@ TEST_P(MemoryAllocatorTest, DatabaseBlockCache) {
   // Close database
   s = db->Close();
   ASSERT_OK(s);
-  delete db;
+  db.reset();
   ASSERT_OK(DestroyDB(dbname, options));
 }
 

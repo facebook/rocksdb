@@ -2058,6 +2058,7 @@ static void AppendWithSpace(std::string* str, Slice msg) {
 
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
+  std::unique_ptr<DB> db_owner;
   DB* db;
   OptimisticTransactionDB* opt_txn_db;
   std::atomic<size_t> num_created;  // Need to be updated after all the
@@ -2087,13 +2088,9 @@ struct DBWithColumnFamilies {
     std::for_each(cfh.begin(), cfh.end(),
                   [](ColumnFamilyHandle* cfhi) { delete cfhi; });
     cfh.clear();
-    if (opt_txn_db) {
-      delete opt_txn_db;
-      opt_txn_db = nullptr;
-    } else {
-      delete db;
-      db = nullptr;
-    }
+    db_owner.reset();
+    db = nullptr;
+    opt_txn_db = nullptr;
   }
 
   ColumnFamilyHandle* GetCfh(int64_t rand_num) {
@@ -3412,8 +3409,8 @@ class Benchmark {
 
   void DeleteDBs() {
     db_.DeleteDBs();
-    for (const DBWithColumnFamilies& dbwcf : multi_dbs_) {
-      delete dbwcf.db;
+    for (auto& dbwcf : multi_dbs_) {
+      dbwcf.DeleteDBs();
     }
   }
 
@@ -3518,11 +3515,13 @@ class Benchmark {
 
   void VerifyDBFromDB(std::string& truth_db_name) {
     DBWithColumnFamilies truth_db;
-    auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
+    auto s =
+        DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db_owner);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       db_bench_exit(1);
     }
+    truth_db.db = truth_db.db_owner.get();
     ReadOptions ro;
     ro.total_order_seek = true;
     std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
@@ -3903,7 +3902,7 @@ class Benchmark {
           }
           Options options = open_options_;
           for (size_t i = 0; i < multi_dbs_.size(); i++) {
-            delete multi_dbs_[i].db;
+            multi_dbs_[i].DeleteDBs();
             if (!open_options_.wal_dir.empty()) {
               options.wal_dir = GetPathForMultiple(open_options_.wal_dir, i);
             }
@@ -5136,11 +5135,15 @@ class Benchmark {
       }
       if (FLAGS_readonly) {
         s = hooks.OpenForReadOnly(options, db_name, column_families, &db->cfh,
-                                  &db->db);
+                                  &db->db_owner);
+        if (s.ok()) {
+          db->db = db->db_owner.get();
+        }
       } else if (FLAGS_optimistic_transaction_db) {
         s = hooks.OpenOptimisticTransactionDB(options, db_name, column_families,
                                               &db->cfh, &db->opt_txn_db);
         if (s.ok()) {
+          db->db_owner.reset(db->opt_txn_db);
           db->db = db->opt_txn_db->GetBaseDB();
         }
       } else if (FLAGS_transaction_db) {
@@ -5154,20 +5157,29 @@ class Benchmark {
         s = hooks.OpenTransactionDB(options, txn_db_options, db_name,
                                     column_families, &db->cfh, &ptr);
         if (s.ok()) {
+          db->db_owner.reset(ptr);
           db->db = ptr;
         }
       } else {
-        s = hooks.Open(options, db_name, column_families, &db->cfh, &db->db);
+        s = hooks.Open(options, db_name, column_families, &db->cfh,
+                       &db->db_owner);
+        if (s.ok()) {
+          db->db = db->db_owner.get();
+        }
       }
       db->cfh.resize(FLAGS_num_column_families);
       db->num_created = num_hot;
       db->num_hot = num_hot;
       db->cfh_idx_to_prob = std::move(cfh_idx_to_prob);
     } else if (FLAGS_readonly) {
-      s = hooks.OpenForReadOnly(options, db_name, &db->db, false);
+      s = hooks.OpenForReadOnly(options, db_name, &db->db_owner, false);
+      if (s.ok()) {
+        db->db = db->db_owner.get();
+      }
     } else if (FLAGS_optimistic_transaction_db) {
       s = hooks.OpenOptimisticTransactionDB(options, db_name, &db->opt_txn_db);
       if (s.ok()) {
+        db->db_owner.reset(db->opt_txn_db);
         db->db = db->opt_txn_db->GetBaseDB();
       }
     } else if (FLAGS_transaction_db) {
@@ -5183,6 +5195,7 @@ class Benchmark {
         s = hooks.OpenTransactionDB(options, txn_db_options, db_name, &ptr);
       }
       if (s.ok()) {
+        db->db_owner.reset(ptr);
         db->db = ptr;
       }
     } else if (FLAGS_use_blob_db) {
@@ -5195,6 +5208,7 @@ class Benchmark {
       blob_db::BlobDB* ptr = nullptr;
       s = hooks.Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
+        db->db_owner.reset(ptr);
         db->db = ptr;
       }
     } else if (FLAGS_use_secondary_db) {
@@ -5205,7 +5219,10 @@ class Benchmark {
         FLAGS_secondary_path = default_secondary_path;
       }
       s = hooks.OpenAsSecondary(options, db_name, FLAGS_secondary_path,
-                                &db->db);
+                                &db->db_owner);
+      if (s.ok()) {
+        db->db = db->db_owner.get();
+      }
       if (s.ok() && FLAGS_secondary_update_interval > 0) {
         secondary_update_thread_.reset(new port::Thread(
             [this](int interval, DBWithColumnFamilies* _db) {
@@ -5225,13 +5242,16 @@ class Benchmark {
             FLAGS_secondary_update_interval, db));
       }
     } else if (FLAGS_open_as_follower) {
-      std::unique_ptr<DB> dbptr;
-      s = hooks.OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
+      s = hooks.OpenAsFollower(options, db_name, FLAGS_leader_path,
+                               &db->db_owner);
       if (s.ok()) {
-        db->db = dbptr.release();
+        db->db = db->db_owner.get();
       }
     } else {
-      s = hooks.Open(options, db_name, &db->db);
+      s = hooks.Open(options, db_name, &db->db_owner);
+      if (s.ok()) {
+        db->db = db->db_owner.get();
+      }
     }
     if (FLAGS_report_open_timing) {
       std::cout << "OpenDb:     "
