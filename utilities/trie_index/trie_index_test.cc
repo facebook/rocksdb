@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -2092,12 +2093,12 @@ TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearch) {
   for (size_t i = 0; i < kNumLookups; i++) {
     trie_iter.Seek(targets[i]);
     if (trie_iter.Valid()) {
-      trie_checksum += trie_iter.LeafIndex();
+      trie_checksum = trie_checksum + trie_iter.LeafIndex();
     }
   }
   auto t1 = std::chrono::high_resolution_clock::now();
-  double trie_ns =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+  double trie_ns = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
   double trie_per_seek = trie_ns / kNumLookups;
   double trie_ops_sec = 1e9 / trie_per_seek;
 
@@ -2116,8 +2117,8 @@ TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearch) {
     }
   }
   auto t3 = std::chrono::high_resolution_clock::now();
-  double bs_ns =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
+  double bs_ns = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count());
   double bs_per_seek = bs_ns / kNumLookups;
   double bs_ops_sec = 1e9 / bs_per_seek;
 
@@ -2139,7 +2140,7 @@ TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearch) {
           "  Trie Seek:     %.1f ns/op  (%.0f ops/sec)\n"
           "  Binary Search: %.1f ns/op  (%.0f ops/sec)\n"
           "  Delta:         %+.1f%% (%s)\n"
-          "  (checksum: trie=%llu, bs=%llu)\n\n",
+          "  (checksum: trie=%" PRIu64 ", bs=%" PRIu64 ")\n\n",
           kNumKeys, kKeySize, kNumLookups, trie_per_seek, trie_ops_sec,
           bs_per_seek, bs_ops_sec, speedup,
           speedup > 0 ? "TRIE WINS" : "binary search wins", trie_checksum,
@@ -2192,7 +2193,9 @@ TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearchVariousSizes) {
     }
     auto t1 = std::chrono::high_resolution_clock::now();
     double trie_ns =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() /
+        static_cast<double>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0)
+                .count()) /
         static_cast<double>(kNumLookups);
 
     // Binary search benchmark
@@ -2209,7 +2212,9 @@ TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearchVariousSizes) {
     }
     auto t3 = std::chrono::high_resolution_clock::now();
     double bs_ns =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count() /
+        static_cast<double>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2)
+                .count()) /
         static_cast<double>(kNumLookups);
 
     double speedup = (bs_ns - trie_ns) / bs_ns * 100.0;
