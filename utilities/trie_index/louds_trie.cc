@@ -496,21 +496,30 @@ void LoudsTrieBuilder::SerializeAll() {
     }
   }
 
-  // Block handles: stored as two fixed-width uint64_t arrays for zero-copy
-  // loading. This trades ~2x space (fixed 16 bytes vs ~6 bytes varint avg)
-  // for O(1) load time instead of O(N) decode loop.
+  // Block handles: packed uint32_t arrays for offsets and sizes.
+  // BFS leaf order does not match key-sorted order for keys of different
+  // lengths, so offsets are NOT monotone and cannot use Elias-Fano.
   {
-    // Ensure 8-byte alignment for the arrays
-    size_t padding = (8 - (serialized_data_.size() % 8)) % 8;
-    serialized_data_.append(padding, '\0');
+    if (!handles_.empty()) {
+      size_t n = handles_.size();
+      // Write offsets array (uint32_t, padded to 8-byte alignment).
+      for (size_t i = 0; i < n; i++) {
+        assert(handles_[i].offset <= UINT32_MAX);
+        PutFixed32(&serialized_data_,
+                   static_cast<uint32_t>(handles_[i].offset));
+      }
+      size_t bytes_written = n * sizeof(uint32_t);
+      size_t padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
 
-    // Write offsets array (num_keys * 8 bytes)
-    for (const auto& h : handles_) {
-      PutFixed64(&serialized_data_, h.offset);
-    }
-    // Write sizes array (num_keys * 8 bytes)
-    for (const auto& h : handles_) {
-      PutFixed64(&serialized_data_, h.size);
+      // Write sizes array (uint32_t, padded to 8-byte alignment).
+      for (size_t i = 0; i < n; i++) {
+        assert(handles_[i].size <= UINT32_MAX);
+        PutFixed32(&serialized_data_, static_cast<uint32_t>(handles_[i].size));
+      }
+      bytes_written = n * sizeof(uint32_t);
+      padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
     }
   }
 }
@@ -685,25 +694,33 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     }
   }
 
-  // Block handles: zero-copy pointer cast into fixed-width arrays.
-  // Skip alignment padding (written during serialization).
-  {
-    size_t padding = (8 - (reinterpret_cast<uintptr_t>(p) % 8)) % 8;
-    if (remaining < padding) {
-      return Status::Corruption("Trie index: truncated handle alignment");
+  // Block handles: packed uint32_t arrays for offsets and sizes.
+  if (num_keys_ > 0) {
+    size_t arr_bytes = num_keys_ * sizeof(uint32_t);
+    size_t arr_padded = (arr_bytes + 7) & ~size_t(7);
+
+    // Read offsets array.
+    if (remaining < arr_padded) {
+      return Status::Corruption("Trie index: truncated handle offsets");
     }
-    p += padding;
-    remaining -= padding;
-  }
+    if (reinterpret_cast<uintptr_t>(p) % alignof(uint32_t) != 0) {
+      return Status::Corruption("Trie index: handle offsets not aligned");
+    }
+    handle_offsets_ = reinterpret_cast<const uint32_t*>(p);
+    p += arr_padded;
+    remaining -= arr_padded;
 
-  // Validate that we have enough data for both arrays (16 bytes per key).
-  if (num_keys_ > 0 && remaining < num_keys_ * 16) {
-    return Status::Corruption("Trie index: truncated handle arrays");
+    // Read sizes array.
+    if (remaining < arr_padded) {
+      return Status::Corruption("Trie index: truncated handle sizes");
+    }
+    if (reinterpret_cast<uintptr_t>(p) % alignof(uint32_t) != 0) {
+      return Status::Corruption("Trie index: handle sizes not aligned");
+    }
+    handle_sizes_ = reinterpret_cast<const uint32_t*>(p);
+    p += arr_padded;
+    remaining -= arr_padded;
   }
-
-  // Zero-copy: just point into the serialized data.
-  handle_offsets_ = reinterpret_cast<const uint64_t*>(p);
-  handle_sizes_ = reinterpret_cast<const uint64_t*>(p + num_keys_ * 8);
 
   return Status::OK();
 }

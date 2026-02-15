@@ -29,8 +29,8 @@
 //  - Immutable: Built once from sorted keys during SST file construction.
 //  - Flat-array layout: The entire trie is stored as a sequence of bitvectors,
 //    making serialization trivial and enabling zero-copy reads from disk.
-//  - Leaf-indexed: Each trie leaf maps to a data block handle via a dense
-//    array of BlockHandles, indexed by the leaf's rank in the bitvector.
+//  - Leaf-indexed: Each trie leaf maps to a data block handle via packed
+//    uint32_t offset/size arrays, indexed by the leaf's BFS ordinal.
 //  - Key reconstruction: The separator key is reconstructed by tracing
 //    the path from root to the current leaf, collecting byte labels at
 //    each level. Dense levels encode the label in the bit position
@@ -270,12 +270,17 @@ class LoudsTrie {
   std::vector<uint32_t> s_child_start_pos_;
   std::vector<uint32_t> s_child_end_pos_;
 
-  // Block handles: zero-copy pointers into serialized data.
-  // Stored as two aligned uint64_t arrays: offsets followed by sizes.
-  // This enables O(1) initialization (just pointer assignment) instead of
-  // O(N) decode loop, matching the zero-copy approach of xcdat/MARISA.
-  const uint64_t* handle_offsets_;
-  const uint64_t* handle_sizes_;
+  // Block handles: packed uint32_t arrays for data block offsets and sizes.
+  // BFS leaf order does not necessarily match key-sorted order (deeper leaves
+  // appear later in BFS even if they precede shallower leaves
+  // lexicographically), so offsets are NOT monotonically non-decreasing and
+  // cannot use Elias-Fano encoding. Instead, we store offsets and sizes as
+  // packed uint32_t arrays for O(1) random access.
+  //
+  // uint32_t limits individual values to ~4 GB, which is sufficient since
+  // RocksDB SST files are typically 64 MB to 1 GB and never exceed 4 GB.
+  const uint32_t* handle_offsets_;
+  const uint32_t* handle_sizes_;
 };
 
 // ============================================================================

@@ -18,27 +18,37 @@ namespace trie_index {
 // ============================================================================
 // Bitvector serialization format:
 //
-//   [num_bits   : uint64_t (fixed 8 bytes)]
-//   [num_ones   : uint64_t (fixed 8 bytes)]
-//   [words      : num_words * 8 bytes, where num_words = ceil(num_bits/64)]
-//   [rank_lut   : num_rank_samples * 4 bytes (uint32_t entries), padded to 8]
+//   [num_bits      : uint64_t (fixed 8 bytes)]
+//   [num_ones      : uint64_t (fixed 8 bytes)]
+//   [words         : num_words * 8 bytes, where num_words = ceil(num_bits/64)]
+//   [rank_lut      : num_rank_samples * 4 bytes (uint32_t), padded to 8]
+//   [select1_hints : num_select1_hints * 4 bytes (uint32_t), padded to 8]
+//   [select0_hints : num_select0_hints * 4 bytes (uint32_t), padded to 8]
 //
 // num_rank_samples = num_bits / kBitsPerRankSample + 1
+//   (The +1 is for the sentinel entry at the end that stores total popcount.)
 //
-// The +1 for rank samples is for the sentinel entry at the end that stores
-// total popcount.
+// num_select1_hints = ceil(num_ones / kOnesPerSelectHint) if num_ones > 0,
+//   else 0. Analogously for num_select0_hints with (num_bits - num_ones).
 //
 // Using uint32_t for rank LUT entries halves the LUT memory overhead compared
 // to uint64_t. See bitvector.h for why this is safe for trie index bitvectors.
 // ============================================================================
 
 size_t Bitvector::SerializedSize() const {
-  // 2 uint64_t for header + words (uint64_t) + rank LUT (uint32_t).
-  // Rank LUT is padded to 8-byte alignment so the next data structure in the
-  // serialized buffer starts at an 8-byte boundary.
+  // Header: 2 uint64_t (num_bits, num_ones).
+  // Words: num_words * 8 bytes.
+  // Rank LUT: num_rank_samples * 4 bytes, padded to 8.
+  // Select1 hints: num_select1_hints * 4 bytes, padded to 8.
+  // Select0 hints: num_select0_hints * 4 bytes, padded to 8.
   size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
-  size_t rank_padded = (rank_bytes + 7) & ~size_t(7);  // round up to 8
-  return 2 * sizeof(uint64_t) + num_words_ * sizeof(uint64_t) + rank_padded;
+  size_t rank_padded = (rank_bytes + 7) & ~size_t(7);
+  size_t s1_bytes = num_select1_hints_ * sizeof(uint32_t);
+  size_t s1_padded = (s1_bytes + 7) & ~size_t(7);
+  size_t s0_bytes = num_select0_hints_ * sizeof(uint32_t);
+  size_t s0_padded = (s0_bytes + 7) & ~size_t(7);
+  return 2 * sizeof(uint64_t) + num_words_ * sizeof(uint64_t) + rank_padded +
+         s1_padded + s0_padded;
 }
 
 void Bitvector::Serialize(std::string* output) const {
@@ -59,16 +69,23 @@ void Bitvector::Serialize(std::string* output) const {
     dst += num_words_ * sizeof(uint64_t);
   }
 
-  // Write rank LUT (uint32_t entries) with padding to 8-byte alignment.
-  if (num_rank_samples_ > 0) {
-    size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
-    memcpy(dst, rank_lut_, rank_bytes);
-    // Zero-fill padding bytes (if any) to maintain deterministic output.
-    size_t rank_padded = (rank_bytes + 7) & ~size_t(7);
-    if (rank_padded > rank_bytes) {
-      memset(dst + rank_bytes, 0, rank_padded - rank_bytes);
+  // Helper lambda to write a uint32_t array with 8-byte aligned padding.
+  auto write_u32_array = [&](const uint32_t* arr, uint64_t count) {
+    if (count > 0) {
+      size_t bytes = count * sizeof(uint32_t);
+      memcpy(dst, arr, bytes);
+      size_t padded = (bytes + 7) & ~size_t(7);
+      if (padded > bytes) {
+        memset(dst + bytes, 0, padded - bytes);
+      }
+      dst += padded;
     }
-  }
+  };
+
+  // Write rank LUT, select1 hints, select0 hints.
+  write_u32_array(rank_lut_, num_rank_samples_);
+  write_u32_array(select1_hints_, num_select1_hints_);
+  write_u32_array(select0_hints_, num_select0_hints_);
 }
 
 Status Bitvector::InitFromData(const char* data, size_t data_size,
@@ -99,6 +116,13 @@ Status Bitvector::InitFromData(const char* data, size_t data_size,
   // Compute derived sizes
   num_words_ = (num_bits_ + 63) / 64;
   num_rank_samples_ = num_bits_ / kBitsPerRankSample + 1;
+  // Select hints: ceil(count / kOnesPerSelectHint) entries for ones/zeros.
+  // If there are 0 ones (or 0 zeros), there are 0 hints.
+  num_select1_hints_ =
+      (num_ones_ > 0) ? (num_ones_ - 1) / kOnesPerSelectHint + 1 : 0;
+  uint64_t num_zeros = num_bits_ - num_ones_;
+  num_select0_hints_ =
+      (num_zeros > 0) ? (num_zeros - 1) / kOnesPerSelectHint + 1 : 0;
 
   // Read words
   size_t words_bytes = num_words_ * sizeof(uint64_t);
@@ -115,17 +139,36 @@ Status Bitvector::InitFromData(const char* data, size_t data_size,
   data += words_bytes;
   data_size -= words_bytes;
 
-  // Read rank LUT (uint32_t entries, padded to 8-byte alignment)
-  size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
-  size_t rank_padded = (rank_bytes + 7) & ~size_t(7);
-  if (data_size < rank_padded) {
-    return Status::Corruption("Bitvector: insufficient data for rank LUT");
-  }
-  if (reinterpret_cast<uintptr_t>(data) % alignof(uint32_t) != 0) {
-    return Status::Corruption("Bitvector: rank LUT not 4-byte aligned");
-  }
-  rank_lut_ = reinterpret_cast<const uint32_t*>(data);
-  data += rank_padded;
+  // Helper lambda: read a padded uint32_t array from the stream.
+  auto read_u32_array = [&](const uint32_t** out, uint64_t count,
+                            const char* name) -> Status {
+    if (count == 0) {
+      *out = nullptr;
+      return Status::OK();
+    }
+    size_t bytes = count * sizeof(uint32_t);
+    size_t padded = (bytes + 7) & ~size_t(7);
+    if (data_size < padded) {
+      return Status::Corruption(
+          std::string("Bitvector: insufficient data for ") + name);
+    }
+    if (reinterpret_cast<uintptr_t>(data) % alignof(uint32_t) != 0) {
+      return Status::Corruption(std::string("Bitvector: ") + name +
+                                " not 4-byte aligned");
+    }
+    *out = reinterpret_cast<const uint32_t*>(data);
+    data += padded;
+    data_size -= padded;
+    return Status::OK();
+  };
+
+  Status s;
+  s = read_u32_array(&rank_lut_, num_rank_samples_, "rank LUT");
+  if (!s.ok()) return s;
+  s = read_u32_array(&select1_hints_, num_select1_hints_, "select1 hints");
+  if (!s.ok()) return s;
+  s = read_u32_array(&select0_hints_, num_select0_hints_, "select0 hints");
+  if (!s.ok()) return s;
 
   *bytes_consumed = static_cast<size_t>(data - start);
 
@@ -137,25 +180,40 @@ void Bitvector::BuildFrom(const BitvectorBuilder& builder) {
   num_words_ = (num_bits_ + 63) / 64;
   num_rank_samples_ = num_bits_ / kBitsPerRankSample + 1;
 
-  // Allocate owned storage for words + rank LUT in a single buffer.
+  // We need to build rank LUT first to know num_ones_, then compute hint
+  // counts. Two-pass: first allocate for words + rank LUT, build rank LUT
+  // to get num_ones_, then resize to include select hints.
   size_t words_bytes = num_words_ * sizeof(uint64_t);
   size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
-  owned_data_.resize(words_bytes + rank_bytes, '\0');
 
-  // Copy words
+  // Phase 1: allocate words + rank LUT.
+  owned_data_.resize(words_bytes + rank_bytes, '\0');
   if (num_words_ > 0) {
     memcpy(&owned_data_[0], builder.Words().data(), words_bytes);
   }
   words_ = reinterpret_cast<const uint64_t*>(owned_data_.data());
   rank_lut_ =
       reinterpret_cast<const uint32_t*>(owned_data_.data() + words_bytes);
-
-  // words_bytes is always a multiple of 8 (num_words_ * 8), and std::string
-  // allocators typically return 8+ byte aligned memory, so rank_lut_ should
-  // be at least 4-byte aligned.
   assert(reinterpret_cast<uintptr_t>(rank_lut_) % alignof(uint32_t) == 0);
 
   BuildRankLUT();
+
+  // Phase 2: compute hint counts and reallocate to include them.
+  num_select1_hints_ =
+      (num_ones_ > 0) ? (num_ones_ - 1) / kOnesPerSelectHint + 1 : 0;
+  uint64_t num_zeros = num_bits_ - num_ones_;
+  num_select0_hints_ =
+      (num_zeros > 0) ? (num_zeros - 1) / kOnesPerSelectHint + 1 : 0;
+
+  size_t s1_bytes = num_select1_hints_ * sizeof(uint32_t);
+  size_t s0_bytes = num_select0_hints_ * sizeof(uint32_t);
+  owned_data_.resize(words_bytes + rank_bytes + s1_bytes + s0_bytes, '\0');
+
+  // Recompute all pointers after resize (string may have reallocated).
+  RecomputePointers();
+  assert(reinterpret_cast<uintptr_t>(rank_lut_) % alignof(uint32_t) == 0);
+
+  BuildSelectHints();
 }
 
 void Bitvector::BuildRankLUT() {
@@ -181,42 +239,41 @@ void Bitvector::BuildRankLUT() {
   num_ones_ = cumulative;
 }
 
-uint64_t Bitvector::Select1(uint64_t i) const {
-  if (i >= num_ones_) {
-    return num_bits_;
-  }
-
-  // Binary search on the rank LUT to find the sample interval containing
-  // the i-th 1-bit. This is O(log(n/kBitsPerRankSample)) in practice.
-  uint64_t lo = 0;
-  uint64_t hi = num_rank_samples_ - 1;
-  while (lo < hi) {
-    uint64_t mid = lo + (hi - lo + 1) / 2;
-    if (rank_lut_[mid] <= i) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
+void Bitvector::BuildSelectHints() {
+  // Build select1 hints: for each k, select1_hints_[k] is the rank LUT
+  // index of the sample interval containing the (k * kOnesPerSelectHint)-th
+  // 1-bit.
+  if (num_select1_hints_ > 0) {
+    uint32_t* hints = const_cast<uint32_t*>(select1_hints_);
+    uint64_t sample_idx = 0;
+    for (uint64_t k = 0; k < num_select1_hints_; k++) {
+      uint64_t target = k * kOnesPerSelectHint;
+      // Advance sample_idx until rank_lut_[sample_idx+1] > target.
+      while (sample_idx + 1 < num_rank_samples_ &&
+             rank_lut_[sample_idx + 1] <= target) {
+        sample_idx++;
+      }
+      hints[k] = static_cast<uint32_t>(sample_idx);
     }
   }
 
-  // Now rank_lut_[lo] <= i < rank_lut_[lo+1] (if lo+1 exists).
-  // Scan words starting from the lo-th sample interval.
-  uint64_t remaining = i - rank_lut_[lo];
-  uint64_t word_start = lo * kWordsPerRankSample;
-  uint64_t word_end = std::min(word_start + kWordsPerRankSample, num_words_);
-
-  for (uint64_t w = word_start; w < word_end; w++) {
-    uint64_t pc = Popcount(words_[w]);
-    if (remaining < pc) {
-      return w * 64 + Select64(words_[w], remaining);
+  // Build select0 hints analogously using zero counts.
+  if (num_select0_hints_ > 0) {
+    uint32_t* hints = const_cast<uint32_t*>(select0_hints_);
+    uint64_t sample_idx = 0;
+    for (uint64_t k = 0; k < num_select0_hints_; k++) {
+      uint64_t target = k * kOnesPerSelectHint;
+      while (sample_idx + 1 < num_rank_samples_ &&
+             ((sample_idx + 1) * kBitsPerRankSample -
+              rank_lut_[sample_idx + 1]) <= target) {
+        sample_idx++;
+      }
+      hints[k] = static_cast<uint32_t>(sample_idx);
     }
-    remaining -= pc;
   }
-
-  // Should not reach here if i < num_ones_.
-  assert(false);
-  return num_bits_;
 }
+
+// Select1 is now inline in bitvector.h for hot-path performance.
 
 uint64_t Bitvector::Select0(uint64_t i) const {
   uint64_t num_zeros = num_bits_ - num_ones_;
@@ -224,17 +281,25 @@ uint64_t Bitvector::Select0(uint64_t i) const {
     return num_bits_;
   }
 
-  // Binary search on the rank LUT. For each sample s, the number of zeros
-  // up to sample s is: (s * kBitsPerRankSample) - rank_lut_[s].
-  uint64_t lo = 0;
-  uint64_t hi = num_rank_samples_ - 1;
+  // Use select0 hints to narrow the search range.
+  uint64_t lo, hi;
+  if (num_select0_hints_ > 0) {
+    uint64_t hint_idx = i / kOnesPerSelectHint;
+    lo = select0_hints_[hint_idx];
+    hi = (hint_idx + 1 < num_select0_hints_) ? select0_hints_[hint_idx + 1]
+                                             : num_rank_samples_ - 1;
+  } else {
+    lo = 0;
+    hi = num_rank_samples_ - 1;
+  }
+
+  // Linear scan within the narrowed range.
   while (lo < hi) {
-    uint64_t mid = lo + (hi - lo + 1) / 2;
-    uint64_t zeros_at_mid = mid * kBitsPerRankSample - rank_lut_[mid];
-    if (zeros_at_mid <= i) {
-      lo = mid;
+    uint64_t zeros_next = (lo + 1) * kBitsPerRankSample - rank_lut_[lo + 1];
+    if (zeros_next <= i) {
+      lo++;
     } else {
-      hi = mid - 1;
+      break;
     }
   }
 
@@ -245,7 +310,7 @@ uint64_t Bitvector::Select0(uint64_t i) const {
 
   for (uint64_t w = word_start; w < word_end; w++) {
     // For the last word, we may have fewer than 64 valid bits. We need to
-    // mask out the padding bits so they don't count as zeros.
+    // mask off the padding bits so they don't count as zeros.
     uint64_t valid_bits = 64;
     if (w == num_words_ - 1 && num_bits_ % 64 != 0) {
       valid_bits = num_bits_ % 64;
@@ -297,6 +362,155 @@ uint64_t Bitvector::DistanceToNextSetBit(uint64_t pos) const {
   // Find the next set bit after pos (exclusive).
   uint64_t next = NextSetBit(pos + 1);
   return next - pos;
+}
+
+// ============================================================================
+// EliasFano implementation
+// ============================================================================
+
+void EliasFano::BuildFrom(const uint64_t* values, uint64_t count,
+                          uint64_t universe) {
+  count_ = count;
+  universe_ = universe;
+
+  if (count == 0) {
+    low_bits_ = 0;
+    low_mask_ = 0;
+    low_words_ = nullptr;
+    num_low_words_ = 0;
+    return;
+  }
+
+  // Compute low_bits = floor(log2(universe / count)).
+  // When universe <= count, low_bits = 0 (all bits are high).
+  // FloorLog2 returns floor(log2(x)) for x >= 1.
+  if (universe > count) {
+    low_bits_ = static_cast<uint64_t>(FloorLog2(universe / count));
+  } else {
+    low_bits_ = 0;
+  }
+  low_mask_ =
+      (low_bits_ < 64) ? ((uint64_t(1) << low_bits_) - 1) : ~uint64_t(0);
+
+  // Build high-bits bitvector.
+  // The high part of each value is (value >> low_bits_). The bitvector
+  // has a 1-bit at position high[i] + i for each element i, with 0-bits
+  // filling the gaps. Total length = max_high + count.
+  uint64_t max_high = (count > 0) ? (values[count - 1] >> low_bits_) : 0;
+  uint64_t high_len = max_high + count;
+
+  BitvectorBuilder high_builder;
+  high_builder.Reserve(high_len + 1);
+
+  uint64_t prev_high = 0;
+  for (uint64_t i = 0; i < count; i++) {
+    assert(i == 0 || values[i] >= values[i - 1]);  // Must be monotone.
+    uint64_t high = values[i] >> low_bits_;
+    // Append (high - prev_high) zeros followed by a 1.
+    assert(high >= prev_high);
+    high_builder.AppendMultiple(false, high - prev_high);
+    high_builder.Append(true);
+    prev_high = high;
+  }
+
+  high_bv_.BuildFrom(high_builder);
+
+  // Build packed low-bits array.
+  uint64_t total_low_bits = count * low_bits_;
+  num_low_words_ = (total_low_bits + 63) / 64;
+  owned_low_data_.resize(num_low_words_ * sizeof(uint64_t), '\0');
+  uint64_t* low_buf = reinterpret_cast<uint64_t*>(&owned_low_data_[0]);
+  low_words_ = low_buf;
+
+  // Pack low bits: value i's low bits go at bit position i * low_bits_.
+  for (uint64_t i = 0; i < count; i++) {
+    uint64_t low = values[i] & low_mask_;
+    uint64_t bit_pos = i * low_bits_;
+    uint64_t word_idx = bit_pos / 64;
+    uint64_t bit_idx = bit_pos % 64;
+    low_buf[word_idx] |= low << bit_idx;
+    // Handle word boundary crossing.
+    if (bit_idx + low_bits_ > 64 && low_bits_ > 0) {
+      low_buf[word_idx + 1] |= low >> (64 - bit_idx);
+    }
+  }
+}
+
+size_t EliasFano::SerializedSize() const {
+  // 3 uint64_t header + high bitvector + low words (8-byte aligned).
+  size_t low_bytes = num_low_words_ * sizeof(uint64_t);
+  return 3 * sizeof(uint64_t) + high_bv_.SerializedSize() + low_bytes;
+}
+
+void EliasFano::Serialize(std::string* output) const {
+  size_t old_size = output->size();
+  // Header: count, universe, low_bits
+  PutFixed64(output, count_);
+  PutFixed64(output, universe_);
+  PutFixed64(output, low_bits_);
+
+  // High bitvector
+  high_bv_.Serialize(output);
+
+  // Low words
+  size_t low_bytes = num_low_words_ * sizeof(uint64_t);
+  if (low_bytes > 0) {
+    size_t cur = output->size();
+    output->resize(cur + low_bytes);
+    memcpy(&(*output)[cur], low_words_, low_bytes);
+  }
+  (void)old_size;
+}
+
+Status EliasFano::InitFromData(const char* data, size_t data_size,
+                               size_t* bytes_consumed) {
+  const char* start = data;
+
+  // Read header: count, universe, low_bits.
+  if (data_size < 3 * sizeof(uint64_t)) {
+    return Status::Corruption("EliasFano: insufficient data for header");
+  }
+  memcpy(&count_, data, sizeof(uint64_t));
+  data += sizeof(uint64_t);
+  memcpy(&universe_, data, sizeof(uint64_t));
+  data += sizeof(uint64_t);
+  memcpy(&low_bits_, data, sizeof(uint64_t));
+  data += sizeof(uint64_t);
+  data_size -= 3 * sizeof(uint64_t);
+
+  // Validate.
+  if (low_bits_ > 63) {
+    return Status::Corruption("EliasFano: low_bits exceeds 63");
+  }
+  low_mask_ =
+      (low_bits_ < 64) ? ((uint64_t(1) << low_bits_) - 1) : ~uint64_t(0);
+
+  // Read high bitvector.
+  size_t consumed;
+  Status s = high_bv_.InitFromData(data, data_size, &consumed);
+  if (!s.ok()) return s;
+  data += consumed;
+  data_size -= consumed;
+
+  // Read low words.
+  uint64_t total_low_bits = count_ * low_bits_;
+  num_low_words_ = (total_low_bits + 63) / 64;
+  size_t low_bytes = num_low_words_ * sizeof(uint64_t);
+  if (data_size < low_bytes) {
+    return Status::Corruption("EliasFano: insufficient data for low words");
+  }
+  if (low_bytes > 0) {
+    if (reinterpret_cast<uintptr_t>(data) % alignof(uint64_t) != 0) {
+      return Status::Corruption("EliasFano: low words not 8-byte aligned");
+    }
+    low_words_ = reinterpret_cast<const uint64_t*>(data);
+  } else {
+    low_words_ = nullptr;
+  }
+  data += low_bytes;
+
+  *bytes_consumed = static_cast<size_t>(data - start);
+  return Status::OK();
 }
 
 }  // namespace trie_index

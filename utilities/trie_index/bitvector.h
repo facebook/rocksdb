@@ -34,16 +34,18 @@ namespace trie_index {
 //   - select0(i): Position of the i-th 0-bit (0-indexed)
 //
 // Implementation uses a two-level lookup table for rank (sampling every
-// kBitsPerRankSample bits) and a combination of binary search + popcount
-// for select. The rank operation is O(1); select is
-// O(log(n/kBitsPerRankSample)) but fast in practice due to small constants
-// and branch prediction.
+// kBitsPerRankSample bits) and select hints + linear scan for select. Both
+// rank and select operations are O(1). Select uses precomputed hint arrays
+// that narrow the search to 1-2 rank samples, then a word-level popcount
+// scan within that interval.
 //
 // Memory layout (serialized):
 //   [num_bits: uint64_t]
 //   [num_ones: uint64_t]
 //   [raw bits: ceil(num_bits/64) uint64_t words, 64-bit aligned]
-//   [rank LUT: (num_bits/kBitsPerRankSample + 1) uint32_t cumulative ranks]
+//   [rank LUT: (num_bits/kBitsPerRankSample + 1) uint32_t entries, padded to 8]
+//   [select1 hints: uint32_t entries, padded to 8]
+//   [select0 hints: uint32_t entries, padded to 8]
 //
 // The rank LUT uses uint32_t entries (not uint64_t), which halves the LUT
 // memory overhead. This is safe because the maximum cumulative popcount
@@ -67,6 +69,12 @@ namespace trie_index {
 // than 512 for trie Seek due to fewer popcount iterations per Rank1 call.
 inline constexpr uint64_t kBitsPerRankSample = 256;
 inline constexpr uint64_t kWordsPerRankSample = kBitsPerRankSample / 64;
+
+// Number of 1-bits (or 0-bits) between select hint entries. Each hint stores
+// the rank LUT index where the k-th group of ones/zeros begins, narrowing the
+// Select search to a linear scan of 1-2 rank samples, making it O(1).
+// 256 matches kBitsPerRankSample so hints map directly to rank LUT entries.
+inline constexpr uint64_t kOnesPerSelectHint = 256;
 
 // Portable popcount using RocksDB's BitsSetToOne, which handles MSVC,
 // GCC, and Clang with hardware POPCNT when available.
@@ -220,39 +228,52 @@ class BitvectorBuilder {
 };
 
 // ============================================================================
-// Bitvector: Immutable bitvector with O(1) rank and O(log n) select.
+// Bitvector: Immutable bitvector with O(1) rank and O(1) select.
 //
 // Created from serialized data (e.g., read from an SST file meta-block) or
 // from a BitvectorBuilder. The bitvector does NOT own the underlying memory
 // when created from a Slice — the caller must ensure the data outlives this
 // object.
+//
+// Select acceleration: select hints store the rank LUT index where every
+// kOnesPerSelectHint-th 1-bit (or 0-bit) lives. This narrows the search
+// in Select1/Select0 to a linear scan of 1-2 rank samples, making Select
+// O(1). The hint arrays add ~0.4% space overhead per bitvector.
 // ============================================================================
 class Bitvector {
  public:
   Bitvector()
       : words_(nullptr),
         rank_lut_(nullptr),
+        select1_hints_(nullptr),
+        select0_hints_(nullptr),
         num_bits_(0),
         num_ones_(0),
         num_words_(0),
-        num_rank_samples_(0) {}
+        num_rank_samples_(0),
+        num_select1_hints_(0),
+        num_select0_hints_(0) {}
 
-  // Bitvector contains raw pointers (words_, rank_lut_) that may point into
-  // owned_data_ or into external memory (InitFromData). Copying would create
-  // dangling pointers, so copy is deleted. Move is safe only when the pointers
-  // point into owned_data_ (BuildFrom case) because std::string's move
-  // constructor preserves the buffer address for SSO-exceeding strings. For
-  // the InitFromData case, the pointers reference external memory and are
-  // unaffected by moving owned_data_ (which is empty).
+  // Bitvector contains raw pointers (words_, rank_lut_, select hints) that
+  // may point into owned_data_ or into external memory (InitFromData).
+  // Copying would create dangling pointers, so copy is deleted. Move is safe
+  // only when the pointers point into owned_data_ (BuildFrom case) because
+  // std::string's move constructor preserves the buffer address for
+  // SSO-exceeding strings. For the InitFromData case, the pointers reference
+  // external memory and are unaffected by moving owned_data_ (which is empty).
   Bitvector(const Bitvector&) = delete;
   Bitvector& operator=(const Bitvector&) = delete;
   Bitvector(Bitvector&& other) noexcept
       : words_(other.words_),
         rank_lut_(other.rank_lut_),
+        select1_hints_(other.select1_hints_),
+        select0_hints_(other.select0_hints_),
         num_bits_(other.num_bits_),
         num_ones_(other.num_ones_),
         num_words_(other.num_words_),
         num_rank_samples_(other.num_rank_samples_),
+        num_select1_hints_(other.num_select1_hints_),
+        num_select0_hints_(other.num_select0_hints_),
         owned_data_(std::move(other.owned_data_)) {
     // If this bitvector owns its data, the pointers must be re-seated into
     // our owned_data_ buffer. std::string move may or may not preserve the
@@ -262,29 +283,41 @@ class Bitvector {
     }
     other.words_ = nullptr;
     other.rank_lut_ = nullptr;
+    other.select1_hints_ = nullptr;
+    other.select0_hints_ = nullptr;
     other.num_bits_ = 0;
     other.num_ones_ = 0;
     other.num_words_ = 0;
     other.num_rank_samples_ = 0;
+    other.num_select1_hints_ = 0;
+    other.num_select0_hints_ = 0;
   }
   Bitvector& operator=(Bitvector&& other) noexcept {
     if (this != &other) {
       words_ = other.words_;
       rank_lut_ = other.rank_lut_;
+      select1_hints_ = other.select1_hints_;
+      select0_hints_ = other.select0_hints_;
       num_bits_ = other.num_bits_;
       num_ones_ = other.num_ones_;
       num_words_ = other.num_words_;
       num_rank_samples_ = other.num_rank_samples_;
+      num_select1_hints_ = other.num_select1_hints_;
+      num_select0_hints_ = other.num_select0_hints_;
       owned_data_ = std::move(other.owned_data_);
       if (!owned_data_.empty()) {
         RecomputePointers();
       }
       other.words_ = nullptr;
       other.rank_lut_ = nullptr;
+      other.select1_hints_ = nullptr;
+      other.select0_hints_ = nullptr;
       other.num_bits_ = 0;
       other.num_ones_ = 0;
       other.num_words_ = 0;
       other.num_rank_samples_ = 0;
+      other.num_select1_hints_ = 0;
+      other.num_select0_hints_ = 0;
     }
     return *this;
   }
@@ -338,7 +371,41 @@ class Bitvector {
 
   // select1(i): Position of the i-th 1-bit (0-indexed).
   // Returns num_bits_ if there are fewer than (i+1) 1-bits.
-  uint64_t Select1(uint64_t i) const;
+  // Inlined for hot-path performance — the hint lookup + linear scan is
+  // branch-predictor friendly and avoids function call overhead.
+  inline uint64_t Select1(uint64_t i) const {
+    if (i >= num_ones_) {
+      return num_bits_;
+    }
+    // Use select hints to narrow the search range.
+    uint64_t lo, hi;
+    if (num_select1_hints_ > 0) {
+      uint64_t hint_idx = i / kOnesPerSelectHint;
+      lo = select1_hints_[hint_idx];
+      hi = (hint_idx + 1 < num_select1_hints_) ? select1_hints_[hint_idx + 1]
+                                               : num_rank_samples_ - 1;
+    } else {
+      lo = 0;
+      hi = num_rank_samples_ - 1;
+    }
+    // Linear scan within the narrowed range.
+    while (lo < hi && rank_lut_[lo + 1] <= i) {
+      lo++;
+    }
+    // Scan words in the sample interval.
+    uint64_t remaining = i - rank_lut_[lo];
+    uint64_t word_start = lo * kWordsPerRankSample;
+    uint64_t word_end = std::min(word_start + kWordsPerRankSample, num_words_);
+    for (uint64_t w = word_start; w < word_end; w++) {
+      uint64_t pc = Popcount(words_[w]);
+      if (remaining < pc) {
+        return w * 64 + Select64(words_[w], remaining);
+      }
+      remaining -= pc;
+    }
+    assert(false);
+    return num_bits_;
+  }
 
   // select0(i): Position of the i-th 0-bit (0-indexed).
   // Returns num_bits_ if there are fewer than (i+1) 0-bits.
@@ -363,15 +430,28 @@ class Bitvector {
   size_t SerializedSize() const;
 
  private:
-  // Build the rank LUT from current words. Used by BuildFrom().
+  // Build the rank LUT and select hints from current words.
+  // Used by BuildFrom().
   void BuildRankLUT();
+
+  // Build select hint arrays from the rank LUT. Called after BuildRankLUT().
+  void BuildSelectHints();
 
   // Re-compute pointers into owned_data_ after a move operation.
   void RecomputePointers() {
-    words_ = reinterpret_cast<const uint64_t*>(owned_data_.data());
+    const char* base = owned_data_.data();
     size_t words_bytes = num_words_ * sizeof(uint64_t);
-    rank_lut_ =
-        reinterpret_cast<const uint32_t*>(owned_data_.data() + words_bytes);
+    size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
+    size_t select1_bytes = num_select1_hints_ * sizeof(uint32_t);
+    size_t select0_bytes = num_select0_hints_ * sizeof(uint32_t);
+
+    words_ = reinterpret_cast<const uint64_t*>(base);
+    rank_lut_ = reinterpret_cast<const uint32_t*>(base + words_bytes);
+    select1_hints_ =
+        reinterpret_cast<const uint32_t*>(base + words_bytes + rank_bytes);
+    select0_hints_ = reinterpret_cast<const uint32_t*>(
+        base + words_bytes + rank_bytes + select1_bytes);
+    (void)select0_bytes;  // Suppress unused warning.
   }
 
   // Pointer to the raw bit words. May point into external data (InitFromData)
@@ -382,13 +462,118 @@ class Bitvector {
   // Same ownership semantics as words_.
   const uint32_t* rank_lut_;
 
+  // Select hint arrays: select1_hints_[k] is the rank LUT index where the
+  // (k * kOnesPerSelectHint)-th 1-bit lives. select0_hints_ is analogous
+  // for 0-bits. These narrow Select to a linear scan of 1-2 rank samples.
+  const uint32_t* select1_hints_;
+  const uint32_t* select0_hints_;
+
   uint64_t num_bits_;
   uint64_t num_ones_;
   uint64_t num_words_;
   uint64_t num_rank_samples_;
+  uint64_t num_select1_hints_;
+  uint64_t num_select0_hints_;
 
   // Owned storage when built from BitvectorBuilder (not from serialized data).
   std::string owned_data_;
+};
+
+// ============================================================================
+// EliasFano: Compressed representation of a monotonically non-decreasing
+// sequence of uint64_t values. Uses the Elias-Fano encoding which achieves
+// near-optimal space (within 2 bits per element of the information-theoretic
+// minimum) while supporting O(1) random access.
+//
+// Encoding:
+//   Given n values in [0, U], each value v is split into:
+//     - high part: v >> low_bits  (unary-coded in a bitvector)
+//     - low part:  v & ((1 << low_bits) - 1)  (packed in a bit array)
+//   where low_bits = floor(log2(U / n)) when n > 0, or 0 when n <= 1.
+//
+//   The high-bits bitvector has ones at position high[i] + i for each
+//   element i. The i-th value is recovered as:
+//     value = (Select1(high_bv, i) - i) << low_bits | packed_low[i]
+//
+// Memory layout (serialized):
+//   [count     : uint64_t]  Number of elements
+//   [universe  : uint64_t]  Maximum value + 1
+//   [low_bits  : uint64_t]  Number of low bits per element
+//   [high_bv   : Bitvector] Unary-coded high parts (with rank/select)
+//   [low_words : ceil(count * low_bits / 64) * 8 bytes] Packed low parts
+//
+// Space for 32K offsets with U = 4GB: low_bits = 17, total ~76 KB vs
+// 256 KB for raw uint64_t array (3.4x compression).
+// ============================================================================
+class EliasFano {
+ public:
+  EliasFano()
+      : count_(0),
+        universe_(0),
+        low_bits_(0),
+        low_mask_(0),
+        low_words_(nullptr),
+        num_low_words_(0) {}
+
+  EliasFano(const EliasFano&) = delete;
+  EliasFano& operator=(const EliasFano&) = delete;
+  EliasFano(EliasFano&&) = default;
+  EliasFano& operator=(EliasFano&&) = default;
+
+  // Build from a sorted sequence of uint64_t values.
+  // Values must be monotonically non-decreasing.
+  void BuildFrom(const uint64_t* values, uint64_t count, uint64_t universe);
+
+  // Initialize from serialized data. Returns Status::OK() on success.
+  Status InitFromData(const char* data, size_t data_size,
+                      size_t* bytes_consumed);
+
+  // Serialize to a string.
+  void Serialize(std::string* output) const;
+
+  // Access the i-th value (0-indexed). i must be < count_.
+  inline uint64_t Access(uint64_t i) const {
+    assert(i < count_);
+    uint64_t high = high_bv_.Select1(i) - i;
+    uint64_t low = 0;
+    if (low_bits_ > 0) {
+      // Extract low_bits_ bits starting at bit position i * low_bits_.
+      uint64_t bit_pos = i * low_bits_;
+      uint64_t word_idx = bit_pos / 64;
+      uint64_t bit_idx = bit_pos % 64;
+      low = (low_words_[word_idx] >> bit_idx) & low_mask_;
+      // Handle the case where the low bits span two words.
+      if (bit_idx + low_bits_ > 64) {
+        uint64_t remaining = bit_idx + low_bits_ - 64;
+        low |= (low_words_[word_idx + 1] & ((uint64_t(1) << remaining) - 1))
+               << (64 - bit_idx);
+      }
+    }
+    return (high << low_bits_) | low;
+  }
+
+  uint64_t Count() const { return count_; }
+  uint64_t Universe() const { return universe_; }
+
+  // Size in bytes of the serialized representation.
+  size_t SerializedSize() const;
+
+ private:
+  uint64_t count_;     // Number of elements.
+  uint64_t universe_;  // Upper bound (max value + 1).
+  uint64_t low_bits_;  // Number of low bits per element.
+  uint64_t low_mask_;  // (1 << low_bits) - 1, precomputed for Access.
+
+  // High bits: unary-coded bitvector with rank/select support.
+  Bitvector high_bv_;
+
+  // Low bits: packed array of low_bits_-bit values.
+  // Points into external data (InitFromData) or into owned_low_data_.
+  const uint64_t* low_words_;
+  uint64_t num_low_words_;
+
+  // Owned storage for low bits (when built from BuildFrom).
+  std::string owned_low_data_;
 };
 
 }  // namespace trie_index
