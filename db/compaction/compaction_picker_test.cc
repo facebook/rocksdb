@@ -5257,10 +5257,8 @@ TEST_F(CompactionPickerTest, FIFOOptionValidation) {
   ASSERT_OK(validate([](auto& o) {
     o.compaction_options_fifo.use_kv_ratio_compaction = false;
     o.compaction_options_fifo.max_data_files_size = 0;
-    o.compaction_options_fifo.max_table_files_size =
-        1ULL * 1024 * 1024 * 1024;
-    o.compaction_options_fifo.max_data_files_size =
-        1ULL * 1024 * 1024 * 1024;
+    o.compaction_options_fifo.max_table_files_size = 1ULL * 1024 * 1024 * 1024;
+    o.compaction_options_fifo.max_data_files_size = 1ULL * 1024 * 1024 * 1024;
   }));
 }
 
@@ -5345,7 +5343,7 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationSingleLevel) {
   // Common setup: L0 = 4 files × 50KB = 200KB, files 3,4 expired.
   // Remaining SST after drop = 100KB = 50%.
 
-    auto run = [&](uint64_t blob_total, uint64_t limit, bool expect_ttl_fires) {
+  auto run = [&](uint64_t blob_total, uint64_t limit, bool expect_ttl_fires) {
     ioptions_.compaction_style = kCompactionStyleFIFO;
     NewVersionStorage(1, kCompactionStyleFIFO);
     mutable_cf_options_.compaction_options_fifo.max_table_files_size = limit;
