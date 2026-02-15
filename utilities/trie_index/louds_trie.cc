@@ -718,8 +718,7 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       return Status::Corruption("Trie index: handle sizes not aligned");
     }
     handle_sizes_ = reinterpret_cast<const uint32_t*>(p);
-    p += arr_padded;
-    remaining -= arr_padded;
+    // p and remaining not advanced — this is the last section.
   }
 
   return Status::OK();

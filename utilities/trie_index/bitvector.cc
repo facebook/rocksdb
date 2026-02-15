@@ -396,7 +396,8 @@ void EliasFano::BuildFrom(const uint64_t* values, uint64_t count,
   // The high part of each value is (value >> low_bits_). The bitvector
   // has a 1-bit at position high[i] + i for each element i, with 0-bits
   // filling the gaps. Total length = max_high + count.
-  uint64_t max_high = (count > 0) ? (values[count - 1] >> low_bits_) : 0;
+  uint64_t max_high =
+      (count > 0 && low_bits_ < 64) ? (values[count - 1] >> low_bits_) : 0;
   uint64_t high_len = max_high + count;
 
   BitvectorBuilder high_builder;
@@ -405,7 +406,7 @@ void EliasFano::BuildFrom(const uint64_t* values, uint64_t count,
   uint64_t prev_high = 0;
   for (uint64_t i = 0; i < count; i++) {
     assert(i == 0 || values[i] >= values[i - 1]);  // Must be monotone.
-    uint64_t high = values[i] >> low_bits_;
+    uint64_t high = (low_bits_ < 64) ? (values[i] >> low_bits_) : 0;
     // Append (high - prev_high) zeros followed by a 1.
     assert(high >= prev_high);
     high_builder.AppendMultiple(false, high - prev_high);
@@ -430,7 +431,7 @@ void EliasFano::BuildFrom(const uint64_t* values, uint64_t count,
     uint64_t bit_idx = bit_pos % 64;
     low_buf[word_idx] |= low << bit_idx;
     // Handle word boundary crossing.
-    if (bit_idx + low_bits_ > 64 && low_bits_ > 0) {
+    if (bit_idx > 0 && bit_idx + low_bits_ > 64) {
       low_buf[word_idx + 1] |= low >> (64 - bit_idx);
     }
   }
@@ -486,7 +487,7 @@ Status EliasFano::InitFromData(const char* data, size_t data_size,
       (low_bits_ < 64) ? ((uint64_t(1) << low_bits_) - 1) : ~uint64_t(0);
 
   // Read high bitvector.
-  size_t consumed;
+  size_t consumed = 0;
   Status s = high_bv_.InitFromData(data, data_size, &consumed);
   if (!s.ok()) return s;
   data += consumed;
