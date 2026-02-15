@@ -1144,10 +1144,12 @@ bool LoudsTrieIterator::Seek(const Slice& target) {
           path_.push_back(LevelPos::MakeSparse(start));
           key_buf_[key_len_++] = static_cast<char>(label);
 
-          bool is_internal = trie_->s_has_child_.GetBit(start);
+          // Combined GetBit + Rank1 in a single word access.
+          bool is_internal;
+          uint64_t has_child_rank =
+              trie_->s_has_child_.Rank1AndBit(start, &is_internal);
           if (is_internal) {
-            // Internal node: compute rank for child lookup.
-            uint64_t has_child_rank = trie_->s_has_child_.Rank1(start + 1);
+            // Internal node: use rank for child lookup.
             if (!trie_->s_child_start_pos_.empty()) {
               uint64_t child_idx = has_child_rank - 1;
               if (child_idx < trie_->s_child_start_pos_.size()) {
@@ -1166,7 +1168,6 @@ bool LoudsTrieIterator::Seek(const Slice& target) {
             continue;
           }
           // Leaf node.
-          uint64_t has_child_rank = trie_->s_has_child_.Rank1(start + 1);
           if (depth == static_cast<uint32_t>(target.size()) - 1) {
             leaf_index_ =
                 SparseLeafIndexFromHasChildRank(start, has_child_rank);
@@ -1184,8 +1185,10 @@ bool LoudsTrieIterator::Seek(const Slice& target) {
 
         if (label > target_byte) {
           // Label is greater: go to leftmost leaf in subtree.
-          if (!trie_->s_has_child_.GetBit(start)) {
-            uint64_t has_child_rank = trie_->s_has_child_.Rank1(start + 1);
+          bool is_internal;
+          uint64_t has_child_rank =
+              trie_->s_has_child_.Rank1AndBit(start, &is_internal);
+          if (!is_internal) {
             leaf_index_ =
                 SparseLeafIndexFromHasChildRank(start, has_child_rank);
             valid_ = true;
@@ -1208,8 +1211,10 @@ bool LoudsTrieIterator::Seek(const Slice& target) {
       path_.push_back(LevelPos::MakeSparse(pos));
       key_buf_[key_len_++] = static_cast<char>(trie_->s_labels_data_[pos]);
 
-      bool is_internal = trie_->s_has_child_.GetBit(pos);
-      uint64_t has_child_rank = trie_->s_has_child_.Rank1(pos + 1);
+      // Combined GetBit + Rank1 in a single word access.
+      bool is_internal;
+      uint64_t has_child_rank =
+          trie_->s_has_child_.Rank1AndBit(pos, &is_internal);
 
       if (!exact) {
         if (!is_internal) {
