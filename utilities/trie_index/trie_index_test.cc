@@ -36,13 +36,13 @@ class BitvectorTest : public testing::Test {};
 
 TEST_F(BitvectorTest, EmptyBitvector) {
   BitvectorBuilder builder;
-  ASSERT_EQ(builder.NumBits(), 0);
+  ASSERT_EQ(builder.NumBits(), 0u);
 
   Bitvector bv;
   bv.BuildFrom(builder);
-  ASSERT_EQ(bv.NumBits(), 0);
-  ASSERT_EQ(bv.NumOnes(), 0);
-  ASSERT_EQ(bv.NumZeros(), 0);
+  ASSERT_EQ(bv.NumBits(), 0u);
+  ASSERT_EQ(bv.NumOnes(), 0u);
+  ASSERT_EQ(bv.NumZeros(), 0u);
 }
 
 TEST_F(BitvectorTest, SingleBit) {
@@ -52,13 +52,13 @@ TEST_F(BitvectorTest, SingleBit) {
     builder.Append(true);
     Bitvector bv;
     bv.BuildFrom(builder);
-    ASSERT_EQ(bv.NumBits(), 1);
-    ASSERT_EQ(bv.NumOnes(), 1);
+    ASSERT_EQ(bv.NumBits(), 1u);
+    ASSERT_EQ(bv.NumOnes(), 1u);
     ASSERT_TRUE(bv.GetBit(0));
-    ASSERT_EQ(bv.Rank1(0), 0);
-    ASSERT_EQ(bv.Rank1(1), 1);
-    ASSERT_EQ(bv.Select1(0), 0);
-    ASSERT_EQ(bv.Select0(0), 1);  // No 0-bits; returns num_bits_.
+    ASSERT_EQ(bv.Rank1(0), 0u);
+    ASSERT_EQ(bv.Rank1(1), 1u);
+    ASSERT_EQ(bv.Select1(0), 0u);
+    ASSERT_EQ(bv.Select0(0), 1u);  // No 0-bits; returns num_bits_.
   }
   // Single 0-bit.
   {
@@ -66,14 +66,14 @@ TEST_F(BitvectorTest, SingleBit) {
     builder.Append(false);
     Bitvector bv;
     bv.BuildFrom(builder);
-    ASSERT_EQ(bv.NumBits(), 1);
-    ASSERT_EQ(bv.NumOnes(), 0);
+    ASSERT_EQ(bv.NumBits(), 1u);
+    ASSERT_EQ(bv.NumOnes(), 0u);
     ASSERT_FALSE(bv.GetBit(0));
-    ASSERT_EQ(bv.Rank1(0), 0);
-    ASSERT_EQ(bv.Rank1(1), 0);
-    ASSERT_EQ(bv.Rank0(1), 1);
-    ASSERT_EQ(bv.Select0(0), 0);
-    ASSERT_EQ(bv.Select1(0), 1);  // No 1-bits; returns num_bits_.
+    ASSERT_EQ(bv.Rank1(0), 0u);
+    ASSERT_EQ(bv.Rank1(1), 0u);
+    ASSERT_EQ(bv.Rank0(1), 1u);
+    ASSERT_EQ(bv.Select0(0), 0u);
+    ASSERT_EQ(bv.Select1(0), 1u);  // No 1-bits; returns num_bits_.
   }
 }
 
@@ -121,7 +121,7 @@ TEST_F(BitvectorTest, AllOnes) {
 
   for (uint64_t pos = 0; pos <= n; pos++) {
     ASSERT_EQ(bv.Rank1(pos), pos);
-    ASSERT_EQ(bv.Rank0(pos), 0);
+    ASSERT_EQ(bv.Rank0(pos), 0u);
   }
   for (uint64_t i = 0; i < n; i++) {
     ASSERT_EQ(bv.Select1(i), i);
@@ -137,10 +137,10 @@ TEST_F(BitvectorTest, AllZeros) {
   Bitvector bv;
   bv.BuildFrom(builder);
   ASSERT_EQ(bv.NumBits(), n);
-  ASSERT_EQ(bv.NumOnes(), 0);
+  ASSERT_EQ(bv.NumOnes(), 0u);
 
   for (uint64_t pos = 0; pos <= n; pos++) {
-    ASSERT_EQ(bv.Rank1(pos), 0);
+    ASSERT_EQ(bv.Rank1(pos), 0u);
     ASSERT_EQ(bv.Rank0(pos), pos);
   }
   for (uint64_t i = 0; i < n; i++) {
@@ -166,7 +166,7 @@ TEST_F(BitvectorTest, LargeBitvector) {
   ASSERT_EQ(bv.NumOnes(), expected_ones);
 
   // Verify rank at boundaries.
-  ASSERT_EQ(bv.Rank1(0), 0);
+  ASSERT_EQ(bv.Rank1(0), 0u);
   ASSERT_EQ(bv.Rank1(n), expected_ones);
 
   // Verify select for a subset of positions.
@@ -194,14 +194,14 @@ TEST_F(BitvectorTest, SerializeAndDeserialize) {
   // Serialize.
   std::string serialized;
   original.Serialize(&serialized);
-  ASSERT_GT(serialized.size(), 0);
+  ASSERT_GT(serialized.size(), 0u);
 
   // Deserialize.
   Bitvector deserialized;
   size_t consumed = 0;
   ASSERT_OK(deserialized.InitFromData(serialized.data(), serialized.size(),
                                       &consumed));
-  ASSERT_GT(consumed, 0);
+  ASSERT_GT(consumed, 0u);
   ASSERT_EQ(consumed, serialized.size());
 
   // Verify match.
@@ -259,7 +259,7 @@ TEST_F(BitvectorTest, AppendWord) {
   builder.AppendWord(0x0, 64);                     // all zeros
   builder.AppendWord(0x80000000'00000000ULL, 64);  // bit 63 set (label 0xFF)
 
-  ASSERT_EQ(builder.NumBits(), 256);
+  ASSERT_EQ(builder.NumBits(), 256u);
   ASSERT_TRUE(builder.GetBit(0));  // label 0x00
   ASSERT_TRUE(builder.GetBit(3));  // label 0x03
   ASSERT_FALSE(builder.GetBit(1));
@@ -269,11 +269,11 @@ TEST_F(BitvectorTest, AppendWord) {
   // Build and verify rank/select work correctly.
   Bitvector bv;
   bv.BuildFrom(builder);
-  ASSERT_EQ(bv.NumBits(), 256);
-  ASSERT_EQ(bv.NumOnes(), 3);  // bits 0, 3, 255
-  ASSERT_EQ(bv.Select1(0), 0);
-  ASSERT_EQ(bv.Select1(1), 3);
-  ASSERT_EQ(bv.Select1(2), 255);
+  ASSERT_EQ(bv.NumBits(), 256u);
+  ASSERT_EQ(bv.NumOnes(), 3u);  // bits 0, 3, 255
+  ASSERT_EQ(bv.Select1(0), 0u);
+  ASSERT_EQ(bv.Select1(1), 3u);
+  ASSERT_EQ(bv.Select1(2), 255u);
 }
 
 TEST_F(BitvectorTest, AppendWordAndAppendInterleaved) {
@@ -283,21 +283,21 @@ TEST_F(BitvectorTest, AppendWordAndAppendInterleaved) {
 
   // Append 64 bits via AppendWord.
   builder.AppendWord(0xAAAAAAAA'AAAAAAAAULL, 64);
-  ASSERT_EQ(builder.NumBits(), 64);
+  ASSERT_EQ(builder.NumBits(), 64u);
 
   // Append 64 more bits one at a time.
   for (int i = 0; i < 64; i++) {
     builder.Append(i % 2 == 0);
   }
-  ASSERT_EQ(builder.NumBits(), 128);
+  ASSERT_EQ(builder.NumBits(), 128u);
 
   // Another word-aligned AppendWord.
   builder.AppendWord(0xFFFFFFFF'FFFFFFFFULL, 64);
-  ASSERT_EQ(builder.NumBits(), 192);
+  ASSERT_EQ(builder.NumBits(), 192u);
 
   Bitvector bv;
   bv.BuildFrom(builder);
-  ASSERT_EQ(bv.NumBits(), 192);
+  ASSERT_EQ(bv.NumBits(), 192u);
 
   // First word: alternating starting at bit 1 (0xAAAA... = 1010...)
   ASSERT_FALSE(bv.GetBit(0));
@@ -320,14 +320,14 @@ TEST_F(BitvectorTest, NextSetBit) {
 
   Bitvector bv;
   bv.BuildFrom(builder);
-  ASSERT_EQ(bv.NumBits(), 129);
+  ASSERT_EQ(bv.NumBits(), 129u);
 
   // NextSetBit from various positions.
-  ASSERT_EQ(bv.NextSetBit(0), 64);     // First set bit.
-  ASSERT_EQ(bv.NextSetBit(64), 64);    // Exact position.
-  ASSERT_EQ(bv.NextSetBit(65), 128);   // Next one.
-  ASSERT_EQ(bv.NextSetBit(128), 128);  // Exact.
-  ASSERT_EQ(bv.NextSetBit(129), 129);  // Past end → num_bits_.
+  ASSERT_EQ(bv.NextSetBit(0), 64u);     // First set bit.
+  ASSERT_EQ(bv.NextSetBit(64), 64u);    // Exact position.
+  ASSERT_EQ(bv.NextSetBit(65), 128u);   // Next one.
+  ASSERT_EQ(bv.NextSetBit(128), 128u);  // Exact.
+  ASSERT_EQ(bv.NextSetBit(129), 129u);  // Past end → num_bits_.
 }
 
 TEST_F(BitvectorTest, NextSetBitAllZeros) {
@@ -336,9 +336,9 @@ TEST_F(BitvectorTest, NextSetBitAllZeros) {
 
   Bitvector bv;
   bv.BuildFrom(builder);
-  ASSERT_EQ(bv.NextSetBit(0), 200);
-  ASSERT_EQ(bv.NextSetBit(100), 200);
-  ASSERT_EQ(bv.NextSetBit(199), 200);
+  ASSERT_EQ(bv.NextSetBit(0), 200u);
+  ASSERT_EQ(bv.NextSetBit(100), 200u);
+  ASSERT_EQ(bv.NextSetBit(199), 200u);
 }
 
 TEST_F(BitvectorTest, DistanceToNextSetBit) {
@@ -354,10 +354,10 @@ TEST_F(BitvectorTest, DistanceToNextSetBit) {
   Bitvector bv;
   bv.BuildFrom(builder);
 
-  ASSERT_EQ(bv.DistanceToNextSetBit(0), 3);  // 0 → 3
-  ASSERT_EQ(bv.DistanceToNextSetBit(3), 2);  // 3 → 5
+  ASSERT_EQ(bv.DistanceToNextSetBit(0), 3u);  // 0 → 3
+  ASSERT_EQ(bv.DistanceToNextSetBit(3), 2u);  // 3 → 5
   // Last set bit: distance to next = num_bits_ - pos.
-  ASSERT_EQ(bv.DistanceToNextSetBit(5), 1);  // 5 → 6 (num_bits_)
+  ASSERT_EQ(bv.DistanceToNextSetBit(5), 1u);  // 5 → 6 (num_bits_)
 }
 
 TEST_F(BitvectorTest, MultipleRankSampleBoundaries) {
@@ -371,12 +371,12 @@ TEST_F(BitvectorTest, MultipleRankSampleBoundaries) {
 
   Bitvector bv;
   bv.BuildFrom(builder);
-  ASSERT_EQ(bv.NumOnes(), 21);  // 0, 100, 200, ..., 2000
+  ASSERT_EQ(bv.NumOnes(), 21u);  // 0, 100, 200, ..., 2000
 
   // Verify rank at sample boundaries.
-  ASSERT_EQ(bv.Rank1(512), 6);    // 0,100,200,300,400,500
-  ASSERT_EQ(bv.Rank1(1024), 11);  // +600,700,800,900,1000
-  ASSERT_EQ(bv.Rank1(1536), 16);  // +1100,1200,1300,1400,1500
+  ASSERT_EQ(bv.Rank1(512), 6u);    // 0,100,200,300,400,500
+  ASSERT_EQ(bv.Rank1(1024), 11u);  // +600,700,800,900,1000
+  ASSERT_EQ(bv.Rank1(1536), 16u);  // +1100,1200,1300,1400,1500
 
   // Verify select.
   for (uint64_t i = 0; i < bv.NumOnes(); i++) {
@@ -452,8 +452,8 @@ TEST_F(BitvectorTest, MoveConstructor) {
   }
 
   // Moved-from should be empty/zeroed.
-  ASSERT_EQ(original.NumBits(), 0);
-  ASSERT_EQ(original.NumOnes(), 0);
+  ASSERT_EQ(original.NumBits(), 0u);
+  ASSERT_EQ(original.NumOnes(), 0u);
 }
 
 TEST_F(BitvectorTest, MoveAssignment) {
@@ -485,7 +485,7 @@ TEST_F(BitvectorTest, MoveAssignment) {
   ASSERT_EQ(bv2.Rank1(250), bv1_rank_250);
 
   // Moved-from should be empty.
-  ASSERT_EQ(bv1.NumBits(), 0);
+  ASSERT_EQ(bv1.NumBits(), 0u);
 }
 
 // ============================================================================
@@ -556,11 +556,11 @@ TEST_F(LoudsTrieTest, EmptyTrie) {
   LoudsTrieBuilder builder;
   builder.Finish();
   Slice data = builder.GetSerializedData();
-  ASSERT_GT(data.size(), 0);
+  ASSERT_GT(data.size(), 0u);
 
   LoudsTrie trie;
   ASSERT_OK(trie.InitFromData(data));
-  ASSERT_EQ(trie.NumKeys(), 0);
+  ASSERT_EQ(trie.NumKeys(), 0u);
 }
 
 TEST_F(LoudsTrieTest, SingleKey) {
@@ -572,12 +572,12 @@ TEST_F(LoudsTrieTest, SingleKey) {
 
   LoudsTrie trie;
   ASSERT_OK(trie.InitFromData(data));
-  ASSERT_EQ(trie.NumKeys(), 1);
+  ASSERT_EQ(trie.NumKeys(), 1u);
 
   // Verify handle.
   auto handle = trie.GetHandle(0);
-  ASSERT_EQ(handle.offset, 100);
-  ASSERT_EQ(handle.size, 200);
+  ASSERT_EQ(handle.offset, 100u);
+  ASSERT_EQ(handle.size, 200u);
 }
 
 TEST_F(LoudsTrieTest, MultipleKeys) {
@@ -602,7 +602,7 @@ TEST_F(LoudsTrieTest, MultipleKeys) {
     ASSERT_TRUE(iter.Valid());
     auto handle = iter.Value();
     ASSERT_EQ(handle.offset, i * 100) << "Handle mismatch for key " << keys[i];
-    ASSERT_EQ(handle.size, 50);
+    ASSERT_EQ(handle.size, 50u);
   }
 }
 
@@ -887,20 +887,20 @@ TEST_F(LoudsTrieTest, PrefixKeyHandleReorderVerification) {
   // Seek to "a" — should find "a" with handle {100, 10}.
   ASSERT_TRUE(iter.Seek(Slice("a")));
   ASSERT_EQ(iter.Key().ToString(), "a");
-  ASSERT_EQ(iter.Value().offset, 100);
-  ASSERT_EQ(iter.Value().size, 10);
+  ASSERT_EQ(iter.Value().offset, 100u);
+  ASSERT_EQ(iter.Value().size, 10u);
 
   // Next should give "ab" with handle {200, 20}.
   ASSERT_TRUE(iter.Next());
   ASSERT_EQ(iter.Key().ToString(), "ab");
-  ASSERT_EQ(iter.Value().offset, 200);
-  ASSERT_EQ(iter.Value().size, 20);
+  ASSERT_EQ(iter.Value().offset, 200u);
+  ASSERT_EQ(iter.Value().size, 20u);
 
   // Next should give "b" with handle {300, 30}.
   ASSERT_TRUE(iter.Next());
   ASSERT_EQ(iter.Key().ToString(), "b");
-  ASSERT_EQ(iter.Value().offset, 300);
-  ASSERT_EQ(iter.Value().size, 30);
+  ASSERT_EQ(iter.Value().offset, 300u);
+  ASSERT_EQ(iter.Value().size, 30u);
 
   ASSERT_FALSE(iter.Next());
 }
@@ -998,11 +998,11 @@ TEST_F(LoudsTrieTest, IteratorSeekExact) {
   // Seek to exact keys.
   ASSERT_TRUE(iter.Seek(Slice("abc")));
   ASSERT_TRUE(iter.Valid());
-  ASSERT_EQ(iter.Value().offset, 0);
+  ASSERT_EQ(iter.Value().offset, 0u);
 
   ASSERT_TRUE(iter.Seek(Slice("xyz")));
   ASSERT_TRUE(iter.Valid());
-  ASSERT_EQ(iter.Value().offset, 300);
+  ASSERT_EQ(iter.Value().offset, 300u);
 }
 
 TEST_F(LoudsTrieTest, IteratorSeekBetweenKeys) {
@@ -1023,7 +1023,7 @@ TEST_F(LoudsTrieTest, IteratorSeekBetweenKeys) {
   // Seek to a key between "aaa" and "bbb" — should land on "bbb".
   ASSERT_TRUE(iter.Seek(Slice("ab")));
   ASSERT_TRUE(iter.Valid());
-  ASSERT_EQ(iter.Value().offset, 100);  // "bbb"'s handle.
+  ASSERT_EQ(iter.Value().offset, 100u);  // "bbb"'s handle.
 }
 
 TEST_F(LoudsTrieTest, IteratorNext) {
@@ -1092,7 +1092,7 @@ TEST_F(LoudsTrieTest, IteratorSeekBeforeAll) {
   // Seek before all keys.
   ASSERT_TRUE(iter.Seek(Slice("aaa")));
   ASSERT_TRUE(iter.Valid());
-  ASSERT_EQ(iter.Value().offset, 0);  // "bbb"'s handle.
+  ASSERT_EQ(iter.Value().offset, 0u);  // "bbb"'s handle.
 }
 
 TEST_F(LoudsTrieTest, SeekBetweenAllPairs) {
@@ -1303,7 +1303,7 @@ TEST_F(LoudsTrieTest, IteratorFullScanThenReSeek) {
   // Re-seek to middle.
   ASSERT_TRUE(iter.Seek(Slice("cc")));
   ASSERT_EQ(iter.Key().ToString(), "cc");
-  ASSERT_EQ(iter.Value().offset, 200);
+  ASSERT_EQ(iter.Value().offset, 200u);
 }
 
 // --- Serialization / deserialization ---
@@ -1579,13 +1579,13 @@ TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
   // Finish building.
   Slice index_contents;
   ASSERT_OK(builder->Finish(&index_contents));
-  ASSERT_GT(index_contents.size(), 0);
+  ASSERT_GT(index_contents.size(), 0u);
 
   // Read the index.
   std::unique_ptr<UserDefinedIndexReader> reader;
   ASSERT_OK(factory_->NewReader(option, index_contents, reader));
   ASSERT_NE(reader, nullptr);
-  ASSERT_GT(reader->ApproximateMemoryUsage(), 0);
+  ASSERT_GT(reader->ApproximateMemoryUsage(), 0u);
 
   // Create an iterator and seek.
   ReadOptions ro;
