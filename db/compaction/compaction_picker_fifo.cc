@@ -33,23 +33,6 @@ uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files) {
   return total_size;
 }
 
-// Estimate the total data (SST + blob) associated with a given amount of
-// SST bytes, assuming blob data is distributed proportionally across SSTs.
-//
-// This proportional estimation is used throughout FIFO compaction to account
-// for blob files when making size-based decisions:
-//   - PickTTLCompaction: estimate remaining data after dropping expired SSTs
-//   - PickSizeCompaction: estimate data freed per dropped SST file
-//   - PickRatioBasedIntraL0Compaction: compute SST ratio for target sizing
-uint64_t EstimateTotalDataForSST(uint64_t sst_bytes, uint64_t total_sst,
-                                 uint64_t total_blob) {
-  if (total_sst == 0 || total_blob == 0) {
-    return sst_bytes;
-  }
-  return sst_bytes + static_cast<uint64_t>(static_cast<double>(sst_bytes) /
-                                           total_sst * total_blob);
-}
-
 // Compute effective data size and capacity limit for FIFO compaction.
 // When max_data_files_size > 0 (blob-aware mode), the effective size includes
 // both SST and blob file sizes, and the limit is max_data_files_size.
@@ -144,12 +127,36 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       GetEffectiveMax(mutable_cf_options.compaction_options_fifo);
   // Estimate the effective remaining data after dropping TTL-expired SSTs.
   // Each dropped SST also frees a proportional share of blob data.
+  //
+  // In multi-level FIFO (migration), we must use total SST across ALL levels
+  // as the reference, because total_blob covers all levels. Using only L0
+  // SST would inflate the blob estimate.
   uint64_t effective_remaining = total_size;
   if (mutable_cf_options.compaction_options_fifo.max_data_files_size > 0) {
     uint64_t total_blob = vstorage->GetBlobStats().total_file_size;
-    uint64_t original_sst_size = GetTotalFilesSize(level_files);
-    effective_remaining =
-        EstimateTotalDataForSST(total_size, original_sst_size, total_blob);
+    // Compute total SST across all levels so the reference scope matches
+    // total_blob's scope (all levels).
+    uint64_t total_sst_all_levels = GetTotalFilesSize(level_files);
+    for (int level = 1; level < vstorage->num_levels(); ++level) {
+      total_sst_all_levels += GetTotalFilesSize(vstorage->LevelFiles(level));
+    }
+    // remaining_sst_all = total_sst_all - dropped_l0_sst
+    // total_size is the remaining L0 SST after removing expired files;
+    // original L0 SST minus remaining L0 SST = dropped.
+    uint64_t original_l0_sst = GetTotalFilesSize(level_files);
+    uint64_t dropped_sst = original_l0_sst - total_size;
+    uint64_t remaining_sst_all = total_sst_all_levels - dropped_sst;
+    // Proportional blob estimate: each SST byte "owns" a proportional
+    // share of blob bytes. Both reference sizes must come from the same
+    // scope (all levels) to avoid inflated estimates.
+    if (total_sst_all_levels > 0 && total_blob > 0) {
+      effective_remaining =
+          remaining_sst_all +
+          static_cast<uint64_t>(static_cast<double>(remaining_sst_all) /
+                                total_sst_all_levels * total_blob);
+    } else {
+      effective_remaining = remaining_sst_all;
+    }
   }
   if (inputs[0].files.empty() || effective_remaining > effective_max) {
     return nullptr;
@@ -511,6 +518,22 @@ Compaction* FIFOCompactionPicker::PickRatioBasedIntraL0Compaction(
   const auto& fifo_opts = mutable_cf_options.compaction_options_fifo;
   assert(fifo_opts.use_kv_ratio_compaction);
   assert(fifo_opts.max_data_files_size > 0);
+
+  // During migration from level/universal compaction to FIFO, non-L0 levels
+  // may still contain files. The ratio-based algorithm only operates on L0,
+  // so skip it until PickSizeCompaction has drained all non-L0 levels.
+  // Once levels collapse to L0-only, this algorithm will kick in.
+  for (int level = 1; level < vstorage->num_levels(); ++level) {
+    if (!vstorage->LevelFiles(level).empty()) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO kv-ratio compaction: skipping — non-L0 "
+                       "level %d still has %" ROCKSDB_PRIszt
+                       " files (migration in progress)",
+                       cf_name.c_str(), level,
+                       vstorage->LevelFiles(level).size());
+      return nullptr;
+    }
+  }
 
   if (!level0_compactions_in_progress_.empty()) {
     return nullptr;

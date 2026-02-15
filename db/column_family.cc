@@ -1586,11 +1586,15 @@ Status ColumnFamilyData::ValidateOptions(
           "use_kv_ratio_compaction requires max_data_files_size > 0 to "
           "compute the target compacted file size from data capacity.");
     }
-    if (cf_options.num_levels > 1) {
-      return Status::InvalidArgument(
-          "use_kv_ratio_compaction requires num_levels = 1 "
-          "(single-level FIFO).");
-    }
+  }
+
+  if (cf_options.compaction_options_fifo.max_data_files_size > 0 &&
+      cf_options.compaction_options_fifo.max_data_files_size <
+          cf_options.compaction_options_fifo.max_table_files_size) {
+    return Status::InvalidArgument(
+        "max_data_files_size (total data = SST + blob) must be >= "
+        "max_table_files_size (SST only) when non-zero, since total data "
+        "always includes SST data.");
   }
 
   std::vector<uint32_t> supported{0, 1, 2, 4, 8};

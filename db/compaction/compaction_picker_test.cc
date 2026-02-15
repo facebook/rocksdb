@@ -240,9 +240,9 @@ class CompactionPickerTestBase : public testing::Test {
   void SetupFIFORatioBased(uint64_t max_table_files_size,
                            uint64_t max_data_files_size, int trigger,
                            bool allow_compaction = true,
-                           bool use_kv_ratio = true) {
+                           bool use_kv_ratio = true, int num_levels = 1) {
     ioptions_.compaction_style = kCompactionStyleFIFO;
-    NewVersionStorage(1, kCompactionStyleFIFO);
+    NewVersionStorage(num_levels, kCompactionStyleFIFO);
     mutable_cf_options_.compaction_options_fifo.max_table_files_size =
         max_table_files_size;
     mutable_cf_options_.compaction_options_fifo.max_data_files_size =
@@ -5209,131 +5209,339 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
 // for use_kv_ratio_compaction.
 // ============================================================================
 
-TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresFIFO) {
-  ColumnFamilyOptions cf_opts;
-  cf_opts.compaction_style = kCompactionStyleLevel;
-  cf_opts.compaction_options_fifo.allow_compaction = true;
-  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
-  cf_opts.compaction_options_fifo.max_data_files_size =
-      1ULL * 1024 * 1024 * 1024;
-  DBOptions db_opts;
-  ASSERT_TRUE(
-      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
-}
+TEST_F(CompactionPickerTest, FIFOOptionValidation) {
+  auto validate = [](std::function<void(ColumnFamilyOptions&)> configure) {
+    ColumnFamilyOptions cf_opts;
+    cf_opts.compaction_style = kCompactionStyleFIFO;
+    cf_opts.compaction_options_fifo.allow_compaction = true;
+    cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
+    cf_opts.compaction_options_fifo.max_data_files_size =
+        1ULL * 1024 * 1024 * 1024;
+    cf_opts.num_levels = 1;
+    configure(cf_opts);
+    return ColumnFamilyData::ValidateOptions(DBOptions(), cf_opts);
+  };
 
-TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresAllowCompaction) {
-  ColumnFamilyOptions cf_opts;
-  cf_opts.compaction_style = kCompactionStyleFIFO;
-  cf_opts.compaction_options_fifo.allow_compaction = false;
-  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
-  cf_opts.compaction_options_fifo.max_data_files_size =
-      1ULL * 1024 * 1024 * 1024;
-  DBOptions db_opts;
-  ASSERT_TRUE(
-      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
-}
+  // use_kv_ratio_compaction requires FIFO compaction style
+  ASSERT_TRUE(validate([](auto& o) {
+                o.compaction_style = kCompactionStyleLevel;
+              }).IsInvalidArgument());
 
-TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresMaxDataFilesSize) {
-  ColumnFamilyOptions cf_opts;
-  cf_opts.compaction_style = kCompactionStyleFIFO;
-  cf_opts.compaction_options_fifo.allow_compaction = true;
-  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
-  cf_opts.compaction_options_fifo.max_data_files_size = 0;
-  DBOptions db_opts;
-  ASSERT_TRUE(
-      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
-}
+  // use_kv_ratio_compaction requires allow_compaction
+  ASSERT_TRUE(validate([](auto& o) {
+                o.compaction_options_fifo.allow_compaction = false;
+              }).IsInvalidArgument());
 
-TEST_F(CompactionPickerTest, FIFOKvRatioValidationRequiresSingleLevel) {
-  ColumnFamilyOptions cf_opts;
-  cf_opts.compaction_style = kCompactionStyleFIFO;
-  cf_opts.compaction_options_fifo.allow_compaction = true;
-  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
-  cf_opts.compaction_options_fifo.max_data_files_size =
-      1ULL * 1024 * 1024 * 1024;
-  cf_opts.num_levels = 4;
-  DBOptions db_opts;
-  ASSERT_TRUE(
-      ColumnFamilyData::ValidateOptions(db_opts, cf_opts).IsInvalidArgument());
-}
+  // use_kv_ratio_compaction requires max_data_files_size > 0
+  ASSERT_TRUE(validate([](auto& o) {
+                o.compaction_options_fifo.max_data_files_size = 0;
+              }).IsInvalidArgument());
 
-TEST_F(CompactionPickerTest, FIFOKvRatioValidationAcceptsValidConfig) {
-  ColumnFamilyOptions cf_opts;
-  cf_opts.compaction_style = kCompactionStyleFIFO;
-  cf_opts.compaction_options_fifo.allow_compaction = true;
-  cf_opts.compaction_options_fifo.use_kv_ratio_compaction = true;
-  cf_opts.compaction_options_fifo.max_data_files_size =
-      1ULL * 1024 * 1024 * 1024;
-  cf_opts.num_levels = 1;
-  DBOptions db_opts;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_opts, cf_opts));
+  // Accepts multi-level (for migration from level/universal to FIFO)
+  ASSERT_OK(validate([](auto& o) { o.num_levels = 4; }));
+
+  // Accepts valid single-level config
+  ASSERT_OK(validate([](auto& /*o*/) {}));
+
+  // max_data_files_size < max_table_files_size is invalid when non-zero
+  ASSERT_TRUE(validate([](auto& o) {
+                o.compaction_options_fifo.use_kv_ratio_compaction = false;
+                o.compaction_options_fifo.max_data_files_size = 0;
+                o.compaction_options_fifo.max_table_files_size =
+                    1ULL * 1024 * 1024 * 1024;
+                o.compaction_options_fifo.max_data_files_size =
+                    500ULL * 1024 * 1024;
+              }).IsInvalidArgument());
+
+  // max_data_files_size == max_table_files_size is valid
+  ASSERT_OK(validate([](auto& o) {
+    o.compaction_options_fifo.use_kv_ratio_compaction = false;
+    o.compaction_options_fifo.max_data_files_size = 0;
+    o.compaction_options_fifo.max_table_files_size =
+        1ULL * 1024 * 1024 * 1024;
+    o.compaction_options_fifo.max_data_files_size =
+        1ULL * 1024 * 1024 * 1024;
+  }));
 }
 
 // ============================================================================
-// FIFO Blob-Aware Size-Based Dropping Tests
-// Tests that PickSizeCompaction correctly accounts for blob data when
-// max_data_files_size > 0.
+// FIFO Ratio-Based Compaction: Multi-Level Migration Graceful Skip
+// Tests that PickRatioBasedIntraL0Compaction gracefully skips when non-L0
+// levels still contain files (e.g., during migration from level/universal
+// to FIFO), and resumes once all data has been drained to L0.
 // ============================================================================
+
+TEST_F(CompactionPickerTest, FIFORatioBasedMultiLevelMigration) {
+  // Sub-case 1: During migration (non-L0 levels have files).
+  // Ratio-based intra-L0 compaction should be skipped.
+  {
+    SetupFIFORatioBased(/*max_table_files_size=*/100 * 1024 * 1024,
+                        /*max_data_files_size=*/1ULL * 1024 * 1024 * 1024,
+                        /*trigger=*/4,
+                        /*allow_compaction=*/true,
+                        /*use_kv_ratio=*/true,
+                        /*num_levels=*/4);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 64 * 1024);
+    Add(0, 3U, "300", "400", 64 * 1024);
+    Add(0, 4U, "400", "500", 64 * 1024);
+    Add(0, 5U, "500", "600", 64 * 1024);
+    Add(2, 10U, "100", "600", 50 * 1024 * 1024);
+    AddBlobFile(100, 64ULL * 1024 * 1024);
+    AddBlobFile(101, 64ULL * 1024 * 1024);
+
+    auto compaction = PickFIFOCompaction(picker);
+    if (compaction != nullptr) {
+      if (compaction->compaction_reason() ==
+          CompactionReason::kFIFOReduceNumFiles) {
+        // Cost-based path is fine; verify it's not ratio-based.
+        ASSERT_EQ(16 * 1024 * 1024, compaction->max_output_file_size());
+      }
+    }
+  }
+
+  // Sub-case 2: After migration (only L0 has files).
+  // Ratio-based compaction should resume normally.
+  {
+    SetupFIFORatioBased(/*max_table_files_size=*/100 * 1024 * 1024,
+                        /*max_data_files_size=*/1ULL * 1024 * 1024 * 1024,
+                        /*trigger=*/4,
+                        /*allow_compaction=*/true,
+                        /*use_kv_ratio=*/true,
+                        /*num_levels=*/4);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 32 * 1024);
+    Add(0, 3U, "300", "400", 48 * 1024);
+    Add(0, 4U, "400", "500", 96 * 1024);
+    AddBlobFile(100, 64ULL * 1024 * 1024);
+    AddBlobFile(101, 64ULL * 1024 * 1024);
+    AddBlobFile(102, 64ULL * 1024 * 1024);
+    AddBlobFile(103, 64ULL * 1024 * 1024);
+
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get())
+        << "Should compact when non-L0 levels are empty (migration complete)";
+    ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+              compaction->compaction_reason());
+    ASSERT_EQ(0, compaction->output_level());
+  }
+}
+
+// ============================================================================
+// FIFO TTL Compaction with Blob-Aware Estimation Tests
+// Tests that PickTTLCompaction correctly estimates remaining data (SST + blob)
+// in both single-level and multi-level FIFO configurations.
+// ============================================================================
+
+TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationSingleLevel) {
+  // Single-level FIFO with TTL and max_data_files_size.
+  // After dropping expired L0 SSTs, the blob estimate should be proportional
+  // to the remaining SST fraction.
+  //
+  // Common setup: L0 = 4 files × 50KB = 200KB, files 3,4 expired.
+  // Remaining SST after drop = 100KB = 50%.
+
+    auto run = [&](uint64_t blob_total, uint64_t limit, bool expect_ttl_fires) {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    NewVersionStorage(1, kCompactionStyleFIFO);
+    mutable_cf_options_.compaction_options_fifo.max_table_files_size = limit;
+    mutable_cf_options_.compaction_options_fifo.max_data_files_size = limit;
+    mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
+    mutable_cf_options_.ttl = 3600;
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+    uint64_t recent_time = static_cast<uint64_t>(time(nullptr));
+    Add(0, 1U, "100", "200", 50 * 1024, 0, 100, 100, 0, false,
+        Temperature::kUnknown, kUnknownOldestAncesterTime, recent_time);
+    Add(0, 2U, "200", "300", 50 * 1024, 0, 100, 100, 0, false,
+        Temperature::kUnknown, kUnknownOldestAncesterTime, recent_time);
+    Add(0, 3U, "300", "400", 50 * 1024, 0, 100, 100, 0, false,
+        Temperature::kUnknown, kUnknownOldestAncesterTime, 1);
+    Add(0, 4U, "400", "500", 50 * 1024, 0, 100, 100, 0, false,
+        Temperature::kUnknown, kUnknownOldestAncesterTime, 1);
+    if (blob_total > 0) {
+      AddBlobFile(100, blob_total / 2);
+      AddBlobFile(101, blob_total / 2);
+    }
+
+    auto compaction = PickFIFOCompaction(picker);
+    if (expect_ttl_fires) {
+      ASSERT_NE(nullptr, compaction.get())
+          << "TTL compaction should fire when remaining data < limit";
+      ASSERT_EQ(CompactionReason::kFIFOTtl, compaction->compaction_reason());
+      ASSERT_EQ(2U, compaction->num_input_files(0));
+    } else {
+      if (compaction != nullptr) {
+        ASSERT_NE(CompactionReason::kFIFOTtl, compaction->compaction_reason())
+            << "TTL should not fire when remaining data still exceeds limit";
+      }
+    }
+  };
+
+  // Sub-case 1: Under limit after drop.
+  //   blob=400KB, limit=500KB.
+  //   effective = 100KB + (100KB/200KB)*400KB = 300KB < 500KB → fires.
+  run(400 * 1024, 500 * 1024, /*expect_ttl_fires=*/true);
+
+  // Sub-case 2: Over limit after drop.
+  //   blob=4MB, limit=100KB.
+  //   effective = 100KB + (100KB/200KB)*4MB ≈ 2MB >> 100KB → does NOT fire.
+  run(4ULL * 1024 * 1024, 100 * 1024, /*expect_ttl_fires=*/false);
+
+  // Sub-case 3: No blob files. Falls back to SST-only estimation.
+  //   blob=0, limit=150KB. remaining SST = 100KB < 150KB → fires.
+  run(0, 150 * 1024, /*expect_ttl_fires=*/true);
+}
+
+TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationMultiLevel) {
+  // Multi-level FIFO (migration) with TTL and max_data_files_size.
+  // This is the ritical bug fix scenario:
+  //   - L0 has some SSTs, L2 has legacy SSTs from migration
+  //   - Blob files cover ALL levels
+  //   - The estimation must use total SST across ALL levels (not just L0)
+  //     to avoid inflating the blob proportion.
+  //
+  // Setup:
+  //   L0: 4 files × 50KB = 200KB SST (files 3,4 expired)
+  //   L2: 1 file × 200KB SST (legacy migration data)
+  //   Total SST = 400KB
+  //   Blob: 800KB total
+  //   max_data_files_size = 1000KB
+  //   Remaining SST after TTL drop = 400KB - 100KB = 300KB
+  //
+  //   CORRECT (fixed): effective = 300KB + (300KB/400KB)*800KB = 300+600 =
+  //   900KB < 1000KB → fires BUG (old):        effective = 100KB +
+  //   (100KB/200KB)*800KB = 100+400 = 500KB < 1000KB → fires
+  //                     (coincidentally fires too, but with wrong estimate)
+  //
+  // To distinguish correct vs buggy behavior, use a limit that triggers the
+  // difference: set max_data_files_size = 850KB.
+  //   CORRECT: effective = 300KB + (300KB/400KB)*800KB = 900KB > 850KB → does
+  //   NOT fire BUG:     effective = 100KB + (100KB/200KB)*800KB = 500KB < 850KB
+  //   → fires (wrong!)
+  ioptions_.compaction_style = kCompactionStyleFIFO;
+  NewVersionStorage(4, kCompactionStyleFIFO);
+  mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+      850 * 1024;  // match max_data_files_size
+  mutable_cf_options_.compaction_options_fifo.max_data_files_size = 850 * 1024;
+  mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
+  mutable_cf_options_.ttl = 3600;
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
+
+  uint64_t recent_time = static_cast<uint64_t>(time(nullptr));
+  // L0 files: 2 recent, 2 expired
+  Add(0, 1U, "100", "200", 50 * 1024, 0, 100, 100, 0, false,
+      Temperature::kUnknown, kUnknownOldestAncesterTime, recent_time);
+  Add(0, 2U, "200", "300", 50 * 1024, 0, 100, 100, 0, false,
+      Temperature::kUnknown, kUnknownOldestAncesterTime, recent_time);
+  Add(0, 3U, "300", "400", 50 * 1024, 0, 100, 100, 0, false,
+      Temperature::kUnknown, kUnknownOldestAncesterTime, 1);
+  Add(0, 4U, "400", "500", 50 * 1024, 0, 100, 100, 0, false,
+      Temperature::kUnknown, kUnknownOldestAncesterTime, 1);
+  // L2 legacy migration file
+  Add(2, 10U, "100", "600", 200 * 1024);
+  // Blob files (associated with ALL levels)
+  AddBlobFile(100, 400 * 1024);
+  AddBlobFile(101, 400 * 1024);
+
+  auto compaction = PickFIFOCompaction(picker);
+  // With correct all-levels estimation:
+  //   remaining_sst_all = 400KB - 100KB(dropped) = 300KB
+  //   effective = 300KB + (300KB/400KB)*800KB = 900KB > 850KB
+  //   → TTL should NOT fire (falls through to size-based)
+  if (compaction != nullptr) {
+    ASSERT_NE(CompactionReason::kFIFOTtl, compaction->compaction_reason())
+        << "Multi-level FIFO: TTL should not fire when correct all-levels "
+           "blob estimation shows data still exceeds limit";
+  }
+}
 
 TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
-  // With max_data_files_size, effective size includes blobs.
-  // SST total = 200KB, blob total = 500MB. effective_size ≈ 500MB.
-  // max_data_files_size = 200MB → over limit → should drop oldest files.
-  SetupFIFORatioBased(/*max_table=*/100ULL * 1024 * 1024 * 1024,
-                      /*max_data=*/200ULL * 1024 * 1024,
-                      /*trigger=*/4,
-                      /*allow_compaction=*/true,
-                      /*use_kv_ratio=*/false);
-  FIFOCompactionPicker picker(ioptions_, &icmp_);
+  // PickSizeCompaction with max_data_files_size should account for blob data.
+  //
+  // Sub-case 1: Single-level. SST = 200KB, blob = 500MB, limit = 200MB.
+  //   effective_size ≈ 500MB >> 200MB → drops from L0.
+  {
+    SetupFIFORatioBased(/*max_table=*/200ULL * 1024 * 1024,
+                        /*max_data=*/200ULL * 1024 * 1024,
+                        /*trigger=*/4,
+                        /*allow_compaction=*/true,
+                        /*use_kv_ratio=*/false);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
-  // 5 SST files, 40KB each = 200KB total SST
-  Add(0, 1U, "100", "199", 40 * 1024);
-  Add(0, 2U, "200", "299", 40 * 1024);
-  Add(0, 3U, "300", "399", 40 * 1024);
-  Add(0, 4U, "400", "499", 40 * 1024);
-  Add(0, 5U, "500", "599", 40 * 1024);
+    Add(0, 1U, "100", "199", 40 * 1024);
+    Add(0, 2U, "200", "299", 40 * 1024);
+    Add(0, 3U, "300", "399", 40 * 1024);
+    Add(0, 4U, "400", "499", 40 * 1024);
+    Add(0, 5U, "500", "599", 40 * 1024);
+    AddBlobFile(100, 100ULL * 1024 * 1024);
+    AddBlobFile(101, 100ULL * 1024 * 1024);
+    AddBlobFile(102, 100ULL * 1024 * 1024);
+    AddBlobFile(103, 100ULL * 1024 * 1024);
+    AddBlobFile(104, 100ULL * 1024 * 1024);
 
-  // Blob files totaling 500MB — way over the 200MB limit
-  AddBlobFile(100, 100ULL * 1024 * 1024);
-  AddBlobFile(101, 100ULL * 1024 * 1024);
-  AddBlobFile(102, 100ULL * 1024 * 1024);
-  AddBlobFile(103, 100ULL * 1024 * 1024);
-  AddBlobFile(104, 100ULL * 1024 * 1024);
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get());
+    ASSERT_EQ(CompactionReason::kFIFOMaxSize, compaction->compaction_reason());
+    ASSERT_GE(compaction->num_input_files(0), 1);
+  }
 
-  auto compaction = PickFIFOCompaction(picker);
-  ASSERT_NE(nullptr, compaction.get());
-  // Should be dropping files (kFIFOMaxSize), not intra-L0
-  ASSERT_EQ(CompactionReason::kFIFOMaxSize, compaction->compaction_reason());
-  // Should have picked at least 1 file for deletion
-  ASSERT_GE(compaction->num_input_files(0), 1);
-}
+  // Sub-case 2: Multi-level (migration). L0=100KB, L2=150KB, blob=500KB.
+  //   effective_size = 250KB + 500KB = 750KB > 400KB → drops from L2.
+  {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    NewVersionStorage(4, kCompactionStyleFIFO);
+    mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+        400 * 1024;
+    mutable_cf_options_.compaction_options_fifo.max_data_files_size =
+        400 * 1024;
+    mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
+    mutable_cf_options_.ttl = 0;
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
-TEST_F(CompactionPickerTest, FIFOBlobAwareNoDroppingUnderLimit) {
-  // When effective size (SST + blob) is under max_data_files_size,
-  // no dropping should happen. Intra-L0 may fire instead.
-  SetupFIFORatioBased(/*max_table=*/100ULL * 1024 * 1024 * 1024,
-                      /*max_data=*/1ULL * 1024 * 1024 * 1024,
-                      /*trigger=*/4,
-                      /*allow_compaction=*/true,
-                      /*use_kv_ratio=*/true);
-  FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 50 * 1024);
+    Add(0, 2U, "200", "300", 50 * 1024);
+    Add(2, 10U, "100", "300", 50 * 1024);
+    Add(2, 11U, "300", "500", 50 * 1024);
+    Add(2, 12U, "500", "700", 50 * 1024);
+    AddBlobFile(100, 250 * 1024);
+    AddBlobFile(101, 250 * 1024);
 
-  // 4 SST files, 64KB each = 256KB total SST
-  Add(0, 1U, "100", "199", 64 * 1024);
-  Add(0, 2U, "200", "299", 64 * 1024);
-  Add(0, 3U, "300", "399", 64 * 1024);
-  Add(0, 4U, "400", "499", 64 * 1024);
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get());
+    ASSERT_EQ(CompactionReason::kFIFOMaxSize, compaction->compaction_reason());
+    ASSERT_EQ(2, compaction->start_level());
+    ASSERT_GE(compaction->num_input_files(0), 1U);
+  }
 
-  // Blob files totaling 200MB — under the 1GB limit
-  AddBlobFile(100, 50ULL * 1024 * 1024);
-  AddBlobFile(101, 50ULL * 1024 * 1024);
-  AddBlobFile(102, 50ULL * 1024 * 1024);
-  AddBlobFile(103, 50ULL * 1024 * 1024);
+  // Sub-case 3: Under limit. SST = 256KB, blob = 200MB, limit = 1GB.
+  //   effective_size ≈ 200MB < 1GB → no dropping.
+  {
+    SetupFIFORatioBased(/*max_table=*/1ULL * 1024 * 1024 * 1024,
+                        /*max_data=*/1ULL * 1024 * 1024 * 1024,
+                        /*trigger=*/4,
+                        /*allow_compaction=*/true,
+                        /*use_kv_ratio=*/true);
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
-  auto compaction = PickFIFOCompaction(picker);
-  // Should NOT be dropping. Could be intra-L0 or nullptr.
-  if (compaction) {
-    ASSERT_NE(CompactionReason::kFIFOMaxSize, compaction->compaction_reason());
+    Add(0, 1U, "100", "199", 64 * 1024);
+    Add(0, 2U, "200", "299", 64 * 1024);
+    Add(0, 3U, "300", "399", 64 * 1024);
+    Add(0, 4U, "400", "499", 64 * 1024);
+    AddBlobFile(100, 50ULL * 1024 * 1024);
+    AddBlobFile(101, 50ULL * 1024 * 1024);
+    AddBlobFile(102, 50ULL * 1024 * 1024);
+    AddBlobFile(103, 50ULL * 1024 * 1024);
+
+    auto compaction = PickFIFOCompaction(picker);
+    if (compaction) {
+      ASSERT_NE(CompactionReason::kFIFOMaxSize,
+                compaction->compaction_reason());
+    }
   }
 }
 
@@ -5344,63 +5552,51 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareNoDroppingUnderLimit) {
 // ============================================================================
 
 TEST_F(CompactionPickerTest, FIFOBlobAwareScoreComputation) {
-  // Without blob-aware sizing: score = total_sst / max_table_files_size
-  // With blob-aware sizing: score = (total_sst + total_blob) /
-  // max_data_files_size
-  //
-  // Set up a scenario where SST-only score < 1 but blob-aware score >= 1.
-  ioptions_.compaction_style = kCompactionStyleFIFO;
-  NewVersionStorage(1, kCompactionStyleFIFO);
+  // Sub-case 1: With max_data_files_size, score includes blob sizes.
+  //   SST = 100KB, blob = 500MB, max_data = 200MB → score ≈ 2.5
+  {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    NewVersionStorage(1, kCompactionStyleFIFO);
+    mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+        200ULL * 1024 * 1024;
+    mutable_cf_options_.compaction_options_fifo.max_data_files_size =
+        200ULL * 1024 * 1024;
+    mutable_cf_options_.compaction_options_fifo.allow_compaction = false;
+    mutable_cf_options_.level0_file_num_compaction_trigger = 4;
 
-  // SST = 100KB total, blob = 500MB total
-  mutable_cf_options_.compaction_options_fifo.max_table_files_size =
-      1ULL * 1024 * 1024 * 1024;  // 1GB — SST-only score ≈ 0
-  mutable_cf_options_.compaction_options_fifo.max_data_files_size =
-      200ULL * 1024 * 1024;  // 200MB — blob-aware score > 1
-  mutable_cf_options_.compaction_options_fifo.allow_compaction = false;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
+    Add(0, 1U, "100", "199", 25 * 1024);
+    Add(0, 2U, "200", "299", 25 * 1024);
+    Add(0, 3U, "300", "399", 25 * 1024);
+    Add(0, 4U, "400", "499", 25 * 1024);
+    AddBlobFile(100, 500ULL * 1024 * 1024);
+    UpdateVersionStorageInfo();
 
-  Add(0, 1U, "100", "199", 25 * 1024);
-  Add(0, 2U, "200", "299", 25 * 1024);
-  Add(0, 3U, "300", "399", 25 * 1024);
-  Add(0, 4U, "400", "499", 25 * 1024);
-  AddBlobFile(100, 500ULL * 1024 * 1024);  // 500MB blob
+    double score = vstorage_->CompactionScore(0);
+    ASSERT_GT(score, 2.0) << "Score should reflect 500MB/200MB ≈ 2.5";
+  }
 
-  UpdateVersionStorageInfo();
+  // Sub-case 2: Without max_data_files_size, score ignores blobs.
+  //   SST = 400KB < 1MB, blob = 500MB ignored → score ≈ 0.4
+  {
+    ioptions_.compaction_style = kCompactionStyleFIFO;
+    NewVersionStorage(1, kCompactionStyleFIFO);
+    mutable_cf_options_.compaction_options_fifo.max_table_files_size =
+        1ULL * 1024 * 1024;
+    mutable_cf_options_.compaction_options_fifo.max_data_files_size = 0;
+    mutable_cf_options_.compaction_options_fifo.allow_compaction = false;
+    mutable_cf_options_.level0_file_num_compaction_trigger = 4;
 
-  // effective_size = 100KB + 500MB ≈ 500MB
-  // effective_max = 200MB
-  // score = 500MB / 200MB ≈ 2.5
-  double score = vstorage_->CompactionScore(0);
-  ASSERT_GE(score, 1.0)
-      << "Score should be >= 1 when blob-aware total exceeds limit";
-  ASSERT_GT(score, 2.0) << "Score should reflect 500MB/200MB ≈ 2.5";
-}
+    Add(0, 1U, "100", "199", 100 * 1024);
+    Add(0, 2U, "200", "299", 100 * 1024);
+    Add(0, 3U, "300", "399", 100 * 1024);
+    Add(0, 4U, "400", "499", 100 * 1024);
+    AddBlobFile(100, 500ULL * 1024 * 1024);
+    UpdateVersionStorageInfo();
 
-TEST_F(CompactionPickerTest, FIFOBlobAwareScoreWithoutBlobOption) {
-  // When max_data_files_size == 0 (default), score should only use SST sizes.
-  ioptions_.compaction_style = kCompactionStyleFIFO;
-  NewVersionStorage(1, kCompactionStyleFIFO);
-
-  mutable_cf_options_.compaction_options_fifo.max_table_files_size =
-      1ULL * 1024 * 1024;  // 1MB
-  mutable_cf_options_.compaction_options_fifo.max_data_files_size = 0;
-  mutable_cf_options_.compaction_options_fifo.allow_compaction = false;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
-
-  // 400KB total SST < 1MB → score < 1
-  Add(0, 1U, "100", "199", 100 * 1024);
-  Add(0, 2U, "200", "299", 100 * 1024);
-  Add(0, 3U, "300", "399", 100 * 1024);
-  Add(0, 4U, "400", "499", 100 * 1024);
-  AddBlobFile(100, 500ULL * 1024 * 1024);  // 500MB blob — should be ignored
-
-  UpdateVersionStorageInfo();
-
-  // score = 400KB / 1MB = 0.4 (blobs not counted)
-  double score = vstorage_->CompactionScore(0);
-  ASSERT_LT(score, 1.0)
-      << "Score should be < 1 when only SST sizes are counted";
+    double score = vstorage_->CompactionScore(0);
+    ASSERT_LT(score, 1.0)
+        << "Score should be < 1 when only SST sizes are counted";
+  }
 }
 
 // ============================================================================
@@ -5603,9 +5799,10 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
     ioptions_.compaction_style = kCompactionStyleFIFO;
     FIFOCompactionPicker picker(ioptions_, &icmp_);
 
-    // Use a large max_table_files_size so SST-only check doesn't trigger
-    // dropping; we rely on max_data_files_size for blob-aware dropping.
-    const uint64_t max_table_files_size = 100ULL * 1024 * 1024 * 1024;
+    // Use max_data_files_size for both limits. When max_data_files_size > 0,
+    // it takes precedence and max_table_files_size is ignored, but keeping
+    // them consistent avoids contradictory configurations.
+    const uint64_t max_table_files_size = max_data_files_size;
 
     for (int round = 0; round < num_rounds; round++) {
       auto [sst_size, blob_size] = gen(round);
@@ -5679,7 +5876,7 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
                                 uint64_t max_data_files_size) {
     ioptions_.compaction_style = kCompactionStyleFIFO;
     FIFOCompactionPicker picker(ioptions_, &icmp_);
-    const uint64_t max_table_files_size = 100ULL * 1024 * 1024 * 1024;
+    const uint64_t max_table_files_size = max_data_files_size;
 
     CompactionReason reason;
     auto inputs =
