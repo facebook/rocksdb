@@ -5016,7 +5016,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
   //   - exactly trigger: compaction fires
   //   - more than trigger: compaction fires, picks >= 2 files
 
-  // Sub-test 1: fewer than trigger (3 files < trigger 4) → no compaction
+  // Sub-test 1: fewer than trigger (3 files < trigger 4) -> no compaction
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 1ULL * 1024 * 1024 * 1024, 4);
     FIFOCompactionPicker picker(ioptions_, &icmp_);
@@ -5032,7 +5032,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
         << "Should not compact when file count < trigger";
   }
 
-  // Sub-test 2: exactly trigger (4 files = trigger 4) → compaction fires
+  // Sub-test 2: exactly trigger (4 files = trigger 4) -> compaction fires
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 1ULL * 1024 * 1024 * 1024, 4);
     FIFOCompactionPicker picker(ioptions_, &icmp_);
@@ -5040,7 +5040,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
     Add(0, 2U, "200", "300", 32 * 1024);
     Add(0, 3U, "300", "400", 48 * 1024);
     Add(0, 4U, "400", "500", 96 * 1024);
-    // sst_ratio ≈ 240KB/256MB ≈ 0.001, target ≈ 250KB
+    // sst_ratio ~ 240KB/256MB ~ 0.001, target ~ 250KB
     AddBlobFile(100, 64ULL * 1024 * 1024);
     AddBlobFile(101, 64ULL * 1024 * 1024);
     AddBlobFile(102, 64ULL * 1024 * 1024);
@@ -5054,7 +5054,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
     ASSERT_EQ(0, compaction->output_level());
   }
 
-  // Sub-test 3: more than trigger (8 files > trigger 4) → compaction fires
+  // Sub-test 3: more than trigger (8 files > trigger 4) -> compaction fires
   {
     SetupFIFORatioBased(100 * 1024 * 1024, 500ULL * 1024 * 1024, 4);
     FIFOCompactionPicker picker(ioptions_, &icmp_);
@@ -5094,7 +5094,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionNoBlobsFallback) {
   Add(0, 3U, "300", "400", 64 * 1024);
   Add(0, 4U, "400", "500", 64 * 1024);
 
-  // No blob files added — total_blob == 0
+  // No blob files added -- total_blob == 0
 
   // With sst_ratio=1.0 and 10GB cap, target = 10GB/4 = 2.5GB.
   // Tiered boundaries descend: 2.5GB, 625MB, ..., ~152KB, ~38KB, ...
@@ -5117,13 +5117,13 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionNoRecompaction) {
   // Make all files >= 256KB so they are "graduated" (at or above target).
   mutable_cf_options_.max_compaction_bytes = 256 * 1024;
 
-  // All files at 300KB, which is >= target (256KB) → graduated
+  // All files at 300KB, which is >= target (256KB) -> graduated
   Add(0, 1U, "100", "199", 300 * 1024);
   Add(0, 2U, "200", "299", 300 * 1024);
   Add(0, 3U, "300", "399", 300 * 1024);
   Add(0, 4U, "400", "499", 300 * 1024);
 
-  // All files are at/above target → graduated → no compaction.
+  // All files are at/above target -> graduated -> no compaction.
   auto compaction = PickFIFOCompaction(picker);
   ASSERT_EQ(nullptr, compaction.get());
 }
@@ -5148,8 +5148,8 @@ TEST_F(CompactionPickerTest,
 
   // target = max_compaction_bytes = 256KB.
   // Tier boundaries descend from 256KB: [25KB, 256KB] (trigger=4, floor=10KB).
-  // At boundary 25KB: each 64KB file >= 25KB → skipped.
-  // At boundary 256KB: all 64KB files < 256KB → accumulated until >= 256KB.
+  // At boundary 25KB: each 64KB file >= 25KB -> skipped.
+  // At boundary 256KB: all 64KB files < 256KB -> accumulated until >= 256KB.
   auto compaction = PickFIFOCompaction(picker);
   ASSERT_NE(nullptr, compaction.get());
   ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
@@ -5161,7 +5161,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
   // When use_kv_ratio_compaction is false, PickIntraL0Compaction should
   // fall through to the old PickCostBasedIntraL0Compaction path.
 
-  // Sub-test 1: allow_compaction = false → no intra-L0 at all
+  // Sub-test 1: allow_compaction = false -> no intra-L0 at all
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 0, 4,
                         /*allow_compaction=*/false, /*use_kv_ratio=*/false);
@@ -5178,7 +5178,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
   }
 
   // Sub-test 2: allow_compaction = true, use_kv_ratio = false
-  // → falls through to old PickCostBasedIntraL0Compaction path
+  // -> falls through to old PickCostBasedIntraL0Compaction path
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 0, 4,
                         /*allow_compaction=*/true, /*use_kv_ratio=*/false);
@@ -5193,8 +5193,8 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
     Add(0, 4U, "400", "500", 64 * 1024);
 
     // Total size (256KB) < max_table_files_size (10MB), so no deletion.
-    // allow_compaction=true and use_kv_ratio=false → old path.
-    // 4 files >= trigger(4), per_del = 256KB/3 ≈ 85KB < 1.1*WBS → passes.
+    // allow_compaction=true and use_kv_ratio=false -> old path.
+    // 4 files >= trigger(4), per_del = 256KB/3 ~ 85KB < 1.1*WBS -> passes.
     auto compaction = PickFIFOCompaction(picker);
     ASSERT_NE(nullptr, compaction.get())
         << "Old path should compact when allow_compaction=true";
@@ -5340,7 +5340,7 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationSingleLevel) {
   // After dropping expired L0 SSTs, the blob estimate should be proportional
   // to the remaining SST fraction.
   //
-  // Common setup: L0 = 4 files × 50KB = 200KB, files 3,4 expired.
+  // Common setup: L0 = 4 files x 50KB = 200KB, files 3,4 expired.
   // Remaining SST after drop = 100KB = 50%.
 
   auto run = [&](uint64_t blob_total, uint64_t limit, bool expect_ttl_fires) {
@@ -5382,16 +5382,16 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationSingleLevel) {
 
   // Sub-case 1: Under limit after drop.
   //   blob=400KB, limit=500KB.
-  //   effective = 100KB + (100KB/200KB)*400KB = 300KB < 500KB → fires.
+  //   effective = 100KB + (100KB/200KB)*400KB = 300KB < 500KB -> fires.
   run(400 * 1024, 500 * 1024, /*expect_ttl_fires=*/true);
 
   // Sub-case 2: Over limit after drop.
   //   blob=4MB, limit=100KB.
-  //   effective = 100KB + (100KB/200KB)*4MB ≈ 2MB >> 100KB → does NOT fire.
+  //   effective = 100KB + (100KB/200KB)*4MB ~ 2MB >> 100KB -> does NOT fire.
   run(4ULL * 1024 * 1024, 100 * 1024, /*expect_ttl_fires=*/false);
 
   // Sub-case 3: No blob files. Falls back to SST-only estimation.
-  //   blob=0, limit=150KB. remaining SST = 100KB < 150KB → fires.
+  //   blob=0, limit=150KB. remaining SST = 100KB < 150KB -> fires.
   run(0, 150 * 1024, /*expect_ttl_fires=*/true);
 }
 
@@ -5404,23 +5404,23 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationMultiLevel) {
   //     to avoid inflating the blob proportion.
   //
   // Setup:
-  //   L0: 4 files × 50KB = 200KB SST (files 3,4 expired)
-  //   L2: 1 file × 200KB SST (legacy migration data)
+  //   L0: 4 files x 50KB = 200KB SST (files 3,4 expired)
+  //   L2: 1 file x 200KB SST (legacy migration data)
   //   Total SST = 400KB
   //   Blob: 800KB total
   //   max_data_files_size = 1000KB
   //   Remaining SST after TTL drop = 400KB - 100KB = 300KB
   //
   //   CORRECT (fixed): effective = 300KB + (300KB/400KB)*800KB = 300+600 =
-  //   900KB < 1000KB → fires BUG (old):        effective = 100KB +
-  //   (100KB/200KB)*800KB = 100+400 = 500KB < 1000KB → fires
+  //   900KB < 1000KB -> fires BUG (old):        effective = 100KB +
+  //   (100KB/200KB)*800KB = 100+400 = 500KB < 1000KB -> fires
   //                     (coincidentally fires too, but with wrong estimate)
   //
   // To distinguish correct vs buggy behavior, use a limit that triggers the
   // difference: set max_data_files_size = 850KB.
-  //   CORRECT: effective = 300KB + (300KB/400KB)*800KB = 900KB > 850KB → does
+  //   CORRECT: effective = 300KB + (300KB/400KB)*800KB = 900KB > 850KB -> does
   //   NOT fire BUG:     effective = 100KB + (100KB/200KB)*800KB = 500KB < 850KB
-  //   → fires (wrong!)
+  //   -> fires (wrong!)
   ioptions_.compaction_style = kCompactionStyleFIFO;
   NewVersionStorage(4, kCompactionStyleFIFO);
   mutable_cf_options_.compaction_options_fifo.max_table_files_size =
@@ -5450,7 +5450,7 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationMultiLevel) {
   // With correct all-levels estimation:
   //   remaining_sst_all = 400KB - 100KB(dropped) = 300KB
   //   effective = 300KB + (300KB/400KB)*800KB = 900KB > 850KB
-  //   → TTL should NOT fire (falls through to size-based)
+  //   -> TTL should NOT fire (falls through to size-based)
   if (compaction != nullptr) {
     ASSERT_NE(CompactionReason::kFIFOTtl, compaction->compaction_reason())
         << "Multi-level FIFO: TTL should not fire when correct all-levels "
@@ -5462,7 +5462,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
   // PickSizeCompaction with max_data_files_size should account for blob data.
   //
   // Sub-case 1: Single-level. SST = 200KB, blob = 500MB, limit = 200MB.
-  //   effective_size ≈ 500MB >> 200MB → drops from L0.
+  //   effective_size ~ 500MB >> 200MB -> drops from L0.
   {
     SetupFIFORatioBased(/*max_table=*/200ULL * 1024 * 1024,
                         /*max_data=*/200ULL * 1024 * 1024,
@@ -5489,7 +5489,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
   }
 
   // Sub-case 2: Multi-level (migration). L0=100KB, L2=150KB, blob=500KB.
-  //   effective_size = 250KB + 500KB = 750KB > 400KB → drops from L2.
+  //   effective_size = 250KB + 500KB = 750KB > 400KB -> drops from L2.
   {
     ioptions_.compaction_style = kCompactionStyleFIFO;
     NewVersionStorage(4, kCompactionStyleFIFO);
@@ -5517,7 +5517,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
   }
 
   // Sub-case 3: Under limit. SST = 256KB, blob = 200MB, limit = 1GB.
-  //   effective_size ≈ 200MB < 1GB → no dropping.
+  //   effective_size ~ 200MB < 1GB -> no dropping.
   {
     SetupFIFORatioBased(/*max_table=*/1ULL * 1024 * 1024 * 1024,
                         /*max_data=*/1ULL * 1024 * 1024 * 1024,
@@ -5551,7 +5551,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
 
 TEST_F(CompactionPickerTest, FIFOBlobAwareScoreComputation) {
   // Sub-case 1: With max_data_files_size, score includes blob sizes.
-  //   SST = 100KB, blob = 500MB, max_data = 200MB → score ≈ 2.5
+  //   SST = 100KB, blob = 500MB, max_data = 200MB -> score ~ 2.5
   {
     ioptions_.compaction_style = kCompactionStyleFIFO;
     NewVersionStorage(1, kCompactionStyleFIFO);
@@ -5570,11 +5570,11 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareScoreComputation) {
     UpdateVersionStorageInfo();
 
     double score = vstorage_->CompactionScore(0);
-    ASSERT_GT(score, 2.0) << "Score should reflect 500MB/200MB ≈ 2.5";
+    ASSERT_GT(score, 2.0) << "Score should reflect 500MB/200MB ~ 2.5";
   }
 
   // Sub-case 2: Without max_data_files_size, score ignores blobs.
-  //   SST = 400KB < 1MB, blob = 500MB ignored → score ≈ 0.4
+  //   SST = 400KB < 1MB, blob = 500MB ignored -> score ~ 0.4
   {
     ioptions_.compaction_style = kCompactionStyleFIFO;
     NewVersionStorage(1, kCompactionStyleFIFO);
@@ -5607,7 +5607,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareScoreComputation) {
 //   3. If compaction is picked, update the file list accordingly
 //   4. Repeat
 //
-// The compaction PICKING uses the real FIFOCompactionPicker — this ensures
+// The compaction PICKING uses the real FIFOCompactionPicker -- this ensures
 // the tests always match the production picking logic. The rest of the
 // system (compaction execution, file metadata updates, FIFO dropping) is
 // handled by test helpers, since wiring up the full compaction execution
@@ -5790,7 +5790,7 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
   using FlushGenerator =
       std::function<std::pair<uint64_t, uint64_t>(int round)>;
 
-  // Core test loop: flush → pick → execute → repeat.
+  // Core test loop: flush -> pick -> execute -> repeat.
   void RunFlushAndCompact(TestState& s, int num_rounds, int trigger,
                           uint64_t max_data_files_size,
                           const FlushGenerator& gen) {
@@ -5903,7 +5903,7 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
   }
 };
 
-// Variable flush + FIFO dropping — the full scenario.
+// Variable flush + FIFO dropping -- the full scenario.
 // Variable SST sizes (32-128KB), variable blob sizes (32-96MB), with
 // FIFO size-based dropping active. This covers constant flush, variable
 // flush, and FIFO dropping behaviors in a single test.
@@ -5934,7 +5934,7 @@ TEST_F(FIFORatioBasedCompactionPickingTest, NoCascadingReCompaction) {
   AssertLowWriteAmp(s.wa, 4.0);
 }
 
-// Early memtable flush — very small flushes
+// Early memtable flush -- very small flushes
 TEST_F(FIFORatioBasedCompactionPickingTest, EarlyMemtableFlush) {
   const uint64_t kCap = 1ULL * 1024 * 1024 * 1024;
   Random rng(123);
@@ -5949,7 +5949,7 @@ TEST_F(FIFORatioBasedCompactionPickingTest, EarlyMemtableFlush) {
                       /*file_mult=*/5);
 }
 
-// Blob compression variation — data per flush varies, shifting
+// Blob compression variation -- data per flush varies, shifting
 // the SST/blob ratio. The target is recomputed on every PickCompaction call
 // (no caching), so the picker naturally adapts to ratio changes.
 TEST_F(FIFORatioBasedCompactionPickingTest, BlobCompressionVariation) {
@@ -5963,13 +5963,13 @@ TEST_F(FIFORatioBasedCompactionPickingTest, BlobCompressionVariation) {
   AssertCompactedUniform(s.files, 0.30);
 }
 
-// Large target/flush ratio — verify logarithmic write amp with tiering
+// Large target/flush ratio -- verify logarithmic write amp with tiering
 TEST_F(FIFORatioBasedCompactionPickingTest, TieredLargeRatio) {
-  // target/flush ≈ 1000x with trigger=10 → k=3 tiers, write amp ≈ 4.
+  // target/flush ~ 1000x with trigger=10 -> k=3 tiers, write amp ~ 4.
   // Without tiering (flat merge), write amp would be ~57x.
   const uint64_t kCap = 10ULL * 1024 * 1024 * 1024;  // 10GB
   TestState s;
-  // SST = 1KB, blob = 1MB. sst_ratio ≈ 0.001.
+  // SST = 1KB, blob = 1MB. sst_ratio ~ 0.001.
   // target = 10GB * 0.001 / 10 = 1MB. ratio = 1MB/1KB = 1024.
   // k = ceil(log_10(1024)) = 4. Tier boundaries: ~10KB, ~100KB, 1MB.
   // (10KB floor means lowest boundary is 10KB, not 1KB)
@@ -5981,15 +5981,15 @@ TEST_F(FIFORatioBasedCompactionPickingTest, TieredLargeRatio) {
   // Allow some margin for ramp-up and boundary effects.
   AssertLowWriteAmp(s.wa, 6.0);
 
-  // File count should be bounded: trigger * (k+1) ≈ 10 * 4 = 40
+  // File count should be bounded: trigger * (k+1) ~ 10 * 4 = 40
   AssertFileCountBounded(s.files, 10, /*multiplier=*/6);
 }
 
-// Tiered progression — verify intermediate tiers form and merge up
+// Tiered progression -- verify intermediate tiers form and merge up
 TEST_F(FIFORatioBasedCompactionPickingTest, TieredProgression) {
   // SST = 10KB, blob = 1MB, cap = 100MB, trigger=4.
-  // sst_ratio ≈ 10KB/1010KB ≈ 0.0099.
-  // target = 100MB * 0.0099 / 4 ≈ 248KB. ratio ≈ 25.
+  // sst_ratio ~ 10KB/1010KB ~ 0.0099.
+  // target = 100MB * 0.0099 / 4 ~ 248KB. ratio ~ 25.
   // k = ceil(log_4(25)) = ceil(2.32) = 3. Boundaries: ~16KB, ~62KB, ~248KB.
   const uint64_t kCap = 100ULL * 1024 * 1024;
   TestState s;
@@ -6011,8 +6011,8 @@ TEST_F(FIFORatioBasedCompactionPickingTest, GraduatedFilesNotRecompacted) {
   // never selected for compaction.
   const uint64_t kCap = 500ULL * 1024 * 1024;  // 500MB
   TestState s;
-  // SST = 64KB, blob = 50MB. sst_ratio ≈ 0.00125.
-  // target = 500MB * 0.00125 / 4 ≈ 156KB.
+  // SST = 64KB, blob = 50MB. sst_ratio ~ 0.00125.
+  // target = 500MB * 0.00125 / 4 ~ 156KB.
   // k = ceil(log_4(156/64)) = ceil(log_4(2.44)) = 1.
   RunFlushAndCompact(s, 60, /*trigger=*/4, kCap, [](int) {
     return std::make_pair(64ULL * 1024, 50ULL * 1024 * 1024);
