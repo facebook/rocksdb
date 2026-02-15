@@ -83,6 +83,7 @@ TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
                                      const Comparator* comparator)
     : comparator_(comparator),
       iter_(trie),
+      has_prev_key_(false),
       current_scan_idx_(0),
       prepared_(false) {}
 
@@ -94,11 +95,29 @@ void TrieIndexIterator::Prepare(const ScanOptions scan_opts[],
     scan_opts_.push_back(scan_opts[i]);
   }
   current_scan_idx_ = 0;
+  has_prev_key_ = false;
   prepared_ = true;
 }
 
 Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
                                            IterateResult* result) {
+  // Advance current_scan_idx_ past any scans whose limit <= target.
+  // This handles the multi-scan case where the caller seeks into a later
+  // scan range after the previous scan returned kOutOfBound.
+  if (prepared_) {
+    while (current_scan_idx_ < scan_opts_.size()) {
+      const auto& opts = scan_opts_[current_scan_idx_];
+      if (opts.range.limit.has_value() &&
+          comparator_->Compare(target, opts.range.limit.value()) >= 0) {
+        current_scan_idx_++;
+      } else {
+        break;
+      }
+    }
+  }
+
+  has_prev_key_ = false;
+
   if (!iter_.Seek(target)) {
     result->bound_check_result = IterBoundCheck::kOutOfBound;
     result->key = Slice();
@@ -110,12 +129,21 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   current_key_scratch_ = result->key.ToString();
   result->key = Slice(current_key_scratch_);
 
-  // Check bounds.
-  result->bound_check_result = CheckBounds();
+  // Use the seek target as the reference key for bounds checking.
+  // The trie stores separator keys (upper bounds on block contents), not
+  // first-in-block keys. If target < limit, the block may contain keys
+  // within bounds even if the separator >= limit.
+  result->bound_check_result = CheckBounds(target);
   return Status::OK();
 }
 
 Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
+  // Save the current separator as "previous" before advancing.
+  // Used as the reference key for bounds checking: if prev_sep >= limit,
+  // all keys in the next block are >= prev_sep >= limit → out of bounds.
+  prev_key_scratch_ = current_key_scratch_;
+  has_prev_key_ = true;
+
   if (!iter_.Next()) {
     result->bound_check_result = IterBoundCheck::kOutOfBound;
     result->key = Slice();
@@ -126,7 +154,9 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   current_key_scratch_ = result->key.ToString();
   result->key = Slice(current_key_scratch_);
 
-  result->bound_check_result = CheckBounds();
+  // Use the previous separator as the reference key. If prev_sep < limit,
+  // the current block may contain keys within bounds (conservative).
+  result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
   return Status::OK();
 }
 
@@ -135,7 +165,8 @@ UserDefinedIndexBuilder::BlockHandle TrieIndexIterator::value() {
   return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
 }
 
-IterBoundCheck TrieIndexIterator::CheckBounds() const {
+IterBoundCheck TrieIndexIterator::CheckBounds(
+    const Slice& reference_key) const {
   if (!prepared_ || scan_opts_.empty()) {
     // No bounds to check — always in-bound.
     return IterBoundCheck::kInbound;
@@ -147,10 +178,21 @@ IterBoundCheck TrieIndexIterator::CheckBounds() const {
 
   const auto& opts = scan_opts_[current_scan_idx_];
 
-  // Check upper bound (limit).
+  // Check upper bound (limit) against the reference key, NOT the current
+  // separator. The trie stores separator keys (upper bounds on block
+  // contents), so comparing the separator against the limit would
+  // prematurely reject blocks that contain keys < limit.
+  //
+  // For Seek: reference_key = seek target. If target < limit, the found
+  //   block may contain keys within bounds.
+  // For Next: reference_key = previous separator. If prev_sep < limit,
+  //   the current block may contain keys within bounds.
+  //
+  // This is conservative: it may return kInbound for a block that is fully
+  // out of bounds. The data-level iterator handles per-key filtering.
   if (opts.range.limit.has_value()) {
     const Slice& limit = opts.range.limit.value();
-    if (comparator_->Compare(Slice(current_key_scratch_), limit) >= 0) {
+    if (comparator_->Compare(reference_key, limit) >= 0) {
       return IterBoundCheck::kOutOfBound;
     }
   }

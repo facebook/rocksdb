@@ -104,13 +104,21 @@ class TrieIndexIterator : public UserDefinedIndexIterator {
   UserDefinedIndexBuilder::BlockHandle value() override;
 
  private:
-  // Check if the current key is within the active scan bounds.
-  IterBoundCheck CheckBounds() const;
+  // Check if the current block is within the active scan bounds.
+  // reference_key is the key to compare against the limit: for Seek this
+  // is the seek target, for Next this is the previous separator key.
+  // The trie stores separator keys (upper bounds on block contents), not
+  // first-in-block keys, so we cannot compare the current separator against
+  // the limit directly — see the UDI API contract in user_defined_index.h.
+  IterBoundCheck CheckBounds(const Slice& reference_key) const;
 
   const Comparator* comparator_;
   LoudsTrieIterator iter_;
   // Scratch space for the current separator key (reconstructed from trie).
   std::string current_key_scratch_;
+  // Previous separator key, used as reference for Next() bounds checking.
+  std::string prev_key_scratch_;
+  bool has_prev_key_;
 
   // Active scan options (from Prepare()).
   std::vector<ScanOptions> scan_opts_;

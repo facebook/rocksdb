@@ -1683,9 +1683,13 @@ TEST_F(TrieIndexFactoryTest, IteratorBoundsChecking) {
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next — key_02 >= key_01z → out of bound.
+  // Next — the previous separator is for block 1 (< "key_01z"), so
+  // CheckBounds conservatively returns kInbound. The data-level iterator
+  // handles per-key filtering. This is correct per the UDI API contract:
+  // since we don't store first-in-block keys, we cannot determine that
+  // block 2 is fully out of bounds.
   ASSERT_OK(iter->NextAndGetResult(&result));
-  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 }
 
 TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
@@ -1713,6 +1717,153 @@ TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
+  // Regression test for Finding 1: the trie stores separator keys (upper
+  // bounds on block contents), NOT first-in-block keys. CheckBounds must
+  // use the previous separator (or seek target) as the reference key, not
+  // the current separator, to avoid prematurely rejecting blocks that
+  // contain keys within the limit.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  // Block 0: last="az", next_first="c" → separator ≈ "b"
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next("c");
+    udi_builder->AddIndexEntry(Slice("az"), &next, handle, &scratch);
+  }
+  // Block 1: last="cz", next_first="e" → separator ≈ "d"
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    Slice next("e");
+    udi_builder->AddIndexEntry(Slice("cz"), &next, handle, &scratch);
+  }
+  // Block 2: last="ez", no next → separator ≈ "f"
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
+    std::string scratch;
+    udi_builder->AddIndexEntry(Slice("ez"), nullptr, handle, &scratch);
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // Upper bound "d": blocks 0 and 1 may contain keys < "d".
+  ScanOptions scan_opts(Slice("a"), Slice("d"));
+  iter->Prepare(&scan_opts, 1);
+
+  IterateResult result;
+  // Seek("a") → lands on block 0 (separator "b"). target "a" < "d" → kInbound.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Next() → lands on block 1 (separator "d"). Previous separator "b" < "d"
+  // → kInbound (conservative). Block 1 contains keys like "c".."cz", which
+  // are < "d", so returning kInbound is correct.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Next() → lands on block 2 (separator "f"). Previous separator "d" >= "d"
+  // → kOutOfBound. All keys in block 2 are >= "d", so this is correct.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
+  // Regression test for Finding 2: current_scan_idx_ must advance when
+  // the seek target is past the current scan's limit. Otherwise all
+  // bounds checks evaluate against scan 0's limit.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  // 5 blocks with well-separated keys.
+  struct BlockDef {
+    const char* last_key;
+    const char* next_first;
+    uint64_t offset;
+  };
+  BlockDef blocks[] = {
+      {"az", "c", 0},    {"cz", "e", 1000},     {"ez", "g", 2000},
+      {"gz", "i", 3000}, {"iz", nullptr, 4000},
+  };
+  for (const auto& b : blocks) {
+    UserDefinedIndexBuilder::BlockHandle handle{b.offset, 500};
+    std::string scratch;
+    if (b.next_first) {
+      Slice next(b.next_first);
+      udi_builder->AddIndexEntry(Slice(b.last_key), &next, handle, &scratch);
+    } else {
+      udi_builder->AddIndexEntry(Slice(b.last_key), nullptr, handle, &scratch);
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // Two non-overlapping scan ranges.
+  ScanOptions scans[] = {
+      ScanOptions(Slice("a"), Slice("c")),  // scan 0: blocks in [a, c)
+      ScanOptions(Slice("e"), Slice("g")),  // scan 1: blocks in [e, g)
+  };
+  iter->Prepare(scans, 2);
+
+  IterateResult result;
+
+  // --- Scan 0 ---
+  // Seek("a") → block 0 (separator "b"). target "a" < limit "c" → kInbound.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Next() → block 1 (separator "d"). prev "b" < "c" → kInbound (conservative).
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Next() → block 2 (separator "f"). prev "d" >= "c" → kOutOfBound.
+  // Scan 0 is done.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+
+  // --- Scan 1 ---
+  // Seek("e") should advance current_scan_idx_ to 1 (target "e" >= scan 0
+  // limit "c"), then check against scan 1's limit "g".
+  // Lands on block 2 (separator "f"). target "e" < "g" → kInbound.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("e"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Next() → block 3 (separator "h"). prev "f" < "g" → kInbound (conservative).
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Next() → block 4 (separator "j"). prev "h" >= "g" → kOutOfBound.
+  // Scan 1 is done.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
 TEST_F(TrieIndexFactoryTest, RejectsNonBytewiseComparator) {
