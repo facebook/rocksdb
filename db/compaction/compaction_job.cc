@@ -2453,7 +2453,12 @@ bool CompactionJob::UpdateInternalStatsFromInputFiles(
   // the presence of the user property "rocksdb.block.based.table.index.type",
   // which was added in RocksDB 2.8 and is always present in block-based tables.
   for (const auto& tp_pair : input_table_properties) {
-    if (tp_pair.second && tp_pair.second->format_version < 5) {
+    if (!tp_pair.second) {
+      // Missing table properties - can't verify record counts
+      job_stats_->has_accurate_num_input_records = false;
+      break;
+    }
+    if (tp_pair.second->format_version < 5) {
       // Check for block-based table by looking for its index type property
       const auto& user_props = tp_pair.second->user_collected_properties;
       if (user_props.find(BlockBasedTablePropertyNames::kIndexType) !=
@@ -2491,7 +2496,8 @@ bool CompactionJob::UpdateInternalStatsFromInputFiles(
         std::string fn = TableFileName(compaction->immutable_options().cf_paths,
                                        file_number, file_meta->fd.GetPathId());
         const auto& tp = input_table_properties.find(fn);
-        if (tp != input_table_properties.end()) {
+        if (tp != input_table_properties.end() && tp->second &&
+            tp->second->num_entries > 0) {
           file_input_entries = tp->second->num_entries;
           file_num_range_del = tp->second->num_range_deletions;
         } else {
