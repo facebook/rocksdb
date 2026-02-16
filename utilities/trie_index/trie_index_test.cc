@@ -2306,7 +2306,8 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
     for (size_t i = 0; i < kNumLookups; i++) {
       // Step 1: Parse InternalKey → user key (same as wrapper)
       ParsedInternalKey pkey;
-      ParseInternalKey(seek_ikey_slices[i], &pkey, /*log_err_key=*/false);
+      ASSERT_OK(
+          ParseInternalKey(seek_ikey_slices[i], &pkey, /*log_err_key=*/false));
 
       // Step 2: Seek on the trie with user key
       trie_iter.Seek(pkey.user_key);
