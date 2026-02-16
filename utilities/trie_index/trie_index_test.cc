@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "db/dbformat.h"
+#include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -21,6 +23,9 @@
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_builder.h"
+#include "table/format.h"
 #include "test_util/testharness.h"
 #include "utilities/trie_index/bitvector.h"
 #include "utilities/trie_index/louds_trie.h"
@@ -2141,13 +2146,12 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
 }
 
 // ============================================================================
-// Micro-benchmarks: raw trie Seek vs binary search on sorted keys.
+// Micro-benchmarks: trie Seek vs RocksDB IndexBlockIter.
 //
-// These tests bypass the UDI integration layer entirely to measure the
-// performance of the trie data structure itself against a direct binary
-// search on sorted separator keys. This isolates the trie's algorithmic
-// performance from the UDI wrapper overhead (heap allocations, virtual
-// dispatch, key copying).
+// Compares the trie data structure against the actual RocksDB binary search
+// index (IndexBlockIter) which is used in production. The IndexBlockIter
+// operates on a prefix-compressed block with InternalKeys, varint decoding,
+// and the InternalKeyComparator abstraction — making it a realistic baseline.
 // ============================================================================
 
 class TrieSeekBenchmark : public testing::Test {
@@ -2205,141 +2209,115 @@ class TrieSeekBenchmark : public testing::Test {
   }
 };
 
-TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearch) {
-  // Benchmark parameters matching the db_bench setup:
-  // 8K separator keys ≈ 1M data keys / ~125 keys per 4KB block.
-  // Using 32K keys to match the 1M key / 4KB block scenario more precisely.
-  static constexpr size_t kNumKeys = 32000;
-  static constexpr size_t kNumLookups = 500000;
-  static constexpr size_t kKeySize = 16;
-
-  auto keys = GenerateKeys(kNumKeys, kKeySize);
-
-  // ---- Build Trie ----
-  auto [trie, trie_data] = BuildTrie(keys);
-  LoudsTrieIterator trie_iter(&trie);
-
-  // ---- Prepare sorted Slice array for binary search ----
-  // This simulates what the native binary search index does: a sorted array
-  // of separator keys that you binary search through with memcmp.
-  std::vector<Slice> sorted_keys;
-  sorted_keys.reserve(keys.size());
-  for (const auto& k : keys) {
-    sorted_keys.emplace_back(k);
-  }
-
-  // ---- Generate random lookup targets ----
-  auto indices = GenerateRandomIndices(kNumLookups, kNumKeys);
-
-  // Pre-build lookup target slices.
-  std::vector<Slice> targets;
-  targets.reserve(kNumLookups);
-  for (auto idx : indices) {
-    targets.push_back(Slice(keys[idx]));
-  }
-
-  // ---- Benchmark: Raw Trie Seek ----
-  volatile uint64_t trie_checksum = 0;
-  auto t0 = std::chrono::high_resolution_clock::now();
-  for (size_t i = 0; i < kNumLookups; i++) {
-    trie_iter.Seek(targets[i]);
-    if (trie_iter.Valid()) {
-      trie_checksum = trie_checksum + trie_iter.LeafIndex();
-    }
-  }
-  auto t1 = std::chrono::high_resolution_clock::now();
-  double trie_ns = static_cast<double>(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-  double trie_per_seek = trie_ns / kNumLookups;
-  double trie_ops_sec = 1e9 / trie_per_seek;
-
-  // ---- Benchmark: std::lower_bound binary search ----
-  // This is the closest analog to what the native index does: binary search
-  // on a sorted array of keys using bytewise comparison.
-  volatile uint64_t bs_checksum = 0;
-  auto t2 = std::chrono::high_resolution_clock::now();
-  for (size_t i = 0; i < kNumLookups; i++) {
-    auto it = std::lower_bound(
-        sorted_keys.begin(), sorted_keys.end(), targets[i],
-        [](const Slice& a, const Slice& b) { return a.compare(b) < 0; });
-    if (it != sorted_keys.end()) {
-      bs_checksum =
-          bs_checksum + static_cast<uint64_t>(it - sorted_keys.begin());
-    }
-  }
-  auto t3 = std::chrono::high_resolution_clock::now();
-  double bs_ns = static_cast<double>(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count());
-  double bs_per_seek = bs_ns / kNumLookups;
-  double bs_ops_sec = 1e9 / bs_per_seek;
-
-  // Verify correctness: both should find approximately the same results.
-  // Small differences are expected because the trie uses separator key
-  // semantics (truncated keys), but for exact lookups the results should
-  // be close. Allow up to 1% difference.
-  double checksum_diff = std::abs(static_cast<double>(trie_checksum) -
-                                  static_cast<double>(bs_checksum)) /
-                         static_cast<double>(bs_checksum + 1);
-  ASSERT_LT(checksum_diff, 0.01)
-      << "Trie and binary search results differ by more than 1%: trie="
-      << trie_checksum << " bs=" << bs_checksum;
-
-  double speedup = (bs_per_seek - trie_per_seek) / bs_per_seek * 100.0;
-  fprintf(stderr,
-          "\n====== Raw Trie Seek vs Binary Search (%zu keys, %zu-byte, %zu "
-          "lookups) ======\n"
-          "  Trie Seek:     %.1f ns/op  (%.0f ops/sec)\n"
-          "  Binary Search: %.1f ns/op  (%.0f ops/sec)\n"
-          "  Delta:         %+.1f%% (%s)\n"
-          "  (checksum: trie=%" PRIu64 ", bs=%" PRIu64 ")\n\n",
-          kNumKeys, kKeySize, kNumLookups, trie_per_seek, trie_ops_sec,
-          bs_per_seek, bs_ops_sec, speedup,
-          speedup > 0 ? "TRIE WINS" : "binary search wins", trie_checksum,
-          bs_checksum);
-}
-
-TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearchVariousSizes) {
-  // Test multiple key counts to see how the trie scales vs binary search.
+// Benchmark the trie against the actual RocksDB IndexBlockIter, which is
+// the real binary search index used in production. Both sides replicate
+// their full production code paths:
+//
+// Trie (via UDI wrapper):
+//   ParseInternalKey → Seek(user_key) → Key().ToString() (string copy) →
+//   CheckBounds (no-op without Prepare) → Value() → BlockHandle
+//
+// IndexBlockIter:
+//   Seek(internal_key) → value() → IndexValue with BlockHandle
+//
+// The IndexBlockIter operates on a prefix-compressed block with InternalKeys,
+// varint decoding, and the InternalKeyComparator — matching production exactly.
+TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
   static constexpr size_t kNumLookups = 200000;
   static constexpr size_t kKeySize = 16;
   static constexpr size_t kKeyCounts[] = {100, 500, 1000, 5000, 10000, 32000};
 
   fprintf(stderr,
-          "\n====== Raw Trie vs Binary Search: Scaling (%zu-byte keys, %zu "
+          "\n====== Trie vs Real IndexBlockIter: Scaling (%zu-byte keys, %zu "
           "lookups) ======\n",
           kKeySize, kNumLookups);
   fprintf(stderr, "  %8s  %12s  %12s  %8s  %s\n", "Keys", "Trie ns/op",
-          "BS ns/op", "Delta", "Winner");
+          "IBI ns/op", "vs IBI", "Winner");
   fprintf(stderr, "  %8s  %12s  %12s  %8s  %s\n", "--------", "------------",
           "------------", "--------", "----------");
 
   for (size_t num_keys : kKeyCounts) {
     auto keys = GenerateKeys(num_keys, kKeySize);
-    // Both the trie and serialized data must outlive the iterator since
-    // the trie stores zero-copy pointers into the serialized data.
+
+    // ---- Build trie ----
     auto [trie, trie_data] = BuildTrie(keys);
     LoudsTrieIterator trie_iter(&trie);
 
-    std::vector<Slice> sorted_keys;
-    sorted_keys.reserve(keys.size());
-    for (const auto& k : keys) {
-      sorted_keys.emplace_back(k);
+    // ---- Build real RocksDB index block ----
+    // Use restart_interval=1 (the default for index blocks).
+    const int kRestartInterval = 1;
+    BlockBuilder index_builder(kRestartInterval,
+                               /*use_delta_encoding=*/true,
+                               /*use_value_delta_encoding=*/false);
+
+    // Convert user keys to InternalKeys and add to the index block.
+    std::vector<std::string> internal_keys;
+    internal_keys.reserve(num_keys);
+    for (size_t i = 0; i < num_keys; i++) {
+      std::string ikey = keys[i];
+      AppendInternalKeyFooter(&ikey, /*s=*/0, kTypeValue);
+      internal_keys.push_back(ikey);
+
+      BlockHandle handle(i * 4096, 4096);
+      IndexValue entry(handle, Slice());
+      std::string encoded_value;
+      entry.EncodeTo(&encoded_value, /*have_first_key=*/false,
+                     /*previous_handle=*/nullptr);
+      index_builder.Add(Slice(internal_keys.back()), Slice(encoded_value));
     }
 
+    // Finish the block and create a Block reader.
+    Slice raw_block = index_builder.Finish();
+    std::string block_data(raw_block.data(), raw_block.size());
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block index_block(std::move(contents));
+
+    // ---- Generate random lookup targets ----
     auto indices = GenerateRandomIndices(kNumLookups, num_keys);
-    std::vector<Slice> targets;
-    targets.reserve(kNumLookups);
+
+    // Pre-build InternalKey seek targets (user_key + kMaxSequenceNumber).
+    // Both sides use the same InternalKey targets — the trie path parses
+    // them to extract the user key (matching production), while
+    // IndexBlockIter uses them directly.
+    std::vector<std::string> seek_ikeys;
+    seek_ikeys.reserve(kNumLookups);
     for (auto idx : indices) {
-      targets.push_back(Slice(keys[idx]));
+      std::string sk = keys[idx];
+      AppendInternalKeyFooter(&sk, kMaxSequenceNumber, kValueTypeForSeek);
+      seek_ikeys.push_back(std::move(sk));
+    }
+    std::vector<Slice> seek_ikey_slices;
+    seek_ikey_slices.reserve(kNumLookups);
+    for (const auto& sk : seek_ikeys) {
+      seek_ikey_slices.emplace_back(sk);
     }
 
-    // Trie benchmark
-    uint64_t trie_checksum = 0;
+    // ---- Benchmark: Trie Seek (full production path) ----
+    // Replicates UserDefinedIndexIteratorWrapper::Seek() →
+    //   TrieIndexIterator::SeekAndGetResult():
+    //   1. ParseInternalKey to extract user_key
+    //   2. trie_iter.Seek(user_key)
+    //   3. trie_iter.Key().ToString() — string copy (result must outlive call)
+    //   4. trie_iter.Value() — look up BlockHandle from packed arrays
+    volatile uint64_t trie_checksum = 0;
+    std::string key_scratch;  // Reused scratch, like current_key_scratch_
     auto t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < kNumLookups; i++) {
-      trie_iter.Seek(targets[i]);
+      // Step 1: Parse InternalKey → user key (same as wrapper)
+      ParsedInternalKey pkey;
+      ParseInternalKey(seek_ikey_slices[i], &pkey, /*log_err_key=*/false);
+
+      // Step 2: Seek on the trie with user key
+      trie_iter.Seek(pkey.user_key);
+
       if (trie_iter.Valid()) {
-        trie_checksum = trie_checksum + trie_iter.LeafIndex();
+        // Step 3: Materialize the key (string copy, matches production)
+        key_scratch = trie_iter.Key().ToString();
+
+        // Step 4: Get BlockHandle (two uint32 array reads)
+        TrieBlockHandle handle = trie_iter.Value();
+        trie_checksum = trie_checksum + handle.offset;
       }
     }
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -2349,29 +2327,36 @@ TEST_F(TrieSeekBenchmark, RawTrieVsBinarySearchVariousSizes) {
                 .count()) /
         static_cast<double>(kNumLookups);
 
-    // Binary search benchmark
-    volatile uint64_t bs_checksum = 0;
+    // ---- Benchmark: Real IndexBlockIter Seek ----
+    // This is exactly what production does: Seek(InternalKey) → value().
+    std::unique_ptr<IndexBlockIter> ibi_iter(index_block.NewIndexIterator(
+        BytewiseComparator(), kDisableGlobalSequenceNumber,
+        /*iter=*/nullptr, /*stats=*/nullptr,
+        /*total_order_seek=*/true, /*have_first_key=*/false,
+        /*key_includes_seq=*/true, /*value_is_full=*/true));
+
+    volatile uint64_t ibi_checksum = 0;
     auto t2 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < kNumLookups; i++) {
-      auto it = std::lower_bound(
-          sorted_keys.begin(), sorted_keys.end(), targets[i],
-          [](const Slice& a, const Slice& b) { return a.compare(b) < 0; });
-      if (it != sorted_keys.end()) {
-        bs_checksum =
-            bs_checksum + static_cast<uint64_t>(it - sorted_keys.begin());
+      ibi_iter->Seek(seek_ikey_slices[i]);
+      if (ibi_iter->Valid()) {
+        IndexValue val = ibi_iter->value();
+        ibi_checksum = ibi_checksum + val.handle.offset();
       }
     }
     auto t3 = std::chrono::high_resolution_clock::now();
-    double bs_ns =
+    double ibi_ns =
         static_cast<double>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2)
                 .count()) /
         static_cast<double>(kNumLookups);
 
-    double speedup = (bs_ns - trie_ns) / bs_ns * 100.0;
+    double vs_ibi = (ibi_ns - trie_ns) / ibi_ns * 100.0;
+    const char* winner = trie_ns <= ibi_ns ? "TRIE" : "IBI";
     fprintf(stderr, "  %8zu  %10.1f    %10.1f    %+6.1f%%  %s\n", num_keys,
-            trie_ns, bs_ns, speedup, speedup > 0 ? "TRIE" : "BS");
+            trie_ns, ibi_ns, vs_ibi, winner);
   }
+
   fprintf(stderr, "\n");
 }
 

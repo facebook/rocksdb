@@ -211,6 +211,11 @@ class LoudsTrie {
   // Get the block handle for the i-th leaf (0-indexed).
   TrieBlockHandle GetHandle(uint64_t leaf_index) const;
 
+  // Whether this trie has path-compression chains. Used by the iterator
+  // to select a specialized Seek implementation at construction time,
+  // avoiding any per-level overhead when chains are absent.
+  bool HasChains() const { return !s_chain_lens_.empty(); }
+
   // Approximate heap memory used by auxiliary data structures (child position
   // lookup tables). Does not include the serialized data itself (which is
   // typically owned by the block cache).
@@ -270,6 +275,32 @@ class LoudsTrie {
   std::vector<uint32_t> s_child_start_pos_;
   std::vector<uint32_t> s_child_end_pos_;
 
+  // Path compression: chain metadata for fanout-1 chains in the sparse region.
+  //
+  // A "chain" is a sequence of >= 2 consecutive fanout-1 nodes (nodes with
+  // exactly one label that is internal) starting from the child of an internal
+  // label. Chains are common in tries with long shared prefixes (e.g.,
+  // zero-padded numeric keys, URL paths).
+  //
+  // For the k-th internal label (same indexing as s_child_start_pos_):
+  // Storage uses a bitmap (1 bit per internal label) for O(1) chain detection,
+  // plus compact arrays indexed by chain ordinal (Rank1 on the bitmap).
+  //
+  // Lookup during Seek:
+  //   1. s_chain_bitmap_.GetBit(child_idx) — has chain?
+  //   2. chain_idx = s_chain_bitmap_.Rank1(child_idx) - 1
+  //   3. s_chain_lens_[chain_idx], s_chain_suffix_offsets_[chain_idx], etc.
+  //
+  // Space overhead: 1 bit per internal label (bitmap) + 10 bytes per chain
+  // (offset + len + end_child_idx) + suffix bytes. For key sets with few
+  // chains (e.g., random hex), overhead is < 1 byte per internal label.
+  Bitvector s_chain_bitmap_;
+  std::vector<uint32_t> s_chain_suffix_offsets_;
+  std::vector<uint16_t> s_chain_lens_;
+  std::vector<uint32_t> s_chain_end_child_idx_;
+  const uint8_t* s_chain_suffix_data_;
+  uint64_t s_chain_suffix_size_;
+
   // Block handles: packed uint32_t arrays for data block offsets and sizes.
   // BFS leaf order does not necessarily match key-sorted order (deeper leaves
   // appear later in BFS even if they precede shallower leaves
@@ -303,7 +334,17 @@ class LoudsTrieIterator {
 
   // Seek to the first leaf whose key is >= `target`.
   // Returns true if positioned on a valid leaf.
-  bool Seek(const Slice& target);
+  //
+  // Dispatches to a specialized implementation selected at construction time
+  // based on whether the trie has path-compression chains. This eliminates
+  // all chain-related code from the instruction cache when chains are absent,
+  // following the same pattern as RocksDB's BlockIter::ParseNextKey template.
+  bool Seek(const Slice& target) {
+    if (has_chains_) {
+      return SeekImpl<true>(target);
+    }
+    return SeekImpl<false>(target);
+  }
 
   // Advance to the next leaf in sorted order.
   // Returns true if positioned on a valid leaf.
@@ -442,6 +483,17 @@ class LoudsTrieIterator {
   // leaf in that subtree. Used by Next().
   // Returns true if a next leaf was found.
   bool Advance();
+
+  // Seek implementation, templated on whether path-compression chains exist.
+  // When kHasChains=false, the compiler eliminates ALL chain-related code,
+  // keeping the i-cache footprint minimal for tries without chains.
+  // This follows the same pattern as RocksDB's BlockIter::ParseNextKey.
+  template <bool kHasChains>
+  bool SeekImpl(const Slice& target);
+
+  // True if the trie has path-compression chains. Set once in the constructor
+  // and used by Seek() to dispatch to the correct specialization.
+  bool has_chains_;
 
   const LoudsTrie* trie_;
   bool valid_;

@@ -465,8 +465,8 @@ void LoudsTrieBuilder::SerializeAll() {
   // Child position lookup tables for Select-free sparse traversal.
   // Compute and serialize: s_child_start_pos_[k] and s_child_end_pos_[k]
   // for each internal label (has_child=1).
+  uint64_t num_internal = bv_s_has_child.NumOnes();
   {
-    uint64_t num_internal = bv_s_has_child.NumOnes();
     PutFixed64(&serialized_data_, num_internal);
 
     if (num_internal > 0 && sl_size <= UINT32_MAX) {
@@ -492,6 +492,285 @@ void LoudsTrieBuilder::SerializeAll() {
       // Pad to 8-byte alignment
       bytes_written = num_internal * sizeof(uint32_t);
       padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+    }
+  }
+
+  // Path compression: detect and serialize fanout-1 chains.
+  //
+  // A chain starts at the child of internal label k and consists of >= 2
+  // consecutive fanout-1 nodes (all internal except possibly the last,
+  // which may be a leaf). For each chain, we store:
+  //   - suffix bytes (the label at each chain node)
+  //   - chain length
+  //   - the child_idx at the end of the chain (UINT32_MAX if ends at leaf)
+  //
+  // This lets Seek() skip entire chains with a single memcmp instead of
+  // traversing level by level with Rank1 at each step.
+  {
+    // Build child start/end arrays in memory for chain detection.
+    // These are the same values we just serialized above.
+    std::vector<uint32_t> child_starts(num_internal);
+    std::vector<uint32_t> child_ends(num_internal);
+    if (num_internal > 0 && sl_size <= UINT32_MAX) {
+      for (uint64_t k = 0; k < num_internal; k++) {
+        uint64_t child_node = dense_child_count_ + k;
+        uint64_t cs = bv_s_louds.Select1(child_node);
+        child_starts[k] = static_cast<uint32_t>(cs);
+        uint64_t ce = bv_s_louds.NextSetBit(cs + 1);
+        if (ce > sl_size) ce = sl_size;
+        child_ends[k] = static_cast<uint32_t>(ce);
+      }
+    }
+
+    // For each internal label k, detect if its child starts a chain.
+    std::string chain_suffix_data;
+    // Offsets into chain_suffix_data for each internal label.
+    // UINT32_MAX means no chain.
+    std::vector<uint32_t> chain_offsets(num_internal, UINT32_MAX);
+    std::vector<uint16_t> chain_lens(num_internal, 0);
+    // child_idx at chain end (UINT32_MAX = leaf).
+    std::vector<uint32_t> chain_end_child_idx(num_internal, UINT32_MAX);
+
+    // Build s_is_prefix_key bitvector for prefix key checks during chain
+    // detection. Chains must not contain prefix key nodes because the chain
+    // skip logic bypasses prefix key checks.
+    Bitvector bv_s_is_prefix_key;
+    bv_s_is_prefix_key.BuildFrom(s_is_prefix_key_);
+
+    for (uint64_t k = 0; k < num_internal; k++) {
+      uint32_t cs = child_starts[k];
+      uint32_t ce = child_ends[k];
+
+      // Child must be fanout-1 (single label).
+      if (ce - cs != 1) continue;
+
+      // Check if the child's label is internal (has_child = 1).
+      if (!bv_s_has_child.GetBit(cs)) continue;
+
+      // Check if the child node is a prefix key — if so, cannot skip it.
+      {
+        uint64_t child_sparse_node = bv_s_louds.Rank1(cs + 1) - 1;
+        if (child_sparse_node < bv_s_is_prefix_key.NumBits() &&
+            bv_s_is_prefix_key.GetBit(child_sparse_node)) {
+          continue;
+        }
+      }
+
+      // Found a fanout-1 internal node. Follow the chain.
+      std::vector<uint8_t> suffix;
+      suffix.push_back(s_labels_[cs]);
+
+      // Get the child_idx of this chain node.
+      uint64_t cur_child_idx = bv_s_has_child.Rank1(cs + 1) - 1;
+      uint32_t last_child_idx =
+          UINT32_MAX;  // Will be set to chain end's child.
+
+      while (true) {
+        // cur_child_idx is the index of the current chain node's internal
+        // label.
+        if (cur_child_idx >= num_internal) break;
+
+        uint32_t next_cs = child_starts[cur_child_idx];
+        uint32_t next_ce = child_ends[cur_child_idx];
+
+        if (next_ce - next_cs != 1) {
+          // Child has fanout > 1. Chain ends here at an internal node.
+          last_child_idx = static_cast<uint32_t>(cur_child_idx);
+          break;
+        }
+
+        // Check if next node is a prefix key — stop chain here.
+        {
+          uint64_t next_sparse_node = bv_s_louds.Rank1(next_cs + 1) - 1;
+          if (next_sparse_node < bv_s_is_prefix_key.NumBits() &&
+              bv_s_is_prefix_key.GetBit(next_sparse_node)) {
+            // End chain before this prefix key node.
+            last_child_idx = static_cast<uint32_t>(cur_child_idx);
+            break;
+          }
+        }
+
+        // Next child is also fanout-1. Check if internal or leaf.
+        suffix.push_back(s_labels_[next_cs]);
+
+        if (!bv_s_has_child.GetBit(next_cs)) {
+          // Chain ends at a leaf.
+          last_child_idx = UINT32_MAX;
+          break;
+        }
+
+        // Continue chaining.
+        cur_child_idx = bv_s_has_child.Rank1(next_cs + 1) - 1;
+      }
+
+      // Only store chains of meaningful length. Short chains don't save
+      // enough Rank1 calls to justify the metadata overhead (10 bytes per
+      // chain + suffix bytes).
+      static constexpr size_t kMinChainLength = 8;
+      if (suffix.size() >= kMinChainLength && suffix.size() <= UINT16_MAX) {
+        chain_offsets[k] = static_cast<uint32_t>(chain_suffix_data.size());
+        chain_lens[k] = static_cast<uint16_t>(suffix.size());
+        chain_end_child_idx[k] = last_child_idx;
+        chain_suffix_data.append(reinterpret_cast<const char*>(suffix.data()),
+                                 suffix.size());
+      }
+    }
+
+    // Chain cost/benefit filter: only emit chains when they provide a net
+    // speed benefit.
+    //
+    // Key insight: chains help when a Seek is *likely* to hit a chain.
+    // For tries with few chains relative to keys (e.g., numeric keys with
+    // a single long shared-prefix chain), every Seek benefits. For tries
+    // with many chains relative to keys (e.g., random hex with thousands
+    // of short chains), each chain is rarely hit and the per-level bitmap
+    // check overhead outweighs the occasional hit.
+    //
+    // Metric: emit chains only when num_chains <= num_keys. When there are
+    // more chains than keys, most chains won't be hit by any Seek, making
+    // the bitmap overhead a net loss. Additionally, apply a space budget
+    // (10% of base trie size) to prevent excessive metadata.
+    {
+      static constexpr double kChainBudgetPct = 0.10;
+      static constexpr size_t kPerChainMetaBytes = 10;  // 4 + 2 + 4
+
+      uint64_t candidate_count = 0;
+      for (uint64_t k = 0; k < num_internal; k++) {
+        if (chain_lens[k] > 0) candidate_count++;
+      }
+
+      uint64_t num_keys = handles_.size();
+      bool too_many_chains = (candidate_count > num_keys);
+
+      if (candidate_count == 0 || too_many_chains) {
+        for (uint64_t k = 0; k < num_internal; k++) {
+          chain_lens[k] = 0;
+        }
+      } else {
+        // Apply space budget to prevent excessive metadata even when
+        // the chain count is reasonable.
+        size_t base_trie_size = serialized_data_.size();
+        size_t budget = static_cast<size_t>(base_trie_size * kChainBudgetPct);
+        size_t bitmap_fixed_cost =
+            (num_internal + 7) / 8 + (num_internal / 512 + 1) * 8;
+
+        if (budget <= bitmap_fixed_cost) {
+          for (uint64_t k = 0; k < num_internal; k++) {
+            chain_lens[k] = 0;
+          }
+        } else {
+          size_t available = budget - bitmap_fixed_cost;
+          size_t total_cost = 0;
+          for (uint64_t k = 0; k < num_internal; k++) {
+            if (chain_lens[k] > 0) {
+              total_cost += kPerChainMetaBytes + chain_lens[k];
+            }
+          }
+
+          if (total_cost > available) {
+            // Over budget. Keep longest chains first.
+            struct ChainCandidate {
+              uint64_t idx;
+              size_t cost;
+              uint16_t length;
+            };
+            std::vector<ChainCandidate> candidates;
+            candidates.reserve(candidate_count);
+            for (uint64_t k = 0; k < num_internal; k++) {
+              if (chain_lens[k] > 0) {
+                candidates.push_back(
+                    {k, kPerChainMetaBytes + chain_lens[k], chain_lens[k]});
+              }
+            }
+            std::sort(candidates.begin(), candidates.end(),
+                      [](const ChainCandidate& a, const ChainCandidate& b) {
+                        return a.length > b.length;
+                      });
+
+            std::vector<bool> keep(num_internal, false);
+            size_t used = 0;
+            for (const auto& c : candidates) {
+              if (used + c.cost <= available) {
+                keep[c.idx] = true;
+                used += c.cost;
+              }
+            }
+
+            std::string new_suffix_data;
+            for (uint64_t k = 0; k < num_internal; k++) {
+              if (chain_lens[k] > 0 && !keep[k]) {
+                chain_lens[k] = 0;
+                chain_offsets[k] = UINT32_MAX;
+                chain_end_child_idx[k] = UINT32_MAX;
+              } else if (chain_lens[k] > 0) {
+                uint32_t old_off = chain_offsets[k];
+                chain_offsets[k] =
+                    static_cast<uint32_t>(new_suffix_data.size());
+                new_suffix_data.append(chain_suffix_data.data() + old_off,
+                                       chain_lens[k]);
+              }
+            }
+            chain_suffix_data = std::move(new_suffix_data);
+          }
+        }
+      }
+    }
+
+    // Count actual chains and build bitmap + compact arrays.
+    uint64_t num_chains = 0;
+    BitvectorBuilder chain_bitmap_builder;
+    for (uint64_t k = 0; k < num_internal; k++) {
+      bool has_chain = (chain_lens[k] > 0);
+      chain_bitmap_builder.Append(has_chain);
+      if (has_chain) num_chains++;
+    }
+
+    // Serialize: num_chains, then bitmap + compact arrays if any.
+    PutFixed64(&serialized_data_, num_chains);
+
+    if (num_chains > 0) {
+      // Write chain bitmap (1 bit per internal label).
+      Bitvector chain_bitmap_bv;
+      chain_bitmap_bv.BuildFrom(chain_bitmap_builder);
+      chain_bitmap_bv.Serialize(&serialized_data_);
+
+      // Write compact chain_offsets (uint32_t per chain).
+      for (uint64_t k = 0; k < num_internal; k++) {
+        if (chain_lens[k] > 0) {
+          PutFixed32(&serialized_data_, chain_offsets[k]);
+        }
+      }
+      size_t bytes_written = num_chains * sizeof(uint32_t);
+      size_t padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+
+      // Write compact chain_lens (uint16_t per chain).
+      for (uint64_t k = 0; k < num_internal; k++) {
+        if (chain_lens[k] > 0) {
+          serialized_data_.append(reinterpret_cast<const char*>(&chain_lens[k]),
+                                  sizeof(uint16_t));
+        }
+      }
+      bytes_written = num_chains * sizeof(uint16_t);
+      padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+
+      // Write compact chain_end_child_idx (uint32_t per chain).
+      for (uint64_t k = 0; k < num_internal; k++) {
+        if (chain_lens[k] > 0) {
+          PutFixed32(&serialized_data_, chain_end_child_idx[k]);
+        }
+      }
+      bytes_written = num_chains * sizeof(uint32_t);
+      padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+
+      // Write suffix data blob.
+      uint64_t chain_data_size = chain_suffix_data.size();
+      PutFixed64(&serialized_data_, chain_data_size);
+      serialized_data_.append(chain_suffix_data);
+      padding = (8 - (chain_data_size % 8)) % 8;
       serialized_data_.append(padding, '\0');
     }
   }
@@ -537,6 +816,8 @@ LoudsTrie::LoudsTrie()
       dense_child_count_(0),
       s_labels_data_(nullptr),
       s_labels_size_(0),
+      s_chain_suffix_data_(nullptr),
+      s_chain_suffix_size_(0),
       handle_offsets_(nullptr),
       handle_sizes_(nullptr) {}
 
@@ -657,12 +938,12 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   remaining -= consumed;
 
   // Child position lookup tables for Select-free sparse traversal.
+  uint64_t num_internal = 0;
   {
     if (remaining < 8) {
       return Status::Corruption(
           "Trie index: truncated child position table count");
     }
-    uint64_t num_internal;
     memcpy(&num_internal, p, 8);
     p += 8;
     remaining -= 8;
@@ -691,6 +972,75 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       memcpy(s_child_end_pos_.data(), p, end_bytes);
       p += end_padded;
       remaining -= end_padded;
+    }
+  }
+
+  // Path compression: chain metadata for fanout-1 chains.
+  // Format: num_chains (uint64), then if > 0: bitmap + compact arrays.
+  {
+    if (remaining < 8) {
+      return Status::Corruption("Trie index: truncated chain count");
+    }
+    uint64_t num_chains;
+    memcpy(&num_chains, p, 8);
+    p += 8;
+    remaining -= 8;
+
+    if (num_chains > 0) {
+      // Read chain bitmap.
+      s = s_chain_bitmap_.InitFromData(p, remaining, &consumed);
+      if (!s.ok()) return s;
+      p += consumed;
+      remaining -= consumed;
+
+      // Read compact chain_offsets (uint32_t per chain).
+      size_t offsets_bytes = num_chains * sizeof(uint32_t);
+      size_t offsets_padded = (offsets_bytes + 7) & ~size_t(7);
+      if (remaining < offsets_padded) {
+        return Status::Corruption("Trie index: truncated chain offsets");
+      }
+      s_chain_suffix_offsets_.resize(num_chains);
+      memcpy(s_chain_suffix_offsets_.data(), p, offsets_bytes);
+      p += offsets_padded;
+      remaining -= offsets_padded;
+
+      // Read compact chain_lens (uint16_t per chain).
+      size_t lens_bytes = num_chains * sizeof(uint16_t);
+      size_t lens_padded = (lens_bytes + 7) & ~size_t(7);
+      if (remaining < lens_padded) {
+        return Status::Corruption("Trie index: truncated chain lengths");
+      }
+      s_chain_lens_.resize(num_chains);
+      memcpy(s_chain_lens_.data(), p, lens_bytes);
+      p += lens_padded;
+      remaining -= lens_padded;
+
+      // Read compact chain_end_child_idx (uint32_t per chain).
+      size_t end_bytes = num_chains * sizeof(uint32_t);
+      size_t end_padded = (end_bytes + 7) & ~size_t(7);
+      if (remaining < end_padded) {
+        return Status::Corruption("Trie index: truncated chain end indices");
+      }
+      s_chain_end_child_idx_.resize(num_chains);
+      memcpy(s_chain_end_child_idx_.data(), p, end_bytes);
+      p += end_padded;
+      remaining -= end_padded;
+
+      // Read suffix data blob.
+      if (remaining < 8) {
+        return Status::Corruption("Trie index: truncated chain suffix size");
+      }
+      memcpy(&s_chain_suffix_size_, p, 8);
+      p += 8;
+      remaining -= 8;
+
+      size_t suffix_padded = (s_chain_suffix_size_ + 7) & ~size_t(7);
+      if (remaining < suffix_padded) {
+        return Status::Corruption("Trie index: truncated chain suffix data");
+      }
+      s_chain_suffix_data_ = reinterpret_cast<const uint8_t*>(p);
+      p += suffix_padded;
+      remaining -= suffix_padded;
     }
   }
 
@@ -748,7 +1098,8 @@ TrieBlockHandle LoudsTrie::GetHandle(uint64_t leaf_index) const {
 // ============================================================================
 
 LoudsTrieIterator::LoudsTrieIterator(const LoudsTrie* trie)
-    : trie_(trie),
+    : has_chains_(trie->HasChains()),
+      trie_(trie),
       valid_(false),
       leaf_index_(0),
       key_len_(0),
@@ -1033,7 +1384,8 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
 // Uses SuRF-style Select-free traversal for sparse regions: instead of
 // tracking node_num and calling Select1 to find node boundaries, we track
 // (start_pos, end_pos) directly and use only Rank1 + array lookup.
-bool LoudsTrieIterator::Seek(const Slice& target) {
+template <bool kHasChains>
+bool LoudsTrieIterator::SeekImpl(const Slice& target) {
   valid_ = false;
   leaf_index_ = 0;
   key_len_ = 0;
@@ -1153,6 +1505,198 @@ bool LoudsTrieIterator::Seek(const Slice& target) {
             if (!trie_->s_child_start_pos_.empty()) {
               uint64_t child_idx = has_child_rank - 1;
               if (child_idx < trie_->s_child_start_pos_.size()) {
+                // ---- Path compression: chain skip ----
+                // Check if this child starts a fanout-1 chain. If so, compare
+                // the remaining target bytes against the chain suffix with a
+                // single memcmp instead of traversing level by level.
+                // Guarded by if constexpr: when kHasChains=false, the compiler
+                // eliminates this entire block from the generated code.
+                if constexpr (kHasChains) {
+                  if (child_idx < trie_->s_chain_bitmap_.NumBits() &&
+                      trie_->s_chain_bitmap_.GetBit(child_idx)) {
+                    uint64_t chain_idx =
+                        trie_->s_chain_bitmap_.Rank1(child_idx + 1) - 1;
+                    uint16_t chain_len = trie_->s_chain_lens_[chain_idx];
+                    const uint8_t* suffix =
+                        trie_->s_chain_suffix_data_ +
+                        trie_->s_chain_suffix_offsets_[chain_idx];
+                    uint32_t target_remaining =
+                        static_cast<uint32_t>(target.size()) - depth - 1;
+
+                    if (target_remaining >= chain_len) {
+                      // Target has enough bytes to cover the full chain.
+                      const uint8_t* target_bytes =
+                          reinterpret_cast<const uint8_t*>(target.data()) +
+                          depth + 1;
+                      int cmp = memcmp(target_bytes, suffix, chain_len);
+                      if (cmp == 0) {
+                        // Full chain match! Push all chain nodes onto path_.
+                        // Walk the chain using child position tables to get
+                        // each node's label position for path reconstruction.
+                        uint64_t cur_idx = child_idx;
+                        for (uint16_t ci = 0; ci < chain_len; ci++) {
+                          uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                          path_.push_back(LevelPos::MakeSparse(cs));
+                          key_buf_[key_len_++] =
+                              static_cast<char>(trie_->s_labels_data_[cs]);
+                          // Move to next chain node (last node handled below).
+                          if (ci + 1 < chain_len) {
+                            cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
+                          }
+                        }
+                        // Chain fully matched. Advance depth past the chain.
+                        depth += chain_len;
+
+                        // Set up for the node after the chain.
+                        uint32_t end_child_idx =
+                            trie_->s_chain_end_child_idx_[chain_idx];
+                        if (end_child_idx == UINT32_MAX) {
+                          // Chain ends at a leaf. Check if target is consumed.
+                          uint32_t last_cs = trie_->s_child_start_pos_[cur_idx];
+                          uint64_t last_hcr =
+                              trie_->s_has_child_.Rank1(last_cs + 1);
+                          if (depth ==
+                              static_cast<uint32_t>(target.size()) - 1) {
+                            leaf_index_ = SparseLeafIndexFromHasChildRank(
+                                last_cs, last_hcr);
+                            valid_ = true;
+                            return true;
+                          }
+                          // Target has more bytes, trie key < target. Advance.
+                          leaf_index_ = SparseLeafIndexFromHasChildRank(
+                              last_cs, last_hcr);
+                          valid_ = true;
+                          return Advance();
+                        }
+                        // Chain ends at an internal node with fanout > 1.
+                        sparse_start = trie_->s_child_start_pos_[end_child_idx];
+                        sparse_end = trie_->s_child_end_pos_[end_child_idx];
+                        have_sparse_bounds = true;
+                        in_dense = false;
+                        continue;
+                      }
+                      // Chain mismatch. Find the divergence point.
+                      uint16_t mismatch_pos = 0;
+                      while (mismatch_pos < chain_len &&
+                             target_bytes[mismatch_pos] ==
+                                 suffix[mismatch_pos]) {
+                        mismatch_pos++;
+                      }
+                      // Push path entries up to the mismatch point.
+                      uint64_t cur_idx = child_idx;
+                      for (uint16_t ci = 0; ci < mismatch_pos; ci++) {
+                        uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                        path_.push_back(LevelPos::MakeSparse(cs));
+                        key_buf_[key_len_++] =
+                            static_cast<char>(trie_->s_labels_data_[cs]);
+                        cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
+                      }
+                      // At the mismatch node: push the node's label and handle.
+                      uint32_t mis_cs = trie_->s_child_start_pos_[cur_idx];
+                      path_.push_back(LevelPos::MakeSparse(mis_cs));
+                      key_buf_[key_len_++] =
+                          static_cast<char>(trie_->s_labels_data_[mis_cs]);
+
+                      if (target_bytes[mismatch_pos] < suffix[mismatch_pos]) {
+                        // Target < chain. Chain's path leads to the first key
+                        // >= target. Descend to leftmost leaf from here.
+                        if (!trie_->s_has_child_.GetBit(mis_cs)) {
+                          leaf_index_ = SparseLeafIndex(mis_cs);
+                          valid_ = true;
+                          return true;
+                        }
+                        return DescendToLeftmostLeaf(
+                            false, SparseChildNodeNum(mis_cs));
+                      }
+                      // target_bytes[mismatch_pos] > suffix[mismatch_pos]:
+                      // All keys through this chain node are < target. Advance.
+                      return Advance();
+                    }
+                    // Target runs out before chain ends.
+                    // Check if target's remaining bytes match the chain prefix.
+                    if (target_remaining > 0) {
+                      const uint8_t* target_bytes =
+                          reinterpret_cast<const uint8_t*>(target.data()) +
+                          depth + 1;
+                      int cmp = memcmp(target_bytes, suffix, target_remaining);
+                      if (cmp < 0) {
+                        // Target < chain prefix. Push matched portion.
+                        uint64_t cur_idx = child_idx;
+                        uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                        path_.push_back(LevelPos::MakeSparse(cs));
+                        key_buf_[key_len_++] =
+                            static_cast<char>(trie_->s_labels_data_[cs]);
+                        // Descend to leftmost leaf from this first chain node.
+                        if (!trie_->s_has_child_.GetBit(cs)) {
+                          leaf_index_ = SparseLeafIndex(cs);
+                          valid_ = true;
+                          return true;
+                        }
+                        return DescendToLeftmostLeaf(false,
+                                                     SparseChildNodeNum(cs));
+                      }
+                      if (cmp > 0) {
+                        // Target > chain prefix at some point. We need to find
+                        // the exact divergence point.
+                        uint16_t mismatch_pos = 0;
+                        while (mismatch_pos < target_remaining &&
+                               target_bytes[mismatch_pos] ==
+                                   suffix[mismatch_pos]) {
+                          mismatch_pos++;
+                        }
+                        // Push path entries up to the mismatch.
+                        uint64_t cur_idx = child_idx;
+                        for (uint16_t ci = 0; ci < mismatch_pos; ci++) {
+                          uint32_t cs2 = trie_->s_child_start_pos_[cur_idx];
+                          path_.push_back(LevelPos::MakeSparse(cs2));
+                          key_buf_[key_len_++] =
+                              static_cast<char>(trie_->s_labels_data_[cs2]);
+                          cur_idx = trie_->s_has_child_.Rank1(cs2 + 1) - 1;
+                        }
+                        uint32_t mis_cs2 = trie_->s_child_start_pos_[cur_idx];
+                        path_.push_back(LevelPos::MakeSparse(mis_cs2));
+                        key_buf_[key_len_++] =
+                            static_cast<char>(trie_->s_labels_data_[mis_cs2]);
+                        return Advance();
+                      }
+                      // cmp == 0: target matches chain prefix exactly. Target
+                      // is fully consumed. Push matched nodes and check prefix
+                      // key / descend to leftmost leaf.
+                      uint64_t cur_idx = child_idx;
+                      for (uint32_t ci = 0; ci < target_remaining; ci++) {
+                        uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                        path_.push_back(LevelPos::MakeSparse(cs));
+                        key_buf_[key_len_++] =
+                            static_cast<char>(trie_->s_labels_data_[cs]);
+                        if (ci + 1 < target_remaining) {
+                          cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
+                        }
+                      }
+                      // Target consumed mid-chain. The remaining chain nodes
+                      // form keys > target. Descend to leftmost leaf from the
+                      // next chain node.
+                      uint32_t last_cs = trie_->s_child_start_pos_[cur_idx];
+                      // This node is always internal (it's mid-chain).
+                      return DescendToLeftmostLeaf(false,
+                                                   SparseChildNodeNum(last_cs));
+                    }
+                    // target_remaining == 0: target fully consumed.
+                    // This means the target ended exactly at the parent node.
+                    // The chain nodes are all > target. Push first chain node
+                    // and descend to leftmost leaf.
+                    uint32_t cs = trie_->s_child_start_pos_[child_idx];
+                    path_.push_back(LevelPos::MakeSparse(cs));
+                    key_buf_[key_len_++] =
+                        static_cast<char>(trie_->s_labels_data_[cs]);
+                    if (!trie_->s_has_child_.GetBit(cs)) {
+                      leaf_index_ = SparseLeafIndex(cs);
+                      valid_ = true;
+                      return true;
+                    }
+                    return DescendToLeftmostLeaf(false, SparseChildNodeNum(cs));
+                  }
+                }  // if constexpr (kHasChains)
+                // No chain — normal child lookup.
                 sparse_start = trie_->s_child_start_pos_[child_idx];
                 sparse_end = trie_->s_child_end_pos_[child_idx];
                 have_sparse_bounds = true;
@@ -1241,21 +1785,165 @@ bool LoudsTrieIterator::Seek(const Slice& target) {
       // Descend to child: Get child bounds using Rank1 + array lookup.
       // This is the key SuRF optimization - NO Select1 here!
       // Reuse the already-computed has_child_rank.
-      if (!trie_->s_child_start_pos_.empty()) {
+      {
         uint64_t child_idx = has_child_rank - 1;
-        if (child_idx < trie_->s_child_start_pos_.size()) {
+        if (!trie_->s_child_start_pos_.empty() &&
+            child_idx < trie_->s_child_start_pos_.size()) {
+          // ---- Path compression: chain skip (general path) ----
+          if constexpr (kHasChains) {
+            if (child_idx < trie_->s_chain_bitmap_.NumBits() &&
+                trie_->s_chain_bitmap_.GetBit(child_idx)) {
+              uint64_t chain_idx =
+                  trie_->s_chain_bitmap_.Rank1(child_idx + 1) - 1;
+              uint16_t chain_len = trie_->s_chain_lens_[chain_idx];
+              const uint8_t* suffix = trie_->s_chain_suffix_data_ +
+                                      trie_->s_chain_suffix_offsets_[chain_idx];
+              uint32_t target_remaining =
+                  static_cast<uint32_t>(target.size()) - depth - 1;
+
+              if (target_remaining >= chain_len) {
+                const uint8_t* target_bytes =
+                    reinterpret_cast<const uint8_t*>(target.data()) + depth + 1;
+                int cmp = memcmp(target_bytes, suffix, chain_len);
+                if (cmp == 0) {
+                  // Full chain match! Push all chain nodes.
+                  uint64_t cur_idx = child_idx;
+                  for (uint16_t ci = 0; ci < chain_len; ci++) {
+                    uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                    path_.push_back(LevelPos::MakeSparse(cs));
+                    key_buf_[key_len_++] =
+                        static_cast<char>(trie_->s_labels_data_[cs]);
+                    if (ci + 1 < chain_len) {
+                      cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
+                    }
+                  }
+                  depth += chain_len;
+
+                  uint32_t end_child_idx =
+                      trie_->s_chain_end_child_idx_[chain_idx];
+                  if (end_child_idx == UINT32_MAX) {
+                    uint32_t last_cs = trie_->s_child_start_pos_[cur_idx];
+                    uint64_t last_hcr = trie_->s_has_child_.Rank1(last_cs + 1);
+                    if (depth == static_cast<uint32_t>(target.size()) - 1) {
+                      leaf_index_ =
+                          SparseLeafIndexFromHasChildRank(last_cs, last_hcr);
+                      valid_ = true;
+                      return true;
+                    }
+                    leaf_index_ =
+                        SparseLeafIndexFromHasChildRank(last_cs, last_hcr);
+                    valid_ = true;
+                    return Advance();
+                  }
+                  sparse_start = trie_->s_child_start_pos_[end_child_idx];
+                  sparse_end = trie_->s_child_end_pos_[end_child_idx];
+                  have_sparse_bounds = true;
+                  in_dense = false;
+                  continue;
+                }
+                // Mismatch: find divergence point.
+                uint16_t mismatch_pos = 0;
+                while (mismatch_pos < chain_len &&
+                       target_bytes[mismatch_pos] == suffix[mismatch_pos]) {
+                  mismatch_pos++;
+                }
+                uint64_t cur_idx = child_idx;
+                for (uint16_t ci = 0; ci < mismatch_pos; ci++) {
+                  uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                  path_.push_back(LevelPos::MakeSparse(cs));
+                  key_buf_[key_len_++] =
+                      static_cast<char>(trie_->s_labels_data_[cs]);
+                  cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
+                }
+                uint32_t mis_cs = trie_->s_child_start_pos_[cur_idx];
+                path_.push_back(LevelPos::MakeSparse(mis_cs));
+                key_buf_[key_len_++] =
+                    static_cast<char>(trie_->s_labels_data_[mis_cs]);
+
+                if (target_bytes[mismatch_pos] < suffix[mismatch_pos]) {
+                  if (!trie_->s_has_child_.GetBit(mis_cs)) {
+                    leaf_index_ = SparseLeafIndex(mis_cs);
+                    valid_ = true;
+                    return true;
+                  }
+                  return DescendToLeftmostLeaf(false,
+                                               SparseChildNodeNum(mis_cs));
+                }
+                return Advance();
+              }
+              // Target runs out before chain ends.
+              if (target_remaining > 0) {
+                const uint8_t* target_bytes =
+                    reinterpret_cast<const uint8_t*>(target.data()) + depth + 1;
+                int cmp = memcmp(target_bytes, suffix, target_remaining);
+                if (cmp < 0) {
+                  uint32_t cs = trie_->s_child_start_pos_[child_idx];
+                  path_.push_back(LevelPos::MakeSparse(cs));
+                  key_buf_[key_len_++] =
+                      static_cast<char>(trie_->s_labels_data_[cs]);
+                  if (!trie_->s_has_child_.GetBit(cs)) {
+                    leaf_index_ = SparseLeafIndex(cs);
+                    valid_ = true;
+                    return true;
+                  }
+                  return DescendToLeftmostLeaf(false, SparseChildNodeNum(cs));
+                }
+                if (cmp > 0) {
+                  uint16_t mp = 0;
+                  while (mp < target_remaining &&
+                         target_bytes[mp] == suffix[mp]) {
+                    mp++;
+                  }
+                  uint64_t cur_idx = child_idx;
+                  for (uint16_t ci = 0; ci < mp; ci++) {
+                    uint32_t cs2 = trie_->s_child_start_pos_[cur_idx];
+                    path_.push_back(LevelPos::MakeSparse(cs2));
+                    key_buf_[key_len_++] =
+                        static_cast<char>(trie_->s_labels_data_[cs2]);
+                    cur_idx = trie_->s_has_child_.Rank1(cs2 + 1) - 1;
+                  }
+                  uint32_t mis_cs2 = trie_->s_child_start_pos_[cur_idx];
+                  path_.push_back(LevelPos::MakeSparse(mis_cs2));
+                  key_buf_[key_len_++] =
+                      static_cast<char>(trie_->s_labels_data_[mis_cs2]);
+                  return Advance();
+                }
+                // Prefix match: target consumed mid-chain.
+                uint64_t cur_idx = child_idx;
+                for (uint32_t ci = 0; ci < target_remaining; ci++) {
+                  uint32_t cs = trie_->s_child_start_pos_[cur_idx];
+                  path_.push_back(LevelPos::MakeSparse(cs));
+                  key_buf_[key_len_++] =
+                      static_cast<char>(trie_->s_labels_data_[cs]);
+                  if (ci + 1 < target_remaining) {
+                    cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
+                  }
+                }
+                uint32_t last_cs = trie_->s_child_start_pos_[cur_idx];
+                return DescendToLeftmostLeaf(false,
+                                             SparseChildNodeNum(last_cs));
+              }
+              // target_remaining == 0: first chain node is > target.
+              uint32_t cs = trie_->s_child_start_pos_[child_idx];
+              path_.push_back(LevelPos::MakeSparse(cs));
+              key_buf_[key_len_++] =
+                  static_cast<char>(trie_->s_labels_data_[cs]);
+              if (!trie_->s_has_child_.GetBit(cs)) {
+                leaf_index_ = SparseLeafIndex(cs);
+                valid_ = true;
+                return true;
+              }
+              return DescendToLeftmostLeaf(false, SparseChildNodeNum(cs));
+            }
+          }  // if constexpr (kHasChains)
+          // No chain — normal child lookup.
           sparse_start = trie_->s_child_start_pos_[child_idx];
           sparse_end = trie_->s_child_end_pos_[child_idx];
           have_sparse_bounds = true;
         } else {
-          // Fallback for edge cases
           node_num = SparseChildNodeNum(pos);
           have_sparse_bounds = false;
         }
-      } else {
-        // Lookup tables not available, use old path
-        node_num = SparseChildNodeNum(pos);
-        have_sparse_bounds = false;
       }
       in_dense = false;
     }
@@ -1427,6 +2115,10 @@ TrieBlockHandle LoudsTrieIterator::Value() const {
   assert(valid_);
   return trie_->GetHandle(leaf_index_);
 }
+
+// Explicit template instantiations for SeekImpl.
+template bool LoudsTrieIterator::SeekImpl<true>(const Slice&);
+template bool LoudsTrieIterator::SeekImpl<false>(const Slice&);
 
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE
