@@ -300,6 +300,18 @@ Status ExternalSstFileIngestionJob::Prepare(
         // ingestion.
         // TODO: plumb Env::IOActivity
         ReadOptions ro;
+        // Pass user-provided checksums through FileOptions when available.
+        // The caller may not have provided checksums at all (empty vectors),
+        // so we guard with a bounds check.
+        FileOptions fopts;
+        if (i < files_checksums.size()) {
+          fopts.file_checksum = files_checksums[i];
+        }
+        if (i < files_checksum_func_names.size()) {
+          fopts.file_checksum_func_name = files_checksum_func_names[i];
+        } else {
+          fopts.file_checksum_func_name = kNoFileChecksumFuncName;
+        }
         IOStatus io_s = GenerateOneFileChecksum(
             fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(),
@@ -308,7 +320,7 @@ Status ExternalSstFileIngestionJob::Prepare(
             ingestion_options_.verify_checksums_readahead_size,
             db_options_.allow_mmap_reads, io_tracer_,
             db_options_.rate_limiter.get(), ro, db_options_.stats,
-            db_options_.clock);
+            db_options_.clock, fopts);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -1482,13 +1494,15 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   // TODO: rate limit file reads for checksum calculation during file ingestion.
   // TODO: plumb Env::IOActivity
   ReadOptions ro;
+  FileOptions gen_fopts;
+  gen_fopts.file_checksum_func_name = kNoFileChecksumFuncName;
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
       db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
-      ro, db_options_.stats, db_options_.clock);
+      ro, db_options_.stats, db_options_.clock, gen_fopts);
   if (!io_s.ok()) {
     ROCKS_LOG_WARN(
         db_options_.info_log, "Failed to generate checksum for %s: %s",

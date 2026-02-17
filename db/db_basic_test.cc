@@ -5474,6 +5474,94 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                         ::testing::Values(std::make_tuple(true, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
+
+// FileSystemWrapper that captures FileOptions passed to NewRandomAccessFile
+// for .sst files, so we can verify file_checksum fields are populated.
+class ChecksumCapturingFS : public FileSystemWrapper {
+ public:
+  explicit ChecksumCapturingFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "ChecksumCapturingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".sst") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      captured_file_checksum_ = opts.file_checksum;
+      captured_file_checksum_func_name_ = opts.file_checksum_func_name;
+      capture_count_++;
+    }
+    return target()->NewRandomAccessFile(fname, opts, result, dbg);
+  }
+
+  std::string GetCapturedFileChecksum() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_checksum_;
+  }
+
+  std::string GetCapturedFileChecksumFuncName() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_checksum_func_name_;
+  }
+
+  int GetCaptureCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return capture_count_;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    captured_file_checksum_.clear();
+    captured_file_checksum_func_name_.clear();
+    capture_count_ = 0;
+  }
+
+ private:
+  std::mutex mu_;
+  std::string captured_file_checksum_;
+  std::string captured_file_checksum_func_name_;
+  int capture_count_ = 0;
+};
+
+TEST_F(DBBasicTest, FileChecksumInFileOptions) {
+  // Verify that file_checksum and file_checksum_func_name from FileMetaData
+  // are propagated through FileOptions when opening SST files.
+  auto capturing_fs =
+      std::make_shared<ChecksumCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  // Write data and flush to create an SST with a file checksum.
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+
+  // Reset captures, then reopen to trigger TableCache SST open.
+  capturing_fs->Reset();
+  Reopen(options);
+
+  // Read to trigger SST open through TableCache::GetTableReader.
+  ASSERT_EQ("value1", Get("key1"));
+
+  // Verify that checksum fields were populated.
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_FALSE(capturing_fs->GetCapturedFileChecksum().empty());
+  ASSERT_NE(capturing_fs->GetCapturedFileChecksumFuncName(),
+            capturing_fs->GetCapturedFileChecksum());
+  ASSERT_EQ(capturing_fs->GetCapturedFileChecksumFuncName(),
+            "FileChecksumCrc32c");
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

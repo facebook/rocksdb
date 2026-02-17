@@ -6471,8 +6471,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
+          FileOptions fopts = file_options_;
+          fopts.file_checksum = fmeta->file_checksum;
+          fopts.file_checksum_func_name = fmeta->file_checksum_func_name;
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksumInternal(
-              opts, file_options_, read_options, fname, fd.largest_seqno);
+              opts, fopts, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);
@@ -6540,12 +6543,15 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
   }
   std::string file_checksum;
   std::string func_name;
+  FileOptions fopts;
+  fopts.file_checksum = file_checksum_expected;
+  fopts.file_checksum_func_name = func_name_expected;
   s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
       io_tracer_, immutable_db_options_.rate_limiter.get(), read_options,
-      immutable_db_options_.stats, immutable_db_options_.clock);
+      immutable_db_options_.stats, immutable_db_options_.clock, fopts);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {

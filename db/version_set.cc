@@ -1820,8 +1820,10 @@ Status Version::GetTableProperties(const ReadOptions& read_options,
     file_name = TableFileName(ioptions.cf_paths, file_meta->fd.GetNumber(),
                               file_meta->fd.GetPathId());
   }
-  s = ioptions.fs->NewRandomAccessFile(file_name, file_options_, &file,
-                                       nullptr);
+  FileOptions fopts = file_options_;
+  fopts.file_checksum = file_meta->file_checksum;
+  fopts.file_checksum_func_name = file_meta->file_checksum_func_name;
+  s = ioptions.fs->NewRandomAccessFile(file_name, fopts, &file, nullptr);
   if (!s.ok()) {
     return s;
   }
