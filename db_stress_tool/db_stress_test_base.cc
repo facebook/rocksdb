@@ -4381,6 +4381,11 @@ void InitializeOptionsFromFlags(
     if (FLAGS_fifo_compaction_max_data_files_size_mb > 0) {
       options.compaction_options_fifo.max_data_files_size =
           FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
+      // max_table_files_size is ignored when max_data_files_size is non-zero,
+      // but validation requires max_data_files_size >= max_table_files_size.
+      options.compaction_options_fifo.max_table_files_size =
+          std::min(options.compaction_options_fifo.max_table_files_size,
+                   options.compaction_options_fifo.max_data_files_size);
     }
     options.compaction_options_fifo.use_kv_ratio_compaction =
         FLAGS_fifo_compaction_use_kv_ratio_compaction;
