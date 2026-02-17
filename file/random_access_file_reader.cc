@@ -528,6 +528,11 @@ IOStatus RandomAccessFileReader::ReadAsync(
     void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
     IODebugContext* dbg) {
   IOStatus s;
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::ReadAsync:InjectStatus",
+                           &s);
+  if (!s.ok()) {
+    return s;
+  }
   // Create a callback and populate info.
   auto read_async_callback =
       std::bind(&RandomAccessFileReader::ReadAsyncCallback, this,
