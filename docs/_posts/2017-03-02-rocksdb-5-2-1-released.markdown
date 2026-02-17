@@ -1,7 +1,7 @@
 ---
 title: RocksDB 5.2.1 Released!
 layout: post
-author: sdong
+author: siying
 category: blog
 ---
 

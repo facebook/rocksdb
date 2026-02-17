@@ -229,6 +229,9 @@ The following patterns emerged as frequent sources of review feedback:
 ### Adding release note
 * Release note should be kept short at high level for external user consumption.
 
+### Blog posts (docs/_posts)
+* Blog post authors must be defined in `docs/_data/authors.yml` to be displayed
+
 ### Final verification of the change
 * Execute make clean to clean all of the changes.
 * Execute make check to build all of the changes and execute all of the tests.
