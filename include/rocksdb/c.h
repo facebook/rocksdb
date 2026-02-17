@@ -1209,6 +1209,13 @@ enum {
 extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_data_block_index_type(
     rocksdb_block_based_table_options_t*, int);  // uses one of the above enums
+enum {
+  rocksdb_block_based_table_index_block_search_type_binary = 0,
+  rocksdb_block_based_table_index_block_search_type_interpolation = 1,
+};
+extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_index_block_search_type(
+    rocksdb_block_based_table_options_t*, int);  // uses one of the above enums
 extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_data_block_hash_ratio(
     rocksdb_block_based_table_options_t* options, double v);
@@ -2728,7 +2735,7 @@ rocksdb_slicetransform_create(
     unsigned char (*in_range)(void*, const char* key, size_t length),
     const char* (*name)(void*));
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
-    rocksdb_slicetransform_create_fixed_prefix(size_t);
+rocksdb_slicetransform_create_fixed_prefix(size_t);
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
 rocksdb_slicetransform_create_noop(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_slicetransform_destroy(
@@ -2796,6 +2803,19 @@ rocksdb_fifo_compaction_options_set_max_table_files_size(
     rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size);
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_fifo_compaction_options_get_max_table_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_fifo_compaction_options_set_max_data_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_fifo_compaction_options_get_max_data_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_fifo_compaction_options_set_use_kv_ratio_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts,
+    unsigned char use_kv_ratio_compaction);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_fifo_compaction_options_get_use_kv_ratio_compaction(
     rocksdb_fifo_compaction_options_t* fifo_opts);
 extern ROCKSDB_LIBRARY_API void rocksdb_fifo_compaction_options_destroy(
     rocksdb_fifo_compaction_options_t* fifo_opts);

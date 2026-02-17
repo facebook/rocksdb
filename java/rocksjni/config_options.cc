@@ -19,9 +19,9 @@
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ConfigOptions_disposeInternalJni(JNIEnv *, jclass,
+void Java_org_rocksdb_ConfigOptions_disposeInternalJni(JNIEnv*, jclass,
                                                        jlong jhandle) {
-  auto *co = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(jhandle);
+  auto* co = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(jhandle);
   assert(co != nullptr);
   delete co;
 }
@@ -31,8 +31,8 @@ void Java_org_rocksdb_ConfigOptions_disposeInternalJni(JNIEnv *, jclass,
  * Method:    newConfigOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv *, jclass) {
-  auto *cfg_opt = new ROCKSDB_NAMESPACE::ConfigOptions();
+jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv*, jclass) {
+  auto* cfg_opt = new ROCKSDB_NAMESPACE::ConfigOptions();
   return GET_CPLUSPLUS_POINTER(cfg_opt);
 }
 
@@ -41,11 +41,11 @@ jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv *, jclass) {
  * Method:    setEnv
  * Signature: (JJ;)V
  */
-void Java_org_rocksdb_ConfigOptions_setEnv(JNIEnv *, jclass, jlong handle,
+void Java_org_rocksdb_ConfigOptions_setEnv(JNIEnv*, jclass, jlong handle,
                                            jlong rocksdb_env_handle) {
-  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
-  auto *rocksdb_env =
-      reinterpret_cast<ROCKSDB_NAMESPACE::Env *>(rocksdb_env_handle);
+  auto* cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(handle);
+  auto* rocksdb_env =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(rocksdb_env_handle);
   cfg_opt->env = rocksdb_env;
 }
 
@@ -54,10 +54,10 @@ void Java_org_rocksdb_ConfigOptions_setEnv(JNIEnv *, jclass, jlong handle,
  * Method:    setDelimiter
  * Signature: (JLjava/lang/String;)V
  */
-void Java_org_rocksdb_ConfigOptions_setDelimiter(JNIEnv *env, jclass,
+void Java_org_rocksdb_ConfigOptions_setDelimiter(JNIEnv* env, jclass,
                                                  jlong handle, jstring s) {
-  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
-  const char *delim = env->GetStringUTFChars(s, nullptr);
+  auto* cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(handle);
+  const char* delim = env->GetStringUTFChars(s, nullptr);
   if (delim == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -71,10 +71,10 @@ void Java_org_rocksdb_ConfigOptions_setDelimiter(JNIEnv *env, jclass,
  * Method:    setIgnoreUnknownOptions
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_ConfigOptions_setIgnoreUnknownOptions(JNIEnv *, jclass,
+void Java_org_rocksdb_ConfigOptions_setIgnoreUnknownOptions(JNIEnv*, jclass,
                                                             jlong handle,
                                                             jboolean b) {
-  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  auto* cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(handle);
   cfg_opt->ignore_unknown_options = static_cast<bool>(b);
 }
 
@@ -83,10 +83,10 @@ void Java_org_rocksdb_ConfigOptions_setIgnoreUnknownOptions(JNIEnv *, jclass,
  * Method:    setInputStringsEscaped
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_ConfigOptions_setInputStringsEscaped(JNIEnv *, jclass,
+void Java_org_rocksdb_ConfigOptions_setInputStringsEscaped(JNIEnv*, jclass,
                                                            jlong handle,
                                                            jboolean b) {
-  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  auto* cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(handle);
   cfg_opt->input_strings_escaped = static_cast<bool>(b);
 }
 
@@ -95,9 +95,9 @@ void Java_org_rocksdb_ConfigOptions_setInputStringsEscaped(JNIEnv *, jclass,
  * Method:    setSanityLevel
  * Signature: (JI)V
  */
-void Java_org_rocksdb_ConfigOptions_setSanityLevel(JNIEnv *, jclass,
+void Java_org_rocksdb_ConfigOptions_setSanityLevel(JNIEnv*, jclass,
                                                    jlong handle, jbyte level) {
-  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  auto* cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(handle);
   cfg_opt->sanity_level =
       ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
 }

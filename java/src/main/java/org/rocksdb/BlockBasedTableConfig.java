@@ -43,6 +43,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     superBlockAlignmentSize = 0;
     superBlockAlignmentSpaceOverheadRatio = 128;
     indexShortening = IndexShorteningMode.kShortenSeparators;
+    indexSearchType = IndexSearchType.kBinary;
 
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
@@ -64,8 +65,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
       final boolean enableIndexCompression, final boolean blockAlign,
       final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
-      final byte indexShortening, final byte filterPolicyType, final long filterPolicyHandle,
-      final double filterPolicyConfigValue) {
+      final byte indexShortening, final byte indexSearchType, final byte filterPolicyType,
+      final long filterPolicyHandle, final double filterPolicyConfigValue) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
     this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
     this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
@@ -92,6 +93,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.superBlockAlignmentSize = superBlockAlignmentSize;
     this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
+    this.indexSearchType = IndexSearchType.values()[indexSearchType];
     try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
              filterPolicyHandle, filterPolicyConfigValue)) {
       if (filterPolicy != null) {
@@ -872,6 +874,26 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Get the index search type.
+   *
+   * @return the currently set index search type
+   */
+  public IndexSearchType indexSearchType() {
+    return indexSearchType;
+  }
+
+  /**
+   * Sets the index search type to used with this table.
+   *
+   * @param indexSearchType {@link org.rocksdb.IndexSearchType} value
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setIndexSearchType(final IndexSearchType indexSearchType) {
+    this.indexSearchType = indexSearchType;
+    return this;
+  }
+
+  /**
    * Get the size of the cache in bytes that will be used by RocksDB.
    *
    * @return block cache size in bytes
@@ -996,7 +1018,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
         readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
         superBlockAlignmentSize, superBlockAlignmentSpaceOverheadRatio, indexShortening.getValue(),
-        blockCacheSize, blockCacheNumShardBits);
+        indexSearchType.getValue(), blockCacheSize, blockCacheNumShardBits);
   }
 
   private static native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -1013,6 +1035,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
       final boolean blockAlign, final long superBlockAlignmentSize,
       final long superBlockAlignmentSpaceOverheadRatio, final byte indexShortening,
+      final byte indexSearchType,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
 
@@ -1046,6 +1069,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private long superBlockAlignmentSize;
   private long superBlockAlignmentSpaceOverheadRatio;
   private IndexShorteningMode indexShortening;
+  private IndexSearchType indexSearchType;
 
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;

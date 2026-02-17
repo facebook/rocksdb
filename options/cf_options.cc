@@ -311,6 +311,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"trivial_copy_buffer_size",
          {offsetof(struct CompactionOptionsFIFO, trivial_copy_buffer_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"max_data_files_size",
+         {offsetof(struct CompactionOptionsFIFO, max_data_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"use_kv_ratio_compaction",
+         {offsetof(struct CompactionOptionsFIFO, use_kv_ratio_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1260,6 +1268,10 @@ void MutableCFOptions::Dump(Logger* log) const {
                  compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.max_data_files_size : %" PRIu64,
+                 compaction_options_fifo.max_data_files_size);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.use_kv_ratio_compaction : %d",
+                 compaction_options_fifo.use_kv_ratio_compaction);
 
   // Blob file related options
   ROCKS_LOG_INFO(log, "                        enable_blob_files: %s",

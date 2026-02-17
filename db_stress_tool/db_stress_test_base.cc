@@ -4325,6 +4325,9 @@ void InitializeOptionsFromFlags(
   block_based_options.data_block_index_type =
       static_cast<BlockBasedTableOptions::DataBlockIndexType>(
           FLAGS_data_block_index_type);
+  block_based_options.index_block_search_type =
+      static_cast<BlockBasedTableOptions::BlockSearchType>(
+          FLAGS_index_block_search_type);
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
@@ -4375,6 +4378,17 @@ void InitializeOptionsFromFlags(
       ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
     options.compaction_options_fifo.allow_compaction =
         FLAGS_fifo_allow_compaction;
+    if (FLAGS_fifo_compaction_max_data_files_size_mb > 0) {
+      options.compaction_options_fifo.max_data_files_size =
+          FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
+      // max_table_files_size is ignored when max_data_files_size is non-zero,
+      // but validation requires max_data_files_size >= max_table_files_size.
+      options.compaction_options_fifo.max_table_files_size =
+          std::min(options.compaction_options_fifo.max_table_files_size,
+                   options.compaction_options_fifo.max_data_files_size);
+    }
+    options.compaction_options_fifo.use_kv_ratio_compaction =
+        FLAGS_fifo_compaction_use_kv_ratio_compaction;
   }
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);

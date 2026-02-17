@@ -27,12 +27,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
-                           size_t min_files_to_compact,
-                           uint64_t max_compact_bytes_per_del_file,
-                           uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs) {
-  TEST_SYNC_POINT("FindIntraL0Compaction");
+bool PickCostBasedIntraL0Compaction(
+    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
+    uint64_t max_compact_bytes_per_del_file, uint64_t max_compaction_bytes,
+    CompactionInputFiles* comp_inputs) {
+  TEST_SYNC_POINT("PickCostBasedIntraL0Compaction");
 
   size_t start = 0;
 

@@ -7016,6 +7016,44 @@ class DataBlockIndexTypeJni {
   }
 };
 
+// The portal class for org.rocksdb.IndexSearchType
+class IndexSearchTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.IndexSearchType for the provided
+  // C++ ROCKSDB_NAMESPACE::BlockSearchType enum
+  static jbyte toJavaIndexSearchType(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType&
+          index_block_search_type) {
+    switch (index_block_search_type) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::kBinary:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
+          kInterpolation:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::BlockSearchType enum for
+  // the provided Java org.rocksdb.IndexSearchType
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType
+  toCppIndexSearchType(jbyte jindex_search_type) {
+    switch (jindex_search_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
+            kBinary;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
+            kInterpolation;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
+            kBinary;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.ChecksumType
 class ChecksumTypeJni {
  public:
@@ -9200,7 +9238,7 @@ class BlockBasedTableOptionsJni
     }
 
     jmethodID method_id_init =
-        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZJJBBJD)V");
+        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZJJBBBJD)V");
     if (method_id_init == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -9250,6 +9288,8 @@ class BlockBasedTableOptionsJni
             table_factory_options->super_block_alignment_space_overhead_ratio),
         IndexShorteningModeJni::toJavaIndexShorteningMode(
             table_factory_options->index_shortening),
+        IndexSearchTypeJni::toJavaIndexSearchType(
+            table_factory_options->index_block_search_type),
         FilterPolicyJni::toJavaIndexType(filter_policy_type),
         filter_policy_handle, filter_policy_config_value);
     if (env->ExceptionCheck()) {

@@ -67,11 +67,11 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
 jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(JNIEnv* env, jclass,
                                                           jlong jopt_handle,
                                                           jstring jdb_path) {
-  return rocksdb_open_helper(env, jopt_handle, jdb_path,
-                             (ROCKSDB_NAMESPACE::Status(*)(
-                                 const ROCKSDB_NAMESPACE::Options&,
-                                 const std::string&, ROCKSDB_NAMESPACE::DB**)) &
-                                 ROCKSDB_NAMESPACE::DB::Open);
+  return rocksdb_open_helper(
+      env, jopt_handle, jdb_path,
+      (ROCKSDB_NAMESPACE::Status (*)(
+          const ROCKSDB_NAMESPACE::Options&, const std::string&,
+          ROCKSDB_NAMESPACE::DB**))&ROCKSDB_NAMESPACE::DB::Open);
 }
 
 /*
@@ -213,12 +213,11 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
     jobjectArray jcolumn_names, jlongArray jcolumn_options) {
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-      (ROCKSDB_NAMESPACE::Status(*)(
+      (ROCKSDB_NAMESPACE::Status (*)(
           const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-          ROCKSDB_NAMESPACE::DB**)) &
-          ROCKSDB_NAMESPACE::DB::Open);
+          ROCKSDB_NAMESPACE::DB**))&ROCKSDB_NAMESPACE::DB::Open);
 }
 
 /*

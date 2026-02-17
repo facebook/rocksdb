@@ -263,6 +263,21 @@ struct BlockBasedTableOptions {
 
   IndexType index_type = kBinarySearch;
 
+  // The search algorithm used when seeking to entries in the index block.
+  enum BlockSearchType : char {
+    // Standard binary search
+    kBinary = 0x00,
+    // Interpolation search, which may be better suited for uniformly
+    // distributed keys. This will only be applicable if the comparator is the
+    // byte-wise comparator. Avoid using
+    // IndexShorteningMode::kShortenSeparatorsAndSuccessor as shortening the
+    // succesor can skew the end key and make interpolation search significantly
+    // less performant.
+    kInterpolation = 0x01,
+  };
+
+  BlockSearchType index_block_search_type = kBinary;
+
   // The index type that will be used for the data block.
   enum DataBlockIndexType : char {
     kDataBlockBinarySearch = 0,   // traditional block type

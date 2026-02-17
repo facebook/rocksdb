@@ -1188,7 +1188,8 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
             break;
           default:
             // TODO? Report problem
-            {}
+            {
+            }
             // Unknown filter type
         }
         if (!may_match) {

@@ -7840,7 +7840,7 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
       options_.level0_file_num_compaction_trigger = 3;
 
       CompactionOptionsFIFO fifo_options;
-      if (compaction_path_to_test == "FindIntraL0Compaction" ||
+      if (compaction_path_to_test == "PickCostBasedIntraL0Compaction" ||
           compaction_path_to_test == "CompactRange") {
         fifo_options.allow_compaction = true;
       } else if (compaction_path_to_test == "CompactFile") {
@@ -7940,7 +7940,7 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
 
   void SetupSyncPoints(const std::string& compaction_path_to_test) {
     compaction_path_sync_point_called_.store(false);
-    if (compaction_path_to_test == "FindIntraL0Compaction" &&
+    if (compaction_path_to_test == "PickCostBasedIntraL0Compaction" &&
         options_.compaction_style == CompactionStyle::kCompactionStyleLevel) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "PostPickFileToCompact", [&](void* arg) {
@@ -7950,7 +7950,7 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
             *picked_file_to_compact = false;
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "FindIntraL0Compaction", [&](void* /*arg*/) {
+          "PickCostBasedIntraL0Compaction", [&](void* /*arg*/) {
             compaction_path_sync_point_called_.store(true);
           });
 
@@ -7986,12 +7986,12 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
           "PickDeleteTriggeredCompactionReturnNonnullptr", [&](void* /*arg*/) {
             compaction_path_sync_point_called_.store(true);
           });
-    } else if ((compaction_path_to_test == "FindIntraL0Compaction" ||
+    } else if ((compaction_path_to_test == "PickCostBasedIntraL0Compaction" ||
                 compaction_path_to_test == "CompactRange") &&
                options_.compaction_style ==
                    CompactionStyle::kCompactionStyleFIFO) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "FindIntraL0Compaction", [&](void* /*arg*/) {
+          "PickCostBasedIntraL0Compaction", [&](void* /*arg*/) {
             compaction_path_sync_point_called_.store(true);
           });
     }
@@ -8151,7 +8151,7 @@ TEST_F(DBCompactionTestL0FilesMisorderCorruption,
     IngestOneKeyValue(dbfull(), Key(i), "new", options_);
   }
 
-  SetupSyncPoints("FindIntraL0Compaction");
+  SetupSyncPoints("PickCostBasedIntraL0Compaction");
   ResumeCompactionThread();
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -8284,7 +8284,8 @@ TEST_F(DBCompactionTestL0FilesMisorderCorruption,
 
 TEST_F(DBCompactionTestL0FilesMisorderCorruption,
        FlushAfterIntraL0FIFOCompactionWithIngestedFile) {
-  for (const std::string compaction_path_to_test : {"FindIntraL0Compaction"}) {
+  for (const std::string compaction_path_to_test :
+       {"PickCostBasedIntraL0Compaction"}) {
     SetupOptions(CompactionStyle::kCompactionStyleFIFO,
                  compaction_path_to_test);
     DestroyAndReopen(options_);
