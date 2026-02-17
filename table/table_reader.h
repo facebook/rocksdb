@@ -179,13 +179,15 @@ class TableReader {
   }
 
   // convert db file to a human readable form
-  virtual Status DumpTable(WritableFile* /*out_file*/) {
+  virtual Status DumpTable(WritableFile* /*out_file*/,
+                           bool /*show_sequence_number_type*/ = false) {
     return Status::NotSupported("DumpTable() not supported");
   }
 
   // check whether there is corruption in this db file
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/,
-                                TableReaderCaller /*caller*/) {
+                                TableReaderCaller /*caller*/,
+                                bool /*meta_blocks_only*/ = false) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
 

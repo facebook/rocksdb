@@ -128,6 +128,50 @@ struct CompactionOptionsFIFO {
   // not be used. The minmum buffer size must be at least 4KiB
   uint64_t trivial_copy_buffer_size = 4096;
 
+  // When non-zero, FIFO compaction uses the combined size of SST files and
+  // blob files for size-based trimming decisions. When the total data size
+  // (SST + blob) exceeds this limit, the oldest SST files are dropped along
+  // with their associated blob files.
+  //
+  // When non-zero, this takes precedence over max_table_files_size for all
+  // FIFO compaction decisions: size-based dropping, TTL threshold checks,
+  // and compaction score computation. max_table_files_size is ignored.
+  //
+  // When zero (default), FIFO compaction uses max_table_files_size which
+  // only considers SST file sizes, maintaining backward compatibility.
+  //
+  // This option is primarily intended for use with integrated BlobDB where
+  // blob files can represent a significant portion of the total data.
+  //
+  // Dynamically changeable through SetOptions() API.
+  // Default: 0 (use max_table_files_size behavior)
+  uint64_t max_data_files_size = 0;
+
+  // When true, enables a capacity-derived intra-L0 compaction strategy
+  // optimized for BlobDB workloads where SST files are much smaller than
+  // write_buffer_size. Uses the observed key/value size ratio (SST vs blob
+  // file sizes) to compute a target compacted file size, producing uniform
+  // files for predictable FIFO trimming.
+  //
+  // Uses level0_file_num_compaction_trigger as the target max L0 file count.
+  //
+  // When max_compaction_bytes is 0, the target is auto-calculated from the
+  // data capacity and observed SST/blob ratio. When max_compaction_bytes is
+  // explicitly set to a non-zero value, it overrides the auto-calculated
+  // target.
+  //
+  // Requires:
+  //   - allow_compaction = true (master switch for intra-L0 compaction)
+  //   - max_data_files_size > 0 (needed to compute the target file size)
+  // Setting this to true without these will fail option validation.
+  //
+  // When false, the old intra-L0 strategy is used if allow_compaction is
+  // true (PickCostBasedIntraL0Compaction with 1.1 * write_buffer_size guard).
+  //
+  // Dynamically changeable through SetOptions() API.
+  // Default: false
+  bool use_kv_ratio_compaction = false;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
   CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
@@ -155,6 +199,61 @@ enum class PrepopulateBlobCache : uint8_t {
   kDisable = 0x0,    // Disable prepopulate blob cache
   kFlushOnly = 0x1,  // Prepopulate blobs during flush only
 };
+
+// Bitmask enum for verify output flags during compaction.
+// This allows fine-grained control over what verification is performed
+// on compaction output files and when it's enabled.
+enum class VerifyOutputFlags : uint32_t {
+  kVerifyNone = 0x0,  // No verification
+
+  // First set of bits: type of verifications
+  kVerifyBlockChecksum = 1 << 0,  // Verify block checksums
+  kVerifyIteration = 1 << 1,      // Verify iteration and full key/value hash
+                                  // by comparing the one inserted into a
+                                  // file, and what is read back.
+
+  // TODO - Implement
+  // kVerifyFileChecksum = 1 << 2,   // Verify file-level checksum
+
+  // Second set of bits: when to enable verification
+  kEnableForLocalCompaction = 1 << 10,   // Enable for local compaction
+  kEnableForRemoteCompaction = 1 << 11,  // Enable for remote compaction
+
+  // TODO - Implement
+  // kEnableForFlush = 1 << 12,  // Enable for flush
+
+  kVerifyAll = 0xFFFFFFFF,
+};
+
+inline VerifyOutputFlags operator|(VerifyOutputFlags lhs,
+                                   VerifyOutputFlags rhs) {
+  using T = std::underlying_type_t<VerifyOutputFlags>;
+  return static_cast<VerifyOutputFlags>(static_cast<T>(lhs) |
+                                        static_cast<T>(rhs));
+}
+
+inline VerifyOutputFlags& operator|=(VerifyOutputFlags& lhs,
+                                     VerifyOutputFlags rhs) {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+inline VerifyOutputFlags operator&(VerifyOutputFlags lhs,
+                                   VerifyOutputFlags rhs) {
+  using T = std::underlying_type_t<VerifyOutputFlags>;
+  return static_cast<VerifyOutputFlags>(static_cast<T>(lhs) &
+                                        static_cast<T>(rhs));
+}
+
+inline VerifyOutputFlags& operator&=(VerifyOutputFlags& lhs,
+                                     VerifyOutputFlags rhs) {
+  lhs = lhs & rhs;
+  return lhs;
+}
+
+inline bool operator!(VerifyOutputFlags flag) {
+  return flag == VerifyOutputFlags::kVerifyNone;
+}
 
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
@@ -473,6 +572,17 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int target_file_size_multiplier = 1;
 
+  // If true, RocksDB will consider the estimated tail size (filter + index +
+  // meta blocks) when deciding whether to cut a compaction output file. This
+  // helps prevent output files from exceeding the target_file_size_base due to
+  // large tail blocks. When disabled, only the data block size is considered,
+  // which may result in SST files exceeding the target_file_size_base.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
+  bool target_file_size_is_upper_bound = false;
+
   // If true, RocksDB will pick target size of each level dynamically.
   // We will pick a base level b >= 1. L0 will be directly merged into level b,
   // instead of always into level 1. Level 1 to b-1 need to be empty.
@@ -576,6 +686,15 @@ struct AdvancedColumnFamilyOptions {
   // Value 0 will be sanitized.
   //
   // Default: target_file_size_base * 25
+  //
+  // For FIFO compaction with use_kv_ratio_compaction=true:
+  // When set to 0 (and compaction_style is FIFO), the value is NOT sanitized
+  // to the default. Instead, the target compacted file size is automatically
+  // calculated from the data capacity (max_data_files_size) and observed
+  // SST/blob ratio. When explicitly set to a non-zero value, it overrides
+  // the auto-calculated target and is used directly as the max compaction
+  // input size. Note: for FIFO, this controls the output file size target,
+  // not a general compaction byte limit as in level/universal compaction.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
@@ -703,6 +822,13 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
+
+  // Bitmask enum for output verification option.
+  //
+  // Default: 0 (kVerifyNone)
+  //
+  // Dynamically changeable (as a uint32_t) through SetOptions() API.
+  VerifyOutputFlags verify_output_flags = VerifyOutputFlags::kVerifyNone;
 
   // In debug mode, RocksDB runs consistency checks on the LSM every time the
   // LSM changes (Flush, Compaction, AddFile). When this option is true, these

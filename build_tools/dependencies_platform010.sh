@@ -19,4 +19,3 @@ BENCHMARK_BASE=/mnt/gvfs/third-party2/benchmark/780c7a0f9cf0967961e69ad08e61cddd
 KERNEL_HEADERS_BASE=/mnt/gvfs/third-party2/kernel-headers/624a2f8f6c93c3c1df8aa4a6255d8202631a6c80/fb/platform010/da39a3e
 BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/39579e8603b48b3540f8b0633f43adf29acccb8b/2.37/centos8-native/da39a3e
 VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/cd9cc656d49ecb53797ce4d055e49fde29fd57ff/3.19.0/platform010/76ebdda
-LUA_BASE=/mnt/gvfs/third-party2/lua/363787fa5cac2a8aa20638909210443278fa138e/5.3.4/platform010/9079c97

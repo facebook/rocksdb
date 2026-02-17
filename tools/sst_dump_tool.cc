@@ -8,6 +8,7 @@
 
 #include <cinttypes>
 #include <iostream>
+#include <regex>
 
 #include "db_stress_tool/db_stress_compression_manager.h"
 #include "options/options_helper.h"
@@ -62,6 +63,9 @@ void print_help(bool to_stderr) {
     --decode_blob_index
       Decode blob indexes and print them in a human-readable format during scans.
 
+    --show_sequence_number_type
+      Show sequence number and value type when executing raw command
+
     --from=<user_key>
       Key to start reading from when executing check|scan
 
@@ -99,6 +103,10 @@ void print_help(bool to_stderr) {
       Used with --command=recompress to specify a compression manager to use
       instead of the built-in compression manager, which may support a
       different set of compression types.
+
+    --enable_index_compression=<bool>
+      Used with --command=recompress to specify whether to compress index
+      blocks (in addition to data blocks).
 
     --parse_internal_key=<0xKEY>
       Convenience option to parse an internal key on the command line. Dumps the
@@ -172,6 +180,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   bool verify_checksum = false;
   bool output_hex = false;
   bool decode_blob_index = false;
+  bool show_sequence_number_type = false;
   bool input_key_hex = false;
   bool has_from = false;
   bool has_to = false;
@@ -188,8 +197,15 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::string compression_level_to_str;
   size_t block_size = 16384;  // A popular choice for default
   size_t readahead_size = 2 * 1024 * 1024;
+  // These two options are intentionally secret options because they are
+  // niche ways to select files to get the "recompress" treatment. And even
+  // if std::regex is flawed, it should be good enough for these niche uses.
+  std::unique_ptr<std::regex> require_property_regex;
+  std::unique_ptr<std::regex> exclude_property_regex;
   std::vector<CompressionType> compression_types;
   std::shared_ptr<CompressionManager> compression_manager;
+  bool enable_index_compression =
+      BlockBasedTableOptions{}.enable_index_compression;
   uint64_t total_num_files = 0;
   uint64_t total_num_data_blocks = 0;
   uint64_t total_data_block_size = 0;
@@ -223,6 +239,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       output_hex = true;
     } else if (strcmp(argv[i], "--decode_blob_index") == 0) {
       decode_blob_index = true;
+    } else if (strcmp(argv[i], "--show_sequence_number_type") == 0) {
+      show_sequence_number_type = true;
     } else if (strcmp(argv[i], "--input_key_hex") == 0) {
       input_key_hex = true;
     } else if (sscanf(argv[i], "--read_num=%lu%c", (unsigned long*)&n, &junk) ==
@@ -268,6 +286,12 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         }
         compression_types.emplace_back(iter->second);
       }
+    } else if (strncmp(argv[i], "--require_property_regex=", 25) == 0) {
+      require_property_regex = std::make_unique<std::regex>(
+          argv[i] + 25, std::regex_constants::egrep);
+    } else if (strncmp(argv[i], "--exclude_property_regex=", 25) == 0) {
+      exclude_property_regex = std::make_unique<std::regex>(
+          argv[i] + 25, std::regex_constants::egrep);
     } else if (strncmp(argv[i], "--compression_manager=", 22) == 0) {
       std::string compression_manager_str = argv[i] + 22;
       ConfigOptions config_options;
@@ -287,6 +311,11 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       options.compression_manager = compression_manager;
       printf("Using compression manager: %s\n",
              compression_manager->GetId().c_str());
+    } else if (strncmp(argv[i], "--enable_index_compression=", 27) == 0) {
+      if (strlen(argv[i]) > 27) {
+        enable_index_compression =
+            argv[i][27] == '1' || argv[i][27] == 't' || argv[i][27] == 'T';
+      }
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);
       try {
@@ -492,8 +521,9 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         bbto = *options.table_factory->GetOptions<BlockBasedTableOptions>();
       }
       bbto.block_size = block_size;
+      bbto.enable_index_compression = enable_index_compression;
       // Maximize compression features available
-      bbto.format_version = kLatestFormatVersion;
+      bbto.format_version = kLatestBbtFormatVersion;
       options.table_factory = std::make_shared<BlockBasedTableFactory>(bbto);
     }
     options.compression_opts.max_dict_bytes = compression_max_dict_bytes;
@@ -507,24 +537,45 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 
     ROCKSDB_NAMESPACE::SstFileDumper dumper(
         options, filename, Temperature::kUnknown, readahead_size,
-        verify_checksum, output_hex, decode_blob_index);
+        verify_checksum, output_hex, decode_blob_index, EnvOptions(), false,
+        show_sequence_number_type);
 
     // Not a valid SST
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());
       continue;
-    } else {
-      valid_sst_files.push_back(filename);
-      // Print out from and to key information once
-      // where there is at least one valid SST
-      if (valid_sst_files.size() == 1) {
-        // from_key and to_key are only used for "check", "scan", or ""
-        if (command == "check" || command == "scan" || command == "") {
-          fprintf(stdout, "from [%s] to [%s]\n",
-                  ROCKSDB_NAMESPACE::Slice(from_key).ToString(true).c_str(),
-                  ROCKSDB_NAMESPACE::Slice(to_key).ToString(true).c_str());
-        }
+    }
+    auto props_ptr = dumper.GetInitTableProperties();
+    if (props_ptr && (require_property_regex || exclude_property_regex)) {
+      // Call should match with show_properties below
+      auto props_str = props_ptr->ToString("\n  ", ": ");
+      if (require_property_regex &&
+          !std::regex_search(props_str, *require_property_regex)) {
+        fprintf(stderr,
+                "%s: skipping because properties string doesn't match required "
+                "regex\n",
+                filename.c_str());
+        continue;
+      }
+      if (exclude_property_regex &&
+          std::regex_search(props_str, *exclude_property_regex)) {
+        fprintf(
+            stderr,
+            "%s: skipping because properties string matches excluded regex\n",
+            filename.c_str());
+        continue;
+      }
+    }
+    valid_sst_files.push_back(filename);
+    // Print out from and to key information once
+    // where there is at least one valid SST
+    if (valid_sst_files.size() == 1) {
+      // from_key and to_key are only used for "check", "scan", or ""
+      if (command == "check" || command == "scan" || command == "") {
+        fprintf(stdout, "from [%s] to [%s]\n",
+                ROCKSDB_NAMESPACE::Slice(from_key).ToString(true).c_str(),
+                ROCKSDB_NAMESPACE::Slice(to_key).ToString(true).c_str());
       }
     }
 

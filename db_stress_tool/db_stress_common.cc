@@ -877,5 +877,24 @@ Status DestroyUnverifiedSubdir(const std::string& dirname) {
   return s;
 }
 
+Status DbStressDestroyDb(const std::string& db_path) {
+  Status s;
+  Options options;
+  // NOTE: using db_stress_listener_env in order to see obsolete MANIFEST files
+  options.env = db_stress_listener_env;
+  // Remove DB files in a principled way to avoid issues
+  if (FLAGS_use_blob_db) {
+    s = blob_db::DestroyBlobDB(db_path, options, blob_db::BlobDBOptions());
+  } else {
+    s = DestroyDB(db_path, options);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+  // Remove everything else recursively, only reporting success if able to
+  // delete everything
+  return DestroyDir(db_stress_listener_env, db_path);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

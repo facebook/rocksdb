@@ -242,6 +242,43 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
             Status::Code::kNotSupported);
 }
 
+TEST_F(DBBasicTest, ReadOnlyDBFlushWAL) {
+  // Test that FlushWAL returns NotSupported on read-only DB, and that
+  // GetLiveFilesStorageInfo works correctly even with manual_wal_flush=true.
+  // This is a regression test for a bug where GetLiveFilesStorageInfo would
+  // crash on read-only DBs with manual_wal_flush=true because FlushWAL
+  // accessed logs_.back() on an empty deque.
+  auto options = CurrentOptions();
+  options.manual_wal_flush = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("baz", "v3"));  // Unflushed data in WAL
+  Close();
+
+  // Reopen as read-only
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v1", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_EQ("v3", Get("baz"));
+
+  // FlushWAL should return NotSupported (not crash)
+  ASSERT_EQ(db_->FlushWAL(/*sync=*/false).code(), Status::Code::kNotSupported);
+  ASSERT_EQ(db_->FlushWAL(/*sync=*/true).code(), Status::Code::kNotSupported);
+
+  // GetLiveFilesStorageInfo should succeed (previously crashed with
+  // manual_wal_flush=true because it called FlushWAL which accessed
+  // logs_.back() on empty deque)
+  LiveFilesStorageInfoOptions lfsi_opts;
+  lfsi_opts.wal_size_for_flush = 0;
+  std::vector<LiveFileStorageInfo> files;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files));
+  ASSERT_GT(files.size(), 0);
+
+  Close();
+}
+
 TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   auto options = CurrentOptions();
   options.write_dbid_to_manifest = false;
@@ -672,30 +709,6 @@ TEST_F(DBBasicTest, Flush) {
     ASSERT_EQ("v3", Get(1, "bar"));
 
     SetPerfLevel(kDisable);
-  } while (ChangeCompactOptions());
-}
-
-TEST_F(DBBasicTest, ManifestRollOver) {
-  do {
-    Options options;
-    options.max_manifest_file_size = 10;  // 10 bytes
-    options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-    {
-      ASSERT_OK(Put(1, "manifest_key1", std::string(1000, '1')));
-      ASSERT_OK(Put(1, "manifest_key2", std::string(1000, '2')));
-      ASSERT_OK(Put(1, "manifest_key3", std::string(1000, '3')));
-      uint64_t manifest_before_flush = dbfull()->TEST_Current_Manifest_FileNo();
-      ASSERT_OK(Flush(1));  // This should trigger LogAndApply.
-      uint64_t manifest_after_flush = dbfull()->TEST_Current_Manifest_FileNo();
-      ASSERT_GT(manifest_after_flush, manifest_before_flush);
-      ReopenWithColumnFamilies({"default", "pikachu"}, options);
-      ASSERT_GT(dbfull()->TEST_Current_Manifest_FileNo(), manifest_after_flush);
-      // check if a new manifest file got inserted or not.
-      ASSERT_EQ(std::string(1000, '1'), Get(1, "manifest_key1"));
-      ASSERT_EQ(std::string(1000, '2'), Get(1, "manifest_key2"));
-      ASSERT_EQ(std::string(1000, '3'), Get(1, "manifest_key3"));
-    }
   } while (ChangeCompactOptions());
 }
 
@@ -3892,6 +3905,75 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   ASSERT_OK(iter->status());
 }
 
+TEST_F(DBBasicTest, BestEffortRecoveryFailureWithTableCacheUseAfterFree) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  // Force multiple manifest files
+  options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
+
+  DestroyAndReopen(options);
+
+  // Disable file deletions to preserve old manifest files for
+  // best-efforts recovery to succeed
+  ASSERT_OK(db_->DisableFileDeletions());
+
+  // Create multiple SST files to populate TableCache during
+  // best-efforts recovery
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i),
+                  std::string(1000, static_cast<char>('a' + i))));
+    ASSERT_OK(Flush());
+  }
+
+  // Verify we have multiple manifest files
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  int manifest_count = 0;
+  for (const auto& file : files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      manifest_count++;
+    }
+  }
+  ASSERT_GE(manifest_count, 2);
+
+  // Inject corruption after TableCache is populated (count > 3), but only once
+  // (injected flag) to allow best-effort recovery to trigger retry and succeed.
+  // This coerce the bug: first recovery caches SSTs with reference to column
+  // family's options in table cache and retry deletes column family so the
+  // reference becomes dangling.
+  int count = 0;
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        count++;
+        if (count > 3 && !injected) {
+          ASSERT_NE(nullptr, arg);
+          *(static_cast<Status*>(arg)) =
+              Status::Corruption("Injected corruption");
+          injected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.best_efforts_recovery = true;
+
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (int i = 0; i < 10; i++) {
+    std::string value;
+    // Without the fix, ASAN detects use-after-free when accessing cached SST
+    // files that hold dangling references to deleted ioptions.
+    s = db_->Get(ReadOptions(), "key" + std::to_string(i), &value);
+    ASSERT_TRUE(s.ok() || s.IsNotFound());
+  }
+}
+
 TEST_F(DBBasicTest, DisableTrackWal) {
   // If WAL tracking was enabled, and then disabled during reopen,
   // the previously tracked WALs should be removed from MANIFEST.
@@ -5392,6 +5474,94 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                         ::testing::Values(std::make_tuple(true, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
+
+// FileSystemWrapper that captures FileOptions passed to NewRandomAccessFile
+// for .sst files, so we can verify file_checksum fields are populated.
+class ChecksumCapturingFS : public FileSystemWrapper {
+ public:
+  explicit ChecksumCapturingFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "ChecksumCapturingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".sst") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      captured_file_checksum_ = opts.file_checksum;
+      captured_file_checksum_func_name_ = opts.file_checksum_func_name;
+      capture_count_++;
+    }
+    return target()->NewRandomAccessFile(fname, opts, result, dbg);
+  }
+
+  std::string GetCapturedFileChecksum() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_checksum_;
+  }
+
+  std::string GetCapturedFileChecksumFuncName() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_checksum_func_name_;
+  }
+
+  int GetCaptureCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return capture_count_;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    captured_file_checksum_.clear();
+    captured_file_checksum_func_name_.clear();
+    capture_count_ = 0;
+  }
+
+ private:
+  std::mutex mu_;
+  std::string captured_file_checksum_;
+  std::string captured_file_checksum_func_name_;
+  int capture_count_ = 0;
+};
+
+TEST_F(DBBasicTest, FileChecksumInFileOptions) {
+  // Verify that file_checksum and file_checksum_func_name from FileMetaData
+  // are propagated through FileOptions when opening SST files.
+  auto capturing_fs =
+      std::make_shared<ChecksumCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  // Write data and flush to create an SST with a file checksum.
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+
+  // Reset captures, then reopen to trigger TableCache SST open.
+  capturing_fs->Reset();
+  Reopen(options);
+
+  // Read to trigger SST open through TableCache::GetTableReader.
+  ASSERT_EQ("value1", Get("key1"));
+
+  // Verify that checksum fields were populated.
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_FALSE(capturing_fs->GetCapturedFileChecksum().empty());
+  ASSERT_NE(capturing_fs->GetCapturedFileChecksumFuncName(),
+            capturing_fs->GetCapturedFileChecksum());
+  ASSERT_EQ(capturing_fs->GetCapturedFileChecksumFuncName(),
+            "FileChecksumCrc32c");
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

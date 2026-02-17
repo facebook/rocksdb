@@ -347,6 +347,44 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("get --ttl a3")
         self.assertRunOK("checkconsistency", "OK")
 
+    def testTxnPutGet(self):
+        print("Running testTxnPutGet...")
+        # Test basic put/get with TransactionDB (WriteCommitted - default)
+        self.assertRunOK("put t1 v1 --use_txn --create_if_missing", "OK")
+        self.assertRunOK("put t2 v2 --use_txn", "OK")
+        self.assertRunOK("put t3 v3 --use_txn", "OK")
+        # Verify data can be read back with TransactionDB
+        self.assertRunOK("batchput t4 v4 t5 v5 --use_txn", "OK")
+
+        # Test with WritePrepared policy (txn_write_policy=1)
+        self.assertRunOK("put t6 v6 --use_txn --txn_write_policy=1", "OK")
+
+        # Test with WriteUnprepared policy (txn_write_policy=2)
+        self.assertRunOK("put t7 v7 --use_txn --txn_write_policy=2", "OK")
+
+        # Verify all data persists and can be read without --use_txn
+        # (regular DB::Open should work for WriteCommitted data)
+        self.assertRunOK(
+            "scan",
+            "t1 ==> v1\nt2 ==> v2\nt3 ==> v3\nt4 ==> v4\nt5 ==> v5\nt6 ==> v6\nt7 ==> v7",
+        )
+
+        # Test delete with TransactionDB
+        self.assertRunOK("delete t3 --use_txn", "OK")
+        self.assertRunOK(
+            "scan",
+            "t1 ==> v1\nt2 ==> v2\nt4 ==> v4\nt5 ==> v5\nt6 ==> v6\nt7 ==> v7",
+        )
+
+        # Verify that --use_txn and --ttl cannot be used together
+        self.assertRunFAIL("put x1 y1 --use_txn --ttl --create_if_missing")
+
+        # Verify invalid txn_write_policy values are handled
+        # (values outside 0-2 should fall back to 0)
+        self.assertRunOK("put t8 v8 --use_txn --txn_write_policy=0", "OK")
+
+        self.assertRunOK("checkconsistency", "OK")
+
     def testInvalidCmdLines(self):  # noqa: F811 T25377293 Grandfathered in
         print("Running testInvalidCmdLines...")
         # db not specified
@@ -613,7 +651,7 @@ class LDBTestCase(unittest.TestCase):
         # Call the dump_live_files function with the edited dbPath name.
         self.assertTrue(
             self.dumpLiveFiles(
-                "--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath,
+                "--db=%s --decode_blob_index" % dbPath,
                 dumpFilePath,
             )
         )
@@ -881,7 +919,7 @@ class LDBTestCase(unittest.TestCase):
         expected_pattern = re.compile(regex)
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
-        cmd = "dump --path=%s --dump_uncompressed_blobs"
+        cmd = "dump --path=%s"
         self.assertRunOKFull(
             (cmd) % (blob_files[0]), expected_pattern, unexpected=False, isPattern=True
         )

@@ -52,6 +52,13 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_TTL +
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
+  ret.append("  --" + LDBCommand::ARG_USE_TXN +
+             " : Open database as TransactionDB. Required for databases "
+             "created with WritePrepared or WriteUnprepared transactions.\n");
+  ret.append("  --" + LDBCommand::ARG_TXN_WRITE_POLICY +
+             "=<0|1|2> : Transaction write policy. "
+             "0=WRITE_COMMITTED (default), 1=WRITE_PREPARED, "
+             "2=WRITE_UNPREPARED\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
              " : Try to load option file from DB. Default to true if " +
              LDBCommand::ARG_DB +

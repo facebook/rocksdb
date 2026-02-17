@@ -621,7 +621,14 @@ class BackupEngineAppendOnlyBase {
   // The backup will stop ASAP and the call to CreateNewBackup will
   // return Status::Incomplete(). It will not clean up after itself, but
   // the state will remain consistent. The state will be cleaned up the
-  // next time you call CreateNewBackup or GarbageCollect.
+  // next time you call CreateNewBackup or GarbageCollect for the same backup
+  // directory on a new BackupEngine object.
+  //
+  // NOTE: This is a one-way operation. Once StopBackup() is called on a
+  // BackupEngine instance, all subsequent backup requests (CreateNewBackup,
+  // CreateNewBackupWithMetadata) will fail with Status::Incomplete().
+  // To create new backups after calling StopBackup(), you must open a new
+  // BackupEngine instance.
   virtual void StopBackup() = 0;
 
   // Will delete any files left over from incomplete creation or deletion of

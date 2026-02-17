@@ -4,6 +4,7 @@
 // (found in the LICENSE.Apache file in the root directory).
 
 #include "test_util/testharness.h"
+#include "util/random.h"
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
@@ -130,6 +131,48 @@ TEST_F(LogicalBlockSizeCacheTest, Ref) {
   ASSERT_EQ(3, ncall);
 }
 #endif
+
+class PosixWritableFileTest : public testing::Test {};
+
+TEST_F(PosixWritableFileTest, SeekAfterTruncate) {
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
+  std::string path =
+      test::PerThreadDBPath("PosixWritableFileTest_SeekAfterTruncate");
+  Random rnd(300);
+  std::unique_ptr<FSWritableFile> wfile;
+
+  ASSERT_OK(fs->NewWritableFile(path, FileOptions(), &wfile, nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(16384), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Truncate(4096, IOOptions(), nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(4096), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  wfile.reset();
+
+  uint64_t size = 0;
+  ASSERT_OK(fs->GetFileSize(path, IOOptions(), &size, nullptr));
+  ASSERT_EQ(size, 8192);
+  ASSERT_OK(fs->DeleteFile(path, IOOptions(), nullptr));
+}
+
+TEST_F(PosixWritableFileTest, SeekAfterExtend) {
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
+  std::string path =
+      test::PerThreadDBPath("PosixWritableFileTest_SeekAfterTruncate");
+  Random rnd(300);
+  std::unique_ptr<FSWritableFile> wfile;
+
+  ASSERT_OK(fs->NewWritableFile(path, FileOptions(), &wfile, nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(4096), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Truncate(8192, IOOptions(), nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(8192), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  wfile.reset();
+
+  uint64_t size = 0;
+  ASSERT_OK(fs->GetFileSize(path, IOOptions(), &size, nullptr));
+  ASSERT_EQ(size, 16384);
+  ASSERT_OK(fs->DeleteFile(path, IOOptions(), nullptr));
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif

@@ -14,7 +14,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 
 thread_local ThreadStatusData* ThreadStatusUpdater::thread_status_data_ =
     nullptr;
@@ -324,5 +324,5 @@ void ThreadStatusUpdater::SetThreadOperationProperty(int /*i*/,
 void ThreadStatusUpdater::IncreaseThreadOperationProperty(int /*i*/,
                                                           uint64_t /*delta*/) {}
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 }  // namespace ROCKSDB_NAMESPACE

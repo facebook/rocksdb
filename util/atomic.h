@@ -13,28 +13,28 @@ namespace ROCKSDB_NAMESPACE {
 
 // Background:
 // std::atomic is somewhat easy to misuse:
-// * Implicit conversion to T using std::memory_order_seq_cst, along with
-// memory order parameter defaults, make it easy to accidentally mix sequential
-// consistency ordering with acquire/release memory ordering. See
-// "The single total order might not be consistent with happens-before" at
-// https://en.cppreference.com/w/cpp/atomic/memory_order
+// * Implicit conversion to T makes it easy to use an unnecessarily strong
+// memory ordering (std::memory_order_seq_cst) and to hide atomic operations
+// that should be evident on reading the code.
+// * Similarly, defaulting to std::memory_order_seq_cst for atomic operations
+// makes it easy to use unnecessarily strong orderings. (It's always safe if
+// some ordering is safe, but it's better to be intentional and thoughtful when
+// carefully optimizing code with atomics.) Legitimate needs for seq_cst vs.
+// acq_rel are rare, such as drawing inferences across two atomics in
+// implementing hazard pointers.
 // * It's easy to use nonsensical (UB) combinations like store with
-// std::memory_order_acquire.
-// * It is unlikely that anything in RocksDB will need std::memory_order_seq_cst
-// because sequential consistency for the user, potentially writing from
-// multiple threads, is provided by explicit versioning with sequence numbers.
-// If threads A & B update separate atomics, it's typically OK if threads C & D
-// see those updates in different orders.
+// std::memory_order_acquire. Getting these right in development is an
+// unnecessary cognitive overhead even if they are caught by UBSAN.
 //
-// For such reasons, we provide wrappers below to make safe usage easier.
+// For such reasons, we provide wrappers below to make clear and explicit
+// usage of atomics easier.
 
-// Wrapper around std::atomic to avoid certain bugs (see Background above).
+// Wrapper around std::atomic for better code clarity (see Background above).
 //
-// This relaxed-only wrapper is intended for atomics that do not need
-// ordering constraints with other data reads/writes aside from those
-// necessary for computing data values or given by other happens-before
-// relationships. For example, a cross-thread counter that never returns
-// the same result can be a RelaxedAtomic.
+// This relaxed-only wrapper is intended for atomics that are not used to
+// synchronize other data across threads (only the atomic data), so can always
+// used relaxed memory ordering. For example, a cross-thread counter that never
+// returns the same result can be a RelaxedAtomic.
 template <typename T>
 class RelaxedAtomic {
  public:
@@ -72,14 +72,21 @@ class RelaxedAtomic {
   std::atomic<T> v_;
 };
 
-// Wrapper around std::atomic to avoid certain bugs (see Background above).
+// A reasonably general-purpose wrapper around std::atomic for better code
+// clarity (see Background above).
 //
-// Except for some unusual cases requiring sequential consistency, this is
-// a general-purpose atomic. Relaxed operations can be mixed in as appropriate.
+// Operations use std::memory_order_acq_rel by default (or just acquire or just
+// release for read-only and write-only operations), but relaxed operations are
+// also available and can be mixed in when appropriate.
+//
+// Future: add std::memory_order_seqcst variants like StoreSeqCst if/when
+// there's a need for them (rare). No distinct type is needed because the
+// distinction between acq_rel and seq_cst is more about where it is used in
+// combination with other atomics than the atomic itself.
 template <typename T>
-class AcqRelAtomic : public RelaxedAtomic<T> {
+class Atomic : public RelaxedAtomic<T> {
  public:
-  explicit AcqRelAtomic(T initial = {}) : RelaxedAtomic<T>(initial) {}
+  explicit Atomic(T initial = {}) : RelaxedAtomic<T>(initial) {}
   void Store(T desired) {
     RelaxedAtomic<T>::v_.store(desired, std::memory_order_release);
   }

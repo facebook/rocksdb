@@ -454,7 +454,8 @@ Options DBTestBase::GetOptions(
       options.allow_mmap_reads = can_allow_mmap;
       break;
     case kManifestFileSize:
-      options.max_manifest_file_size = 50;  // 50 bytes
+      options.max_manifest_file_size = 50;     // 50 bytes
+      options.max_manifest_space_amp_pct = 0;  // old behavior
       break;
     case kPerfOptions:
       options.delayed_write_rate = 8 * 1024 * 1024;
@@ -519,7 +520,7 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithLatestFormat: {
       // In case different from default
-      table_options.format_version = kLatestFormatVersion;
+      table_options.format_version = kLatestBbtFormatVersion;
       break;
     }
     case kOptimizeFiltersForHits: {

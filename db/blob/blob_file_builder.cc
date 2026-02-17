@@ -67,6 +67,16 @@ BlobFileBuilder::BlobFileBuilder(
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
+      // TODO: support most CompressionOptions with a new CF option
+      // blob_compression_opts
+      // TODO with schema change: support custom compression manager and options
+      // such as max_compressed_bytes_per_kb
+      // NOTE: returns nullptr for kNoCompression
+      blob_compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
+          CompressionOptions{}, blob_compression_type_)),
+      blob_compressor_wa_(blob_compressor_
+                              ? blob_compressor_->ObtainWorkingArea()
+                              : Compressor::ManagedWorkingArea{}),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
       write_options_(write_options),
@@ -113,7 +123,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   Slice blob = value;
-  std::string compressed_blob;
+  GrowableBuffer compressed_blob;
 
   {
     const Status s = CompressBlobIfNeeded(&blob, &compressed_blob);
@@ -254,36 +264,27 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
 }
 
 Status BlobFileBuilder::CompressBlobIfNeeded(
-    Slice* blob, std::string* compressed_blob) const {
+    Slice* blob, GrowableBuffer* compressed_blob) const {
   assert(blob);
   assert(compressed_blob);
   assert(compressed_blob->empty());
   assert(immutable_options_);
 
-  if (blob_compression_type_ == kNoCompression) {
+  if (!blob_compressor_) {
+    assert(blob_compression_type_ == kNoCompression);
     return Status::OK();
   }
+  assert(blob_compression_type_ != kNoCompression);
 
-  // TODO: allow user CompressionOptions, including max_compressed_bytes_per_kb
-  CompressionOptions opts;
-  CompressionContext context(blob_compression_type_, opts);
+  // WART: always stored as compressed even when that increases the size.
 
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       blob_compression_type_);
-
-  constexpr uint32_t compression_format_version = 2;
-
-  bool success = false;
-
-  {
-    StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
-                         BLOB_DB_COMPRESSION_MICROS);
-    success = OLD_CompressData(*blob, info, compression_format_version,
-                               compressed_blob);
-  }
-
-  if (!success) {
-    return Status::Corruption("Error compressing blob");
+  Status s;
+  StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
+                       BLOB_DB_COMPRESSION_MICROS);
+  s = LegacyForceBuiltinCompression(*blob_compressor_, &blob_compressor_wa_,
+                                    *blob, compressed_blob);
+  if (!s.ok()) {
+    return s;
   }
 
   *blob = Slice(*compressed_blob);

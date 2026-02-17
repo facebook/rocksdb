@@ -25,6 +25,7 @@
 #include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
+#include "file/file_util.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
@@ -76,22 +77,7 @@ StressTest::StressTest()
       secondary_db_(nullptr),
       is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
-    std::vector<std::string> files;
-    db_stress_env->GetChildren(FLAGS_db, &files);
-    for (unsigned int i = 0; i < files.size(); i++) {
-      if (Slice(files[i]).starts_with("heap-")) {
-        db_stress_env->DeleteFile(FLAGS_db + "/" + files[i]);
-      }
-    }
-
-    Options options;
-    options.env = db_stress_env;
-    // Remove files without preserving manfiest files
-    const Status s = !FLAGS_use_blob_db
-                         ? DestroyDB(FLAGS_db, options)
-                         : blob_db::DestroyBlobDB(FLAGS_db, options,
-                                                  blob_db::BlobDBOptions());
-
+    const Status s = DbStressDestroyDb(FLAGS_db);
     if (!s.ok()) {
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
       exit(1);
@@ -166,7 +152,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
     CompressedSecondaryCacheOptions opts;
     opts.capacity = FLAGS_compressed_secondary_cache_size;
-    opts.compress_format_version = FLAGS_compress_format_version;
     if (FLAGS_enable_do_not_compress_roles) {
       opts.do_not_compress_roles = {CacheEntryRoleSet::All()};
     }
@@ -194,10 +179,10 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     exit(1);
   } else if (EndsWith(cache_type, "hyper_clock_cache")) {
     size_t estimated_entry_charge;
-    if (cache_type == "fixed_hyper_clock_cache" ||
-        cache_type == "hyper_clock_cache") {
+    if (cache_type == "fixed_hyper_clock_cache") {
       estimated_entry_charge = FLAGS_block_size;
-    } else if (cache_type == "auto_hyper_clock_cache") {
+    } else if (cache_type == "auto_hyper_clock_cache" ||
+               cache_type == "hyper_clock_cache") {
       estimated_entry_charge = 0;
     } else {
       fprintf(stderr, "Cache type not supported.");
@@ -349,7 +334,6 @@ bool StressTest::BuildOptionsTable() {
            "1",
            "2",
        }},
-      {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
       {"block_based_table_factory",
        {
            keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:2.35}"
@@ -362,6 +346,13 @@ bool StressTest::BuildOptionsTable() {
                std::to_string(FLAGS_block_size + (FLAGS_seed & 0xFFFU)) + "}",
        }},
   };
+  if (FLAGS_use_multiscan == 0) {
+    // TODO: this can fail MultiScan when consecutive data blocks share the
+    // same user at boundary. MultiScan uses user key to locate the block to
+    // reach which can move the scan earlier than its current block.
+    options_tbl.emplace("max_sequential_skip_in_iterations",
+                        std::vector<std::string>{"4", "8", "12"});
+  }
   if (FLAGS_compaction_style == kCompactionStyleUniversal &&
       FLAGS_universal_max_read_amp > 0) {
     // level0_file_num_compaction_trigger needs to be at most max_read_amp
@@ -1279,6 +1270,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_compactions_one_in)) {
+        Status status = TestAbortAndResumeCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
@@ -1695,7 +1691,10 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   std::vector<std::string> end_key_strs;
   // TODO support reverse BytewiseComparator in the stress test
   MultiScanArgs scan_opts(options_.comparator);
-  scan_opts.use_async_io = FLAGS_multiscan_use_async_io;
+  scan_opts.use_async_io =
+      FLAGS_multiscan_use_async_io &&
+      CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
+                            FSSupportedOps::kAsyncIO);
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
@@ -3052,8 +3051,9 @@ void StressTest::TestCompactFiles(ThreadState* thread,
         // TOOD (hx235): allow an exact list of tolerable failures under stress
         // test
         bool non_ok_status_allowed =
-            s.IsManualCompactionPaused() || IsErrorInjectedAndRetryable(s) ||
-            s.IsAborted() || s.IsInvalidArgument() || s.IsNotSupported();
+            s.IsManualCompactionPaused() || s.IsCompactionAborted() ||
+            IsErrorInjectedAndRetryable(s) || s.IsAborted() ||
+            s.IsInvalidArgument() || s.IsNotSupported();
         if (!non_ok_status_allowed) {
           fprintf(stderr,
                   "Unable to perform CompactFiles(): %s under specified "
@@ -3143,6 +3143,20 @@ Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   db_->EnableManualCompaction();
+  return Status::OK();
+}
+
+Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
+  // Abort all running compactions and prevent new ones from starting
+  db_->AbortAllCompactions();
+  // Sleep to allow other threads to attempt operations while aborted
+  // Uses same sleep pattern as TestPauseBackground and
+  // TestDisableManualCompaction
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  // Resume compactions
+  db_->ResumeAllCompactions();
   return Status::OK();
 }
 
@@ -3321,7 +3335,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   if (!status.ok()) {
     // TOOD (hx235): allow an exact list of tolerable failures under stress test
     bool non_ok_status_allowed =
-        status.IsManualCompactionPaused() ||
+        status.IsManualCompactionPaused() || status.IsCompactionAborted() ||
         IsErrorInjectedAndRetryable(status) || status.IsAborted() ||
         status.IsInvalidArgument() || status.IsNotSupported();
     if (!non_ok_status_allowed) {
@@ -3849,11 +3863,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
           blob_db::BlobDBOptions blob_db_options;
-          blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
-          blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
           blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
           blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
-          blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
 
           blob_db::BlobDB* blob_db = nullptr;
           s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,
@@ -4314,6 +4325,9 @@ void InitializeOptionsFromFlags(
   block_based_options.data_block_index_type =
       static_cast<BlockBasedTableOptions::DataBlockIndexType>(
           FLAGS_data_block_index_type);
+  block_based_options.index_block_search_type =
+      static_cast<BlockBasedTableOptions::BlockSearchType>(
+          FLAGS_index_block_search_type);
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
@@ -4364,6 +4378,17 @@ void InitializeOptionsFromFlags(
       ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
     options.compaction_options_fifo.allow_compaction =
         FLAGS_fifo_allow_compaction;
+    if (FLAGS_fifo_compaction_max_data_files_size_mb > 0) {
+      options.compaction_options_fifo.max_data_files_size =
+          FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
+      // max_table_files_size is ignored when max_data_files_size is non-zero,
+      // but validation requires max_data_files_size >= max_table_files_size.
+      options.compaction_options_fifo.max_table_files_size =
+          std::min(options.compaction_options_fifo.max_table_files_size,
+                   options.compaction_options_fifo.max_data_files_size);
+    }
+    options.compaction_options_fifo.use_kv_ratio_compaction =
+        FLAGS_fifo_compaction_use_kv_ratio_compaction;
   }
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
@@ -4420,6 +4445,7 @@ void InitializeOptionsFromFlags(
     options.compression_opts.checksum = true;
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
+  options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;

@@ -233,8 +233,8 @@ TEST(HashTest, Hash64SmallValueSchema) {
             uint64_t{10551812464348219044u});
 }
 
-std::string Hash64TestDescriptor(const char *repeat, size_t limit) {
-  const char *mod61_encode =
+std::string Hash64TestDescriptor(const char* repeat, size_t limit) {
+  const char* mod61_encode =
       "abcdefghijklmnopqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
   std::string input;
@@ -388,8 +388,8 @@ TEST(HashTest, Hash128Trivial) {
   }
 }
 
-std::string Hash128TestDescriptor(const char *repeat, size_t limit) {
-  const char *mod61_encode =
+std::string Hash128TestDescriptor(const char* repeat, size_t limit) {
+  const char* mod61_encode =
       "abcdefghijklmnopqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
   std::string input;
@@ -615,6 +615,13 @@ static void test_BitOps() {
 
     // BottomNBits
     {
+      // build the mask the extremely slow way
+      T bottom_n_mask = 0x00;
+      for (int j = 0; j < i; j++) {
+        bottom_n_mask <<= 1;
+        bottom_n_mask |= 0x1;
+      }
+
       // An essentially full length value
       T x = everyOtherBit;
       if (i > 2) {
@@ -623,6 +630,11 @@ static void test_BitOps() {
       }
       auto a = BottomNBits(x, i);
       auto b = BottomNBits(~x, i);
+
+      // check that a and b match the expected values
+      EXPECT_EQ(a, x & bottom_n_mask);
+      EXPECT_EQ(b, (~x) & bottom_n_mask);
+
       EXPECT_EQ(x | a, x);
       EXPECT_EQ(a | b, vm1);
       EXPECT_EQ(a & b, T{0});
@@ -838,7 +850,7 @@ TEST(MathTest, Math128) {
 }
 
 TEST(MathTest, Coding128) {
-  const char *in = "_1234567890123456";
+  const char* in = "_1234567890123456";
   // Note: in + 1 is likely unaligned
   Unsigned128 decoded = DecodeFixed128(in + 1);
   EXPECT_EQ(Lower64of128(decoded), 0x3837363534333231U);
@@ -851,7 +863,7 @@ TEST(MathTest, Coding128) {
 }
 
 TEST(MathTest, CodingGeneric) {
-  const char *in = "_1234567890123456";
+  const char* in = "_1234567890123456";
   // Decode
   // Note: in + 1 is likely unaligned
   Unsigned128 decoded128 = DecodeFixedGeneric<Unsigned128>(in + 1);
@@ -887,7 +899,7 @@ TEST(MathTest, CodingGeneric) {
   EXPECT_EQ(std::string("_12"), std::string(out));
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   fprintf(stderr, "NPHash64 id: %x\n",
           static_cast<int>(ROCKSDB_NAMESPACE::GetSliceNPHash64("RocksDB")));
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

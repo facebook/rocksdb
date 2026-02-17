@@ -56,6 +56,18 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
   return tboptions.moptions.table_factory->NewTableBuilder(tboptions, file);
 }
 
+void ExtractTimestampFromTableProperties(const TableProperties& tp,
+                                         FileMetaData* meta) {
+  auto min_ts_iter = tp.user_collected_properties.find("rocksdb.timestamp_min");
+  if (min_ts_iter != tp.user_collected_properties.end()) {
+    meta->min_timestamp = min_ts_iter->second;
+  }
+  auto max_ts_iter = tp.user_collected_properties.find("rocksdb.timestamp_max");
+  if (max_ts_iter != tp.user_collected_properties.end()) {
+    meta->max_timestamp = max_ts_iter->second;
+  }
+}
+
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
@@ -355,6 +367,7 @@ Status BuildTable(
       assert(meta->fd.GetFileSize() > 0);
       tp = builder
                ->GetTableProperties();  // refresh now that builder is finished
+      ExtractTimestampFromTableProperties(tp, meta);
       if (memtable_payload_bytes != nullptr &&
           memtable_garbage_bytes != nullptr) {
         const CompactionIterationStats& ci_stats = c_iter.iter_stats();

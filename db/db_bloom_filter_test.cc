@@ -710,12 +710,20 @@ class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
     count_ = 0;
     // Interpreted as "always true" filter (0 probes over 1 byte of
     // payload, 5 bytes metadata)
-    return Slice("\0\0\0\0\0\0", 6);
+    return Slice("\0\0\0\0\0\0", kAlwaysTrueFilterBytes);
   }
   using FilterBitsBuilder::Finish;
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+  size_t CalculateSpace(size_t /* num_entries */) override {
+    return kAlwaysTrueFilterBytes;
+  }
+  double EstimatedFpRate(size_t /* num_entries */,
+                         size_t /* bytes */) override {
+    return 1.0;
+  }
 
  private:
+  static constexpr size_t kAlwaysTrueFilterBytes = 6;
   size_t count_ = 0;
 };
 
@@ -914,14 +922,14 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kCoupledPartitionedFilter,
-                        kLatestFormatVersion),
+                        kLatestBbtFormatVersion),
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kDecoupledPartitionedFilter,
-                        kLatestFormatVersion),
+                        kLatestBbtFormatVersion),
         std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
-                        kLatestFormatVersion),
+                        kLatestBbtFormatVersion),
         std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
-                        kLatestFormatVersion)));
+                        kLatestBbtFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {

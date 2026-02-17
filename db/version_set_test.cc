@@ -56,7 +56,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     files_.push_back(f);
   }
 
@@ -172,7 +173,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kNullUniqueId64x2, compensated_range_deletion_size, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     vstorage_.AddFile(level, f);
   }
 
@@ -391,7 +393,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Only L0 hits compaction.
   ASSERT_EQ(vstorage_.CompactionScoreLevel(0), 0);
 }
@@ -421,7 +424,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Although L2 and l3 have higher unadjusted compaction score, considering
   // a relatively large L0 being compacted down soon, L4 is picked up for
   // compaction.
@@ -453,7 +457,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ASSERT_EQ(2, vstorage_.base_level());
   ASSERT_EQ(20000U, vstorage_.MaxBytesForLevel(2));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Although L2 has higher unadjusted compaction score, considering
   // a relatively large L0 being compacted down soon, L3 is picked up for
   // compaction.
@@ -483,7 +488,8 @@ TEST_F(VersionStorageInfoTest, DrainUnnecessaryLevel) {
   ASSERT_EQ(1, vstorage_.base_level());
   ASSERT_EQ(1000, vstorage_.MaxBytesForLevel(1));
   ASSERT_EQ(10100, vstorage_.MaxBytesForLevel(3));
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
 
   // Tests that levels 1 and 3 are eligible for compaction.
   // Levels 1 and 3 are much smaller than target size,
@@ -1159,12 +1165,12 @@ class VersionSetTestBase {
       : env_(nullptr),
         dbname_(test::PerThreadDBPath(name)),
         options_(),
-        db_options_(options_),
+        imm_db_options_(options_),
         cf_options_(options_),
-        immutable_options_(db_options_, cf_options_),
+        immutable_options_(imm_db_options_, cf_options_),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
-        write_buffer_manager_(db_options_.db_write_buffer_size),
+        write_buffer_manager_(imm_db_options_.db_write_buffer_size),
         shutting_down_(false),
         table_factory_(std::make_shared<mock::MockTableFactory>()) {
     EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
@@ -1178,8 +1184,8 @@ class VersionSetTestBase {
     EXPECT_OK(fs_->CreateDirIfMissing(dbname_, IOOptions(), nullptr));
 
     options_.env = env_;
-    db_options_.env = env_;
-    db_options_.fs = fs_;
+    imm_db_options_.env = env_;
+    imm_db_options_.fs = fs_;
     immutable_options_.env = env_;
     immutable_options_.fs = fs_;
     immutable_options_.clock = env_->GetSystemClock().get();
@@ -1188,16 +1194,17 @@ class VersionSetTestBase {
     mutable_cf_options_.table_factory = table_factory_;
 
     versions_.reset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*read_only=*/false));
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_, nullptr);
-    db_options_.db_paths.emplace_back(dbname_,
-                                      std::numeric_limits<uint64_t>::max());
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
+        nullptr);
+    imm_db_options_.db_paths.emplace_back(dbname_,
+                                          std::numeric_limits<uint64_t>::max());
   }
 
   virtual ~VersionSetTestBase() {
@@ -1220,7 +1227,7 @@ class VersionSetTestBase {
     ASSERT_OK(
         SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     VersionEdit new_db;
-    if (db_options_.write_dbid_to_manifest) {
+    if (imm_db_options_.write_dbid_to_manifest) {
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
@@ -1345,7 +1352,8 @@ class VersionSetTestBase {
           Temperature::kUnknown, info.oldest_blob_file_number, 0, 0,
           info.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
           kNullUniqueId64x2, 0, 0,
-          /* user_defined_timestamps_persisted */ true);
+          /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+          /* max timestamp */ "");
       if (info.file_missing) {
         ASSERT_OK(fs_->DeleteFile(fname, IOOptions(), nullptr));
       }
@@ -1381,8 +1389,8 @@ class VersionSetTestBase {
 
   void ReopenDB() {
     versions_.reset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*read_only=*/false));
@@ -1471,7 +1479,8 @@ class VersionSetTestBase {
   const std::string dbname_;
   EnvOptions env_options_;
   Options options_;
-  ImmutableDBOptions db_options_;
+  ImmutableDBOptions imm_db_options_;
+  MutableDBOptions mutable_db_options_;
   ColumnFamilyOptions cf_options_;
   ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
@@ -1902,8 +1911,8 @@ TEST_F(VersionSetTest, WalAddition) {
   // Recover a new VersionSet.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -1970,8 +1979,8 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
   // Recover a new VersionSet.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -2024,8 +2033,8 @@ TEST_F(VersionSetTest, WalDeletion) {
   // Recover a new VersionSet, only the non-closed WAL should show up.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -2063,8 +2072,8 @@ TEST_F(VersionSetTest, WalDeletion) {
   // Recover from the new MANIFEST, only the non-closed WAL should show up.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -2184,8 +2193,8 @@ TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
   // Recover a new VersionSet, WAL0 is deleted, WAL1 is not.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -2221,8 +2230,8 @@ TEST_F(VersionSetTest, DeleteAllWals) {
   // Recover a new VersionSet, all WALs are deleted.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -2264,8 +2273,8 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   // kept.
   {
     std::unique_ptr<VersionSet> new_versions(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -2444,8 +2453,8 @@ class VersionSetWithTimestampTest : public VersionSetTest {
 
   void VerifyFullHistoryTsLow(uint64_t expected_ts_low) {
     std::unique_ptr<VersionSet> vset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
+        dbname_, &imm_db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*unchanging=*/false));
@@ -3500,7 +3509,7 @@ class VersionSetTestEmptyDb
                        std::unique_ptr<log::Writer>* log_writer) override {
     assert(nullptr != log_writer);
     VersionEdit new_db;
-    if (db_options_.write_dbid_to_manifest) {
+    if (imm_db_options_.write_dbid_to_manifest) {
       ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_,
                                 Temperature::kUnknown));
       DBOptions tmp_db_options;
@@ -3532,7 +3541,7 @@ class VersionSetTestEmptyDb
 const std::string VersionSetTestEmptyDb::kUnknownColumnFamilyName = "unknown";
 
 TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
-  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  imm_db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
   CreateCurrentFile();
@@ -3564,7 +3573,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
 }
 
 TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
-  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  imm_db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   // Only a subset of column families in the MANIFEST.
   VersionEdit new_cf1;
@@ -3605,7 +3614,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
 }
 
 TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
-  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  imm_db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   // Write all column families but no log_number, next_file_number and
   // last_sequence.
@@ -3651,7 +3660,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
 }
 
 TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
-  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  imm_db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   // Write all column families but no log_number, next_file_number and
   // last_sequence.
@@ -3708,7 +3717,7 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
 }
 
 TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
-  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  imm_db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   // Write all column families but no log_number, next_file_number and
   // last_sequence.
@@ -3828,7 +3837,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     ASSERT_OK(s);
     log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
     VersionEdit new_db;
-    if (db_options_.write_dbid_to_manifest) {
+    if (imm_db_options_.write_dbid_to_manifest) {
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
@@ -3938,7 +3947,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3999,7 +4009,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -4088,7 +4099,7 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
 }
 
 TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
-  db_options_.allow_2pc = true;
+  imm_db_options_.allow_2pc = true;
   NewDB();
 
   SstInfo sst(100, kDefaultColumnFamilyName, "a", 0 /* level */,

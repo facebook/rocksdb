@@ -5205,6 +5205,7 @@ TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
   options.max_manifest_file_size = 10;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_EQ(2, handles_.size());
@@ -5896,6 +5897,7 @@ TEST_P(RenameCurrentTest, Flush) {
   Destroy(last_options_);
   Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("key", "value"));
@@ -5915,6 +5917,7 @@ TEST_P(RenameCurrentTest, Compaction) {
   Destroy(last_options_);
   Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("a", "a_value"));
@@ -6541,6 +6544,9 @@ TEST_F(DBTest2, LastLevelStatistics) {
 
     DestroyAndReopen(options);
 
+    get_iostats_context()->Reset();
+    IOStatsContext* iostats = get_iostats_context();
+
     // generate 1 sst on level 0
     ASSERT_OK(Put("foo1", "bar"));
     ASSERT_OK(Put("bar", "bar"));
@@ -6641,7 +6647,85 @@ TEST_F(DBTest2, LastLevelStatistics) {
     // Control
     ASSERT_NE(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
               options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
+
+    // Control: unknown temperature iostats should be zero since files have
+    // explicit temperatures (mapped or written)
+    EXPECT_EQ(
+        iostats->file_io_stats_by_temperature.unknown_non_last_level_bytes_read,
+        0);
+    EXPECT_EQ(
+        iostats->file_io_stats_by_temperature.unknown_non_last_level_read_count,
+        0);
+    EXPECT_EQ(
+        iostats->file_io_stats_by_temperature.unknown_last_level_bytes_read, 0);
+    EXPECT_EQ(
+        iostats->file_io_stats_by_temperature.unknown_last_level_read_count, 0);
   }
+}
+
+// Test the iostats for files with Temperature::kUnknown that is not mapped
+// to another temperature. These stats are used to indicate which non-tiered
+// workloads are most promising for tiering (so this test doesn't set
+// temperatures).
+TEST_F(DBTest2, UnknownLastLevelStatistics) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  DestroyAndReopen(options);
+
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
+
+  // Generate 1 sst file on level 0 with kUnknown temperature
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  // Read from the kUnknown file on non-last level
+  ASSERT_EQ("bar", Get("foo"));
+
+  // Verify unknown_non_last_level stats are populated
+  EXPECT_GT(
+      iostats->file_io_stats_by_temperature.unknown_non_last_level_bytes_read,
+      0);
+  EXPECT_GT(
+      iostats->file_io_stats_by_temperature.unknown_non_last_level_read_count,
+      0);
+  // No reads from last level yet
+  EXPECT_EQ(iostats->file_io_stats_by_temperature.unknown_last_level_bytes_read,
+            0);
+  EXPECT_EQ(iostats->file_io_stats_by_temperature.unknown_last_level_read_count,
+            0);
+
+  // Compact to the last level (level 6) explicitly using MoveFilesToLevel
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  MoveFilesToLevel(6);
+
+  // Reopen DB to ensure table cache is cleared and files are re-opened
+  // with correct is_last_level flag
+  Reopen(options);
+
+  // Reset iostats to measure only the following reads
+  get_iostats_context()->Reset();
+
+  // Read from the file now on last level (still kUnknown since
+  // last_level_temperature is not set)
+  ASSERT_EQ("bar", Get("foo"));
+
+  // Verify unknown_last_level stats are populated
+  EXPECT_GT(iostats->file_io_stats_by_temperature.unknown_last_level_bytes_read,
+            0);
+  EXPECT_GT(iostats->file_io_stats_by_temperature.unknown_last_level_read_count,
+            0);
+  // No new reads from non-last level
+  EXPECT_EQ(
+      iostats->file_io_stats_by_temperature.unknown_non_last_level_bytes_read,
+      0);
+  EXPECT_EQ(
+      iostats->file_io_stats_by_temperature.unknown_non_last_level_read_count,
+      0);
 }
 
 TEST_F(DBTest2, CheckpointFileTemperature) {

@@ -311,7 +311,8 @@ EOF
 EOF
         then
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+          # Hack: don't link extra gflags assuming it comes with folly
+          [ "$USE_FOLLY" ] || PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         # check if namespace is gflags
         elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
             #include <gflags/gflags.h>
@@ -320,7 +321,8 @@ EOF
 EOF
         then
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=gflags"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+          # Hack: don't link extra gflags assuming it comes with folly
+          [ "$USE_FOLLY" ] || PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         # check if namespace is google
         elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
             #include <gflags/gflags.h>
@@ -772,6 +774,7 @@ fi
 if [ "$USE_FOLLY_LITE" ]; then
   if [ "$FOLLY_DIR" ]; then
     BOOST_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir boost`
+    FMT_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir fmt`
   fi
 fi
 
@@ -816,6 +819,7 @@ echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
 echo "FOLLY_PATH=$FOLLY_PATH" >> "$OUTPUT"
 echo "BOOST_SOURCE_PATH=$BOOST_SOURCE_PATH" >> "$OUTPUT"
+echo "FMT_SOURCE_PATH=$FMT_SOURCE_PATH" >> "$OUTPUT"
 
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
@@ -827,7 +831,6 @@ fi
 if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
-echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
 if test -n "$USE_FOLLY"; then
   echo "USE_FOLLY=$USE_FOLLY" >> "$OUTPUT"
 fi

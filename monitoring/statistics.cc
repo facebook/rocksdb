@@ -93,6 +93,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
      "rocksdb.compaction.optimized.del.drop.obsolete"},
     {COMPACTION_CANCELLED, "rocksdb.compaction.cancelled"},
+    {COMPACTION_ABORTED, "rocksdb.compaction.aborted"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
@@ -169,8 +170,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_NUM_KEYS_READ, "rocksdb.blobdb.num.keys.read"},
     {BLOB_DB_BYTES_WRITTEN, "rocksdb.blobdb.bytes.written"},
     {BLOB_DB_BYTES_READ, "rocksdb.blobdb.bytes.read"},
-    {BLOB_DB_WRITE_INLINED, "rocksdb.blobdb.write.inlined"},
-    {BLOB_DB_WRITE_INLINED_TTL, "rocksdb.blobdb.write.inlined.ttl"},
+    {BLOB_DB_WRITE_INLINED_DEPRECATED, "rocksdb.blobdb.write.inlined"},
+    {BLOB_DB_WRITE_INLINED_TTL_DEPRECATED, "rocksdb.blobdb.write.inlined.ttl"},
     {BLOB_DB_WRITE_BLOB, "rocksdb.blobdb.write.blob"},
     {BLOB_DB_WRITE_BLOB_TTL, "rocksdb.blobdb.write.blob.ttl"},
     {BLOB_DB_BLOB_FILE_BYTES_WRITTEN, "rocksdb.blobdb.blob.file.bytes.written"},
@@ -280,6 +281,21 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_WBWI_INGEST, "rocksdb.number.wbwi.ingest"},
     {SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT,
      "rocksdb.sst.user.defined.index.load.fail.count"},
+    {MULTISCAN_PREPARE_CALLS, "rocksdb.multiscan.prepare.calls"},
+    {MULTISCAN_PREPARE_ERRORS, "rocksdb.multiscan.prepare.errors"},
+    {MULTISCAN_BLOCKS_PREFETCHED, "rocksdb.multiscan.blocks.prefetched"},
+    {MULTISCAN_BLOCKS_FROM_CACHE, "rocksdb.multiscan.blocks.from.cache"},
+    {MULTISCAN_PREFETCH_BYTES, "rocksdb.multiscan.prefetch.bytes"},
+    {MULTISCAN_PREFETCH_BLOCKS_WASTED,
+     "rocksdb.multiscan.prefetch.blocks.wasted"},
+    {MULTISCAN_IO_REQUESTS, "rocksdb.multiscan.io.requests"},
+    {MULTISCAN_IO_COALESCED_NONADJACENT,
+     "rocksdb.multiscan.io.coalesced.nonadjacent"},
+    {MULTISCAN_SEEK_ERRORS, "rocksdb.multiscan.seek.errors"},
+    {PREFETCH_MEMORY_BYTES_GRANTED, "rocksdb.prefetch.memory.bytes.granted"},
+    {PREFETCH_MEMORY_BYTES_RELEASED, "rocksdb.prefetch.memory.bytes.released"},
+    {PREFETCH_MEMORY_REQUESTS_BLOCKED,
+     "rocksdb.prefetch.memory.requests.blocked"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -352,6 +368,10 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
      "rocksdb.table.open.prefetch.tail.read.bytes"},
     {NUM_OP_PER_TRANSACTION, "rocksdb.num.op.per.transaction"},
+    {MULTISCAN_PREPARE_ITERATORS,
+     "rocksdb.multiscan.op.prepare.iterators.micros"},
+    {MULTISCAN_PREPARE_MICROS, "rocksdb.multiscan.prepare.micros"},
+    {MULTISCAN_BLOCKS_PER_PREPARE, "rocksdb.multiscan.blocks.per.prepare"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

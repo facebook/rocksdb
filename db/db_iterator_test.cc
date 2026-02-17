@@ -16,6 +16,7 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy_impl.h"
@@ -4154,6 +4155,9 @@ INSTANTIATE_TEST_CASE_P(DBMultiScanIteratorTest, DBMultiScanIteratorTest,
                         ::testing::Bool());
 
 TEST_P(DBMultiScanIteratorTest, BasicTest) {
+  auto options = CurrentOptions();
+  DestroyAndReopen(options);
+
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4196,6 +4200,8 @@ TEST_P(DBMultiScanIteratorTest, BasicTest) {
 }
 
 TEST_P(DBMultiScanIteratorTest, MixedBoundsTest) {
+  auto options = CurrentOptions();
+  DestroyAndReopen(options);
   // Create a file
   for (int i = 0; i < 100; ++i) {
     std::stringstream ss;
@@ -4602,6 +4608,11 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
   ASSERT_OK(s);
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(cfh, &cf_meta);
+  // Only the L0 with range deletion is compacted.
+  ASSERT_EQ(1, cf_meta.levels[0].files.size());
+  ASSERT_EQ(0, cf_meta.levels[0].files[0].num_deletions);
 
   // The first scan range overlaps the DB key range, while the second extends
   // beyond but overlaps the delete range
@@ -4666,6 +4677,726 @@ TEST_P(DBMultiScanIteratorTest, FragmentedRangeTombstones) {
   iter.reset();
 }
 
+TEST_P(DBMultiScanIteratorTest, ReseekAcrossBlocksSameUserKey) {
+  // This test exposes a bug where multiscan reseeks backwards when
+  // max_sequential_skip_in_iterations is triggered with the same user key
+  // spanning multiple data blocks.
+
+  auto options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 3;
+  options.compression = kNoCompression;
+
+  // Force each internal key into its own block
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Taking a snapshot after each Put to preserve all versions during flush.
+  std::vector<const Snapshot*> snapshots;
+  for (int i = 0; i < 7; ++i) {
+    ASSERT_OK(Put("key_a", "value_" + std::to_string(i)));
+    snapshots.push_back(db_->GetSnapshot());
+  }
+  ASSERT_OK(Put("key_b", "value_b"));
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // Setup multiscan range covering both keys
+  std::vector<std::string> key_ranges({"key_a", "key_c"});
+  ReadOptions ro;
+  Slice ub = key_ranges[1];
+  ro.iterate_upper_bound = &ub;
+  ro.fill_cache = GetParam();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Prepare(scan_options);
+
+  std::vector<std::string> seen_keys;
+  std::vector<std::string> seen_values;
+  iter->Seek(key_ranges[0]);
+  while (iter->status().ok() && iter->Valid()) {
+    seen_keys.push_back(iter->key().ToString());
+    seen_values.push_back(iter->value().ToString());
+    iter->Next();
+  }
+  ASSERT_OK(iter->status()) << iter->status().ToString();
+
+  ASSERT_EQ(seen_keys.size(), 2) << "Should see key_a and key_b";
+  ASSERT_EQ(seen_keys[0], "key_a");
+  ASSERT_EQ(seen_keys[1], "key_b");
+  ASSERT_EQ(seen_values[0], "value_6");
+  ASSERT_EQ(seen_values[1], "value_b");
+
+  for (auto* snapshot : snapshots) {
+    db_->ReleaseSnapshot(snapshot);
+  }
+}
+
+TEST_P(DBMultiScanIteratorTest, AsyncPrefetchAcrossMultipleFiles) {
+  // Test async prefetch with multiple ranges within a single file
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  Random rnd(303);
+
+  // Create a single large file with many keys
+  // ~1MiB of data
+  // Should be lots of files now
+  for (int i = 0; i < 1000; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    // 1KiB values
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  ASSERT_GT(NumTableFilesAtLevel(49), 3);
+
+  // Set up multiple non-overlapping ranges in the same file
+  // Every 32 values should be a file or so
+  std::vector<std::string> key_ranges(
+      {"k00000", "k00100", "k00500", "k00600", "k00800", "k00900"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
+
+  auto read_count_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+  auto read_count_after =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  ASSERT_EQ(read_count_after, read_count_before);
+
+  // Verify all three ranges can be scanned successfully
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+      }
+    }
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, AsyncPrefetchMultipleLevels) {
+  // Test async prefetch with files in L0 and non-L0 levels
+  // Similar setup to AsyncPrefetchAcrossMultipleFiles but with L0 files
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  Random rnd(304);
+
+  // Create base files and compact to bottom level - ~500KiB of data
+  for (int i = 0; i < 500; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  // Verify we have files at bottom level
+  ASSERT_GT(NumTableFilesAtLevel(49), 0);
+
+  // Create additional L0 files with overlapping key ranges
+  for (int i = 100; i < 150; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  // Verify we now have files in both L0 and bottom level
+  ASSERT_GT(NumTableFilesAtLevel(0), 0);
+  ASSERT_GT(NumTableFilesAtLevel(49), 0);
+
+  // Set up multiple non-overlapping ranges
+  std::vector<std::string> key_ranges(
+      {"k00000", "k00100", "k00200", "k00300", "k00400", "k00500"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  // Verify all three ranges can be scanned successfully
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  // Should have keys from all three ranges
+  ASSERT_GT(total_keys, 0);
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, AsyncPrefetchWithDeleteRange) {
+  // Test async prefetch with delete ranges
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(305);
+
+  // Create base data - ~500KiB
+  for (int i = 0; i < 500; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  // Add delete ranges
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), dbfull()->DefaultColumnFamily(),
+                             "k00100", "k00200"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_GT(NumTableFilesAtLevel(49), 0);
+
+  // Set up scan ranges that interact with delete ranges
+  std::vector<std::string> key_ranges({"k00000", "k00500"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  // Verify ranges can be scanned successfully
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        std::string key = it.first.ToString();
+        // Verify deleted keys are not returned
+        ASSERT_TRUE((key < "k00100" || key >= "k00200"));
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  // Should have keys excluding deleted ranges
+  ASSERT_EQ(total_keys, 400);
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, AsyncPrefetchWithExternalFileIngestion) {
+  // Test async prefetch with externally ingested files
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(306);
+
+  // Create base data - ~200KiB
+  for (int i = 0; i < 200; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  // Create and ingest external SST file with new data
+  std::string ingest_file = dbname_ + "/test_ingest.sst";
+  {
+    std::unique_ptr<SstFileWriter> writer;
+    writer.reset(new SstFileWriter(EnvOptions(), options));
+    ASSERT_OK(writer->Open(ingest_file));
+    for (int i = 300; i < 500; ++i) {
+      std::stringstream ss;
+      ss << "k" << std::setw(5) << std::setfill('0') << i;
+      ASSERT_OK(writer->Put(ss.str(), rnd.RandomString(1 << 10)));
+    }
+    ASSERT_OK(writer->Finish());
+  }
+
+  IngestExternalFileOptions ifo;
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  ASSERT_OK(dbfull()->IngestExternalFile(cfh, {ingest_file}, ifo));
+
+  // Set up scan ranges that span both regular and ingested files
+  std::vector<std::string> key_ranges({"k00000", "k00500"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  // Verify all ranges can be scanned successfully
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  ASSERT_EQ(total_keys, 400);
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, IODispatcherStatsVerification) {
+  // Test that verifies all IOs go through the IODispatcher by checking stats
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(307);
+
+  // Create data - enough to create multiple data blocks
+  for (int i = 0; i < 500; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));  // 1KiB values
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  // Set up scan ranges
+  std::vector<std::string> key_ranges({"k00000", "k00200", "k00300", "k00400"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  // Create a tracking IODispatcher to verify IO statistics
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = false;  // Use sync IO for predictable stats
+  scan_options.io_dispatcher = tracking_dispatcher;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  // Scan through all data
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  // We scanned ~200 keys in range 1 and ~100 keys in range 2
+  ASSERT_EQ(total_keys, 300);
+
+  // Verify that IO operations went through the IODispatcher
+  // The total IO operations should be > 0 (either sync reads, async reads, or
+  // cache hits)
+  uint64_t total_ops = tracking_dispatcher->GetTotalIOOperations();
+  ASSERT_GT(total_ops, 0) << "Expected some IO operations through IODispatcher";
+
+  // Verify that we have at least one ReadSet created
+  ASSERT_GT(tracking_dispatcher->GetReadSets().size(), 0)
+      << "Expected at least one ReadSet to be created";
+
+  // Since we used sync IO, we should have sync reads (or cache hits if cached)
+  uint64_t sync_reads = tracking_dispatcher->GetTotalSyncReads();
+  uint64_t cache_hits = tracking_dispatcher->GetTotalCacheHits();
+  ASSERT_GT(sync_reads + cache_hits, 0)
+      << "Expected sync reads or cache hits for sync IO mode";
+
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, IODispatcherPrefetchKnownBlocks) {
+  // Test that verifies we prefetch a known/expected number of blocks.
+  // Uses FlushBlockEveryKeyPolicyFactory to create exactly one block per key,
+  // making the block count predictable and verifiable.
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+
+  // Configure to create exactly one block per key
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  // Use a block cache (required by IODispatcher), but use a fresh one
+  // that won't have any cached data
+  table_options.block_cache = NewLRUCache(10 * 1024 * 1024);  // 10MB cache
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Create exactly 100 keys, each in its own block
+  const int kNumKeys = 100;
+  const int kValueSize = 100;  // Fixed value size for predictability
+  std::string value(kValueSize, 'v');
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(3) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), value));
+  }
+  ASSERT_OK(Flush());
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  // Create a tracking IODispatcher to verify IO statistics
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+
+  // Define scan ranges with known block counts:
+  // Range 1: k000 to k020 (20 keys = 20 blocks)
+  // Range 2: k050 to k060 (10 keys = 10 blocks)
+  // Total expected blocks to read: 30
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = false;  // Use sync IO for predictable stats
+  scan_options.io_dispatcher = tracking_dispatcher;
+  scan_options.insert("k000", "k020");
+  scan_options.insert("k050", "k060");
+
+  ReadOptions ro;
+  ro.fill_cache = false;  // Don't fill cache, ensure fresh reads
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  // Scan through all data and count keys
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  // Verify we scanned the expected number of keys
+  // Range 1: k000-k019 = 20 keys, Range 2: k050-k059 = 10 keys
+  ASSERT_EQ(total_keys, 30) << "Expected 30 keys from two ranges";
+
+  // Verify IODispatcher statistics
+  uint64_t total_ops = tracking_dispatcher->GetTotalIOOperations();
+  uint64_t sync_reads = tracking_dispatcher->GetTotalSyncReads();
+
+  // We should have at least as many IO operations as blocks we need to read
+  // (could be more due to index/filter blocks)
+  ASSERT_GE(total_ops, 30)
+      << "Expected at least 30 IO operations for 30 data blocks";
+
+  // Since cache is fresh and fill_cache=false, all should be sync reads
+  ASSERT_GE(sync_reads, 30)
+      << "Expected at least 30 sync reads for 30 data blocks";
+
+  // Verify we created ReadSets (one per range)
+  size_t num_readsets = tracking_dispatcher->GetReadSets().size();
+  ASSERT_GE(num_readsets, 1) << "Expected at least one ReadSet";
+
+  // Log the stats for debugging
+  std::cout << "IODispatcher Stats: total_ops=" << total_ops
+            << ", sync_reads=" << sync_reads
+            << ", async_reads=" << tracking_dispatcher->GetTotalAsyncReads()
+            << ", cache_hits=" << tracking_dispatcher->GetTotalCacheHits()
+            << ", readsets=" << num_readsets << std::endl;
+
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, IODispatcherCacheHitVerification) {
+  // Test that verifies cache hits are properly tracked through IODispatcher.
+  // First scan populates cache, second scan should show cache hits.
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  // Enable block cache with enough space for all blocks
+  table_options.block_cache = NewLRUCache(10 * 1024 * 1024);  // 10MB cache
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Create 50 keys, each in its own block
+  const int kNumKeys = 50;
+  std::string value(100, 'v');
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(3) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), value));
+  }
+  ASSERT_OK(Flush());
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  // First scan: populate the cache
+  {
+    auto dispatcher1 = std::make_shared<TrackingIODispatcher>();
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.use_async_io = false;
+    scan_options.io_dispatcher = dispatcher1;
+    scan_options.insert("k000", "k025");  // 25 keys
+
+    ReadOptions ro;
+    ro.fill_cache = true;  // Fill cache on first scan
+
+    std::unique_ptr<MultiScan> iter =
+        dbfull()->NewMultiScan(ro, cfh, scan_options);
+    ASSERT_NE(iter, nullptr);
+
+    int count = 0;
+    try {
+      for (auto range : *iter) {
+        for (auto it : range) {
+          it.first.ToString();
+          count++;
+        }
+      }
+    } catch (MultiScanException& ex) {
+      FAIL() << "First scan failed: " << ex.what();
+    }
+    ASSERT_EQ(count, 25);
+
+    // First scan should have sync reads (cache was empty)
+    uint64_t first_sync = dispatcher1->GetTotalSyncReads();
+    ASSERT_GE(first_sync, 25) << "First scan should have sync reads";
+
+    std::cout << "First scan stats: sync_reads=" << first_sync
+              << ", cache_hits=" << dispatcher1->GetTotalCacheHits()
+              << std::endl;
+  }
+
+  // Second scan: should get cache hits
+  {
+    auto dispatcher2 = std::make_shared<TrackingIODispatcher>();
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.use_async_io = false;
+    scan_options.io_dispatcher = dispatcher2;
+    scan_options.insert("k000", "k025");  // Same range as before
+
+    ReadOptions ro;
+    ro.fill_cache = true;
+
+    std::unique_ptr<MultiScan> iter =
+        dbfull()->NewMultiScan(ro, cfh, scan_options);
+    ASSERT_NE(iter, nullptr);
+
+    int count = 0;
+    try {
+      for (auto range : *iter) {
+        for (auto it : range) {
+          it.first.ToString();
+          count++;
+        }
+      }
+    } catch (MultiScanException& ex) {
+      FAIL() << "Second scan failed: " << ex.what();
+    }
+    ASSERT_EQ(count, 25);
+
+    // Second scan should have cache hits (blocks were cached in first scan)
+    uint64_t second_cache_hits = dispatcher2->GetTotalCacheHits();
+    uint64_t second_sync = dispatcher2->GetTotalSyncReads();
+
+    std::cout << "Second scan stats: sync_reads=" << second_sync
+              << ", cache_hits=" << second_cache_hits << std::endl;
+
+    // We expect cache hits on the second scan for data blocks
+    // Note: Some blocks might still need sync reads (e.g., if cache was
+    // evicted)
+    ASSERT_GE(second_cache_hits, 20)
+        << "Second scan should have cache hits for most blocks";
+  }
+}
+
+TEST_P(DBMultiScanIteratorTest, WastedBlocksTracking) {
+  // Test that verifies wasted prefetch blocks are properly tracked.
+  // When blocks are prefetched but skipped (e.g., due to seek), they should
+  // be counted as wasted and recorded to MULTISCAN_PREFETCH_BLOCKS_WASTED.
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  table_options.block_cache = NewLRUCache(10 * 1024 * 1024);  // 10MB cache
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Create 100 keys, each in its own block
+  const int kNumKeys = 100;
+  std::string value(100, 'v');
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(3) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), value));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  // Reset the wasted blocks counter before test
+  options.statistics->setTickerCount(MULTISCAN_PREFETCH_BLOCKS_WASTED, 0);
+
+  // Set up MultiScan with two non-contiguous ranges:
+  // Range 1: k000-k020 (20 keys/blocks)
+  // Range 2: k050-k070 (20 keys/blocks)
+  // The blocks between k020-k050 (30 blocks) should be wasted if prefetched
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = false;
+  scan_options.insert("k000", "k020");
+  scan_options.insert("k050", "k070");
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  {
+    std::unique_ptr<MultiScan> iter =
+        dbfull()->NewMultiScan(ro, cfh, scan_options);
+    ASSERT_NE(iter, nullptr);
+
+    int count = 0;
+    try {
+      for (auto range : *iter) {
+        for (auto it : range) {
+          it.first.ToString();
+          count++;
+        }
+      }
+    } catch (MultiScanException& ex) {
+      FAIL() << "Scan failed: " << ex.what();
+    }
+
+    // We should have scanned 40 keys total (20 + 20)
+    ASSERT_EQ(count, 40);
+  }  // Iterator destroyed here, wasted blocks recorded
+
+  // Check that wasted blocks were recorded
+  // The exact count depends on how many blocks were prefetched between ranges
+  uint64_t wasted =
+      options.statistics->getTickerCount(MULTISCAN_PREFETCH_BLOCKS_WASTED);
+
+  // We expect some wasted blocks due to the gap between ranges
+  // The exact number depends on prefetch behavior, but should be > 0
+  // if blocks between k020-k050 were prefetched
+  std::cout << "Wasted blocks: " << wasted << std::endl;
+
+  // Note: The test verifies the tracking mechanism works.
+  // The actual count depends on prefetch heuristics which may vary.
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

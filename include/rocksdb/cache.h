@@ -306,13 +306,6 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // Options specific to the compression algorithm
   CompressionOptions compression_opts;
 
-  // compress_format_version can have two values:
-  // compress_format_version == 1 -- decompressed size is not included in the
-  // block header. DEPRECATED
-  // compress_format_version == 2 -- decompressed size is included in the block
-  // header in varint32 format.
-  uint32_t compress_format_version = 2;
-
   // Enable the custom split and merge feature, which split the compressed value
   // into chunks so that they may better fit jemalloc bins.
   bool enable_custom_split_merge = false;
@@ -330,7 +323,6 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
       CompressionType _compression_type = CompressionType::kLZ4Compression,
-      uint32_t _compress_format_version = 2,
       bool _enable_custom_split_merge = false,
       const CacheEntryRoleSet& _do_not_compress_roles =
           {CacheEntryRole::kFilterBlock})
@@ -339,7 +331,6 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
                         _use_adaptive_mutex, _metadata_charge_policy,
                         _low_pri_pool_ratio),
         compression_type(_compression_type),
-        compress_format_version(_compress_format_version),
         enable_custom_split_merge(_enable_custom_split_merge),
         do_not_compress_roles(_do_not_compress_roles) {}
 
@@ -360,7 +351,6 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
     CompressionType compression_type = CompressionType::kLZ4Compression,
-    uint32_t compress_format_version = 2,
     bool enable_custom_split_merge = false,
     const CacheEntryRoleSet& _do_not_compress_roles = {
         CacheEntryRole::kFilterBlock}) {
@@ -368,8 +358,7 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
              capacity, num_shard_bits, strict_capacity_limit,
              high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
              use_adaptive_mutex, metadata_charge_policy, compression_type,
-             compress_format_version, enable_custom_split_merge,
-             _do_not_compress_roles)
+             enable_custom_split_merge, _do_not_compress_roles)
       .MakeSharedSecondaryCache();
 }
 

@@ -258,10 +258,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       [this]() { this->TriggerPeriodicCompaction(); });
 
   versions_.reset(new VersionSet(
-      dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
-      write_buffer_manager_, &write_controller_, &block_cache_tracer_,
-      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc,
-      &error_handler_, read_only));
+      dbname_, &immutable_db_options_, mutable_db_options_, file_options_,
+      table_cache_.get(), write_buffer_manager_, &write_controller_,
+      &block_cache_tracer_, io_tracer_, db_id_, db_session_id_,
+      options.daily_offpeak_time_utc, &error_handler_, read_only));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -1177,23 +1177,38 @@ FSDirectory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
 }
 
 Status DBImpl::SetOptions(
-    ColumnFamilyHandle* column_family,
-    const std::unordered_map<std::string, std::string>& options_map) {
+    const std::unordered_map<ColumnFamilyHandle*,
+                             std::unordered_map<std::string, std::string>>&
+        column_families_opts_map) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;
 
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
-  if (options_map.empty()) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "SetOptions() on column family [%s], empty input",
-                   cfd->GetName().c_str());
-    return Status::InvalidArgument("empty input");
+  if (column_families_opts_map.empty()) {
+    return Status::OK();
+  }
+
+  for (const auto& cf_opts : column_families_opts_map) {
+    if (cf_opts.second.empty()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "SetOptions() on column family [%s], empty input",
+                     cf_opts.first->GetName().c_str());
+      return Status::InvalidArgument("empty input");
+    }
+  }
+
+  autovector<std::pair<ColumnFamilyData*,
+                       const std::unordered_map<std::string, std::string>*>>
+      column_family_datas;
+  for (const auto& cf_opts : column_families_opts_map) {
+    column_family_datas.push_back(
+        {static_cast_with_check<ColumnFamilyHandleImpl>(cf_opts.first)->cfd(),
+         &cf_opts.second});
   }
 
   InstrumentedMutexLock ol(&options_mutex_);
-  MutableCFOptions new_options_copy;  // For logging outside of DB mutex
+  autovector<MutableCFOptions>
+      new_options_copy;  // For logging outside of DB mutex
   Status s;
   Status persist_options_status;
   SuperVersionContext sv_context(/* create_superversion */ true);
@@ -1216,68 +1231,104 @@ Status DBImpl::SetOptions(
     // Thus aren't releasing the DB mutex from LogAndApply calling pre_cb,
     // through installing the new Version until the end of this block, after
     // installing the new SuperVersion.
-    auto pre_cb = [&]() -> Status {
-      Status cb_s = cfd->SetOptions(db_options, options_map);
-      if (cb_s.ok()) {
-        new_options_copy = cfd->GetLatestMutableCFOptions();
-      }
-      return cb_s;
-    };
     VersionEdit dummy_edit;
     dummy_edit.MarkNoManifestWriteDummy();
     TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
-    s = versions_->LogAndApply(
-        cfd, read_options, write_options, &dummy_edit, &mutex_,
-        directories_.GetDbDir(), false /*new_descriptor_log=*/,
-        nullptr /*new_opts*/, {} /*manifest_wcb*/, pre_cb);
-    if (!versions_->io_status().ok()) {
-      assert(!s.ok());
-      error_handler_.SetBGError(versions_->io_status(),
-                                BackgroundErrorReason::kManifestWrite);
+    for (const auto& cfd_opts : column_family_datas) {
+      auto* cfd = cfd_opts.first;
+      const auto* options_map_ptr = cfd_opts.second;
+      auto pre_cb = [&]() -> Status {
+        Status cb_s = cfd->SetOptions(db_options, *options_map_ptr);
+        if (cb_s.ok()) {
+          new_options_copy.emplace_back(cfd->GetLatestMutableCFOptions());
+        }
+        return cb_s;
+      };
+
+      s = versions_->LogAndApply(
+          cfd, read_options, write_options, &dummy_edit, &mutex_,
+          directories_.GetDbDir(), false /*new_descriptor_log=*/,
+          nullptr /*new_opts*/, {} /*manifest_wcb*/, pre_cb);
+      if (!versions_->io_status().ok()) {
+        assert(!s.ok());
+        error_handler_.SetBGError(versions_->io_status(),
+                                  BackgroundErrorReason::kManifestWrite);
+      }
+      if (!s.ok()) {
+        break;
+      }
     }
 
     if (s.ok()) {
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      InstallSuperVersionForConfigChange(cfd, &sv_context);
+      for (const auto& cfd_opts : column_family_datas) {
+        InstallSuperVersionForConfigChange(cfd_opts.first, &sv_context);
+      }
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
 
-      assert(new_options_copy == cfd->GetLatestMutableCFOptions());
-      assert(cfd->GetLatestMutableCFOptions() ==
-             cfd->GetCurrentMutableCFOptions());
-      assert(cfd->GetCurrentMutableCFOptions() ==
-             cfd->current()->GetMutableCFOptions());
+#ifndef NDEBUG
+      for (size_t i = 0; i < column_family_datas.size(); ++i) {
+        auto* cfd = column_family_datas[i].first;
+        assert(new_options_copy[i] == cfd->GetLatestMutableCFOptions());
+        assert(cfd->GetLatestMutableCFOptions() ==
+               cfd->GetCurrentMutableCFOptions());
+        assert(cfd->GetCurrentMutableCFOptions() ==
+               cfd->current()->GetMutableCFOptions());
+      }
+#endif
     }
   }
   sv_context.Clean();
 
-  if (s.ok() && (options_map.count("preserve_internal_time_seconds") > 0 ||
-                 options_map.count("preclude_last_level_data_seconds") > 0)) {
-    s = RegisterRecordSeqnoTimeWorker();
+  if (s.ok()) {
+    bool needs_seqno_worker = false;
+    for (const auto& cf_opts : column_families_opts_map) {
+      if (cf_opts.second.count("preserve_internal_time_seconds") > 0 ||
+          cf_opts.second.count("preclude_last_level_data_seconds") > 0) {
+        needs_seqno_worker = true;
+        break;
+      }
+    }
+    if (needs_seqno_worker) {
+      s = RegisterRecordSeqnoTimeWorker();
+    }
   }
 
-  ROCKS_LOG_INFO(
-      immutable_db_options_.info_log,
-      "SetOptions() on column family [%s], inputs:", cfd->GetName().c_str());
-  for (const auto& o : options_map) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s: %s\n", o.first.c_str(),
-                   o.second.c_str());
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "SetOptions() on [%zu] column families, inputs:",
+                 column_family_datas.size());
+  for (size_t i = 0; i < column_family_datas.size(); ++i) {
+    const auto* cfd = column_family_datas[i].first;
+    const auto* options_map_ptr = column_family_datas[i].second;
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Set options on column family [%s] (%zu/%zu), inputs:",
+                   cfd->GetName().c_str(), i, column_family_datas.size());
+    for (const auto& o : *options_map_ptr) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s: %s\n",
+                     o.first.c_str(), o.second.c_str());
+    }
   }
   if (s.ok()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "[%s] SetOptions() succeeded", cfd->GetName().c_str());
-    new_options_copy.Dump(immutable_db_options_.info_log.get());
+    for (size_t i = 0; i < column_family_datas.size(); ++i) {
+      const auto* cfd = column_family_datas[i].first;
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Set options on column family [%s] (%zu/%zu) succeeded, "
+                     "updated CF options:",
+                     cfd->GetName().c_str(), i, column_family_datas.size());
+      new_options_copy[i].Dump(immutable_db_options_.info_log.get());
+    }
     if (!persist_options_status.ok()) {
       // NOTE: WriteOptionsFile already logs on failure
       s = persist_options_status;
     }
   } else {
     persist_options_status.PermitUncheckedError();  // less important
-    ROCKS_LOG_WARN(immutable_db_options_.info_log, "[%s] SetOptions() failed",
-                   cfd->GetName().c_str());
+    ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetOptions() failed: %s",
+                   s.ToString().c_str());
   }
   LogFlush(immutable_db_options_.info_log);
   return s;
@@ -1412,7 +1463,7 @@ Status DBImpl::SetDBOptions(
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
-      versions_->ChangeFileOptions(mutable_db_options_);
+      versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
       // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
@@ -4351,7 +4402,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->AllowIngestBehind()) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(
-              oldest_snapshot, /*allow_ingest_behind=*/false);
+              oldest_snapshot, /*allow_ingest_behind=*/false,
+              cfd->ioptions().user_comparator, cfd->GetFullHistoryTsLow());
           if (!cfd->current()
                    ->storage_info()
                    ->BottommostFilesMarkedForCompaction()
@@ -4987,7 +5039,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     }
     if (!deleted_files.empty()) {
       vstorage->ComputeCompactionScore(cfd->ioptions(),
-                                       cfd->GetLatestMutableCFOptions());
+                                       cfd->GetLatestMutableCFOptions(),
+                                       cfd->GetFullHistoryTsLow());
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
@@ -5044,6 +5097,19 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
     // should not be big. We still need to keep an eye on it.
     InstrumentedMutexLock l(&mutex_);
     cfd->current()->GetColumnFamilyMetaData(cf_meta);
+  }
+}
+
+void DBImpl::GetColumnFamilyMetaData(
+    ColumnFamilyHandle* column_family,
+    const GetColumnFamilyMetaDataOptions& options,
+    ColumnFamilyMetaData* metadata) {
+  assert(column_family);
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    cfd->current()->GetColumnFamilyMetaData(options, metadata);
   }
 }
 
@@ -5506,7 +5572,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   return s;
 }
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 
 void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* cfd) const {
   if (immutable_db_options_.enable_thread_tracking) {
@@ -5533,7 +5599,7 @@ void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 void DBImpl::EraseThreadStatusCfInfo(ColumnFamilyData* /*cfd*/) const {}
 
 void DBImpl::EraseThreadStatusDbInfo() const {}
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 
 //
 // A global method that can dump out the build version
@@ -6405,8 +6471,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
+          FileOptions fopts = file_options_;
+          fopts.file_checksum = fmeta->file_checksum;
+          fopts.file_checksum_func_name = fmeta->file_checksum_func_name;
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksumInternal(
-              opts, file_options_, read_options, fname, fd.largest_seqno);
+              opts, fopts, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);
@@ -6474,12 +6543,15 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
   }
   std::string file_checksum;
   std::string func_name;
+  FileOptions fopts;
+  fopts.file_checksum = file_checksum_expected;
+  fopts.file_checksum_func_name = func_name_expected;
   s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
       io_tracer_, immutable_db_options_.rate_limiter.get(), read_options,
-      immutable_db_options_.stats, immutable_db_options_.clock);
+      immutable_db_options_.stats, immutable_db_options_.clock, fopts);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {
@@ -6838,7 +6910,8 @@ void DBImpl::TriggerPeriodicCompaction() {
       if (cfd->GetLatestCFOptions().periodic_compaction_seconds &&
           !cfd->queued_for_compaction()) {
         cfd->current()->storage_info()->ComputeCompactionScore(
-            cfd->ioptions(), cfd->GetLatestMutableCFOptions());
+            cfd->ioptions(), cfd->GetLatestMutableCFOptions(),
+            cfd->GetFullHistoryTsLow());
         EnqueuePendingCompaction(cfd);
         if (cfd->queued_for_compaction()) {
           ROCKS_LOG_INFO(immutable_db_options_.info_log,

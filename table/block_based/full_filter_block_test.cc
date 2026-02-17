@@ -52,6 +52,13 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
 
   size_t ApproximateNumEntries(size_t bytes) override { return bytes / 4; }
 
+  size_t CalculateSpace(size_t num_entries) override { return num_entries * 4; }
+
+  double EstimatedFpRate(size_t /* num_entries */,
+                         size_t /* bytes */) override {
+    return 0.0;
+  }
+
  private:
   std::vector<uint32_t> hash_entries_;
 };
@@ -227,6 +234,14 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
 
   size_t ApproximateNumEntries(size_t bytes) override {
     return b_->ApproximateNumEntries(bytes);
+  }
+
+  size_t CalculateSpace(size_t num_entries) override {
+    return b_->CalculateSpace(num_entries);
+  }
+
+  double EstimatedFpRate(size_t num_entries, size_t bytes) override {
+    return b_->EstimatedFpRate(num_entries, bytes);
   }
 
   size_t CountUnique() { return uniq_.size(); }

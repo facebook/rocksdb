@@ -34,7 +34,6 @@ bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 // the length of the magic number in bytes.
 constexpr uint32_t kMagicNumberLengthByte = 8;
 
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kBlockBasedTableMagicNumber;
 
 extern const uint64_t kLegacyPlainTableMagicNumber;
@@ -163,22 +162,49 @@ inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
   return modifier & all_or_nothing;
 }
 
-inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
-  // As of format_version 2, we encode compressed block with
-  // compress_format_version == 2. Before that, the version is 1.
-  // DO NOT CHANGE THIS FUNCTION, it affects disk format
-  // As of format_version 7 and opening up to custom compression, the
-  // compression format version is essentially independent of the block-based
-  // table format version, and encoded in the compression_name table property.
-  // Thus, this function can go away once we remove support for reading
-  // format_version=1.
-  return format_version >= 2 ? 2 : 1;
+constexpr uint32_t kLatestBbtFormatVersion = 7;
+
+// Minimum format version supported for reading SST files in block-based format.
+//
+// When phasing out old format versions, first increase the write minimum,
+// then later (>= 6 mo) increase the read minimum when removing the
+// implementation for both read and write.
+constexpr uint32_t kMinSupportedBbtFormatVersionForRead = 2;
+
+// Minimum format version supported for writing new SST files in block-based
+// format. This should be >= kMinSupportedFormatVersionForRead.
+//
+// When phasing out old format versions, first increase the write minimum,
+// then later (>= 6 mo) increase the read minimum when removing the
+// implementation for both read and write.
+constexpr uint32_t kMinSupportedBbtFormatVersionForWrite = 2;
+static_assert(kMinSupportedBbtFormatVersionForWrite >=
+              kMinSupportedBbtFormatVersionForRead);
+
+inline bool IsSupportedFormatVersionForRead(uint64_t magic, uint32_t version) {
+  if (magic == kBlockBasedTableMagicNumber) {
+    return version >= kMinSupportedBbtFormatVersionForRead &&
+           version <= kLatestBbtFormatVersion;
+  } else if (magic == kPlainTableMagicNumber) {
+    return version == 0;
+  } else if (magic == kCuckooTableMagicNumber) {
+    return version == 1;
+  } else {
+    return false;
+  }
 }
 
-constexpr uint32_t kLatestFormatVersion = 7;
-
-inline bool IsSupportedFormatVersion(uint32_t version) {
-  return version <= kLatestFormatVersion;
+inline bool IsSupportedFormatVersionForWrite(uint64_t magic, uint32_t version) {
+  if (magic == kBlockBasedTableMagicNumber) {
+    return version >= kMinSupportedBbtFormatVersionForWrite &&
+           version <= kLatestBbtFormatVersion;
+  } else if (magic == kPlainTableMagicNumber) {
+    return version == 0;
+  } else if (magic == kCuckooTableMagicNumber) {
+    return version == 1;
+  } else {
+    return false;
+  }
 }
 
 // Same as having a unique id in footer.

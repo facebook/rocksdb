@@ -32,7 +32,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     if (ucf == nullptr) {
       return Decision::kKeep;
     }
-    // Apply user compaction filter for inlined data.
+    // Apply user compaction filter for non-blob data.
     CompactionFilter::Decision decision =
         ucf->FilterV2(level, key, value_type, value, new_value, skip_until);
     if (decision == Decision::kChangeValue) {
@@ -52,33 +52,11 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     expired_size_ += key.size() + value.size();
     return Decision::kRemove;
   }
-  if (!blob_index.IsInlined() &&
-      blob_index.file_number() < context_.next_file_number &&
+  if (blob_index.file_number() < context_.next_file_number &&
       context_.current_blob_files.count(blob_index.file_number()) == 0) {
-    // Corresponding blob file gone (most likely, evicted by FIFO eviction).
     evicted_count_++;
     evicted_size_ += key.size() + value.size();
     return Decision::kRemove;
-  }
-  if (context_.fifo_eviction_seq > 0 && blob_index.HasTTL() &&
-      blob_index.expiration() < context_.evict_expiration_up_to) {
-    // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
-    // get sequence number.
-    ParsedInternalKey ikey;
-    if (!ParseInternalKey(
-             key, &ikey,
-             context_.blob_db_impl->db_options_.allow_data_in_errors)
-             .ok()) {
-      assert(false);
-      return Decision::kKeep;
-    }
-    // Remove keys that could have been remove by last FIFO eviction.
-    // If get error while parsing key, ignore and continue.
-    if (ikey.sequence < context_.fifo_eviction_seq) {
-      evicted_count_++;
-      evicted_size_ += key.size() + value.size();
-      return Decision::kRemove;
-    }
   }
   // Apply user compaction filter for all non-TTL blob data.
   if (ucf != nullptr && !blob_index.HasTTL()) {
@@ -94,10 +72,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     }
     // Read value from blob file.
     PinnableSlice blob;
-    CompressionType compression_type = kNoCompression;
-    constexpr bool need_decompress = true;
-    if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob, need_decompress,
-                             &compression_type)) {
+    if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob)) {
       return Decision::kIOError;
     }
     CompactionFilter::Decision decision = ucf->FilterV2(
@@ -112,22 +87,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
 
 CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
     const Slice& key, std::string* new_value) const {
-  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
-  assert(blob_db_impl);
-
-  if (new_value->size() < blob_db_impl->bdb_options_.min_blob_size) {
-    // Keep new_value inlined.
-    return Decision::kChangeValue;
-  }
   if (!OpenNewBlobFileIfNeeded()) {
     return Decision::kIOError;
   }
   Slice new_blob_value(*new_value);
-  std::string compression_output;
-  if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-    new_blob_value =
-        blob_db_impl->GetCompressedSlice(new_blob_value, &compression_output);
-  }
   uint64_t new_blob_file_number = 0;
   uint64_t new_blob_offset = 0;
   if (!WriteBlobToNewFile(key, new_blob_value, &new_blob_file_number,
@@ -138,8 +101,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
     return Decision::kIOError;
   }
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                        new_blob_value.size(),
-                        blob_db_impl->bdb_options_.compression);
+                        new_blob_value.size(), kNoCompression);
   return Decision::kChangeBlobIndex;
 }
 
@@ -201,14 +163,13 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
 }
 
 bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
-    const Slice& key, const BlobIndex& blob_index, PinnableSlice* blob,
-    bool need_decompress, CompressionType* compression_type) const {
+    const Slice& key, const BlobIndex& blob_index, PinnableSlice* blob) const {
   BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
   assert(blob_db_impl);
 
-  Status s = blob_db_impl->GetRawBlobFromFile(
-      key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
-      blob, compression_type);
+  Status s = blob_db_impl->GetRawBlobFromFile(key, blob_index.file_number(),
+                                              blob_index.offset(),
+                                              blob_index.size(), blob);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -219,21 +180,6 @@ bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
         s.ToString().c_str());
 
     return false;
-  }
-
-  if (need_decompress && *compression_type != kNoCompression) {
-    s = blob_db_impl->DecompressSlice(*blob, *compression_type, blob);
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(
-          blob_db_impl->db_options_.info_log,
-          "Uncompression error during blob read from file: %" PRIu64
-          " blob_offset: %" PRIu64 " blob_size: %" PRIu64
-          " key: %s status: '%s'",
-          blob_index.file_number(), blob_index.offset(), blob_index.size(),
-          key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
-
-      return false;
-    }
   }
 
   return true;
@@ -306,8 +252,7 @@ bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     s = blob_db_impl->CloseBlobFile(WriteOptions(), blob_file_);
 
-    // Note: we delay registering the new blob file until it's closed to
-    // prevent FIFO eviction from processing it during compaction/GC.
+    // Note: we delay registering the new blob file until it's closed.
     blob_db_impl->RegisterBlobFile(blob_file_);
   }
 
@@ -336,16 +281,10 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   assert(blob_db_impl->bdb_options_.enable_garbage_collection);
 
   BlobIndex blob_index;
-  const Status s = blob_index.DecodeFrom(existing_value);
+  Status s = blob_index.DecodeFrom(existing_value);
   if (!s.ok()) {
     gc_stats_.SetError();
     return BlobDecision::kCorruption;
-  }
-
-  if (blob_index.IsInlined()) {
-    gc_stats_.AddBlob(blob_index.value().size());
-
-    return BlobDecision::kKeep;
   }
 
   gc_stats_.AddBlob(blob_index.size());
@@ -368,29 +307,9 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   }
 
   PinnableSlice blob;
-  CompressionType compression_type = kNoCompression;
-  std::string compression_output;
-  if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
+  if (!ReadBlobFromOldFile(key, blob_index, &blob)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
-  }
-
-  // If the compression_type is changed, re-compress it with the new compression
-  // type.
-  if (compression_type != blob_db_impl->bdb_options_.compression) {
-    if (compression_type != kNoCompression) {
-      const Status status =
-          blob_db_impl->DecompressSlice(blob, compression_type, &blob);
-      if (!status.ok()) {
-        gc_stats_.SetError();
-        return BlobDecision::kCorruption;
-      }
-    }
-    if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-      blob_db_impl->GetCompressedSlice(blob, &compression_output);
-      blob = PinnableSlice(&compression_output);
-      blob.PinSelf();
-    }
   }
 
   uint64_t new_blob_file_number = 0;
@@ -406,7 +325,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   }
 
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                        blob.size(), compression_type);
+                        blob.size(), kNoCompression);
 
   gc_stats_.AddRelocatedBlob(blob_index.size());
 

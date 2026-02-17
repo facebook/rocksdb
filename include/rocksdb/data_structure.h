@@ -247,15 +247,7 @@ class ManagedPtr {
  public:
   ManagedPtr() = default;
   ManagedPtr(T* ptr, Owner* owner) : ptr_(ptr), owner_(owner) {}
-  ~ManagedPtr() {
-    if (ptr_ && owner_) {
-      if constexpr (std::is_member_function_pointer_v<decltype(Fn)>) {
-        (owner_->*Fn)(ptr_);
-      } else {
-        Fn(owner_, ptr_);
-      }
-    }
-  }
+  ~ManagedPtr() { Free(); }
   // No copies
   ManagedPtr(const ManagedPtr&) = delete;
   ManagedPtr& operator=(const ManagedPtr&) = delete;
@@ -267,6 +259,10 @@ class ManagedPtr {
     other.owner_ = nullptr;
   }
   ManagedPtr& operator=(ManagedPtr&& other) noexcept {
+    if (this == &other) {
+      return *this;
+    }
+    Free();
     ptr_ = other.ptr_;
     owner_ = other.owner_;
     other.ptr_ = nullptr;
@@ -284,6 +280,16 @@ class ManagedPtr {
  private:
   T* ptr_ = nullptr;
   Owner* owner_ = nullptr;
+
+  void Free() {
+    if (ptr_ && owner_) {
+      if constexpr (std::is_member_function_pointer_v<decltype(Fn)>) {
+        (owner_->*Fn)(ptr_);
+      } else {
+        Fn(owner_, ptr_);
+      }
+    }
+  }
 };
 
 template <typename T, typename comp>

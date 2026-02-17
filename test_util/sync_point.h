@@ -6,10 +6,9 @@
 
 #include <assert.h>
 
+#include <atomic>
 #include <functional>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -180,3 +179,37 @@ void SetupSyncPointsToMockDirectIO();
     }                                               \
   }
 #endif  // NDEBUG
+
+// An alternative to assert() that is more test-friendly than using
+// ASSERT_DEATH. Relies on exception propagation.
+#ifdef NDEBUG
+#define testable_assert(cond)
+#else
+namespace ROCKSDB_NAMESPACE {
+// Intentionally not based on std::exception to reduce places where this
+// would be caught
+struct TestableAssertionFailure {};
+// Tracks whether to throw on testable_assert failure instead of aborting.
+// This is an atomic counter for re-entrancy / thread-safety.
+extern std::atomic<int> g_throw_on_testable_assertion_failure;
+}  // namespace ROCKSDB_NAMESPACE
+#define testable_assert(cond)                                          \
+  do {                                                                 \
+    if (ROCKSDB_NAMESPACE::g_throw_on_testable_assertion_failure.load( \
+            std::memory_order_relaxed) > 0) {                          \
+      if (cond) {                                                      \
+      } else                                                           \
+        throw ROCKSDB_NAMESPACE::TestableAssertionFailure();           \
+    } else {                                                           \
+      assert(cond);                                                    \
+    }                                                                  \
+  } while (0)  // require ; in caller
+#define ASSERT_TESTABLE_FAILURE(expr)                                   \
+  do {                                                                  \
+    ROCKSDB_NAMESPACE::g_throw_on_testable_assertion_failure.fetch_add( \
+        1, std::memory_order_relaxed);                                  \
+    ASSERT_THROW(expr, ROCKSDB_NAMESPACE::TestableAssertionFailure);    \
+    ROCKSDB_NAMESPACE::g_throw_on_testable_assertion_failure.fetch_sub( \
+        1, std::memory_order_relaxed);                                  \
+  } while (0)  // require ; in caller
+#endif

@@ -856,8 +856,7 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, BasicTestFromString) {
     if (LZ4_Supported()) {
       sec_cache_uri =
           "compressed_secondary_cache://"
-          "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
-          "compress_format_version=2";
+          "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression";
     } else {
       ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
       sec_cache_uri =
@@ -888,7 +887,7 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
       sec_cache_uri =
           "compressed_secondary_cache://"
           "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
-          "compress_format_version=2;enable_custom_split_merge=true";
+          "enable_custom_split_merge=true";
     } else {
       ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
       sec_cache_uri =

@@ -1310,14 +1310,14 @@ void CompactionIterator::PrepareOutput() {
             validity_info_.rep);
         assert(false);
       }
-      ikey_.sequence = 0;
-      last_key_seq_zeroed_ = true;
-      TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput:ZeroingSeq",
-                               &ikey_);
+
+      bool zeroed_seqno = false;
       if (!timestamp_size_) {
         current_key_.UpdateInternalKey(0, ikey_.type);
+        zeroed_seqno = true;
       } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {
-        // We can also zero out timestamp for better compression.
+        // For UDT, the seqno and timestamp could only be zeroed out after the
+        // key is below history_ts_low_.
         // For the same user key (excluding timestamp), the timestamp-based
         // history can be collapsed to save some space if the timestamp is
         // older than *full_history_ts_low_.
@@ -1325,6 +1325,14 @@ void CompactionIterator::PrepareOutput() {
         const Slice ts_slice = kTsMin;
         ikey_.SetTimestamp(ts_slice);
         current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
+        zeroed_seqno = true;
+      }
+
+      if (zeroed_seqno) {
+        ikey_.sequence = 0;
+        last_key_seq_zeroed_ = true;
+        TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput:ZeroingSeq",
+                                 &ikey_);
       }
     }
   }

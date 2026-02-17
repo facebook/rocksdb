@@ -32,7 +32,7 @@ RowValue CreateTestRowValue(
 RowValue CreateRowTombstone(int64_t timestamp);
 
 void VerifyRowValueColumns(
-    const std::vector<std::shared_ptr<ColumnBase>> &columns,
+    const std::vector<std::shared_ptr<ColumnBase>>& columns,
     std::size_t index_of_vector, int8_t expected_mask, int8_t expected_index,
     int64_t expected_timestamp);
 

@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
@@ -299,6 +300,18 @@ Status ExternalSstFileIngestionJob::Prepare(
         // ingestion.
         // TODO: plumb Env::IOActivity
         ReadOptions ro;
+        // Pass user-provided checksums through FileOptions when available.
+        // The caller may not have provided checksums at all (empty vectors),
+        // so we guard with a bounds check.
+        FileOptions fopts;
+        if (i < files_checksums.size()) {
+          fopts.file_checksum = files_checksums[i];
+        }
+        if (i < files_checksum_func_names.size()) {
+          fopts.file_checksum_func_name = files_checksum_func_names[i];
+        } else {
+          fopts.file_checksum_func_name = kNoFileChecksumFuncName;
+        }
         IOStatus io_s = GenerateOneFileChecksum(
             fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(),
@@ -307,7 +320,7 @@ Status ExternalSstFileIngestionJob::Prepare(
             ingestion_options_.verify_checksums_readahead_size,
             db_options_.allow_mmap_reads, io_tracer_,
             db_options_.rate_limiter.get(), ro, db_options_.stats,
-            db_options_.clock);
+            db_options_.clock, fopts);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -699,9 +712,13 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),  // orders files ingested to L0
         file->file_checksum, file->file_checksum_func_name, file->unique_id, 0,
-        tail_size, file->user_defined_timestamps_persisted);
+        tail_size, file->user_defined_timestamps_persisted, "", "");
     f_metadata.temperature = file->file_temperature;
     f_metadata.marked_for_compaction = marked_for_compaction;
+    // Extract min/max timestamps from table properties for UDT support.
+    // This ensures ingested files have proper timestamp ranges in FileMetaData,
+    // similar to files created by flush and compaction.
+    ExtractTimestampFromTableProperties(file->table_properties, &f_metadata);
     edit_.AddFile(file->picked_level, f_metadata);
 
     *batch_uppermost_level =
@@ -1477,13 +1494,15 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   // TODO: rate limit file reads for checksum calculation during file ingestion.
   // TODO: plumb Env::IOActivity
   ReadOptions ro;
+  FileOptions gen_fopts;
+  gen_fopts.file_checksum_func_name = kNoFileChecksumFuncName;
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
       db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
-      ro, db_options_.stats, db_options_.clock);
+      ro, db_options_.stats, db_options_.clock, gen_fopts);
   if (!io_s.ok()) {
     ROCKS_LOG_WARN(
         db_options_.info_log, "Failed to generate checksum for %s: %s",

@@ -212,6 +212,20 @@ public enum HistogramType {
 
   COMPACTION_PREFETCH_BYTES((byte) 0x3F),
 
+  /**
+   * MultiScan histogram statistics
+   */
+
+  /**
+   * Time spent in Iterator::Prepare() for multi-scan (microseconds)
+   */
+  MULTISCAN_PREPARE_MICROS((byte) 0x40),
+
+  /**
+   * Number of blocks per multi-scan Prepare() call
+   */
+  MULTISCAN_BLOCKS_PER_PREPARE((byte) 0x41),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

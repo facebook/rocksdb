@@ -21,9 +21,9 @@
  * Signature: ([J[J)Ljava/util/Map;
  */
 jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
-    JNIEnv *env, jclass, jlongArray jdb_handles, jlongArray jcache_handles) {
+    JNIEnv* env, jclass, jlongArray jdb_handles, jlongArray jcache_handles) {
   jboolean has_exception = JNI_FALSE;
-  std::vector<ROCKSDB_NAMESPACE::DB *> dbs =
+  std::vector<ROCKSDB_NAMESPACE::DB*> dbs =
       ROCKSDB_NAMESPACE::JniUtil::fromJPointers<ROCKSDB_NAMESPACE::DB>(
           env, jdb_handles, &has_exception);
   if (has_exception == JNI_TRUE) {
@@ -31,18 +31,18 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     return nullptr;
   }
 
-  std::unordered_set<const ROCKSDB_NAMESPACE::Cache *> cache_set;
+  std::unordered_set<const ROCKSDB_NAMESPACE::Cache*> cache_set;
   jsize cache_handle_count = env->GetArrayLength(jcache_handles);
   if (cache_handle_count > 0) {
-    jlong *ptr_jcache_handles =
+    jlong* ptr_jcache_handles =
         env->GetLongArrayElements(jcache_handles, nullptr);
     if (ptr_jcache_handles == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
     }
     for (jsize i = 0; i < cache_handle_count; i++) {
-      auto *cache_ptr =
-          reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *>(
+      auto* cache_ptr =
+          reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(
               ptr_jcache_handles[i]);
       cache_set.insert(cache_ptr->get());
     }
@@ -68,7 +68,7 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
       jobject>
       fn_map_kv = [env](
                       const std::pair<ROCKSDB_NAMESPACE::MemoryUtil::UsageType,
-                                      uint64_t> &pair) {
+                                      uint64_t>& pair) {
         // Construct key
         const jobject jusage_type = ROCKSDB_NAMESPACE::ByteJni::valueOf(
             env, ROCKSDB_NAMESPACE::MemoryUsageTypeJni::toJavaMemoryUsageType(

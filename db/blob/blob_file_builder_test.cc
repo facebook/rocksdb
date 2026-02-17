@@ -403,22 +403,19 @@ TEST_F(BlobFileBuilderTest, Compression) {
   ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
   ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
 
-  CompressionOptions opts;
-  CompressionContext context(kSnappyCompression, opts);
-
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       kSnappyCompression);
-
-  std::string compressed_value;
-  ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),
-                              uncompressed_value.size(), &compressed_value));
+  auto compressor =
+      GetBuiltinV2CompressionManager()->GetCompressor({}, kSnappyCompression);
+  GrowableBuffer compressed_value;
+  ASSERT_OK(LegacyForceBuiltinCompression(*compressor, /*working_area=*/nullptr,
+                                          uncompressed_value,
+                                          &compressed_value));
 
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
             BlobLogRecord::kHeaderSize + key_size + compressed_value.size());
 
   // Verify the contents of the new blob file as well as the blob reference
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs{
-      {key, compressed_value}};
+      {key, compressed_value.AsSlice().ToString()}};
   std::vector<std::string> blob_indexes{blob_index};
 
   VerifyBlobFile(blob_file_number, blob_file_path, column_family_id,
@@ -457,11 +454,12 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
-  SyncPoint::GetInstance()->SetCallBack("CompressData:TamperWithReturnValue",
-                                        [](void* arg) {
-                                          bool* ret = static_cast<bool*>(arg);
-                                          *ret = false;
-                                        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LegacyForceBuiltinCompression:TamperWithStatus", [](void* arg) {
+        Status* ret = static_cast<Status*>(arg);
+        ASSERT_OK(*ret);
+        *ret = Status::Corruption("Tampered result");
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr char key[] = "1";
@@ -469,7 +467,7 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
 
   std::string blob_index;
 
-  ASSERT_TRUE(builder.Add(key, value, &blob_index).IsCorruption());
+  ASSERT_EQ(builder.Add(key, value, &blob_index).code(), Status::kCorruption);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

@@ -25,21 +25,14 @@ namespace blob_db {
 // users to use blob DB.
 
 constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
+// Name of the directory under the base DB where blobs will be stored.
+constexpr const char* kBlobDirName = "blob_dir";
+
+// Allows OS to incrementally sync blob files to disk for every
+// kBytesPerSync bytes written.
+constexpr uint64_t kBytesPerSync = 512 * 1024;
 
 struct BlobDBOptions {
-  // Name of the directory under the base DB where blobs will be stored. Using
-  // a directory where the base DB stores its SST files is not supported.
-  // Default is "blob_dir"
-  std::string blob_dir = "blob_dir";
-
-  // whether the blob_dir path is relative or absolute.
-  bool path_relative = true;
-
-  // When max_db_size is reached, evict blob files to free up space
-  // instead of returnning NoSpace error on write. Blob files will be
-  // evicted from oldest to newest, based on file creation time.
-  bool is_fifo = false;
-
   // Maximum size of the database (including SST files and blob files).
   //
   // Default: 0 (no limits)
@@ -53,30 +46,13 @@ struct BlobDBOptions {
   // and so on
   uint64_t ttl_range_secs = 3600;
 
-  // The smallest value to store in blob log. Values smaller than this threshold
-  // will be inlined in base DB together with the key.
-  uint64_t min_blob_size = 0;
-
-  // Allows OS to incrementally sync blob files to disk for every
-  // bytes_per_sync bytes written. Users shouldn't rely on it for
-  // persistency guarantee.
-  uint64_t bytes_per_sync = 512 * 1024;
-
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
   uint64_t blob_file_size = 256 * 1024 * 1024;
 
-  // what compression to use for Blob's
-  CompressionType compression = kNoCompression;
-
   // If enabled, BlobDB cleans up stale blobs in non-TTL files during compaction
   // by rewriting the remaining live blobs to new files.
   bool enable_garbage_collection = false;
-
-  // The cutoff in terms of blob file age for garbage collection. Blobs in
-  // the oldest N non-TTL blob files will be rewritten when encountered during
-  // compaction, where N = garbage_collection_cutoff * number_of_non_TTL_files.
-  double garbage_collection_cutoff = 0.25;
 
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
@@ -119,20 +95,6 @@ class BlobDB : public StackableDB {
           "Blob DB doesn't support non-default column family.");
     }
     return PutWithTTL(options, key, value, ttl);
-  }
-
-  // Put with expiration. Key with expiration time equal to
-  // std::numeric_limits<uint64_t>::max() means the key don't expire.
-  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
-                          const Slice& value, uint64_t expiration) = 0;
-  virtual Status PutUntil(const WriteOptions& options,
-                          ColumnFamilyHandle* column_family, const Slice& key,
-                          const Slice& value, uint64_t expiration) {
-    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
-      return Status::NotSupported(
-          "Blob DB doesn't support non-default column family.");
-    }
-    return PutUntil(options, key, value, expiration);
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Get;
@@ -211,10 +173,6 @@ class BlobDB : public StackableDB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      BlobDB** blob_db);
-
-  virtual BlobDBOptions GetBlobDBOptions() const = 0;
-
-  virtual Status SyncBlobFiles(const WriteOptions& write_options) = 0;
 
   ~BlobDB() override {}
 

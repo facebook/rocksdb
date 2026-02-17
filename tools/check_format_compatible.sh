@@ -137,7 +137,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb" "10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb")
+declare -a db_forward_with_options_refs=("10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb" "10.11.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -145,7 +145,7 @@ declare -a db_forward_no_options_refs=() # N/A at the moment
 # To check for SST ingestion backward compatibility (new version reading
 # data from old) (ldb ingest_extern_sst added in 5.16.x, back-ported to
 # 5.14.x, 5.15.x)
-declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb")
+declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb" "8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb")
 # To check for SST ingestion forward compatibility (old version reading
 # data from new) as well as backward compatibility
 declare -a ext_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}")
@@ -159,8 +159,9 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 
 # Branches (git refs) to check for DB backward compatibility (new version
 # reading data from old) (in addition to the "forward compatible" list)
-# NOTE: 2.7.fb.branch shows assertion violation in some configurations
-declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
+# NOTE: format_version < 2 support was removed, so we only test back to 4.6.fb
+# (when format_version=2 became the default)
+declare -a db_backward_only_refs=("4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list
@@ -218,6 +219,17 @@ compare_db()
     [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
+        exit 1
+    fi
+    set -e
+}
+
+compact_db()
+{
+    set +e
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/compact_db.sh "$1" "$2" "$3"
+    if [ $? -ne 0 ]; then
+        echo ==== Error compacting DB at $1 ====
         exit 1
     fi
     set -e
@@ -387,9 +399,15 @@ DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 for checkout_ref in "${checkout_refs[@]}"
 do
-  # We currently assume DB backward compatibility for every branch listed
+  # We assume DB backward compatibility for every branch listed
   echo "== Use $current_checkout_name to open DB generated using $checkout_ref..."
   compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
+
+  echo "== Use $current_checkout_name to compact DB generated using $checkout_ref..."
+  compact_db $db_test_dir/$checkout_ref 1 0
+
+  echo "== After compaction, re-verify DB originally from $checkout_ref..."
+  compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump_after_compact.txt 1 0
 
   if member_of_array "$checkout_ref" "${ext_backward_only_refs[@]}" ||
     member_of_array "$checkout_ref" "${ext_forward_refs[@]}"

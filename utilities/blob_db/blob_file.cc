@@ -25,18 +25,16 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
     : parent_(p), path_to_dir_(bdir), file_number_(fn), info_log_(info_log) {}
 
 BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
-                   Logger* info_log, uint32_t column_family_id,
-                   CompressionType compression, bool has_ttl,
+                   Logger* info_log, uint32_t column_family_id, bool has_ttl,
                    const ExpirationRange& expiration_range)
     : parent_(p),
       path_to_dir_(bdir),
       file_number_(fn),
       info_log_(info_log),
       column_family_id_(column_family_id),
-      compression_(compression),
       has_ttl_(has_ttl),
       expiration_range_(expiration_range),
-      header_(column_family_id, compression, has_ttl, expiration_range),
+      header_(column_family_id, kNoCompression, has_ttl, expiration_range),
       header_valid_(true) {}
 
 BlobFile::~BlobFile() {
@@ -49,8 +47,6 @@ BlobFile::~BlobFile() {
     }
   }
 }
-
-uint32_t BlobFile::GetColumnFamilyId() const { return column_family_id_; }
 
 std::string BlobFile::PathName() const {
   return BlobFileName(path_to_dir_, file_number_);
@@ -259,7 +255,6 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
     return s;
   }
   column_family_id_ = header.column_family_id;
-  compression_ = header.compression;
   has_ttl_ = header.has_ttl;
   if (has_ttl_) {
     expiration_range_ = header.expiration_range;

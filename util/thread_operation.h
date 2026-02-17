@@ -19,7 +19,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
 
 // The structure that describes a major thread operation.
 struct OperationInfo {
@@ -120,5 +120,5 @@ struct OperationInfo {};
 
 struct StateInfo {};
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 }  // namespace ROCKSDB_NAMESPACE

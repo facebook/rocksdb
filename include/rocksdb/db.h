@@ -35,12 +35,6 @@
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
-#elif _WIN32
-#define ROCKSDB_DEPRECATED_FUNC __declspec(deprecated)
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 struct ColumnFamilyOptions;
@@ -1111,9 +1105,12 @@ class DB {
   // details. For optimal performance, ensure that either all entries in
   // scan_opts specify the range limit, or none of them do.
   //
-  // NOTE: iterate_upper_bound in ReadOptions will be ignored. Instead, the
-  // range.limit in ScanOptions is consulted to determine the upper bound key,
-  // if specified.
+  // NOTE: NOT YET SUPPORTED in DBs using user timestamp (see
+  // Comparator::timestamp_size())
+  //
+  // NOTE: iterate_upper_bound in ReadOptions will
+  // be ignored. Instead, the range.limit in ScanOptions is consulted to
+  // determine the upper bound key, if specified.
   //
   // Example usage -
   //  std::vector<ScanOptions> scans{{.start = Slice("bar")},
@@ -1255,6 +1252,10 @@ class DB {
     //  "rocksdb.num-running-compaction-sorted-runs" - returns the number of
     //  sorted runs being processed by currently running compactions.
     static const std::string kNumRunningCompactionSortedRuns;
+
+    //  "rocksdb.compaction-abort-count" - returns the current value of the
+    //      compaction abort counter.
+    static const std::string kCompactionAbortCount;
 
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
@@ -1631,14 +1632,38 @@ class DB {
   //  s = db->SetOptions(cfh, {{"block_based_table_factory",
   //                            "{prepopulate_block_cache=kDisable;}"}});
   virtual Status SetOptions(
-      ColumnFamilyHandle* /*column_family*/,
-      const std::unordered_map<std::string, std::string>& /*opts_map*/) {
-    return Status::NotSupported("Not implemented");
+      ColumnFamilyHandle* column_family,
+      const std::unordered_map<std::string, std::string>& opts_map) {
+    return SetOptions(std::vector<ColumnFamilyHandle*>{column_family},
+                      opts_map);
   }
   // Shortcut for SetOptions on the default column family handle.
   virtual Status SetOptions(
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
+  }
+  // Shortcut where you want to apply the same options to multiple column
+  // families. Beneficial for avoiding reserialization of OPTIONS file.
+  virtual Status SetOptions(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::unordered_map<std::string, std::string>& opts_map) {
+    std::unordered_map<ColumnFamilyHandle*,
+                       std::unordered_map<std::string, std::string>>
+        column_families_opts_map;
+    column_families_opts_map.reserve(column_families.size());
+    for (auto* cf : column_families) {
+      column_families_opts_map[cf] = opts_map;
+    }
+    return SetOptions(column_families_opts_map);
+  }
+  // SetOptions with potentially different options per column family. It is
+  // typically better to batch all option changes together as the OPTIONS file
+  // is written to once per SetOptions call.
+  virtual Status SetOptions(
+      const std::unordered_map<ColumnFamilyHandle*,
+                               std::unordered_map<std::string, std::string>>&
+      /*column_families_opts_map*/) {
+    return Status::NotSupported("Not implemented");
   }
 
   // Like SetOptions but for DBOptions, including the same caveats for
@@ -1709,6 +1734,46 @@ class DB {
   // manual compactions, and must not be called more times than
   // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
+
+  // Abort all compaction work/jobs. This function will signal all
+  // running compactions (both automatic and manual, background and foreground)
+  // to abort and will wait for them to finish or abort before returning. After
+  // this function returns, new compaction work will be aborted immediately
+  // until ResumeAllCompactions() is called.
+  //
+  // The compaction abort is checked periodically (every 1000 keys processed),
+  // so ongoing compactions should abort as well within a reasonable time.
+  // This function blocks until all compactions have completed or aborted.
+  //
+  // Any output files from aborted compactions are automatically cleaned up,
+  // ensuring no partial compaction results are installed, except for resumable
+  // compaction.
+  //
+  // This function supports concurrent abort requests from multiple callers
+  // without coordination between them. The call count is tracked, and
+  // compactions only resume after the number of ResumeAllCompactions() calls
+  // matches number of AbortAllCompactions() calls.
+  //
+  // Differences with other compaction control APIs:
+  // - DisableManualCompaction(): Only pauses manual compactions, waits for
+  //   them to finish naturally. AbortAllCompactions() actively cancels both
+  //   automatic and manual compactions.
+  // - PauseBackgroundWork(): Pauses all background work (flush + compaction),
+  //   waits for work to finish naturally. AbortAllCompactions() only affects
+  //   compactions and actively cancels them.
+  //
+  // Note: Compaction service (remote compaction) is not currently supported.
+  // Aborted compactions return Status::Incomplete with subcode
+  // kCompactionAborted.
+  virtual void AbortAllCompactions() = 0;
+
+  // Resume all compactions that were aborted by AbortAllCompactions().
+  // This function must be called as many times as AbortAllCompactions()
+  // has been called in order to resume compactions. This reference-counting
+  // behavior ensures that if multiple callers independently request an
+  // abort, compactions will not resume until all of them have called
+  // ResumeAllCompactions().
+  virtual void ResumeAllCompactions() = 0;
 
   // Wait for all flush and compactions jobs to finish. Jobs to wait include the
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,
@@ -1935,9 +2000,22 @@ class DB {
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
 
+  // Obtains the LSM-tree meta data of the specified column family of the DB
+  // with optional filtering by key range and level.
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* /*column_family*/,
+      const GetColumnFamilyMetaDataOptions& /*options*/,
+      ColumnFamilyMetaData* /*metadata*/) {}
+
   // Get the metadata of the default column family.
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* metadata) {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
+  }
+
+  // Get the metadata of the default column family with optional filtering.
+  void GetColumnFamilyMetaData(const GetColumnFamilyMetaDataOptions& options,
+                               ColumnFamilyMetaData* metadata) {
+    GetColumnFamilyMetaData(DefaultColumnFamily(), options, metadata);
   }
 
   // Obtains the LSM-tree meta data of all column families of the DB, including

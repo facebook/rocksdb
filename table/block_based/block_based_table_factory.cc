@@ -20,6 +20,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
@@ -184,6 +185,12 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearchWithFirstKey",
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
 
+static std::unordered_map<std::string, BlockBasedTableOptions::BlockSearchType>
+    block_base_table_index_search_type_string_map = {
+        {"kBinary", BlockBasedTableOptions::BlockSearchType::kBinary},
+        {"kInterpolation",
+         BlockBasedTableOptions::BlockSearchType::kInterpolation}};
+
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>
     block_base_table_data_block_index_type_string_map = {
@@ -261,6 +268,10 @@ static struct BlockBasedTableTypeInfo {
         {"index_type", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexType>(
                            offsetof(struct BlockBasedTableOptions, index_type),
                            &block_base_table_index_type_string_map)},
+        {"index_block_search_type",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::BlockSearchType>(
+             offsetof(struct BlockBasedTableOptions, index_block_search_type),
+             &block_base_table_index_search_type_string_map)},
         {"hash_index_allow_collision",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
         {"data_block_index_type",
@@ -485,19 +496,20 @@ void BlockBasedTableFactory::InitializeOptions() {
     }
   }
 
-  if (table_options_.format_version < kMinSupportedFormatVersion) {
+  if (table_options_.format_version < kMinSupportedBbtFormatVersionForWrite) {
+    // In TEST mode, allow writing format versions that are at least supported
+    // for reading (so that we have a way of testing the read side).
     if (TEST_AllowUnsupportedFormatVersion()) {
-      // Allow old format version for testing.
-      // And relevant old sanitization.
-      if (table_options_.format_version == 0 &&
-          table_options_.checksum != kCRC32c) {
-        // silently convert format_version to 1 to support non-CRC32c checksum
-        table_options_.format_version = 1;
+      if (table_options_.format_version <
+          kMinSupportedBbtFormatVersionForRead) {
+        table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
       }
     } else {
-      table_options_.format_version = kMinSupportedFormatVersion;
+      table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
     }
   }
+  // NOTE: do not sanitize too high format_version, so that it can be rejected
+  // in validation
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
@@ -615,6 +627,14 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
   }
+  if (table_options_.index_block_search_type ==
+      BlockBasedTableOptions::kInterpolation) {
+    // Interpolation search requires BytewiseComparator
+    if (cf_opts.comparator != BytewiseComparator()) {
+      return Status::InvalidArgument(
+          "Interpolation search requires BytewiseComparator");
+    }
+  }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
     return Status::InvalidArgument(
@@ -627,8 +647,14 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!IsSupportedFormatVersion(table_options_.format_version) &&
-      !TEST_AllowUnsupportedFormatVersion()) {
+  // In TEST mode, also allow writing
+  // (a) old format_versions that for users are only supported for reads
+  // (b) future "draft" format versions that are not yet published to users
+  if (!(IsSupportedFormatVersionForWrite(kBlockBasedTableMagicNumber,
+                                         table_options_.format_version) ||
+        (TEST_AllowUnsupportedFormatVersion() &&
+         table_options_.format_version >=
+             kMinSupportedBbtFormatVersionForRead))) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
@@ -636,9 +662,7 @@ Status BlockBasedTableFactory::ValidateOptions(
   bool using_builtin_compatible_compression = true;
   if (cf_opts.compression_manager &&
       strcmp(cf_opts.compression_manager->CompatibilityName(),
-             GetBuiltinCompressionManager(
-                 GetCompressFormatForVersion(table_options_.format_version))
-                 ->CompatibilityName()) != 0) {
+             GetBuiltinV2CompressionManager()->CompatibilityName()) != 0) {
     if (FormatVersionUsesCompressionManagerName(
             table_options_.format_version)) {
       using_builtin_compatible_compression = false;

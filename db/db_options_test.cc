@@ -432,12 +432,47 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   ASSERT_GT(low_bytes_per_sync, counter);
 }
 
+TEST_F(DBOptionsTest, MutableManifestOptions) {
+  // These aren't end-to-end tests, but sufficient to ensure the VersionSet
+  // receives the updates with SetDBOptions
+  for (int64_t i : {0, 1, 100, 100000, 10000000}) {
+    ASSERT_OK(
+        db_->SetDBOptions({{"max_manifest_file_size", std::to_string(i)}}));
+    ASSERT_EQ(i,
+              static_cast<int64_t>(db_->GetDBOptions().max_manifest_file_size));
+    ASSERT_EQ(i,
+              static_cast<int64_t>(
+                  dbfull()->GetVersionSet()->TEST_GetMinMaxManifestFileSize()));
+    if (i > 1) {
+      ++i;
+    }
+    ASSERT_OK(
+        db_->SetDBOptions({{"max_manifest_space_amp_pct", std::to_string(i)}}));
+    ASSERT_EQ(i, static_cast<int64_t>(
+                     db_->GetDBOptions().max_manifest_space_amp_pct));
+    ASSERT_EQ(i,
+              static_cast<int64_t>(
+                  dbfull()->GetVersionSet()->TEST_GetMaxManifestSpaceAmpPct()));
+    if (i > 1) {
+      ++i;
+    }
+    ASSERT_OK(db_->SetDBOptions(
+        {{"manifest_preallocation_size", std::to_string(i)}}));
+    ASSERT_EQ(i, static_cast<int64_t>(
+                     db_->GetDBOptions().manifest_preallocation_size));
+    ASSERT_EQ(
+        i, static_cast<int64_t>(
+               dbfull()->GetVersionSet()->TEST_GetManifestPreallocationSize()));
+  }
+}
+
 TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
   Options options;
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 1024 * 1024;
   options.level0_file_num_compaction_trigger = 3;
   options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
   options.env = env_;
   int buffer_size = 1024 * 1024;
   Reopen(options);
@@ -1652,6 +1687,46 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
   ASSERT_EQ(orig_manifest_file_size, new_manifest_file_size);
 
   ASSERT_EQ(Get("x"), "x");
+}
+
+TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = CurrentOptions().env;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // Create two additional column families
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+
+  // Verify initial state - auto compaction should be disabled
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
+
+  // Set options on multiple column families at once
+  ASSERT_OK(dbfull()->SetOptions({handles_[1], handles_[2]},
+                                 {{"disable_auto_compactions", "false"}}));
+
+  ASSERT_TRUE(
+      dbfull()->GetOptions(handles_[0]).disable_auto_compactions);  // unchanged
+  ASSERT_FALSE(
+      dbfull()->GetOptions(handles_[1]).disable_auto_compactions);  // changed
+  ASSERT_FALSE(
+      dbfull()->GetOptions(handles_[2]).disable_auto_compactions);  // changed
+
+  std::unordered_map<ColumnFamilyHandle*,
+                     std::unordered_map<std::string, std::string>>
+      options_map;
+  options_map[handles_[0]] = {{"disable_auto_compactions", "false"}};
+  options_map[handles_[1]] = {{"disable_auto_compactions", "true"}};
+  options_map[handles_[2]] = {{"disable_auto_compactions", "true"}};
+  ASSERT_OK(dbfull()->SetOptions(options_map));
+
+  ASSERT_FALSE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

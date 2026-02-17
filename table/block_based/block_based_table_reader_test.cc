@@ -1274,13 +1274,13 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
                       ExtractUserKey(kv[33 * kEntriesPerBlock].first));
   iter->Prepare(&scan_options);
   iter->Seek(kv[32 * kEntriesPerBlock].first);
+  auto key = iter->key();
   ASSERT_OK(iter->status());
-  iter->Seek(kv[34 * kEntriesPerBlock].first);
-  ASSERT_OK(iter->status());
-  // Seek key could not going backward
   iter->Seek(kv[30 * kEntriesPerBlock].first);
-  ASSERT_EQ(iter->status(),
-            Status::InvalidArgument("Unexpected seek key moving backward"));
+  // When seek key goes backward, it is adjusted to the last seeked position.
+  // Assert the key read is same as before.
+  ASSERT_EQ(key, iter->key());
+  ASSERT_OK(iter->status());
 
   // Test prefetch limit reached.
   iter.reset(table->NewIterator(
@@ -1333,9 +1333,10 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     std::cout << random_seed << std::endl;
     SCOPED_TRACE("Random seed " + std::to_string(random_seed));
 
-    int last_read_key_index = rnd.Uniform(100);
-    while (last_read_key_index < 100) {
-      iter->Seek(kv[last_read_key_index * kEntriesPerBlock].first);
+    // Search key always start from the start key of first prepared range.
+    int last_read_key_index = rnd.Uniform(100) + 5 * kEntriesPerBlock;
+    while (last_read_key_index < 100 * kEntriesPerBlock) {
+      iter->Seek(kv[last_read_key_index].first);
       EXPECT_OK(iter->status());
       // iterate for a few keys
       while (iter->Valid()) {

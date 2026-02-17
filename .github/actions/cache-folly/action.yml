@@ -7,20 +7,27 @@ outputs:
 runs:
   using: composite
   steps:
-  - name: Extract FOLLY_COMMIT_HASH from Makefile
+  - name: Extract FOLLY_MK_HASH
     id: extract-folly-hash
     shell: bash
     run: |
-      FOLLY_COMMIT_HASH=$(grep '^FOLLY_COMMIT_HASH' Makefile | awk '{print $3}')
-      echo "hash=$FOLLY_COMMIT_HASH" >> $GITHUB_OUTPUT
+      FOLLY_MK_HASH=$(md5sum folly.mk | cut -d' ' -f1)
+      echo "hash=$FOLLY_MK_HASH" >> $GITHUB_OUTPUT
+  - name: Extract FOLLY_INSTALL_DIR
+    id: extract-folly-install-dir
+    shell: bash
+    run: |
+      FOLLY_INSTALL_DIR=$(cd third-party/folly && python3 build/fbcode_builder/getdeps.py show-inst-dir)
+      echo "dir=$(echo $FOLLY_INSTALL_DIR | sed 's|installed/folly|installed|')" >> $GITHUB_OUTPUT
   - name: Cache folly build
     id: cache-folly-build
     uses: actions/cache@v4
     with:
       # Cache the folly build directory
-      path: /tmp/fbcode_builder_getdeps-Z__wZrocksdbZrocksdbZthird-partyZfollyZbuildZfbcode_builder-root/installed
+      path: ${{ steps.extract-folly-install-dir.outputs.dir }}
       # Key is based on:
       # - OS and architecture
-      # - The specific folly commit hash from Makefile
-      # - The container image version to account for different compiler/library versions
-      key: folly-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.extract-folly-hash.outputs.hash }}-ubuntu22.1-v1
+      # - The docker image, which may not always be specified/known
+      # - Hash of folly.mk, which includes the folly repository commit hash
+      # NOTE: this is still only intended for DEBUG folly builds
+      key: folly-build-${{ runner.os }}-${{ runner.arch }}-${{ github.job_container.image }}-${{ steps.extract-folly-hash.outputs.hash }}

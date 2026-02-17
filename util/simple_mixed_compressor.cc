@@ -15,8 +15,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // MultiCompressorWrapper implementation
-MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
-                                               CompressionDict&& dict) {
+MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts)
+    : opts_(opts) {
   // TODO: make the compression manager a field
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
@@ -26,12 +26,11 @@ MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
     }
     compressors_.push_back(builtInManager->GetCompressor(opts, type));
   }
-  (void)dict;
 }
 
-size_t MultiCompressorWrapper::GetMaxSampleSizeIfWantDict(
+Compressor::DictConfig MultiCompressorWrapper::GetDictGuidance(
     CacheEntryRole block_type) const {
-  return compressors_.back()->GetMaxSampleSizeIfWantDict(block_type);
+  return compressors_.back()->GetDictGuidance(block_type);
 }
 
 Slice MultiCompressorWrapper::GetSerializedDict() const {
@@ -47,16 +46,20 @@ Compressor::ManagedWorkingArea MultiCompressorWrapper::ObtainWorkingArea() {
 }
 
 std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
-    CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+    CacheEntryRole block_type, DictConfigArgs&& dict_config) const {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
   return compressors_.back()->MaybeCloneSpecialized(block_type,
-                                                    std::move(dict_samples));
+                                                    std::move(dict_config));
 }
 
 // RandomMixedCompressor implementation
 const char* RandomMixedCompressor::Name() const {
   return "RandomMixedCompressor";
+}
+
+std::unique_ptr<Compressor> RandomMixedCompressor::Clone() const {
+  return std::make_unique<RandomMixedCompressor>(opts_);
 }
 
 Status RandomMixedCompressor::CompressBlock(
@@ -84,6 +87,10 @@ std::unique_ptr<Compressor> RandomMixedCompressionManager::GetCompressorForSST(
 // RoundRobinCompressor implementation
 const char* RoundRobinCompressor::Name() const {
   return "RoundRobinCompressor";
+}
+
+std::unique_ptr<Compressor> RoundRobinCompressor::Clone() const {
+  return std::make_unique<RoundRobinCompressor>(opts_);
 }
 
 Status RoundRobinCompressor::CompressBlock(

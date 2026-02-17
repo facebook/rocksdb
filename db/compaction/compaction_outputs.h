@@ -84,6 +84,19 @@ class CompactionOutputs {
 
   bool HasBlobFileAdditions() const { return !blob_file_additions_.empty(); }
 
+  // Get all file paths (SST and blob) created during compaction.
+  const std::vector<std::string>& GetOutputFilePaths() const {
+    return output_file_paths_;
+  }
+
+  std::vector<std::string>* GetOutputFilePathsPtr() {
+    return &output_file_paths_;
+  }
+
+  void AddOutputFilePath(const std::string& path) {
+    output_file_paths_.push_back(path);
+  }
+
   BlobGarbageMeter* CreateBlobGarbageMeter() {
     assert(!is_proximal_level_);
     blob_garbage_meter_ = std::make_unique<BlobGarbageMeter>();
@@ -262,7 +275,7 @@ class CompactionOutputs {
   Status AddToOutput(const CompactionIterator& c_iter,
                      const CompactionFileOpenFunc& open_file_func,
                      const CompactionFileCloseFunc& close_file_func,
-                     const ParsedInternalKey& prev_table_last_internal_key);
+                     const ParsedInternalKey& prev_iter_output_internal_key);
 
   // Close the current output. `open_file_func` is needed for creating new file
   // for range-dels only output file.
@@ -320,6 +333,12 @@ class CompactionOutputs {
   // BlobDB info
   std::vector<BlobFileAddition> blob_file_additions_;
   std::unique_ptr<BlobGarbageMeter> blob_garbage_meter_;
+
+  // All file paths (SST and blob) created during compaction.
+  // Used for cleanup on abort - ensures orphan files are deleted even if
+  // they were removed from outputs_ or blob_file_additions_ (e.g., by
+  // RemoveLastEmptyOutput when file_size is 0 because builder was abandoned).
+  std::vector<std::string> output_file_paths_;
 
   // Per level's output stat
   InternalStats::CompactionStats stats_;

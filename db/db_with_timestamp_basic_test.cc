@@ -1427,8 +1427,12 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
     WriteBatch batch(0, 0, 0, kTimestampSize);
-    { ASSERT_OK(batch.Put("a", "new_value")); }
-    { ASSERT_OK(batch.Put("b", "new_value")); }
+    {
+      ASSERT_OK(batch.Put("a", "new_value"));
+    }
+    {
+      ASSERT_OK(batch.Put("b", "new_value"));
+    }
     s = batch.UpdateTimestamps(
         ts_str, [kTimestampSize](uint32_t) { return kTimestampSize; });
     ASSERT_OK(s);

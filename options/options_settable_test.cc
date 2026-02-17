@@ -182,6 +182,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
+      "index_block_search_type=kBinary;"
       "data_block_index_type=kDataBlockBinaryAndHash;"
       "index_shortening=kNoShortening;"
       "data_block_hash_table_util_ratio=0.75;"
@@ -408,6 +409,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_stats_update_on_db_open=false;"
                              "skip_checking_sst_file_sizes_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
+                             "max_manifest_space_amp_pct=321;"
                              "db_log_dir=path/to/db_log_dir;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
@@ -507,7 +509,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsExcluded = {
       {offsetof(struct ColumnFamilyOptions, inplace_callback),
-       sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
+       sizeof(UpdateStatus (*)(char*, uint32_t*, Slice, std::string*))},
       {offsetof(struct ColumnFamilyOptions,
                 memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
@@ -610,6 +612,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
+      "target_file_size_is_upper_bound=false;"
       "min_write_buffer_number_to_merge=9;"
       "max_write_buffer_number=84;"
       "write_buffer_size=1653;"
@@ -675,7 +678,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=true;age_for_warm=0;file_temperature_age_thresholds={{"
-      "temperature=kCold;age=12345}};};"
+      "temperature=kCold;age=12345}};max_data_files_size=1073741824;"
+      "use_kv_ratio_compaction=false;};"
       "blob_cache=1M;"
       "memtable_protection_bytes_per_key=2;"
       "persist_user_defined_timestamps=true;"
@@ -687,7 +691,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_veirfy_per_key_checksum_on_seek=1;"
       "memtable_op_scan_flush_trigger=123;"
       "memtable_avg_op_scan_flush_trigger=12;"
-      "cf_allow_ingest_behind=1;",
+      "cf_allow_ingest_behind=1;"
+      "verify_output_flags=2049;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

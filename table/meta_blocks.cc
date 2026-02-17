@@ -476,7 +476,8 @@ Status ReadTablePropertiesHelper(
     // (See write_global_seqno comment above)
     if (s.ok() && footer.GetBlockTrailerSize() > 0) {
       s = VerifyBlockChecksum(footer, properties_block.data(), block_size,
-                              file->file_name(), handle.offset());
+                              file->file_name(), handle.offset(),
+                              BlockType::kProperties);
       if (s.IsCorruption()) {
         if (new_table_properties->external_sst_file_global_seqno_offset != 0) {
           std::string tmp_buf(properties_block.data(), len);
@@ -485,7 +486,8 @@ Status ReadTablePropertiesHelper(
               handle.offset();
           EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
           s = VerifyBlockChecksum(footer, tmp_buf.data(), block_size,
-                                  file->file_name(), handle.offset());
+                                  file->file_name(), handle.offset(),
+                                  BlockType::kProperties);
         }
       }
     }

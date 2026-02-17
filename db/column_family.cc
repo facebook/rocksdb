@@ -401,7 +401,13 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.max_compaction_bytes == 0) {
-    result.max_compaction_bytes = result.target_file_size_base * 25;
+    // For FIFO with use_kv_ratio_compaction, leave max_compaction_bytes as 0
+    // to signal "auto-calculate target from capacity and SST/blob ratio."
+    // When explicitly set by the user, it overrides the auto-calculated target.
+    if (result.compaction_style != kCompactionStyleFIFO ||
+        !result.compaction_options_fifo.use_kv_ratio_compaction) {
+      result.max_compaction_bytes = result.target_file_size_base * 25;
+    }
   }
 
   bool is_block_based_table = (result.table_factory->IsInstanceOf(
@@ -1248,7 +1254,7 @@ Compaction* ColumnFamilyData::PickCompaction(
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
       snapshot_checker, current_->storage_info(), log_buffer,
-      require_max_output_level);
+      GetFullHistoryTsLow(), require_max_output_level);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
@@ -1336,7 +1342,7 @@ Compaction* ColumnFamilyData::CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore, trim_ts);
+      max_file_num_to_ignore, trim_ts, GetFullHistoryTsLow());
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
@@ -1561,6 +1567,34 @@ Status ColumnFamilyData::ValidateOptions(
       db_options.max_open_files != -1 && cf_options.ttl > 0) {
     return Status::NotSupported(
         "FIFO compaction only supported with max_open_files = -1.");
+  }
+
+  if (cf_options.compaction_options_fifo.use_kv_ratio_compaction) {
+    if (cf_options.compaction_style != kCompactionStyleFIFO) {
+      return Status::InvalidArgument(
+          "use_kv_ratio_compaction is only supported with FIFO compaction "
+          "style.");
+    }
+    if (!cf_options.compaction_options_fifo.allow_compaction) {
+      return Status::InvalidArgument(
+          "use_kv_ratio_compaction requires allow_compaction = true. "
+          "allow_compaction enables intra-L0 compaction, and "
+          "use_kv_ratio_compaction selects the picking strategy.");
+    }
+    if (cf_options.compaction_options_fifo.max_data_files_size == 0) {
+      return Status::InvalidArgument(
+          "use_kv_ratio_compaction requires max_data_files_size > 0 to "
+          "compute the target compacted file size from data capacity.");
+    }
+  }
+
+  if (cf_options.compaction_options_fifo.max_data_files_size > 0 &&
+      cf_options.compaction_options_fifo.max_data_files_size <
+          cf_options.compaction_options_fifo.max_table_files_size) {
+    return Status::InvalidArgument(
+        "max_data_files_size (total data = SST + blob) must be >= "
+        "max_table_files_size (SST only) when non-zero, since total data "
+        "always includes SST data.");
   }
 
   std::vector<uint32_t> supported{0, 1, 2, 4, 8};

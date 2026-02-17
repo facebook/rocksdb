@@ -165,9 +165,9 @@ struct WriteBatchIndexEntry {
   uint32_t column_family;  // column family of the entry.
   // The following three fields are only maintained when the WBWI is created
   // with overwrite_key = true.
-  uint32_t update_count;   // The number of updates (1-based) for this key up to
-                           // this entry.
-  bool has_single_del;     // whether single del was issued for this key
+  uint32_t update_count;  // The number of updates (1-based) for this key up to
+                          // this entry.
+  bool has_single_del;    // whether single del was issued for this key
   bool has_overwritten_single_del;  // whether a single del for this key was
                                     // overwritten by another key
   // The following two fields are used when search_key is null.

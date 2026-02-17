@@ -71,6 +71,8 @@ const std::string LDBCommand::ARG_CF_NAME = "column_family";
 const std::string LDBCommand::ARG_TTL = "ttl";
 const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
+const std::string LDBCommand::ARG_USE_TXN = "use_txn";
+const std::string LDBCommand::ARG_TXN_WRITE_POLICY = "txn_write_policy";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
 const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
@@ -110,8 +112,6 @@ const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
 const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
     "prepopulate_blob_cache";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
-const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
-    "dump_uncompressed_blobs";
 const std::string LDBCommand::ARG_READ_TIMESTAMP = "read_timestamp";
 const std::string LDBCommand::ARG_GET_WRITE_UNIX_TIME = "get_write_unix_time";
 
@@ -201,7 +201,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
                  std::string from_key = "", std::string to_key = "");
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
-                  bool is_value_hex, bool dump_uncompressed_blobs);
+                  bool is_value_hex);
 
 Status EncodeUserProvidedTimestamp(const std::string& user_timestamp,
                                    std::string* ts_buf);
@@ -481,10 +481,13 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& valid_cmd_line_options)
     : db_(nullptr),
       db_ttl_(nullptr),
+      db_txn_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
       is_db_ttl_(false),
+      is_db_txn_(false),
+      txn_write_policy_(0),
       timestamp_(false),
       try_load_options_(false),
       create_if_missing_(false),
@@ -528,6 +531,21 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+  is_db_txn_ = IsFlagPresent(flags, ARG_USE_TXN);
+  itr = options.find(ARG_TXN_WRITE_POLICY);
+  if (itr != options.end()) {
+    try {
+      txn_write_policy_ = std::stoi(itr->second);
+      if (txn_write_policy_ < 0 || txn_write_policy_ > 2) {
+        fprintf(stderr, "Invalid txn_write_policy: %d. Must be 0, 1, or 2.\n",
+                txn_write_policy_);
+        txn_write_policy_ = 0;
+      }
+    } catch (const std::exception&) {
+      fprintf(stderr, "Invalid txn_write_policy value: %s\n",
+              itr->second.c_str());
+    }
+  }
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
@@ -551,7 +569,34 @@ void LDBCommand::OpenDB() {
   // Open the DB.
   Status st;
   std::vector<ColumnFamilyHandle*> handles_opened;
-  if (is_db_ttl_) {
+  if (is_db_txn_) {
+    // TransactionDB mode
+    if (is_db_ttl_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot use both --ttl and --use_txn flags together");
+      return;
+    }
+    if (!secondary_path_.empty() || !leader_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support secondary or follower mode");
+      return;
+    }
+    if (is_read_only_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support read-only mode");
+      return;
+    }
+    TransactionDBOptions txn_db_options;
+    txn_db_options.write_policy =
+        static_cast<TxnDBWritePolicy>(txn_write_policy_);
+    if (column_families_.empty()) {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_, &db_txn_);
+    } else {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_,
+                               column_families_, &handles_opened, &db_txn_);
+    }
+    db_ = db_txn_;
+  } else if (is_db_ttl_) {
     // ldb doesn't yet support TTL DB with multiple column families
     if (!column_family_name_.empty() || !column_families_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -692,7 +737,9 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_FILE_STARTING_LEVEL,
                                   ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
-                                  ARG_CF_NAME};
+                                  ARG_CF_NAME,
+                                  ARG_USE_TXN,
+                                  ARG_TXN_WRITE_POLICY};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
 }
@@ -1610,11 +1657,12 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &immutable_db_options, MutableDBOptions{}, sopt,
+                      tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1805,11 +1853,12 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &immutable_db_options, MutableDBOptions{options},
+                      sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -2286,13 +2335,12 @@ DBDumperCommand::DBDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true /* is_read_only */,
-          BuildCmdLineOptions(
-              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
-               ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
-               ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
-               ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
+    : LDBCommand(options, flags, true /* is_read_only */,
+                 BuildCmdLineOptions(
+                     {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
+                      ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM,
+                      ARG_STATS, ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET,
+                      ARG_TIMESTAMP, ARG_PATH, ARG_DECODE_BLOB_INDEX})),
       null_from_(true),
       null_to_(true),
       max_keys_(-1),
@@ -2340,7 +2388,6 @@ DBDumperCommand::DBDumperCommand(
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
   decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
-  dump_uncompressed_blobs_ = IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS);
 
   if (is_key_hex_) {
     if (!null_from_) {
@@ -2375,7 +2422,6 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
-  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -2422,8 +2468,7 @@ void DBDumperCommand::DoCommand() {
                          /*  json_ */ false, column_families_);
         break;
       case kBlobFile:
-        DumpBlobFile(path_, is_key_hex_, is_value_hex_,
-                     dump_uncompressed_blobs_);
+        DumpBlobFile(path_, is_key_hex_, is_value_hex_);
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(
@@ -2660,7 +2705,8 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc(opt.delayed_write_rate);
   WriteBufferManager wb(opt.db_write_buffer_size);
-  VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
+  VersionSet versions(db_path_, &db_options, MutableDBOptions{opt}, soptions,
+                      tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       opt.daily_offpeak_time_utc,
@@ -4715,22 +4761,16 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 }
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
-                  bool is_value_hex, bool dump_uncompressed_blobs) {
+                  bool is_value_hex) {
   using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
   BlobDumpTool tool;
-  BlobDumpTool::DisplayType blob_type = is_value_hex
+  BlobDumpTool::DisplayType show_blob = is_value_hex
                                             ? BlobDumpTool::DisplayType::kHex
                                             : BlobDumpTool::DisplayType::kRaw;
-  BlobDumpTool::DisplayType show_uncompressed_blob =
-      dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
-  BlobDumpTool::DisplayType show_blob =
-      dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
-
   BlobDumpTool::DisplayType show_key = is_key_hex
                                            ? BlobDumpTool::DisplayType::kHex
                                            : BlobDumpTool::DisplayType::kRaw;
-  Status s = tool.Run(filename, show_key, show_blob, show_uncompressed_blob,
-                      /* show_summary */ true);
+  Status s = tool.Run(filename, show_key, show_blob, /* show_summary */ true);
   if (!s.ok()) {
     fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
   }
@@ -4754,17 +4794,13 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true /* is_read_only */,
-                 BuildCmdLineOptions(
-                     {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
-      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
-      dump_uncompressed_blobs_(
-          IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS)) {}
+                 BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
-  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
-  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "] ");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
   ret.append("\n");
 }
 
@@ -4832,8 +4868,7 @@ void DBFileDumperCommand::DoCommand() {
       filename = NormalizePath(filename);
       std::cout << filename << std::endl;
       std::cout << "------------------------------" << std::endl;
-      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false,
-                   dump_uncompressed_blobs_);
+      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false);
       std::cout << std::endl;
     }
   }

@@ -49,8 +49,10 @@ Status CompactionOutputs::Finish(
     meta->fd.file_size = current_bytes;
     meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
-    meta->user_defined_timestamps_persisted = static_cast<bool>(
-        builder_->GetTableProperties().user_defined_timestamps_persisted);
+    const TableProperties& tp = builder_->GetTableProperties();
+    meta->user_defined_timestamps_persisted =
+        static_cast<bool>(tp.user_defined_timestamps_persisted);
+    ExtractTimestampFromTableProperties(tp, meta);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
@@ -278,7 +280,11 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   }
 
   // reach the max file size
-  if (current_output_file_size_ >= compaction_->max_output_file_size()) {
+  uint64_t estimated_file_size = current_output_file_size_;
+  if (compaction_->mutable_cf_options().target_file_size_is_upper_bound) {
+    estimated_file_size += builder_->EstimatedTailSize();
+  }
+  if (estimated_file_size >= compaction_->max_output_file_size()) {
     return true;
   }
 
@@ -360,7 +366,7 @@ Status CompactionOutputs::AddToOutput(
     const CompactionIterator& c_iter,
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func,
-    const ParsedInternalKey& prev_table_last_internal_key) {
+    const ParsedInternalKey& prev_iter_output_internal_key) {
   Status s;
   bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
   if (is_range_del && compaction_->bottommost_level()) {
@@ -371,8 +377,8 @@ Status CompactionOutputs::AddToOutput(
   }
   const Slice& key = c_iter.key();
   if (ShouldStopBefore(c_iter) && HasBuilder()) {
-    s = close_file_func(c_iter.InputStatus(), prev_table_last_internal_key, key,
-                        &c_iter, *this);
+    s = close_file_func(c_iter.InputStatus(), prev_iter_output_internal_key,
+                        key, &c_iter, *this);
     if (!s.ok()) {
       return s;
     }

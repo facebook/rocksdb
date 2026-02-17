@@ -95,6 +95,14 @@ class SubcompactionState {
     proximal_level_outputs_.RemoveLastEmptyOutput();
   }
 
+  // Cleanup output builders for abandoning in-progress files.
+  void CleanupOutputs() {
+    compaction_outputs_.Cleanup();
+    if (compaction->SupportsPerKeyPlacement()) {
+      proximal_level_outputs_.Cleanup();
+    }
+  }
+
   void BuildSubcompactionJobInfo(
       SubcompactionJobInfo& subcompaction_job_info) const {
     const Compaction* c = compaction;
@@ -221,7 +229,7 @@ class SubcompactionState {
   Status AddToOutput(const CompactionIterator& iter, bool use_proximal_output,
                      const CompactionFileOpenFunc& open_file_func,
                      const CompactionFileCloseFunc& close_file_func,
-                     const ParsedInternalKey& prev_table_last_internal_key);
+                     const ParsedInternalKey& prev_iter_output_internal_key);
 
   // Close all compaction output files, both output_to_proximal_level outputs
   // and normal outputs.

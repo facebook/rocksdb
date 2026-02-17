@@ -44,6 +44,10 @@ jobs:
       run: python -m pip install --upgrade pip
     - name: Install argparse
       run: pip install argparse
+    - name: Install clang-format
+      run: |
+        pip install https://files.pythonhosted.org/packages/fb/ac/3c04772acc0257f5730e83adb542b2603c1a62d1315010ab593a980af404/clang_format-21.1.2-py2.py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        clang-format --version
     - name: Download clang-format-diff.py
       run: wget https://rocksdb-deps.s3.us-west-2.amazonaws.com/llvm/llvm-project/release/12.x/clang/tools/clang-format/clang-format-diff.py
     - name: Check format
@@ -92,24 +96,6 @@ jobs:
         which javac && javac -version
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
     - uses: "./.github/actions/post-steps"
-  build-linux-cmake-with-folly:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - uses: "./.github/actions/setup-folly"
-    - uses: "./.github/actions/cache-folly"
-      id: cache-folly
-    - uses: "./.github/actions/build-folly"
-      with:
-        cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
-    - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
@@ -120,6 +106,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly
@@ -138,6 +125,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
@@ -151,15 +139,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly
     - uses: "./.github/actions/build-folly"
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
+    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
-  build-linux-cmake-with-benchmark:
+  build-linux-cmake-with-benchmark-no-thread-status:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
@@ -169,7 +158,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
+    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -372,7 +361,7 @@ jobs:
     - name: cmake generate project file
       run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
     - name: Build tests
-      run: cd build && make V=1 -j8
+      run: cd build && make VERBOSE=1 -j8
     - name: Run shard 0 out of 4 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 0,,4
       if: ${{ matrix.run_sharded_tests == 0 }}

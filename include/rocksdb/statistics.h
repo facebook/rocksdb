@@ -162,6 +162,8 @@ enum Tickers : uint32_t {
   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
   // If a compaction was canceled in sfm to prevent ENOSPC
   COMPACTION_CANCELLED,
+  // Number of compactions aborted via AbortAllCompactions()
+  COMPACTION_ABORTED,
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -301,7 +303,7 @@ enum Tickers : uint32_t {
   NUMBER_RATE_LIMITER_DRAINS,
 
   // BlobDB specific stats
-  // # of Put/PutTTL/PutUntil to BlobDB. Only applicable to legacy BlobDB.
+  // # of Put/PutWithTTL to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_NUM_PUT,
   // # of Write to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_NUM_WRITE,
@@ -326,12 +328,12 @@ enum Tickers : uint32_t {
   // # of bytes (keys + value) read from BlobDB. Only applicable to legacy
   // BlobDB.
   BLOB_DB_BYTES_READ,
-  // # of keys written by BlobDB as non-TTL inlined value. Only applicable to
-  // legacy BlobDB.
-  BLOB_DB_WRITE_INLINED,
-  // # of keys written by BlobDB as TTL inlined value. Only applicable to legacy
-  // BlobDB.
-  BLOB_DB_WRITE_INLINED_TTL,
+  // Deprecated: min_blob_size is no longer configurable. Retained to avoid
+  // shifting enum values.
+  BLOB_DB_WRITE_INLINED_DEPRECATED,
+  // Deprecated: min_blob_size is no longer configurable. Retained to avoid
+  // shifting enum values.
+  BLOB_DB_WRITE_INLINED_TTL_DEPRECATED,
   // # of keys written by BlobDB as non-TTL blob value. Only applicable to
   // legacy BlobDB.
   BLOB_DB_WRITE_BLOB,
@@ -552,6 +554,35 @@ enum Tickers : uint32_t {
   // Failure to load the UDI during SST table open
   SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT,
 
+  // MultiScan statistics
+  // # of Prepare() calls
+  MULTISCAN_PREPARE_CALLS,
+  // # of Prepare() calls that failed
+  MULTISCAN_PREPARE_ERRORS,
+  // # of data blocks prefetched from storage during MultiScan
+  MULTISCAN_BLOCKS_PREFETCHED,
+  // # of blocks found already in cache during MultiScan Prepare
+  MULTISCAN_BLOCKS_FROM_CACHE,
+  // Total bytes prefetched during MultiScan
+  MULTISCAN_PREFETCH_BYTES,
+  // # of prefetched blocks that were never accessed
+  MULTISCAN_PREFETCH_BLOCKS_WASTED,
+  // # of actual I/O requests issued during MultiScan
+  MULTISCAN_IO_REQUESTS,
+  // # of non-adjacent blocks coalesced into single I/O (within
+  // io_coalesce_threshold)
+  MULTISCAN_IO_COALESCED_NONADJACENT,
+  // # of seeks that failed validation (out of order, etc.)
+  MULTISCAN_SEEK_ERRORS,
+
+  // IODispatcher memory limiting statistics
+  // # of bytes granted to prefetch requests
+  PREFETCH_MEMORY_BYTES_GRANTED,
+  // # of bytes released from prefetch memory
+  PREFETCH_MEMORY_BYTES_RELEASED,
+  // # of prefetch requests that were blocked waiting for memory
+  PREFETCH_MEMORY_REQUESTS_BLOCKED,
+
   TICKER_ENUM_MAX
 };
 
@@ -630,8 +661,7 @@ enum Histograms : uint32_t {
   BLOB_DB_KEY_SIZE,
   // Size of values written to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_VALUE_SIZE,
-  // BlobDB Put/PutWithTTL/PutUntil/Write latency. Only applicable to legacy
-  // BlobDB.
+  // BlobDB Put/PutWithTTL/Write latency. Only applicable to legacy BlobDB.
   BLOB_DB_WRITE_MICROS,
   // BlobDB Get latency. Only applicable to legacy BlobDB.
   BLOB_DB_GET_MICROS,
@@ -691,6 +721,14 @@ enum Histograms : uint32_t {
 
   // Number of operations per transaction.
   NUM_OP_PER_TRANSACTION,
+
+  // MultiScan Prefill iterator Prepare cost
+  MULTISCAN_PREPARE_ITERATORS,
+
+  // Total Prepare() latency for MultiScan
+  MULTISCAN_PREPARE_MICROS,
+  // Distribution of blocks prefetched per MultiScan Prepare()
+  MULTISCAN_BLOCKS_PER_PREPARE,
 
   HISTOGRAM_ENUM_MAX
 };

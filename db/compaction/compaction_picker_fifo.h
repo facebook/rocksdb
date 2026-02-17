@@ -24,6 +24,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const std::vector<SequenceNumber>& /* existing_snapshots */,
       const SnapshotChecker* /* snapshot_checker */,
       VersionStorageInfo* version, LogBuffer* log_buffer,
+      const std::string& /* full_history_ts_low */,
       bool /* require_max_output_level*/ = false) override;
 
   Compaction* PickCompactionForCompactRange(
@@ -33,7 +34,8 @@ class FIFOCompactionPicker : public CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts) override;
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+      const std::string& full_history_ts_low) override;
 
   // The maximum allowed output level.  Always returns 0.
   int MaxOutputLevel() const override { return 0; }
@@ -52,6 +54,28 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  const MutableDBOptions& mutable_db_options,
                                  VersionStorageInfo* version,
                                  LogBuffer* log_buffer);
+
+  // Intra-L0 compaction: merges small L0 files to reduce file count.
+  // Dispatches between two strategies based on configuration:
+  //   - use_kv_ratio_compaction = true: PickRatioBasedIntraL0Compaction
+  //   (BlobDB-optimized)
+  //   - use_kv_ratio_compaction = false: PickCostBasedIntraL0Compaction
+  //   (original)
+  // Only active when allow_compaction = true.
+  Compaction* PickIntraL0Compaction(const std::string& cf_name,
+                                    const MutableCFOptions& mutable_cf_options,
+                                    const MutableDBOptions& mutable_db_options,
+                                    VersionStorageInfo* vstorage,
+                                    LogBuffer* log_buffer);
+
+  // Capacity-derived intra-L0 compaction for BlobDB workloads.
+  // Uses the observed SST/blob ratio to compute a target file size,
+  // producing uniform files for predictable FIFO trimming.
+  // Called from PickIntraL0Compaction when use_kv_ratio_compaction = true.
+  Compaction* PickRatioBasedIntraL0Compaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer);
 
   // Will pick one file to compact at a time, starting from the oldest file.
   Compaction* PickTemperatureChangeCompaction(

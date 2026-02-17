@@ -329,7 +329,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
     file->SetPreallocationBlockSize(
-        immutable_db_options_.manifest_preallocation_size);
+        mutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, immutable_db_options_.clock,
         io_tracer_, nullptr /* stats */,
@@ -657,7 +657,8 @@ Status DBImpl::Recover(
                            f->file_creation_time, f->epoch_number,
                            f->file_checksum, f->file_checksum_func_name,
                            f->unique_id, f->compensated_range_deletion_size,
-                           f->tail_size, f->user_defined_timestamps_persisted);
+                           f->tail_size, f->user_defined_timestamps_persisted,
+                           f->min_timestamp, f->max_timestamp);
               ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Moving #%" PRIu64
                              " from from_level-%d to from_level-%d %" PRIu64

@@ -43,6 +43,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -3541,6 +3542,7 @@ TEST_F(BackupEngineTest, EnvFailures) {
 TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   DestroyDBWithoutCheck(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
+  options_.max_manifest_space_amp_pct = 0;
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
 
@@ -4787,6 +4789,79 @@ TEST_F(BackupEngineTest, IOBufferSize) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Test stopping backup at different points in the backup lifecycle
+// Uses randomized stop points with geometric distribution to better catch
+// edge cases across multiple iterations.
+TEST_F(BackupEngineTest, StopBackupAtDifferentStages) {
+  const int keys_iteration = 5000;
+  const int num_iterations = 10;
+
+  // Enable multi-threaded backup
+  engine_options_->max_background_operations = 7;
+
+  // Generate DB once and reuse across iterations
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0, keys_iteration);
+
+  Random rnd(301);
+
+  for (int iteration = 0; iteration < num_iterations; iteration++) {
+    // Generate stop threshold using skewed distribution
+    // Smaller numbers are more likely, which is more interesting for testing
+    // Range: [0, 2^7-1] = [0, 127] with exponential bias towards 0
+    int stop_after_calls = rnd.Skewed(7);
+
+    RelaxedAtomic<int> call_count{0};
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "BackupEngineImpl::ShouldStopBackup", [&](void* arg) {
+          call_count.FetchAddRelaxed(1);
+          if (call_count.LoadRelaxed() > stop_after_calls) {
+            bool* should_stop = static_cast<bool*>(arg);
+            *should_stop = true;
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    // Create backup - it may complete successfully or be stopped
+    IOStatus s = backup_engine_->CreateNewBackup(db_.get());
+
+    // Verify that ShouldStopBackup was called
+    ASSERT_GT(call_count.LoadRelaxed(), 0);
+
+    if (s.IsIncomplete()) {
+      // Backup was stopped - verify it's the expected error
+      ASSERT_TRUE(s.ToString().find("Backup stopped") != std::string::npos)
+          << "Unexpected incomplete status for threshold " << stop_after_calls
+          << ": " << s.ToString();
+      ASSERT_GT(call_count.LoadRelaxed(), stop_after_calls)
+          << "Expected call_count > stop_after_calls";
+
+      // Verify that no valid backup was created
+      std::vector<BackupInfo> backup_info;
+      backup_engine_->GetBackupInfo(&backup_info);
+      ASSERT_EQ(0, backup_info.size());
+    } else {
+      // Backup completed successfully before reaching the stop threshold
+      ASSERT_OK(s) << "Unexpected error for threshold " << stop_after_calls;
+      ASSERT_LE(call_count.LoadRelaxed(), stop_after_calls)
+          << "Backup completed but call_count exceeded threshold";
+
+      // Verify a backup was created
+      std::vector<BackupInfo> backup_info;
+      backup_engine_->GetBackupInfo(&backup_info);
+      ASSERT_EQ(1, backup_info.size());
+
+      // Clean up the successful backup for next iteration
+      ASSERT_OK(backup_engine_->DeleteBackup(backup_info[0].backup_id));
+    }
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+
+  CloseDBAndBackupEngine();
 }
 
 }  // namespace

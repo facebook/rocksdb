@@ -5,10 +5,11 @@
 
 #pragma once
 #include "rocksdb/db.h"
+#include "rocksdb/file_system.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status VerifySstFileChecksumInternal(const Options& options,
-                                     const EnvOptions& env_options,
+                                     const FileOptions& file_options,
                                      const ReadOptions& read_options,
                                      const std::string& file_path,
                                      const SequenceNumber& largest_seqno = 0);

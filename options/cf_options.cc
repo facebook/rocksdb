@@ -30,6 +30,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
+#include "util/string_util.h"
 
 // NOTE: in this file, many option flags that were deprecated
 // and removed from the rest of the code have to be kept here
@@ -310,6 +311,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"trivial_copy_buffer_size",
          {offsetof(struct CompactionOptionsFIFO, trivial_copy_buffer_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"max_data_files_size",
+         {offsetof(struct CompactionOptionsFIFO, max_data_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"use_kv_ratio_compaction",
+         {offsetof(struct CompactionOptionsFIFO, use_kv_ratio_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -395,6 +404,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"verify_output_flags",
+         {offsetof(struct MutableCFOptions, verify_output_flags),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"verify_checksums_in_compaction",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -449,6 +462,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"target_file_size_multiplier",
          {offsetof(struct MutableCFOptions, target_file_size_multiplier),
           OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"target_file_size_is_upper_bound",
+         {offsetof(struct MutableCFOptions, target_file_size_is_upper_bound),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"arena_block_size",
          {offsetof(struct MutableCFOptions, arena_block_size),
@@ -1070,10 +1087,12 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
   if (op1 == 0 || op2 <= 0) {
     return 0;
   }
-  if (std::numeric_limits<uint64_t>::max() / op1 < op2) {
-    return op1;
+
+  if (op1 * op2 < static_cast<double>(std::numeric_limits<uint64_t>::max())) {
+    return static_cast<uint64_t>(op1 * op2);
   }
-  return static_cast<uint64_t>(op1 * op2);
+
+  return op1;
 }
 
 // when level_compaction_dynamic_level_bytes is true and leveled compaction
@@ -1168,6 +1187,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  target_file_size_base);
   ROCKS_LOG_INFO(log, "              target_file_size_multiplier: %d",
                  target_file_size_multiplier);
+  ROCKS_LOG_INFO(log, "         target_file_size_is_upper_bound: %d",
+                 target_file_size_is_upper_bound);
   ROCKS_LOG_INFO(log, "                 max_bytes_for_level_base: %" PRIu64,
                  max_bytes_for_level_base);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",
@@ -1247,6 +1268,10 @@ void MutableCFOptions::Dump(Logger* log) const {
                  compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.max_data_files_size : %" PRIu64,
+                 compaction_options_fifo.max_data_files_size);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.use_kv_ratio_compaction : %d",
+                 compaction_options_fifo.use_kv_ratio_compaction);
 
   // Blob file related options
   ROCKS_LOG_INFO(log, "                        enable_blob_files: %s",

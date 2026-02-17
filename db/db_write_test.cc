@@ -741,7 +741,7 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
     ExternalSstFileInfo external_info;
     ASSERT_OK(sst_file_writer.Finish(&external_info));
   }
-  AcqRelAtomic<bool> parallel_ingest_completed{false};
+  Atomic<bool> parallel_ingest_completed{false};
   port::Thread parallel_ingest{[&]() {
     IngestExternalFileOptions ingest_opts;
     ingest_opts.move_files = true;  // faster than copy
@@ -750,7 +750,7 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
     parallel_ingest_completed.Store(true);
   }};
 
-  AcqRelAtomic<bool> flush_completed{false};
+  Atomic<bool> flush_completed{false};
   port::Thread parallel_flush{[&]() {
     FlushOptions flush_opts;
     // NB: Flush with wait=false case is tested above in LockWALInEffect
@@ -762,7 +762,7 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
     flush_completed.Store(true);
   }};
 
-  AcqRelAtomic<bool> parallel_put_completed{false};
+  Atomic<bool> parallel_put_completed{false};
   port::Thread parallel_put{[&]() {
     // This can make certain failure scenarios more likely:
     //   sleep(1);

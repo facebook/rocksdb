@@ -13,7 +13,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_USING_THREAD_STATUS
+#ifndef NROCKSDB_THREAD_STATUS
+const bool ThreadStatus::kEnabled = true;
+
 std::string ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType thread_type) {
   switch (thread_type) {
@@ -117,6 +119,7 @@ std::map<std::string, uint64_t> ThreadStatus::InterpretOperationProperties(
 }
 
 #else
+const bool ThreadStatus::kEnabled = false;
 
 std::string ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType /*thread_type*/) {
@@ -159,5 +162,5 @@ std::map<std::string, uint64_t> ThreadStatus::InterpretOperationProperties(
   return std::map<std::string, uint64_t>();
 }
 
-#endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NROCKSDB_THREAD_STATUS
 }  // namespace ROCKSDB_NAMESPACE
