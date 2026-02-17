@@ -1,7 +1,7 @@
 ---
 title: RocksDB 4.11.2 Released!
 layout: post
-author: sdong
+author: siying
 category: blog
 ---
 We abandoned release candidates 4.10.x and directly go to 4.11.2 from 4.9, to make sure the latest release is stable. In 4.11.2, we fixed several data corruption related bugs introduced in 4.9.0.
