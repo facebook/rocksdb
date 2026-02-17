@@ -167,7 +167,9 @@ static uint64_t ReadBe64FromKey(Slice s, bool is_user_key, size_t offset) {
   for (size_t i = 0; i < len; i++) {
     val = (val << 8) | static_cast<uint8_t>(s.data()[offset + i]);
   }
-  val <<= (8 - len) * 8;  // Pad zeros on the right
+  if (len > 0 && len < 8) {
+    val <<= (8 - len) * 8;  // Pad zeros on the right
+  }
   return val;
 }
 
