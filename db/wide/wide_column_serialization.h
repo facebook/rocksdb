@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 #include "rocksdb/wide_columns.h"
@@ -69,7 +70,11 @@ class Slice;
 //   | ct_0 | ct_1 |         | ct_N-1 |
 //   | byte | byte |         |  byte  |
 //   +------+------+---...---+--------+
-//   ct values: 0 = inline value, 1 = blob index, 2..255 = reserved
+//   ct values are ValueType entries from db/dbformat.h, e.g.:
+//     kTypeValue (0x01) = inline value
+//     kTypeBlobIndex (0x11) = blob index reference
+//   Future per-column types (kTypeMerge, kTypeDeletion, etc.) can be
+//   added without format changes.
 //
 // Section 3: SKIP INFO (3 varints)
 //   +-------------------+---------------------+------------------+
@@ -104,7 +109,7 @@ class Slice;
 //   | bytes| bytes|         | bytes  |
 //   +------+------+---...---+--------+
 //
-// When ct = 1, the cv contains a serialized BlobIndex.
+// When ct = kTypeBlobIndex, the cv contains a serialized BlobIndex.
 
 class WideColumnSerialization {
  public:
@@ -115,10 +120,6 @@ class WideColumnSerialization {
   //              files.
   static constexpr uint32_t kVersion1 = 1;
   static constexpr uint32_t kVersion2 = 2;
-
-  // Column type constants for version 2 format
-  static constexpr uint8_t kColumnTypeInline = 0;
-  static constexpr uint8_t kColumnTypeBlobIndex = 1;
 
   // Serialize columns using version 1 format (no blob support)
   static Status Serialize(const WideColumns& columns, std::string& output);
@@ -250,10 +251,17 @@ class WideColumnSerialization {
   // code duplication.
   static Status DeserializeV2Impl(Slice& input, uint32_t num_columns,
                                   std::vector<WideColumn>& columns,
-                                  std::vector<uint8_t>& column_types);
+                                  std::vector<ValueType>& column_types);
+
+  // Returns true if t is a supported per-column ValueType. Currently only
+  // kTypeValue (inline) and kTypeBlobIndex are supported. Notably,
+  // kTypeWideColumnEntity is rejected to prevent recursive nesting.
+  static bool IsValidColumnValueType(ValueType t) {
+    return t == kTypeValue || t == kTypeBlobIndex;
+  }
 
   // Returns true if any of the first num_columns type bytes equals
-  // kColumnTypeBlobIndex. Typical entities have <10 columns, so a linear
+  // kTypeBlobIndex. Typical entities have <10 columns, so a linear
   // scan is sufficient; SIMD could be considered if column counts grow.
   static bool ContainsBlobType(const char* type_bytes, uint32_t num_columns);
 };

@@ -324,6 +324,60 @@ TEST_F(WideColumnSerializationTest, DeserializeV2OutOfOrder) {
   ASSERT_TRUE(std::strstr(s.getState(), "order"));
 }
 
+TEST_F(WideColumnSerializationTest, DeserializeV2RejectsRecursiveType) {
+  // Manually construct a V2 entity where one column has type
+  // kTypeWideColumnEntity, which would create recursive nesting.
+  // Deserialization must reject this.
+  std::string buf;
+
+  PutVarint32(&buf, WideColumnSerialization::kVersion2);
+
+  constexpr uint32_t num_columns = 2;
+  PutVarint32(&buf, num_columns);
+
+  // Section 2: COLUMN TYPES -- first column inline, second recursive
+  buf.push_back(static_cast<char>(kTypeValue));
+  buf.push_back(static_cast<char>(kTypeWideColumnEntity));
+
+  // Section 3: SKIP INFO
+  PutVarint32(&buf, 2);  // name_sizes_bytes (varint(1) + varint(1))
+  PutVarint32(&buf, 2);  // value_sizes_bytes (varint(3) + varint(5))
+  PutVarint32(&buf, 2);  // names_bytes ("a" + "b")
+
+  // Section 4: NAME SIZES
+  PutVarint32(&buf, 1);  // "a"
+  PutVarint32(&buf, 1);  // "b"
+
+  // Section 5: VALUE SIZES
+  PutVarint32(&buf, 3);
+  PutVarint32(&buf, 5);
+
+  // Section 6: NAMES
+  buf.append("ab");
+
+  // Section 7: VALUES (8 bytes of placeholder data)
+  buf.append(8, 'x');
+
+  // DeserializeV2 should reject with Corruption
+  {
+    Slice input(buf);
+    std::vector<WideColumn> columns;
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+    const Status s =
+        WideColumnSerialization::DeserializeV2(input, columns, blob_columns);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), "Unsupported wide column ValueType"));
+  }
+
+  // Deserialize (V1-only API) should also reject
+  {
+    Slice input(buf);
+    WideColumns columns;
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    ASSERT_TRUE(s.IsCorruption());
+  }
+}
+
 // Helper: create a BlobIndex from EncodeBlob parameters.
 static BlobIndex MakeBlobIndex(uint64_t file_number, uint64_t offset,
                                uint64_t size,
@@ -616,10 +670,8 @@ TEST_F(WideColumnSerializationTest, V2LayoutStructureVerification) {
 
   // Section 2: COLUMN TYPES (2 bytes, both inline)
   ASSERT_GE(data.size(), 2u);
-  ASSERT_EQ(static_cast<uint8_t>(data[0]),
-            WideColumnSerialization::kColumnTypeInline);
-  ASSERT_EQ(static_cast<uint8_t>(data[1]),
-            WideColumnSerialization::kColumnTypeInline);
+  ASSERT_EQ(static_cast<uint8_t>(data[0]), static_cast<uint8_t>(kTypeValue));
+  ASSERT_EQ(static_cast<uint8_t>(data[1]), static_cast<uint8_t>(kTypeValue));
   data.remove_prefix(2);
 
   // Section 3: SKIP INFO (3 varints)

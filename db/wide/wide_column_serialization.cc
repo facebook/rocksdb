@@ -43,7 +43,7 @@ Status WideColumnSerialization::BuildBlobIndexMap(
 bool WideColumnSerialization::ContainsBlobType(const char* type_bytes,
                                                uint32_t num_columns) {
   for (uint32_t i = 0; i < num_columns; ++i) {
-    if (static_cast<uint8_t>(type_bytes[i]) == kColumnTypeBlobIndex) {
+    if (static_cast<uint8_t>(type_bytes[i]) == kTypeBlobIndex) {
       return true;
     }
   }
@@ -156,7 +156,7 @@ Status WideColumnSerialization::SerializeV2Impl(
       const BlobIndex* blob_idx = blob_index_map[i];
       blob_idx->EncodeTo(&serialized_blob_indices[i]);
       value_sizes[i] = static_cast<uint32_t>(serialized_blob_indices[i].size());
-      column_types.push_back(static_cast<char>(kColumnTypeBlobIndex));
+      column_types.push_back(static_cast<char>(kTypeBlobIndex));
     } else {
       Status svl =
           ValidateWideColumnLimit(value.size(), "Wide column value too long");
@@ -164,7 +164,7 @@ Status WideColumnSerialization::SerializeV2Impl(
         return svl;
       }
       value_sizes[i] = static_cast<uint32_t>(value.size());
-      column_types.push_back(static_cast<char>(kColumnTypeInline));
+      column_types.push_back(static_cast<char>(kTypeValue));
     }
 
     total_value_sizes_bytes += VarintLength(value_sizes[i]);
@@ -298,12 +298,18 @@ Status WideColumnSerialization::DeserializeV1(
 
 Status WideColumnSerialization::DeserializeV2Impl(
     Slice& input, uint32_t num_columns, std::vector<WideColumn>& columns,
-    std::vector<uint8_t>& column_types) {
-  // Section 2: COLUMN TYPES (N bytes)
+    std::vector<ValueType>& column_types) {
+  // Section 2: COLUMN TYPES (N bytes, each is a ValueType)
   if (input.size() < num_columns) {
     return Status::Corruption("Error decoding wide column types");
   }
-  column_types.assign(input.data(), input.data() + num_columns);
+  column_types.resize(num_columns);
+  for (uint32_t i = 0; i < num_columns; ++i) {
+    column_types[i] = static_cast<ValueType>(input[i]);
+    if (!IsValidColumnValueType(column_types[i])) {
+      return Status::Corruption("Unsupported wide column ValueType");
+    }
+  }
   input.remove_prefix(num_columns);
 
   // Section 3: SKIP INFO (3 varints)
@@ -429,7 +435,7 @@ Status WideColumnSerialization::DeserializeV2(
 
   if (version >= kVersion2) {
     // V2 layout: parse columns and extract blob column info
-    std::vector<uint8_t> column_types;
+    std::vector<ValueType> column_types;
 
     const Status s =
         DeserializeV2Impl(input, num_columns, columns, column_types);
@@ -439,7 +445,7 @@ Status WideColumnSerialization::DeserializeV2(
 
     // Decode blob indices from value data
     for (uint32_t i = 0; i < num_columns; ++i) {
-      if (column_types[i] == kColumnTypeBlobIndex) {
+      if (column_types[i] == kTypeBlobIndex) {
         BlobIndex blob_idx;
         Slice blob_slice = columns[i].value();
         Status bs = blob_idx.DecodeFrom(blob_slice);
@@ -534,7 +540,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
       return Status::Corruption("Error decoding wide column types");
     }
     // Check if default column (index 0) is a blob reference
-    if (static_cast<uint8_t>(input_ref[0]) == kColumnTypeBlobIndex) {
+    if (static_cast<uint8_t>(input_ref[0]) == kTypeBlobIndex) {
       return Status::NotSupported(
           "Wide column contains blob references. Use DeserializeV2.");
     }
