@@ -1323,8 +1323,8 @@ Status Block::GetCorruptionStatus() const {
     return s;  // Return the detailed error from DecodeFrom
   }
   // Footer decoded OK, so error was in later processing (shouldn't happen)
-  assert(!s.ok());
-  return Status::Corruption("bad block contents");
+  DEBUG_FAIL("ok status on presumed bad block contents");
+  return Status::Corruption("presumed bad block contents");
 }
 
 Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
@@ -1332,48 +1332,44 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     : contents_(std::move(contents)), restart_offset_(0), num_restarts_(0) {
   TEST_SYNC_POINT("Block::Block:0");
   auto& size = contents_.data.size_;
-  if (size < DataBlockFooter::kMinEncodedLength) {
+  // `contents` is assumed to be uncompressed in the proper format
+  Slice input(contents_.data.data(), size);
+  DataBlockFooter footer;
+  Status s = footer.DecodeFrom(&input);
+  if (!s.ok()) {
+    // Save original size for GetCorruptionStatus() to re-decode footer
+    restart_offset_ = static_cast<uint32_t>(size);
     size = 0;  // Error marker
   } else {
-    // Should only decode restart points for uncompressed blocks
-    Slice input(contents_.data.data(), size);
-    DataBlockFooter footer;
-    Status s = footer.DecodeFrom(&input);
-    if (!s.ok()) {
-      // Save original size for GetCorruptionStatus() to re-decode footer
-      restart_offset_ = static_cast<uint32_t>(size);
-      size = 0;  // Error marker
-    } else {
-      // After DecodeFrom, input has the footer removed. Each case below
-      // may strip additional suffix (e.g., hash index) so that input ends
-      // with just the restart array.
-      num_restarts_ = footer.num_restarts;
-      switch (footer.index_type) {
-        case BlockBasedTableOptions::kDataBlockBinarySearch:
+    // After DecodeFrom, input has the footer removed. Each case below
+    // may strip additional suffix (e.g., hash index) so that input ends
+    // with just the restart array.
+    num_restarts_ = footer.num_restarts;
+    switch (footer.index_type) {
+      case BlockBasedTableOptions::kDataBlockBinarySearch:
+        break;
+      case BlockBasedTableOptions::kDataBlockBinaryAndHash:
+        if (input.size() < sizeof(uint16_t) /* NUM_BUCK */) {
+          size = 0;
           break;
-        case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-          if (input.size() < sizeof(uint16_t) /* NUM_BUCK */) {
-            size = 0;
-            break;
-          }
-          uint16_t map_offset;
-          data_block_hash_index_.Initialize(contents_.data.data(),
-                                            static_cast<uint16_t>(input.size()),
-                                            &map_offset);
-          // Strip the hash index, leaving just data + restarts
-          input.remove_suffix(input.size() - map_offset);
-          break;
-        default:
-          size = 0;  // Error marker
-      }
-      // After the switch, input should end with restarts[num_restarts_]
-      if (size != 0) {
-        if (input.size() < num_restarts_ * sizeof(uint32_t)) {
-          size = 0;  // Block too small for the declared number of restarts
-        } else {
-          restart_offset_ = static_cast<uint32_t>(input.size()) -
-                            num_restarts_ * sizeof(uint32_t);
         }
+        uint16_t map_offset;
+        data_block_hash_index_.Initialize(contents_.data.data(),
+                                          static_cast<uint16_t>(input.size()),
+                                          &map_offset);
+        // Strip the hash index, leaving just data + restarts
+        input.remove_suffix(input.size() - map_offset);
+        break;
+      default:
+        size = 0;  // Error marker
+    }
+    // After the switch, input should end with restarts[num_restarts_]
+    if (size != 0) {
+      if (input.size() < num_restarts_ * sizeof(uint32_t)) {
+        size = 0;  // Block too small for the declared number of restarts
+      } else {
+        restart_offset_ = static_cast<uint32_t>(input.size()) -
+                          num_restarts_ * sizeof(uint32_t);
       }
     }
   }
