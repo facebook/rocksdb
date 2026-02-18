@@ -1363,17 +1363,6 @@ struct DBOptions {
   // Default: false
   bool skip_stats_update_on_db_open = false;
 
-  // This option is deprecated and marked as no-op. Kept for backward
-  // compatibility until usage is fully removed.
-  // File size check will be performed through a thread
-  // pool during DB Open, when max_open_files is set to -1.
-  // Therefore, the concern of DB Open slowness is eliminated.
-  // Note that when max_open_files is not set to -1, only a subset of files will
-  // be opened and checked during DB Open.
-  //
-  // Default: false
-  bool skip_checking_sst_file_sizes_on_db_open = false;
-
   // Recovery mode to control the consistency while replaying WAL
   // Default: kPointInTimeRecovery
   WALRecoveryMode wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;

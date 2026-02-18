@@ -1046,19 +1046,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setSkipCheckingSstFileSizesOnDbOpen(
-      final boolean skipCheckingSstFileSizesOnDbOpen) {
-    setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
-    return this;
-  }
-
-  @Override
-  public boolean skipCheckingSstFileSizesOnDbOpen() {
-    assert (isOwningHandle());
-    return skipCheckingSstFileSizesOnDbOpen(nativeHandle_);
-  }
-
-  @Override
   public Options setWalRecoveryMode(final WALRecoveryMode walRecoveryMode) {
     assert(isOwningHandle());
     setWalRecoveryMode(nativeHandle_, walRecoveryMode.getValue());
@@ -2283,9 +2270,6 @@ public class Options extends RocksObject
   private static native void setSkipStatsUpdateOnDbOpen(
       final long handle, final boolean skipStatsUpdateOnDbOpen);
   private static native boolean skipStatsUpdateOnDbOpen(final long handle);
-  private static native void setSkipCheckingSstFileSizesOnDbOpen(
-      final long handle, final boolean skipChecking);
-  private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private static native void setWalRecoveryMode(final long handle, final byte walRecoveryMode);
   private static native byte walRecoveryMode(final long handle);
   private static native void setAllow2pc(final long handle, final boolean allow2pc);

@@ -1668,13 +1668,6 @@ rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                  unsigned char val);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_skip_stats_update_on_db_open(rocksdb_options_t* opt);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt, unsigned char val);
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt);
-
 /* Blob Options Settings */
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_enable_blob_files(
     rocksdb_options_t* opt, unsigned char val);

@@ -4672,16 +4672,6 @@ unsigned char rocksdb_options_get_skip_stats_update_on_db_open(
   return opt->rep.skip_stats_update_on_db_open;
 }
 
-void rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt, unsigned char val) {
-  opt->rep.skip_checking_sst_file_sizes_on_db_open = val;
-}
-
-unsigned char rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt) {
-  return opt->rep.skip_checking_sst_file_sizes_on_db_open;
-}
-
 /* Blob Options Settings */
 void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
                                            unsigned char val) {
