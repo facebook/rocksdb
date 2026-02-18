@@ -68,15 +68,6 @@ using CompactionStyleSet =
     SmallEnumSet<CompactionStyle, CompactionStyle::kCompactionStyleNone>;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
-  // The function recovers options to a previous version. Only 4.6 or later
-  // versions are supported.
-  // NOT MAINTAINED: This function has not been and is not maintained.
-  // DEPRECATED: This function might be removed in a future release.
-  // In general, defaults are changed to suit broad interests. Opting
-  // out of a change on upgrade should be deliberate and considered.
-  ColumnFamilyOptions* OldDefaults(int rocksdb_major_version = 4,
-                                   int rocksdb_minor_version = 6);
-
   // Some functions that make it easier to optimize RocksDB
   // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
@@ -570,14 +561,6 @@ class CompactionService : public Customizable {
 };
 
 struct DBOptions {
-  // The function recovers options to the option as in version 4.6.
-  // NOT MAINTAINED: This function has not been and is not maintained.
-  // DEPRECATED: This function might be removed in a future release.
-  // In general, defaults are changed to suit broad interests. Opting
-  // out of a change on upgrade should be deliberate and considered.
-  DBOptions* OldDefaults(int rocksdb_major_version = 4,
-                         int rocksdb_minor_version = 6);
-
   // Some functions that make it easier to optimize RocksDB
 
   // Use this if your DB is very small (like under 1GB) and you don't want to
@@ -1737,14 +1720,6 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options(const DBOptions& db_options,
           const ColumnFamilyOptions& column_family_options)
       : DBOptions(db_options), ColumnFamilyOptions(column_family_options) {}
-
-  // Change to some default settings from an older version.
-  // NOT MAINTAINED: This function has not been and is not maintained.
-  // DEPRECATED: This function might be removed in a future release.
-  // In general, defaults are changed to suit broad interests. Opting
-  // out of a change on upgrade should be deliberate and considered.
-  Options* OldDefaults(int rocksdb_major_version = 4,
-                       int rocksdb_minor_version = 6);
 
   void Dump(Logger* log) const;
 

@@ -665,20 +665,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void oldDefaults() {
-    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
-      options.oldDefaults(4, 6);
-      assertEquals(4 << 20, options.writeBufferSize());
-      assertThat(options.compactionPriority()).isEqualTo(CompactionPriority.ByCompensatedSize);
-      assertThat(options.targetFileSizeBase()).isEqualTo(2 * 1048576);
-      assertThat(options.maxBytesForLevelBase()).isEqualTo(10 * 1048576);
-      assertThat(options.softPendingCompactionBytesLimit()).isEqualTo(0);
-      assertThat(options.hardPendingCompactionBytesLimit()).isEqualTo(0);
-      assertThat(options.level0StopWritesTrigger()).isEqualTo(24);
-    }
-  }
-
-  @Test
   public void optimizeForSmallDbWithCache() {
     try (final ColumnFamilyOptions options = new ColumnFamilyOptions();
          final Cache cache = new LRUCache(1024)) {

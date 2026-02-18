@@ -134,12 +134,6 @@ public class ColumnFamilyOptions
   }
 
   @Override
-  public ColumnFamilyOptions oldDefaults(final int majorVersion, final int minorVersion) {
-    oldDefaults(nativeHandle_, majorVersion, minorVersion);
-    return this;
-  }
-
-  @Override
   public ColumnFamilyOptions optimizeForSmallDb() {
     optimizeForSmallDb(nativeHandle_);
     return this;
@@ -1334,8 +1328,6 @@ public class ColumnFamilyOptions
   }
   private static native void disposeInternalJni(final long handle);
 
-  private static native void oldDefaults(
-      final long handle, final int majorVersion, final int minorVersion);
   private static native void optimizeForSmallDb(final long handle);
   private static native void optimizeForSmallDb(final long handle, final long cacheHandle);
   private static native void optimizeForPointLookup(long handle, long blockCacheSizeMb);

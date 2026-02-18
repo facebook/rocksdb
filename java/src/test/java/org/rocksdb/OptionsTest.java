@@ -1296,20 +1296,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void oldDefaults() {
-    try (final Options options = new Options()) {
-      options.oldDefaults(4, 6);
-      assertThat(options.writeBufferSize()).isEqualTo(4 << 20);
-      assertThat(options.compactionPriority()).isEqualTo(CompactionPriority.ByCompensatedSize);
-      assertThat(options.targetFileSizeBase()).isEqualTo(2 * 1048576);
-      assertThat(options.maxBytesForLevelBase()).isEqualTo(10 * 1048576);
-      assertThat(options.softPendingCompactionBytesLimit()).isEqualTo(0);
-      assertThat(options.hardPendingCompactionBytesLimit()).isEqualTo(0);
-      assertThat(options.level0StopWritesTrigger()).isEqualTo(24);
-    }
-  }
-
-  @Test
   public void optimizeForSmallDbWithCache() {
     try (final Options options = new Options(); final Cache cache = new LRUCache(1024)) {
       assertThat(options.optimizeForSmallDb(cache)).isEqualTo(options);
