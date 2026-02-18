@@ -2807,7 +2807,10 @@ Status CompactionJob::ReadTablePropertiesDirectly(
     std::shared_ptr<const TableProperties>* tp) {
   std::unique_ptr<FSRandomAccessFile> file;
   std::string file_name = GetTableFileName(file_meta->fd.GetNumber());
-  Status s = ioptions.fs->NewRandomAccessFile(file_name, file_options_, &file,
+  FileOptions fopts = file_options_;
+  fopts.file_checksum = file_meta->file_checksum;
+  fopts.file_checksum_func_name = file_meta->file_checksum_func_name;
+  Status s = ioptions.fs->NewRandomAccessFile(file_name, fopts, &file,
                                               nullptr /* dbg */);
   if (!s.ok()) {
     return s;

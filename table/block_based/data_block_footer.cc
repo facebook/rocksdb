@@ -9,51 +9,55 @@
 
 #include "table/block_based/data_block_footer.h"
 
-#include "rocksdb/table.h"
+#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-const int kDataBlockIndexTypeBitShift = 31;
+// Hash index bit (bit 31)
+constexpr uint32_t kHashIndexBit = 1u << 31;
 
-// 0x7FFFFFFF
-const uint32_t kMaxNumRestarts = (1u << kDataBlockIndexTypeBitShift) - 1u;
+void DataBlockFooter::EncodeTo(std::string* dst) const {
+  assert(num_restarts <= kMaxNumRestarts);
 
-// 0x7FFFFFFF
-const uint32_t kNumRestartsMask = (1u << kDataBlockIndexTypeBitShift) - 1u;
-
-uint32_t PackIndexTypeAndNumRestarts(
-    BlockBasedTableOptions::DataBlockIndexType index_type,
-    uint32_t num_restarts) {
-  if (num_restarts > kMaxNumRestarts) {
-    assert(0);  // mute travis "unused" warning
-  }
-
-  uint32_t block_footer = num_restarts;
+  uint32_t packed = num_restarts;
   if (index_type == BlockBasedTableOptions::kDataBlockBinaryAndHash) {
-    block_footer |= 1u << kDataBlockIndexTypeBitShift;
-  } else if (index_type != BlockBasedTableOptions::kDataBlockBinarySearch) {
-    assert(0);
+    packed |= kHashIndexBit;
+  } else {
+    assert(index_type == BlockBasedTableOptions::kDataBlockBinarySearch);
   }
 
-  return block_footer;
+  PutFixed32(dst, packed);
 }
 
-void UnPackIndexTypeAndNumRestarts(
-    uint32_t block_footer,
-    BlockBasedTableOptions::DataBlockIndexType* index_type,
-    uint32_t* num_restarts) {
-  if (index_type) {
-    if (block_footer & 1u << kDataBlockIndexTypeBitShift) {
-      *index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
-    } else {
-      *index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
-    }
+Status DataBlockFooter::DecodeFrom(Slice* input) {
+  if (input->size() < kMinEncodedLength) {
+    return Status::Corruption("Block too small for footer");
   }
 
-  if (num_restarts) {
-    *num_restarts = block_footer & kNumRestartsMask;
-    assert(*num_restarts <= kMaxNumRestarts);
+  // Decode from the end of the input
+  const char* footer_ptr = input->data() + input->size() - kMinEncodedLength;
+  uint32_t packed = DecodeFixed32(footer_ptr);
+
+  if (packed & kHashIndexBit) {
+    index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
+    packed &= ~kHashIndexBit;
+  } else {
+    index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
   }
+
+  // Check for reserved/unrecognized feature bits (anything beyond
+  // kMaxNumRestarts)
+  if (packed > kMaxNumRestarts) {
+    return Status::Corruption(
+        "Unrecognized feature in block footer (reserved bits set)");
+  }
+
+  num_restarts = packed;
+
+  // Remove the footer from the input slice
+  input->remove_suffix(kMinEncodedLength);
+
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -160,6 +160,18 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
       RecordTick(stats_, PREFETCH_BYTES, read_len);
     }
     buf->async_read_in_progress_ = true;
+  } else if (s.IsNotSupported()) {
+    // Async IO is not available (e.g., io_uring failed to initialize).
+    // Fall back to synchronous read so the buffer is populated inline
+    // and callers proceed transparently.
+    s = reader->Read(opts, start_offset, read_len, &result,
+                     buf->buffer_.BufferStart(), /*aligned_buf=*/nullptr);
+    if (s.ok()) {
+      buf->buffer_.Size(buf->CurrentSize() + result.size());
+      if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
+        RecordTick(stats_, PREFETCH_BYTES, read_len);
+      }
+    }
   }
   return s;
 }

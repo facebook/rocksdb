@@ -1,7 +1,7 @@
 ---
 title: Option of Compaction Priority
 layout: post
-author: sdong
+author: siying
 category: blog
 redirect_from:
   - /blog/2921/compaction_pri/

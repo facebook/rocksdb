@@ -201,6 +201,19 @@ struct FileOptions : EnvOptions {
   // FSWritableFile object creation.
   Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET;
 
+  // File checksum of the file being opened. Empty string if no checksum is
+  // available.
+  std::string file_checksum;
+
+  // Name of the checksum function used to compute file_checksum. Set to
+  // kUnknownFileChecksumFuncName when file was created without a checksum
+  // factory. Set to kNoFileChecksumFuncName when no checksum metadata is
+  // available.
+  // Production FileSystems will accept empty values for both
+  // file_checksum and file_checksum_func_name, but internally within RocksDB
+  // that is forbidden for checking/auditing purposes.
+  std::string file_checksum_func_name;
+
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
@@ -216,7 +229,9 @@ struct FileOptions : EnvOptions {
         io_options(opts.io_options),
         temperature(opts.temperature),
         handoff_checksum_type(opts.handoff_checksum_type),
-        write_hint(opts.write_hint) {}
+        write_hint(opts.write_hint),
+        file_checksum(opts.file_checksum),
+        file_checksum_func_name(opts.file_checksum_func_name) {}
 
   FileOptions& operator=(const FileOptions&) = default;
 };

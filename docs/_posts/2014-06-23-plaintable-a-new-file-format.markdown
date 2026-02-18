@@ -1,7 +1,7 @@
 ---
 title: PlainTable — A New File Format
 layout: post
-author: sdong
+author: siying
 category: blog
 redirect_from:
   - /blog/599/plaintable-a-new-file-format/

@@ -167,7 +167,9 @@ static uint64_t ReadBe64FromKey(Slice s, bool is_user_key, size_t offset) {
   for (size_t i = 0; i < len; i++) {
     val = (val << 8) | static_cast<uint8_t>(s.data()[offset + i]);
   }
-  val <<= (8 - len) * 8;  // Pad zeros on the right
+  if (len > 0 && len < 8) {
+    val <<= (8 - len) * 8;  // Pad zeros on the right
+  }
   return val;
 }
 
@@ -1292,39 +1294,12 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
   }
 }
 
-uint32_t Block::NumRestarts() const {
-  assert(size() >= 2 * sizeof(uint32_t));
-  uint32_t block_footer = DecodeFixed32(data() + size() - sizeof(uint32_t));
-  uint32_t num_restarts = block_footer;
-  if (size() > kMaxBlockSizeSupportedByHashIndex) {
-    // In BlockBuilder, we have ensured a block with HashIndex is less than
-    // kMaxBlockSizeSupportedByHashIndex (64KiB).
-    //
-    // Therefore, if we encounter a block with a size > 64KiB, the block
-    // cannot have HashIndex. So the footer will directly interpreted as
-    // num_restarts.
-    //
-    // Such check is for backward compatibility. We can ensure legacy block
-    // with a vary large num_restarts i.e. >= 0x80000000 can be interpreted
-    // correctly as no HashIndex even if the MSB of num_restarts is set.
-    return num_restarts;
-  }
-  BlockBasedTableOptions::DataBlockIndexType index_type;
-  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
-  return num_restarts;
-}
-
 BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
-  assert(size() >= 2 * sizeof(uint32_t));
-  if (size() > kMaxBlockSizeSupportedByHashIndex) {
-    // The check is for the same reason as that in NumRestarts()
-    return BlockBasedTableOptions::kDataBlockBinarySearch;
-  }
-  uint32_t block_footer = DecodeFixed32(data() + size() - sizeof(uint32_t));
-  uint32_t num_restarts = block_footer;
-  BlockBasedTableOptions::DataBlockIndexType index_type;
-  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
-  return index_type;
+  assert(size() >= DataBlockFooter::kMinEncodedLength);
+  Slice input(data(), size());
+  DataBlockFooter footer;
+  footer.DecodeFrom(&input).PermitUncheckedError();
+  return footer.index_type;
 }
 
 Block::~Block() {
@@ -1334,50 +1309,70 @@ Block::~Block() {
   delete[] kv_checksum_;
 }
 
+Status Block::GetCorruptionStatus() const {
+  // Re-process the footer to get a detailed error status.
+  // This should only be called when size() == 0 (error marker).
+  assert(size() == 0);
+  // When size() == 0 and restart_offset_ != 0, restart_offset_ stores the
+  // original data size for re-decoding the footer to get detailed error.
+  if (restart_offset_ == 0) {
+    return Status::Corruption("bad block contents");
+  }
+  Slice input(contents_.data.data(), restart_offset_);
+  DataBlockFooter footer;
+  Status s = footer.DecodeFrom(&input);
+  if (!s.ok()) {
+    return s;  // Return the detailed error from DecodeFrom
+  }
+  // Footer decoded OK, so error was in later processing (shouldn't happen)
+  DEBUG_FAIL("ok status on presumed bad block contents");
+  return Status::Corruption("presumed bad block contents");
+}
+
 Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
              Statistics* statistics)
     : contents_(std::move(contents)), restart_offset_(0), num_restarts_(0) {
   TEST_SYNC_POINT("Block::Block:0");
   auto& size = contents_.data.size_;
-  if (size < sizeof(uint32_t)) {
+  // `contents` is assumed to be uncompressed in the proper format
+  Slice input(contents_.data.data(), size);
+  DataBlockFooter footer;
+  Status s = footer.DecodeFrom(&input);
+  if (!s.ok()) {
+    // Save original size for GetCorruptionStatus() to re-decode footer
+    restart_offset_ = static_cast<uint32_t>(size);
     size = 0;  // Error marker
   } else {
-    // Should only decode restart points for uncompressed blocks
-    num_restarts_ = NumRestarts();
-    switch (IndexType()) {
+    // After DecodeFrom, input has the footer removed. Each case below
+    // may strip additional suffix (e.g., hash index) so that input ends
+    // with just the restart array.
+    num_restarts_ = footer.num_restarts;
+    switch (footer.index_type) {
       case BlockBasedTableOptions::kDataBlockBinarySearch:
-        restart_offset_ = static_cast<uint32_t>(size) -
-                          (1 + num_restarts_) * sizeof(uint32_t);
-        if (restart_offset_ > size - sizeof(uint32_t)) {
-          // The size is too small for NumRestarts() and therefore
-          // restart_offset_ wrapped around.
-          size = 0;
-        }
         break;
       case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-        if (size < sizeof(uint32_t) /* block footer */ +
-                       sizeof(uint16_t) /* NUM_BUCK */) {
+        if (input.size() < sizeof(uint16_t) /* NUM_BUCK */) {
           size = 0;
           break;
         }
-
         uint16_t map_offset;
-        data_block_hash_index_.Initialize(
-            contents_.data.data(),
-            /* chop off NUM_RESTARTS */
-            static_cast<uint16_t>(size - sizeof(uint32_t)), &map_offset);
-
-        restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
-
-        if (restart_offset_ > map_offset) {
-          // map_offset is too small for NumRestarts() and
-          // therefore restart_offset_ wrapped around.
-          size = 0;
-          break;
-        }
+        data_block_hash_index_.Initialize(contents_.data.data(),
+                                          static_cast<uint16_t>(input.size()),
+                                          &map_offset);
+        // Strip the hash index, leaving just data + restarts
+        input.remove_suffix(input.size() - map_offset);
         break;
       default:
         size = 0;  // Error marker
+    }
+    // After the switch, input should end with restarts[num_restarts_]
+    if (size != 0) {
+      if (input.size() < num_restarts_ * sizeof(uint32_t)) {
+        size = 0;  // Block too small for the declared number of restarts
+      } else {
+        restart_offset_ = static_cast<uint32_t>(input.size()) -
+                          num_restarts_ * sizeof(uint32_t);
+      }
     }
   }
   if (read_amp_bytes_per_bit != 0 && statistics && size != 0) {
@@ -1515,7 +1510,7 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
 MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
   MetaBlockIter* iter = new MetaBlockIter();
   if (size() < 2 * sizeof(uint32_t)) {
-    iter->Invalidate(Status::Corruption("bad block contents"));
+    iter->Invalidate(GetCorruptionStatus());
     return iter;
   } else if (num_restarts_ == 0) {
     // Empty block.
@@ -1540,7 +1535,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
     ret_iter = new DataBlockIter;
   }
   if (size() < 2 * sizeof(uint32_t)) {
-    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    ret_iter->Invalidate(GetCorruptionStatus());
     return ret_iter;
   }
   if (num_restarts_ == 0) {
@@ -1579,7 +1574,7 @@ IndexBlockIter* Block::NewIndexIterator(
     ret_iter = new IndexBlockIter;
   }
   if (size() < 2 * sizeof(uint32_t)) {
-    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    ret_iter->Invalidate(GetCorruptionStatus());
     return ret_iter;
   }
   if (num_restarts_ == 0) {

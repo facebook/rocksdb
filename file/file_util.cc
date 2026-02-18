@@ -178,7 +178,8 @@ IOStatus GenerateOneFileChecksum(
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool /*allow_mmap_reads*/,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    const ReadOptions& read_options, Statistics* stats, SystemClock* clock) {
+    const ReadOptions& read_options, Statistics* stats, SystemClock* clock,
+    const FileOptions& file_options) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -218,7 +219,12 @@ IOStatus GenerateOneFileChecksum(
   std::unique_ptr<RandomAccessFileReader> reader;
   {
     std::unique_ptr<FSRandomAccessFile> r_file;
-    io_s = fs->NewRandomAccessFile(file_path, FileOptions(), &r_file, nullptr);
+    FileOptions fopts = file_options;
+    if (fopts.file_checksum.empty()) {
+      // No expected checksum is known — this is a from-scratch computation.
+      fopts.file_checksum_func_name = kNoFileChecksumFuncName;
+    }
+    io_s = fs->NewRandomAccessFile(file_path, fopts, &r_file, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }

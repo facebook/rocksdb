@@ -167,7 +167,7 @@ class Block {
   const char* data() const { return contents_.data.data(); }
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
-  uint32_t NumRestarts() const;
+  uint32_t NumRestarts() const { return num_restarts_; }
   bool own_bytes() const { return contents_.own_bytes(); }
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
@@ -282,8 +282,15 @@ class Block {
   const char* TEST_GetKVChecksum() const { return kv_checksum_; }
 
  private:
+  // Returns a detailed error status by re-processing the footer.
+  // Should only be called when size() == 0 (error marker).
+  Status GetCorruptionStatus() const;
+
   BlockContents contents_;
-  uint32_t restart_offset_;  // Offset in data_ of restart array
+  // Normal state: offset in data_ of restart array.
+  // Error state (size()==0): original data size if footer decode failed,
+  //   otherwise 0. Used by GetCorruptionStatus() to re-decode footer.
+  uint32_t restart_offset_;
   uint32_t num_restarts_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   char* kv_checksum_{nullptr};
