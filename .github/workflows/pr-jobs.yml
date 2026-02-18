@@ -1,7 +1,18 @@
 name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
 permissions: {}
+env:
+  # Set to a job name to run only that job (on any repo), or leave empty for
+  # normal behavior (all jobs on facebook repo only).
+  ONLY_JOB: ''
 jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      only_job: ${{ steps.set.outputs.only_job }}
+    steps:
+    - id: set
+      run: echo "only_job=$ONLY_JOB" >> "$GITHUB_OUTPUT"
   # NOTE: multiple workflows would be recommended, but the current GHA UI in
   # PRs doesn't make it clear when there's an overall error with a workflow,
   # making it easy to overlook something broken. Grouping everything into one
@@ -19,6 +30,10 @@ jobs:
   # increasing the risk of misconfiguration, especially on forks that might
   # want to run with this GHA setup.
   #
+  # SELECTIVE JOB EXECUTION: Set the ONLY_JOB env var at the top of this file
+  # to a job name (e.g. "build-linux-clang-tidy") to run only that job,
+  # bypassing the repository owner check. Leave it empty for normal behavior.
+  #
   # DEBUGGING WITH SSH: Temporarily add this as a job step, either before the
   # step of interest without the "if:" line or after the failing step with the
   # "if:" line. Then use ssh command printed in CI output.
@@ -30,7 +45,8 @@ jobs:
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'check-format-and-targets' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4.1.0
@@ -66,7 +82,8 @@ jobs:
         SANITY_CHECK=1 LONG_TEST=1 tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #
   build-linux:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -78,7 +95,8 @@ jobs:
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -97,7 +115,8 @@ jobs:
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -116,7 +135,8 @@ jobs:
     - run: USE_FOLLY=1 LIB_MODE=static V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly-lite-no-test:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -130,7 +150,8 @@ jobs:
     - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -149,7 +170,8 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -161,7 +183,8 @@ jobs:
     - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -175,7 +198,8 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-release' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -201,7 +225,8 @@ jobs:
     - run: if ./trace_analyzer --version; then false; else true; fi
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 8-core-ubuntu
     container:
@@ -217,7 +242,8 @@ jobs:
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
     - uses: "./.github/actions/post-steps"
   build-linux-clang-18-no_test_run:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-clang-18-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -231,7 +257,8 @@ jobs:
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-14-no_test_run:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -245,7 +272,8 @@ jobs:
 
   # ======================== Linux Other Checks ======================= #
   build-linux-clang18-clang-analyze:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-clang18-clang-analyze' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -263,8 +291,10 @@ jobs:
       with:
         name: scan-build-report
         path: scan_build_report.tar.gz
+
   build-linux-unity-and-headers:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-unity-and-headers' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -278,7 +308,8 @@ jobs:
     - run: make V=1 -j8 -k check-headers
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -291,7 +322,8 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang18-asan-ubsan:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-clang18-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 32-core-ubuntu
     container:
@@ -303,7 +335,8 @@ jobs:
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang18-mini-tsan:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-clang18-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 32-core-ubuntu
     container:
@@ -315,7 +348,8 @@ jobs:
     - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-static_lib-alt_namespace-status_checked:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-static_lib-alt_namespace-status_checked' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -328,7 +362,8 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
   build-macos:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-macos' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: macos-15-xlarge
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
@@ -345,7 +380,8 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-macos-cmake' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: macos-15-xlarge
     strategy:
       matrix:
@@ -378,7 +414,8 @@ jobs:
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-vs2022:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-windows-vs2022' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: windows-8-core
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
@@ -388,7 +425,8 @@ jobs:
     - uses: "./.github/actions/windows-build-steps"
   # ============================ Java Jobs ============================ #
   build-linux-java:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -419,7 +457,8 @@ jobs:
       run: make V=1 J=8 -j8 jtest
     # post-steps skipped because of compatibility issues with docker image
   build-linux-java-static:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -450,7 +489,8 @@ jobs:
       run: make V=1 J=8 -j8 rocksdbjavastatic
     # post-steps skipped because of compatibility issues with docker image
   build-macos-java:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: macos-15-xlarge
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -473,7 +513,8 @@ jobs:
       run: make V=1 J=16 -j16 jtest
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: macos-15-xlarge
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -495,7 +536,8 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on: macos-15-xlarge
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -517,7 +559,8 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -543,7 +586,8 @@ jobs:
         name: maven-site
         path: "${{ github.workspace }}/java/target/site"
   build-linux-arm:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: needs.config.outputs.only_job == 'build-linux-arm' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
     runs-on:
       labels: 4-core-ubuntu-arm
     steps:
