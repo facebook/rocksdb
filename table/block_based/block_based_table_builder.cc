@@ -1269,9 +1269,6 @@ struct BlockBasedTableBuilder::Rep {
       // Apply optimize_filters_for_hits setting here when applicable by
       // skipping filter generation
       filter_builder.reset();
-    } else if (tbo.skip_filters) {
-      // For SstFileWriter skip_filters
-      filter_builder.reset();
     } else if (!table_options.filter_policy) {
       // Null filter_policy -> no filter
       filter_builder.reset();
