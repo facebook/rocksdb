@@ -3883,8 +3883,7 @@ TEST_F(ManualFlushSkipRetainUDTTest, FlushRemovesStaleEntries) {
       static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
   for (int version = 0; version < 100; version++) {
     if (version == 50) {
-      ASSERT_OK(
-          dbfull()->TEST_SwitchMemtable(cfd));
+      ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
     }
     ASSERT_OK(
         Put(0, "foo", EncodeAsUint64(version), "v" + std::to_string(version)));

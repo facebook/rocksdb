@@ -345,8 +345,8 @@ class FaultInjectionTest
   }
 
   void WaitCompactionFinish() {
-    ASSERT_OK(
-        static_cast_with_check<DBImpl>(db_->GetRootDB())->TEST_WaitForCompact());
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_->GetRootDB())
+                  ->TEST_WaitForCompact());
     ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   }
 

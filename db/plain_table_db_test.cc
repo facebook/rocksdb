@@ -489,8 +489,7 @@ TEST_P(PlainTableDBTest, Flush) {
             ASSERT_GT(int_num, 0U);
 
             TablePropertiesCollection ptc;
-            ASSERT_OK(
-                dbfull()->GetPropertiesOfAllTables(&ptc));
+            ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&ptc));
             ASSERT_EQ(1U, ptc.size());
             auto row = ptc.begin();
             auto tp = row->second;
