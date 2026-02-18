@@ -369,7 +369,7 @@ do
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
 
     echo "== Use $checkout_ref to compact a copy of DB generated using $current_checkout_name..."
-    cp -a $current_db_test_dir ${current_db_test_dir}_copy_for_${checkout_ref}
+    [ "$SANITY_CHECK" ] || cp -a $current_db_test_dir ${current_db_test_dir}_copy_for_${checkout_ref}
     compact_db ${current_db_test_dir}_copy_for_${checkout_ref} 0
 
     echo "== After compaction, re-verify DB copy originally from $current_checkout_name..."
