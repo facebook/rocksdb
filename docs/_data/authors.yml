@@ -1,3 +1,5 @@
+# Note: standardize on github user names here. fbid is optional and was used
+# to use author's profile picture from Facebook
 icanadi:
   full_name: Igor Canadi
   fbid: 706165749
@@ -26,7 +28,7 @@ lgalanis:
   full_name: Leonidas Galanis
   fbid: 8649950
 
-sdong:
+siying:
   full_name: Siying Dong
   fbid: 9805119
 
@@ -83,3 +85,19 @@ zjay:
 hx235:
   full_name: Hui Xiao
   fbid: 100037058588280
+
+pdillinger:
+  full_name: Peter Dillinger
+  fbid: 513108
+
+alanpaxton:
+  full_name: Alan Paxton
+
+akankshamahajan15:
+  full_name: Akanksha Mahajan
+
+anand1976:
+  full_name: Anand Ananthabhotla
+
+poojam23:
+  full_name: Pooja Malik

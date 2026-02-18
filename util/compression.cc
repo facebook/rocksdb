@@ -5,11 +5,155 @@
 
 #include "util/compression.h"
 
+#ifdef BZIP2
+#include <bzlib.h>
+#endif  // BZIP2
+
+#include <limits>
+
+#ifdef LZ4
+#include <lz4.h>
+#include <lz4hc.h>
+#if LZ4_VERSION_NUMBER < 10700  // < r129
+#error "LZ4 support requires version >= 1.7.0 (lz4-devel)"
+#endif  // LZ4_VERSION_NUMBER < 10700
+#endif  // LZ4
+
+#ifdef SNAPPY
+#include <snappy-sinksource.h>
+#include <snappy.h>
+#endif  // SNAPPY
+
+#ifdef ZLIB
+#include <zlib.h>
+#endif  // ZLIB
+
 #include "options/options_helper.h"
+#include "port/likely.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/sync_point.h"
+#include "util/cast_util.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// WART: does not match OptionsHelper::compression_type_string_map
+std::string CompressionTypeToString(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return "NoCompression";
+    case kSnappyCompression:
+      return "Snappy";
+    case kZlibCompression:
+      return "Zlib";
+    case kBZip2Compression:
+      return "BZip2";
+    case kLZ4Compression:
+      return "LZ4";
+    case kLZ4HCCompression:
+      return "LZ4HC";
+    case kXpressCompression:
+      return "Xpress";
+    case kZSTD:
+      return "ZSTD";
+    case kDisableCompressionOption:
+      return "DisableOption";
+    default: {
+      bool is_custom = compression_type >= kFirstCustomCompression &&
+                       compression_type <= kLastCustomCompression;
+      unsigned char c = lossless_cast<unsigned char>(compression_type);
+      return (is_custom ? "Custom" : "Reserved") +
+             ToBaseCharsString<16>(2, c, /*uppercase=*/true);
+    }
+  }
+}
+
+// WART: does not match OptionsHelper::compression_type_string_map
+CompressionType CompressionTypeFromString(std::string compression_type_str) {
+  if (!compression_type_str.empty()) {
+    switch (compression_type_str[0]) {
+      case 'N':
+        if (compression_type_str == "NoCompression") {
+          return kNoCompression;
+        }
+        break;
+      case 'S':
+        if (compression_type_str == "Snappy") {
+          return kSnappyCompression;
+        }
+        break;
+      case 'Z':
+        if (compression_type_str == "ZSTD") {
+          return kZSTD;
+        }
+        if (compression_type_str == "Zlib") {
+          return kZlibCompression;
+        }
+        break;
+      case 'B':
+        if (compression_type_str == "BZip2") {
+          return kBZip2Compression;
+        }
+        break;
+      case 'L':
+        if (compression_type_str == "LZ4") {
+          return kLZ4Compression;
+        }
+        if (compression_type_str == "LZ4HC") {
+          return kLZ4HCCompression;
+        }
+        break;
+      case 'X':
+        if (compression_type_str == "Xpress") {
+          return kXpressCompression;
+        }
+        break;
+      default:;
+    }
+  }
+  // unrecognized
+  return kDisableCompressionOption;
+}
+
+std::string CompressionOptionsToString(
+    const CompressionOptions& compression_options) {
+  std::string result;
+  result.reserve(512);
+  result.append("window_bits=")
+      .append(std::to_string(compression_options.window_bits))
+      .append("; ");
+  result.append("level=")
+      .append(std::to_string(compression_options.level))
+      .append("; ");
+  result.append("strategy=")
+      .append(std::to_string(compression_options.strategy))
+      .append("; ");
+  result.append("max_dict_bytes=")
+      .append(std::to_string(compression_options.max_dict_bytes))
+      .append("; ");
+  result.append("zstd_max_train_bytes=")
+      .append(std::to_string(compression_options.zstd_max_train_bytes))
+      .append("; ");
+  // NOTE: parallel_threads is skipped because it doesn't really affect the file
+  // contents written, arguably doesn't belong in CompressionOptions
+  result.append("enabled=")
+      .append(std::to_string(compression_options.enabled))
+      .append("; ");
+  result.append("max_dict_buffer_bytes=")
+      .append(std::to_string(compression_options.max_dict_buffer_bytes))
+      .append("; ");
+  result.append("use_zstd_dict_trainer=")
+      .append(std::to_string(compression_options.use_zstd_dict_trainer))
+      .append("; ");
+  result.append("max_compressed_bytes_per_kb=")
+      .append(std::to_string(compression_options.max_compressed_bytes_per_kb))
+      .append("; ");
+  result.append("checksum=")
+      .append(std::to_string(compression_options.checksum))
+      .append("; ");
+  return result;
+}
 
 StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
                                              const CompressionOptions& opts,
@@ -121,6 +265,123 @@ void ZSTDStreamingUncompress::Reset() {
   ZSTD_DCtx_reset(dctx_, ZSTD_ResetDirective::ZSTD_reset_session_only);
   input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
+}
+
+void DecompressorDict::Populate(Decompressor& from_decompressor, Slice dict) {
+  if (UNLIKELY(dict.empty())) {
+    dict_str_ = {};
+    dict_allocation_ = {};
+    // Appropriately reject bad files with empty dictionary block.
+    // It is longstanding not to write an empty dictionary block:
+    // https://github.com/facebook/rocksdb/blame/10.2.fb/table/block_based/block_based_table_builder.cc#L1841
+    decompressor_ = std::make_unique<FailureDecompressor>(
+        Status::Corruption("Decompression dictionary is empty"));
+  } else {
+    Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
+    if (decompressor_ == nullptr) {
+      dict_str_ = {};
+      dict_allocation_ = {};
+      assert(!s.ok());
+      decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
+    } else {
+      assert(s.ok());
+      assert(decompressor_->GetSerializedDict() == dict);
+    }
+  }
+
+  memory_usage_ = sizeof(struct DecompressorDict);
+  memory_usage_ += dict_str_.size();
+  if (dict_allocation_) {
+    auto allocator = dict_allocation_.get_deleter().allocator;
+    if (allocator) {
+      memory_usage_ +=
+          allocator->UsableSize(dict_allocation_.get(), GetRawDict().size());
+    } else {
+      memory_usage_ += GetRawDict().size();
+    }
+  }
+  memory_usage_ += decompressor_->ApproximateOwnedMemoryUsage();
+}
+
+// ZSTD dictionary training implementations
+std::string ZSTD_TrainDictionary(const std::string& samples,
+                                 const std::vector<size_t>& sample_lens,
+                                 size_t max_dict_bytes) {
+#ifdef ZSTD
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_trainFromBuffer(
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
+      static_cast<unsigned>(sample_lens.size()));
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  }
+  assert(dict_len <= max_dict_bytes);
+  dict_data.resize(dict_len);
+  return dict_data;
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  return "";
+#endif  // ZSTD
+}
+
+std::string ZSTD_TrainDictionary(const std::string& samples,
+                                 size_t sample_len_shift,
+                                 size_t max_dict_bytes) {
+#ifdef ZSTD
+  // skips potential partial sample at the end of "samples"
+  size_t num_samples = samples.size() >> sample_len_shift;
+  std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_len_shift;
+  (void)max_dict_bytes;
+  return "";
+#endif  // ZSTD
+}
+
+std::string ZSTD_FinalizeDictionary(const std::string& samples,
+                                    const std::vector<size_t>& sample_lens,
+                                    size_t max_dict_bytes, int level) {
+#ifdef ROCKSDB_ZDICT_FINALIZE
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
+  }
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
+    level = ZSTD_CLEVEL_DEFAULT;
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_finalizeDictionary(
+      dict_data.data(), max_dict_bytes, samples.data(),
+      std::min(static_cast<size_t>(samples.size()), max_dict_bytes),
+      samples.data(), sample_lens.data(),
+      static_cast<unsigned>(sample_lens.size()),
+      {level, 0 /* notificationLevel */, 0 /* dictID */});
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  } else {
+    assert(dict_len <= max_dict_bytes);
+    dict_data.resize(dict_len);
+    return dict_data;
+  }
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  (void)level;
+  return "";
+#endif  // ROCKSDB_ZDICT_FINALIZE
 }
 
 // ***********************************************************************

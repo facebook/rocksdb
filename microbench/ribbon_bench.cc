@@ -32,7 +32,7 @@ struct KeyMaker {
     // To get range [avg_size - 2, avg_size + 2]
     // use range [smallest_size, smallest_size + 4]
     len += FastRange32((val_num >> 5) * 1234567891, 5);
-    char *data = buf_.get() + start;
+    char* data = buf_.get() + start;
     // Populate key data such that all data makes it into a key of at
     // least 8 bytes. We also don't want all the within-filter key
     // variance confined to a contiguous 32 bits, because then a 32 bit
@@ -51,7 +51,7 @@ struct KeyMaker {
 // 1. filter config bits_per_key
 // 2. average data key length
 // 3. data entry number
-static void CustomArguments(benchmark::internal::Benchmark *b) {
+static void CustomArguments(benchmark::internal::Benchmark* b) {
   const auto kImplCount =
       static_cast<int>(BloomLikeFilterPolicy::GetAllFixedImpls().size());
   for (int filter_impl = 0; filter_impl < kImplCount; ++filter_impl) {
@@ -66,7 +66,7 @@ static void CustomArguments(benchmark::internal::Benchmark *b) {
   b->ArgNames({"filter_impl", "bits_per_key", "key_len_avg", "entry_num"});
 }
 
-static void FilterBuild(benchmark::State &state) {
+static void FilterBuild(benchmark::State& state) {
   // setup data
   auto filter = BloomLikeFilterPolicy::Create(
       BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
@@ -89,7 +89,7 @@ static void FilterBuild(benchmark::State &state) {
 }
 BENCHMARK(FilterBuild)->Apply(CustomArguments);
 
-static void FilterQueryPositive(benchmark::State &state) {
+static void FilterQueryPositive(benchmark::State& state) {
   // setup data
   auto filter = BloomLikeFilterPolicy::Create(
       BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
@@ -117,7 +117,7 @@ static void FilterQueryPositive(benchmark::State &state) {
 }
 BENCHMARK(FilterQueryPositive)->Apply(CustomArguments);
 
-static void FilterQueryNegative(benchmark::State &state) {
+static void FilterQueryNegative(benchmark::State& state) {
   // setup data
   auto filter = BloomLikeFilterPolicy::Create(
       BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),

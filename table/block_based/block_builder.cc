@@ -133,19 +133,16 @@ Slice BlockBuilder::Finish() {
     PutFixed32(&buffer_, restarts_[i]);
   }
 
-  uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
-  BlockBasedTableOptions::DataBlockIndexType index_type =
-      BlockBasedTableOptions::kDataBlockBinarySearch;
+  DataBlockFooter footer;
+  footer.num_restarts = static_cast<uint32_t>(restarts_.size());
+  footer.index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
   if (data_block_hash_index_builder_.Valid() &&
       CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
     data_block_hash_index_builder_.Finish(buffer_);
-    index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
+    footer.index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
   }
 
-  // footer is a packed format of data_block_index_type and num_restarts
-  uint32_t block_footer = PackIndexTypeAndNumRestarts(index_type, num_restarts);
-
-  PutFixed32(&buffer_, block_footer);
+  footer.EncodeTo(&buffer_);
   finished_ = true;
   return Slice(buffer_);
 }

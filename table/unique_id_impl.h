@@ -26,14 +26,14 @@ constexpr UniqueId64x3 kNullUniqueId64x3 = {};
 
 // Dynamic pointer wrapper for one of the two above
 struct UniqueIdPtr {
-  uint64_t *ptr = nullptr;
+  uint64_t* ptr = nullptr;
   bool extended = false;
 
-  /*implicit*/ UniqueIdPtr(UniqueId64x2 *id) {
+  /*implicit*/ UniqueIdPtr(UniqueId64x2* id) {
     ptr = (*id).data();
     extended = false;
   }
-  /*implicit*/ UniqueIdPtr(UniqueId64x3 *id) {
+  /*implicit*/ UniqueIdPtr(UniqueId64x3* id) {
     ptr = (*id).data();
     extended = true;
   }
@@ -45,8 +45,8 @@ struct UniqueIdPtr {
 // unique id, so can be manipulated in more ways but very carefully.
 // These must be long term stable to ensure GetUniqueIdFromTableProperties
 // is long term stable.
-Status GetSstInternalUniqueId(const std::string &db_id,
-                              const std::string &db_session_id,
+Status GetSstInternalUniqueId(const std::string& db_id,
+                              const std::string& db_session_id,
                               uint64_t file_number, UniqueIdPtr out,
                               bool force = false);
 
@@ -66,7 +66,7 @@ void ExternalUniqueIdToInternal(UniqueIdPtr in_out);
 std::string EncodeUniqueIdBytes(UniqueIdPtr in);
 
 // Reverse of EncodeUniqueIdBytes.
-Status DecodeUniqueIdBytes(const std::string &unique_id, UniqueIdPtr out);
+Status DecodeUniqueIdBytes(const std::string& unique_id, UniqueIdPtr out);
 
 // For presenting internal IDs for debugging purposes. Visually distinct from
 // UniqueIdToHumanString for external IDs.
@@ -87,7 +87,7 @@ std::string EncodeSessionId(uint64_t upper, uint64_t lower);
 // Reverse of EncodeSessionId. Returns NotSupported on error rather than
 // Corruption because non-standard session IDs should be allowed with degraded
 // functionality.
-Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
-                       uint64_t *lower);
+Status DecodeSessionId(const std::string& db_session_id, uint64_t* upper,
+                       uint64_t* lower);
 
 }  // namespace ROCKSDB_NAMESPACE

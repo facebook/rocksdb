@@ -23,6 +23,7 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/status.h"
@@ -85,6 +86,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   uint64_t file_size = 0;
   FileOptions fopts = soptions_;
   fopts.temperature = file_temp_;
+  fopts.file_checksum_func_name = kNoFileChecksumFuncName;
   Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
     // check empty file
@@ -129,6 +131,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
       if (magic_number == kCuckooTableMagicNumber) {
         fopts = soptions_;
         fopts.temperature = file_temp_;
+        fopts.file_checksum_func_name = kNoFileChecksumFuncName;
       }
 
       fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);

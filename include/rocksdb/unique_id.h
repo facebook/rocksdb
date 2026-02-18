@@ -33,8 +33,8 @@ namespace ROCKSDB_NAMESPACE {
 // And assuming one generates many SST files in the lifetime of each process,
 // the probability of ID collisions is much "better than random"; see
 // https://github.com/pdillinger/unique_id
-Status GetUniqueIdFromTableProperties(const TableProperties &props,
-                                      std::string *out_id);
+Status GetUniqueIdFromTableProperties(const TableProperties& props,
+                                      std::string* out_id);
 
 // Computes a 192-bit (24 binary char) stable, universally unique ID
 // with an extra 64 bits of uniqueness compared to the standard ID. It is only
@@ -44,12 +44,12 @@ Status GetUniqueIdFromTableProperties(const TableProperties &props,
 // example above would expect a global file ID collision every 4 days with
 // 128-bit IDs (using some worst-case assumptions about process lifetime).
 // It's 10^17 years with 192-bit IDs.
-Status GetExtendedUniqueIdFromTableProperties(const TableProperties &props,
-                                              std::string *out_id);
+Status GetExtendedUniqueIdFromTableProperties(const TableProperties& props,
+                                              std::string* out_id);
 
 // Converts a binary string (unique id) to hexadecimal, with each 64 bits
 // separated by '-', e.g. 6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B
 // Also works on unique id prefix.
-std::string UniqueIdToHumanString(const std::string &id);
+std::string UniqueIdToHumanString(const std::string& id);
 
 }  // namespace ROCKSDB_NAMESPACE

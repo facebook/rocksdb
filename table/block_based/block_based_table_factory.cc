@@ -20,6 +20,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
@@ -184,6 +185,12 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearchWithFirstKey",
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
 
+static std::unordered_map<std::string, BlockBasedTableOptions::BlockSearchType>
+    block_base_table_index_search_type_string_map = {
+        {"kBinary", BlockBasedTableOptions::BlockSearchType::kBinary},
+        {"kInterpolation",
+         BlockBasedTableOptions::BlockSearchType::kInterpolation}};
+
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>
     block_base_table_data_block_index_type_string_map = {
@@ -261,6 +268,10 @@ static struct BlockBasedTableTypeInfo {
         {"index_type", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexType>(
                            offsetof(struct BlockBasedTableOptions, index_type),
                            &block_base_table_index_type_string_map)},
+        {"index_block_search_type",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::BlockSearchType>(
+             offsetof(struct BlockBasedTableOptions, index_block_search_type),
+             &block_base_table_index_search_type_string_map)},
         {"hash_index_allow_collision",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
         {"data_block_index_type",
@@ -615,6 +626,14 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
+  }
+  if (table_options_.index_block_search_type ==
+      BlockBasedTableOptions::kInterpolation) {
+    // Interpolation search requires BytewiseComparator
+    if (cf_opts.comparator != BytewiseComparator()) {
+      return Status::InvalidArgument(
+          "Interpolation search requires BytewiseComparator");
+    }
   }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {

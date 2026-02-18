@@ -152,6 +152,27 @@ struct DecodeEntryV4 {
   }
 };
 
+// Read first 8 bytes (starting at offset) as big-endian uint64_t, padding
+// with zeros on the right if the key is shorter. This preserves
+// lexicographic ordering. Non-user keys will also have end internal bytes
+// stripped and not counted for in the value.
+static uint64_t ReadBe64FromKey(Slice s, bool is_user_key, size_t offset) {
+  if (!is_user_key) {
+    assert(s.size() >= kNumInternalBytes);
+    s = Slice(s.data(), s.size() - kNumInternalBytes);
+  }
+  uint64_t val = 0;
+  offset = std::min(offset, s.size());
+  size_t len = std::min(s.size() - offset, size_t{8});
+  for (size_t i = 0; i < len; i++) {
+    val = (val << 8) | static_cast<uint8_t>(s.data()[offset + i]);
+  }
+  if (len > 0 && len < 8) {
+    val <<= (8 - len) * 8;  // Pad zeros on the right
+  }
+  return val;
+}
+
 void DataBlockIter::NextImpl() {
 #ifndef NDEBUG
   if (TEST_Corrupt_Callback("DataBlockIter::NextImpl")) {
@@ -307,7 +328,8 @@ void DataBlockIter::SeekImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+  bool ok = BinarySeekRestartPointIndex<DecodeKey>(seek_key, &index,
+                                                   &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -323,7 +345,8 @@ void MetaBlockIter::SeekImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+  bool ok = BinarySeekRestartPointIndex<DecodeKey>(seek_key, &index,
+                                                   &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -494,16 +517,32 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
     // restart interval must be one when hash search is enabled so the binary
     // search simply lands at the right place.
     skip_linear_scan = true;
-  } else if (value_delta_encoded_) {
-    ok = BinarySeek<DecodeKeyV4>(seek_key, &index, &skip_linear_scan);
   } else {
-    ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+    if (value_delta_encoded_) {
+      ok = FindRestartPointForSeek<DecodeKeyV4>(seek_key, &index,
+                                                &skip_linear_scan);
+    } else {
+      ok = FindRestartPointForSeek<DecodeKey>(seek_key, &index,
+                                              &skip_linear_scan);
+    }
   }
 
   if (!ok) {
     return;
   }
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
+}
+
+template <typename DecodeKeyFunc>
+bool IndexBlockIter::FindRestartPointForSeek(const Slice& seek_key,
+                                             uint32_t* index,
+                                             bool* skip_linear_scan) {
+  if (index_search_type_ == BlockBasedTableOptions::kBinary) {
+    return BinarySeekRestartPointIndex<DecodeKeyFunc>(seek_key, index,
+                                                      skip_linear_scan);
+  }
+  return InterpolationSeekRestartPointIndex<DecodeKeyFunc>(seek_key, index,
+                                                           skip_linear_scan);
 }
 
 void DataBlockIter::SeekForPrevImpl(const Slice& target) {
@@ -514,7 +553,8 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+  bool ok = BinarySeekRestartPointIndex<DecodeKey>(seek_key, &index,
+                                                   &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -540,7 +580,8 @@ void MetaBlockIter::SeekForPrevImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+  bool ok = BinarySeekRestartPointIndex<DecodeKey>(seek_key, &index,
+                                                   &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -816,9 +857,27 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
   }
 }
 
-// Binary searches in restart array to find the starting restart point for the
-// linear scan, and stores it in `*index`. Assumes restart array does not
-// contain duplicate keys. It is guaranteed that the restart key at `*index + 1`
+// Get the key slice at a given restart point index.
+template <class TValue>
+template <typename DecodeKeyFunc>
+bool BlockIter<TValue>::GetRestartKey(uint32_t index, Slice* key) {
+  uint32_t region_offset = GetRestartPoint(index);
+  uint32_t shared, non_shared;
+  const char* key_ptr = DecodeKeyFunc()(
+      data_ + region_offset, data_ + restarts_, &shared, &non_shared);
+  if (key_ptr == nullptr || (shared != 0)) {
+    CorruptionError();
+    return false;
+  }
+  *key = Slice(key_ptr, non_shared);
+  return true;
+}
+
+// Searches in restart array using binary search to find the starting restart
+// point for the linear scan, and stores it in `*index`. Assumes restart array
+// does not contain duplicate keys.
+//
+// It is guaranteed that the restart key at `*index + 1`
 // is strictly greater than `target` or does not exist (this can be used to
 // elide a comparison when linear scan reaches all the way to the next restart
 // key). Furthermore, `*skip_linear_scan` is set to indicate whether the
@@ -826,15 +885,15 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
 // compared again later.
 template <class TValue>
 template <typename DecodeKeyFunc>
-bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
-                                   bool* skip_linear_scan) {
+bool BlockIter<TValue>::BinarySeekRestartPointIndex(const Slice& target,
+                                                    uint32_t* index,
+                                                    bool* skip_linear_scan) {
   if (restarts_ == 0) {
     // SST files dedicated to range tombstones are written with index blocks
     // that have no keys while also having `num_restarts_ == 1`. This would
-    // cause a problem for `BinarySeek()` as it'd try to access the first key
-    // which does not exist. We identify such blocks by the offset at which
-    // their restarts are stored, and return false to prevent any attempted
-    // key accesses.
+    // cause a problem as we'd try to access the first key which does not exist.
+    // We identify such blocks by the offset at which their restarts are stored,
+    // and return false to prevent any attempted key accesses.
     return false;
   }
 
@@ -842,23 +901,25 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
   // Loop invariants:
   // - Restart key at index `left` is less than or equal to the target key. The
   //   sentinel index `-1` is considered to have a key that is less than all
-  //   keys.
+  //   keys. Doing this allows us to avoid a bounds check on left.
   // - Any restart keys after index `right` are strictly greater than the target
   //   key.
-  int64_t left = -1, right = num_restarts_ - 1;
+  int64_t left = -1;
+  int64_t right = num_restarts_ - 1;
+
   while (left != right) {
     // The `mid` is computed by rounding up so it lands in (`left`, `right`].
     int64_t mid = left + (right - left + 1) / 2;
-    uint32_t region_offset = GetRestartPoint(static_cast<uint32_t>(mid));
-    uint32_t shared, non_shared;
-    const char* key_ptr = DecodeKeyFunc()(
-        data_ + region_offset, data_ + restarts_, &shared, &non_shared);
-    if (key_ptr == nullptr || (shared != 0)) {
-      CorruptionError();
+
+    assert(left < mid && mid <= right);
+
+    Slice mid_key;
+    if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(mid), &mid_key)) {
       return false;
     }
-    Slice mid_key(key_ptr, non_shared);
+
     UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
+
     int cmp = CompareCurrentKey(target);
     if (cmp < 0) {
       // Key at "mid" is smaller than "target". Therefore all
@@ -885,22 +946,240 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
   return true;
 }
 
+// Similar effects to BinarySeekRestartPointIndex, except it uses a different
+// algorithm to search for the restart point index (i.e. interpolation search).
+// Interpolation search is typically more efficient for uniformly distributed
+// datasets.
+//
+// Typically, interpolation search requires an integer "value". But because we
+// are searching through variable length binary slices, we must estimate an
+// integer value for each key. Currently, the value is set to be the first 8
+// bytes (read big-endian) that do not share a prefix with the start and end
+// key. As a side effect, this can really only be used with the
+// BytewiseComparator().
+template <class TValue>
+template <typename DecodeKeyFunc>
+bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
+    const Slice& target, uint32_t* index, bool* skip_linear_scan) {
+  static constexpr int64_t kGuardLen = 8;
+  static constexpr uint64_t kMaxPoorSearches = 8;
+
+  if (restarts_ == 0) {
+    return false;
+  }
+
+  *skip_linear_scan = false;
+  assert(icmp_.user_comparator() == BytewiseComparator());
+
+  int64_t left = -1;
+  int64_t right = num_restarts_ - 1;
+  int64_t shared_prefix_len = -1;
+
+  Slice left_key;
+  Slice right_key;
+  bool seek_failed = false;
+
+#ifndef NDEBUG
+  // used to validate invariants
+  bool first_iter = true;
+#endif
+
+  // A poor search is when less than half the search space is reduced, because
+  // binary search would do better. When there are kMaxPoorSearches in a row,
+  // then fallback to binary search. This helps bound worse cast performance.
+  uint64_t continuous_poor_searches = 0;
+
+  // Loop invariants while not first iteration AND seek has not failed:
+  // - arr[usable_left] = left_key, arr[right] = right_key
+  // - left < mid <= right, and arr[left] < target < arr[right + 1]
+  //
+  // The first iteration is used as an early optimization to determine initial
+  // bounds, and whether target is within those bounds
+  while (left != right) {
+    int64_t mid = 0;
+
+    // If either search window is small or we've bad numerous bad guesses, then
+    // fallback to binary search
+    seek_failed = (right - left <= kGuardLen) ||
+                  continuous_poor_searches >= kMaxPoorSearches;
+
+    if (!seek_failed) {
+      // Interpolation seek reads left and right boundaries anyways, so we can
+      // set left = 0. The invariant that left <= target is still held because
+      // we early exit if left > target for the first iteration.
+      const auto usable_left = std::max<int64_t>(left, 0);
+
+      // First iteration: decode both boundary keys and compute shared prefix.
+      if (shared_prefix_len < 0) {
+        assert(first_iter);
+        if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(usable_left),
+                                          &left_key)) {
+          return false;
+        }
+
+        if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(right),
+                                          &right_key)) {
+          return false;
+        }
+
+        // Compute the shared prefix length between smallest index key and
+        // largest index key this can be used to "normalize" the values
+        // calculated during interpolation search.
+        shared_prefix_len =
+            static_cast<int64_t>(left_key.difference_offset(right_key));
+      }
+      assert(shared_prefix_len >= 0);
+
+      size_t spl = static_cast<size_t>(shared_prefix_len);
+      assert(spl <= left_key.size() && spl <= right_key.size());
+      uint64_t left_val = ReadBe64FromKey(left_key, raw_key_.IsUserKey(), spl);
+      uint64_t right_val =
+          ReadBe64FromKey(right_key, raw_key_.IsUserKey(), spl);
+      uint64_t target_val = ReadBe64FromKey(target, raw_key_.IsUserKey(), spl);
+
+      if (left_val > right_val) {
+        CorruptionError("left key is greater than right key");
+        return false;
+      }
+
+      bool lte_left = false;
+      bool gt_right = false;
+
+      if (target_val < left_val) {
+        assert(first_iter);
+        assert(CompareKey(left_key, target) > 0);
+        lte_left = true;
+      } else if (target_val == left_val) {
+        // target_val == left_val doesn't imply target == left_key
+        // because ReadBe64FromKey only reads 8 bytes and skips sequence
+        // numbers. We need to check actual key order.
+        if (CompareKey(left_key, target) >= 0) {
+          assert(first_iter);
+          lte_left = true;
+        }
+      }
+
+      if (!lte_left && !seek_failed) {
+        if (target_val > right_val) {
+          // note that we only ever guarantee arr[target] < arr[right + 1], so
+          // it is possible to end up here even on non-first iteration
+          assert(CompareKey(right_key, target) < 0);
+          gt_right = true;
+        } else if (right_val == left_val) {
+          // cannot divide by 0
+          seek_failed = true;
+        }
+      }
+
+      // early exit if key is not within bounds
+      if (lte_left) {
+        assert(!seek_failed);
+        UpdateRawKeyAndMaybePadMinTimestamp(left_key);
+        assert(CompareCurrentKey(target) >= 0);
+        *skip_linear_scan = true;
+        *index = static_cast<uint32_t>(usable_left);
+        return true;
+      }
+      if (gt_right) {
+        assert(!seek_failed);
+        UpdateRawKeyAndMaybePadMinTimestamp(right_key);
+        assert(CompareCurrentKey(target) < 0);
+        *index = static_cast<uint32_t>(right);
+        return true;
+      }
+
+      if (!seek_failed) {
+#ifdef HAVE_UINT128_EXTENSION
+        __uint128_t range = right - usable_left;
+        __uint128_t target_delta = target_val - left_val;
+        uint64_t range_delta = right_val - left_val;
+        int64_t offset =
+            static_cast<int64_t>(range * target_delta / range_delta);
+#else
+        double ratio = static_cast<double>(target_val - left_val) /
+                       static_cast<double>(right_val - left_val);
+        assert(0 <= ratio && ratio <= 1);
+        int64_t range = right - usable_left;
+        int64_t offset = static_cast<int64_t>(range * ratio);
+#endif
+        left = usable_left;  // can reduce search space by 1
+        mid = usable_left + offset;
+        assert(mid <= right);
+        if (mid == usable_left) {
+          // this is to guarantee progress and avoid infinite loop
+          ++mid;
+        }
+      }
+    }
+
+    if (seek_failed) {
+      // Fallback to binary seek
+      mid = left + (right - left + 1) / 2;
+    }
+
+    assert(left < mid && mid <= right);
+
+    Slice mid_key;
+    if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(mid), &mid_key)) {
+      return false;
+    }
+
+    UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
+
+    int cmp = CompareCurrentKey(target);
+
+    int64_t previous_search_space = right - left;
+    if (cmp < 0) {
+      left = mid;
+      left_key = mid_key;
+    } else if (cmp > 0) {
+      right = mid - 1;
+      if (!seek_failed && left != right) {
+        if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(right),
+                                          &right_key)) {
+          return false;
+        }
+      }
+    } else {
+      *skip_linear_scan = true;
+      left = right = mid;
+    }
+
+    // If seach space is not reduced by at least half, good chance this data is
+    // not uniform.
+    int64_t new_search_space = right - left;
+    if (new_search_space > previous_search_space / 2) {
+      ++continuous_poor_searches;
+    } else {
+      continuous_poor_searches = 0;
+    }
+
+#ifndef NDEBUG
+    first_iter = false;
+#endif
+  }
+
+  if (left == -1) {
+    // All keys in the block were strictly greater than `target`. So the very
+    // first key in the block is the final seek result.
+    *skip_linear_scan = true;
+    *index = 0;
+  } else {
+    *index = static_cast<uint32_t>(left);
+  }
+  return true;
+}
+
 // Compare target key and the block key of the block of `block_index`.
 // Return -1 if error.
 int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
-  uint32_t region_offset = GetRestartPoint(block_index);
-  uint32_t shared, non_shared;
-  const char* key_ptr =
-      value_delta_encoded_
-          ? DecodeKeyV4()(data_ + region_offset, data_ + restarts_, &shared,
-                          &non_shared)
-          : DecodeKey()(data_ + region_offset, data_ + restarts_, &shared,
-                        &non_shared);
-  if (key_ptr == nullptr || (shared != 0)) {
-    CorruptionError();
+  Slice block_key;
+  bool ok = value_delta_encoded_
+                ? GetRestartKey<DecodeKeyV4>(block_index, &block_key)
+                : GetRestartKey<DecodeKey>(block_index, &block_key);
+  if (!ok) {
     return 1;  // Return target is smaller
   }
-  Slice block_key(key_ptr, non_shared);
   UpdateRawKeyAndMaybePadMinTimestamp(block_key);
   return CompareCurrentKey(target);
 }
@@ -1015,39 +1294,12 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
   }
 }
 
-uint32_t Block::NumRestarts() const {
-  assert(size() >= 2 * sizeof(uint32_t));
-  uint32_t block_footer = DecodeFixed32(data() + size() - sizeof(uint32_t));
-  uint32_t num_restarts = block_footer;
-  if (size() > kMaxBlockSizeSupportedByHashIndex) {
-    // In BlockBuilder, we have ensured a block with HashIndex is less than
-    // kMaxBlockSizeSupportedByHashIndex (64KiB).
-    //
-    // Therefore, if we encounter a block with a size > 64KiB, the block
-    // cannot have HashIndex. So the footer will directly interpreted as
-    // num_restarts.
-    //
-    // Such check is for backward compatibility. We can ensure legacy block
-    // with a vary large num_restarts i.e. >= 0x80000000 can be interpreted
-    // correctly as no HashIndex even if the MSB of num_restarts is set.
-    return num_restarts;
-  }
-  BlockBasedTableOptions::DataBlockIndexType index_type;
-  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
-  return num_restarts;
-}
-
 BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
-  assert(size() >= 2 * sizeof(uint32_t));
-  if (size() > kMaxBlockSizeSupportedByHashIndex) {
-    // The check is for the same reason as that in NumRestarts()
-    return BlockBasedTableOptions::kDataBlockBinarySearch;
-  }
-  uint32_t block_footer = DecodeFixed32(data() + size() - sizeof(uint32_t));
-  uint32_t num_restarts = block_footer;
-  BlockBasedTableOptions::DataBlockIndexType index_type;
-  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
-  return index_type;
+  assert(size() >= DataBlockFooter::kMinEncodedLength);
+  Slice input(data(), size());
+  DataBlockFooter footer;
+  footer.DecodeFrom(&input).PermitUncheckedError();
+  return footer.index_type;
 }
 
 Block::~Block() {
@@ -1057,50 +1309,70 @@ Block::~Block() {
   delete[] kv_checksum_;
 }
 
+Status Block::GetCorruptionStatus() const {
+  // Re-process the footer to get a detailed error status.
+  // This should only be called when size() == 0 (error marker).
+  assert(size() == 0);
+  // When size() == 0 and restart_offset_ != 0, restart_offset_ stores the
+  // original data size for re-decoding the footer to get detailed error.
+  if (restart_offset_ == 0) {
+    return Status::Corruption("bad block contents");
+  }
+  Slice input(contents_.data.data(), restart_offset_);
+  DataBlockFooter footer;
+  Status s = footer.DecodeFrom(&input);
+  if (!s.ok()) {
+    return s;  // Return the detailed error from DecodeFrom
+  }
+  // Footer decoded OK, so error was in later processing (shouldn't happen)
+  DEBUG_FAIL("ok status on presumed bad block contents");
+  return Status::Corruption("presumed bad block contents");
+}
+
 Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
              Statistics* statistics)
     : contents_(std::move(contents)), restart_offset_(0), num_restarts_(0) {
   TEST_SYNC_POINT("Block::Block:0");
   auto& size = contents_.data.size_;
-  if (size < sizeof(uint32_t)) {
+  // `contents` is assumed to be uncompressed in the proper format
+  Slice input(contents_.data.data(), size);
+  DataBlockFooter footer;
+  Status s = footer.DecodeFrom(&input);
+  if (!s.ok()) {
+    // Save original size for GetCorruptionStatus() to re-decode footer
+    restart_offset_ = static_cast<uint32_t>(size);
     size = 0;  // Error marker
   } else {
-    // Should only decode restart points for uncompressed blocks
-    num_restarts_ = NumRestarts();
-    switch (IndexType()) {
+    // After DecodeFrom, input has the footer removed. Each case below
+    // may strip additional suffix (e.g., hash index) so that input ends
+    // with just the restart array.
+    num_restarts_ = footer.num_restarts;
+    switch (footer.index_type) {
       case BlockBasedTableOptions::kDataBlockBinarySearch:
-        restart_offset_ = static_cast<uint32_t>(size) -
-                          (1 + num_restarts_) * sizeof(uint32_t);
-        if (restart_offset_ > size - sizeof(uint32_t)) {
-          // The size is too small for NumRestarts() and therefore
-          // restart_offset_ wrapped around.
-          size = 0;
-        }
         break;
       case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-        if (size < sizeof(uint32_t) /* block footer */ +
-                       sizeof(uint16_t) /* NUM_BUCK */) {
+        if (input.size() < sizeof(uint16_t) /* NUM_BUCK */) {
           size = 0;
           break;
         }
-
         uint16_t map_offset;
-        data_block_hash_index_.Initialize(
-            contents_.data.data(),
-            /* chop off NUM_RESTARTS */
-            static_cast<uint16_t>(size - sizeof(uint32_t)), &map_offset);
-
-        restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
-
-        if (restart_offset_ > map_offset) {
-          // map_offset is too small for NumRestarts() and
-          // therefore restart_offset_ wrapped around.
-          size = 0;
-          break;
-        }
+        data_block_hash_index_.Initialize(contents_.data.data(),
+                                          static_cast<uint16_t>(input.size()),
+                                          &map_offset);
+        // Strip the hash index, leaving just data + restarts
+        input.remove_suffix(input.size() - map_offset);
         break;
       default:
         size = 0;  // Error marker
+    }
+    // After the switch, input should end with restarts[num_restarts_]
+    if (size != 0) {
+      if (input.size() < num_restarts_ * sizeof(uint32_t)) {
+        size = 0;  // Block too small for the declared number of restarts
+      } else {
+        restart_offset_ = static_cast<uint32_t>(input.size()) -
+                          num_restarts_ * sizeof(uint32_t);
+      }
     }
   }
   if (read_amp_bytes_per_bit != 0 && statistics && size != 0) {
@@ -1238,7 +1510,7 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
 MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
   MetaBlockIter* iter = new MetaBlockIter();
   if (size() < 2 * sizeof(uint32_t)) {
-    iter->Invalidate(Status::Corruption("bad block contents"));
+    iter->Invalidate(GetCorruptionStatus());
     return iter;
   } else if (num_restarts_ == 0) {
     // Empty block.
@@ -1263,7 +1535,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
     ret_iter = new DataBlockIter;
   }
   if (size() < 2 * sizeof(uint32_t)) {
-    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    ret_iter->Invalidate(GetCorruptionStatus());
     return ret_iter;
   }
   if (num_restarts_ == 0) {
@@ -1293,7 +1565,8 @@ IndexBlockIter* Block::NewIndexIterator(
     IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
     bool have_first_key, bool key_includes_seq, bool value_is_full,
     bool block_contents_pinned, bool user_defined_timestamps_persisted,
-    BlockPrefixIndex* prefix_index) {
+    BlockPrefixIndex* prefix_index,
+    BlockBasedTableOptions::BlockSearchType index_block_search_type) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1301,7 +1574,7 @@ IndexBlockIter* Block::NewIndexIterator(
     ret_iter = new IndexBlockIter;
   }
   if (size() < 2 * sizeof(uint32_t)) {
-    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    ret_iter->Invalidate(GetCorruptionStatus());
     return ret_iter;
   }
   if (num_restarts_ == 0) {
@@ -1311,11 +1584,12 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
-    ret_iter->Initialize(
-        raw_ucmp, data(), restart_offset_, num_restarts_, global_seqno,
-        prefix_index_ptr, have_first_key, key_includes_seq, value_is_full,
-        block_contents_pinned, user_defined_timestamps_persisted,
-        protection_bytes_per_key_, kv_checksum_, block_restart_interval_);
+    ret_iter->Initialize(raw_ucmp, data(), restart_offset_, num_restarts_,
+                         global_seqno, prefix_index_ptr, have_first_key,
+                         key_includes_seq, value_is_full, block_contents_pinned,
+                         user_defined_timestamps_persisted,
+                         protection_bytes_per_key_, kv_checksum_,
+                         block_restart_interval_, index_block_search_type);
   }
 
   return ret_iter;

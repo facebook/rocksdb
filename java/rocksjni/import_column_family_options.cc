@@ -16,8 +16,8 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_ImportColumnFamilyOptions_newImportColumnFamilyOptions(
-    JNIEnv *, jclass) {
-  ROCKSDB_NAMESPACE::ImportColumnFamilyOptions *opts =
+    JNIEnv*, jclass) {
+  ROCKSDB_NAMESPACE::ImportColumnFamilyOptions* opts =
       new ROCKSDB_NAMESPACE::ImportColumnFamilyOptions();
   return GET_CPLUSPLUS_POINTER(opts);
 }
@@ -28,9 +28,9 @@ jlong Java_org_rocksdb_ImportColumnFamilyOptions_newImportColumnFamilyOptions(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_ImportColumnFamilyOptions_setMoveFiles(
-    JNIEnv *, jobject, jlong jhandle, jboolean jmove_files) {
-  auto *options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions *>(jhandle);
+    JNIEnv*, jobject, jlong jhandle, jboolean jmove_files) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions*>(jhandle);
   options->move_files = static_cast<bool>(jmove_files);
 }
 
@@ -39,10 +39,10 @@ void Java_org_rocksdb_ImportColumnFamilyOptions_setMoveFiles(
  * Method:    moveFiles
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_ImportColumnFamilyOptions_moveFiles(JNIEnv *, jobject,
+jboolean Java_org_rocksdb_ImportColumnFamilyOptions_moveFiles(JNIEnv*, jobject,
                                                               jlong jhandle) {
-  auto *options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions *>(jhandle);
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions*>(jhandle);
   return static_cast<jboolean>(options->move_files);
 }
 
@@ -51,9 +51,9 @@ jboolean Java_org_rocksdb_ImportColumnFamilyOptions_moveFiles(JNIEnv *, jobject,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ImportColumnFamilyOptions_disposeInternal(JNIEnv *,
+void Java_org_rocksdb_ImportColumnFamilyOptions_disposeInternal(JNIEnv*,
                                                                 jobject,
                                                                 jlong jhandle) {
-  delete reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions *>(
+  delete reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions*>(
       jhandle);
 }

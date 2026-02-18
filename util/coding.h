@@ -355,8 +355,7 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-inline void
-PutUnaligned(T* memory, const T& value) {
+inline void PutUnaligned(T* memory, const T& value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
   char* nonAlignedMemory = reinterpret_cast<char*>(memory);
   memcpy(nonAlignedMemory, reinterpret_cast<const char*>(&value), sizeof(T));
@@ -373,8 +372,7 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-inline void
-GetUnaligned(const T* memory, T* value) {
+inline void GetUnaligned(const T* memory, T* value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
   char* nonAlignedMemory = reinterpret_cast<char*>(value);
   memcpy(nonAlignedMemory, reinterpret_cast<const char*>(memory), sizeof(T));

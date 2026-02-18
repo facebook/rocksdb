@@ -75,6 +75,51 @@ public class CompactionOptionsFIFO extends RocksObject {
     return allowCompaction(nativeHandle_);
   }
 
+  /**
+   * Combined SST + blob file size limit for FIFO compaction trimming.
+   * When non-zero, FIFO uses total_sst + total_blob for size-based dropping.
+   * When zero (default), uses max_table_files_size (SST-only).
+   *
+   * @param maxDataFilesSize the combined size limit in bytes
+   *
+   * @return the reference to the current options.
+   */
+  public CompactionOptionsFIFO setMaxDataFilesSize(final long maxDataFilesSize) {
+    setMaxDataFilesSize(nativeHandle_, maxDataFilesSize);
+    return this;
+  }
+
+  /**
+   * Get the combined SST + blob file size limit.
+   *
+   * @return max data files size in bytes, 0 means disabled
+   */
+  public long maxDataFilesSize() {
+    return maxDataFilesSize(nativeHandle_);
+  }
+
+  /**
+   * Enable capacity-derived intra-L0 compaction using the observed key/value
+   * size ratio. Requires maxDataFilesSize &gt; 0.
+   *
+   * @param useKvRatioCompaction true to enable
+   *
+   * @return the reference to the current options.
+   */
+  public CompactionOptionsFIFO setUseKvRatioCompaction(final boolean useKvRatioCompaction) {
+    setUseKvRatioCompaction(nativeHandle_, useKvRatioCompaction);
+    return this;
+  }
+
+  /**
+   * Check if capacity-derived intra-L0 compaction is enabled.
+   *
+   * @return true if enabled
+   */
+  public boolean useKvRatioCompaction() {
+    return useKvRatioCompaction(nativeHandle_);
+  }
+
   private static native long newCompactionOptionsFIFO();
   @Override
   protected final void disposeInternal(final long handle) {
@@ -86,4 +131,9 @@ public class CompactionOptionsFIFO extends RocksObject {
   private static native long maxTableFilesSize(final long handle);
   private static native void setAllowCompaction(final long handle, final boolean allowCompaction);
   private static native boolean allowCompaction(final long handle);
+  private static native void setMaxDataFilesSize(final long handle, final long maxDataFilesSize);
+  private static native long maxDataFilesSize(final long handle);
+  private static native void setUseKvRatioCompaction(
+      final long handle, final boolean useKvRatioCompaction);
+  private static native boolean useKvRatioCompaction(final long handle);
 }

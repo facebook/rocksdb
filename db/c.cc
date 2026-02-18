@@ -3757,6 +3757,12 @@ void rocksdb_block_based_options_set_data_block_index_type(
       static_cast<BlockBasedTableOptions::DataBlockIndexType>(v);
 }
 
+void rocksdb_block_based_options_set_index_block_search_type(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.index_block_search_type =
+      static_cast<BlockBasedTableOptions::BlockSearchType>(v);
+}
+
 void rocksdb_block_based_options_set_data_block_hash_ratio(
     rocksdb_block_based_table_options_t* options, double v) {
   options->rep.data_block_hash_table_util_ratio = v;
@@ -7039,6 +7045,27 @@ void rocksdb_fifo_compaction_options_set_max_table_files_size(
 uint64_t rocksdb_fifo_compaction_options_get_max_table_files_size(
     rocksdb_fifo_compaction_options_t* fifo_opts) {
   return fifo_opts->rep.max_table_files_size;
+}
+
+void rocksdb_fifo_compaction_options_set_max_data_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size) {
+  fifo_opts->rep.max_data_files_size = size;
+}
+
+uint64_t rocksdb_fifo_compaction_options_get_max_data_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  return fifo_opts->rep.max_data_files_size;
+}
+
+void rocksdb_fifo_compaction_options_set_use_kv_ratio_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts,
+    unsigned char use_kv_ratio_compaction) {
+  fifo_opts->rep.use_kv_ratio_compaction = use_kv_ratio_compaction;
+}
+
+unsigned char rocksdb_fifo_compaction_options_get_use_kv_ratio_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  return fifo_opts->rep.use_kv_ratio_compaction;
 }
 
 void rocksdb_fifo_compaction_options_destroy(

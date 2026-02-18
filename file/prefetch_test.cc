@@ -3582,14 +3582,25 @@ TEST_F(FilePrefetchBufferTest, PollErrorPropagation) {
   // Start an async prefetch to set up async_read_in_progress_ state
   Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 0, 4096, &result);
 
-  // Skip test on platforms that don't support async IO
+  // Skip test on platforms that don't support async IO.
   if (s.IsNotSupported()) {
     ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
     return;
   }
   ASSERT_TRUE(s.IsTryAgain());
-  std::cout << "PollErrorPropagation: Async IO supported, proceeding with test"
-            << std::endl;
+
+  // With the ReadAsync sync fallback, PrefetchAsync returns TryAgain even when
+  // async IO is unavailable (data is read synchronously, but data_found was
+  // false at entry). Detect by checking async_read_in_progress_ on the buffer.
+  {
+    std::vector<std::tuple<uint64_t, size_t, bool>> buf_info(1);
+    fpb.TEST_GetBufferOffsetandSize(buf_info);
+    bool async_read_in_progress = std::get<2>(buf_info[0]);
+    if (!async_read_in_progress) {
+      ROCKSDB_GTEST_SKIP("Async IO not available (sync fallback used)");
+      return;
+    }
+  }
 
   // Set up SyncPoint to inject Poll error
   SyncPoint::GetInstance()->SetCallBack(
@@ -3619,9 +3630,40 @@ TEST_F(FilePrefetchBufferTest, PollErrorPropagation) {
       << "Expected error message to contain 'Injected Poll error', got: "
       << read_status.ToString();
 
-  std::cout << "PollErrorPropagation: Poll error correctly propagated - "
-            << "found=" << found << ", status=" << read_status.ToString()
-            << std::endl;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(FilePrefetchBufferTest, ReadAsyncSyncFallbackOnNotSupported) {
+  std::string fname = "read-async-sync-fallback";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadAsync:InjectStatus", [](void* arg) {
+        *static_cast<IOStatus*>(arg) = IOStatus::NotSupported();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 16384;
+  readahead_params.max_readahead_size = 16384;
+  readahead_params.num_buffers = 2;
+
+  FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                         /*track_min_offset=*/false, fs());
+
+  Slice result;
+  Status s;
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s));
+  ASSERT_OK(s);
+  ASSERT_EQ(result.size(), 4096);
+  ASSERT_EQ(memcmp(result.data(), content.data(), 4096), 0);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -3792,6 +3834,9 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
       fpb.TryReadFromCache(IOOptions(), r.get(), 0 /* offset */, 4096 /* n */,
                            &result, &s, for_compaction);
   // Platforms that don't have IO uring may not support async IO.
+  // With the ReadAsync sync fallback, s will be OK even when async IO is
+  // unavailable — detect by checking if the second buffer has an async read
+  // in progress.
   if (use_async_prefetch && s.IsNotSupported()) {
     return;
   }
@@ -3805,6 +3850,14 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   if (use_async_prefetch) {
+    bool async_read_in_progress = std::get<2>(buffer_info[1]);
+    if (!async_read_in_progress) {
+      // Async IO was requested but not available (e.g., no io_uring).
+      // ReadAsync fell back to sync read. Skip async-specific assertions.
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      return;
+    }
     // Cut the readahead of 8192 in half.
     // Overlap buffer is not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
@@ -3997,6 +4050,14 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   if (use_async_prefetch) {
+    bool async_read_in_progress = std::get<2>(buffer_info[1]);
+    if (!async_read_in_progress) {
+      // Async IO was requested but not available (e.g., no io_uring).
+      // ReadAsync fell back to sync read. Skip async-specific assertions.
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      return;
+    }
     // Overlap buffer is not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);

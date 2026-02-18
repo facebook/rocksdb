@@ -65,7 +65,7 @@ Status VerifySstFileChecksum(const Options& options,
 }
 
 Status VerifySstFileChecksumInternal(const Options& options,
-                                     const EnvOptions& env_options,
+                                     const FileOptions& file_options,
                                      const ReadOptions& read_options,
                                      const std::string& file_path,
                                      const SequenceNumber& largest_seqno) {
@@ -74,8 +74,8 @@ Status VerifySstFileChecksumInternal(const Options& options,
   InternalKeyComparator internal_comparator(options.comparator);
   ImmutableOptions ioptions(options);
 
-  Status s = ioptions.fs->NewRandomAccessFile(
-      file_path, FileOptions(env_options), &file, nullptr);
+  Status s =
+      ioptions.fs->NewRandomAccessFile(file_path, file_options, &file, nullptr);
   if (s.ok()) {
     s = ioptions.fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   } else {
@@ -94,7 +94,7 @@ Status VerifySstFileChecksumInternal(const Options& options,
   const bool kImmortal = true;
   auto reader_options = TableReaderOptions(
       ioptions, options.prefix_extractor, options.compression_manager.get(),
-      env_options, internal_comparator, options.block_protection_bytes_per_key,
+      file_options, internal_comparator, options.block_protection_bytes_per_key,
       false /* skip_filters */, !kImmortal, false /* force_direct_prefetch */,
       -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
