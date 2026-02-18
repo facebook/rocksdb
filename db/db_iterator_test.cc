@@ -1842,11 +1842,6 @@ class SliceTransformLimitedDomainGeneric : public SliceTransform {
     // prefix will be x????
     return src.size() >= 1;
   }
-
-  bool InRange(const Slice& dst) const override {
-    // prefix will be x????
-    return dst.size() == 1;
-  }
 };
 
 TEST_P(DBIteratorTest, IterSeekForPrevCrossingFiles) {

@@ -220,8 +220,6 @@ class SamePrefixTransform : public SliceTransform {
     return false;
   }
 
-  bool InRange(const Slice& dst) const override { return dst == prefix_; }
-
   bool FullLengthEnabled(size_t* /*len*/) const override { return false; }
 };
 
