@@ -180,14 +180,14 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(dbfull()->Flush(FlushOptions(), cf));
-    delete cf;
-    // Wait for background purge (where WAL archiving happens) to complete so
-    // the callback is reliably hit before we check.
+    ASSERT_OK(dbfull()->TEST_SwitchWAL());
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
     ASSERT_OK(dbfull()->TEST_WaitForPurge());
+    delete cf;
     ASSERT_TRUE(callback_hit.LoadRelaxed());
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    Close();
   } while (ChangeCompactOptions());
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  Close();
 }
 #endif
 
