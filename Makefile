@@ -279,27 +279,18 @@ endif
 
 CXXFLAGS += $(ARCHFLAG)
 
-ifneq (,$(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve+crc+crypto -xc /dev/null 2>&1))
-HAS_CRC_CRYPTO := $(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1 && echo yes)
-HAS_SVE := $(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve -xc /dev/null 2>&1 && echo yes)
-
-ifeq ($(HAS_SVE),yes)
-  ifeq ($(HAS_CRC_CRYPTO),yes)
-    CXXFLAGS += -march=armv8.2-a+sve+crc+crypto -DXXH_VECTOR=XXH_SVE
-    CFLAGS  += -march=armv8.2-a+sve+crc+crypto -DXXH_VECTOR=XXH_SVE
-    ARMCRC_SOURCE=1
-  else
-    CXXFLAGS += -march=armv8.2-a+sve -DXXH_VECTOR=XXH_SVE
-    CFLAGS  += -march=armv8.2-a+sve -DXXH_VECTOR=XXH_SVE
+ifdef HAS_ARM
+  ifdef ARM_MARCH
+    CXXFLAGS += -march=$(ARM_MARCH)
+    CFLAGS += -march=$(ARM_MARCH)
   endif
-else ifeq ($(HAS_CRC_CRYPTO),yes)
-  CXXFLAGS += -march=armv8-a+crc+crypto
-  CFLAGS  += -march=armv8-a+crc+crypto
-  ARMCRC_SOURCE=1
-else
-  CXXFLAGS += -march=armv8-a
-  CFLAGS  += -march=armv8-a
-endif
+  ifdef XXH_VECTOR
+    CXXFLAGS += -DXXH_VECTOR=$(XXH_VECTOR)
+    CFLAGS += -DXXH_VECTOR=$(XXH_VECTOR)
+  endif
+  ifdef ARMCRC_SOURCE
+    ARMCRC_SOURCE=1
+  endif
 endif
 
 export JAVAC_ARGS
