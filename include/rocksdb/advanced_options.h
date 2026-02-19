@@ -823,6 +823,18 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
+  // Maximum allowed ratio of compaction output size to input size.
+  // If the total output file size exceeds this ratio times the total input
+  // file size, the compaction is aborted with Status::Corruption.
+  // This catches silent data corruption (e.g., hardware bit flips) that
+  // inflates values or blocks to unreasonable sizes.
+  // Set to 0 to disable this check.
+  //
+  // Default: 10 (output cannot exceed 10x input size)
+  //
+  // Dynamically changeable through SetOptions() API.
+  uint64_t max_compaction_output_to_input_ratio = 10;
+
   // Bitmask enum for output verification option.
   //
   // Default: 0 (kVerifyNone)

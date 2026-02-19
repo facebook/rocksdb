@@ -4585,6 +4585,8 @@ void InitializeOptionsFromFlags(
 
   options.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options.paranoid_file_checks = FLAGS_paranoid_file_checks;
+  options.max_compaction_output_to_input_ratio =
+      FLAGS_max_compaction_output_to_input_ratio;
 
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);

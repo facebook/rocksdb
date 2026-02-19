@@ -887,6 +887,43 @@ Status CompactionJob::VerifyOutputFiles() {
   VerifyOutputFlags verify_output_flags =
       compact_->compaction->mutable_cf_options().verify_output_flags;
 
+  // Check compaction output/input size ratio. A corrupted value (e.g., from
+  // a hardware bit flip in Slice::size_) can inflate the output file far
+  // beyond what the input data justifies.
+  const uint64_t max_ratio = compact_->compaction->mutable_cf_options()
+                                 .max_compaction_output_to_input_ratio;
+  if (max_ratio > 0) {
+    uint64_t total_input_bytes =
+        compact_->compaction->CalculateTotalInputSize();
+    uint64_t total_output_bytes = 0;
+    for (const auto& state : compact_->sub_compact_states) {
+      for (const auto& output : state.GetOutputs()) {
+        total_output_bytes += output.meta.fd.file_size;
+      }
+    }
+    // Only apply the ratio check when input is large enough for the ratio
+    // to be meaningful. Small inputs (e.g., < 1MB) can legitimately produce
+    // larger output due to block overhead, index/filter blocks, and metadata.
+    static constexpr uint64_t kMinInputForRatioCheck = 1u << 20;  // 1MB
+    if (total_input_bytes >= kMinInputForRatioCheck &&
+        total_output_bytes > total_input_bytes * max_ratio) {
+      ROCKS_LOG_ERROR(
+          db_options_.info_log,
+          "[%s] [JOB %d] Compaction output size anomaly: "
+          "output=%" PRIu64 " input=%" PRIu64 " ratio=%.1f max_ratio=%" PRIu64
+          ". Possible data corruption (e.g., hardware bit flip).",
+          cfd->GetName().c_str(), job_id_, total_output_bytes,
+          total_input_bytes,
+          static_cast<double>(total_output_bytes) / total_input_bytes,
+          max_ratio);
+      status = Status::Corruption(
+          "Compaction output size (" + std::to_string(total_output_bytes) +
+          ") exceeds " + std::to_string(max_ratio) + "x input size (" +
+          std::to_string(total_input_bytes) + "). Possible data corruption.");
+      return status;
+    }
+  }
+
   // For backward compatibility
   if (paranoid_file_checks_) {
     verify_output_flags |= VerifyOutputFlags::kVerifyIteration;

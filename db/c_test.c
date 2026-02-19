@@ -2557,6 +2557,10 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     rocksdb_cuckoo_options_destroy(cuckoo_options);
+
+    // Reset table factory back to block-based so subsequent test phases
+    // (e.g., transactions) don't inherit the cuckoo table factory.
+    rocksdb_options_set_block_based_table_factory(options, table_options);
   }
 
   StartPhase("options");

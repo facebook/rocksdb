@@ -161,6 +161,8 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
+        max_compaction_output_to_input_ratio(
+            options.max_compaction_output_to_input_ratio),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
         bottommost_compression(options.bottommost_compression),
@@ -230,6 +232,7 @@ struct MutableCFOptions {
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
+        max_compaction_output_to_input_ratio(10),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
@@ -336,6 +339,7 @@ struct MutableCFOptions {
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;
+  uint64_t max_compaction_output_to_input_ratio;
   bool report_bg_io_stats;
   CompressionType compression;
   CompressionType bottommost_compression;

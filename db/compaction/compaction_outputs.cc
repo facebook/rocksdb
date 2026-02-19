@@ -421,6 +421,9 @@ Status CompactionOutputs::AddToOutput(
     return s;
   }
   builder_->Add(key, value);
+  if (!builder_->status().ok()) {
+    return builder_->status();
+  }
 
   stats_.num_output_records++;
   current_output_file_size_ = builder_->EstimatedFileSize();

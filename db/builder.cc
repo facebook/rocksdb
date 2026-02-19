@@ -263,6 +263,10 @@ Status BuildTable(
         break;
       }
       builder->Add(key_after_flush, value_after_flush);
+      if (!builder->status().ok()) {
+        s = builder->status();
+        break;
+      }
 
       if (flush_stats) {
         flush_stats->num_output_records++;

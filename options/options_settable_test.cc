@@ -643,6 +643,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_insert_with_hint_prefix_extractor=rocksdb.CappedPrefix.13;"
       "check_flush_compaction_key_order=false;"
       "paranoid_file_checks=true;"
+      "max_compaction_output_to_input_ratio=10;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
       "experimental_mempurge_threshold=0.0001;"

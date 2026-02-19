@@ -49,6 +49,7 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "MultiScan reached file prefetch limit",         // kPrefetchLimitReached
     "Not expected code path",                        // kNotExpectedCodePath
     "All compactions aborted",                       // kCompactionAborted
+    "Transient data corruption",                     // kTransientDataCorruption
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

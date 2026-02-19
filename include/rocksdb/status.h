@@ -118,6 +118,7 @@ class Status {
     kPrefetchLimitReached = 17,
     kNotExpectedCodePath = 18,
     kCompactionAborted = 19,
+    kTransientDataCorruption = 20,
     kMaxSubCode
   };
 
@@ -208,6 +209,10 @@ class Status {
   }
   static Status Corruption(SubCode msg = kNone) {
     return Status(kCorruption, msg);
+  }
+  static Status Corruption(SubCode sub_code, const Slice& msg,
+                           const Slice& msg2 = Slice()) {
+    return Status(kCorruption, sub_code, msg, msg2);
   }
 
   static Status NotSupported(const Slice& msg, const Slice& msg2 = Slice()) {

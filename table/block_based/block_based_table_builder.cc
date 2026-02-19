@@ -1530,6 +1530,26 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
       }
     }
 
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::Add:TamperWithValue",
+                             const_cast<Slice*>(&value));
+
+    // Detect corruption in Slice::size_ that would be silently truncated by
+    // BlockBuilder's static_cast<uint32_t> varint encoding. A bit flip in
+    // bits 32+ causes the varint to record the correct (truncated) size while
+    // buffer_.append() uses the full 64-bit size, writing gigabytes of garbage.
+    if (UNLIKELY(value.size() !=
+                 static_cast<size_t>(static_cast<uint32_t>(value.size())))) {
+      ROCKS_LOG_ERROR(r->ioptions.logger,
+                      "Value size corruption detected: size=%zu exceeds "
+                      "uint32_t range. Likely hardware bit flip.",
+                      value.size());
+      r->SetStatus(Status::Corruption(Status::kTransientDataCorruption,
+                                      "Value size " +
+                                          std::to_string(value.size()) +
+                                          " exceeds uint32_t range"));
+      return;
+    }
+
     r->data_block.AddWithLastKey(ikey, value, r->last_ikey);
     r->last_ikey.assign(ikey.data(), ikey.size());
     assert(!r->last_ikey.empty());

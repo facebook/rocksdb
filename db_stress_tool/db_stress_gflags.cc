@@ -1130,6 +1130,11 @@ DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");
 
+DEFINE_uint64(max_compaction_output_to_input_ratio,
+              ROCKSDB_NAMESPACE::Options().max_compaction_output_to_input_ratio,
+              "Maximum allowed ratio of compaction output size to input size. "
+              "Set to 0 to disable.");
+
 DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "
               "specified number of bytes per key. Currently the only supported "

@@ -404,6 +404,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"max_compaction_output_to_input_ratio",
+         {offsetof(struct MutableCFOptions,
+                   max_compaction_output_to_input_ratio),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"verify_output_flags",
          {offsetof(struct MutableCFOptions, verify_output_flags),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
@@ -1224,6 +1229,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  max_sequential_skip_in_iterations);
   ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
                  paranoid_file_checks);
+  ROCKS_LOG_INFO(log, "     max_compaction_output_to_input_ratio: %" PRIu64,
+                 max_compaction_output_to_input_ratio);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",
                  report_bg_io_stats);
   ROCKS_LOG_INFO(log, "                              compression: %d",

@@ -1,0 +1,1 @@
+Added corruption detection guards against hardware bit flips during SST file building. Transient corruptions are retried once before escalating to a fatal error. Added `MutableCFOptions::max_compaction_output_to_input_ratio` (default: 10, 0 to disable) to detect grossly inflated compaction output.

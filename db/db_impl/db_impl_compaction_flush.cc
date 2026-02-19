@@ -142,6 +142,31 @@ IOStatus DBImpl::SyncClosedWals(const WriteOptions& write_options,
   return io_s;
 }
 
+bool DBImpl::ShouldRetryTransientCorruption(const Status& s,
+                                            const char* context) {
+  mutex_.AssertHeld();
+  if (!s.IsCorruption() || s.subcode() != Status::kTransientDataCorruption) {
+    // Not a transient corruption — reset counter and don't retry.
+    transient_corruption_retry_count_ = 0;
+    return false;
+  }
+  if (transient_corruption_retry_count_ == 0) {
+    // First occurrence — allow retry.
+    transient_corruption_retry_count_++;
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "[%s] Transient data corruption detected, will retry: %s",
+                   context, s.ToString().c_str());
+    return true;
+  }
+  // Second consecutive occurrence — escalate to fatal.
+  ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                  "[%s] Transient data corruption persisted after retry, "
+                  "escalating to fatal error: %s",
+                  context, s.ToString().c_str());
+  transient_corruption_retry_count_ = 0;
+  return false;
+}
+
 Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     bool* made_progress, JobContext* job_context, FlushReason flush_reason,
@@ -330,7 +355,10 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&
       !skip_set_bg_error) {
-    if (log_io_s.ok()) {
+    if (ShouldRetryTransientCorruption(s, cfd->GetName().c_str())) {
+      // Transient corruption: memtable has been rolled back and
+      // imm_flush_needed is set, so the flush will be rescheduled.
+    } else if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -1710,7 +1738,8 @@ Status DBImpl::CompactFilesImpl(
   mutex_.Lock();
 
   if (status.ok()) {
-    // Done
+    // Done. Reset transient corruption counter on success.
+    transient_corruption_retry_count_ = 0;
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else if (status.IsManualCompactionPaused()) {
@@ -1724,6 +1753,9 @@ Status DBImpl::CompactFilesImpl(
     ROCKS_LOG_INFO(
         immutable_db_options_.info_log, "[%s] [JOB %d] Compaction aborted",
         c->column_family_data()->GetName().c_str(), job_context->job_id);
+  } else if (ShouldRetryTransientCorruption(
+                 status, c->column_family_data()->GetName().c_str())) {
+    // Transient corruption: input files intact, output not installed.
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
@@ -4464,9 +4496,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (status.ok() || status.IsCompactionTooLarge() ||
       status.IsManualCompactionPaused() || status.IsCompactionAborted()) {
-    // Done
+    // Done. Reset transient corruption counter on success.
+    if (status.ok()) {
+      transient_corruption_retry_count_ = 0;
+    }
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
+  } else if (ShouldRetryTransientCorruption(status, "BackgroundCompaction")) {
+    // Transient corruption: input files intact, output not installed.
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
                    status.ToString().c_str());

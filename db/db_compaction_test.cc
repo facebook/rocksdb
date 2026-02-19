@@ -11663,6 +11663,211 @@ TEST_F(DBCompactionTest, PeriodicTask) {
   ASSERT_EQ(listener->num_periodic_compactions, 1);
   Close();
 }
+// End-to-end test: verify that a transient hardware bit flip in a value
+// Slice's size_ during compaction is detected, the first compaction attempt
+// fails gracefully (without making DB read-only), and the retry succeeds
+// because the transient error does not recur.
+TEST_F(DBCompactionTest, ValueSliceBitFlipDuringCompaction) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 3;
+  // Disable auto compaction so we can trigger it manually.
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Write 3 L0 files with overlapping key ranges.
+  for (int file = 0; file < 3; file++) {
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(Put(Key(i),
+                    "value_" + std::to_string(file) + "_" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("3", FilesPerLevel());
+
+  // Verify all data is readable before compaction.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("value_2_" + std::to_string(i), Get(Key(i)));
+  }
+
+  // Set up SyncPoint to flip bit 32 on the 5th key's value during compaction.
+  // Uses atomic to be safe and only corrupts once (simulating transient error).
+  std::atomic<int> add_count{0};
+  std::atomic<bool> corrupted{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add:TamperWithValue", [&](void* arg) {
+        int count = add_count.fetch_add(1);
+        if (count == 4 && !corrupted.load()) {
+          corrupted.store(true);
+          Slice* v = static_cast<Slice*>(arg);
+          v->size_ |= size_t{1} << 32;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // First compaction attempt: fails due to bit flip, but treated as transient.
+  Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+
+  // Disable the corruption injection before testing DB availability.
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // DB should NOT be in a fatal error state — transient corruption allows
+  // retry. Reads should still work.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("value_2_" + std::to_string(i), Get(Key(i)));
+  }
+
+  // Writes should still work (DB is not read-only).
+  ASSERT_OK(Put(Key(100), "new_value"));
+  ASSERT_OK(Flush());
+
+  // Second compaction attempt: succeeds because the bit flip was transient.
+  s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(s) << s.ToString();
+
+  // All data should be readable after successful retry.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("value_2_" + std::to_string(i), Get(Key(i)));
+  }
+  ASSERT_EQ("new_value", Get(Key(100)));
+
+  // Verify the retry counter was reset: new writes, flushes, and compactions
+  // should all succeed, proving the DB is fully recovered.
+  for (int i = 200; i < 210; i++) {
+    ASSERT_OK(Put(Key(i), "post_recovery_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+  s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(s) << s.ToString();
+
+  // All data (old and new) should be readable.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("value_2_" + std::to_string(i), Get(Key(i)));
+  }
+  for (int i = 200; i < 210; i++) {
+    ASSERT_EQ("post_recovery_" + std::to_string(i), Get(Key(i)));
+  }
+}
+
+// End-to-end test: verify that a persistent (non-transient) bit flip causes
+// the DB to become read-only after the retry fails. The first compaction
+// attempt is retried, but the second attempt also hits the corruption
+// (because we keep the SyncPoint active), so the DB escalates to fatal.
+TEST_F(DBCompactionTest, PersistentBitFlipMakesDBReadOnly) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 3;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  for (int file = 0; file < 3; file++) {
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(Put(Key(i),
+                    "value_" + std::to_string(file) + "_" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("3", FilesPerLevel());
+
+  // Set up SyncPoint to ALWAYS corrupt (simulating persistent hardware error).
+  // Every compaction attempt will hit this corruption.
+  std::atomic<int> add_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add:TamperWithValue", [&](void* arg) {
+        int count = add_count.fetch_add(1);
+        // Corrupt the 5th key in every compaction attempt
+        if (count % 10 == 4) {
+          Slice* v = static_cast<Slice*>(arg);
+          v->size_ |= size_t{1} << 32;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // First compaction attempt: fails, but treated as transient (retry allowed).
+  Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+
+  // Reads should still work after first failure (no BG error set).
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("value_2_" + std::to_string(i), Get(Key(i)));
+  }
+
+  // Writes should still work after first failure.
+  ASSERT_OK(Put(Key(200), "still_writable"));
+
+  // Second compaction attempt: also fails. This time it should escalate
+  // to a fatal BG error because the corruption is persistent.
+  s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Reads of existing data should still work even after fatal error.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ("value_2_" + std::to_string(i), Get(Key(i)));
+  }
+
+  // Writes should now FAIL because the DB is in a fatal error state.
+  s = Put(Key(300), "should_fail");
+  ASSERT_TRUE(!s.ok()) << "Put should fail after persistent corruption: "
+                       << s.ToString();
+}
+
+// End-to-end test: verify that the max_compaction_output_to_input_ratio
+// check detects grossly inflated compaction output and aborts the compaction.
+TEST_F(DBCompactionTest, CompactionOutputToInputRatioCheck) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 3;
+  options.disable_auto_compactions = true;
+  // Set a tight ratio to make it easy to trigger.
+  options.max_compaction_output_to_input_ratio = 2;
+  DestroyAndReopen(options);
+
+  // Write 3 L0 files large enough to exceed the 1MB minimum threshold
+  // for the ratio check.
+  std::string value_1kb(1024, 'x');
+  for (int file = 0; file < 3; file++) {
+    for (int i = 0; i < 500; i++) {
+      ASSERT_OK(Put(Key(i), value_1kb));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("3", FilesPerLevel());
+
+  // Set up SyncPoint to inflate every value to 2MB during compaction.
+  // This will make the output file much larger than input.
+  std::string large_buf(2 << 20, 'x');  // 2MB buffer
+
+  int add_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add:TamperWithValue", [&](void* arg) {
+        add_count++;
+        Slice* v = static_cast<Slice*>(arg);
+        v->data_ = large_buf.data();
+        v->size_ = large_buf.size();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction. The output should be much larger than input,
+  // exceeding the 2x ratio limit.
+  Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The compaction should have failed due to the output/input ratio check.
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(s.ToString().find("exceeds") != std::string::npos)
+      << s.ToString();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

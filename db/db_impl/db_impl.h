@@ -3051,6 +3051,17 @@ class DBImpl : public DB {
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
 
+  // Count consecutive transient in-memory corruption errors (e.g., hardware
+  // bit flips). On first occurrence, allow retry. On second, escalate to fatal.
+  int transient_corruption_retry_count_ = 0;
+
+  // Returns true if the error is a transient data corruption that should be
+  // retried rather than escalated to a fatal BG error. On first occurrence,
+  // returns true and increments the counter. On second consecutive occurrence,
+  // returns false (escalate). Resets counter on non-transient errors.
+  // Requires: db_mutex_ held.
+  bool ShouldRetryTransientCorruption(const Status& s, const char* context);
+
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
 

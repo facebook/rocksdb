@@ -314,6 +314,9 @@ default_params = {
     "get_property_one_in": lambda: random.choice([100000, 1000000]),
     "get_properties_of_all_tables_one_in": lambda: random.choice([100000, 1000000]),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "max_compaction_output_to_input_ratio": lambda: random.choice(
+        [0, 10, 10, 10]
+    ),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]
     ),
