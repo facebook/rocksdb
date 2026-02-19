@@ -98,7 +98,7 @@ endif  # FMT_SOURCE_PATH
 	PLATFORM_LDFLAGS += -lglog
 endif
 
-FOLLY_COMMIT_HASH = d2d1e6f746faa9ae7a973381dbd017634d04a040
+FOLLY_COMMIT_HASH = 1e8ce1e5d35acff7b78fedbca3e7311b39f43529
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
