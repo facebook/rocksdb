@@ -1047,6 +1047,35 @@ Status ManifestTailer::Initialize() {
   return s;
 }
 
+Status ManifestTailer::OnAtomicGroupReplayEnd() {
+  Status s = VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd();
+  if (!s.ok()) {
+    return s;
+  }
+  // For secondary/follower DB, files referenced in the manifest can become
+  // permanently unavailable due to manifest rotation combined with concurrent
+  // primary compaction. If the atomic group is incomplete (some CFs have
+  // missing files), salvage any valid versions from the staging map into
+  // versions_. Otherwise, the stale atomic_update_versions_ map traps all
+  // subsequent version creation and prevents version installation for all CFs.
+  if (atomic_update_versions_missing_ > 0) {
+    for (auto& [cfid, version] : atomic_update_versions_) {
+      if (version != nullptr) {
+        auto existing = versions_.find(cfid);
+        if (existing != versions_.end()) {
+          delete existing->second;
+          existing->second = version;
+        } else {
+          versions_.emplace(cfid, version);
+        }
+      }
+    }
+    atomic_update_versions_.clear();
+    atomic_update_versions_missing_ = 0;
+  }
+  return Status::OK();
+}
+
 Status ManifestTailer::ApplyVersionEdit(VersionEdit& edit,
                                         ColumnFamilyData** cfd) {
   Status s = VersionEditHandler::ApplyVersionEdit(edit, cfd);

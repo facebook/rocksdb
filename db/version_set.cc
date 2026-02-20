@@ -7903,6 +7903,8 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
+  TEST_SYNC_POINT("ReactiveVersionSet::Recover:AfterMaybeSwitchManifest");
+
   manifest_tailer_.reset(new ManifestTailer(
       column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
       read_options_, EpochNumberRequirement::kMightMissing));
