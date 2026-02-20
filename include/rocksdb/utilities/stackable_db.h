@@ -593,11 +593,6 @@ class StackableDB : public DB {
     return db_->SuggestCompactRange(column_family, begin, end);
   }
 
-  Status PromoteL0(ColumnFamilyHandle* column_family,
-                   int target_level) override {
-    return db_->PromoteL0(column_family, target_level);
-  }
-
   ColumnFamilyHandle* DefaultColumnFamily() const override {
     return db_->DefaultColumnFamily();
   }

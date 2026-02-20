@@ -2143,13 +2143,6 @@ class DB {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
-  // Trivially move L0 files to target level. Should not be called with another
-  // PromoteL0() concurrently
-  virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
-                           int /*target_level*/) {
-    return Status::NotSupported("PromoteL0() is not implemented.");
-  }
-
   // Trace DB operations. Use EndTrace() to stop tracing.
   virtual Status StartTrace(const TraceOptions& /*options*/,
                             std::unique_ptr<TraceWriter>&& /*trace_writer*/) {

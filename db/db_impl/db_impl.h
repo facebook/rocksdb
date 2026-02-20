@@ -585,9 +585,6 @@ class DBImpl : public DB {
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end) override;
 
-  Status PromoteL0(ColumnFamilyHandle* column_family,
-                   int target_level) override;
-
   using DB::IngestExternalFile;
   Status IngestExternalFile(
       ColumnFamilyHandle* column_family,

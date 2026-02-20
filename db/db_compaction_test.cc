@@ -8063,11 +8063,26 @@ TEST_F(DBCompactionTest, CompactFilesSupportKeyPlacementRangeConflict) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,1", FilesPerLevel());
 
+  // Move each file to L1 individually (preserving them as separate files,
+  // as the removed PromoteL0 API would have done)
   ASSERT_OK(Put("k3", "v"));
   ASSERT_OK(Flush());
+  {
+    ColumnFamilyMetaData meta;
+    db_->GetColumnFamilyMetaData(&meta);
+    ASSERT_EQ(1u, meta.levels[0].files.size());
+    ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                                {meta.levels[0].files[0].name}, 1));
+  }
   ASSERT_OK(Put("k4", "v"));
   ASSERT_OK(Flush());
-  ASSERT_OK(experimental::PromoteL0(db_.get(), db_->DefaultColumnFamily(), 1));
+  {
+    ColumnFamilyMetaData meta;
+    db_->GetColumnFamilyMetaData(&meta);
+    ASSERT_EQ(1u, meta.levels[0].files.size());
+    ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                                {meta.levels[0].files[0].name}, 1));
+  }
   ASSERT_EQ("0,2,1", FilesPerLevel());
 
   ASSERT_OK(Put("k2", "v"));

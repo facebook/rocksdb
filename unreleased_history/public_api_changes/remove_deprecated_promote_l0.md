@@ -1,0 +1,1 @@
+Remove deprecated `experimental::PromoteL0()` API (use `CompactRange()` with `CompactRangeOptions::bottommost_level_compaction` set to `BottommostLevelCompaction::kSkip` instead). Corresponding C++, Java, and db_stress APIs are also removed.

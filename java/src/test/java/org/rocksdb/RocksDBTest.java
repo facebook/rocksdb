@@ -1813,16 +1813,6 @@ public class RocksDBTest {
   }
 
   @Test
-  public void promoteL0() throws RocksDBException {
-    try (final Options options = new Options().setCreateIfMissing(true)) {
-      final String dbPath = dbFolder.getRoot().getAbsolutePath();
-      try (final RocksDB db = RocksDB.open(options, dbPath)) {
-        db.promoteL0(2);
-      }
-    }
-  }
-
-  @Test
   public void startTrace() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();

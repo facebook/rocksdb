@@ -21,20 +21,6 @@ Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end);
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end);
 
-// DEPRECATED: this API may be removed in a future release.
-// This operation can be done through CompactRange() by setting
-// CompactRangeOptions::bottommost_level_compaction set to
-// BottommostLevelCompaction::kSkip and setting target level.
-//
-// Move all L0 files to target_level skipping compaction.
-// This operation succeeds only if the files in L0 have disjoint ranges; this
-// is guaranteed to happen, for instance, if keys are inserted in sorted
-// order. Furthermore, all levels between 1 and target_level must be empty.
-// If any of the above condition is violated, InvalidArgument will be
-// returned.
-Status PromoteL0(DB* db, ColumnFamilyHandle* column_family,
-                 int target_level = 1);
-
 // This function is intended to be called with the DB closed and does not write
 // to the DB path. It will usually work on an open DB but may fail spuriously
 // in that case, and results may be out of date on return.

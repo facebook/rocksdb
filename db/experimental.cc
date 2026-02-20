@@ -30,13 +30,6 @@ Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
   return db->SuggestCompactRange(column_family, begin, end);
 }
 
-Status PromoteL0(DB* db, ColumnFamilyHandle* column_family, int target_level) {
-  if (db == nullptr) {
-    return Status::InvalidArgument("Didn't recognize DB object");
-  }
-  return db->PromoteL0(column_family, target_level);
-}
-
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end) {
   return SuggestCompactRange(db, db->DefaultColumnFamily(), begin, end);
 }

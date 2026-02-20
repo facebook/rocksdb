@@ -3588,24 +3588,6 @@ jlongArray Java_org_rocksdb_RocksDB_suggestCompactRange(JNIEnv* env, jclass,
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    promoteL0
- * Signature: (JJI)V
- */
-void Java_org_rocksdb_RocksDB_promoteL0(JNIEnv*, jclass, jlong jdb_handle,
-                                        jlong jcf_handle, jint jtarget_level) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = db->DefaultColumnFamily();
-  } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  }
-  db->PromoteL0(cf_handle, static_cast<int>(jtarget_level));
-}
-
-/*
- * Class:     org_rocksdb_RocksDB
  * Method:    startTrace
  * Signature: (JJJ)V
  */

@@ -4654,40 +4654,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Promote L0.
-   *
-   * @param columnFamilyHandle the column family handle,
-   *     or null for the default column family.
-   * @param targetLevel the target level for L0
-   *
-   * @throws RocksDBException if an error occurs whilst promoting L0
-   *
-   * @deprecated this API may be removed in a future release.
-   */
-  @Deprecated
-  public void promoteL0(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final int targetLevel)
-      throws RocksDBException {
-    promoteL0(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
-        targetLevel);
-  }
-
-  /**
-   * Promote L0 for the default column family.
-   *
-   * @param targetLevel the target level for L0
-   *
-   * @throws RocksDBException if an error occurs whilst promoting L0
-   *
-   * @deprecated this API may be removed in a future release.
-   */
-  @Deprecated
-  public void promoteL0(final int targetLevel) throws RocksDBException {
-    promoteL0(null, targetLevel);
-  }
-
-  /**
    * Trace DB operations.
    * <p>
    * Use {@link #endTrace()} to stop tracing.
@@ -5090,8 +5056,6 @@ public class RocksDB extends RocksObject {
       final long handle, final long columnFamilyHandle, final long[] rangeSliceHandles);
   private static native long[] suggestCompactRange(final long handle, final long columnFamilyHandle)
       throws RocksDBException;
-  private static native void promoteL0(final long handle, final long columnFamilyHandle,
-      final int tragetLevel) throws RocksDBException;
   private static native void startTrace(final long handle, final long maxTraceFileSize,
       final long traceWriterHandle) throws RocksDBException;
   private static native void endTrace(final long handle) throws RocksDBException;
