@@ -626,6 +626,8 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice key = key_str;
     std::string ignore;
     ReadOptions read_opts_copy = read_opts;
+    // Randomly read blob values in compressed format to test both code paths
+    read_opts_copy.read_blob_compressed = thread->rand.OneIn(2);
 
     std::string read_ts_str;
     Slice read_ts_slice;
@@ -665,6 +667,8 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string from_db;
 
     ReadOptions read_opts_copy = read_opts;
+    // Randomly read blob values in compressed format to test both code paths
+    read_opts_copy.read_blob_compressed = thread->rand.OneIn(2);
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
@@ -786,6 +790,8 @@ class NonBatchedOpsStressTest : public StressTest {
     bool do_consistency_check = FLAGS_check_multiget_consistency;
 
     ReadOptions readoptionscopy = read_opts;
+    // Randomly read blob values in compressed format to test both code paths
+    readoptionscopy.read_blob_compressed = thread->rand.OneIn(2);
 
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
@@ -1115,6 +1121,8 @@ class NonBatchedOpsStressTest : public StressTest {
     PinnableAttributeGroups attribute_groups_from_db;
 
     ReadOptions read_opts_copy = read_opts;
+    // Randomly read blob values in compressed format to test both code paths
+    read_opts_copy.read_blob_compressed = thread->rand.OneIn(2);
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
@@ -1248,6 +1256,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    // Randomly read blob values in compressed format to test both code paths
+    read_opts_copy.read_blob_compressed = thread->rand.OneIn(2);
 
     assert(!rand_column_families.empty());
 
@@ -1609,6 +1619,10 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
+    // Randomly read blob values in compressed format to test both code paths
+    if (thread->rand.OneIn(2)) {
+      ro_copy.read_blob_compressed = true;
+    }
 
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
@@ -2446,6 +2460,10 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     ReadOptions ro(read_opts);
+    // Randomly read blob values in compressed format to test both code paths
+    if (thread->rand.OneIn(2)) {
+      ro.read_blob_compressed = true;
+    }
 
     if (FLAGS_prefix_size > 0) {
       ro.total_order_seek = true;

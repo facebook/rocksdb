@@ -3047,6 +3047,17 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     }
   }
 
+  // Copy compression types from KeyContext to user's output vector
+  if (read_options.blob_compression_types_out) {
+    read_options.blob_compression_types_out->resize(num_keys, kNoCompression);
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (key_context[i].blob_compression_type.has_value()) {
+        (*read_options.blob_compression_types_out)[i] =
+            key_context[i].blob_compression_type.value();
+      }
+    }
+  }
+
   for (const auto& cf_sv_pair : cf_sv_pairs) {
     if (sv_from_thread_local) {
       ReturnAndCleanupSuperVersion(cf_sv_pair.cfd, cf_sv_pair.super_version);
@@ -3161,6 +3172,17 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   }
   PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
   MultiGetWithCallbackImpl(read_options, column_family, nullptr, &sorted_keys);
+
+  // Copy compression types from KeyContext to user's output vector
+  if (read_options.blob_compression_types_out) {
+    read_options.blob_compression_types_out->resize(num_keys, kNoCompression);
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (key_context[i].blob_compression_type.has_value()) {
+        (*read_options.blob_compression_types_out)[i] =
+            key_context[i].blob_compression_type.value();
+      }
+    }
+  }
 }
 
 void DBImpl::MultiGetWithCallback(

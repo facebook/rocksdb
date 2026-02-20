@@ -840,6 +840,15 @@ rocksdb_iter_timestamp_slice(const rocksdb_iterator_t* iter);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_refresh(
     const rocksdb_iterator_t* iter, char** errptr);
 
+/* Returns the compression type used for the current blob value.
+ * Only meaningful when ReadOptions::read_blob_compressed is true and
+ * the iterator is positioned on a valid entry.
+ * Returns rocksdb_no_compression (0) if not a blob or if
+ * read_blob_compressed=false.
+ * See the compression type enum for possible return values. */
+extern ROCKSDB_LIBRARY_API int rocksdb_iter_get_blob_compression_type(
+    const rocksdb_iterator_t* iter);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_wal_iter_next(
     rocksdb_wal_iterator_t* iter);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_wal_iter_valid(
@@ -2363,6 +2372,27 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_iter_start_ts(
     rocksdb_readoptions_t*, const char* ts, size_t tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_auto_readahead_size(
     rocksdb_readoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_read_blob_compressed(
+    rocksdb_readoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_readoptions_get_read_blob_compressed(rocksdb_readoptions_t*);
+
+/* Set an output array to receive compression types for Get/MultiGet
+ * operations when ReadOptions::read_blob_compressed is true.
+ *
+ * Usage:
+ * - For Get(): Allocate an array of size 1
+ * - For MultiGet(): Allocate an array of size equal to the number of keys
+ * - After the operation returns, each element contains the compression type
+ *   for the corresponding key's blob value
+ * - For keys that don't exist or don't have blob values, the corresponding
+ *   element is set to rocksdb_no_compression (0)
+ *
+ * For iterators, use rocksdb_iter_get_blob_compression_type instead. */
+extern ROCKSDB_LIBRARY_API void
+rocksdb_readoptions_set_blob_compression_types_out(rocksdb_readoptions_t* opt,
+                                                   int* compression_types_array,
+                                                   size_t num_keys);
 
 /* Write options */
 

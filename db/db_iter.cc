@@ -53,7 +53,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       iter_(iter),
       blob_reader_(version, read_options.read_tier,
                    read_options.verify_checksums, read_options.fill_cache,
-                   read_options.io_activity),
+                   read_options.io_activity, read_options.read_blob_compressed),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -234,6 +234,10 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.verify_checksums = verify_checksums_;
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
+  read_options.read_blob_compressed = read_blob_compressed_;
+  // Set output vector to capture compression type
+  read_options.blob_compression_types_out =
+      read_blob_compressed_ ? &blob_compression_type_ : nullptr;
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
