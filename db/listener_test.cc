@@ -1308,16 +1308,21 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   explicit BlobDBJobLevelEventListenerTest(EventListenerTest* test)
       : test_(test), call_count_(0) {}
 
-  const VersionStorageInfo* GetVersionStorageInfo() const {
-    VersionSet* const versions = test_->dbfull()->GetVersionSet();
+  // NOTE: it's not safe to rely on test_->db_ for these functions because
+  // the DB may be in the process of closing when these are called, and the
+  // unique_ptr is set to nullptr before invoking ~DB()
+
+  const VersionStorageInfo* GetVersionStorageInfo(DB* db) const {
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
+    VersionSet* const versions = db_impl->GetVersionSet();
     assert(versions);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
     EXPECT_NE(cfd, nullptr);
 
-    test_->dbfull()->TEST_LockMutex();
+    db_impl->TEST_LockMutex();
     Version* const current = cfd->current();
-    test_->dbfull()->TEST_UnlockMutex();
+    db_impl->TEST_UnlockMutex();
     EXPECT_NE(current, nullptr);
 
     const VersionStorageInfo* const storage_info = current->storage_info();
@@ -1327,8 +1332,9 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   }
 
   void CheckBlobFileAdditions(
+      DB* db,
       const std::vector<BlobFileAdditionInfo>& blob_file_addition_infos) const {
-    const auto* vstorage = GetVersionStorageInfo();
+    const auto* vstorage = GetVersionStorageInfo(db);
 
     EXPECT_FALSE(blob_file_addition_infos.empty());
 
@@ -1356,7 +1362,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     return result;
   }
 
-  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       IncreaseCallCount(/*mutex_locked*/ true);
@@ -1365,16 +1371,15 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
 
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    CheckBlobFileAdditions(info.blob_file_addition_infos);
+    CheckBlobFileAdditions(db, info.blob_file_addition_infos);
   }
 
-  void OnCompactionCompleted(DB* /*db*/,
-                             const CompactionJobInfo& info) override {
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     IncreaseCallCount(/*mutex_locked*/ false);
 
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    CheckBlobFileAdditions(info.blob_file_addition_infos);
+    CheckBlobFileAdditions(db, info.blob_file_addition_infos);
 
     EXPECT_FALSE(info.blob_file_garbage_infos.empty());
 
