@@ -1,6 +1,5 @@
 name: clang-tidy
 on:
-  push:
   pull_request_target:
     types: [opened, synchronize, reopened]
 
@@ -17,30 +16,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
       with:
-        ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 2
     - name: Mark workspace as safe for git
       run: git config --global --add safe.directory $GITHUB_WORKSPACE
-    - name: Determine diff base
-      id: diff-base
-      run: |
-        if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-          BASE="${{ github.event.pull_request.base.sha }}"
-        else
-          BASE="${{ github.event.before }}"
-        fi
-        if [ -z "$BASE" ] || echo "$BASE" | grep -q '^0\{40\}$'; then
-          echo "skip=true" >> "$GITHUB_OUTPUT"
-          echo "No valid diff base; skipping clang-tidy."
-        else
-          git fetch --depth=1 origin "$BASE"
-          echo "ref=$BASE" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-        fi
     - name: Install clang-tidy
-      if: steps.diff-base.outputs.skip != 'true'
       run: apt-get update && apt-get install -y clang-tidy
     - name: Generate compile_commands.json
-      if: steps.diff-base.outputs.skip != 'true'
       run: |
         mkdir build && cd build
         cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -50,17 +32,16 @@ jobs:
         ln -sf build/compile_commands.json compile_commands.json
     - name: Run clang-tidy on changed files
       id: clang-tidy
-      if: steps.diff-base.outputs.skip != 'true'
       run: |
         python3 tools/run_clang_tidy.py \
           -j 4 \
-          --diff-base ${{ steps.diff-base.outputs.ref }} \
+          --diff-base HEAD~1 \
           --github-annotations \
           --github-step-summary \
           --comment-output clang-tidy-comment.md
       continue-on-error: true
     - name: Post clang-tidy results to PR
-      if: github.event_name == 'pull_request_target' && always() && steps.diff-base.outputs.skip != 'true'
+      if: always()
       uses: actions/github-script@v7
       with:
         script: |
