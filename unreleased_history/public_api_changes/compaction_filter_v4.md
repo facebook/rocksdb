@@ -1,0 +1,1 @@
+Added new `WideColumnBlobResolver` interface and `CompactionFilter::FilterV4()` method to support lazy loading of blob column values in wide-column entities during compaction. This allows compaction filters to resolve blob values on-demand, avoiding unnecessary I/O for blob columns they don't need to access.

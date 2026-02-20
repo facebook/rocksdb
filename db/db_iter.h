@@ -9,9 +9,14 @@
 
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
+#include "db/wide/read_path_blob_resolver.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -193,6 +198,22 @@ class DBIter final : public Iterator {
     assert(valid_);
 
     return wide_columns_;
+  }
+
+  bool IsUnresolvedColumn(size_t column_index) const override {
+    if (!lazy_column_resolution_) {
+      return false;
+    }
+    return entity_blob_resolver_.IsUnresolvedColumn(column_index);
+  }
+
+  Status ResolveColumn(size_t column_index) override;
+  Status ResolveAllColumns() override;
+  bool HasUnresolvedColumns() const override {
+    if (!lazy_column_resolution_) {
+      return false;
+    }
+    return entity_blob_resolver_.HasUnresolvedColumns();
   }
 
   Status status() const override {
@@ -525,5 +546,13 @@ class DBIter final : public Iterator {
   bool allow_unprepared_value_;
   bool is_blob_;
   bool arena_mode_;
+  bool lazy_column_resolution_;
+
+  // Lazy entity resolution support. When lazy_column_resolution_ is true,
+  // these hold the deserialized column metadata for the current entity,
+  // allowing on-demand blob value fetching.
+  ReadPathBlobResolver entity_blob_resolver_;
+  std::vector<WideColumn> lazy_entity_columns_;
+  std::vector<std::pair<size_t, BlobIndex>> lazy_blob_columns_;
 };
 }  // namespace ROCKSDB_NAMESPACE

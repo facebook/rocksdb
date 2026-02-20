@@ -1418,6 +1418,9 @@ db_with_timestamp_compaction_test: db/db_with_timestamp_compaction_test.o $(TEST
 db_encryption_test: $(OBJ_DIR)/db/db_encryption_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_open_with_config_test: $(OBJ_DIR)/db/db_open_with_config_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
