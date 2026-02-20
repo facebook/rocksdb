@@ -149,8 +149,6 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.write_thread_slow_yield_usec;
   options.skip_stats_update_on_db_open =
       immutable_db_options.skip_stats_update_on_db_open;
-  options.skip_checking_sst_file_sizes_on_db_open =
-      immutable_db_options.skip_checking_sst_file_sizes_on_db_open;
   options.wal_recovery_mode = immutable_db_options.wal_recovery_mode;
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;

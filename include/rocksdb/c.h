@@ -1668,13 +1668,6 @@ rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                  unsigned char val);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_skip_stats_update_on_db_open(rocksdb_options_t* opt);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt, unsigned char val);
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt);
-
 /* Blob Options Settings */
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_enable_blob_files(
     rocksdb_options_t* opt, unsigned char val);
@@ -2732,7 +2725,6 @@ rocksdb_slicetransform_create(
     char* (*transform)(void*, const char* key, size_t length,
                        size_t* dst_length),
     unsigned char (*in_domain)(void*, const char* key, size_t length),
-    unsigned char (*in_range)(void*, const char* key, size_t length),
     const char* (*name)(void*));
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
 rocksdb_slicetransform_create_fixed_prefix(size_t);

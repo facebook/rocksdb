@@ -596,7 +596,6 @@ struct rocksdb_slicetransform_t : public SliceTransform {
   char* (*transform_)(void*, const char* key, size_t length,
                       size_t* dst_length);
   unsigned char (*in_domain_)(void*, const char* key, size_t length);
-  unsigned char (*in_range_)(void*, const char* key, size_t length);
 
   ~rocksdb_slicetransform_t() override { (*destructor_)(state_); }
 
@@ -610,10 +609,6 @@ struct rocksdb_slicetransform_t : public SliceTransform {
 
   bool InDomain(const Slice& src) const override {
     return (*in_domain_)(state_, src.data(), src.size());
-  }
-
-  bool InRange(const Slice& src) const override {
-    return (*in_range_)(state_, src.data(), src.size());
   }
 };
 
@@ -4672,16 +4667,6 @@ unsigned char rocksdb_options_get_skip_stats_update_on_db_open(
   return opt->rep.skip_stats_update_on_db_open;
 }
 
-void rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt, unsigned char val) {
-  opt->rep.skip_checking_sst_file_sizes_on_db_open = val;
-}
-
-unsigned char rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt) {
-  return opt->rep.skip_checking_sst_file_sizes_on_db_open;
-}
-
 /* Blob Options Settings */
 void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
                                            unsigned char val) {
@@ -6902,14 +6887,12 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create(
     char* (*transform)(void*, const char* key, size_t length,
                        size_t* dst_length),
     unsigned char (*in_domain)(void*, const char* key, size_t length),
-    unsigned char (*in_range)(void*, const char* key, size_t length),
     const char* (*name)(void*)) {
   rocksdb_slicetransform_t* result = new rocksdb_slicetransform_t;
   result->state_ = state;
   result->destructor_ = destructor;
   result->transform_ = transform;
   result->in_domain_ = in_domain;
-  result->in_range_ = in_range;
   result->name_ = name;
   return result;
 }
@@ -6925,7 +6908,6 @@ struct SliceTransformWrapper : public rocksdb_slicetransform_t {
     return rep_->Transform(src);
   }
   bool InDomain(const Slice& src) const override { return rep_->InDomain(src); }
-  bool InRange(const Slice& src) const override { return rep_->InRange(src); }
   static void DoNothing(void*) {}
 };
 

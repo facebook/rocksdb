@@ -24,6 +24,7 @@
 #include "table/block_based/data_block_footer.h"
 #include "table/format.h"
 #include "util/coding.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -154,21 +155,33 @@ struct DecodeEntryV4 {
 
 // Read first 8 bytes (starting at offset) as big-endian uint64_t, padding
 // with zeros on the right if the key is shorter. This preserves
-// lexicographic ordering. Non-user keys will also have end internal bytes
-// stripped and not counted for in the value.
+// lexicographic ordering.
+//
+// If s.size() >= offset, then returns 0.
 static uint64_t ReadBe64FromKey(Slice s, bool is_user_key, size_t offset) {
   if (!is_user_key) {
     assert(s.size() >= kNumInternalBytes);
     s = Slice(s.data(), s.size() - kNumInternalBytes);
   }
-  uint64_t val = 0;
   offset = std::min(offset, s.size());
-  size_t len = std::min(s.size() - offset, size_t{8});
-  for (size_t i = 0; i < len; i++) {
+  size_t remaining = s.size() - offset;
+
+  // fast path
+  if (remaining >= 8) {
+    uint64_t val;
+    memcpy(&val, s.data() + offset, sizeof(val));
+    if (port::kLittleEndian) {
+      return EndianSwapValue(val);
+    }
+    return val;
+  }
+
+  uint64_t val = 0;
+  for (size_t i = 0; i < remaining; i++) {
     val = (val << 8) | static_cast<uint8_t>(s.data()[offset + i]);
   }
-  if (len > 0 && len < 8) {
-    val <<= (8 - len) * 8;  // Pad zeros on the right
+  if (remaining > 0) {
+    val <<= (8 - remaining) * 8;  // Pad zeros on the right
   }
   return val;
 }
@@ -969,20 +982,24 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
   }
 
   *skip_linear_scan = false;
+  // Currently it is assumed that comparator is always bytewise comparator, but
+  // it may also be useful to to generalize to reverse bytewise in the future.
   assert(icmp_.user_comparator() == BytewiseComparator());
 
   int64_t left = -1;
   int64_t right = num_restarts_ - 1;
-  int64_t shared_prefix_len = -1;
+  size_t shared_user_prefix_len = 0;
 
   Slice left_key;
   Slice right_key;
+  Slice left_key_suffix;
+  Slice right_key_suffix;
+  Slice target_suffix = target;
   bool seek_failed = false;
-
-#ifndef NDEBUG
-  // used to validate invariants
   bool first_iter = true;
-#endif
+  uint64_t left_val = 0;
+  uint64_t right_val = 0;
+  uint64_t target_val = 0;
 
   // A poor search is when less than half the search space is reduced, because
   // binary search would do better. When there are kMaxPoorSearches in a row,
@@ -994,7 +1011,9 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
   // - left < mid <= right, and arr[left] < target < arr[right + 1]
   //
   // The first iteration is used as an early optimization to determine initial
-  // bounds, and whether target is within those bounds
+  // bounds, and whether target is within those bounds.
+  const bool is_user_key = raw_key_.IsUserKey();
+  const Slice target_user_key = is_user_key ? target : ExtractUserKey(target);
   while (left != right) {
     int64_t mid = 0;
 
@@ -1007,13 +1026,12 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
       // Interpolation seek reads left and right boundaries anyways, so we can
       // set left = 0. The invariant that left <= target is still held because
       // we early exit if left > target for the first iteration.
-      const auto usable_left = std::max<int64_t>(left, 0);
+      const uint32_t usable_left =
+          static_cast<uint32_t>(std::max<int64_t>(left, 0));
 
       // First iteration: decode both boundary keys and compute shared prefix.
-      if (shared_prefix_len < 0) {
-        assert(first_iter);
-        if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(usable_left),
-                                          &left_key)) {
+      if (first_iter) {
+        if (!GetRestartKey<DecodeKeyFunc>(usable_left, &left_key)) {
           return false;
         }
 
@@ -1022,20 +1040,78 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
           return false;
         }
 
-        // Compute the shared prefix length between smallest index key and
-        // largest index key this can be used to "normalize" the values
-        // calculated during interpolation search.
-        shared_prefix_len =
-            static_cast<int64_t>(left_key.difference_offset(right_key));
-      }
-      assert(shared_prefix_len >= 0);
+        // Compute the shared prefix length between the user key portions of
+        // the boundary keys. This is used to "normalize" the values calculated
+        // during interpolation search.
+        shared_user_prefix_len = left_key.difference_offset(right_key);
+        if (!is_user_key) {
+          // Ensure shared_user_prefix_len is only limited to user key. Suppose
+          // that the shared prefix of both keys are extended into the internal
+          // footer. If they are not the same user keys, then it is guaranteed
+          // left is the shorter one due to bytewise comparator. For reverse
+          // bytewise, this would be flipped.
+          shared_user_prefix_len = std::min<size_t>(
+              shared_user_prefix_len, left_key.size() - kNumInternalBytes);
+          assert(shared_user_prefix_len <=
+                 right_key.size() - kNumInternalBytes);
+        }
 
-      size_t spl = static_cast<size_t>(shared_prefix_len);
-      assert(spl <= left_key.size() && spl <= right_key.size());
-      uint64_t left_val = ReadBe64FromKey(left_key, raw_key_.IsUserKey(), spl);
-      uint64_t right_val =
-          ReadBe64FromKey(right_key, raw_key_.IsUserKey(), spl);
-      uint64_t target_val = ReadBe64FromKey(target, raw_key_.IsUserKey(), spl);
+        left_val =
+            ReadBe64FromKey(left_key, is_user_key, shared_user_prefix_len);
+        right_val =
+            ReadBe64FromKey(right_key, is_user_key, shared_user_prefix_len);
+        target_val =
+            ReadBe64FromKey(target, is_user_key, shared_user_prefix_len);
+      }
+
+      assert(shared_user_prefix_len <= left_key.size() &&
+             shared_user_prefix_len <= right_key.size());
+
+      if (first_iter && shared_user_prefix_len > 0) {
+        // It is not guaranteed that the shared_prefix of the left and right
+        // boundaries is a valid prefix of the target. If it is not, then we can
+        // early exit.
+        size_t cmp_len =
+            std::min(target_user_key.size(), shared_user_prefix_len);
+        int cmp = memcmp(target_user_key.data(), left_key.data(), cmp_len);
+        if (cmp < 0 || (cmp == 0 && cmp_len < shared_user_prefix_len)) {
+#ifndef NDEBUG
+          IterKey tmp_key;
+          tmp_key.SetIsUserKey(is_user_key);
+          UpdateRawKeyAndMaybePadMinTimestamp(tmp_key, left_key);
+          assert(CompareKey(tmp_key, target) >= 0);
+#endif
+          // if target size is less than shared_prefix length, and cmp == 0,
+          // then it is guaranteed <= left
+          *skip_linear_scan = true;
+          *index = usable_left;
+          return true;
+        } else if (cmp > 0) {
+#ifndef NDEBUG
+          IterKey tmp_key;
+          tmp_key.SetIsUserKey(is_user_key);
+          UpdateRawKeyAndMaybePadMinTimestamp(tmp_key, right_key);
+          assert(CompareKey(tmp_key, target) < 0);
+#endif
+          *index = static_cast<uint32_t>(right);
+          return true;
+        }
+      }
+
+      assert(shared_user_prefix_len <= target_user_key.size());
+      assert(memcmp(left_key.data(), target_user_key.data(),
+                    shared_user_prefix_len) == 0);
+      assert(memcmp(right_key.data(), target_user_key.data(),
+                    shared_user_prefix_len) == 0);
+
+      if (first_iter) {
+        left_key_suffix = Slice(left_key.data() + shared_user_prefix_len,
+                                left_key.size() - shared_user_prefix_len);
+        right_key_suffix = Slice(right_key.data() + shared_user_prefix_len,
+                                 right_key.size() - shared_user_prefix_len);
+        target_suffix = Slice(target.data() + shared_user_prefix_len,
+                              target.size() - shared_user_prefix_len);
+      }
 
       if (left_val > right_val) {
         CorruptionError("left key is greater than right key");
@@ -1047,13 +1123,13 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
 
       if (target_val < left_val) {
         assert(first_iter);
-        assert(CompareKey(left_key, target) > 0);
+        assert(CompareKey(left_key_suffix, target_suffix) > 0);
         lte_left = true;
       } else if (target_val == left_val) {
         // target_val == left_val doesn't imply target == left_key
         // because ReadBe64FromKey only reads 8 bytes and skips sequence
         // numbers. We need to check actual key order.
-        if (CompareKey(left_key, target) >= 0) {
+        if (CompareKey(left_key_suffix, target_suffix) >= 0) {
           assert(first_iter);
           lte_left = true;
         }
@@ -1063,7 +1139,7 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
         if (target_val > right_val) {
           // note that we only ever guarantee arr[target] < arr[right + 1], so
           // it is possible to end up here even on non-first iteration
-          assert(CompareKey(right_key, target) < 0);
+          assert(CompareKey(right_key_suffix, target_suffix) < 0);
           gt_right = true;
         } else if (right_val == left_val) {
           // cannot divide by 0
@@ -1073,17 +1149,25 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
 
       // early exit if key is not within bounds
       if (lte_left) {
+#ifndef NDEBUG
         assert(!seek_failed);
-        UpdateRawKeyAndMaybePadMinTimestamp(left_key);
-        assert(CompareCurrentKey(target) >= 0);
+        IterKey tmp_key;
+        tmp_key.SetIsUserKey(is_user_key);
+        UpdateRawKeyAndMaybePadMinTimestamp(tmp_key, left_key);
+        assert(CompareKey(tmp_key, target) >= 0);
+#endif
         *skip_linear_scan = true;
-        *index = static_cast<uint32_t>(usable_left);
+        *index = usable_left;
         return true;
       }
       if (gt_right) {
+#ifndef NDEBUG
         assert(!seek_failed);
-        UpdateRawKeyAndMaybePadMinTimestamp(right_key);
-        assert(CompareCurrentKey(target) < 0);
+        IterKey tmp_key;
+        tmp_key.SetIsUserKey(is_user_key);
+        UpdateRawKeyAndMaybePadMinTimestamp(tmp_key, right_key);
+        assert(CompareKey(tmp_key, target) < 0);
+#endif
         *index = static_cast<uint32_t>(right);
         return true;
       }
@@ -1124,14 +1208,18 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
       return false;
     }
 
-    UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
+    Slice mid_key_suffix(mid_key.data() + shared_user_prefix_len,
+                         mid_key.size() - shared_user_prefix_len);
 
-    int cmp = CompareCurrentKey(target);
+    UpdateRawKeyAndMaybePadMinTimestamp(mid_key_suffix);
+    int cmp = CompareCurrentKey(target_suffix);
 
     int64_t previous_search_space = right - left;
     if (cmp < 0) {
       left = mid;
       left_key = mid_key;
+      left_key_suffix = mid_key_suffix;
+      left_val = ReadBe64FromKey(left_key, is_user_key, shared_user_prefix_len);
     } else if (cmp > 0) {
       right = mid - 1;
       if (!seek_failed && left != right) {
@@ -1139,6 +1227,10 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
                                           &right_key)) {
           return false;
         }
+        right_key_suffix = Slice(right_key.data() + shared_user_prefix_len,
+                                 right_key.size() - shared_user_prefix_len);
+        right_val =
+            ReadBe64FromKey(right_key, is_user_key, shared_user_prefix_len);
       }
     } else {
       *skip_linear_scan = true;
@@ -1154,9 +1246,7 @@ bool BlockIter<TValue>::InterpolationSeekRestartPointIndex(
       continuous_poor_searches = 0;
     }
 
-#ifndef NDEBUG
     first_iter = false;
-#endif
   }
 
   if (left == -1) {

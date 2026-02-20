@@ -216,8 +216,6 @@ class DummySliceTransform : public SliceTransform {
   // determine whether this is a valid src upon the function applies
   bool InDomain(const Slice& /*src*/) const override { return false; }
 
-  // determine whether dst=Transform(src) for some src
-  bool InRange(const Slice& /*dst*/) const override { return false; }
 };
 
 }  // namespace

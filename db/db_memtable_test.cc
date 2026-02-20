@@ -117,8 +117,6 @@ class TestPrefixExtractor : public SliceTransform {
     return separator(key) != nullptr;
   }
 
-  bool InRange(const Slice& /*key*/) const override { return false; }
-
  private:
   const char* separator(const Slice& key) const {
     return static_cast<const char*>(memchr(key.data(), '_', key.size()));

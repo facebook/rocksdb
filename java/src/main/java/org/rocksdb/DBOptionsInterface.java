@@ -1215,36 +1215,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   boolean skipStatsUpdateOnDbOpen();
 
   /**
-   * If true, then {@link RocksDB#open(String)} will not fetch and check sizes of all sst files.
-   * This may significantly speed up startup if there are many sst files,
-   * especially when using non-default Env with expensive GetFileSize().
-   * We'll still check that all required sst files exist.
-   * If {@code paranoid_checks} is false, this option is ignored, and sst files are
-   * not checked at all.
-   *
-   * Default: false
-   *
-   * @param skipCheckingSstFileSizesOnDbOpen if true, then SST file sizes will not be checked
-   *                                         when calling {@link RocksDB#open(String)}.
-   * @return the reference to the current options.
-   */
-  T setSkipCheckingSstFileSizesOnDbOpen(final boolean skipCheckingSstFileSizesOnDbOpen);
-
-  /**
-   * If true, then {@link RocksDB#open(String)} will not fetch and check sizes of all sst files.
-   * This may significantly speed up startup if there are many sst files,
-   * especially when using non-default Env with expensive GetFileSize().
-   * We'll still check that all required sst files exist.
-   * If {@code paranoid_checks} is false, this option is ignored, and sst files are
-   * not checked at all.
-   *
-   * Default: false
-   *
-   * @return true, if file sizes will not be checked when calling {@link RocksDB#open(String)}.
-   */
-  boolean skipCheckingSstFileSizesOnDbOpen();
-
-  /**
    * Recovery mode to control the consistency while replaying WAL
    *
    * Default: {@link WALRecoveryMode#PointInTimeRecovery}

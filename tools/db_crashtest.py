@@ -174,8 +174,7 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
-    # Temporarily disable interpolation search (allow for binary search '0' only)
-    "index_block_search_type": 0,
+    "index_block_search_type": lambda: random.choice([0, 1]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
@@ -266,9 +265,7 @@ default_params = {
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "fifo_allow_compaction": lambda: random.randint(0, 1),
-    "fifo_compaction_max_data_files_size_mb": lambda: random.choice(
-        [0, 100, 500]
-    ),
+    "fifo_compaction_max_data_files_size_mb": lambda: random.choice([0, 100, 500]),
     "fifo_compaction_use_kv_ratio_compaction": lambda: random.randint(0, 1),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
@@ -979,8 +976,7 @@ def finalize_and_sanitize(src_params):
         if dest_params.get("fifo_compaction_use_kv_ratio_compaction", 0) == 1:
             if (
                 dest_params.get("fifo_allow_compaction", 0) != 1
-                or dest_params.get("fifo_compaction_max_data_files_size_mb", 0)
-                == 0
+                or dest_params.get("fifo_compaction_max_data_files_size_mb", 0) == 0
             ):
                 dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     else:
