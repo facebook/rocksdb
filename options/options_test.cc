@@ -2417,6 +2417,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_compaction_bytes", "21"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
+      {"snap_refresh_nanos", "1000000"},
       {"rate_limit_delay_max_milliseconds", "100"},
       {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
