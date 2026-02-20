@@ -65,7 +65,20 @@ class Slice;
 //   | varint32 |   varint32   |
 //   +----------+--------------+
 //
-// Section 2: COLUMN TYPES (N bytes, fixed-size)
+// Section 2: SKIP INFO (3 varints)
+//   +-------------------+---------------------+------------------+
+//   | name_sizes_bytes  | value_sizes_bytes   | names_bytes      |
+//   | varint32          | varint32            | varint32         |
+//   +-------------------+---------------------+------------------+
+//   name_sizes_bytes  = byte size of NAME SIZES section (section 4)
+//   value_sizes_bytes = byte size of VALUE SIZES section (section 5)
+//   names_bytes       = byte size of NAMES section (section 6)
+//
+//   Placed immediately after the header so that header + skip info form
+//   a contiguous varint sequence (5 varints), enabling future SIMD-based
+//   varint decoding.
+//
+// Section 3: COLUMN TYPES (N bytes, fixed-size)
 //   +------+------+---...---+--------+
 //   | ct_0 | ct_1 |         | ct_N-1 |
 //   | byte | byte |         |  byte  |
@@ -75,15 +88,6 @@ class Slice;
 //     kTypeBlobIndex (0x11) = blob index reference
 //   Future per-column types (kTypeMerge, kTypeDeletion, etc.) can be
 //   added without format changes.
-//
-// Section 3: SKIP INFO (3 varints)
-//   +-------------------+---------------------+------------------+
-//   | name_sizes_bytes  | value_sizes_bytes   | names_bytes      |
-//   | varint32          | varint32            | varint32         |
-//   +-------------------+---------------------+------------------+
-//   name_sizes_bytes  = byte size of NAME SIZES section (section 4)
-//   value_sizes_bytes = byte size of VALUE SIZES section (section 5)
-//   names_bytes       = byte size of NAMES section (section 6)
 //
 // Section 4: NAME SIZES (N varints)
 //   +----------+----------+---...---+------------+
@@ -246,7 +250,7 @@ class WideColumnSerialization {
   static Status DeserializeV1(Slice& input, uint32_t num_columns,
                               std::vector<WideColumn>& columns);
 
-  // Parses V2 layout sections 2-7 (types through values) into columns and
+  // Parses V2 layout sections 2-7 (skip info through values) into columns and
   // column types. Used by both Deserialize and DeserializeV2 to avoid
   // code duplication.
   static Status DeserializeV2Impl(Slice& input, uint32_t num_columns,

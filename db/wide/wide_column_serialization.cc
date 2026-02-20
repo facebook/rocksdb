@@ -187,13 +187,13 @@ Status WideColumnSerialization::SerializeV2Impl(
   const size_t base_offset = output.size();
   output.reserve(base_offset + total_size);
 
-  // Sections 1-3: header, column types, skip info
+  // Sections 1-3: header, skip info, column types
   PutVarint32(&output, kVersion2);
   PutVarint32(&output, static_cast<uint32_t>(num_columns));
-  output.append(column_types);
   PutVarint32(&output, name_sizes_bytes);
   PutVarint32(&output, total_value_sizes_bytes);
   PutVarint32(&output, names_bytes);
+  output.append(column_types);
 
   // Sections 4-7: resize to final size, then write all 4 sections in a
   // single loop using independent pointers. Each section's start offset is
@@ -299,20 +299,7 @@ Status WideColumnSerialization::DeserializeV1(
 Status WideColumnSerialization::DeserializeV2Impl(
     Slice& input, uint32_t num_columns, std::vector<WideColumn>& columns,
     std::vector<ValueType>& column_types) {
-  // Section 2: COLUMN TYPES (N bytes, each is a ValueType)
-  if (input.size() < num_columns) {
-    return Status::Corruption("Error decoding wide column types");
-  }
-  column_types.resize(num_columns);
-  for (uint32_t i = 0; i < num_columns; ++i) {
-    column_types[i] = static_cast<ValueType>(input[i]);
-    if (!IsValidColumnValueType(column_types[i])) {
-      return Status::Corruption("Unsupported wide column ValueType");
-    }
-  }
-  input.remove_prefix(num_columns);
-
-  // Section 3: SKIP INFO (3 varints)
+  // Section 2: SKIP INFO (3 varints)
   uint32_t name_sizes_bytes = 0;
   uint32_t value_sizes_bytes = 0;
   uint32_t names_bytes = 0;
@@ -325,6 +312,19 @@ Status WideColumnSerialization::DeserializeV2Impl(
   if (!GetVarint32(&input, &names_bytes)) {
     return Status::Corruption("Error decoding wide column names bytes");
   }
+
+  // Section 3: COLUMN TYPES (N bytes, each is a ValueType)
+  if (input.size() < num_columns) {
+    return Status::Corruption("Error decoding wide column types");
+  }
+  column_types.resize(num_columns);
+  for (uint32_t i = 0; i < num_columns; ++i) {
+    column_types[i] = static_cast<ValueType>(input[i]);
+    if (!IsValidColumnValueType(column_types[i])) {
+      return Status::Corruption("Unsupported wide column ValueType");
+    }
+  }
+  input.remove_prefix(num_columns);
 
   // Validate that sections 4-6 fit in the remaining input
   const size_t metadata_size =
@@ -487,7 +487,12 @@ Status WideColumnSerialization::HasBlobColumns(const Slice& input,
     return Status::OK();
   }
 
-  // V2: COLUMN TYPES section is N contiguous bytes right after the header.
+  // V2: Skip over SKIP INFO (3 varints) to reach COLUMN TYPES section.
+  uint32_t unused = 0;
+  if (!GetVarint32(&input_ref, &unused) || !GetVarint32(&input_ref, &unused) ||
+      !GetVarint32(&input_ref, &unused)) {
+    return Status::Corruption("Error decoding wide column skip info");
+  }
   if (input_ref.size() < num_columns) {
     return Status::Corruption("Error decoding wide column types");
   }
@@ -535,18 +540,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
     // V2 fast path: use skip info to jump directly to values without
     // scanning through variable-length sections.
 
-    // Skip COLUMN TYPES (N bytes)
-    if (input_ref.size() < num_columns) {
-      return Status::Corruption("Error decoding wide column types");
-    }
-    // Check if default column (index 0) is a blob reference
-    if (static_cast<uint8_t>(input_ref[0]) == kTypeBlobIndex) {
-      return Status::NotSupported(
-          "Wide column contains blob references. Use DeserializeV2.");
-    }
-    input_ref.remove_prefix(num_columns);
-
-    // Read SKIP INFO (3 varints)
+    // Read SKIP INFO (3 varints, immediately after header)
     uint32_t name_sizes_bytes = 0;
     uint32_t value_sizes_bytes = 0;
     uint32_t names_bytes = 0;
@@ -559,6 +553,17 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
     if (!GetVarint32(&input_ref, &names_bytes)) {
       return Status::Corruption("Error decoding wide column names bytes");
     }
+
+    // Read COLUMN TYPES (N bytes)
+    if (input_ref.size() < num_columns) {
+      return Status::Corruption("Error decoding wide column types");
+    }
+    // Check if default column (index 0) is a blob reference
+    if (static_cast<uint8_t>(input_ref[0]) == kTypeBlobIndex) {
+      return Status::NotSupported(
+          "Wide column contains blob references. Use DeserializeV2.");
+    }
+    input_ref.remove_prefix(num_columns);
 
     // Peek first name size from NAME SIZES section
     if (input_ref.size() < name_sizes_bytes) {

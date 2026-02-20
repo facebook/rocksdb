@@ -668,13 +668,7 @@ TEST_F(WideColumnSerializationTest, V2LayoutStructureVerification) {
   ASSERT_TRUE(GetVarint32(&data, &num_columns));
   ASSERT_EQ(num_columns, 2u);
 
-  // Section 2: COLUMN TYPES (2 bytes, both inline)
-  ASSERT_GE(data.size(), 2u);
-  ASSERT_EQ(static_cast<uint8_t>(data[0]), static_cast<uint8_t>(kTypeValue));
-  ASSERT_EQ(static_cast<uint8_t>(data[1]), static_cast<uint8_t>(kTypeValue));
-  data.remove_prefix(2);
-
-  // Section 3: SKIP INFO (3 varints)
+  // Section 2: SKIP INFO (3 varints)
   uint32_t name_sizes_bytes = 0;
   uint32_t value_sizes_bytes = 0;
   uint32_t names_bytes = 0;
@@ -687,6 +681,12 @@ TEST_F(WideColumnSerializationTest, V2LayoutStructureVerification) {
   ASSERT_EQ(value_sizes_bytes, 2u);
   // names: "aa" + "bbb" = 2 + 3 = 5 bytes
   ASSERT_EQ(names_bytes, 5u);
+
+  // Section 3: COLUMN TYPES (2 bytes, both inline)
+  ASSERT_GE(data.size(), 2u);
+  ASSERT_EQ(static_cast<uint8_t>(data[0]), static_cast<uint8_t>(kTypeValue));
+  ASSERT_EQ(static_cast<uint8_t>(data[1]), static_cast<uint8_t>(kTypeValue));
+  data.remove_prefix(2);
 
   // Section 4: NAME SIZES
   uint32_t ns0 = 0, ns1 = 0;
