@@ -180,6 +180,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(dbfull()->Flush(FlushOptions(), cf));
+    // Try lots of things to ensure callback is triggered
     ASSERT_OK(dbfull()->TEST_SwitchWAL());
     ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
     ASSERT_OK(dbfull()->TEST_WaitForPurge());
