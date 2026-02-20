@@ -2021,6 +2021,30 @@ void rocksdb_write(rocksdb_t* db, const rocksdb_writeoptions_t* options,
   SaveError(errptr, db->rep->Write(options->rep, &batch->rep));
 }
 
+static void CopyBlobCompressionTypesForGet(
+    const rocksdb_readoptions_t* options) {
+  if (options->blob_compression_types_int_out != nullptr &&
+      options->blob_compression_types_num_keys > 0 &&
+      !options->blob_compression_types_storage.empty()) {
+    *options->blob_compression_types_int_out =
+        static_cast<int>(options->blob_compression_types_storage[0]);
+  }
+}
+
+static void CopyBlobCompressionTypesForMultiGet(
+    const rocksdb_readoptions_t* options, size_t num_keys) {
+  if (options->blob_compression_types_int_out != nullptr) {
+    size_t copy_count =
+        std::min(num_keys, options->blob_compression_types_num_keys);
+    for (size_t i = 0; i < copy_count &&
+                        i < options->blob_compression_types_storage.size();
+         i++) {
+      options->blob_compression_types_int_out[i] =
+          static_cast<int>(options->blob_compression_types_storage[i]);
+    }
+  }
+}
+
 char* rocksdb_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
                   const char* key, size_t keylen, size_t* vallen,
                   char** errptr) {
@@ -2039,12 +2063,7 @@ char* rocksdb_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
       SaveError(errptr, s);
     }
   }
-  // Copy compression type from internal storage to user's int pointer
-  if (options->blob_compression_types_int_out != nullptr &&
-      options->blob_compression_types_num_keys > 0) {
-    *options->blob_compression_types_int_out =
-        static_cast<int>(options->blob_compression_types_storage[0]);
-  }
+  CopyBlobCompressionTypesForGet(options);
   return result;
 }
 
@@ -2067,12 +2086,7 @@ char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
       SaveError(errptr, s);
     }
   }
-  // Copy compression type from internal storage to user's int pointer
-  if (options->blob_compression_types_int_out != nullptr &&
-      options->blob_compression_types_num_keys > 0) {
-    *options->blob_compression_types_int_out =
-        static_cast<int>(options->blob_compression_types_storage[0]);
-  }
+  CopyBlobCompressionTypesForGet(options);
   return result;
 }
 
@@ -2165,15 +2179,7 @@ void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
       }
     }
   }
-  // Copy per-key compression types from internal storage to user's int array
-  if (options->blob_compression_types_int_out != nullptr) {
-    size_t copy_count =
-        std::min(num_keys, options->blob_compression_types_num_keys);
-    for (size_t i = 0; i < copy_count; i++) {
-      options->blob_compression_types_int_out[i] =
-          static_cast<int>(options->blob_compression_types_storage[i]);
-    }
-  }
+  CopyBlobCompressionTypesForMultiGet(options, num_keys);
 }
 
 void rocksdb_multi_get_with_ts(rocksdb_t* db,
@@ -2213,15 +2219,7 @@ void rocksdb_multi_get_with_ts(rocksdb_t* db,
       }
     }
   }
-  // Copy per-key compression types from internal storage to user's int array
-  if (options->blob_compression_types_int_out != nullptr) {
-    size_t copy_count =
-        std::min(num_keys, options->blob_compression_types_num_keys);
-    for (size_t i = 0; i < copy_count; i++) {
-      options->blob_compression_types_int_out[i] =
-          static_cast<int>(options->blob_compression_types_storage[i]);
-    }
-  }
+  CopyBlobCompressionTypesForMultiGet(options, num_keys);
 }
 
 void rocksdb_multi_get_cf(
@@ -2258,15 +2256,7 @@ void rocksdb_multi_get_cf(
       }
     }
   }
-  // Copy per-key compression types from internal storage to user's int array
-  if (options->blob_compression_types_int_out != nullptr) {
-    size_t copy_count =
-        std::min(num_keys, options->blob_compression_types_num_keys);
-    for (size_t i = 0; i < copy_count; i++) {
-      options->blob_compression_types_int_out[i] =
-          static_cast<int>(options->blob_compression_types_storage[i]);
-    }
-  }
+  CopyBlobCompressionTypesForMultiGet(options, num_keys);
 }
 
 void rocksdb_multi_get_cf_with_ts(
@@ -2309,15 +2299,7 @@ void rocksdb_multi_get_cf_with_ts(
       }
     }
   }
-  // Copy per-key compression types from internal storage to user's int array
-  if (options->blob_compression_types_int_out != nullptr) {
-    size_t copy_count =
-        std::min(num_keys, options->blob_compression_types_num_keys);
-    for (size_t i = 0; i < copy_count; i++) {
-      options->blob_compression_types_int_out[i] =
-          static_cast<int>(options->blob_compression_types_storage[i]);
-    }
-  }
+  CopyBlobCompressionTypesForMultiGet(options, num_keys);
 }
 
 void rocksdb_batched_multi_get_cf(rocksdb_t* db,
@@ -2351,6 +2333,8 @@ void rocksdb_batched_multi_get_cf(rocksdb_t* db,
       }
     }
   }
+
+  CopyBlobCompressionTypesForMultiGet(options, num_keys);
 
   delete[] key_slices;
   delete[] value_slices;
@@ -2387,6 +2371,8 @@ void rocksdb_batched_multi_get_cf_slice(
       }
     }
   }
+
+  CopyBlobCompressionTypesForMultiGet(options, num_keys);
 
   delete[] value_slices;
   delete[] statuses;

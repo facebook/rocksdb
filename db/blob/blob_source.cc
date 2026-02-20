@@ -232,20 +232,17 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
             : nullptr;
 
     uint64_t read_size = 0;
-    // Use local optional for compression type output
     std::optional<CompressionType> compression_type_out;
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
         prefetch_buffer, allocator, &blob_contents, &read_size,
-        read_options.blob_compression_types_out ? &compression_type_out
-                                                : nullptr);
+        want_compressed ? &compression_type_out : nullptr);
     if (!s.ok()) {
       return s;
     }
     if (bytes_read) {
       *bytes_read = read_size;
     }
-    // Copy compression type to user's output vector if provided
     if (read_options.blob_compression_types_out &&
         compression_type_out.has_value()) {
       if (read_options.blob_compression_types_out->empty()) {

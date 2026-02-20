@@ -235,9 +235,10 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
   read_options.read_blob_compressed = read_blob_compressed_;
-  // Set output vector to capture compression type
-  read_options.blob_compression_types_out =
-      read_blob_compressed_ ? &blob_compression_type_ : nullptr;
+  if (read_blob_compressed_) {
+    blob_compression_types_buf_.assign(1, kNoCompression);
+    read_options.blob_compression_types_out = &blob_compression_types_buf_;
+  }
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
@@ -246,6 +247,10 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
 
   if (!s.ok()) {
     return s;
+  }
+
+  if (read_blob_compressed_ && !blob_compression_types_buf_.empty()) {
+    blob_compression_type_ = blob_compression_types_buf_[0];
   }
 
   return Status::OK();
@@ -1389,7 +1394,12 @@ bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
     return false;
   }
 
+  // Temporarily disable read_blob_compressed for merge operations.
+  // The merge operator expects uncompressed data; feeding it compressed bytes
+  // would produce silently corrupt results.
+  bool was_compressed = blob_reader_.SetReadBlobCompressed(false);
   const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  blob_reader_.SetReadBlobCompressed(was_compressed);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;

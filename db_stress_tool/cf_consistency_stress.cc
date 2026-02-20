@@ -261,12 +261,7 @@ class CfConsistencyStressTest : public StressTest {
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
     ReadOptions readoptionscopy = read_opts;
-    // Only enable compressed blob reads when the blobs are stored
-    // uncompressed; otherwise value-validation logic would compare compressed
-    // bytes against expected uncompressed values.
-    readoptionscopy.read_blob_compressed =
-        options_.blob_compression_type == kNoCompression &&
-        thread->rand.OneIn(2);
+    MaybeReadBlobCompressed(thread, readoptionscopy);
     readoptionscopy.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
@@ -335,12 +330,7 @@ class CfConsistencyStressTest : public StressTest {
 
       ReadOptions read_opts_copy = read_opts;
       read_opts_copy.snapshot = snapshot_guard.snapshot();
-      // Only enable compressed blob reads when the blobs are stored
-      // uncompressed; otherwise value-validation logic would compare compressed
-      // bytes against expected uncompressed values.
-      read_opts_copy.read_blob_compressed =
-          options_.blob_compression_type == kNoCompression &&
-          thread->rand.OneIn(2);
+      MaybeReadBlobCompressed(thread, read_opts_copy);
 
       assert(rand_column_families[0] >= 0);
       assert(rand_column_families[0] <
@@ -531,12 +521,7 @@ class CfConsistencyStressTest : public StressTest {
 
     ReadOptions read_opts_copy = read_opts;
     read_opts_copy.snapshot = snapshot_guard.snapshot();
-    // Only enable compressed blob reads when the blobs are stored
-    // uncompressed; otherwise value-validation logic would compare compressed
-    // bytes against expected uncompressed values.
-    read_opts_copy.read_blob_compressed =
-        options_.blob_compression_type == kNoCompression &&
-        thread->rand.OneIn(2);
+    MaybeReadBlobCompressed(thread, read_opts_copy);
 
     const size_t num_cfs = rand_column_families.size();
 
@@ -794,12 +779,7 @@ class CfConsistencyStressTest : public StressTest {
     Slice ub_slice;
 
     ReadOptions ro_copy = readoptions;
-    // Only enable compressed blob reads when the blobs are stored
-    // uncompressed; otherwise value-validation logic would compare compressed
-    // bytes against expected uncompressed values.
-    ro_copy.read_blob_compressed =
-        options_.blob_compression_type == kNoCompression &&
-        thread->rand.OneIn(2);
+    MaybeReadBlobCompressed(thread, ro_copy);
     std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
     if (ro_copy.auto_refresh_iterator_with_snapshot) {
       snapshot = std::make_unique<ManagedSnapshot>(db_);

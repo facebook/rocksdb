@@ -267,18 +267,23 @@ class DBIter final : public Iterator {
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
           io_activity_(io_activity),
-          read_blob_compressed_(read_blob_compressed),
-          blob_compression_type_(1, kNoCompression) {}
+          read_blob_compressed_(read_blob_compressed) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
                                    const Slice& blob_index);
     void ResetBlobValue() {
       blob_value_.Reset();
-      blob_compression_type_[0] = kNoCompression;
+      blob_compression_type_ = kNoCompression;
     }
     CompressionType GetBlobCompressionType() const {
-      return blob_compression_type_[0];
+      return blob_compression_type_;
+    }
+    // Returns the previous value.
+    bool SetReadBlobCompressed(bool value) {
+      bool prev = read_blob_compressed_;
+      read_blob_compressed_ = value;
+      return prev;
     }
 
    private:
@@ -289,7 +294,8 @@ class DBIter final : public Iterator {
     bool fill_cache_;
     Env::IOActivity io_activity_;
     bool read_blob_compressed_;
-    std::vector<CompressionType> blob_compression_type_;
+    CompressionType blob_compression_type_ = kNoCompression;
+    std::vector<CompressionType> blob_compression_types_buf_;
   };
 
   // For all methods in this block:

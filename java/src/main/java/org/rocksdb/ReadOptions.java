@@ -790,6 +790,16 @@ public class ReadOptions extends RocksObject {
    * compressed data instead of decompressing it first. This is useful for
    * tiered storage scenarios where data can be transferred in compressed form.
    * <p>
+   * To determine the compression type used for a blob value:
+   * <ul>
+   *   <li>For iterator operations: use
+   *       {@link RocksIterator#getBlobCompressionType()}</li>
+   *   <li>For {@code get()} / {@code multiGet()} operations: compression type
+   *       reporting is not yet available in the Java API. Use the C++ or C API
+   *       ({@code ReadOptions::blob_compression_types_out}) if per-key
+   *       compression type metadata is needed for point lookups.</li>
+   * </ul>
+   * <p>
    * Default: false
    * @return true if read_blob_compressed is enabled.
    */
@@ -803,6 +813,9 @@ public class ReadOptions extends RocksObject {
    * compressed data instead of decompressing it first. This is useful for
    * tiered storage scenarios where data can be transferred in compressed form.
    * <p>
+   * See {@link #readBlobCompressed()} for details on how to retrieve the
+   * compression type of the returned data.
+   *
    * @param readBlobCompressed read_blob_compressed enabled or not.
    * @return the reference to the current ReadOptions.
    */

@@ -2717,6 +2717,52 @@ TEST_F(DBBlobBasicTest, MultiGetCompressedBlob_PerKeyCompressionTypes) {
   }
 }
 
+TEST_F(DBBlobBasicTest, MultiGetCompressedBlob_MixedKeyTypes) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Options options = GetBlobOptions(kSnappyCompression);
+  options.min_blob_size = 64;
+  Reopen(options);
+
+  const std::string blob_key = "blob_key";
+  const std::string inline_key = "inline_key";
+  const std::string missing_key = "missing_key";
+  const std::string blob_value(kCompressibleBlobSize, 'x');
+  const std::string inline_value = "small";
+
+  ASSERT_OK(Put(blob_key, blob_value));
+  ASSERT_OK(Put(inline_key, inline_value));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  std::vector<CompressionType> compression_types;
+  read_options.blob_compression_types_out = &compression_types;
+
+  std::vector<Slice> keys = {blob_key, inline_key, missing_key};
+  constexpr size_t num_keys = 3;
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+
+  db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, keys.data(),
+                values.data(), statuses.data());
+
+  ASSERT_EQ(compression_types.size(), num_keys);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(compression_types[0], kSnappyCompression);
+  ASSERT_LT(values[0].size(), blob_value.size());
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(compression_types[1], kNoCompression);
+  ASSERT_EQ(values[1].ToString(), inline_value);
+
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_EQ(compression_types[2], kNoCompression);
+}
+
 TEST_F(DBBlobBasicTest, IteratorCompressedBlob_Snappy) {
   if (!Snappy_Supported()) {
     return;
