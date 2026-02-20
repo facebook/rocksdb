@@ -8033,26 +8033,6 @@ jboolean Java_org_rocksdb_ReadOptions_tailing(JNIEnv*, jclass, jlong jhandle) {
 
 /*
  * Class:     org_rocksdb_ReadOptions
- * Method:    managed
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_ReadOptions_managed(JNIEnv*, jclass, jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)->managed;
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
- * Method:    setManaged
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_ReadOptions_setManaged(JNIEnv*, jclass, jlong jhandle,
-                                             jboolean jmanaged) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)->managed =
-      static_cast<bool>(jmanaged);
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
  * Method:    totalOrderSeek
  * Signature: (J)Z
  */

@@ -305,9 +305,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base = 256 * 1048576;
 
-  // Deprecated.
-  uint64_t snap_refresh_nanos = 0;
-
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
   //
@@ -2108,10 +2105,6 @@ struct ReadOptions {
   // added data) and is optimized for sequential reads. It will return records
   // that were inserted into the database after the creation of the iterator.
   bool tailing = false;
-
-  // This options is not used anymore. It was to turn on a functionality that
-  // has been removed. DEPRECATED
-  bool managed = false;
 
   // Enable a total order seek regardless of index format (e.g. hash index)
   // used in the table. Some table format (e.g. plain table) may not support

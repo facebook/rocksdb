@@ -6087,11 +6087,6 @@ unsigned char rocksdb_readoptions_get_tailing(rocksdb_readoptions_t* opt) {
   return opt->rep.tailing;
 }
 
-void rocksdb_readoptions_set_managed(rocksdb_readoptions_t* opt,
-                                     unsigned char v) {
-  opt->rep.managed = v;
-}
-
 void rocksdb_readoptions_set_readahead_size(rocksdb_readoptions_t* opt,
                                             size_t v) {
   opt->rep.readahead_size = v;

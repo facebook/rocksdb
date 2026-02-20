@@ -3925,10 +3925,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kDBIterator;
   }
 
-  if (read_options.managed) {
-    return NewErrorIterator(
-        Status::NotSupported("Managed iterator is not supported anymore."));
-  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -4127,9 +4123,6 @@ Status DBImpl::NewIterators(
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
-  }
-  if (read_options.managed) {
-    return Status::NotSupported("Managed iterator is not supported anymore.");
   }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(

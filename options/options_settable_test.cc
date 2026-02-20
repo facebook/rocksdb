@@ -541,8 +541,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<CompressionManager>)},
       {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
-       sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
       {offsetof(struct ColumnFamilyOptions, cf_paths),
