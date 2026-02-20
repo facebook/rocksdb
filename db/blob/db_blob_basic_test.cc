@@ -2606,6 +2606,75 @@ TEST_F(DBBlobBasicTest, GetCompressedBlob_NoCompression_CompressionTypeOutput) {
   ASSERT_EQ(result.ToString(), blob_value);
 }
 
+TEST_F(DBBlobBasicTest,
+       GetCompressedBlob_CompressionTypeOutput_InlineValueResetsToNoCompression) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Options options = GetBlobOptions(kSnappyCompression);
+  options.min_blob_size = 64;
+  Reopen(options);
+
+  const std::string blob_key = "blob_key";
+  const std::string inline_key = "inline_key";
+  const std::string blob_value(kCompressibleBlobSize, 'x');
+  const std::string inline_value = "small";
+
+  ASSERT_OK(Put(blob_key, blob_value));
+  ASSERT_OK(Put(inline_key, inline_value));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  std::vector<CompressionType> compression_types_out(1, kNoCompression);
+  read_options.blob_compression_types_out = &compression_types_out;
+
+  PinnableSlice result;
+  ASSERT_OK(
+      db_->Get(read_options, db_->DefaultColumnFamily(), blob_key, &result));
+  ASSERT_EQ(compression_types_out.size(), 1);
+  ASSERT_EQ(compression_types_out[0], kSnappyCompression);
+
+  result.Reset();
+  ASSERT_OK(
+      db_->Get(read_options, db_->DefaultColumnFamily(), inline_key, &result));
+  ASSERT_EQ(result.ToString(), inline_value);
+  ASSERT_EQ(compression_types_out.size(), 1);
+  ASSERT_EQ(compression_types_out[0], kNoCompression);
+}
+
+TEST_F(DBBlobBasicTest,
+       GetCompressedBlob_CompressionTypeOutput_NotFoundResetsToNoCompression) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Reopen(GetBlobOptions(kSnappyCompression));
+
+  const std::string key = "key";
+  const std::string blob_value(kCompressibleBlobSize, 'x');
+  WriteBlobAndFlush(key, blob_value);
+
+  ReadOptions read_options;
+  read_options.read_blob_compressed = true;
+  std::vector<CompressionType> compression_types_out(1, kNoCompression);
+  read_options.blob_compression_types_out = &compression_types_out;
+
+  PinnableSlice result;
+  ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(compression_types_out.size(), 1);
+  ASSERT_EQ(compression_types_out[0], kSnappyCompression);
+
+  result.Reset();
+  const Status s = db_->Get(read_options, db_->DefaultColumnFamily(),
+                            "missing_key", &result);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(result.empty());
+  ASSERT_EQ(compression_types_out.size(), 1);
+  ASSERT_EQ(compression_types_out[0], kNoCompression);
+}
+
 TEST_F(DBBlobBasicTest, MultiGetCompressedBlob_PerKeyCompressionTypes) {
   if (!Snappy_Supported()) {
     return;

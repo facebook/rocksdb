@@ -2253,6 +2253,11 @@ Status DBImpl::Get(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGet;
   }
+  if (read_options.blob_compression_types_out) {
+    // Initialize output for this Get() so callers never observe stale
+    // compression metadata from previous operations.
+    read_options.blob_compression_types_out->assign(1, kNoCompression);
+  }
 
   Status s = GetImpl(read_options, column_family, key, value, timestamp);
   return s;
