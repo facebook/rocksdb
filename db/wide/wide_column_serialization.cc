@@ -22,8 +22,8 @@ Status WideColumnSerialization::BuildBlobIndexMap(
     size_t num_columns,
     const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
     std::vector<const BlobIndex*>& blob_index_map) {
-  Status s = ValidateWideColumnLimit(num_columns, "Too many wide columns");
-  if (!s.ok()) {
+  if (Status s = ValidateWideColumnLimit(num_columns, "Too many wide columns");
+      !s.ok()) {
     return s;
   }
 
@@ -52,8 +52,8 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
                                           std::string& output) {
   const size_t num_columns = columns.size();
 
-  Status sv = ValidateWideColumnLimit(num_columns, "Too many wide columns");
-  if (!sv.ok()) {
+  if (Status sv = ValidateWideColumnLimit(num_columns, "Too many wide columns");
+      !sv.ok()) {
     return sv;
   }
 
@@ -67,23 +67,22 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
     const WideColumn& column = columns[i];
 
     const Slice& name = column.name();
-    Status s_name =
-        ValidateWideColumnLimit(name.size(), "Wide column name too long");
-    if (!s_name.ok()) {
+    if (Status s_name =
+            ValidateWideColumnLimit(name.size(), "Wide column name too long");
+        !s_name.ok()) {
       return s_name;
     }
 
     if (prev_name) {
-      Status so = ValidateColumnOrder(*prev_name, name);
-      if (!so.ok()) {
+      if (Status so = ValidateColumnOrder(*prev_name, name); !so.ok()) {
         return so;
       }
     }
 
     const Slice& value = column.value();
-    Status s_val =
-        ValidateWideColumnLimit(value.size(), "Wide column value too long");
-    if (!s_val.ok()) {
+    if (Status s_val =
+            ValidateWideColumnLimit(value.size(), "Wide column value too long");
+        !s_val.ok()) {
       return s_val;
     }
 
@@ -108,8 +107,8 @@ Status WideColumnSerialization::SerializeV2Impl(
     const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
     std::string& output, GetName get_name, GetValue get_value) {
   std::vector<const BlobIndex*> blob_index_map;
-  Status s = BuildBlobIndexMap(num_columns, blob_columns, blob_index_map);
-  if (!s.ok()) {
+  if (Status s = BuildBlobIndexMap(num_columns, blob_columns, blob_index_map);
+      !s.ok()) {
     return s;
   }
   assert(blob_index_map.size() == num_columns);
@@ -133,15 +132,14 @@ Status WideColumnSerialization::SerializeV2Impl(
     const Slice name = get_name(i);
     const Slice value = get_value(i);
 
-    Status sn =
-        ValidateWideColumnLimit(name.size(), "Wide column name too long");
-    if (!sn.ok()) {
+    if (Status sn =
+            ValidateWideColumnLimit(name.size(), "Wide column name too long");
+        !sn.ok()) {
       return sn;
     }
 
     if (has_prev) {
-      Status so = ValidateColumnOrder(prev_name_storage, name);
-      if (!so.ok()) {
+      if (Status so = ValidateColumnOrder(prev_name_storage, name); !so.ok()) {
         return so;
       }
     }
@@ -156,9 +154,9 @@ Status WideColumnSerialization::SerializeV2Impl(
       value_sizes[i] = static_cast<uint32_t>(serialized_blob_indices[i].size());
       column_types.push_back(static_cast<char>(kTypeBlobIndex));
     } else {
-      Status svl =
-          ValidateWideColumnLimit(value.size(), "Wide column value too long");
-      if (!svl.ok()) {
+      if (Status svl = ValidateWideColumnLimit(value.size(),
+                                               "Wide column value too long");
+          !svl.ok()) {
         return svl;
       }
       value_sizes[i] = static_cast<uint32_t>(value.size());
@@ -260,8 +258,8 @@ Status WideColumnSerialization::DeserializeV1(
     }
 
     if (!columns.empty()) {
-      Status so = ValidateColumnOrder(columns.back().name(), name);
-      if (!so.ok()) {
+      if (Status so = ValidateColumnOrder(columns.back().name(), name);
+          !so.ok()) {
         return so;
       }
     }
@@ -369,8 +367,8 @@ Status WideColumnSerialization::DeserializeV2Impl(
     Slice name(s6 + name_pos, ns);
 
     if (!columns.empty()) {
-      Status so = ValidateColumnOrder(columns.back().name(), name);
-      if (!so.ok()) {
+      if (Status so = ValidateColumnOrder(columns.back().name(), name);
+          !so.ok()) {
         return so;
       }
     }
@@ -394,8 +392,7 @@ Status WideColumnSerialization::Deserialize(Slice& input,
 
   // Reuse DeserializeV2, then reject any blob references.
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  Status s = DeserializeV2(input, columns, blob_columns);
-  if (!s.ok()) {
+  if (Status s = DeserializeV2(input, columns, blob_columns); !s.ok()) {
     return s;
   }
 
@@ -435,8 +432,8 @@ Status WideColumnSerialization::DeserializeV2(
     // V2 layout: parse columns and extract blob column info
     std::vector<ValueType> column_types;
 
-    Status s = DeserializeV2Impl(input, num_columns, columns, column_types);
-    if (!s.ok()) {
+    if (Status s = DeserializeV2Impl(input, num_columns, columns, column_types);
+        !s.ok()) {
       return s;
     }
     assert(column_types.size() == num_columns);
@@ -447,8 +444,7 @@ Status WideColumnSerialization::DeserializeV2(
       if (column_types[i] == kTypeBlobIndex) {
         BlobIndex blob_idx;
         Slice blob_slice = columns[i].value();
-        Status bs = blob_idx.DecodeFrom(blob_slice);
-        if (!bs.ok()) {
+        if (Status bs = blob_idx.DecodeFrom(blob_slice); !bs.ok()) {
           return Status::Corruption("Error decoding blob index in wide column");
         }
         blob_columns.emplace_back(i, blob_idx);
@@ -487,9 +483,12 @@ Status WideColumnSerialization::HasBlobColumns(const Slice& input,
   }
 
   // V2: Skip over SKIP INFO (3 varints) to reach COLUMN TYPES section.
-  uint32_t unused = 0;
-  if (!GetVarint32(&input_ref, &unused) || !GetVarint32(&input_ref, &unused) ||
-      !GetVarint32(&input_ref, &unused)) {
+  uint32_t unused_name_sizes_bytes = 0;
+  uint32_t unused_value_sizes_bytes = 0;
+  uint32_t unused_names_bytes = 0;
+  if (!GetVarint32(&input_ref, &unused_name_sizes_bytes) ||
+      !GetVarint32(&input_ref, &unused_value_sizes_bytes) ||
+      !GetVarint32(&input_ref, &unused_names_bytes)) {
     return Status::Corruption("Error decoding wide column skip info");
   }
   if (input_ref.size() < num_columns) {
@@ -610,8 +609,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
   // V1 fallback: full deserialization
   WideColumns columns;
 
-  Status s = Deserialize(input, columns);
-  if (!s.ok()) {
+  if (Status s = Deserialize(input, columns); !s.ok()) {
     return s;
   }
 
@@ -638,8 +636,7 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
   Slice input_copy = entity_value;
-  Status s = DeserializeV2(input_copy, columns, blob_columns);
-  if (!s.ok()) {
+  if (Status s = DeserializeV2(input_copy, columns, blob_columns); !s.ok()) {
     return s;
   }
 
@@ -702,8 +699,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
   Slice input_copy = entity_value;
-  Status s = DeserializeV2(input_copy, columns, blob_columns);
-  if (!s.ok()) {
+  if (Status s = DeserializeV2(input_copy, columns, blob_columns); !s.ok()) {
     return s;
   }
 
