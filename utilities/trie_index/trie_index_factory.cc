@@ -64,12 +64,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
   }
   finished_ = true;
 
-  if (trie_builder_.NumKeys() == 0) {
-    // No data blocks were added — return empty contents.
-    *index_contents = Slice();
-    return Status::OK();
-  }
-
+  // Always finish the trie builder, even with 0 keys — this produces a valid
+  // serialized trie that can be parsed by NewReader. Without this, an empty
+  // Slice would be returned, causing InitFromData to fail with "data too short
+  // for header".
   trie_builder_.Finish();
   *index_contents = trie_builder_.GetSerializedData();
   return Status::OK();

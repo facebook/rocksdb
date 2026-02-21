@@ -263,9 +263,9 @@ class LoudsTrie {
   Bitvector s_is_prefix_key_;
 
   // SuRF-style child position lookup tables for Select-free traversal.
-  // Instead of computing Select1(node_num) during traversal, we precompute
-  // child start/end positions indexed by internal label rank. This allows
-  // traversal using only Rank1 (O(1)) and array lookup (O(1)).
+  // Instead of computing FindNthOneBit(node_num) during traversal, we
+  // precompute child start/end positions indexed by internal label rank. This
+  // allows traversal using only Rank1 (O(1)) and array lookup (O(1)).
   //
   // For the k-th internal label (has_child[pos]=1, where k = Rank1(pos+1)-1):
   //   s_child_start_pos_[k] = start position of child node

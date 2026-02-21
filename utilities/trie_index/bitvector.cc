@@ -39,8 +39,8 @@ size_t Bitvector::SerializedSize() const {
   // Header: 2 uint64_t (num_bits, num_ones).
   // Words: num_words * 8 bytes.
   // Rank LUT: num_rank_samples * 4 bytes, padded to 8.
-  // Select1 hints: num_select1_hints * 4 bytes, padded to 8.
-  // Select0 hints: num_select0_hints * 4 bytes, padded to 8.
+  // FindNthOneBit hints: num_select1_hints * 4 bytes, padded to 8.
+  // FindNthZeroBit hints: num_select0_hints * 4 bytes, padded to 8.
   size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
   size_t rank_padded = (rank_bytes + 7) & ~size_t(7);
   size_t s1_bytes = num_select1_hints_ * sizeof(uint32_t);
@@ -51,7 +51,7 @@ size_t Bitvector::SerializedSize() const {
          s1_padded + s0_padded;
 }
 
-void Bitvector::Serialize(std::string* output) const {
+void Bitvector::EncodeTo(std::string* output) const {
   size_t old_size = output->size();
   size_t needed = SerializedSize();
   output->resize(old_size + needed);
@@ -273,9 +273,9 @@ void Bitvector::BuildSelectHints() {
   }
 }
 
-// Select1 is now inline in bitvector.h for hot-path performance.
+// FindNthOneBit is now inline in bitvector.h for hot-path performance.
 
-uint64_t Bitvector::Select0(uint64_t i) const {
+uint64_t Bitvector::FindNthZeroBit(uint64_t i) const {
   uint64_t num_zeros = num_bits_ - num_ones_;
   if (i >= num_zeros) {
     return num_bits_;
@@ -323,7 +323,7 @@ uint64_t Bitvector::Select0(uint64_t i) const {
       if (valid_bits < 64) {
         word &= (uint64_t(1) << valid_bits) - 1;
       }
-      return w * 64 + Select64(word, remaining);
+      return w * 64 + FindNthSetBitInWord(word, remaining);
     }
     remaining -= zeros_in_word;
   }
@@ -378,6 +378,12 @@ void EliasFano::BuildFrom(const uint64_t* values, uint64_t count,
     low_mask_ = 0;
     low_words_ = nullptr;
     num_low_words_ = 0;
+    // Build an empty high bitvector so it serializes/deserializes correctly.
+    // Without this, high_bv_ stays default-constructed (num_rank_samples_=0),
+    // but InitFromData computes num_rank_samples_=1 for 0-bit bitvectors,
+    // causing a size mismatch on deserialization.
+    BitvectorBuilder empty_builder;
+    high_bv_.BuildFrom(empty_builder);
     return;
   }
 
@@ -443,7 +449,7 @@ size_t EliasFano::SerializedSize() const {
   return 3 * sizeof(uint64_t) + high_bv_.SerializedSize() + low_bytes;
 }
 
-void EliasFano::Serialize(std::string* output) const {
+void EliasFano::EncodeTo(std::string* output) const {
   size_t old_size = output->size();
   // Header: count, universe, low_bits
   PutFixed64(output, count_);
@@ -451,7 +457,7 @@ void EliasFano::Serialize(std::string* output) const {
   PutFixed64(output, low_bits_);
 
   // High bitvector
-  high_bv_.Serialize(output);
+  high_bv_.EncodeTo(output);
 
   // Low words
   size_t low_bytes = num_low_words_ * sizeof(uint64_t);

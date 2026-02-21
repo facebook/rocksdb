@@ -426,17 +426,17 @@ void LoudsTrieBuilder::SerializeAll() {
   {
     Bitvector bv;
     bv.BuildFrom(d_labels_);
-    bv.Serialize(&serialized_data_);
+    bv.EncodeTo(&serialized_data_);
   }
   {
     Bitvector bv;
     bv.BuildFrom(d_has_child_);
-    bv.Serialize(&serialized_data_);
+    bv.EncodeTo(&serialized_data_);
   }
   {
     Bitvector bv;
     bv.BuildFrom(d_is_prefix_key_);
-    bv.Serialize(&serialized_data_);
+    bv.EncodeTo(&serialized_data_);
   }
 
   // Sparse section.
@@ -450,16 +450,16 @@ void LoudsTrieBuilder::SerializeAll() {
   }
   Bitvector bv_s_has_child;
   bv_s_has_child.BuildFrom(s_has_child_);
-  bv_s_has_child.Serialize(&serialized_data_);
+  bv_s_has_child.EncodeTo(&serialized_data_);
 
   Bitvector bv_s_louds;
   bv_s_louds.BuildFrom(s_louds_);
-  bv_s_louds.Serialize(&serialized_data_);
+  bv_s_louds.EncodeTo(&serialized_data_);
 
   {
     Bitvector bv;
     bv.BuildFrom(s_is_prefix_key_);
-    bv.Serialize(&serialized_data_);
+    bv.EncodeTo(&serialized_data_);
   }
 
   // Child position lookup tables for Select-free sparse traversal.
@@ -472,7 +472,7 @@ void LoudsTrieBuilder::SerializeAll() {
     if (num_internal > 0 && sl_size <= UINT32_MAX) {
       for (uint64_t k = 0; k < num_internal; k++) {
         uint64_t child_node = dense_child_count_ + k;
-        uint64_t child_start = bv_s_louds.Select1(child_node);
+        uint64_t child_start = bv_s_louds.FindNthOneBit(child_node);
         PutFixed32(&serialized_data_, static_cast<uint32_t>(child_start));
       }
       // Pad to 8-byte alignment
@@ -482,7 +482,7 @@ void LoudsTrieBuilder::SerializeAll() {
 
       for (uint64_t k = 0; k < num_internal; k++) {
         uint64_t child_node = dense_child_count_ + k;
-        uint64_t child_start = bv_s_louds.Select1(child_node);
+        uint64_t child_start = bv_s_louds.FindNthOneBit(child_node);
         uint64_t child_end = bv_s_louds.NextSetBit(child_start + 1);
         if (child_end > sl_size) {
           child_end = sl_size;
@@ -515,7 +515,7 @@ void LoudsTrieBuilder::SerializeAll() {
     if (num_internal > 0 && sl_size <= UINT32_MAX) {
       for (uint64_t k = 0; k < num_internal; k++) {
         uint64_t child_node = dense_child_count_ + k;
-        uint64_t cs = bv_s_louds.Select1(child_node);
+        uint64_t cs = bv_s_louds.FindNthOneBit(child_node);
         child_starts[k] = static_cast<uint32_t>(cs);
         uint64_t ce = bv_s_louds.NextSetBit(cs + 1);
         if (ce > sl_size) ce = sl_size;
@@ -733,7 +733,7 @@ void LoudsTrieBuilder::SerializeAll() {
       // Write chain bitmap (1 bit per internal label).
       Bitvector chain_bitmap_bv;
       chain_bitmap_bv.BuildFrom(chain_bitmap_builder);
-      chain_bitmap_bv.Serialize(&serialized_data_);
+      chain_bitmap_bv.EncodeTo(&serialized_data_);
 
       // Write compact chain_offsets (uint32_t per chain).
       for (uint64_t k = 0; k < num_internal; k++) {
@@ -1289,10 +1289,10 @@ uint64_t LoudsTrieIterator::SparseNodeStartPos(uint64_t sparse_node_num) const {
     }
   }
 
-  // Fallback to Select1 for:
+  // Fallback to FindNthOneBit for:
   // - Root sparse nodes (children of dense nodes)
   // - Very large tries where lookup table wasn't built
-  return trie_->s_louds_.Select1(sparse_node_num);
+  return trie_->s_louds_.FindNthOneBit(sparse_node_num);
 }
 
 uint64_t LoudsTrieIterator::SparseNodeEndPos(uint64_t start_pos) const {
@@ -1382,7 +1382,7 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
 
 // Main Seek implementation.
 // Uses SuRF-style Select-free traversal for sparse regions: instead of
-// tracking node_num and calling Select1 to find node boundaries, we track
+// tracking node_num and calling FindNthOneBit to find node boundaries, we track
 // (start_pos, end_pos) directly and use only Rank1 + array lookup.
 template <bool kHasChains>
 bool LoudsTrieIterator::SeekImpl(const Slice& target) {
@@ -1398,7 +1398,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
   uint64_t node_num = 0;
 
   // SuRF-style: For sparse traversal, track (start_pos, end_pos) directly
-  // instead of node_num. This eliminates Select1 calls entirely.
+  // instead of node_num. This eliminates FindNthOneBit calls entirely.
   uint64_t sparse_start = 0;
   uint64_t sparse_end = 0;
   bool have_sparse_bounds = false;
@@ -1472,14 +1472,15 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
       }
     } else {
       // SuRF-style sparse traversal: Use (start, end) positions directly.
-      // No Select1 calls - only Rank1 + array lookup.
+      // No FindNthOneBit calls - only Rank1 + array lookup.
       uint64_t start, end;
       if (have_sparse_bounds) {
         start = sparse_start;
         end = sparse_end;
       } else {
         // First entry into sparse region from dense, or from root.
-        // Need to compute bounds using Select1 (only once per dense->sparse).
+        // Need to compute bounds using FindNthOneBit (only once per
+        // dense->sparse).
         start = SparseNodeStartPos(node_num);
         end = SparseNodeEndPos(start);
       }
@@ -1783,7 +1784,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
       }
 
       // Descend to child: Get child bounds using Rank1 + array lookup.
-      // This is the key SuRF optimization - NO Select1 here!
+      // This is the key SuRF optimization - NO FindNthOneBit here!
       // Reuse the already-computed has_child_rank.
       {
         uint64_t child_idx = has_child_rank - 1;

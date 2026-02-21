@@ -63,8 +63,8 @@ TEST_F(BitvectorTest, SingleBit) {
     ASSERT_TRUE(bv.GetBit(0));
     ASSERT_EQ(bv.Rank1(0), 0u);
     ASSERT_EQ(bv.Rank1(1), 1u);
-    ASSERT_EQ(bv.Select1(0), 0u);
-    ASSERT_EQ(bv.Select0(0), 1u);  // No 0-bits; returns num_bits_.
+    ASSERT_EQ(bv.FindNthOneBit(0), 0u);
+    ASSERT_EQ(bv.FindNthZeroBit(0), 1u);  // No 0-bits; returns num_bits_.
   }
   // Single 0-bit.
   {
@@ -78,8 +78,8 @@ TEST_F(BitvectorTest, SingleBit) {
     ASSERT_EQ(bv.Rank1(0), 0u);
     ASSERT_EQ(bv.Rank1(1), 0u);
     ASSERT_EQ(bv.Rank0(1), 1u);
-    ASSERT_EQ(bv.Select0(0), 0u);
-    ASSERT_EQ(bv.Select1(0), 1u);  // No 1-bits; returns num_bits_.
+    ASSERT_EQ(bv.FindNthZeroBit(0), 0u);
+    ASSERT_EQ(bv.FindNthOneBit(0), 1u);  // No 1-bits; returns num_bits_.
   }
 }
 
@@ -106,13 +106,14 @@ TEST_F(BitvectorTest, RankAndSelect) {
 
   // Verify select.
   for (uint64_t i = 0; i < n / 2; i++) {
-    ASSERT_EQ(bv.Select1(i), i * 2) << "Select1 failed at i=" << i;
-    ASSERT_EQ(bv.Select0(i), i * 2 + 1) << "Select0 failed at i=" << i;
+    ASSERT_EQ(bv.FindNthOneBit(i), i * 2) << "FindNthOneBit failed at i=" << i;
+    ASSERT_EQ(bv.FindNthZeroBit(i), i * 2 + 1)
+        << "FindNthZeroBit failed at i=" << i;
   }
 
   // Out of range selects.
-  ASSERT_EQ(bv.Select1(n / 2), n);
-  ASSERT_EQ(bv.Select0(n / 2), n);
+  ASSERT_EQ(bv.FindNthOneBit(n / 2), n);
+  ASSERT_EQ(bv.FindNthZeroBit(n / 2), n);
 }
 
 TEST_F(BitvectorTest, AllOnes) {
@@ -130,9 +131,9 @@ TEST_F(BitvectorTest, AllOnes) {
     ASSERT_EQ(bv.Rank0(pos), 0u);
   }
   for (uint64_t i = 0; i < n; i++) {
-    ASSERT_EQ(bv.Select1(i), i);
+    ASSERT_EQ(bv.FindNthOneBit(i), i);
   }
-  ASSERT_EQ(bv.Select0(0), n);  // No 0-bits.
+  ASSERT_EQ(bv.FindNthZeroBit(0), n);  // No 0-bits.
 }
 
 TEST_F(BitvectorTest, AllZeros) {
@@ -150,9 +151,9 @@ TEST_F(BitvectorTest, AllZeros) {
     ASSERT_EQ(bv.Rank0(pos), pos);
   }
   for (uint64_t i = 0; i < n; i++) {
-    ASSERT_EQ(bv.Select0(i), i);
+    ASSERT_EQ(bv.FindNthZeroBit(i), i);
   }
-  ASSERT_EQ(bv.Select1(0), n);  // No 1-bits.
+  ASSERT_EQ(bv.FindNthOneBit(0), n);  // No 1-bits.
 }
 
 TEST_F(BitvectorTest, LargeBitvector) {
@@ -179,8 +180,8 @@ TEST_F(BitvectorTest, LargeBitvector) {
   uint64_t ones_so_far = 0;
   for (uint64_t i = 0; i < n; i++) {
     if (bv.GetBit(i)) {
-      ASSERT_EQ(bv.Select1(ones_so_far), i)
-          << "Select1 failed at ones_so_far=" << ones_so_far;
+      ASSERT_EQ(bv.FindNthOneBit(ones_so_far), i)
+          << "FindNthOneBit failed at ones_so_far=" << ones_so_far;
       ones_so_far++;
     }
   }
@@ -199,7 +200,7 @@ TEST_F(BitvectorTest, SerializeAndDeserialize) {
 
   // Serialize.
   std::string serialized;
-  original.Serialize(&serialized);
+  original.EncodeTo(&serialized);
   ASSERT_GT(serialized.size(), 0u);
 
   // Deserialize.
@@ -220,8 +221,8 @@ TEST_F(BitvectorTest, SerializeAndDeserialize) {
   }
 
   for (uint64_t i = 0; i < original.NumOnes(); i++) {
-    ASSERT_EQ(deserialized.Select1(i), original.Select1(i))
-        << "Select1 mismatch at i=" << i;
+    ASSERT_EQ(deserialized.FindNthOneBit(i), original.FindNthOneBit(i))
+        << "FindNthOneBit mismatch at i=" << i;
   }
 }
 
@@ -237,7 +238,7 @@ TEST_F(BitvectorTest, SerializeRoundTrip_NonAligned) {
   original.BuildFrom(builder);
 
   std::string serialized;
-  original.Serialize(&serialized);
+  original.EncodeTo(&serialized);
 
   Bitvector deserialized;
   size_t consumed = 0;
@@ -277,9 +278,9 @@ TEST_F(BitvectorTest, AppendWord) {
   bv.BuildFrom(builder);
   ASSERT_EQ(bv.NumBits(), 256u);
   ASSERT_EQ(bv.NumOnes(), 3u);  // bits 0, 3, 255
-  ASSERT_EQ(bv.Select1(0), 0u);
-  ASSERT_EQ(bv.Select1(1), 3u);
-  ASSERT_EQ(bv.Select1(2), 255u);
+  ASSERT_EQ(bv.FindNthOneBit(0), 0u);
+  ASSERT_EQ(bv.FindNthOneBit(1), 3u);
+  ASSERT_EQ(bv.FindNthOneBit(2), 255u);
 }
 
 TEST_F(BitvectorTest, AppendWordAndAppendInterleaved) {
@@ -386,7 +387,7 @@ TEST_F(BitvectorTest, MultipleRankSampleBoundaries) {
 
   // Verify select.
   for (uint64_t i = 0; i < bv.NumOnes(); i++) {
-    ASSERT_EQ(bv.Select1(i), i * 100);
+    ASSERT_EQ(bv.FindNthOneBit(i), i * 100);
   }
 }
 
@@ -409,21 +410,22 @@ TEST_F(BitvectorTest, InitFromDataCorruption) {
       bv.InitFromData(bad.data(), bad.size(), &consumed).IsCorruption());
 }
 
-TEST_F(BitvectorTest, Select64Exhaustive) {
-  // Verify Select64 for every position in a word with known popcount.
+TEST_F(BitvectorTest, FindNthSetBitInWordExhaustive) {
+  // Verify FindNthSetBitInWord for every position in a word with known
+  // popcount.
   uint64_t word = 0xDEADBEEFCAFEBABEULL;
   uint64_t pc = Popcount(word);
 
   for (uint64_t i = 0; i < pc; i++) {
-    uint64_t pos = Select64(word, i);
+    uint64_t pos = FindNthSetBitInWord(word, i);
     // The pos-th bit should be set.
     ASSERT_TRUE((word >> pos) & 1)
-        << "Select64 returned non-set bit at i=" << i;
+        << "FindNthSetBitInWord returned non-set bit at i=" << i;
     // Exactly i bits should be set before pos.
     uint64_t mask =
         (pos == 0) ? 0 : (pos == 64 ? ~uint64_t(0) : (uint64_t(1) << pos) - 1);
     ASSERT_EQ(Popcount(word & mask), i)
-        << "Wrong rank at Select64 result for i=" << i;
+        << "Wrong rank at FindNthSetBitInWord result for i=" << i;
   }
 }
 
@@ -440,7 +442,7 @@ TEST_F(BitvectorTest, MoveConstructor) {
   original.BuildFrom(builder);
   uint64_t orig_ones = original.NumOnes();
   uint64_t orig_rank_500 = original.Rank1(500);
-  uint64_t orig_select_10 = original.Select1(10);
+  uint64_t orig_select_10 = original.FindNthOneBit(10);
 
   // Move-construct a new bitvector.
   Bitvector moved(std::move(original));
@@ -449,12 +451,13 @@ TEST_F(BitvectorTest, MoveConstructor) {
   ASSERT_EQ(moved.NumBits(), n);
   ASSERT_EQ(moved.NumOnes(), orig_ones);
   ASSERT_EQ(moved.Rank1(500), orig_rank_500);
-  ASSERT_EQ(moved.Select1(10), orig_select_10);
+  ASSERT_EQ(moved.FindNthOneBit(10), orig_select_10);
 
   // Verify full rank/select consistency.
   for (uint64_t i = 0; i < moved.NumOnes(); i++) {
-    uint64_t pos = moved.Select1(i);
-    ASSERT_TRUE(moved.GetBit(pos)) << "Bit not set at Select1(" << i << ")";
+    uint64_t pos = moved.FindNthOneBit(i);
+    ASSERT_TRUE(moved.GetBit(pos))
+        << "Bit not set at FindNthOneBit(" << i << ")";
   }
 
   // Moved-from should be empty/zeroed.
@@ -492,6 +495,560 @@ TEST_F(BitvectorTest, MoveAssignment) {
 
   // Moved-from should be empty.
   ASSERT_EQ(bv1.NumBits(), 0u);
+}
+
+TEST_F(BitvectorTest, Rank1AndBit) {
+  // Directly test the combined Rank1AndBit operation.
+  const uint64_t n = 500;
+  BitvectorBuilder builder;
+  for (uint64_t i = 0; i < n; i++) {
+    builder.Append(i % 3 == 0);
+  }
+  Bitvector bv;
+  bv.BuildFrom(builder);
+
+  for (uint64_t pos = 0; pos < n; pos++) {
+    bool bit = false;
+    uint64_t rank = bv.Rank1AndBit(pos, &bit);
+    // Rank1AndBit returns Rank1(pos+1) and sets bit to GetBit(pos).
+    ASSERT_EQ(bit, bv.GetBit(pos)) << "GetBit mismatch at pos=" << pos;
+    ASSERT_EQ(rank, bv.Rank1(pos + 1)) << "Rank1 mismatch at pos=" << pos;
+  }
+}
+
+TEST_F(BitvectorTest, SerializedSizeMatchesEncoded) {
+  // Verify SerializedSize() matches actual encoded output length.
+  const uint64_t n = 1000;
+  BitvectorBuilder builder;
+  for (uint64_t i = 0; i < n; i++) {
+    builder.Append(i % 7 == 0);
+  }
+  Bitvector bv;
+  bv.BuildFrom(builder);
+
+  std::string encoded;
+  bv.EncodeTo(&encoded);
+  ASSERT_EQ(bv.SerializedSize(), encoded.size());
+}
+
+TEST_F(BitvectorTest, DistanceToNextSetBitCrossWordBoundary) {
+  // Test DistanceToNextSetBit where the next set bit is in a different
+  // 64-bit word. Build: bit 0 set, then 127 zeros, then bit 128 set.
+  BitvectorBuilder builder;
+  builder.Append(true);  // pos 0
+  builder.AppendMultiple(false, 127);
+  builder.Append(true);  // pos 128
+  builder.Append(false);
+
+  Bitvector bv;
+  bv.BuildFrom(builder);
+
+  // Distance from pos 0 to next set bit (pos 128) = 128.
+  ASSERT_EQ(bv.DistanceToNextSetBit(0), 128u);
+  // Distance from pos 128 is to end (no more set bits after).
+  // DistanceToNextSetBit returns distance to next set bit after pos,
+  // where pos itself must be a set bit.
+}
+
+TEST_F(BitvectorTest, NumZeros) {
+  // Verify NumZeros for various patterns.
+  const uint64_t n = 300;
+  BitvectorBuilder builder;
+  uint64_t expected_ones = 0;
+  for (uint64_t i = 0; i < n; i++) {
+    bool bit = (i % 4 == 0);
+    builder.Append(bit);
+    if (bit) expected_ones++;
+  }
+  Bitvector bv;
+  bv.BuildFrom(builder);
+  ASSERT_EQ(bv.NumBits(), n);
+  ASSERT_EQ(bv.NumOnes(), expected_ones);
+  ASSERT_EQ(bv.NumZeros(), n - expected_ones);
+}
+
+TEST_F(BitvectorTest, InitFromDataNumOnesExceedsNumBits) {
+  // Craft a header where num_ones > num_bits — should return Corruption.
+  std::string buf(2 * sizeof(uint64_t), '\0');
+  uint64_t num_bits = 64;
+  uint64_t num_ones = 65;  // Invalid: more ones than bits.
+  memcpy(&buf[0], &num_bits, sizeof(uint64_t));
+  memcpy(&buf[sizeof(uint64_t)], &num_ones, sizeof(uint64_t));
+
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s = bv.InitFromData(buf.data(), buf.size(), &consumed);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BitvectorTest, InitFromDataNumBitsExceedsUint32) {
+  // Craft a header where num_bits > UINT32_MAX — should return Corruption.
+  std::string buf(2 * sizeof(uint64_t), '\0');
+  uint64_t num_bits = static_cast<uint64_t>(UINT32_MAX) + 1;
+  uint64_t num_ones = 0;
+  memcpy(&buf[0], &num_bits, sizeof(uint64_t));
+  memcpy(&buf[sizeof(uint64_t)], &num_ones, sizeof(uint64_t));
+
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s = bv.InitFromData(buf.data(), buf.size(), &consumed);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BitvectorTest, InitFromDataWordsNotAligned) {
+  // Build a valid bitvector, serialize it, then read from a buffer where the
+  // words data starts at an odd offset (not 8-byte aligned).
+  BitvectorBuilder builder;
+  for (int i = 0; i < 128; i++) {
+    builder.Append(i % 3 == 0);
+  }
+  Bitvector bv_orig;
+  bv_orig.BuildFrom(builder);
+
+  std::string serialized;
+  bv_orig.EncodeTo(&serialized);
+
+  // Allocate buffer with 1-byte extra and offset by 1 to break alignment.
+  std::unique_ptr<char[]> unaligned_buf(new char[serialized.size() + 1]);
+  memcpy(unaligned_buf.get() + 1, serialized.data(), serialized.size());
+
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s =
+      bv.InitFromData(unaligned_buf.get() + 1, serialized.size(), &consumed);
+  // The header is 16 bytes; words start right after. If the base pointer is
+  // offset by 1, then the words pointer is at (base+1+16) which is odd.
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BitvectorTest, InitFromDataTruncatedRankLUT) {
+  // Build a valid bitvector, serialize, then truncate after the words section
+  // so the rank LUT cannot be read.
+  BitvectorBuilder builder;
+  for (int i = 0; i < 512; i++) {
+    builder.Append(i % 5 == 0);
+  }
+  Bitvector bv_orig;
+  bv_orig.BuildFrom(builder);
+
+  std::string serialized;
+  bv_orig.EncodeTo(&serialized);
+
+  // Header = 16 bytes, words = ceil(512/64)*8 = 64 bytes. Truncate after that.
+  size_t truncated_size = 2 * sizeof(uint64_t) + ((512 + 63) / 64) * 8;
+  ASSERT_LT(truncated_size, serialized.size());
+
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s = bv.InitFromData(serialized.data(), truncated_size, &consumed);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BitvectorTest, InitFromDataTruncatedSelect1Hints) {
+  // Build a bitvector with enough ones to have select1 hints, then truncate
+  // after the rank LUT so select1 hints cannot be read.
+  BitvectorBuilder builder;
+  // 600 bits, all ones → lots of select1 hints.
+  for (int i = 0; i < 600; i++) {
+    builder.Append(true);
+  }
+  Bitvector bv_orig;
+  bv_orig.BuildFrom(builder);
+
+  std::string serialized;
+  bv_orig.EncodeTo(&serialized);
+
+  // We need to find a truncation point after the rank LUT but before select1
+  // hints finish. Use a binary approach: try reading at decreasing sizes.
+  // A valid read needs the full buffer. Remove the last 8 bytes (at minimum).
+  size_t truncated_size = serialized.size() - 8;
+
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s = bv.InitFromData(serialized.data(), truncated_size, &consumed);
+  // Should fail for either select1 or select0 hints truncation.
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BitvectorTest, InitFromDataTruncatedSelect0Hints) {
+  // Build a bitvector with enough zeros to have select0 hints, then truncate
+  // so select0 hints cannot be fully read.
+  BitvectorBuilder builder;
+  // 600 bits, all zeros → lots of select0 hints, zero select1 hints.
+  for (int i = 0; i < 600; i++) {
+    builder.Append(false);
+  }
+  Bitvector bv_orig;
+  bv_orig.BuildFrom(builder);
+
+  std::string serialized;
+  bv_orig.EncodeTo(&serialized);
+
+  // Remove the last 8 bytes.
+  size_t truncated_size = serialized.size() - 8;
+
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s = bv.InitFromData(serialized.data(), truncated_size, &consumed);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BitvectorTest, BuilderReserve) {
+  // Verify Reserve() doesn't change behavior, just avoids reallocation.
+  BitvectorBuilder builder;
+  builder.Reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    builder.Append(i % 2 == 0);
+  }
+  ASSERT_EQ(builder.NumBits(), 1000u);
+
+  Bitvector bv;
+  bv.BuildFrom(builder);
+  ASSERT_EQ(bv.NumBits(), 1000u);
+  ASSERT_EQ(bv.NumOnes(), 500u);
+  // Verify correctness of rank/select after Reserve.
+  ASSERT_EQ(bv.FindNthOneBit(0), 0u);
+  ASSERT_EQ(bv.FindNthOneBit(1), 2u);
+  ASSERT_EQ(bv.FindNthZeroBit(0), 1u);
+}
+
+TEST_F(BitvectorTest, AppendMultipleZeroCount) {
+  // AppendMultiple with count=0 should be a no-op.
+  BitvectorBuilder builder;
+  builder.Append(true);
+  builder.AppendMultiple(true, 0);
+  builder.AppendMultiple(false, 0);
+  ASSERT_EQ(builder.NumBits(), 1u);
+  ASSERT_TRUE(builder.GetBit(0));
+}
+
+TEST_F(BitvectorTest, AppendMultipleTruePartialWord) {
+  // AppendMultiple(true, count) starting at a non-word-aligned position.
+  // This exercises the partial-word fill path at the beginning.
+  BitvectorBuilder builder;
+  // Start with 7 false bits to offset by 7 within the first word.
+  builder.AppendMultiple(false, 7);
+  // Now append 200 true bits starting at bit position 7.
+  builder.AppendMultiple(true, 200);
+  // Then 5 more false bits.
+  builder.AppendMultiple(false, 5);
+
+  ASSERT_EQ(builder.NumBits(), 212u);
+  // Verify the pattern: 7 zeros, 200 ones, 5 zeros.
+  for (uint64_t i = 0; i < 7; i++) {
+    ASSERT_FALSE(builder.GetBit(i)) << "Expected 0 at " << i;
+  }
+  for (uint64_t i = 7; i < 207; i++) {
+    ASSERT_TRUE(builder.GetBit(i)) << "Expected 1 at " << i;
+  }
+  for (uint64_t i = 207; i < 212; i++) {
+    ASSERT_FALSE(builder.GetBit(i)) << "Expected 0 at " << i;
+  }
+
+  // Build the bitvector and verify rank/select correctness.
+  Bitvector bv;
+  bv.BuildFrom(builder);
+  ASSERT_EQ(bv.NumOnes(), 200u);
+  ASSERT_EQ(bv.FindNthOneBit(0), 7u);
+  ASSERT_EQ(bv.FindNthOneBit(199), 206u);
+  ASSERT_EQ(bv.FindNthZeroBit(0), 0u);
+  ASSERT_EQ(bv.FindNthZeroBit(7), 207u);
+}
+
+TEST_F(BitvectorTest, FindNthZeroBitNonAligned) {
+  // Build a bitvector whose length is not a multiple of 64, then verify
+  // FindNthZeroBit handles the last partial word correctly.
+  BitvectorBuilder builder;
+  // 100 bits: alternating 1, 0.
+  for (int i = 0; i < 100; i++) {
+    builder.Append(i % 2 == 0);
+  }
+  // 100 bits, 50 ones (at even positions), 50 zeros (at odd positions).
+  Bitvector bv;
+  bv.BuildFrom(builder);
+  ASSERT_EQ(bv.NumBits(), 100u);
+  ASSERT_EQ(bv.NumOnes(), 50u);
+
+  // The zeros are at positions 1, 3, 5, ..., 99.
+  for (uint64_t i = 0; i < 50; i++) {
+    ASSERT_EQ(bv.FindNthZeroBit(i), 2 * i + 1) << "Mismatch at i=" << i;
+  }
+  // Asking for the 50th zero-bit (0-indexed) should return num_bits_ (100).
+  ASSERT_EQ(bv.FindNthZeroBit(50), 100u);
+}
+
+// ============================================================================
+// EliasFano tests
+// ============================================================================
+
+class EliasFanoTest : public testing::Test {};
+
+TEST_F(EliasFanoTest, EmptySequence) {
+  EliasFano ef;
+  std::vector<uint64_t> values;
+  ef.BuildFrom(values.data(), 0, 0);
+  ASSERT_EQ(ef.Count(), 0u);
+  ASSERT_EQ(ef.Universe(), 0u);
+}
+
+TEST_F(EliasFanoTest, SingleElement) {
+  EliasFano ef;
+  uint64_t val = 42;
+  ef.BuildFrom(&val, 1, 100);
+  ASSERT_EQ(ef.Count(), 1u);
+  ASSERT_EQ(ef.Universe(), 100u);
+  ASSERT_EQ(ef.Access(0), 42u);
+}
+
+TEST_F(EliasFanoTest, MonotonicSequence) {
+  // Test a typical monotonically increasing sequence.
+  std::vector<uint64_t> values = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), 101);
+  ASSERT_EQ(ef.Count(), values.size());
+  ASSERT_EQ(ef.Universe(), 101u);
+  for (size_t i = 0; i < values.size(); i++) {
+    ASSERT_EQ(ef.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, ConstantSequence) {
+  // All values the same (universe = count, low_bits = 0).
+  std::vector<uint64_t> values(50, 7);
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), 8);
+  ASSERT_EQ(ef.Count(), 50u);
+  for (size_t i = 0; i < values.size(); i++) {
+    ASSERT_EQ(ef.Access(i), 7u) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, LargeUniverse) {
+  // Simulates block offsets in a large SST file (4GB range).
+  const uint64_t universe = uint64_t(4) * 1024 * 1024 * 1024;  // 4GB
+  const size_t count = 1000;
+  std::vector<uint64_t> values(count);
+  for (size_t i = 0; i < count; i++) {
+    values[i] = i * (universe / count);
+  }
+
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), universe);
+  ASSERT_EQ(ef.Count(), count);
+  ASSERT_EQ(ef.Universe(), universe);
+  for (size_t i = 0; i < count; i++) {
+    ASSERT_EQ(ef.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, ConsecutiveValues) {
+  // Dense sequence: 0, 1, 2, ..., 99.
+  std::vector<uint64_t> values(100);
+  for (size_t i = 0; i < 100; i++) {
+    values[i] = i;
+  }
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), 100);
+  for (size_t i = 0; i < 100; i++) {
+    ASSERT_EQ(ef.Access(i), i) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, WordBoundaryCrossing) {
+  // Craft values where low bits span two 64-bit words during packing.
+  // Use low_bits ~= 17 (universe/count ~= 131072), values near boundaries.
+  const size_t count = 100;
+  const uint64_t universe = count * 131072;
+  std::vector<uint64_t> values(count);
+  for (size_t i = 0; i < count; i++) {
+    values[i] = i * 131072 + (i % 7);  // Small offset to exercise low bits.
+  }
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), universe);
+  for (size_t i = 0; i < count; i++) {
+    ASSERT_EQ(ef.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, SerializeDeserializeRoundTrip) {
+  // Build, serialize, deserialize, verify all values match.
+  std::vector<uint64_t> values = {0, 5, 100, 1000, 5000, 10000, 50000};
+  EliasFano original;
+  original.BuildFrom(values.data(), values.size(), 100000);
+
+  std::string serialized;
+  original.EncodeTo(&serialized);
+  ASSERT_GT(serialized.size(), 0u);
+  ASSERT_EQ(original.SerializedSize(), serialized.size());
+
+  EliasFano deserialized;
+  size_t consumed = 0;
+  ASSERT_OK(deserialized.InitFromData(serialized.data(), serialized.size(),
+                                      &consumed));
+  ASSERT_EQ(consumed, serialized.size());
+  ASSERT_EQ(deserialized.Count(), original.Count());
+  ASSERT_EQ(deserialized.Universe(), original.Universe());
+
+  for (size_t i = 0; i < values.size(); i++) {
+    ASSERT_EQ(deserialized.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, SerializeDeserializeEmpty) {
+  EliasFano original;
+  std::vector<uint64_t> empty;
+  original.BuildFrom(empty.data(), 0, 0);
+
+  std::string serialized;
+  original.EncodeTo(&serialized);
+
+  EliasFano deserialized;
+  size_t consumed = 0;
+  ASSERT_OK(deserialized.InitFromData(serialized.data(), serialized.size(),
+                                      &consumed));
+  ASSERT_EQ(deserialized.Count(), 0u);
+}
+
+TEST_F(EliasFanoTest, InitFromDataCorruptionTruncatedHeader) {
+  std::string bad_data(10, '\0');  // Too short for 3 uint64_t header.
+  EliasFano ef;
+  size_t consumed = 0;
+  ASSERT_TRUE(ef.InitFromData(bad_data.data(), bad_data.size(), &consumed)
+                  .IsCorruption());
+}
+
+TEST_F(EliasFanoTest, InitFromDataCorruptionBadLowBits) {
+  // Build a valid EliasFano, then corrupt the low_bits field to > 63.
+  std::vector<uint64_t> values = {0, 10, 20};
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), 100);
+
+  std::string serialized;
+  ef.EncodeTo(&serialized);
+
+  // low_bits is the third uint64_t (bytes 16..23). Set to 64.
+  uint64_t bad_low_bits = 64;
+  memcpy(&serialized[16], &bad_low_bits, sizeof(uint64_t));
+
+  EliasFano corrupt;
+  size_t consumed = 0;
+  ASSERT_TRUE(
+      corrupt.InitFromData(serialized.data(), serialized.size(), &consumed)
+          .IsCorruption());
+}
+
+TEST_F(EliasFanoTest, InitFromDataCorruptionTruncatedLowWords) {
+  // Build valid, then truncate so low words are incomplete.
+  std::vector<uint64_t> values = {0, 100, 200, 300, 400};
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), 1000);
+
+  std::string serialized;
+  ef.EncodeTo(&serialized);
+
+  // Truncate a few bytes off the end.
+  std::string truncated = serialized.substr(0, serialized.size() - 4);
+  EliasFano corrupt;
+  size_t consumed = 0;
+  ASSERT_TRUE(
+      corrupt.InitFromData(truncated.data(), truncated.size(), &consumed)
+          .IsCorruption());
+}
+
+TEST_F(EliasFanoTest, LargeCount) {
+  // Test with 10K elements to exercise multi-word packing.
+  const size_t count = 10000;
+  const uint64_t universe = count * 1000;
+  std::vector<uint64_t> values(count);
+  for (size_t i = 0; i < count; i++) {
+    values[i] = i * 1000;
+  }
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), universe);
+  ASSERT_EQ(ef.Count(), count);
+
+  // Spot-check values.
+  ASSERT_EQ(ef.Access(0), 0u);
+  ASSERT_EQ(ef.Access(count / 2), (count / 2) * 1000);
+  ASSERT_EQ(ef.Access(count - 1), (count - 1) * 1000);
+
+  // Full verification.
+  for (size_t i = 0; i < count; i++) {
+    ASSERT_EQ(ef.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, InitFromDataTruncatedHighBitvector) {
+  // Build a valid EliasFano, serialize it, then truncate so the high bitvector
+  // cannot be fully read.
+  std::vector<uint64_t> values = {10, 20, 30, 40, 50};
+  EliasFano ef;
+  ef.BuildFrom(values.data(), values.size(), 100);
+
+  std::string serialized;
+  ef.EncodeTo(&serialized);
+
+  // Header is 3 * 8 = 24 bytes. Truncate just a few bytes past the header
+  // so the high bitvector InitFromData fails.
+  size_t truncated_size = 3 * sizeof(uint64_t) + 4;
+  ASSERT_LT(truncated_size, serialized.size());
+
+  EliasFano ef2;
+  size_t consumed = 0;
+  Status s = ef2.InitFromData(serialized.data(), truncated_size, &consumed);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(EliasFanoTest, MoveConstructor) {
+  // Verify that move-constructing an EliasFano preserves correctness.
+  // Use the InitFromData path (production path) since the default move ctor
+  // doesn't re-seat low_words_ into owned_low_data_. When initialized from
+  // serialized data, low_words_ points into external memory (not
+  // owned_low_data_), so the default move is safe.
+  std::vector<uint64_t> values = {0, 100, 200, 300, 400};
+  EliasFano ef_tmp;
+  ef_tmp.BuildFrom(values.data(), values.size(), 500);
+
+  std::string serialized;
+  ef_tmp.EncodeTo(&serialized);
+
+  EliasFano ef1;
+  size_t consumed = 0;
+  ASSERT_OK(ef1.InitFromData(serialized.data(), serialized.size(), &consumed));
+
+  // Move-construct ef2 from ef1.
+  EliasFano ef2(std::move(ef1));
+
+  ASSERT_EQ(ef2.Count(), 5u);
+  ASSERT_EQ(ef2.Universe(), 500u);
+  for (size_t i = 0; i < values.size(); i++) {
+    ASSERT_EQ(ef2.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
+}
+
+TEST_F(EliasFanoTest, MoveAssignment) {
+  // Verify that move-assigning an EliasFano preserves correctness.
+  // Use the InitFromData path (see MoveConstructor comment for rationale).
+  std::vector<uint64_t> values = {5, 15, 25, 35, 45};
+  EliasFano ef_tmp;
+  ef_tmp.BuildFrom(values.data(), values.size(), 50);
+
+  std::string serialized;
+  ef_tmp.EncodeTo(&serialized);
+
+  EliasFano ef1;
+  size_t consumed = 0;
+  ASSERT_OK(ef1.InitFromData(serialized.data(), serialized.size(), &consumed));
+
+  // Move-assign ef1 into a fresh ef2.
+  EliasFano ef2;
+  ef2 = std::move(ef1);
+
+  ASSERT_EQ(ef2.Count(), 5u);
+  ASSERT_EQ(ef2.Universe(), 50u);
+  for (size_t i = 0; i < values.size(); i++) {
+    ASSERT_EQ(ef2.Access(i), values[i]) << "Mismatch at i=" << i;
+  }
 }
 
 // ============================================================================
@@ -1545,6 +2102,464 @@ TEST_F(LoudsTrieTest, StressTest10KKeys) {
   ASSERT_FALSE(iter.Next());
 }
 
+TEST_F(LoudsTrieTest, MoveAssignment) {
+  // Test move assignment operator (move constructor was already tested).
+  std::vector<std::string> keys = {"alpha", "beta", "gamma", "delta"};
+  std::sort(keys.begin(), keys.end());
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  std::string data_copy(builder.GetSerializedData().data(),
+                        builder.GetSerializedData().size());
+
+  LoudsTrie trie1;
+  ASSERT_OK(trie1.InitFromData(Slice(data_copy)));
+  ASSERT_EQ(trie1.NumKeys(), keys.size());
+
+  // Build a different trie and move-assign trie1 to it.
+  LoudsTrie trie2;
+  trie2 = std::move(trie1);
+  ASSERT_EQ(trie2.NumKeys(), keys.size());
+
+  // Verify the moved-to trie works correctly.
+  LoudsTrieIterator iter(&trie2);
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid()) << "Invalid at i=" << i;
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    ASSERT_EQ(iter.Value().offset, i * 100);
+    if (i < keys.size() - 1) {
+      ASSERT_TRUE(iter.Next());
+    }
+  }
+  ASSERT_FALSE(iter.Next());
+}
+
+TEST_F(LoudsTrieTest, CutoffLevelAndMaxDepthAndHasChains) {
+  // Verify CutoffLevel(), MaxDepth(), and HasChains() return sensible values.
+  std::vector<std::string> keys = {"a", "ab", "abc", "abcd", "b", "bc"};
+  std::sort(keys.begin(), keys.end());
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(data));
+
+  // MaxDepth should equal the longest key length.
+  uint32_t max_key_len = 0;
+  for (const auto& k : keys) {
+    max_key_len = std::max(max_key_len, static_cast<uint32_t>(k.size()));
+  }
+  ASSERT_EQ(trie.MaxDepth(), max_key_len);
+
+  // CutoffLevel should be within [0, max_depth].
+  ASSERT_LE(trie.CutoffLevel(), trie.MaxDepth());
+}
+
+TEST_F(LoudsTrieTest, LeafIndex) {
+  // Verify LeafIndex() returns correct indices during sequential iteration.
+  std::vector<std::string> keys = {"cat", "cow", "dog", "fox"};
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(data));
+
+  LoudsTrieIterator iter(&trie);
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+
+  // LeafIndex should be sequential for sequential keys.
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(iter.LeafIndex(), i) << "LeafIndex mismatch at key=" << keys[i];
+    ASSERT_EQ(iter.Value().offset, i * 100);
+    if (i < keys.size() - 1) {
+      ASSERT_TRUE(iter.Next());
+    }
+  }
+}
+
+TEST_F(LoudsTrieTest, EmptyTrieIterator) {
+  // Verify iterator behavior on an empty trie.
+  LoudsTrieBuilder builder;
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(data));
+  ASSERT_EQ(trie.NumKeys(), 0u);
+
+  LoudsTrieIterator iter(&trie);
+  ASSERT_FALSE(iter.Seek(Slice("anything")));
+  ASSERT_FALSE(iter.Valid());
+  ASSERT_FALSE(iter.Next());
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(LoudsTrieTest, ApproximateAuxMemoryUsage) {
+  // Verify that ApproximateAuxMemoryUsage() returns a reasonable value
+  // for a trie with sparse internal nodes.
+  std::vector<std::string> keys;
+  for (int i = 0; i < 200; i++) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "key_%04d", i);
+    keys.push_back(buf);
+  }
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(data));
+
+  // Aux memory should be > 0 for a trie with sparse internal nodes
+  // (child position lookup tables are allocated).
+  size_t aux_mem = trie.ApproximateAuxMemoryUsage();
+  ASSERT_GT(aux_mem, 0u);
+}
+
+TEST_F(LoudsTrieTest, InitFromDataUnsupportedVersion) {
+  // Build a valid trie, then patch the format version to a bad value.
+  std::vector<std::string> keys = {"a", "b", "c"};
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  std::string data(builder.GetSerializedData().data(),
+                   builder.GetSerializedData().size());
+
+  // Version is at offset 4 (after the 4-byte magic).
+  uint32_t bad_version = 99;
+  memcpy(&data[4], &bad_version, sizeof(uint32_t));
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_NE(s.ToString().find("unsupported format version"), std::string::npos);
+}
+
+TEST_F(LoudsTrieTest, InitFromDataProgressiveTruncation) {
+  // Build a valid trie (no chains), serialize it, then try InitFromData with
+  // every length from 0 to data.size()-1 and verify all return Corruption.
+  // This covers ALL truncation error paths in InitFromData in a single test.
+  std::vector<std::string> keys;
+  for (int i = 0; i < 20; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "k%02d", i);
+    keys.push_back(buf);
+  }
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  std::string data(builder.GetSerializedData().data(),
+                   builder.GetSerializedData().size());
+
+  // Verify the full data works.
+  {
+    LoudsTrie trie;
+    ASSERT_OK(trie.InitFromData(Slice(data)));
+  }
+
+  // Every truncated length should fail with Corruption.
+  for (size_t len = 0; len < data.size(); len++) {
+    LoudsTrie trie;
+    Status s = trie.InitFromData(Slice(data.data(), len));
+    ASSERT_TRUE(s.IsCorruption()) << "Expected Corruption at len=" << len << "/"
+                                  << data.size() << ", got: " << s.ToString();
+  }
+}
+
+TEST_F(LoudsTrieTest, InitFromDataProgressiveTruncationWithChains) {
+  // Same as above, but with keys that produce path compression chains.
+  // Keys share a 10-char prefix "AAAAAAAAAA" + varying suffix, ensuring
+  // the chain suffix is >= kMinChainLength (8).
+  std::vector<std::string> keys;
+  std::string prefix(10, 'A');
+  for (int i = 0; i < 20; i++) {
+    char suffix[8];
+    snprintf(suffix, sizeof(suffix), "%02d", i);
+    keys.push_back(prefix + suffix);
+  }
+  std::sort(keys.begin(), keys.end());
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  std::string data(builder.GetSerializedData().data(),
+                   builder.GetSerializedData().size());
+
+  // Verify the full data works and has chains.
+  {
+    LoudsTrie trie;
+    ASSERT_OK(trie.InitFromData(Slice(data)));
+    ASSERT_TRUE(trie.HasChains());
+  }
+
+  // Every truncated length should fail with Corruption.
+  for (size_t len = 0; len < data.size(); len++) {
+    LoudsTrie trie;
+    Status s = trie.InitFromData(Slice(data.data(), len));
+    ASSERT_TRUE(s.IsCorruption()) << "Expected Corruption at len=" << len << "/"
+                                  << data.size() << ", got: " << s.ToString();
+  }
+}
+
+TEST_F(LoudsTrieTest, SparseBinarySearchPath) {
+  // Create a trie where the root node has >16 children in the sparse level,
+  // which forces SparseSeekLabel to use std::lower_bound instead of linear
+  // scan (kLinearScanThreshold = 16).
+  // Strategy: 20 two-byte keys with distinct first bytes. With cutoff=0
+  // (all sparse), the root has 20 labels.
+  std::vector<std::string> keys;
+  // Use bytes 'A' through 'T' (20 distinct first bytes).
+  for (int i = 0; i < 20; i++) {
+    std::string key(1, static_cast<char>('A' + i));
+    key += 'x';  // Second byte to ensure sparse leaf.
+    keys.push_back(key);
+  }
+  std::sort(keys.begin(), keys.end());
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(data));
+
+  LoudsTrieIterator iter(&trie);
+
+  // Seek to each key — exercises binary search in the 20-label root node.
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Seek(Slice(keys[i])))
+        << "Seek failed for key[" << i << "]";
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    ASSERT_EQ(iter.Value().offset, i * 100);
+  }
+
+  // Seek to a key between existing labels (binary search inexact match).
+  // 'A' + 0.5 doesn't exist — seek "AAx" which is between "Ax" and "Bx".
+  ASSERT_TRUE(iter.Seek(Slice("AAx")));
+  // Should land on "Ax" or "Bx" — the first key >= "AAx".
+  ASSERT_TRUE(iter.Valid());
+  std::string result_key = iter.Key().ToString();
+  ASSERT_GE(result_key, "AAx");
+
+  // Seek past all keys.
+  ASSERT_FALSE(iter.Seek(Slice("Zx")));
+  ASSERT_FALSE(iter.Valid());
+
+  // Full forward scan to verify trie integrity.
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid()) << "Invalid at i=" << i;
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    if (i < keys.size() - 1) {
+      ASSERT_TRUE(iter.Next());
+    }
+  }
+  ASSERT_FALSE(iter.Next());
+}
+
+TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
+  // Build a trie with keys that create path compression chains, then seek to
+  // various targets that exercise different chain-matching code paths:
+  //   1. Full chain match (chain ends at internal node with fanout > 1)
+  //   2. Chain mismatch: target < chain suffix
+  //   3. Chain mismatch: target > chain suffix
+  //   4. Target runs out before chain (cmp < 0)
+  //   5. Target runs out before chain (cmp > 0)
+  //   6. Target runs out before chain (cmp == 0, mid-chain consumption)
+  //   7. target_remaining == 0 (target consumed at parent)
+  //
+  // Keys: all share a long prefix that triggers chain compression.
+  // The prefix "AAAAAAAAA" (9 chars) + varying 2-char suffixes.
+  // The chain suffix must be >= kMinChainLength (8 bytes).
+  std::vector<std::string> keys;
+  std::string prefix(9, 'A');
+  // Add keys with suffixes that force a fanout > 1 after the chain.
+  keys.push_back(prefix + "Ma");
+  keys.push_back(prefix + "Mb");
+  keys.push_back(prefix + "Mc");
+  keys.push_back(prefix + "Na");
+  keys.push_back(prefix + "Nb");
+  std::sort(keys.begin(), keys.end());
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  std::string data(builder.GetSerializedData().data(),
+                   builder.GetSerializedData().size());
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(Slice(data)));
+
+  LoudsTrieIterator iter(&trie);
+
+  // 1. Exact match on each key (full chain match, internal node after chain).
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Seek(Slice(keys[i])))
+        << "Seek failed for key[" << i << "]=\"" << keys[i] << "\"";
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    ASSERT_EQ(iter.Value().offset, i * 100);
+  }
+
+  // 2. Chain mismatch: target < chain suffix.
+  // Seek to prefix + "L" — 'L' < 'M', so chain mismatch with target < suffix.
+  // Should land on the first key (prefix + "Ma").
+  {
+    std::string target = prefix + "La";
+    ASSERT_TRUE(iter.Seek(Slice(target)));
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(iter.Key().ToString(), keys[0]);  // "AAAAAAAAA" + "Ma"
+  }
+
+  // 3. Chain mismatch: target > chain suffix.
+  // Seek to prefix + "Md" — 'd' > 'c' after chain, should advance past "Mc".
+  {
+    std::string target = prefix + "Md";
+    ASSERT_TRUE(iter.Seek(Slice(target)));
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(iter.Key().ToString(), prefix + "Na");
+  }
+
+  // 4. Target runs out before chain (shorter target < chain prefix).
+  // Seek to prefix + "L" (shorter than chain). 'L' < 'M' → target < chain.
+  {
+    std::string target = prefix + "L";
+    ASSERT_TRUE(iter.Seek(Slice(target)));
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(iter.Key().ToString(), keys[0]);
+  }
+
+  // 5. Target runs out before chain (shorter target > chain prefix character).
+  // Seek to prefix + "O" — 'O' > 'N' (the highest chain prefix). Should
+  // advance past all keys.
+  {
+    std::string target = prefix + "O";
+    ASSERT_FALSE(iter.Seek(Slice(target)));
+    ASSERT_FALSE(iter.Valid());
+  }
+
+  // 6. Target consumed exactly at the parent of the chain (target_remaining
+  // == 0). Seek to just the prefix "AAAAAAAAA" — shorter than any key.
+  // All keys are > prefix, so should land on the first key.
+  {
+    ASSERT_TRUE(iter.Seek(Slice(prefix)));
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(iter.Key().ToString(), keys[0]);
+  }
+
+  // 7. Full forward scan to verify trie integrity after all seeks.
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid()) << "Invalid at i=" << i;
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    if (i < keys.size() - 1) {
+      ASSERT_TRUE(iter.Next());
+    }
+  }
+  ASSERT_FALSE(iter.Next());
+}
+
+TEST_F(LoudsTrieTest, ChainSeekEndAtLeaf) {
+  // Test path compression chains that end at a leaf node (end_child_idx ==
+  // UINT32_MAX). This requires a key whose suffix after the chain endpoint
+  // has no children — i.e., the chain is the entire remaining path.
+  //
+  // Strategy: Create keys with a long shared prefix and a single-character
+  // difference at the very end, so the chain covers most of the key and
+  // terminates at a leaf.
+  //
+  // "AAAAAAAAA" (9 chars prefix) + "B" = 10-char key. The "AAAAAAAA" portion
+  // (8 bytes) forms the chain suffix (>= kMinChainLength). The 'B' is the
+  // label at the chain-ending leaf.
+  //
+  // We also add keys with different first characters to ensure the trie has
+  // enough structure for the budget formula.
+  std::vector<std::string> keys;
+  // Main chain key.
+  keys.push_back(std::string(9, 'A') + "B");
+  // Additional keys with a different prefix to provide sparse-level context.
+  for (int i = 0; i < 5; i++) {
+    std::string key(1, static_cast<char>('C' + i));
+    key += "x";
+    keys.push_back(key);
+  }
+  std::sort(keys.begin(), keys.end());
+
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  std::string data(builder.GetSerializedData().data(),
+                   builder.GetSerializedData().size());
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(Slice(data)));
+
+  LoudsTrieIterator iter(&trie);
+
+  // Exact seek to the chain-ending-at-leaf key.
+  std::string chain_key = std::string(9, 'A') + "B";
+  ASSERT_TRUE(iter.Seek(Slice(chain_key)));
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(iter.Key().ToString(), chain_key);
+
+  // Seek to a target longer than the chain key — target has more bytes but
+  // trie key ends at leaf. Should Advance() past it.
+  std::string longer_target = chain_key + "Z";
+  ASSERT_TRUE(iter.Seek(Slice(longer_target)));
+  ASSERT_TRUE(iter.Valid());
+  // Should land on the next key after the chain key.
+  ASSERT_GT(iter.Key().ToString(), chain_key);
+
+  // Seek to a target that is the chain key prefix (target consumed mid-chain).
+  std::string mid_chain = std::string(5, 'A');
+  ASSERT_TRUE(iter.Seek(Slice(mid_chain)));
+  ASSERT_TRUE(iter.Valid());
+  // First key >= "AAAAA" is "AAAAAAAAAB".
+  ASSERT_EQ(iter.Key().ToString(), chain_key);
+
+  // Full forward scan to verify integrity.
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid()) << "Invalid at i=" << i;
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    if (i < keys.size() - 1) {
+      ASSERT_TRUE(iter.Next());
+    }
+  }
+  ASSERT_FALSE(iter.Next());
+}
+
 // ============================================================================
 // TrieIndexFactory integration tests
 // ============================================================================
@@ -1938,6 +2953,276 @@ TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
           "ApproximateMemoryUsage: serialized=%zu, reported=%zu, "
           "aux_overhead=%zu bytes\n",
           serialized_size, mem_usage, mem_usage - serialized_size);
+}
+
+TEST_F(TrieIndexFactoryTest, EmptyTrieIterator) {
+  // Seek on an iterator built from an empty index.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  ASSERT_NE(iter, nullptr);
+
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("anything"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
+  // Prepare with 0 scan ranges, then seek — should behave as no bounds.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  // Build 3 blocks.
+  const char* last_keys[] = {"az", "cz", "ez"};
+  const char* next_keys[] = {"c", "e", nullptr};
+  for (int i = 0; i < 3; i++) {
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (next_keys[i]) {
+      Slice next(next_keys[i]);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+    } else {
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
+                                 &scratch);
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // Prepare with 0 scans.
+  iter->Prepare(nullptr, 0);
+
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, RePrepareResetsScanState) {
+  // Call Prepare twice — second Prepare should reset scan state.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  const char* last_keys[] = {"az", "cz", "ez"};
+  const char* next_keys[] = {"c", "e", nullptr};
+  for (int i = 0; i < 3; i++) {
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (next_keys[i]) {
+      Slice next(next_keys[i]);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+    } else {
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
+                                 &scratch);
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // First Prepare with limit "b".
+  ScanOptions scan1(Slice("a"), Slice("b"));
+  iter->Prepare(&scan1, 1);
+
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Re-prepare with a broader limit "f".
+  ScanOptions scan2(Slice("a"), Slice("f"));
+  iter->Prepare(&scan2, 1);
+
+  // Should be able to seek to "d" and get inbound with the new limit.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("d"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, ScanWithNoLimit) {
+  // Prepare with a scan range that has no upper limit.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  const char* last_keys[] = {"az", "cz", "ez"};
+  const char* next_keys[] = {"c", "e", nullptr};
+  for (int i = 0; i < 3; i++) {
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (next_keys[i]) {
+      Slice next(next_keys[i]);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+    } else {
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
+                                 &scratch);
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // ScanOptions with only a start, no limit.
+  ScanOptions scan(Slice("a"));
+  iter->Prepare(&scan, 1);
+
+  // All seeks should be inbound with no limit.
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // No more blocks.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, NewReaderWithCorruptedData) {
+  // Attempt to create a reader from corrupted data.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::string bad_data(10, '\xff');
+  Slice bad_slice(bad_data);
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  Status s = factory_->NewReader(option, bad_slice, reader);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
+  // Verify that OnKeyAdded() is a no-op and doesn't crash.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Call OnKeyAdded with various inputs — it should do nothing.
+  builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::kValue,
+                      Slice("value1"));
+  builder->OnKeyAdded(Slice("key2"), UserDefinedIndexBuilder::kValue,
+                      Slice("value2"));
+  builder->OnKeyAdded(Slice(""), UserDefinedIndexBuilder::kValue, Slice(""));
+
+  // Building should still succeed (OnKeyAdded should not affect state).
+  UserDefinedIndexBuilder::BlockHandle handle{0, 500};
+  std::string scratch;
+  builder->AddIndexEntry(Slice("key3"), nullptr, handle, &scratch);
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+  ASSERT_GT(index_contents.size(), 0u);
+}
+
+TEST_F(TrieIndexFactoryTest, NullComparator) {
+  // NewBuilder and NewReader with nullptr comparator should succeed.
+  // Note: AddIndexEntry uses comparator_->FindShortSeparator() which requires
+  // a non-null comparator, so we only test that the factory accepts nullptr.
+  UserDefinedIndexOption option;
+  option.comparator = nullptr;
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+  ASSERT_NE(builder, nullptr);
+
+  // Finish without adding entries — nullptr comparator is accepted.
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  // NewReader with nullptr comparator should also succeed on an empty index
+  // (empty index produces empty Slice, which may not be parseable, so we
+  // just verify NewBuilder accepts nullptr).
+}
+
+TEST_F(TrieIndexFactoryTest, SeekSucceedsButTargetPastLimit) {
+  // Set up bounds with a limit, then seek to a target that is >= the limit.
+  // CheckBounds should return kOutOfBound even though the trie Seek succeeds.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
+  ASSERT_OK(factory_->NewBuilder(option, udi_builder));
+
+  // Build 3 blocks: separators "b", "d", "f".
+  const char* last_keys[] = {"az", "cz", "ez"};
+  const char* next_keys[] = {"c", "e", nullptr};
+  for (int i = 0; i < 3; i++) {
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (next_keys[i]) {
+      Slice next(next_keys[i]);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+    } else {
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
+                                 &scratch);
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(udi_builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // Prepare with limit "c" (exclusive upper bound).
+  ScanOptions scan(Slice("a"), Slice("c"));
+  iter->Prepare(&scan, 1);
+
+  // Seek to "c" — target == limit, so CheckBounds returns kOutOfBound.
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("c"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+
+  // Seek to "d" — target > limit, also kOutOfBound.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("d"), &result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
 // ============================================================================

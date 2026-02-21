@@ -89,12 +89,17 @@ inline uint64_t Ctz(uint64_t x) {
 }
 
 // Select the i-th set bit (0-indexed) within a 64-bit word.
-// Uses popcount-based binary search: O(log 64) = O(6) popcounts.
-// This is significantly faster than the naive bit-clearing loop for
-// large values of i, and matches the SuRF reference implementation's
-// select64_popcount_search().
 // Precondition: i < Popcount(word).
-inline uint64_t Select64(uint64_t word, uint64_t i) {
+#if defined(__BMI2__) && defined(__x86_64__)
+// Hardware-accelerated using BMI2 PDEP: deposits bit i among set bits of word,
+// then counts trailing zeros to find its position. Single PDEP + CTZ.
+inline uint64_t FindNthSetBitInWord(uint64_t word, uint64_t i) {
+  return __builtin_ctzll(_pdep_u64(1ULL << i, word));
+}
+#else
+// Popcount-based binary search: O(log 64) = O(6) popcounts.
+// Matches the SuRF reference implementation's select64_popcount_search().
+inline uint64_t FindNthSetBitInWord(uint64_t word, uint64_t i) {
   // Binary search: narrow down which 32-bit half, then 16, 8, 4, 2, 1.
   uint64_t pos = 0;
   uint64_t pc;
@@ -135,6 +140,7 @@ inline uint64_t Select64(uint64_t word, uint64_t i) {
   }
   return pos;
 }
+#endif
 
 // ============================================================================
 // BitvectorBuilder: Builds a bitvector incrementally, bit by bit.
@@ -237,8 +243,8 @@ class BitvectorBuilder {
 //
 // Select acceleration: select hints store the rank LUT index where every
 // kOnesPerSelectHint-th 1-bit (or 0-bit) lives. This narrows the search
-// in Select1/Select0 to a linear scan of 1-2 rank samples, making Select
-// O(1). The hint arrays add ~0.4% space overhead per bitvector.
+// in FindNthOneBit/FindNthZeroBit to a linear scan of 1-2 rank samples, making
+// Select O(1). The hint arrays add ~0.4% space overhead per bitvector.
 // ============================================================================
 class Bitvector {
  public:
@@ -263,34 +269,10 @@ class Bitvector {
   // external memory and are unaffected by moving owned_data_ (which is empty).
   Bitvector(const Bitvector&) = delete;
   Bitvector& operator=(const Bitvector&) = delete;
-  Bitvector(Bitvector&& other) noexcept
-      : words_(other.words_),
-        rank_lut_(other.rank_lut_),
-        select1_hints_(other.select1_hints_),
-        select0_hints_(other.select0_hints_),
-        num_bits_(other.num_bits_),
-        num_ones_(other.num_ones_),
-        num_words_(other.num_words_),
-        num_rank_samples_(other.num_rank_samples_),
-        num_select1_hints_(other.num_select1_hints_),
-        num_select0_hints_(other.num_select0_hints_),
-        owned_data_(std::move(other.owned_data_)) {
-    // If this bitvector owns its data, the pointers must be re-seated into
-    // our owned_data_ buffer. std::string move may or may not preserve the
-    // buffer address (SSO optimization), so always re-seat.
-    if (!owned_data_.empty()) {
-      RecomputePointers();
-    }
-    other.words_ = nullptr;
-    other.rank_lut_ = nullptr;
-    other.select1_hints_ = nullptr;
-    other.select0_hints_ = nullptr;
-    other.num_bits_ = 0;
-    other.num_ones_ = 0;
-    other.num_words_ = 0;
-    other.num_rank_samples_ = 0;
-    other.num_select1_hints_ = 0;
-    other.num_select0_hints_ = 0;
+  // Move constructor delegates to default ctor + move assignment to avoid
+  // duplicating the field-copy + recompute + zero-other logic.
+  Bitvector(Bitvector&& other) noexcept : Bitvector() {
+    *this = std::move(other);
   }
   Bitvector& operator=(Bitvector&& other) noexcept {
     if (this != &other) {
@@ -305,6 +287,9 @@ class Bitvector {
       num_select1_hints_ = other.num_select1_hints_;
       num_select0_hints_ = other.num_select0_hints_;
       owned_data_ = std::move(other.owned_data_);
+      // If this bitvector owns its data, the pointers must be re-seated into
+      // our owned_data_ buffer. std::string move may or may not preserve the
+      // buffer address (SSO optimization), so always re-seat.
       if (!owned_data_.empty()) {
         RecomputePointers();
       }
@@ -329,8 +314,8 @@ class Bitvector {
   Status InitFromData(const char* data, size_t data_size,
                       size_t* bytes_consumed);
 
-  // Serialize to a string. Appends serialized data to `output`.
-  void Serialize(std::string* output) const;
+  // Append serialized representation to `output`.
+  void EncodeTo(std::string* output) const;
 
   // Build from a BitvectorBuilder. This allocates owned memory.
   void BuildFrom(const BitvectorBuilder& builder);
@@ -400,7 +385,7 @@ class Bitvector {
   // Returns num_bits_ if there are fewer than (i+1) 1-bits.
   // Inlined for hot-path performance — the hint lookup + linear scan is
   // branch-predictor friendly and avoids function call overhead.
-  inline uint64_t Select1(uint64_t i) const {
+  inline uint64_t FindNthOneBit(uint64_t i) const {
     if (i >= num_ones_) {
       return num_bits_;
     }
@@ -426,7 +411,7 @@ class Bitvector {
     for (uint64_t w = word_start; w < word_end; w++) {
       uint64_t pc = Popcount(words_[w]);
       if (remaining < pc) {
-        return w * 64 + Select64(words_[w], remaining);
+        return w * 64 + FindNthSetBitInWord(words_[w], remaining);
       }
       remaining -= pc;
     }
@@ -436,7 +421,7 @@ class Bitvector {
 
   // select0(i): Position of the i-th 0-bit (0-indexed).
   // Returns num_bits_ if there are fewer than (i+1) 0-bits.
-  uint64_t Select0(uint64_t i) const;
+  uint64_t FindNthZeroBit(uint64_t i) const;
 
   // Find the next set bit at or after position `pos`.
   // Returns num_bits_ if no set bit is found.
@@ -465,12 +450,13 @@ class Bitvector {
   void BuildSelectHints();
 
   // Re-compute pointers into owned_data_ after a move operation.
+  // Re-seats pointers into owned_data_ buffer.
+  // Layout: [words][rank_lut][select1_hints][select0_hints]
   void RecomputePointers() {
     const char* base = owned_data_.data();
     size_t words_bytes = num_words_ * sizeof(uint64_t);
     size_t rank_bytes = num_rank_samples_ * sizeof(uint32_t);
     size_t select1_bytes = num_select1_hints_ * sizeof(uint32_t);
-    size_t select0_bytes = num_select0_hints_ * sizeof(uint32_t);
 
     words_ = reinterpret_cast<const uint64_t*>(base);
     rank_lut_ = reinterpret_cast<const uint32_t*>(base + words_bytes);
@@ -478,7 +464,6 @@ class Bitvector {
         reinterpret_cast<const uint32_t*>(base + words_bytes + rank_bytes);
     select0_hints_ = reinterpret_cast<const uint32_t*>(
         base + words_bytes + rank_bytes + select1_bytes);
-    (void)select0_bytes;  // Suppress unused warning.
   }
 
   // Pointer to the raw bit words. May point into external data (InitFromData)
@@ -520,7 +505,7 @@ class Bitvector {
 //
 //   The high-bits bitvector has ones at position high[i] + i for each
 //   element i. The i-th value is recovered as:
-//     value = (Select1(high_bv, i) - i) << low_bits | packed_low[i]
+//     value = (FindNthOneBit(high_bv, i) - i) << low_bits | packed_low[i]
 //
 // Memory layout (serialized):
 //   [count     : uint64_t]  Number of elements
@@ -555,13 +540,13 @@ class EliasFano {
   Status InitFromData(const char* data, size_t data_size,
                       size_t* bytes_consumed);
 
-  // Serialize to a string.
-  void Serialize(std::string* output) const;
+  // Append serialized representation to `output`.
+  void EncodeTo(std::string* output) const;
 
   // Access the i-th value (0-indexed). i must be < count_.
   inline uint64_t Access(uint64_t i) const {
     assert(i < count_);
-    uint64_t high = high_bv_.Select1(i) - i;
+    uint64_t high = high_bv_.FindNthOneBit(i) - i;
     uint64_t low = 0;
     if (low_bits_ > 0) {
       // Extract low_bits_ bits starting at bit position i * low_bits_.
