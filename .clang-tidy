@@ -17,9 +17,7 @@ Checks: "-*,\
   cert-err58-cpp,\
   cert-msc30-c,\
   cert-msc50-cpp,\
-  clang-analyzer-core.NullDereference,\
-  clang-analyzer-core.StackAddressEscape,\
-  clang-analyzer-deadcode.DeadStores,\
+  clang-analyzer-*,\
   clang-diagnostic-*,\
   -clang-diagnostic-missing-designated-field-initializers,\
   concurrency-mt-unsafe,\

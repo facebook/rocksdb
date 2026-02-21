@@ -1,0 +1,49 @@
+name: setup-ccache
+description: Setup ccache for faster C++ compilation caching
+inputs:
+  cache-key-prefix:
+    description: Unique prefix for the cache key (e.g., 'build-linux')
+    required: true
+  portable:
+    description: Set PORTABLE=1 to disable -march=native (set to "false" for jobs linking pre-built Folly)
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Set ccache environment variables
+      run: |
+        echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
+        echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
+        echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
+        if [ "${{ inputs.portable }}" = "true" ]; then
+          echo "PORTABLE=1" >> $GITHUB_ENV
+        fi
+      shell: bash
+    - name: Restore ccache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.ccache
+        key: ccache-${{ inputs.cache-key-prefix }}-${{ github.head_ref || github.ref }}-${{ github.sha }}
+        restore-keys: |-
+          ccache-${{ inputs.cache-key-prefix }}-${{ github.head_ref || github.ref }}-
+          ccache-${{ inputs.cache-key-prefix }}-refs/heads/main-
+    - name: Install ccache
+      run: |
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          which ccache || brew install ccache
+        else
+          which ccache || (apt-get update && apt-get install -y ccache)
+        fi
+      shell: bash
+    - name: Add ccache to PATH
+      run: |
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          echo "$(brew --prefix ccache)/libexec" >> $GITHUB_PATH
+        else
+          echo "/usr/lib/ccache" >> $GITHUB_PATH
+        fi
+      shell: bash
+    - name: Zero ccache stats
+      run: ccache -z
+      shell: bash
