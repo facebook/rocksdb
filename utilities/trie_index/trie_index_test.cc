@@ -164,7 +164,9 @@ TEST_F(BitvectorTest, LargeBitvector) {
   for (uint64_t i = 0; i < n; i++) {
     bool bit = (i % 3 == 0);
     builder.Append(bit);
-    if (bit) expected_ones++;
+    if (bit) {
+      expected_ones++;
+    }
   }
 
   Bitvector bv;
@@ -226,7 +228,7 @@ TEST_F(BitvectorTest, SerializeAndDeserialize) {
   }
 }
 
-TEST_F(BitvectorTest, SerializeRoundTrip_NonAligned) {
+TEST_F(BitvectorTest, SerializeRoundTripNonAligned) {
   // Test with a size that's not a multiple of 64.
   const uint64_t n = 100;
   BitvectorBuilder builder;
@@ -461,8 +463,10 @@ TEST_F(BitvectorTest, MoveConstructor) {
   }
 
   // Moved-from should be empty/zeroed.
+  // NOLINTBEGIN(bugprone-use-after-move)
   ASSERT_EQ(original.NumBits(), 0u);
   ASSERT_EQ(original.NumOnes(), 0u);
+  // NOLINTEND(bugprone-use-after-move)
 }
 
 TEST_F(BitvectorTest, MoveAssignment) {
@@ -494,7 +498,7 @@ TEST_F(BitvectorTest, MoveAssignment) {
   ASSERT_EQ(bv2.Rank1(250), bv1_rank_250);
 
   // Moved-from should be empty.
-  ASSERT_EQ(bv1.NumBits(), 0u);
+  ASSERT_EQ(bv1.NumBits(), 0u);  // NOLINT(bugprone-use-after-move)
 }
 
 TEST_F(BitvectorTest, SerializedSizeMatchesEncoded) {
@@ -539,7 +543,9 @@ TEST_F(BitvectorTest, NumZeros) {
   for (uint64_t i = 0; i < n; i++) {
     bool bit = (i % 4 == 0);
     builder.Append(bit);
-    if (bit) expected_ones++;
+    if (bit) {
+      expected_ones++;
+    }
   }
   Bitvector bv;
   bv.BuildFrom(builder);
@@ -1194,12 +1200,12 @@ TEST_F(LoudsTrieTest, BuilderIdenticalPrefixDifferentLastByte) {
 TEST_F(LoudsTrieTest, BuilderBinaryKeys) {
   // Keys containing non-ASCII bytes (0x00, 0xFF, etc).
   std::vector<std::string> keys;
-  keys.push_back(std::string("\x00\x00", 2));
-  keys.push_back(std::string("\x00\x01", 2));
-  keys.push_back(std::string("\x00\xFF", 2));
-  keys.push_back(std::string("\x01\x00", 2));
-  keys.push_back(std::string("\xFF\x00", 2));
-  keys.push_back(std::string("\xFF\xFF", 2));
+  keys.emplace_back("\x00\x00", 2);
+  keys.emplace_back("\x00\x01", 2);
+  keys.emplace_back("\x00\xFF", 2);
+  keys.emplace_back("\x01\x00", 2);
+  keys.emplace_back("\xFF\x00", 2);
+  keys.emplace_back("\xFF\xFF", 2);
   std::sort(keys.begin(), keys.end());
   VerifyTrieIteration(keys);
 }
@@ -1209,7 +1215,7 @@ TEST_F(LoudsTrieTest, BuilderSingleByteAllValues) {
   // This exercises the maximum fanout at root (256 children).
   std::vector<std::string> keys;
   for (int b = 0; b < 256; b++) {
-    keys.push_back(std::string(1, static_cast<char>(b)));
+    keys.emplace_back(1, static_cast<char>(b));
   }
   // Already sorted by byte value.
   VerifyTrieIteration(keys);
@@ -1235,11 +1241,11 @@ TEST_F(LoudsTrieTest, BuilderPrefixKeyAtDenseSparseEdge) {
   std::vector<std::string> keys;
   // 26 single-char keys for dense root.
   for (char c = 'a'; c <= 'z'; c++) {
-    keys.push_back(std::string(1, c));
+    keys.emplace_back(1, c);
   }
   // Add "aa" and "aab" so "a" becomes a prefix key.
-  keys.push_back("aa");
-  keys.push_back("aab");
+  keys.emplace_back("aa");
+  keys.emplace_back("aab");
   std::sort(keys.begin(), keys.end());
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
   VerifyTrieIteration(keys);
@@ -1319,9 +1325,9 @@ TEST_F(LoudsTrieTest, HandleRoundTrip) {
   for (int i = 0; i < kNumBlocks; i++) {
     char buf[32];
     snprintf(buf, sizeof(buf), "key_%04d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
     TrieBlockHandle h{static_cast<uint64_t>(i) * kBlockSize, kBlockSize};
-    expected_handles.push_back(h);
+    expected_handles.emplace_back(h);
     builder.AddKey(Slice(keys.back()), h);
   }
   builder.Finish();
@@ -1483,7 +1489,7 @@ TEST_F(LoudsTrieTest, BuilderManyPrefixKeys) {
   // Every key is a prefix of the next: "a", "aa", "aaa", "aaaa", ...
   std::vector<std::string> keys;
   for (int len = 1; len <= 20; len++) {
-    keys.push_back(std::string(len, 'a'));
+    keys.emplace_back(len, 'a');
   }
   VerifyTrieIteration(keys);
 }
@@ -1504,7 +1510,7 @@ TEST_F(LoudsTrieTest, AllDense) {
   // With 26+ distinct first bytes, dense is more efficient.
   std::vector<std::string> keys;
   for (char c = 'a'; c <= 'z'; c++) {
-    keys.push_back(std::string(1, c));
+    keys.emplace_back(1, c);
   }
   VerifyTrieIteration(keys);
 }
@@ -1967,11 +1973,13 @@ TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip) {
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(iter.Key().ToString(), keys[i]);
     ASSERT_EQ(iter.Value().offset, i * 100);
-    if (i < keys.size() - 1) iter.Next();
+    if (i < keys.size() - 1) {
+      iter.Next();
+    }
   }
 }
 
-TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip_MisalignedData) {
+TEST_F(LoudsTrieTest, SerializeDeserializeRoundTripMisalignedData) {
   // Verify that LoudsTrie::InitFromData handles non-8-byte-aligned data.
   // This can happen when the SST block is read from mmap at an unaligned
   // file offset.
@@ -2002,7 +2010,9 @@ TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip_MisalignedData) {
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(iter.Key().ToString(), keys[i]);
     ASSERT_EQ(iter.Value().offset, i * 100);
-    if (i < keys.size() - 1) iter.Next();
+    if (i < keys.size() - 1) {
+      iter.Next();
+    }
   }
 }
 
@@ -2015,7 +2025,7 @@ TEST_F(LoudsTrieTest, StressTestThousandKeys) {
     // Generate keys like "key_000000", "key_000001", ...
     char buf[32];
     snprintf(buf, sizeof(buf), "key_%06d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
   }
   std::sort(keys.begin(), keys.end());
   VerifyTrieIteration(keys);
@@ -2030,7 +2040,7 @@ TEST_F(LoudsTrieTest, StressTestRandomKeys) {
     for (int i = 0; i < 50; i++) {
       char buf[64];
       snprintf(buf, sizeof(buf), "%s_%03d", p, i);
-      keys.push_back(buf);
+      keys.emplace_back(buf);
     }
   }
   std::sort(keys.begin(), keys.end());
@@ -2044,19 +2054,19 @@ TEST_F(LoudsTrieTest, StressTestMixedLengths) {
   std::vector<std::string> keys;
   // Short keys.
   for (char c = 'a'; c <= 'z'; c++) {
-    keys.push_back(std::string(1, c));
+    keys.emplace_back(1, c);
   }
   // Medium keys with shared prefixes.
   for (int i = 0; i < 100; i++) {
     char buf[32];
     snprintf(buf, sizeof(buf), "medium_%04d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
   }
   // Long keys.
   for (int i = 0; i < 50; i++) {
     char buf[64];
     snprintf(buf, sizeof(buf), "this_is_a_very_long_key_%06d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
   }
   std::sort(keys.begin(), keys.end());
   keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
@@ -2081,7 +2091,7 @@ TEST_F(LoudsTrieTest, StressTest10KKeys) {
   for (int i = 0; i < 10000; i++) {
     char buf[32];
     snprintf(buf, sizeof(buf), "key_%08d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
   }
   std::sort(keys.begin(), keys.end());
 
@@ -2231,7 +2241,7 @@ TEST_F(LoudsTrieTest, ApproximateAuxMemoryUsage) {
   for (int i = 0; i < 200; i++) {
     char buf[32];
     snprintf(buf, sizeof(buf), "key_%04d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
   }
 
   LoudsTrieBuilder builder;
@@ -2279,7 +2289,7 @@ TEST_F(LoudsTrieTest, InitFromDataProgressiveTruncation) {
   for (int i = 0; i < 20; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "k%02d", i);
-    keys.push_back(buf);
+    keys.emplace_back(buf);
   }
 
   LoudsTrieBuilder builder;
@@ -2603,9 +2613,7 @@ TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
                                          "elderberry", ""};
 
   for (size_t i = 0; i < last_keys.size(); i++) {
-    UserDefinedIndexBuilder::BlockHandle handle;
-    handle.offset = i * 1000;
-    handle.size = 500;
+    UserDefinedIndexBuilder::BlockHandle handle{i * 1000, 500};
 
     std::string scratch;
     Slice next_slice(first_keys[i]);
@@ -2939,7 +2947,8 @@ TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
   // Build a non-trivial index with enough keys to produce sparse internal
   // nodes (which allocate child position lookup tables).
   for (int i = 0; i < 100; i++) {
-    char last_buf[32], next_buf[32];
+    char last_buf[32];
+    char next_buf[32];
     snprintf(last_buf, sizeof(last_buf), "key_%04d", i);
     snprintf(next_buf, sizeof(next_buf), "key_%04d", i + 1);
 
@@ -3262,7 +3271,8 @@ class TrieIndexSSTTest : public testing::Test {
     std::vector<std::pair<std::string, std::string>> kvs;
     kvs.reserve(count);
     for (int i = 0; i < count; i++) {
-      char key_buf[32], val_buf[32];
+      char key_buf[32];
+      char val_buf[32];
       snprintf(key_buf, sizeof(key_buf), "key_%04d", i);
       snprintf(val_buf, sizeof(val_buf), "value_%04d", i);
       kvs.emplace_back(key_buf, val_buf);
@@ -3279,11 +3289,15 @@ class TrieIndexSSTTest : public testing::Test {
 
     SstFileWriter writer(EnvOptions(), options);
     Status s = writer.Open(sst_path_);
-    if (!s.ok()) return s;
+    if (!s.ok()) {
+      return s;
+    }
 
     for (const auto& kv : kvs) {
       s = writer.Put(kv.first, kv.second);
-      if (!s.ok()) return s;
+      if (!s.ok()) {
+        return s;
+      }
     }
     return writer.Finish();
   }

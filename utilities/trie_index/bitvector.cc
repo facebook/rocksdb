@@ -164,11 +164,17 @@ Status Bitvector::InitFromData(const char* data, size_t data_size,
 
   Status s;
   s = read_u32_array(&rank_lut_, num_rank_samples_, "rank LUT");
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   s = read_u32_array(&select1_hints_, num_select1_hints_, "select1 hints");
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   s = read_u32_array(&select0_hints_, num_select0_hints_, "select0 hints");
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   *bytes_consumed = static_cast<size_t>(data - start);
 
@@ -282,7 +288,8 @@ uint64_t Bitvector::FindNthZeroBit(uint64_t i) const {
   }
 
   // Use select0 hints to narrow the search range.
-  uint64_t lo, hi;
+  uint64_t lo;
+  uint64_t hi;
   if (num_select0_hints_ > 0) {
     uint64_t hint_idx = i / kOnesPerSelectHint;
     lo = select0_hints_[hint_idx];
@@ -333,7 +340,9 @@ uint64_t Bitvector::FindNthZeroBit(uint64_t i) const {
 }
 
 uint64_t Bitvector::NextSetBit(uint64_t pos) const {
-  if (pos >= num_bits_) return num_bits_;
+  if (pos >= num_bits_) {
+    return num_bits_;
+  }
 
   uint64_t word_idx = pos / 64;
   uint64_t bit_idx = pos % 64;
@@ -495,7 +504,9 @@ Status EliasFano::InitFromData(const char* data, size_t data_size,
   // Read high bitvector.
   size_t consumed = 0;
   Status s = high_bv_.InitFromData(data, data_size, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   data += consumed;
   data_size -= consumed;
 

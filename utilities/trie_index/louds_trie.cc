@@ -41,7 +41,9 @@ void LoudsTrieBuilder::AddKey(const Slice& key, const TrieBlockHandle& handle) {
 // pass over the key set, avoiding the redundant LCP computation that would
 // occur if they were computed separately.
 uint32_t LoudsTrieBuilder::ComputeCutoffLevel() const {
-  if (keys_.empty()) return 0;
+  if (keys_.empty()) {
+    return 0;
+  }
 
   std::vector<uint64_t> nodes_per_level(max_depth_ + 1, 0);
   std::vector<uint64_t> labels_per_level(max_depth_ + 1, 0);
@@ -83,7 +85,9 @@ uint32_t LoudsTrieBuilder::ComputeCutoffLevel() const {
   for (uint32_t l = 0; l <= max_depth_; l++) {
     uint64_t n = nodes_per_level[l];
     uint64_t labels = labels_per_level[l];
-    if (n == 0) return l;
+    if (n == 0) {
+      return l;
+    }
 
     // Dense: 256 bits for d_labels_ + 1 bit for d_is_prefix_key_ per node,
     //        plus 1 bit for d_has_child_ per label.
@@ -302,7 +306,9 @@ void LoudsTrieBuilder::Finish() {
 
   for (uint32_t level = 0; level <= max_depth_; level++) {
     const auto& ld = levels[level];
-    if (ld.node_count() == 0) continue;
+    if (ld.node_count() == 0) {
+      continue;
+    }
 
     bool is_dense = (level < cutoff_level_);
 
@@ -518,7 +524,9 @@ void LoudsTrieBuilder::SerializeAll() {
         uint64_t cs = bv_s_louds.FindNthOneBit(child_node);
         child_starts[k] = static_cast<uint32_t>(cs);
         uint64_t ce = bv_s_louds.NextSetBit(cs + 1);
-        if (ce > sl_size) ce = sl_size;
+        if (ce > sl_size) {
+          ce = sl_size;
+        }
         child_ends[k] = static_cast<uint32_t>(ce);
       }
     }
@@ -543,10 +551,14 @@ void LoudsTrieBuilder::SerializeAll() {
       uint32_t ce = child_ends[k];
 
       // Child must be fanout-1 (single label).
-      if (ce - cs != 1) continue;
+      if (ce - cs != 1) {
+        continue;
+      }
 
       // Check if the child's label is internal (has_child = 1).
-      if (!bv_s_has_child.GetBit(cs)) continue;
+      if (!bv_s_has_child.GetBit(cs)) {
+        continue;
+      }
 
       // Check if the child node is a prefix key — if so, cannot skip it.
       {
@@ -569,7 +581,9 @@ void LoudsTrieBuilder::SerializeAll() {
       while (true) {
         // cur_child_idx is the index of the current chain node's internal
         // label.
-        if (cur_child_idx >= num_internal) break;
+        if (cur_child_idx >= num_internal) {
+          break;
+        }
 
         uint32_t next_cs = child_starts[cur_child_idx];
         uint32_t next_ce = child_ends[cur_child_idx];
@@ -637,7 +651,9 @@ void LoudsTrieBuilder::SerializeAll() {
 
       uint64_t candidate_count = 0;
       for (uint64_t k = 0; k < num_internal; k++) {
-        if (chain_lens[k] > 0) candidate_count++;
+        if (chain_lens[k] > 0) {
+          candidate_count++;
+        }
       }
 
       uint64_t num_keys = handles_.size();
@@ -723,7 +739,9 @@ void LoudsTrieBuilder::SerializeAll() {
     for (uint64_t k = 0; k < num_internal; k++) {
       bool has_chain = (chain_lens[k] > 0);
       chain_bitmap_builder.Append(has_chain);
-      if (has_chain) num_chains++;
+      if (has_chain) {
+        num_chains++;
+      }
     }
 
     // Serialize: num_chains, then bitmap + compact arrays if any.
@@ -897,17 +915,23 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   Status s;
 
   s = d_labels_.InitFromData(p, remaining, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   p += consumed;
   remaining -= consumed;
 
   s = d_has_child_.InitFromData(p, remaining, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   p += consumed;
   remaining -= consumed;
 
   s = d_is_prefix_key_.InitFromData(p, remaining, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   p += consumed;
   remaining -= consumed;
 
@@ -935,17 +959,23 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   }
 
   s = s_has_child_.InitFromData(p, remaining, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   p += consumed;
   remaining -= consumed;
 
   s = s_louds_.InitFromData(p, remaining, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   p += consumed;
   remaining -= consumed;
 
   s = s_is_prefix_key_.InitFromData(p, remaining, &consumed);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   p += consumed;
   remaining -= consumed;
 
@@ -1001,7 +1031,9 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     if (num_chains > 0) {
       // Read chain bitmap.
       s = s_chain_bitmap_.InitFromData(p, remaining, &consumed);
-      if (!s.ok()) return s;
+      if (!s.ok()) {
+        return s;
+      }
       p += consumed;
       remaining -= consumed;
 
@@ -1289,7 +1321,9 @@ uint64_t LoudsTrieIterator::SparseNodeNum(uint64_t pos) const {
 }
 
 uint64_t LoudsTrieIterator::SparseNodeStartPos(uint64_t sparse_node_num) const {
-  if (sparse_node_num == 0) return 0;
+  if (sparse_node_num == 0) {
+    return 0;
+  }
 
   // Use the precomputed lookup table for nodes that are children of sparse
   // internal labels. These are the most common case during traversal.
@@ -1404,7 +1438,9 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
   path_.clear();
   is_at_prefix_key_ = false;
 
-  if (trie_->NumKeys() == 0) return false;
+  if (trie_->NumKeys() == 0) {
+    return false;
+  }
 
   bool in_dense = (trie_->cutoff_level_ > 0);
   uint64_t node_num = 0;
@@ -1485,7 +1521,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
     } else {
       // SuRF-style sparse traversal: Use (start, end) positions directly.
       // No FindNthOneBit calls - only Rank1 + array lookup.
-      uint64_t start, end;
+      uint64_t start;
+      uint64_t end;
       if (have_sparse_bounds) {
         start = sparse_start;
         end = sparse_end;
@@ -1992,7 +2029,9 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
 }
 
 bool LoudsTrieIterator::Next() {
-  if (!valid_) return false;
+  if (!valid_) {
+    return false;
+  }
 
   if (is_at_prefix_key_) {
     is_at_prefix_key_ = false;
