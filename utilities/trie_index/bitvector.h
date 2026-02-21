@@ -528,7 +528,11 @@ class EliasFano {
       uint64_t bit_idx = bit_pos % 64;
       low = (low_words_[word_idx] >> bit_idx) & low_mask_;
       // Handle the case where the low bits span two words.
-      if (bit_idx + low_bits_ > 64) {
+      // Guard bit_idx > 0 to prevent UB: when bit_idx == 0 the shift
+      // (64 - bit_idx) would be 64 which overflows uint64_t.  This is
+      // unreachable in practice (low_bits_ <= 63), but the guard makes
+      // it explicit for static analyzers.
+      if (bit_idx > 0 && bit_idx + low_bits_ > 64) {
         uint64_t remaining = bit_idx + low_bits_ - 64;
         low |= (low_words_[word_idx + 1] & ((uint64_t(1) << remaining) - 1))
                << (64 - bit_idx);
