@@ -543,7 +543,9 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         std::unique_ptr<Iterator> iter(
             secondary_db_->NewIterator(read_opts, handle));
-        uint32_t rnd = (thread->rand.Next()) % 4;
+        // UDI only supports Seek + Next; skip SeekToFirst, SeekToLast,
+        // SeekForPrev, and Prev when trie index is enabled.
+        uint32_t rnd = FLAGS_use_trie_index ? 2 : (thread->rand.Next()) % 4;
         if (0 == rnd) {
           // SeekToFirst() + Next()*5
           read_opts.total_order_seek = true;
@@ -2656,76 +2658,78 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "N";
     }
 
-    // backward scan
-    key_str = Key(ub - 1);
-    iter->SeekForPrev(key_str);
+    // backward scan — skip when UDI is enabled (no SeekForPrev/Prev support)
+    if (!FLAGS_use_trie_index) {
+      key_str = Key(ub - 1);
+      iter->SeekForPrev(key_str);
 
-    op_logs += " SFP " + Slice(key_str).ToString(true) + " ";
+      op_logs += " SFP " + Slice(key_str).ToString(true) + " ";
 
-    last_key = ub;
-    while (true) {
-      assert(lb < last_key);
+      last_key = ub;
+      while (true) {
+        assert(lb < last_key);
 
-      if (iter->Valid() && ro.allow_unprepared_value) {
-        op_logs += "*";
+        if (iter->Valid() && ro.allow_unprepared_value) {
+          op_logs += "*";
 
-        if (!iter->PrepareValue()) {
-          assert(!iter->Valid());
-          assert(!iter->status().ok());
-        }
-      }
-
-      if (!iter->Valid()) {
-        if (!iter->status().ok()) {
-          if (IsErrorInjectedAndRetryable(iter->status())) {
-            return iter->status();
-          } else {
-            thread->shared->SetVerificationFailure();
-            fprintf(stderr, "TestIterate against expected state error: %s\n",
-                    iter->status().ToString().c_str());
-            fprintf(stderr, "Column family: %s, op_logs: %s\n",
-                    cfh->GetName().c_str(), op_logs.c_str());
-            thread->stats.AddErrors(1);
-            return iter->status();
+          if (!iter->PrepareValue()) {
+            assert(!iter->Valid());
+            assert(!iter->status().ok());
           }
         }
-        if (!check_no_key_in_range(lb, last_key)) {
+
+        if (!iter->Valid()) {
+          if (!iter->status().ok()) {
+            if (IsErrorInjectedAndRetryable(iter->status())) {
+              return iter->status();
+            } else {
+              thread->shared->SetVerificationFailure();
+              fprintf(stderr, "TestIterate against expected state error: %s\n",
+                      iter->status().ToString().c_str());
+              fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                      cfh->GetName().c_str(), op_logs.c_str());
+              thread->stats.AddErrors(1);
+              return iter->status();
+            }
+          }
+          if (!check_no_key_in_range(lb, last_key)) {
+            return Status::OK();
+          }
+          break;
+        }
+
+        if (!check_columns()) {
           return Status::OK();
         }
-        break;
-      }
 
-      if (!check_columns()) {
-        return Status::OK();
-      }
+        // the range (current key, last key) was skipped
+        GetIntVal(iter->key().ToString(), &curr);
+        if (last_key <= static_cast<int64_t>(curr)) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "TestIterateAgainstExpected failed: found unexpectedly large "
+                  "key\n");
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                  Slice(Key(curr)).ToString(true).c_str(),
+                  Slice(Key(last_key - 1)).ToString(true).c_str());
+          thread->stats.AddErrors(1);
+          return Status::OK();
+        }
+        if (!check_no_key_in_range(static_cast<int64_t>(curr + 1), last_key)) {
+          return Status::OK();
+        }
 
-      // the range (current key, last key) was skipped
-      GetIntVal(iter->key().ToString(), &curr);
-      if (last_key <= static_cast<int64_t>(curr)) {
-        thread->shared->SetVerificationFailure();
-        fprintf(stderr,
-                "TestIterateAgainstExpected failed: found unexpectedly large "
-                "key\n");
-        fprintf(stderr, "Column family: %s, op_logs: %s\n",
-                cfh->GetName().c_str(), op_logs.c_str());
-        fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
-                Slice(Key(curr)).ToString(true).c_str(),
-                Slice(Key(last_key - 1)).ToString(true).c_str());
-        thread->stats.AddErrors(1);
-        return Status::OK();
-      }
-      if (!check_no_key_in_range(static_cast<int64_t>(curr + 1), last_key)) {
-        return Status::OK();
-      }
+        last_key = static_cast<int64_t>(curr);
+        if (last_key <= lb) {
+          break;
+        }
 
-      last_key = static_cast<int64_t>(curr);
-      if (last_key <= lb) {
-        break;
+        iter->Prev();
+
+        op_logs += "P";
       }
-
-      iter->Prev();
-
-      op_logs += "P";
     }
 
     // Write-prepared/write-unprepared transactions and multi-CF iterator do not
@@ -2767,7 +2771,8 @@ class NonBatchedOpsStressTest : public StressTest {
     key_str = Key(mid);
     const Slice key(key_str);
 
-    if (thread->rand.OneIn(2)) {
+    // UDI only supports Seek + Next; skip SeekForPrev and Prev.
+    if (FLAGS_use_trie_index || thread->rand.OneIn(2)) {
       iter->Seek(key);
       op_logs += " S " + key.ToString(true) + " ";
       if (!iter->Valid() && iter->status().ok()) {
@@ -2836,8 +2841,14 @@ class NonBatchedOpsStressTest : public StressTest {
         iter->Next();
         op_logs += "N";
       } else if (static_cast<int64_t>(curr) >= ub) {
-        iter->Prev();
-        op_logs += "P";
+        // UDI doesn't support Prev; use Next to move forward instead.
+        if (FLAGS_use_trie_index) {
+          iter->Next();
+          op_logs += "N";
+        } else {
+          iter->Prev();
+          op_logs += "P";
+        }
       } else {
         const uint32_t value_base_from_db = GetValueBase(iter->value());
         std::size_t index = static_cast<std::size_t>(curr - lb);
@@ -2864,7 +2875,7 @@ class NonBatchedOpsStressTest : public StressTest {
           break;
         }
 
-        if (thread->rand.OneIn(2)) {
+        if (FLAGS_use_trie_index || thread->rand.OneIn(2)) {
           iter->Next();
           op_logs += "N";
           if (!iter->Valid()) {

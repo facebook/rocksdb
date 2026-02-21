@@ -1980,7 +1980,11 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    const bool support_seek_first_or_last = expect_total_order;
+    // UDI (user-defined index) only supports Seek + Next. SeekToFirst,
+    // SeekToLast, SeekForPrev, and Prev are not supported by the UDI
+    // iterator interface.
+    const bool support_seek_first_or_last =
+        expect_total_order && !FLAGS_use_trie_index;
 
     // Write-prepared and Write-unprepared and multi-cf-iterator do not support
     // Refresh() yet.
@@ -2005,7 +2009,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       cmp_iter->SeekToLast();
       last_op = kLastOpSeekToLast;
       op_logs += "STL ";
-    } else if (thread->rand.OneIn(8)) {
+    } else if (!FLAGS_use_trie_index && thread->rand.OneIn(8)) {
       iter->SeekForPrev(key);
       cmp_iter->SeekForPrev(key);
       last_op = kLastOpSeekForPrev;
@@ -2037,7 +2041,8 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
                    key, op_logs, verify_func, &diverged);
 
     const bool no_reverse =
-        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
+        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order) ||
+        FLAGS_use_trie_index;
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); ++i) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();

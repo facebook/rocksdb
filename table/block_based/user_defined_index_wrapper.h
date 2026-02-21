@@ -184,10 +184,12 @@ class UserDefinedIndexIteratorWrapper
   bool Valid() const override { return valid_; }
 
   void SeekToFirst() override {
+    valid_ = false;
     status_ = Status::NotSupported("SeekToFirst not supported");
   }
 
   void SeekToLast() override {
+    valid_ = false;
     status_ = Status::NotSupported("SeekToLast not supported");
   }
 
@@ -236,10 +238,14 @@ class UserDefinedIndexIteratorWrapper
   }
 
   void SeekForPrev(const Slice& /*target*/) override {
+    valid_ = false;
     status_ = Status::NotSupported("SeekForPrev not supported");
   }
 
-  void Prev() override { status_ = Status::NotSupported("Prev not supported"); }
+  void Prev() override {
+    valid_ = false;
+    status_ = Status::NotSupported("Prev not supported");
+  }
 
   Slice key() const override { return Slice(*ikey_.const_rep()); }
 
