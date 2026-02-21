@@ -17,10 +17,9 @@ jobs:
     - uses: actions/checkout@v4.1.0
       with:
         ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 2
     - name: Mark workspace as safe for git
       run: git config --global --add safe.directory $GITHUB_WORKSPACE
-    - name: Fetch base branch for accurate diff
-      run: git fetch --depth=1 origin ${{ github.event.pull_request.base.sha }}
     - name: Install clang-tidy
       run: apt-get update && apt-get install -y clang-tidy
     - name: Generate compile_commands.json
@@ -36,7 +35,7 @@ jobs:
       run: |
         python3 tools/run_clang_tidy.py \
           -j 4 \
-          --diff-base ${{ github.event.pull_request.base.sha }} \
+          --diff-base HEAD~1 \
           --github-annotations \
           --github-step-summary \
           --comment-output clang-tidy-comment.md
