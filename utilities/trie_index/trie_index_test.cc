@@ -1214,6 +1214,7 @@ TEST_F(LoudsTrieTest, BuilderSingleByteAllValues) {
   // One key for every possible single byte value (0x00–0xFF).
   // This exercises the maximum fanout at root (256 children).
   std::vector<std::string> keys;
+  keys.reserve(256);
   for (int b = 0; b < 256; b++) {
     keys.emplace_back(1, static_cast<char>(b));
   }
