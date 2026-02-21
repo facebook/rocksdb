@@ -636,7 +636,9 @@ TEST_F(WideColumnSerializationTest, BlobIndexEncodeToRoundTrip) {
     ASSERT_EQ(encoded_static, encoded_instance);
   };
 
-  std::string blob_str, blob_ttl_str, inlined_str;
+  std::string blob_str;
+  std::string blob_ttl_str;
+  std::string inlined_str;
   BlobIndex::EncodeBlob(&blob_str, 42, 1024, 2048, kSnappyCompression);
   BlobIndex::EncodeBlobTTL(&blob_ttl_str, 9999, 10, 200, 3000,
                            kZlibCompression);
@@ -689,14 +691,16 @@ TEST_F(WideColumnSerializationTest, V2LayoutStructureVerification) {
   data.remove_prefix(2);
 
   // Section 4: NAME SIZES
-  uint32_t ns0 = 0, ns1 = 0;
+  uint32_t ns0 = 0;
+  uint32_t ns1 = 0;
   ASSERT_TRUE(GetVarint32(&data, &ns0));
   ASSERT_TRUE(GetVarint32(&data, &ns1));
   ASSERT_EQ(ns0, 2u);
   ASSERT_EQ(ns1, 3u);
 
   // Section 5: VALUE SIZES
-  uint32_t vs0 = 0, vs1 = 0;
+  uint32_t vs0 = 0;
+  uint32_t vs1 = 0;
   ASSERT_TRUE(GetVarint32(&data, &vs0));
   ASSERT_TRUE(GetVarint32(&data, &vs1));
   ASSERT_EQ(vs0, 6u);  // "val_aa" = 6

@@ -7,7 +7,6 @@
 
 #include <cassert>
 #include <cstring>
-#include <limits>
 
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_index.h"
@@ -23,15 +22,14 @@ Status WideColumnSerialization::BuildBlobIndexMap(
     size_t num_columns,
     const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
     std::vector<const BlobIndex*>& blob_index_map) {
-  const Status s =
-      ValidateWideColumnLimit(num_columns, "Too many wide columns");
+  Status s = ValidateWideColumnLimit(num_columns, "Too many wide columns");
   if (!s.ok()) {
     return s;
   }
 
   blob_index_map.assign(num_columns, nullptr);
   for (const auto& blob_col : blob_columns) {
-    if (blob_col.first >= num_columns) {
+    if (blob_col.first >= blob_index_map.size()) {
       return Status::InvalidArgument("Blob column index out of range");
     }
     blob_index_map[blob_col.first] = &blob_col.second;
@@ -54,8 +52,7 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
                                           std::string& output) {
   const size_t num_columns = columns.size();
 
-  const Status sv =
-      ValidateWideColumnLimit(num_columns, "Too many wide columns");
+  Status sv = ValidateWideColumnLimit(num_columns, "Too many wide columns");
   if (!sv.ok()) {
     return sv;
   }
@@ -111,10 +108,11 @@ Status WideColumnSerialization::SerializeV2Impl(
     const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
     std::string& output, GetName get_name, GetValue get_value) {
   std::vector<const BlobIndex*> blob_index_map;
-  const Status s = BuildBlobIndexMap(num_columns, blob_columns, blob_index_map);
+  Status s = BuildBlobIndexMap(num_columns, blob_columns, blob_index_map);
   if (!s.ok()) {
     return s;
   }
+  assert(blob_index_map.size() == num_columns);
 
   // First pass: validate column ordering, compute sizes, serialize blob
   // indices, and build column types.
@@ -396,7 +394,7 @@ Status WideColumnSerialization::Deserialize(Slice& input,
 
   // Reuse DeserializeV2, then reject any blob references.
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  const Status s = DeserializeV2(input, columns, blob_columns);
+  Status s = DeserializeV2(input, columns, blob_columns);
   if (!s.ok()) {
     return s;
   }
@@ -437,11 +435,12 @@ Status WideColumnSerialization::DeserializeV2(
     // V2 layout: parse columns and extract blob column info
     std::vector<ValueType> column_types;
 
-    const Status s =
-        DeserializeV2Impl(input, num_columns, columns, column_types);
+    Status s = DeserializeV2Impl(input, num_columns, columns, column_types);
     if (!s.ok()) {
       return s;
     }
+    assert(column_types.size() == num_columns);
+    assert(columns.size() == num_columns);
 
     // Decode blob indices from value data
     for (uint32_t i = 0; i < num_columns; ++i) {
@@ -611,7 +610,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
   // V1 fallback: full deserialization
   WideColumns columns;
 
-  const Status s = Deserialize(input, columns);
+  Status s = Deserialize(input, columns);
   if (!s.ok()) {
     return s;
   }
@@ -639,7 +638,7 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
   Slice input_copy = entity_value;
-  const Status s = DeserializeV2(input_copy, columns, blob_columns);
+  Status s = DeserializeV2(input_copy, columns, blob_columns);
   if (!s.ok()) {
     return s;
   }
@@ -703,7 +702,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
   Slice input_copy = entity_value;
-  const Status s = DeserializeV2(input_copy, columns, blob_columns);
+  Status s = DeserializeV2(input_copy, columns, blob_columns);
   if (!s.ok()) {
     return s;
   }
