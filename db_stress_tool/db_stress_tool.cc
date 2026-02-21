@@ -219,6 +219,12 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_atomic_flush = true;
   }
 
+  // Trie UDI only supports Seek + Next. Disable backward scan testing so
+  // that other features lacking backward scan support can reuse this flag.
+  if (FLAGS_use_trie_index) {
+    FLAGS_test_backward_scan = false;
+  }
+
   // Trie UDI only supports kTypeValue (Put) entries. Reject incompatible
   // operations that would produce non-Put types during flush/compaction.
   if (FLAGS_use_trie_index) {

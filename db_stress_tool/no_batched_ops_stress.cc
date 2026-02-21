@@ -543,9 +543,10 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         std::unique_ptr<Iterator> iter(
             secondary_db_->NewIterator(read_opts, handle));
-        // UDI only supports Seek + Next; skip SeekToFirst, SeekToLast,
-        // SeekForPrev, and Prev when trie index is enabled.
-        uint32_t rnd = FLAGS_use_trie_index ? 2 : (thread->rand.Next()) % 4;
+        // Skip SeekToFirst, SeekToLast, SeekForPrev, and Prev when backward
+        // scan is disabled.
+        uint32_t rnd =
+            (!FLAGS_test_backward_scan) ? 2 : (thread->rand.Next()) % 4;
         if (0 == rnd) {
           // SeekToFirst() + Next()*5
           read_opts.total_order_seek = true;
@@ -2658,8 +2659,8 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "N";
     }
 
-    // backward scan — skip when UDI is enabled (no SeekForPrev/Prev support)
-    if (!FLAGS_use_trie_index) {
+    // backward scan — skip when backward iteration is not supported
+    if (FLAGS_test_backward_scan) {
       key_str = Key(ub - 1);
       iter->SeekForPrev(key_str);
 
@@ -2771,8 +2772,8 @@ class NonBatchedOpsStressTest : public StressTest {
     key_str = Key(mid);
     const Slice key(key_str);
 
-    // UDI only supports Seek + Next; skip SeekForPrev and Prev.
-    if (FLAGS_use_trie_index || thread->rand.OneIn(2)) {
+    // Skip SeekForPrev and Prev when backward scan is not supported.
+    if (!FLAGS_test_backward_scan || thread->rand.OneIn(2)) {
       iter->Seek(key);
       op_logs += " S " + key.ToString(true) + " ";
       if (!iter->Valid() && iter->status().ok()) {
@@ -2841,8 +2842,8 @@ class NonBatchedOpsStressTest : public StressTest {
         iter->Next();
         op_logs += "N";
       } else if (static_cast<int64_t>(curr) >= ub) {
-        // UDI doesn't support Prev; use Next to move forward instead.
-        if (FLAGS_use_trie_index) {
+        // Use Next when backward scan is not supported.
+        if (!FLAGS_test_backward_scan) {
           iter->Next();
           op_logs += "N";
         } else {
@@ -2875,7 +2876,7 @@ class NonBatchedOpsStressTest : public StressTest {
           break;
         }
 
-        if (FLAGS_use_trie_index || thread->rand.OneIn(2)) {
+        if (!FLAGS_test_backward_scan || thread->rand.OneIn(2)) {
           iter->Next();
           op_logs += "N";
           if (!iter->Valid()) {

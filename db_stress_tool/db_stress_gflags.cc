@@ -619,6 +619,10 @@ DEFINE_bool(
     "Only compatible with Put operations (no Merge/Delete/SingleDelete). "
     "When enabled, incompatible flags are automatically adjusted.");
 
+DEFINE_bool(test_backward_scan, true,
+            "Test backward iteration (Prev, SeekForPrev) in stress tests. "
+            "Automatically set to false when use_trie_index is enabled.");
+
 DEFINE_string(db, "", "Use the db with the following name.");
 
 DEFINE_string(secondaries_base, "",
