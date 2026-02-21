@@ -825,6 +825,18 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   const char* p = data.data();
   size_t remaining = data.size();
 
+  // The trie data contains bitvectors with uint64_t arrays and handle arrays
+  // with uint32_t entries, all accessed via reinterpret_cast pointers that
+  // require proper alignment. Block buffers from heap/cache allocations are
+  // typically aligned, but mmap'd data or other sources may not be. If the
+  // data is not 8-byte aligned, copy it into an owned aligned buffer.
+  // std::string::data() returns memory from new[]/malloc, which is aligned
+  // to at least alignof(max_align_t) (>= 8 on all supported platforms).
+  if (reinterpret_cast<uintptr_t>(p) % alignof(uint64_t) != 0) {
+    aligned_copy_.assign(p, remaining);
+    p = aligned_copy_.data();
+  }
+
   if (remaining < 56) {
     return Status::Corruption("Trie index: data too short for header");
   }

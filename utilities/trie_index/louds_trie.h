@@ -194,6 +194,10 @@ class LoudsTrie {
   // LoudsTrie contains Bitvector members (which hold raw pointers into
   // owned or external memory) and a raw pointer to sparse labels data.
   // Copying would create dangling pointers or aliased external references.
+  // Move relies on std::string move preserving the buffer address for
+  // strings exceeding the SSO threshold, which is always true for trie
+  // data (hundreds to thousands of bytes). All major implementations
+  // (libc++, libstdc++, MSVC STL) guarantee this for large strings.
   LoudsTrie(const LoudsTrie&) = delete;
   LoudsTrie& operator=(const LoudsTrie&) = delete;
   LoudsTrie(LoudsTrie&&) = default;
@@ -312,6 +316,13 @@ class LoudsTrie {
   // RocksDB SST files are typically 64 MB to 1 GB and never exceed 4 GB.
   const uint32_t* handle_offsets_;
   const uint32_t* handle_sizes_;
+
+  // Aligned copy of the serialized trie data, used when the input data from
+  // the block reader is not 8-byte aligned (e.g., mmap at an unaligned file
+  // offset). All Bitvector and raw pointer members reference this buffer
+  // when non-empty. std::string::data() returns memory from new[]/malloc,
+  // which is aligned to at least alignof(max_align_t) >= 8.
+  std::string aligned_copy_;
 };
 
 // ============================================================================

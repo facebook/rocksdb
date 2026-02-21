@@ -1971,6 +1971,41 @@ TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip) {
   }
 }
 
+TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip_MisalignedData) {
+  // Verify that LoudsTrie::InitFromData handles non-8-byte-aligned data.
+  // This can happen when the SST block is read from mmap at an unaligned
+  // file offset.
+  std::vector<std::string> keys = {"alpha", "beta", "gamma", "delta"};
+  LoudsTrieBuilder builder;
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKey(Slice(keys[i]), {i * 100, 50});
+  }
+  builder.Finish();
+  Slice data = builder.GetSerializedData();
+
+  // Create a buffer with 1-byte offset to guarantee misalignment.
+  std::string padded;
+  padded.reserve(1 + data.size());
+  padded.push_back('\0');  // 1-byte padding
+  padded.append(data.data(), data.size());
+  const char* misaligned_ptr = padded.data() + 1;
+  ASSERT_NE(reinterpret_cast<uintptr_t>(misaligned_ptr) % 8, 0u);
+
+  LoudsTrie trie;
+  ASSERT_OK(trie.InitFromData(Slice(misaligned_ptr, data.size())));
+  ASSERT_EQ(trie.NumKeys(), keys.size());
+
+  // Verify all keys and handles via iteration.
+  LoudsTrieIterator iter(&trie);
+  ASSERT_TRUE(iter.Seek(Slice(keys[0])));
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(iter.Key().ToString(), keys[i]);
+    ASSERT_EQ(iter.Value().offset, i * 100);
+    if (i < keys.size() - 1) iter.Next();
+  }
+}
+
 // --- Stress tests ---
 
 TEST_F(LoudsTrieTest, StressTestThousandKeys) {
