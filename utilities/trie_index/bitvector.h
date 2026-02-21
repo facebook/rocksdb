@@ -351,33 +351,6 @@ class Bitvector {
     return sample_rank;
   }
 
-  // Combined Rank1(pos+1) and GetBit(pos) in a single pass.
-  // Returns rank1 count of [0, pos+1) (i.e., Rank1(pos+1)) and sets *bit to
-  // the bit value at position pos. This saves one redundant word access when
-  // the caller needs both operations on the same position, which is the common
-  // pattern in sparse trie traversal (check has_child then compute rank).
-  inline uint64_t Rank1AndBit(uint64_t pos, bool* bit) const {
-    assert(pos < num_bits_);
-    // Extract the bit from its word first.
-    uint64_t bit_word_idx = pos / 64;
-    *bit = (words_[bit_word_idx] >> (pos % 64)) & 1;
-    // Now compute Rank1(pos + 1).
-    uint64_t next_pos = pos + 1;
-    uint64_t sample_idx = next_pos / kBitsPerRankSample;
-    uint64_t sample_rank = rank_lut_[sample_idx];
-    uint64_t word_start = sample_idx * kWordsPerRankSample;
-    uint64_t word_end = next_pos / 64;
-    for (uint64_t w = word_start; w < word_end; w++) {
-      sample_rank += Popcount(words_[w]);
-    }
-    uint64_t remaining = next_pos % 64;
-    if (remaining > 0) {
-      uint64_t mask = (uint64_t(1) << remaining) - 1;
-      sample_rank += Popcount(words_[word_end] & mask);
-    }
-    return sample_rank;
-  }
-
   // rank0(pos): Count of 0-bits in positions [0, pos).
   inline uint64_t Rank0(uint64_t pos) const { return pos - Rank1(pos); }
 

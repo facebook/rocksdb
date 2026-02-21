@@ -1497,10 +1497,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
           path_.push_back(LevelPos::MakeSparse(start));
           key_buf_[key_len_++] = static_cast<char>(label);
 
-          // Combined GetBit + Rank1 in a single word access.
-          bool is_internal;
-          uint64_t has_child_rank =
-              trie_->s_has_child_.Rank1AndBit(start, &is_internal);
+          bool is_internal = trie_->s_has_child_.GetBit(start);
+          uint64_t has_child_rank = trie_->s_has_child_.Rank1(start + 1);
           if (is_internal) {
             // Internal node: use rank for child lookup.
             if (!trie_->s_child_start_pos_.empty()) {
@@ -1730,9 +1728,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
 
         if (label > target_byte) {
           // Label is greater: go to leftmost leaf in subtree.
-          bool is_internal;
-          uint64_t has_child_rank =
-              trie_->s_has_child_.Rank1AndBit(start, &is_internal);
+          bool is_internal = trie_->s_has_child_.GetBit(start);
+          uint64_t has_child_rank = trie_->s_has_child_.Rank1(start + 1);
           if (!is_internal) {
             leaf_index_ =
                 SparseLeafIndexFromHasChildRank(start, has_child_rank);
@@ -1756,10 +1753,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
       path_.push_back(LevelPos::MakeSparse(pos));
       key_buf_[key_len_++] = static_cast<char>(trie_->s_labels_data_[pos]);
 
-      // Combined GetBit + Rank1 in a single word access.
-      bool is_internal;
-      uint64_t has_child_rank =
-          trie_->s_has_child_.Rank1AndBit(pos, &is_internal);
+      bool is_internal = trie_->s_has_child_.GetBit(pos);
+      uint64_t has_child_rank = trie_->s_has_child_.Rank1(pos + 1);
 
       if (!exact) {
         if (!is_internal) {

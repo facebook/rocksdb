@@ -497,25 +497,6 @@ TEST_F(BitvectorTest, MoveAssignment) {
   ASSERT_EQ(bv1.NumBits(), 0u);
 }
 
-TEST_F(BitvectorTest, Rank1AndBit) {
-  // Directly test the combined Rank1AndBit operation.
-  const uint64_t n = 500;
-  BitvectorBuilder builder;
-  for (uint64_t i = 0; i < n; i++) {
-    builder.Append(i % 3 == 0);
-  }
-  Bitvector bv;
-  bv.BuildFrom(builder);
-
-  for (uint64_t pos = 0; pos < n; pos++) {
-    bool bit = false;
-    uint64_t rank = bv.Rank1AndBit(pos, &bit);
-    // Rank1AndBit returns Rank1(pos+1) and sets bit to GetBit(pos).
-    ASSERT_EQ(bit, bv.GetBit(pos)) << "GetBit mismatch at pos=" << pos;
-    ASSERT_EQ(rank, bv.Rank1(pos + 1)) << "Rank1 mismatch at pos=" << pos;
-  }
-}
-
 TEST_F(BitvectorTest, SerializedSizeMatchesEncoded) {
   // Verify SerializedSize() matches actual encoded output length.
   const uint64_t n = 1000;
