@@ -1047,7 +1047,7 @@ class CfConsistencyStressTest : public StressTest {
     assert(thread);
     Status status;
 
-    DB* db_ptr = secondary_db_ ? secondary_db_ : db_;
+    DB* db_ptr = secondary_db_ ? secondary_db_.get() : db_;
     const auto& cfhs = secondary_db_ ? secondary_cfhs_ : column_families_;
 
     // Take a snapshot to preserve the state of primary db.

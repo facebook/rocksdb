@@ -980,11 +980,6 @@ class InternalKeySliceTransform : public SliceTransform {
     return transform_->InDomain(user_key);
   }
 
-  bool InRange(const Slice& dst) const override {
-    auto user_key = ExtractUserKey(dst);
-    return transform_->InRange(user_key);
-  }
-
   const SliceTransform* user_prefix_extractor() const { return transform_; }
 
  private:

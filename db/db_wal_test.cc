@@ -395,13 +395,13 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
     read_opts.timestamp = &ts_slice;
     ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, ts_options, persist_udt,
                                     avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
     ASSERT_OK(Put(1, "foo", ts1, "v1"));
     ASSERT_OK(Put(1, "baz", ts1, "v5"));
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt,
                                          avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
     // Do a timestamped read with ts1 after second reopen.
     CheckGet(read_opts, 1, "foo", "v1", ts1);
     CheckGet(read_opts, 1, "baz", "v5", ts1);
@@ -415,7 +415,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt,
                                          avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
     std::string ts3;
     PutFixed64(&ts3, 3);
     ASSERT_OK(Put(1, "foo", ts3, "v4"));
@@ -466,14 +466,14 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
 
   ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, ts_options, persist_udt));
   // No flush, no sst files, because of no data.
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
   ASSERT_OK(Put(1, largest_ukey_without_ts, write_ts, "v1"));
   ASSERT_OK(Put(1, smallest_ukey_without_ts, write_ts, "v5"));
 
   ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt));
   // Memtable recovered from WAL flushed because `avoid_flush_during_recovery`
   // defaults to false, created one L0 file.
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1U);
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 1U);
 
   std::vector<std::vector<FileMetaData>> level_to_files;
   dbfull()->TEST_GetFilesMetaData(handles_[1], &level_to_files);
@@ -1347,7 +1347,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), static_cast<size_t>(1));
     // Make sure 'dobrynia' was flushed: check sst files amount
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "dobrynia"),
               static_cast<uint64_t>(1));
   }
   // New WAL file
@@ -1363,16 +1363,16 @@ TEST_F(DBWALTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
                            options);
   {
     // No inserts => default is empty
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "default"),
               static_cast<uint64_t>(0));
     // First 4 keys goes to separate SSTs + 1 more SST for 2 smaller keys
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"),
               static_cast<uint64_t>(5));
     // 1 SST for big key + 1 SST for small one
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "dobrynia"),
               static_cast<uint64_t>(2));
     // 1 SST for all keys
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(1));
   }
 }
@@ -1401,7 +1401,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
   {
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), static_cast<size_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(1));
   }
   // Memtable for 'nikitich' has flushed, new WAL file has opened
@@ -1425,7 +1425,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
   {
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), static_cast<size_t>(2));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(2));
   }
 
@@ -1437,13 +1437,13 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
     // first, second and third WALs  went to the same SST.
     // So, there is 6 SSTs: three  for 'nikitich', one for 'default', one for
     // 'dobrynia', one for 'pikachu'
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "default"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(3));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "dobrynia"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"),
               static_cast<uint64_t>(1));
   }
 }
@@ -1521,9 +1521,9 @@ TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
   // from an old incarnation of the WAL on recovery
   ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("ignore1", Random::GetTLSInstance()->RandomString(500)));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(Put("ignore2", Random::GetTLSInstance()->RandomString(500)));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(db_->ContinueBackgroundWork());
   ASSERT_OK(Flush());
   ASSERT_OK(Put("ignore3", Random::GetTLSInstance()->RandomString(500)));
@@ -1545,13 +1545,13 @@ TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
   // gap in sequence numbers to interfere with recovery
   ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("key1", "val1"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(Put("key2", "val2"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   // Need a gap in sequence numbers, so e.g. ingest external file
   // with an open snapshot
   {
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
     ASSERT_OK(
         db_->IngestExternalFile({external_file1}, IngestExternalFileOptions()));
   }
@@ -1560,7 +1560,7 @@ TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
   // Need an SST file that is logically after that WAL, so that dropping WAL
   // data is not a valid point in time.
   {
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
     ASSERT_OK(
         db_->IngestExternalFile({external_file2}, IngestExternalFileOptions()));
   }
@@ -1655,10 +1655,10 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
   // with a single thread, to exercise as much logic as we reasonably can.
   ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("key1", "val1"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(db_->SyncWAL());
   ASSERT_OK(Put("key2", "val2"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(Put("key3", "val3"));
 
   // Allow 1 of the WALs to sync, but another won't
@@ -1879,9 +1879,11 @@ TEST_F(DBWALTest, TrackAndVerifyWALsRecycleWAL) {
   // Drop `Put("key1", "old_value")` in the first WAL
   ASSERT_OK(test::TruncateFile(options.env, log_name, 0 /* new_length */));
 
-  Status s = DB::Open(options, dbname_, &db_);
+  {
+    Status s = DB::Open(options, dbname_, &db_);
 
-  ASSERT_OK(s);
+    ASSERT_OK(s);
+  }
 
   ASSERT_EQ("wal_to_recycle", Get("key_ignore2"));
   ASSERT_EQ("NOT_FOUND", Get("key1"));
@@ -1979,7 +1981,10 @@ TEST_P(DBWALTrackAndVerifyWALsWithParamsTest, Basic) {
       ASSERT_OK(options.env->DeleteFile(second_log_name));
     }
 
-    Status s = DB::Open(options, dbname_, &db_);
+    Status s;
+    {
+      s = DB::Open(options, dbname_, &db_);
+    }
 
     if (i == 0) {
       ASSERT_OK(s);
@@ -2266,11 +2271,10 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  DB* db1 = nullptr;
+  std::unique_ptr<DB> db1;
   Status s = DB::OpenForReadOnly(options, dbname_, &db1);
   ASSERT_OK(s);
   assert(db1);
-  delete db1;
 }
 
 TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {

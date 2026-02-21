@@ -7,6 +7,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/utilities/options_type.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -77,7 +78,7 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, OptSlice begin_key,
   }
   key_versions->clear();
 
-  DBImpl* idb = static_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* idb = static_cast_with_check<DBImpl>(db->GetRootDB());
   auto icmp = InternalKeyComparator(idb->GetOptions(cfh).comparator);
   ReadOptions read_options;
   Arena arena;

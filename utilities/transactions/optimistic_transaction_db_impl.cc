@@ -73,7 +73,7 @@ Status OptimisticTransactionDB::Open(
     std::vector<ColumnFamilyHandle*>* handles,
     OptimisticTransactionDB** dbptr) {
   Status s;
-  DB* db;
+  std::unique_ptr<DB> db;
 
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
 
@@ -91,7 +91,7 @@ Status OptimisticTransactionDB::Open(
   s = DB::Open(db_options, dbname, column_families_copy, handles, &db);
 
   if (s.ok()) {
-    *dbptr = new OptimisticTransactionDBImpl(db, occ_options);
+    *dbptr = new OptimisticTransactionDBImpl(std::move(db), occ_options);
   }
 
   return s;

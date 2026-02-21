@@ -83,7 +83,8 @@ IOStatus GenerateOneFileChecksum(
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    const ReadOptions& read_options, Statistics* stats, SystemClock* clock);
+    const ReadOptions& read_options, Statistics* stats, SystemClock* clock,
+    const FileOptions& file_options);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts,

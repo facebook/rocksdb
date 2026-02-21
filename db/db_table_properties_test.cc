@@ -69,14 +69,6 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
 
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
-    // Use old meta name for table properties for one file
-    if (table == 3) {
-      SyncPoint::GetInstance()->SetCallBack(
-          "BlockBasedTableBuilder::WritePropertiesBlock:Meta", [&](void* meta) {
-            *static_cast<const std::string**>(meta) = &kPropertiesBlockOldName;
-          });
-      SyncPoint::GetInstance()->EnableProcessing();
-    }
     // Build file
     for (int i = 0; i < 10 + table; ++i) {
       ASSERT_OK(
@@ -84,7 +76,6 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
-  SyncPoint::GetInstance()->DisableProcessing();
   std::string original_session_id;
   ASSERT_OK(db_->GetDbSessionId(original_session_id));
 
@@ -99,7 +90,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // Clear out auto-opened files
   dbfull()->TEST_table_cache()->EraseUnRefEntries();
   ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+  VerifyTableProperties(db_.get(), 10 + 11 + 12 + 13);
 
   // 2. Put two tables to table cache and
   Reopen(options);
@@ -112,7 +103,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     Get(std::to_string(i * 100 + 0));
   }
 
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+  VerifyTableProperties(db_.get(), 10 + 11 + 12 + 13);
 
   // 3. Put all tables to table cache
   Reopen(options);
@@ -120,7 +111,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   for (int i = 0; i < 4; ++i) {
     Get(std::to_string(i * 100 + 0));
   }
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+  VerifyTableProperties(db_.get(), 10 + 11 + 12 + 13);
 
   // 4. Try to read CORRUPT properties (a) directly from file, and (b)
   // through reader on Get
@@ -169,10 +160,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBTablePropertiesTest, InvalidIgnored) {
-  // RocksDB versions 2.5 - 2.7 generate some properties that Block considers
-  // invalid in some way. This approximates that.
-
+TEST_F(DBTablePropertiesTest, InvalidReportedAsCorruption) {
   // Inject properties block data that Block considers invalid
   SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTableBuilder::WritePropertiesBlock:BlockData",
@@ -189,13 +177,10 @@ TEST_F(DBTablePropertiesTest, InvalidIgnored) {
   for (int i = 0; i < 10; ++i) {
     ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), "val"));
   }
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  // Corrupted properties block should be detected and reported as corruption
+  ASSERT_TRUE(db_->Flush(FlushOptions()).IsCorruption());
 
   SyncPoint::GetInstance()->DisableProcessing();
-
-  // Not crashing is good enough
-  TablePropertiesCollection props;
-  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
 }
 
 TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {

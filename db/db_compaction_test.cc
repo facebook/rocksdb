@@ -2208,7 +2208,8 @@ TEST_P(DBDeleteFileRangeTest, DeleteFileRange) {
   std::string end_string = Key(2000);
   Slice begin(begin_string);
   Slice end(end_string);
-  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  ASSERT_OK(
+      DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin, &end));
 
   int32_t deleted_count = 0;
   for (int32_t i = 0; i < 4300; i++) {
@@ -2229,8 +2230,8 @@ TEST_P(DBDeleteFileRangeTest, DeleteFileRange) {
   Slice begin1(begin_string);
   Slice end1(end_string);
   // Try deleting files in range which contain no keys
-  ASSERT_OK(
-      DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin1, &end1));
+  ASSERT_OK(DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin1,
+                               &end1));
 
   // Push data from level 0 to level 1 to force all data to be deleted
   // Note that we don't delete level 0 files
@@ -2239,8 +2240,8 @@ TEST_P(DBDeleteFileRangeTest, DeleteFileRange) {
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  ASSERT_OK(
-      DeleteFilesInRange(db_, db_->DefaultColumnFamily(), nullptr, nullptr));
+  ASSERT_OK(DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), nullptr,
+                               nullptr));
 
   int32_t deleted_count2 = 0;
   for (int32_t i = 0; i < 4300; i++) {
@@ -2308,7 +2309,7 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     ranges.emplace_back(begin_str1, end_str1);
     ranges.emplace_back(begin_str2, end_str2);
     ranges.emplace_back(begin_str3, end_str3);
-    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
+    ASSERT_OK(DeleteFilesInRanges(db_.get(), db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
 
@@ -2335,7 +2336,7 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     ranges.emplace_back(&begin1, &end1);
     ranges.emplace_back(&begin2, &end2);
     ranges.emplace_back(&begin3, &end3);
-    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
+    ASSERT_OK(DeleteFilesInRanges(db_.get(), db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size(), false));
     ASSERT_EQ("0,1,4", FilesPerLevel(0));
 
@@ -2356,7 +2357,8 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
   // Delete all files.
   {
     RangeOpt range;
-    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
+    ASSERT_OK(
+        DeleteFilesInRanges(db_.get(), db_->DefaultColumnFamily(), &range, 1));
     ASSERT_EQ("", FilesPerLevel(0));
 
     for (auto i = 0; i < 1000; i++) {
@@ -2418,7 +2420,8 @@ TEST_P(DBDeleteFileRangeTest, DeleteFileRangeFileEndpointsOverlapBug) {
   // "1 -> vals[0]" to reappear.
   std::string begin_str = Key(0), end_str = Key(1);
   Slice begin = begin_str, end = end_str;
-  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  ASSERT_OK(
+      DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin, &end));
   ASSERT_EQ(vals[1], GetValue(Key(1)));
 
   db_->ReleaseSnapshot(snapshot);
@@ -3657,7 +3660,7 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-  ASSERT_OK(experimental::SuggestCompactRange(db_, nullptr, nullptr));
+  ASSERT_OK(experimental::SuggestCompactRange(db_.get(), nullptr, nullptr));
   for (int num = 0; num < options.level0_file_num_compaction_trigger + 1;
        num++) {
     GenerateNewRandomFile(&rnd, /* nowait */ true);
@@ -4533,7 +4536,8 @@ TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
   std::string end_string = Key(kMaxKey + 1);
   Slice begin(begin_string);
   Slice end(end_string);
-  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  ASSERT_OK(
+      DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin, &end));
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -7840,7 +7844,7 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
       options_.level0_file_num_compaction_trigger = 3;
 
       CompactionOptionsFIFO fifo_options;
-      if (compaction_path_to_test == "FindIntraL0Compaction" ||
+      if (compaction_path_to_test == "PickCostBasedIntraL0Compaction" ||
           compaction_path_to_test == "CompactRange") {
         fifo_options.allow_compaction = true;
       } else if (compaction_path_to_test == "CompactFile") {
@@ -7940,7 +7944,7 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
 
   void SetupSyncPoints(const std::string& compaction_path_to_test) {
     compaction_path_sync_point_called_.store(false);
-    if (compaction_path_to_test == "FindIntraL0Compaction" &&
+    if (compaction_path_to_test == "PickCostBasedIntraL0Compaction" &&
         options_.compaction_style == CompactionStyle::kCompactionStyleLevel) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "PostPickFileToCompact", [&](void* arg) {
@@ -7950,7 +7954,7 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
             *picked_file_to_compact = false;
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "FindIntraL0Compaction", [&](void* /*arg*/) {
+          "PickCostBasedIntraL0Compaction", [&](void* /*arg*/) {
             compaction_path_sync_point_called_.store(true);
           });
 
@@ -7986,12 +7990,12 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
           "PickDeleteTriggeredCompactionReturnNonnullptr", [&](void* /*arg*/) {
             compaction_path_sync_point_called_.store(true);
           });
-    } else if ((compaction_path_to_test == "FindIntraL0Compaction" ||
+    } else if ((compaction_path_to_test == "PickCostBasedIntraL0Compaction" ||
                 compaction_path_to_test == "CompactRange") &&
                options_.compaction_style ==
                    CompactionStyle::kCompactionStyleFIFO) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "FindIntraL0Compaction", [&](void* /*arg*/) {
+          "PickCostBasedIntraL0Compaction", [&](void* /*arg*/) {
             compaction_path_sync_point_called_.store(true);
           });
     }
@@ -8063,7 +8067,7 @@ TEST_F(DBCompactionTest, CompactFilesSupportKeyPlacementRangeConflict) {
   ASSERT_OK(Flush());
   ASSERT_OK(Put("k4", "v"));
   ASSERT_OK(Flush());
-  ASSERT_OK(experimental::PromoteL0(db_, db_->DefaultColumnFamily(), 1));
+  ASSERT_OK(experimental::PromoteL0(db_.get(), db_->DefaultColumnFamily(), 1));
   ASSERT_EQ("0,2,1", FilesPerLevel());
 
   ASSERT_OK(Put("k2", "v"));
@@ -8151,7 +8155,7 @@ TEST_F(DBCompactionTestL0FilesMisorderCorruption,
     IngestOneKeyValue(dbfull(), Key(i), "new", options_);
   }
 
-  SetupSyncPoints("FindIntraL0Compaction");
+  SetupSyncPoints("PickCostBasedIntraL0Compaction");
   ResumeCompactionThread();
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -8284,7 +8288,8 @@ TEST_F(DBCompactionTestL0FilesMisorderCorruption,
 
 TEST_F(DBCompactionTestL0FilesMisorderCorruption,
        FlushAfterIntraL0FIFOCompactionWithIngestedFile) {
-  for (const std::string compaction_path_to_test : {"FindIntraL0Compaction"}) {
+  for (const std::string compaction_path_to_test :
+       {"PickCostBasedIntraL0Compaction"}) {
     SetupOptions(CompactionStyle::kCompactionStyleFIFO,
                  compaction_path_to_test);
     DestroyAndReopen(options_);

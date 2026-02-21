@@ -111,8 +111,6 @@ class CompactionOptionsUniversal {
   // Default: false
   bool incremental;
 
-  // EXPERIMENTAL
-  //
   // If true, auto universal compaction picking will adjust to minimize locking
   // of input files when bottom priority compactions are waiting to run. This
   // can increase the likelihood of existing L0s being selected for compaction,
@@ -120,7 +118,7 @@ class CompactionOptionsUniversal {
   // the overrall write amplification and compaction load on low priority
   // threads.
   //
-  // Default: false (disabled)
+  // Default: true (enabled)
   //
   // This options does not apply to manual compactions.
   //
@@ -142,7 +140,7 @@ class CompactionOptionsUniversal {
         stop_style(kCompactionStopStyleTotalSize),
         allow_trivial_move(false),
         incremental(false),
-        reduce_file_locking(false) {}
+        reduce_file_locking(true) {}
 
   bool operator==(const CompactionOptionsUniversal& rhs) const = default;
 };

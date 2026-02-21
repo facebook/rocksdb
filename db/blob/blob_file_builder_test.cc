@@ -403,22 +403,19 @@ TEST_F(BlobFileBuilderTest, Compression) {
   ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
   ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
 
-  CompressionOptions opts;
-  CompressionContext context(kSnappyCompression, opts);
-
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       kSnappyCompression);
-
-  std::string compressed_value;
-  ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),
-                              uncompressed_value.size(), &compressed_value));
+  auto compressor =
+      GetBuiltinV2CompressionManager()->GetCompressor({}, kSnappyCompression);
+  GrowableBuffer compressed_value;
+  ASSERT_OK(LegacyForceBuiltinCompression(*compressor, /*working_area=*/nullptr,
+                                          uncompressed_value,
+                                          &compressed_value));
 
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
             BlobLogRecord::kHeaderSize + key_size + compressed_value.size());
 
   // Verify the contents of the new blob file as well as the blob reference
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs{
-      {key, compressed_value}};
+      {key, compressed_value.AsSlice().ToString()}};
   std::vector<std::string> blob_indexes{blob_index};
 
   VerifyBlobFile(blob_file_number, blob_file_path, column_family_id,

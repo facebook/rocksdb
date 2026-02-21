@@ -76,7 +76,7 @@ class FaultInjectionTest
   std::string dbname_;
   std::shared_ptr<Cache> tiny_cache_;
   Options options_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
 
   FaultInjectionTest()
       : option_config_(std::get<1>(GetParam())),
@@ -260,10 +260,7 @@ class FaultInjectionTest
     return Slice(*storage);
   }
 
-  void CloseDB() {
-    delete db_;
-    db_ = nullptr;
-  }
+  void CloseDB() { db_.reset(); }
 
   Status OpenDB() {
     CloseDB();
@@ -348,7 +345,8 @@ class FaultInjectionTest
   }
 
   void WaitCompactionFinish() {
-    ASSERT_OK(static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact());
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_->GetRootDB())
+                  ->TEST_WaitForCompact());
     ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   }
 

@@ -82,7 +82,7 @@ class CompactionJobStatsTest : public testing::Test,
   std::string dbname_;
   std::string alternative_wal_dir_;
   Env* env_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   std::vector<ColumnFamilyHandle*> handles_;
   uint32_t max_subcompactions_;
 
@@ -123,7 +123,7 @@ class CompactionJobStatsTest : public testing::Test,
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options) {
@@ -162,7 +162,8 @@ class CompactionJobStatsTest : public testing::Test,
       column_families.emplace_back(cfs[i], options[i]);
     }
     DBOptions db_opts = DBOptions(options[0]);
-    return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
+    auto s = DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
+    return s;
   }
 
   Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
@@ -179,8 +180,7 @@ class CompactionJobStatsTest : public testing::Test,
       delete h;
     }
     handles_.clear();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
   }
 
   void DestroyAndReopen(const Options& options) {
@@ -743,7 +743,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     }
 
     ASSERT_OK(Flush(1));
-    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForCompact());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
     stats_checker->set_verify_next_comp_io_stats(true);
     std::atomic<bool> first_prepare_write(true);
@@ -944,7 +944,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
        start_key += key_base) {
     MakeTableWithKeyValues(&rnd, start_key, start_key + key_base - 1, kKeySize,
                            kValueSize, key_interval, compression_ratio, 1);
-    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForCompact());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }

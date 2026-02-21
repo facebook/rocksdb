@@ -709,7 +709,7 @@ class TestFlushListener : public EventListener {
     // that assumption does not hold (see the test case MultiDBMultiListeners
     // below).
     ASSERT_TRUE(test_);
-    if (db == test_->db_) {
+    if (db == test_->db_.get()) {
       std::vector<std::vector<FileMetaData>> files_by_level;
       test_->dbfull()->TEST_GetFilesMetaData(db->DefaultColumnFamily(),
                                              &files_by_level);
@@ -2533,7 +2533,7 @@ TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
 
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value0"));
 
-  ManagedSnapshot snapshot_guard(db_);
+  ManagedSnapshot snapshot_guard(db_.get());
 
   ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
   ASSERT_OK(db_->Flush(FlushOptions(), default_cf));
@@ -2574,7 +2574,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
   ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
   ASSERT_NE(txn_db, nullptr);
-  db_ = txn_db;
+  db_.reset(txn_db);
 
   // Create two more columns other than default CF.
   std::vector<std::string> cfs = {"puppy", "kitty"};
@@ -2638,9 +2638,8 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
-  DBImpl* db_impl = static_cast<DBImpl*>(db_);
-  ASSERT_TRUE(db_impl->allow_2pc());
-  ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
+  ASSERT_TRUE(dbfull()->allow_2pc());
+  ASSERT_NE(dbfull()->MinLogNumberToKeep(), 0);
 }
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {

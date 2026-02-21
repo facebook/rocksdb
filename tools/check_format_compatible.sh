@@ -159,8 +159,9 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 
 # Branches (git refs) to check for DB backward compatibility (new version
 # reading data from old) (in addition to the "forward compatible" list)
-# NOTE: 2.7.fb.branch shows assertion violation in some configurations
-declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
+# NOTE: format_version < 2 support was removed, so we only test back to 4.6.fb
+# (when format_version=2 became the default)
+declare -a db_backward_only_refs=("4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list
@@ -218,6 +219,17 @@ compare_db()
     [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
+        exit 1
+    fi
+    set -e
+}
+
+compact_db()
+{
+    set +e
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/compact_db.sh "$1" "$2" "$3"
+    if [ $? -ne 0 ]; then
+        echo ==== Error compacting DB at $1 ====
         exit 1
     fi
     set -e
@@ -355,6 +367,13 @@ do
   then
     echo "== Use $checkout_ref to open DB generated using $current_checkout_name..."
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
+
+    echo "== Use $checkout_ref to compact a copy of DB generated using $current_checkout_name..."
+    [ "$SANITY_CHECK" ] || cp -a $current_db_test_dir ${current_db_test_dir}_copy_for_${checkout_ref}
+    compact_db ${current_db_test_dir}_copy_for_${checkout_ref} 0
+
+    echo "== After compaction, re-verify DB copy originally from $current_checkout_name..."
+    compare_db ${current_db_test_dir}_copy_for_${checkout_ref} $current_db_test_dir forward_${checkout_ref}_dump_after_compact.txt 0
   fi
 
   if member_of_array "$checkout_ref" "${db_forward_with_options_refs[@]}"
@@ -387,9 +406,15 @@ DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 for checkout_ref in "${checkout_refs[@]}"
 do
-  # We currently assume DB backward compatibility for every branch listed
+  # We assume DB backward compatibility for every branch listed
   echo "== Use $current_checkout_name to open DB generated using $checkout_ref..."
   compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
+
+  echo "== Use $current_checkout_name to compact DB generated using $checkout_ref..."
+  compact_db $db_test_dir/$checkout_ref 1 0
+
+  echo "== After compaction, re-verify DB originally from $checkout_ref..."
+  compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump_after_compact.txt 1 0
 
   if member_of_array "$checkout_ref" "${ext_backward_only_refs[@]}" ||
     member_of_array "$checkout_ref" "${ext_forward_refs[@]}"

@@ -66,7 +66,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
       break;
     }
     default: {
-      assert(!"Do not recognize the index type ");
+      assert(false && "Do not recognize the index type ");
       break;
     }
   }

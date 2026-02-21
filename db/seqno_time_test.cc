@@ -661,14 +661,14 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
   options.stats_dump_period_sec = 0;
   options.stats_persist_period_sec = 0;
 
-  auto dbs = std::vector<DB*>(kInstanceNum);
+  auto dbs = std::vector<std::unique_ptr<DB>>(kInstanceNum);
   for (int i = 0; i < kInstanceNum; i++) {
     ASSERT_OK(
         DB::Open(options, test::PerThreadDBPath(std::to_string(i)), &(dbs[i])));
   }
 
   // Make sure the second instance has the worker enabled
-  auto dbi = static_cast_with_check<DBImpl>(dbs[1]);
+  auto dbi = static_cast_with_check<DBImpl>(dbs[1].get());
   WriteOptions wo;
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(dbi->Put(wo, Key(i), "value"));
@@ -680,7 +680,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
 
   for (int i = 0; i < kInstanceNum; i++) {
     ASSERT_OK(dbs[i]->Close());
-    delete dbs[i];
+    dbs[i].reset();
   }
 }
 
@@ -792,8 +792,8 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   }
   ASSERT_GT(num_seqno_zeroing, 0);
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
-                              &key_versions));
+  ASSERT_OK(GetAllKeyVersions(
+      db_.get(), {}, {}, std::numeric_limits<size_t>::max(), &key_versions));
   // make sure there're more than 300 keys and first 100 keys are having seqno
   // zeroed out, the last 100 key seqno not zeroed out
   ASSERT_GT(key_versions.size(), 300);

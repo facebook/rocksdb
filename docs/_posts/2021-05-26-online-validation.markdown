@@ -1,7 +1,7 @@
 ---
 title: Online Validation
 layout: post
-author: sdong
+author: siying
 category: blog
 ---
 To prevent or mitigate data corrution in RocksDB when some software or hardware issues happens, we keep adding online consistency checks and improving existing ones.

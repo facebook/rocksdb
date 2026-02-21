@@ -50,7 +50,7 @@ CompressedSecondaryCache::CompressedSecondaryCache(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
               cache_))),
       disable_cache_(opts.capacity == 0) {
-  auto mgr = GetBuiltinCompressionManager(/*compression_format_version=*/2);
+  auto mgr = GetBuiltinV2CompressionManager();
   compressor_ = mgr->GetCompressor(cache_options_.compression_opts,
                                    cache_options_.compression_type);
   decompressor_ =

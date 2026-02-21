@@ -2264,7 +2264,7 @@ Status DB::OpenAndTrimHistory(
     return s;
   }
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   s = DB::Open(db_options, dbname, column_families, handles, &db);
   if (!s.ok()) {
     return s;
@@ -2273,7 +2273,7 @@ Status DB::OpenAndTrimHistory(
   CompactRangeOptions options;
   options.bottommost_level_compaction =
       BottommostLevelCompaction::kForceOptimized;
-  auto db_impl = static_cast_with_check<DBImpl>(db);
+  auto db_impl = static_cast_with_check<DBImpl>(db.get());
   for (auto handle : *handles) {
     assert(handle != nullptr);
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
@@ -2295,14 +2295,14 @@ Status DB::OpenAndTrimHistory(
       assert(temp_s.ok());
     }
     handles->clear();
-    delete db;
+    db.reset();
   };
   if (!s.ok()) {
     clean_op();
     return s;
   }
 
-  dbptr->reset(db);
+  *dbptr = std::move(db);
   return s;
 }
 

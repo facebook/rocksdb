@@ -31,7 +31,9 @@ void Multiplier(void* arg1, void* arg2) {
 TEST_F(CleanableTest, Register) {
   int n2 = 2, n3 = 3;
   int res = 1;
-  { Cleanable c1; }
+  {
+    Cleanable c1;
+  }
   // ~Cleanable
   ASSERT_EQ(1, res);
 

@@ -1717,8 +1717,8 @@ TEST_P(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
 
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
-                              &key_versions));
+  ASSERT_OK(GetAllKeyVersions(
+      db_.get(), {}, {}, std::numeric_limits<size_t>::max(), &key_versions));
 
   // make sure there're more than 300 keys and first 100 keys are having seqno
   // zeroed out, the last 100 key seqno not zeroed out
@@ -2319,8 +2319,8 @@ TEST_P(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
 
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
-                              &key_versions));
+  ASSERT_OK(GetAllKeyVersions(
+      db_.get(), {}, {}, std::numeric_limits<size_t>::max(), &key_versions));
 
   // make sure there're more than 300 keys and first 100 keys are having seqno
   // zeroed out, the last 100 key seqno not zeroed out

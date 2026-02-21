@@ -105,7 +105,7 @@ class TestCompactionListener : public EventListener {
     ASSERT_EQ(ci.output_files.size(), ci.output_file_infos.size());
 
     ASSERT_TRUE(test_);
-    ASSERT_EQ(test_->db_, db);
+    ASSERT_EQ(test_->db_.get(), db);
 
     std::vector<std::vector<FileMetaData>> files_by_level;
     test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[ci.cf_id],
@@ -197,7 +197,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
 
   ASSERT_EQ(listener->compacted_dbs_.size(), cf_names.size());
   for (size_t i = 0; i < cf_names.size(); ++i) {
-    ASSERT_EQ(listener->compacted_dbs_[i], db_);
+    ASSERT_EQ(listener->compacted_dbs_[i], db_.get());
   }
 }
 
@@ -268,7 +268,7 @@ class TestFlushListener : public EventListener {
     // that assumption does not hold (see the test case MultiDBMultiListeners
     // below).
     ASSERT_TRUE(test_);
-    if (db == test_->db_) {
+    if (db == test_->db_.get()) {
       std::vector<std::vector<FileMetaData>> files_by_level;
       ASSERT_LT(info.cf_id, test_->handles_.size());
       ASSERT_GE(info.cf_id, 0u);
@@ -343,7 +343,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 
   // make sure callback functions are called in the right order
   for (size_t i = 0; i < cf_names.size(); ++i) {
-    ASSERT_EQ(listener->flushed_dbs_[i], db_);
+    ASSERT_EQ(listener->flushed_dbs_[i], db_.get());
     ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
   }
 }
@@ -387,7 +387,7 @@ TEST_F(EventListenerTest, MultiCF) {
       // make sure callback functions are called in the right order
       if (i == 7) {
         for (size_t j = 0; j < cf_names.size(); j++) {
-          ASSERT_EQ(listener->flushed_dbs_[j], db_);
+          ASSERT_EQ(listener->flushed_dbs_[j], db_.get());
           ASSERT_EQ(listener->flushed_column_family_names_[j], cf_names[j]);
         }
       }
@@ -422,22 +422,21 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   DBOptions db_opts(options);
   ColumnFamilyOptions cf_opts(options);
 
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
 
   for (int d = 0; d < kNumDBs; ++d) {
     ASSERT_OK(DestroyDB(dbname_ + std::to_string(d), options));
-    DB* db;
+    ASSERT_OK(
+        DB::Open(options, dbname_ + std::to_string(d), &dbs.emplace_back()));
     std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_OK(DB::Open(options, dbname_ + std::to_string(d), &db));
     for (size_t c = 0; c < cf_names.size(); ++c) {
       ColumnFamilyHandle* handle;
-      ASSERT_OK(db->CreateColumnFamily(cf_opts, cf_names[c], &handle));
+      ASSERT_OK(dbs.back()->CreateColumnFamily(cf_opts, cf_names[c], &handle));
       handles.push_back(handle);
     }
 
     vec_handles.push_back(std::move(handles));
-    dbs.push_back(db);
   }
 
   for (int d = 0; d < kNumDBs; ++d) {
@@ -450,23 +449,23 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   for (size_t c = 0; c < cf_names.size(); ++c) {
     for (int d = 0; d < kNumDBs; ++d) {
       ASSERT_OK(dbs[d]->Flush(FlushOptions(), vec_handles[d][c]));
-      ASSERT_OK(
-          static_cast_with_check<DBImpl>(dbs[d])->TEST_WaitForFlushMemTable());
+      ASSERT_OK(static_cast_with_check<DBImpl>(dbs[d].get())
+                    ->TEST_WaitForFlushMemTable());
     }
   }
 
   for (int d = 0; d < kNumDBs; ++d) {
     // Ensure background work is fully finished including listener callbacks
     // before accessing listener state.
-    ASSERT_OK(
-        static_cast_with_check<DBImpl>(dbs[d])->TEST_WaitForBackgroundWork());
+    ASSERT_OK(static_cast_with_check<DBImpl>(dbs[d].get())
+                  ->TEST_WaitForBackgroundWork());
   }
 
   for (auto* listener : listeners) {
     int pos = 0;
     for (size_t c = 0; c < cf_names.size(); ++c) {
       for (int d = 0; d < kNumDBs; ++d) {
-        ASSERT_EQ(listener->flushed_dbs_[pos], dbs[d]);
+        ASSERT_EQ(listener->flushed_dbs_[pos], dbs[d].get());
         ASSERT_EQ(listener->flushed_column_family_names_[pos], cf_names[c]);
         pos++;
       }
@@ -481,8 +480,8 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   }
   vec_handles.clear();
 
-  for (auto db : dbs) {
-    delete db;
+  for (auto& db : dbs) {
+    db.reset();
   }
 }
 
@@ -1309,16 +1308,21 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   explicit BlobDBJobLevelEventListenerTest(EventListenerTest* test)
       : test_(test), call_count_(0) {}
 
-  const VersionStorageInfo* GetVersionStorageInfo() const {
-    VersionSet* const versions = test_->dbfull()->GetVersionSet();
+  // NOTE: it's not safe to rely on test_->db_ for these functions because
+  // the DB may be in the process of closing when these are called, and the
+  // unique_ptr is set to nullptr before invoking ~DB()
+
+  const VersionStorageInfo* GetVersionStorageInfo(DB* db) const {
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
+    VersionSet* const versions = db_impl->GetVersionSet();
     assert(versions);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
     EXPECT_NE(cfd, nullptr);
 
-    test_->dbfull()->TEST_LockMutex();
+    db_impl->TEST_LockMutex();
     Version* const current = cfd->current();
-    test_->dbfull()->TEST_UnlockMutex();
+    db_impl->TEST_UnlockMutex();
     EXPECT_NE(current, nullptr);
 
     const VersionStorageInfo* const storage_info = current->storage_info();
@@ -1328,8 +1332,9 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   }
 
   void CheckBlobFileAdditions(
+      DB* db,
       const std::vector<BlobFileAdditionInfo>& blob_file_addition_infos) const {
-    const auto* vstorage = GetVersionStorageInfo();
+    const auto* vstorage = GetVersionStorageInfo(db);
 
     EXPECT_FALSE(blob_file_addition_infos.empty());
 
@@ -1357,7 +1362,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     return result;
   }
 
-  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       IncreaseCallCount(/*mutex_locked*/ true);
@@ -1366,16 +1371,15 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
 
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    CheckBlobFileAdditions(info.blob_file_addition_infos);
+    CheckBlobFileAdditions(db, info.blob_file_addition_infos);
   }
 
-  void OnCompactionCompleted(DB* /*db*/,
-                             const CompactionJobInfo& info) override {
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     IncreaseCallCount(/*mutex_locked*/ false);
 
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    CheckBlobFileAdditions(info.blob_file_addition_infos);
+    CheckBlobFileAdditions(db, info.blob_file_addition_infos);
 
     EXPECT_FALSE(info.blob_file_garbage_infos.empty());
 

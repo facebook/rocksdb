@@ -469,8 +469,6 @@ class DBImpl : public DB {
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* column_family) override;
-  using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override;
   using DB::Level0StopWriteTrigger;
   int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) override;
   const std::string& GetName() const override;

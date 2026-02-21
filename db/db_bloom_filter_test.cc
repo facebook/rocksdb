@@ -137,11 +137,6 @@ class SliceTransformLimitedDomainGeneric : public SliceTransform {
     // prefix will be x????
     return src.size() >= 5;
   }
-
-  bool InRange(const Slice& dst) const override {
-    // prefix will be x????
-    return dst.size() == 5;
-  }
 };
 
 // KeyMayExist can lead to a few false positives, but not false negatives.
@@ -922,14 +917,14 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kCoupledPartitionedFilter,
-                        kLatestFormatVersion),
+                        kLatestBbtFormatVersion),
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kDecoupledPartitionedFilter,
-                        kLatestFormatVersion),
+                        kLatestBbtFormatVersion),
         std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
-                        kLatestFormatVersion),
+                        kLatestBbtFormatVersion),
         std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
-                        kLatestFormatVersion)));
+                        kLatestBbtFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -2076,11 +2071,6 @@ class SliceTransformLimitedDomain : public SliceTransform {
   bool InDomain(const Slice& src) const override {
     // prefix will be x????
     return src.size() >= 5 && src[0] == 'x';
-  }
-
-  bool InRange(const Slice& dst) const override {
-    // prefix will be x????
-    return dst.size() == 5 && dst[0] == 'x';
   }
 };
 
@@ -4145,7 +4135,7 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
 
   using Keys = std::vector<std::string>;
   auto RangeQuery =
-      [factory, db = db_](
+      [factory, db = db_.get()](
           std::string lb, std::string ub,
           std::shared_ptr<SstQueryFilterConfigsManager::Factory> alt_factory =
               nullptr) {

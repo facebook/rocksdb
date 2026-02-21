@@ -46,7 +46,7 @@ class CheckpointTest : public testing::Test {
   std::string dbname_;
   std::string alternative_wal_dir_;
   Env* env_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   Options last_options_;
   std::vector<ColumnFamilyHandle*> handles_;
   std::string snapshot_name_;
@@ -65,7 +65,7 @@ class CheckpointTest : public testing::Test {
     EXPECT_OK(DestroyDB(dbname_, delete_options));
     // Destroy it for not alternative WAL dir is used.
     EXPECT_OK(DestroyDB(dbname_, options));
-    db_ = nullptr;
+    db_.reset();
     snapshot_name_ = test::PerThreadDBPath(env_, "snapshot");
     std::string snapshot_tmp_name = snapshot_name_ + ".tmp";
     EXPECT_OK(DestroyDB(snapshot_name_, options));
@@ -101,6 +101,8 @@ class CheckpointTest : public testing::Test {
     EXPECT_OK(DestroyDB(snapshot_name_, options));
     DestroyDir(env_, export_path_).PermitUncheckedError();
   }
+
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   // Return the current option configuration.
   Options CurrentOptions() {
@@ -170,8 +172,7 @@ class CheckpointTest : public testing::Test {
       delete h;
     }
     handles_.clear();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
   }
 
   void DestroyAndReopen(const Options& options) {
@@ -268,14 +269,12 @@ class CheckpointTest : public testing::Test {
 TEST_F(CheckpointTest, GetSnapshotLink) {
   for (uint64_t log_size_for_flush : {0, 1000000}) {
     Options options;
-    DB* snapshotDB;
     ReadOptions roptions;
     std::string result;
     Checkpoint* checkpoint;
 
     options = CurrentOptions();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, options));
 
     // Create a database
@@ -284,7 +283,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     std::string key = std::string("foo");
     ASSERT_OK(Put(key, "v1"));
     // Take a snapshot
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, log_size_for_flush));
     ASSERT_OK(Put(key, "v2"));
     ASSERT_EQ("v2", Get(key));
@@ -292,13 +291,12 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     ASSERT_EQ("v2", Get(key));
     // Open snapshot and verify contents while DB is running
     options.create_if_missing = false;
+    std::unique_ptr<DB> snapshotDB;
     ASSERT_OK(DB::Open(options, snapshot_name_, &snapshotDB));
     ASSERT_OK(snapshotDB->Get(roptions, key, &result));
     ASSERT_EQ("v1", result);
-    delete snapshotDB;
-    snapshotDB = nullptr;
-    delete db_;
-    db_ = nullptr;
+    snapshotDB.reset();
+    db_.reset();
 
     // Destroy original DB
     ASSERT_OK(DestroyDB(dbname_, options));
@@ -308,8 +306,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     dbname_ = snapshot_name_;
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     ASSERT_EQ("v1", Get(key));
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, options));
     delete checkpoint;
 
@@ -335,7 +332,7 @@ TEST_F(CheckpointTest, CheckpointWithBlob) {
 
   // Create a checkpoint
   Checkpoint* checkpoint = nullptr;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
 
   std::unique_ptr<Checkpoint> checkpoint_guard(checkpoint);
 
@@ -360,10 +357,8 @@ TEST_F(CheckpointTest, CheckpointWithBlob) {
 
   // Make sure the checkpoint can be opened and the blob value read
   options.create_if_missing = false;
-  DB* checkpoint_db = nullptr;
+  std::unique_ptr<DB> checkpoint_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &checkpoint_db));
-
-  std::unique_ptr<DB> checkpoint_db_guard(checkpoint_db);
 
   PinnableSlice value;
   ASSERT_OK(checkpoint_db->Get(
@@ -393,7 +388,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
     ASSERT_OK(Put(key, "v1"));
 
     Checkpoint* checkpoint;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
 
     // Export the Tables and verify
     ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
@@ -427,7 +422,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
     ASSERT_OK(db_->Put(WriteOptions(), cfh_reverse_comp_, key, "v1"));
 
     Checkpoint* checkpoint;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
 
     // Export the Tables and verify
     ASSERT_OK(checkpoint->ExportColumnFamily(cfh_reverse_comp_, export_path_,
@@ -449,7 +444,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   ASSERT_OK(Put(key, "v1"));
 
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
 
   // Export onto existing directory
   ASSERT_OK(env_->CreateDirIfMissing(export_path_));
@@ -482,7 +477,6 @@ TEST_F(CheckpointTest, CheckpointCF) {
   ASSERT_OK(Put(4, "four", "four"));
   ASSERT_OK(Put(5, "five", "five"));
 
-  DB* snapshotDB;
   ReadOptions roptions;
   std::string result;
   std::vector<ColumnFamilyHandle*> cphandles;
@@ -490,7 +484,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   // Take a snapshot
   ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
     delete checkpoint;
   });
@@ -519,6 +513,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   for (size_t i = 0; i < cfs.size(); ++i) {
     column_families.emplace_back(cfs[i], options);
   }
+  std::unique_ptr<DB> snapshotDB;
   ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
                      &snapshotDB));
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "Default", &result));
@@ -530,8 +525,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
     delete h;
   }
   cphandles.clear();
-  delete snapshotDB;
-  snapshotDB = nullptr;
+  snapshotDB.reset();
 }
 
 TEST_F(CheckpointTest, CheckpointCFNoFlush) {
@@ -545,7 +539,6 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   ASSERT_OK(Flush());
   ASSERT_OK(Put(2, "two", "two"));
 
-  DB* snapshotDB;
   ReadOptions roptions;
   std::string result;
   std::vector<ColumnFamilyHandle*> cphandles;
@@ -558,7 +551,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1000000));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
@@ -577,6 +570,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   for (size_t i = 0; i < cfs.size(); ++i) {
     column_families.emplace_back(cfs[i], options);
   }
+  std::unique_ptr<DB> snapshotDB;
   ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
                      &snapshotDB));
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "Default", &result));
@@ -589,8 +583,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
     delete h;
   }
   cphandles.clear();
-  delete snapshotDB;
-  snapshotDB = nullptr;
+  snapshotDB.reset();
 }
 
 TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
@@ -615,7 +608,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
 
   ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
     delete checkpoint;
   });
@@ -627,12 +620,10 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
-  DB* snapshotDB;
   // Successful Open() implies that CURRENT pointed to the manifest in the
   // checkpoint.
+  std::unique_ptr<DB> snapshotDB;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshotDB));
-  delete snapshotDB;
-  snapshotDB = nullptr;
 }
 
 TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
@@ -752,7 +743,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
 TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
   for (std::string checkpoint_dir : {"", "/", "////"}) {
     Checkpoint* checkpoint;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
     ASSERT_TRUE(
         checkpoint->CreateCheckpoint(checkpoint_dir).IsInvalidArgument());
     delete checkpoint;
@@ -765,7 +756,7 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
   ASSERT_OK(Put("key1", "val1"));
   port::Thread thread([this]() { ASSERT_OK(Put("key2", "val2")); });
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
   thread.join();
@@ -816,24 +807,24 @@ TEST_P(CheckpointTestWithWalParams, CheckpointWithUnsyncedDataDropped) {
     // * one active WAL, not synced
     // with a single thread, so that we have at least one that can be hard
     // linked, etc.
-    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->PauseBackgroundWork());
-    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+    ASSERT_OK(dbfull()->PauseBackgroundWork());
+    ASSERT_OK(dbfull()->TEST_SwitchMemtable());
     ASSERT_OK(db_->SyncWAL());
   }
   ASSERT_OK(Put("key2", "val2"));
   if (GetLogSizeForFlush() > 0) {
-    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+    ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   }
   ASSERT_OK(Put("key3", "val3"));
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, GetLogSizeForFlush()));
   delete checkpoint;
   ASSERT_OK(fault_fs->DropUnsyncedFileData());
   // make sure it's openable even though whatever data that wasn't synced got
   // dropped.
   options.env = env_;
-  DB* snapshot_db;
+  std::unique_ptr<DB> snapshot_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
   ReadOptions read_opts;
   std::string get_result;
@@ -843,9 +834,8 @@ TEST_P(CheckpointTestWithWalParams, CheckpointWithUnsyncedDataDropped) {
   ASSERT_EQ("val2", get_result);
   ASSERT_OK(snapshot_db->Get(read_opts, "key3", &get_result));
   ASSERT_EQ("val3", get_result);
-  delete snapshot_db;
-  delete db_;
-  db_ = nullptr;
+  snapshot_db.reset();
+  db_.reset();
 }
 
 TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
@@ -855,18 +845,17 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
   Options options = CurrentOptions();
   ASSERT_OK(ReadOnlyReopen(options));
   Checkpoint* checkpoint = nullptr;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
   checkpoint = nullptr;
   Close();
-  DB* snapshot_db = nullptr;
+  std::unique_ptr<DB> snapshot_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
   ReadOptions read_opts;
   std::string get_result;
   ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
   ASSERT_EQ("foo_value", get_result);
-  delete snapshot_db;
 }
 
 TEST_F(CheckpointTest, CheckpointWithLockWAL) {
@@ -876,7 +865,7 @@ TEST_F(CheckpointTest, CheckpointWithLockWAL) {
   ASSERT_OK(db_->LockWAL());
 
   Checkpoint* checkpoint = nullptr;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
   checkpoint = nullptr;
@@ -884,13 +873,12 @@ TEST_F(CheckpointTest, CheckpointWithLockWAL) {
   ASSERT_OK(db_->UnlockWAL());
   Close();
 
-  DB* snapshot_db = nullptr;
+  std::unique_ptr<DB> snapshot_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
   ReadOptions read_opts;
   std::string get_result;
   ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
   ASSERT_EQ("foo_value", get_result);
-  delete snapshot_db;
 }
 
 TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
@@ -905,7 +893,7 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
       {kDefaultColumnFamilyName, "pikachu", "eevee"}, options);
   ASSERT_OK(s);
   Checkpoint* checkpoint = nullptr;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
   checkpoint = nullptr;
@@ -915,7 +903,7 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
       {kDefaultColumnFamilyName, options},
       {"pikachu", options},
       {"eevee", options}};
-  DB* snapshot_db = nullptr;
+  std::unique_ptr<DB> snapshot_db;
   std::vector<ColumnFamilyHandle*> snapshot_handles;
   s = DB::Open(options, snapshot_name_, column_families, &snapshot_handles,
                &snapshot_db);
@@ -932,7 +920,6 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
     delete snapshot_h;
   }
   snapshot_handles.clear();
-  delete snapshot_db;
 }
 
 TEST_F(CheckpointTest, CheckpointWithDbPath) {
@@ -942,7 +929,7 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   ASSERT_OK(Put("key1", "val1"));
   ASSERT_OK(Flush());
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   // Currently not supported
   ASSERT_TRUE(checkpoint->CreateCheckpoint(snapshot_name_).IsNotSupported());
   delete checkpoint;
@@ -964,7 +951,7 @@ TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
   ASSERT_OK(Put("key2", std::string(1024, 'a')));
 
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   TEST_SYNC_POINT("CheckpointTest:CheckpointWithArchievedLog");
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1024 * 1024));
   // unflushed log size < 1024 * 1024 < total file size including archived log,
@@ -973,7 +960,7 @@ TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
   delete checkpoint;
   checkpoint = nullptr;
 
-  DB* snapshot_db;
+  std::unique_ptr<DB> snapshot_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
   ReadOptions read_opts;
   std::string get_result;
@@ -982,7 +969,6 @@ TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
   get_result.clear();
   ASSERT_OK(snapshot_db->Get(read_opts, "key2", &get_result));
   ASSERT_EQ(std::string(1024, 'a'), get_result);
-  delete snapshot_db;
 }
 
 class CheckpointDestroyTest : public CheckpointTest,
@@ -1013,7 +999,7 @@ TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 2);
 
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
 
   delete checkpoint;
@@ -1023,7 +1009,7 @@ TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 2);
 
-  DB* snapshot_db;
+  std::unique_ptr<DB> snapshot_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
   ReadOptions read_opts;
   std::string get_result;
@@ -1031,11 +1017,10 @@ TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
   ASSERT_EQ("a", get_result);
   ASSERT_OK(snapshot_db->Get(read_opts, "bar", &get_result));
   ASSERT_EQ("val9", get_result);
-  delete snapshot_db;
+  snapshot_db.reset();
 
   // Make sure original obsolete files for hard linked files are all deleted.
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
-  db_impl->TEST_DeleteObsoleteFiles();
+  dbfull()->TEST_DeleteObsoleteFiles();
   auto sfm = static_cast_with_check<SstFileManagerImpl>(
       options.sst_file_manager.get());
   ASSERT_NE(nullptr, sfm);

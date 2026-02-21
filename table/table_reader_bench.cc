@@ -84,7 +84,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   Env* env = Env::Default();
   auto* clock = env->GetSystemClock().get();
   TableBuilder* tb = nullptr;
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   Status s;
   const ImmutableOptions ioptions(opts);
   const ColumnFamilyOptions cfo(opts);
@@ -257,8 +257,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   if (!through_db) {
     env->DeleteFile(file_name);
   } else {
-    delete db;
-    db = nullptr;
+    db.reset();
     DestroyDB(dbname, opts);
   }
 }

@@ -2816,7 +2816,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
 
     {
       const Snapshot* snapshot = db_->GetSnapshot();
-      ManagedSnapshot snapshot_guard(db_, snapshot);
+      ManagedSnapshot snapshot_guard(db_.get(), snapshot);
       IngestExternalFileOptions ifo;
       ifo.fail_if_not_bottommost_level = true;
       ifo.snapshot_consistency = true;

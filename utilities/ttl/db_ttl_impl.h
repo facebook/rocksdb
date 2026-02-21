@@ -32,7 +32,7 @@ class DBWithTTLImpl : public DBWithTTL {
                               SystemClock* clock);
 
   static void RegisterTtlClasses();
-  explicit DBWithTTLImpl(DB* db);
+  explicit DBWithTTLImpl(std::unique_ptr<DB>&& db);
 
   virtual ~DBWithTTLImpl();
 

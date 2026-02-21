@@ -109,11 +109,13 @@ public class BlockBasedTableConfigTest {
     tableConfig.setIndexType(IndexType.kBinarySearch);
     tableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
     tableConfig.setChecksumType(ChecksumType.kNoChecksum);
+    tableConfig.setIndexSearchType(IndexSearchType.kBinary);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
       final String opts = getOptionAsString(options);
       assertThat(opts).contains("index_type=kBinarySearch");
       assertThat(opts).contains("data_block_index_type=kDataBlockBinarySearch");
       assertThat(opts).contains("checksum=kNoChecksum");
+      assertThat(opts).contains("index_block_search_type=kBinary");
     }
 
     tableConfig.setIndexType(IndexType.kHashSearch);
@@ -397,6 +399,16 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setIndexShortening(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
     assertThat(blockBasedTableConfig.indexShortening())
         .isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
+  }
+
+  @Test
+  public void indexSearchType() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    assertThat(IndexSearchType.values().length).isEqualTo(2);
+    blockBasedTableConfig.setIndexSearchType(IndexSearchType.kInterpolation);
+    assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kInterpolation);
+    blockBasedTableConfig.setIndexSearchType(IndexSearchType.kBinary);
+    assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kBinary);
   }
 
   @Deprecated

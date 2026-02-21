@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <cstdio>
+#include <memory>
 #include <string>
 
 #include "rocksdb/db.h"
@@ -25,7 +26,7 @@ std::string kDBPath = "/tmp/rocksdb_simple_example";
 #endif
 
 int main() {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
   options.IncreaseParallelism();
@@ -87,7 +88,7 @@ int main() {
   pinnable_val.Reset();
   // The Slice pointed by pinnable_val is not valid after this point
 
-  delete db;
+  db.reset();
 
   return 0;
 }

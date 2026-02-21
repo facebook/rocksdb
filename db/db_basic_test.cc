@@ -91,17 +91,15 @@ class DBBasicTest : public DBTestBase {
 TEST_F(DBBasicTest, OpenWhenOpen) {
   Options options = CurrentOptions();
   options.env = env_;
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   Status s = DB::Open(options, dbname_, &db2);
-  ASSERT_NOK(s) << [db2]() {
-    delete db2;
+  ASSERT_NOK(s) << [&db2]() {
+    db2.reset();
     return "db2 open: ok";
   }();
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
-
-  delete db2;
 }
 
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
@@ -586,14 +584,14 @@ TEST_F(DBBasicTest, GetSnapshot) {
 
 TEST_F(DBBasicTest, CheckLock) {
   do {
-    DB* localdb = nullptr;
+    std::unique_ptr<DB> localdb;
     Options options = CurrentOptions();
     ASSERT_OK(TryReopen(options));
 
     // second open should fail
     Status s = DB::Open(options, dbname_, &localdb);
-    ASSERT_NOK(s) << [localdb]() {
-      delete localdb;
+    ASSERT_NOK(s) << [&localdb]() {
+      localdb.reset();
       return "localdb open: ok";
     }();
 #ifdef OS_LINUX
@@ -862,7 +860,7 @@ TEST_F(DBBasicTest, Snapshot) {
     ASSERT_OK(Put(1, "foo", "1v3"));
 
     {
-      ManagedSnapshot s3(db_);
+      ManagedSnapshot s3(db_.get());
       ASSERT_EQ(3U, GetNumSnapshots());
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
@@ -985,7 +983,7 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   Destroy(options);
 
   // Does not exist, and create_if_missing == false: error
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   options.create_if_missing = false;
   Status s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
@@ -997,8 +995,7 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
-  delete db;
-  db = nullptr;
+  db.reset();
 
   // Does exist, and error_if_exists == true: error
   options.create_if_missing = false;
@@ -1014,8 +1011,7 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
-  delete db;
-  db = nullptr;
+  db.reset();
 }
 
 TEST_F(DBBasicTest, CompactOnFlush) {
@@ -1320,7 +1316,7 @@ TEST_F(DBBasicTest, DBClose) {
   std::string dbname = test::PerThreadDBPath("db_close_test");
   ASSERT_OK(DestroyDB(dbname, options));
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   TestEnv* env = new TestEnv(env_);
   std::unique_ptr<TestEnv> local_env_guard(env);
   options.create_if_missing = true;
@@ -1333,14 +1329,14 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 1);
   ASSERT_EQ(s, Status::IOError());
 
-  delete db;
+  db.reset();
   ASSERT_EQ(env->GetCloseCount(), 1);
 
   // Do not call DB::Close() and ensure our logger Close() still gets called
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
-  delete db;
+  db.reset();
   ASSERT_EQ(env->GetCloseCount(), 2);
 
   // close by WaitForCompact() with close_db option
@@ -1355,7 +1351,7 @@ TEST_F(DBBasicTest, DBClose) {
   // see TestLogger::CloseHelper()
   ASSERT_EQ(s, Status::IOError());
 
-  delete db;
+  db.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
 
   // Provide our own logger and ensure DB::Close() does not close it
@@ -1366,7 +1362,7 @@ TEST_F(DBBasicTest, DBClose) {
 
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
-  delete db;
+  db.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
   options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 4);
@@ -1384,7 +1380,7 @@ TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
 
   ASSERT_OK(DestroyDB(dbname, options));
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   std::unique_ptr<Env> env = NewCompositeEnv(
       std::make_shared<CountedFileSystem>(FileSystem::Default()));
   options.create_if_missing = true;
@@ -1402,7 +1398,7 @@ TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
   ASSERT_EQ(counted_fs->counters()->dir_opens,
             counted_fs->counters()->dir_closes);
   ASSERT_OK(s);
-  delete db;
+  db.reset();
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
@@ -1464,7 +1460,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   }
 
   int get_sv_count = 0;
-  ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
+  ROCKSDB_NAMESPACE::DBImpl* db = dbfull();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
@@ -1536,10 +1532,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[1]) + "_2");
 
   for (int cf = 0; cf < 8; ++cf) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(
-            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(cf))
-            ->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->GetColumnFamilyHandle(cf))
+                    ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
   }
@@ -1625,10 +1620,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
               "cf" + std::to_string(j) + "_val" + std::to_string(retries));
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(
-            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(i))
-            ->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->GetColumnFamilyHandle(i))
+                    ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1652,7 +1646,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 
   int get_sv_count = 0;
-  ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
+  ROCKSDB_NAMESPACE::DBImpl* db = dbfull();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
@@ -1693,10 +1687,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val");
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(
-            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(i))
-            ->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->GetColumnFamilyHandle(i))
+                    ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }
@@ -3301,8 +3294,8 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
-                              &key_versions));
+  ASSERT_OK(GetAllKeyVersions(
+      db_.get(), {}, {}, std::numeric_limits<size_t>::max(), &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
   for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
     if (i % 3 == 0) {
@@ -3311,7 +3304,7 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
       ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
     }
   }
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], {}, {},
+  ASSERT_OK(GetAllKeyVersions(db_.get(), handles_[0], {}, {},
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
@@ -3326,14 +3319,14 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], {}, {},
+  ASSERT_OK(GetAllKeyVersions(db_.get(), handles_[1], {}, {},
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
 
   // Change from historical behavior: empty key is now interpreted literally as
   // a legal key (rather than as a "not present" key)
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+  ASSERT_OK(GetAllKeyVersions(db_.get(), handles_[1], Slice(), Slice(),
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(key_versions.size(), 0);
@@ -5474,6 +5467,94 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                         ::testing::Values(std::make_tuple(true, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
+
+// FileSystemWrapper that captures FileOptions passed to NewRandomAccessFile
+// for .sst files, so we can verify file_checksum fields are populated.
+class ChecksumCapturingFS : public FileSystemWrapper {
+ public:
+  explicit ChecksumCapturingFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "ChecksumCapturingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".sst") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      captured_file_checksum_ = opts.file_checksum;
+      captured_file_checksum_func_name_ = opts.file_checksum_func_name;
+      capture_count_++;
+    }
+    return target()->NewRandomAccessFile(fname, opts, result, dbg);
+  }
+
+  std::string GetCapturedFileChecksum() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_checksum_;
+  }
+
+  std::string GetCapturedFileChecksumFuncName() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_checksum_func_name_;
+  }
+
+  int GetCaptureCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return capture_count_;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    captured_file_checksum_.clear();
+    captured_file_checksum_func_name_.clear();
+    capture_count_ = 0;
+  }
+
+ private:
+  std::mutex mu_;
+  std::string captured_file_checksum_;
+  std::string captured_file_checksum_func_name_;
+  int capture_count_ = 0;
+};
+
+TEST_F(DBBasicTest, FileChecksumInFileOptions) {
+  // Verify that file_checksum and file_checksum_func_name from FileMetaData
+  // are propagated through FileOptions when opening SST files.
+  auto capturing_fs =
+      std::make_shared<ChecksumCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  // Write data and flush to create an SST with a file checksum.
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+
+  // Reset captures, then reopen to trigger TableCache SST open.
+  capturing_fs->Reset();
+  Reopen(options);
+
+  // Read to trigger SST open through TableCache::GetTableReader.
+  ASSERT_EQ("value1", Get("key1"));
+
+  // Verify that checksum fields were populated.
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_FALSE(capturing_fs->GetCapturedFileChecksum().empty());
+  ASSERT_NE(capturing_fs->GetCapturedFileChecksumFuncName(),
+            capturing_fs->GetCapturedFileChecksum());
+  ASSERT_EQ(capturing_fs->GetCapturedFileChecksumFuncName(),
+            "FileChecksumCrc32c");
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

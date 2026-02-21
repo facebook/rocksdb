@@ -309,7 +309,8 @@ TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {
 
   // Grab an iterator and flush to switch the super version. That way, when the
   // iterator is destroyed, it will go through the purge path.
-  DB* db = db_;  // Only using `db` makes it clear we only use DB-level APIs.
+  DB* db =
+      db_.get();  // Only using `db` makes it clear we only use DB-level APIs.
   ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
   std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
   ASSERT_OK(db->Flush(FlushOptions()));

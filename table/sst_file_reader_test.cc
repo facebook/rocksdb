@@ -164,7 +164,7 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
   Options options;
   options.create_if_missing = true;
   std::string db_name = test::PerThreadDBPath("test_db");
-  DB* db;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options, db_name, &db));
   // Bump sequence number.
   ASSERT_OK(db->Put(WriteOptions(), keys[0], "foo"));
@@ -186,7 +186,7 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
     }
   }
   ASSERT_FALSE(ingested_file.empty());
-  delete db;
+  db.reset();
 
   // Verify the file can be open and read by SstFileReader.
   CheckFile(db_name + ingested_file, keys, true /* check_global_seqno */);

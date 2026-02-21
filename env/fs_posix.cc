@@ -674,7 +674,7 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus GetFileSize(const std::string& fname, const IOOptions& /*opts*/,
                        uint64_t* size, IODebugContext* /*dbg*/) override {
-    struct stat sbuf {};
+    struct stat sbuf{};
     if (stat(fname.c_str(), &sbuf) != 0) {
       *size = 0;
       return IOError("while stat a file for size", fname, errno);
@@ -981,7 +981,7 @@ class PosixFileSystem : public FileSystem {
   // file size. However this API only works on opened file.
   IOStatus GetFileSizeOnOpenedFile(const int fd, const std::string& name,
                                    uint64_t* size) {
-    struct stat sb {};
+    struct stat sb{};
     *size = 0;
     // Get file information using fstat
     if (fstat(fd, &sb) == -1) {
@@ -1274,7 +1274,7 @@ class PosixFileSystem : public FileSystem {
   void SupportedOps(int64_t& supported_ops) override {
     supported_ops = 0;
 #if defined(ROCKSDB_IOURING_PRESENT)
-    if (IsIOUringEnabled()) {
+    if (IsIOUringEnabled() && thread_local_async_read_io_urings_) {
       // Underlying FS supports async_io
       supported_ops |= (1 << FSSupportedOps::kAsyncIO);
     }
@@ -1340,9 +1340,8 @@ PosixFileSystem::PosixFileSystem()
       page_size_(getpagesize()),
       allow_non_owner_access_(true) {
 #if defined(ROCKSDB_IOURING_PRESENT)
-  // Test whether IOUring is supported, and if it does, create a managing
-  // object for thread local point so that in the future thread-local
-  // io_uring can be created.
+  // Test whether IOUring is supported with the same flags that ReadAsync and
+  // MultiRead will use at runtime.
   struct io_uring* new_io_uring = CreateIOUring();
   if (new_io_uring != nullptr) {
     thread_local_async_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));

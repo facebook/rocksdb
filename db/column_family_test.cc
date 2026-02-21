@@ -118,8 +118,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
-        DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-        dbi->TEST_FlushMemTable();
+        dbfull()->TEST_FlushMemTable();
       }
 
       int keyi = base + i;
@@ -177,8 +176,7 @@ class ColumnFamilyTestBase : public testing::Test {
     }
     handles_.clear();
     names_.clear();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
   }
 
   Status TryOpen(std::vector<std::string> cf,
@@ -218,7 +216,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
   void Open() { Open({"default"}); }
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   int GetProperty(int cf, std::string property) {
     std::string value;
@@ -500,7 +498,7 @@ class ColumnFamilyTestBase : public testing::Test {
   ColumnFamilyOptions column_family_options_;
   DBOptions db_options_;
   std::string dbname_;
-  DB* db_ = nullptr;
+  std::unique_ptr<DB> db_;
   EnvCounter* env_;
   std::shared_ptr<Env> env_guard_;
   Random rnd_;
@@ -517,7 +515,7 @@ class ColumnFamilyTest
 INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
                         testing::Values(test::kDefaultFormatVersion));
 INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
-                        testing::Values(kLatestFormatVersion));
+                        testing::Values(kLatestBbtFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -707,8 +705,8 @@ INSTANTIATE_TEST_CASE_P(
                     std::make_tuple(test::kDefaultFormatVersion, false)));
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
-    testing::Values(std::make_tuple(kLatestFormatVersion, true),
-                    std::make_tuple(kLatestFormatVersion, false)));
+    testing::Values(std::make_tuple(kLatestBbtFormatVersion, true),
+                    std::make_tuple(kLatestBbtFormatVersion, false)));
 
 TEST_P(ColumnFamilyTest, AddDrop) {
   Open();
@@ -3542,11 +3540,10 @@ TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
 
   // Re-open and verify the keys.
   Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   for (int cf = 1; cf != 3; ++cf) {
     ReadOptions read_options;
     read_options.readahead_size = 0;
-    auto it = dbi->NewIterator(read_options, handles_[cf]);
+    auto it = db_->NewIterator(read_options, handles_[cf]);
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       ASSERT_OK(it->status());
       Slice key(it->key());
@@ -3636,7 +3633,7 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 // the behavior of manual flush is that it skips retaining UDTs.
 class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
  public:
-  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestFormatVersion) {}
+  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestBbtFormatVersion) {}
 
   void SetUp() override {
     db_options_.allow_concurrent_memtable_write = false;
@@ -3886,7 +3883,7 @@ TEST_F(ManualFlushSkipRetainUDTTest, FlushRemovesStaleEntries) {
       static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
   for (int version = 0; version < 100; version++) {
     if (version == 50) {
-      ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable(cfd));
+      ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
     }
     ASSERT_OK(
         Put(0, "foo", EncodeAsUint64(version), "v" + std::to_string(version)));

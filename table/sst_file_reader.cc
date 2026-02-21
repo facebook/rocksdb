@@ -11,6 +11,7 @@
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
@@ -51,6 +52,7 @@ Status SstFileReader::Open(const std::string& file_path) {
   std::unique_ptr<FSRandomAccessFile> file;
   std::unique_ptr<RandomAccessFileReader> file_reader;
   FileOptions fopts(r->soptions);
+  fopts.file_checksum_func_name = kNoFileChecksumFuncName;
   const auto& fs = r->options.env->GetFileSystem();
 
   s = fs->GetFileSize(file_path, fopts.io_options, &file_size, nullptr);

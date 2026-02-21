@@ -3596,6 +3596,14 @@ int main(int argc, char** argv) {
         100000 ==
         rocksdb_fifo_compaction_options_get_max_table_files_size(fco));
 
+    rocksdb_fifo_compaction_options_set_max_data_files_size(fco, 200000);
+    CheckCondition(
+        200000 == rocksdb_fifo_compaction_options_get_max_data_files_size(fco));
+
+    rocksdb_fifo_compaction_options_set_use_kv_ratio_compaction(fco, 1);
+    CheckCondition(
+        1 == rocksdb_fifo_compaction_options_get_use_kv_ratio_compaction(fco));
+
     rocksdb_fifo_compaction_options_destroy(fco);
   }
 

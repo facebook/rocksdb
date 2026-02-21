@@ -319,8 +319,7 @@ class BlockFetcherTest : public testing::Test {
     PersistentCacheOptions persistent_cache_options;
     Footer footer;
     ReadFooter(file, &footer);
-    auto mgr = GetBuiltinCompressionManager(
-        GetCompressFormatForVersion(footer.format_version()));
+    auto mgr = GetBuiltinV2CompressionManager();
     std::unique_ptr<BlockFetcher> fetcher(new BlockFetcher(
         file, nullptr /* prefetch_buffer */, footer, roptions, block, contents,
         ioptions, do_uncompress, compressed, block_type,

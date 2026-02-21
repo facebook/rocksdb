@@ -388,11 +388,6 @@ class StackableDB : public DB {
     return db_->NumberLevels(column_family);
   }
 
-  using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override {
-    return db_->MaxMemCompactionLevel(column_family);
-  }
-
   using DB::Level0StopWriteTrigger;
   int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) override {
     return db_->Level0StopWriteTrigger(column_family);

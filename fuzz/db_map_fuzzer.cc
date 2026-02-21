@@ -50,7 +50,7 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   }
 
   std::map<std::string, std::string> kv;
-  ROCKSDB_NAMESPACE::DB* db = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
   ROCKSDB_NAMESPACE::Options options;
   options.create_if_missing = true;
   CHECK_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDbPath, &db));
@@ -86,8 +86,7 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
     }
   }
   CHECK_OK(db->Close());
-  delete db;
-  db = nullptr;
+  db.reset();
 
   CHECK_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDbPath, &db));
   auto kv_it = kv.begin();
@@ -102,6 +101,6 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   delete it;
 
   CHECK_OK(db->Close());
-  delete db;
+  db.reset();
   CHECK_OK(ROCKSDB_NAMESPACE::DestroyDB(kDbPath, options));
 }

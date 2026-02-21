@@ -658,7 +658,7 @@ TEST_F(TtlTest, TtlFiftenYears) {
 }
 
 TEST_F(TtlTest, ColumnFamiliesTest) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
@@ -669,7 +669,7 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
                                    "ttl_column_family", &handle));
 
   delete handle;
-  delete db;
+  db.reset();
 
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.emplace_back(kDefaultColumnFamilyName,

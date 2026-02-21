@@ -157,13 +157,13 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
                                         [&](void*) { pst_st_counter++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  auto dbs = std::vector<DB*>(kInstanceNum);
+  auto dbs = std::vector<std::unique_ptr<DB>>(kInstanceNum);
   for (int i = 0; i < kInstanceNum; i++) {
     ASSERT_OK(
         DB::Open(options, test::PerThreadDBPath(std::to_string(i)), &(dbs[i])));
   }
 
-  auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1]);
+  auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1].get());
 
   const PeriodicTaskScheduler& scheduler = dbi->TEST_GetPeriodicTaskScheduler();
   // kRecordSeqnoTime is not registered since the feature is not enabled
@@ -190,7 +190,7 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
 
   int half = kInstanceNum / 2;
   for (int i = 0; i < half; i++) {
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   expected_run += (kInstanceNum - half) * 2;
@@ -204,7 +204,7 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
 
   for (int i = half; i < kInstanceNum; i++) {
     ASSERT_OK(dbs[i]->Close());
-    delete dbs[i];
+    dbs[i].reset();
   }
 }
 
@@ -229,11 +229,11 @@ TEST_F(PeriodicTaskSchedulerTest, MultiEnv) {
   options1.env = mock_env2.get();
 
   std::string dbname = test::PerThreadDBPath("multi_env_test");
-  DB* db;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options2, dbname, &db));
 
   ASSERT_OK(db->Close());
-  delete db;
+  db.reset();
   Close();
 }
 

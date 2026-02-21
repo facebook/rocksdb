@@ -254,6 +254,10 @@ class CompactionJob {
   // @param num_input_range_del if non-null, will be set to the number of range
   // deletion entries in this compaction input.
   //
+  // If any input file has potentially unreliable num_entries count (old SST
+  // files - details in implementation),
+  // job_stats_->has_accurate_num_input_records is set to false.
+  //
   // Returns true iff internal_stats_.output_level_stats.num_input_records and
   // num_input_range_del are calculated successfully.
   //

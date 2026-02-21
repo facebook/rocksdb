@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 //              0 |      >= 1<<63 | CreateUniqueForProcessLifetime
 //            > 0 |           any | OffsetableCacheKey.WithOffset
 
-CacheKey CacheKey::CreateUniqueForCacheLifetime(Cache *cache) {
+CacheKey CacheKey::CreateUniqueForCacheLifetime(Cache* cache) {
   // +1 so that we can reserve all zeros for "unset" cache key
   uint64_t id = cache->NewId() + 1;
   // Ensure we don't collide with CreateUniqueForProcessLifetime
@@ -297,8 +297,8 @@ CacheKey CacheKey::CreateUniqueForProcessLifetime() {
 //
 // TODO: Nevertheless / regardless, an efficient way to detect (and thus
 // quantify) block cache corruptions, including collisions, should be added.
-OffsetableCacheKey::OffsetableCacheKey(const std::string &db_id,
-                                       const std::string &db_session_id,
+OffsetableCacheKey::OffsetableCacheKey(const std::string& db_id,
+                                       const std::string& db_session_id,
                                        uint64_t file_number) {
   UniqueId64x2 internal_id;
   Status s = GetSstInternalUniqueId(db_id, db_session_id, file_number,

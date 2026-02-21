@@ -94,8 +94,10 @@ int db_stress_tool(int argc, char** argv) {
     raw_env = fault_env_guard.get();
   }
 
-  env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
-      raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
+  auto db_stress_fs =
+      std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem());
+  env_wrapper_guard =
+      std::make_shared<CompositeEnvWrapper>(raw_env, db_stress_fs);
   db_stress_env = env_wrapper_guard.get();
 
   // Handle --destroy_db_and_exit early, before other option validation

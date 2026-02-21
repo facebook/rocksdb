@@ -647,7 +647,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
 }
 
 TEST_F(AutoRollLoggerTest, LogFileExistence) {
-  ROCKSDB_NAMESPACE::DB* db;
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
   ROCKSDB_NAMESPACE::Options options;
 #ifdef OS_WIN
   // Replace all slashes in the path so windows CompSpec does not
@@ -664,7 +664,6 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   options.create_if_missing = true;
   ASSERT_OK(ROCKSDB_NAMESPACE::DB::Open(options, kTestDir, &db));
   ASSERT_OK(default_env->FileExists(kLogFile));
-  delete db;
 }
 
 TEST_F(AutoRollLoggerTest, FileCreateFailure) {

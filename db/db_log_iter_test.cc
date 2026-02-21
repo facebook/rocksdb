@@ -180,13 +180,15 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(dbfull()->Flush(FlushOptions(), cf));
+    // Try lots of things to ensure callback is triggered
+    ASSERT_OK(dbfull()->TEST_SwitchWAL());
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+    ASSERT_OK(dbfull()->TEST_WaitForPurge());
     delete cf;
-    // Normally hit several times; WART: perhaps more in parallel after flush
-    // FIXME: this test is flaky
-    // ASSERT_TRUE(callback_hit.LoadRelaxed());
+    ASSERT_TRUE(callback_hit.LoadRelaxed());
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    Close();
   } while (ChangeCompactOptions());
-  Close();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif
 

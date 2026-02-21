@@ -5,11 +5,155 @@
 
 #include "util/compression.h"
 
+#ifdef BZIP2
+#include <bzlib.h>
+#endif  // BZIP2
+
+#include <limits>
+
+#ifdef LZ4
+#include <lz4.h>
+#include <lz4hc.h>
+#if LZ4_VERSION_NUMBER < 10700  // < r129
+#error "LZ4 support requires version >= 1.7.0 (lz4-devel)"
+#endif  // LZ4_VERSION_NUMBER < 10700
+#endif  // LZ4
+
+#ifdef SNAPPY
+#include <snappy-sinksource.h>
+#include <snappy.h>
+#endif  // SNAPPY
+
+#ifdef ZLIB
+#include <zlib.h>
+#endif  // ZLIB
+
 #include "options/options_helper.h"
+#include "port/likely.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/sync_point.h"
+#include "util/cast_util.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// WART: does not match OptionsHelper::compression_type_string_map
+std::string CompressionTypeToString(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return "NoCompression";
+    case kSnappyCompression:
+      return "Snappy";
+    case kZlibCompression:
+      return "Zlib";
+    case kBZip2Compression:
+      return "BZip2";
+    case kLZ4Compression:
+      return "LZ4";
+    case kLZ4HCCompression:
+      return "LZ4HC";
+    case kXpressCompression:
+      return "Xpress";
+    case kZSTD:
+      return "ZSTD";
+    case kDisableCompressionOption:
+      return "DisableOption";
+    default: {
+      bool is_custom = compression_type >= kFirstCustomCompression &&
+                       compression_type <= kLastCustomCompression;
+      unsigned char c = lossless_cast<unsigned char>(compression_type);
+      return (is_custom ? "Custom" : "Reserved") +
+             ToBaseCharsString<16>(2, c, /*uppercase=*/true);
+    }
+  }
+}
+
+// WART: does not match OptionsHelper::compression_type_string_map
+CompressionType CompressionTypeFromString(std::string compression_type_str) {
+  if (!compression_type_str.empty()) {
+    switch (compression_type_str[0]) {
+      case 'N':
+        if (compression_type_str == "NoCompression") {
+          return kNoCompression;
+        }
+        break;
+      case 'S':
+        if (compression_type_str == "Snappy") {
+          return kSnappyCompression;
+        }
+        break;
+      case 'Z':
+        if (compression_type_str == "ZSTD") {
+          return kZSTD;
+        }
+        if (compression_type_str == "Zlib") {
+          return kZlibCompression;
+        }
+        break;
+      case 'B':
+        if (compression_type_str == "BZip2") {
+          return kBZip2Compression;
+        }
+        break;
+      case 'L':
+        if (compression_type_str == "LZ4") {
+          return kLZ4Compression;
+        }
+        if (compression_type_str == "LZ4HC") {
+          return kLZ4HCCompression;
+        }
+        break;
+      case 'X':
+        if (compression_type_str == "Xpress") {
+          return kXpressCompression;
+        }
+        break;
+      default:;
+    }
+  }
+  // unrecognized
+  return kDisableCompressionOption;
+}
+
+std::string CompressionOptionsToString(
+    const CompressionOptions& compression_options) {
+  std::string result;
+  result.reserve(512);
+  result.append("window_bits=")
+      .append(std::to_string(compression_options.window_bits))
+      .append("; ");
+  result.append("level=")
+      .append(std::to_string(compression_options.level))
+      .append("; ");
+  result.append("strategy=")
+      .append(std::to_string(compression_options.strategy))
+      .append("; ");
+  result.append("max_dict_bytes=")
+      .append(std::to_string(compression_options.max_dict_bytes))
+      .append("; ");
+  result.append("zstd_max_train_bytes=")
+      .append(std::to_string(compression_options.zstd_max_train_bytes))
+      .append("; ");
+  // NOTE: parallel_threads is skipped because it doesn't really affect the file
+  // contents written, arguably doesn't belong in CompressionOptions
+  result.append("enabled=")
+      .append(std::to_string(compression_options.enabled))
+      .append("; ");
+  result.append("max_dict_buffer_bytes=")
+      .append(std::to_string(compression_options.max_dict_buffer_bytes))
+      .append("; ");
+  result.append("use_zstd_dict_trainer=")
+      .append(std::to_string(compression_options.use_zstd_dict_trainer))
+      .append("; ");
+  result.append("max_compressed_bytes_per_kb=")
+      .append(std::to_string(compression_options.max_compressed_bytes_per_kb))
+      .append("; ");
+  result.append("checksum=")
+      .append(std::to_string(compression_options.checksum))
+      .append("; ");
+  return result;
+}
 
 StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
                                              const CompressionOptions& opts,
@@ -123,6 +267,123 @@ void ZSTDStreamingUncompress::Reset() {
 #endif
 }
 
+void DecompressorDict::Populate(Decompressor& from_decompressor, Slice dict) {
+  if (UNLIKELY(dict.empty())) {
+    dict_str_ = {};
+    dict_allocation_ = {};
+    // Appropriately reject bad files with empty dictionary block.
+    // It is longstanding not to write an empty dictionary block:
+    // https://github.com/facebook/rocksdb/blame/10.2.fb/table/block_based/block_based_table_builder.cc#L1841
+    decompressor_ = std::make_unique<FailureDecompressor>(
+        Status::Corruption("Decompression dictionary is empty"));
+  } else {
+    Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
+    if (decompressor_ == nullptr) {
+      dict_str_ = {};
+      dict_allocation_ = {};
+      assert(!s.ok());
+      decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
+    } else {
+      assert(s.ok());
+      assert(decompressor_->GetSerializedDict() == dict);
+    }
+  }
+
+  memory_usage_ = sizeof(struct DecompressorDict);
+  memory_usage_ += dict_str_.size();
+  if (dict_allocation_) {
+    auto allocator = dict_allocation_.get_deleter().allocator;
+    if (allocator) {
+      memory_usage_ +=
+          allocator->UsableSize(dict_allocation_.get(), GetRawDict().size());
+    } else {
+      memory_usage_ += GetRawDict().size();
+    }
+  }
+  memory_usage_ += decompressor_->ApproximateOwnedMemoryUsage();
+}
+
+// ZSTD dictionary training implementations
+std::string ZSTD_TrainDictionary(const std::string& samples,
+                                 const std::vector<size_t>& sample_lens,
+                                 size_t max_dict_bytes) {
+#ifdef ZSTD
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_trainFromBuffer(
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
+      static_cast<unsigned>(sample_lens.size()));
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  }
+  assert(dict_len <= max_dict_bytes);
+  dict_data.resize(dict_len);
+  return dict_data;
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  return "";
+#endif  // ZSTD
+}
+
+std::string ZSTD_TrainDictionary(const std::string& samples,
+                                 size_t sample_len_shift,
+                                 size_t max_dict_bytes) {
+#ifdef ZSTD
+  // skips potential partial sample at the end of "samples"
+  size_t num_samples = samples.size() >> sample_len_shift;
+  std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_len_shift;
+  (void)max_dict_bytes;
+  return "";
+#endif  // ZSTD
+}
+
+std::string ZSTD_FinalizeDictionary(const std::string& samples,
+                                    const std::vector<size_t>& sample_lens,
+                                    size_t max_dict_bytes, int level) {
+#ifdef ROCKSDB_ZDICT_FINALIZE
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
+  }
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
+    level = ZSTD_CLEVEL_DEFAULT;
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_finalizeDictionary(
+      dict_data.data(), max_dict_bytes, samples.data(),
+      std::min(static_cast<size_t>(samples.size()), max_dict_bytes),
+      samples.data(), sample_lens.data(),
+      static_cast<unsigned>(sample_lens.size()),
+      {level, 0 /* notificationLevel */, 0 /* dictID */});
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  } else {
+    assert(dict_len <= max_dict_bytes);
+    dict_data.resize(dict_len);
+    return dict_data;
+  }
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  (void)level;
+  return "";
+#endif  // ROCKSDB_ZDICT_FINALIZE
+}
+
 // ***********************************************************************
 // BEGIN built-in implementation of customization interface
 // ***********************************************************************
@@ -160,60 +421,6 @@ class CompressorBase : public Compressor {
 
  protected:
   CompressionOptions opts_;
-};
-
-class BuiltinCompressorV1 final : public CompressorBase {
- public:
-  const char* Name() const override { return "BuiltinCompressorV1"; }
-
-  explicit BuiltinCompressorV1(const CompressionOptions& opts,
-                               CompressionType type)
-      : CompressorBase(opts), type_(type) {
-    assert(type != kNoCompression);
-  }
-
-  CompressionType GetPreferredCompressionType() const override { return type_; }
-
-  std::unique_ptr<Compressor> Clone() const override {
-    return std::make_unique<BuiltinCompressorV1>(opts_, type_);
-  }
-
-  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
-                       size_t* compressed_output_size,
-                       CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override {
-    std::optional<CompressionContext> tmp_ctx;
-    CompressionContext* ctx = nullptr;
-    if (wa != nullptr && wa->owner() == this) {
-      ctx = static_cast<CompressionContext*>(wa->get());
-    }
-    if (ctx == nullptr) {
-      tmp_ctx.emplace(type_, opts_);
-      ctx = &*tmp_ctx;
-    }
-    CompressionInfo info(opts_, *ctx, CompressionDict::GetEmptyDict(), type_);
-    std::string str_output;
-    str_output.reserve(uncompressed_data.size());
-    if (!OLD_CompressData(uncompressed_data, info,
-                          1 /*compress_format_version*/, &str_output)) {
-      // Maybe rejected or bypassed
-      *compressed_output_size = str_output.size();
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-    if (str_output.size() > *compressed_output_size) {
-      // Compression rejected
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-    std::memcpy(compressed_output, str_output.data(), str_output.size());
-    *compressed_output_size = str_output.size();
-    *out_compression_type = type_;
-    return Status::OK();
-  }
-
- protected:
-  const CompressionType type_;
 };
 
 class CompressorWithSimpleDictBase : public CompressorBase {
@@ -1038,96 +1245,6 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
   const CompressionDict dict_;
 };
 
-// NOTE: this implementation is intentionally SIMPLE based on existing code
-// and NOT EFFICIENT because this is an old/deprecated format.
-class BuiltinDecompressorV1 final : public Decompressor {
- public:
-  const char* Name() const override { return "BuiltinDecompressorV1"; }
-
-  Status ExtractUncompressedSize(Args& args) override {
-    CacheAllocationPtr throw_away_output;
-    return DoUncompress(args, &throw_away_output, &args.uncompressed_size);
-  }
-
-  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
-    uint64_t same_uncompressed_size = 0;
-    CacheAllocationPtr output;
-    Status s = DoUncompress(args, &output, &same_uncompressed_size);
-    if (same_uncompressed_size != args.uncompressed_size) {
-      s = Status::Corruption("Compressed block size mismatch");
-    }
-    if (s.ok()) {
-      // NOTE: simple but inefficient
-      memcpy(uncompressed_output, output.get(), args.uncompressed_size);
-    }
-    return s;
-  }
-
- protected:
-  Status DoUncompress(const Args& args, CacheAllocationPtr* out_data,
-                      uint64_t* out_uncompressed_size) {
-    assert(args.working_area == nullptr);
-    assert(*out_uncompressed_size == 0);
-
-    // NOTE: simple but inefficient
-    UncompressionContext dummy_ctx{args.compression_type};
-    UncompressionInfo info{dummy_ctx, UncompressionDict::GetEmptyDict(),
-                           args.compression_type};
-    const char* error_message = nullptr;
-    size_t size_t_uncompressed_size = 0;
-    *out_data = OLD_UncompressData(
-        info, args.compressed_data.data(), args.compressed_data.size(),
-        &size_t_uncompressed_size, 1 /*compress_format_version*/,
-        nullptr /*allocator*/, &error_message);
-    if (*out_data == nullptr) {
-      if (error_message != nullptr) {
-        return Status::Corruption(error_message);
-      } else {
-        return Status::Corruption("Corrupted compressed block contents");
-      }
-    }
-    *out_uncompressed_size = size_t_uncompressed_size;
-    assert(*out_uncompressed_size > 0);
-    return Status::OK();
-  }
-};
-
-class BuiltinCompressionManagerV1 final : public CompressionManager {
- public:
-  BuiltinCompressionManagerV1() = default;
-  ~BuiltinCompressionManagerV1() override = default;
-
-  const char* Name() const override { return "BuiltinCompressionManagerV1"; }
-
-  const char* CompatibilityName() const override { return "BuiltinV1"; }
-
-  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
-                                            CompressionType type) override {
-    // At the time of deprecating the writing of new format_version=1 files,
-    // ZSTD was the last supported built-in compression type.
-    if (type > kZSTD) {
-      // Unrecognized; fall back on default compression
-      type = ColumnFamilyOptions{}.compression;
-    }
-    if (type == kNoCompression) {
-      return nullptr;
-    } else {
-      return std::make_unique<BuiltinCompressorV1>(opts, type);
-    }
-  }
-
-  std::shared_ptr<Decompressor> GetDecompressor() override {
-    return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
-  }
-
-  bool SupportsCompressionType(CompressionType type) const override {
-    return CompressionTypeSupported(type);
-  }
-
- protected:
-  BuiltinDecompressorV1 decompressor_;
-};
-
 // Subroutines for BuiltinDecompressorV2
 
 Status Snappy_DecompressBlock(const Decompressor::Args& args,
@@ -1697,9 +1814,6 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
   }
 };
 
-const std::shared_ptr<BuiltinCompressionManagerV1>
-    kBuiltinCompressionManagerV1 =
-        std::make_shared<BuiltinCompressionManagerV1>();
 const std::shared_ptr<BuiltinCompressionManagerV2>
     kBuiltinCompressionManagerV2 =
         std::make_shared<BuiltinCompressionManagerV2>();
@@ -1728,14 +1842,6 @@ Status CompressionManager::CreateFromString(
   std::call_once(loaded, [&]() {
     auto& library = *ObjectLibrary::Default();
     // TODO: try to enhance ObjectLibrary to support singletons
-    library.AddFactory<CompressionManager>(
-        kBuiltinCompressionManagerV1->CompatibilityName(),
-        [](const std::string& /*uri*/,
-           std::unique_ptr<CompressionManager>* guard,
-           std::string* /*errmsg*/) {
-          *guard = std::make_unique<BuiltinCompressionManagerV1>();
-          return guard->get();
-        });
     library.AddFactory<CompressionManager>(
         kBuiltinCompressionManagerV2->CompatibilityName(),
         [](const std::string& /*uri*/,
@@ -1782,26 +1888,10 @@ CompressionManager::FindCompatibleCompressionManager(Slice compatibility_name) {
   }
 }
 
-const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
-    int compression_format_version) {
-  static const std::shared_ptr<CompressionManager> v1_as_base =
-      kBuiltinCompressionManagerV1;
+const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager() {
   static const std::shared_ptr<CompressionManager> v2_as_base =
       kBuiltinCompressionManagerV2;
-  static const std::shared_ptr<CompressionManager> none;
-  if (compression_format_version == 1) {
-    return v1_as_base;
-  } else if (compression_format_version == 2) {
-    return v2_as_base;
-  } else {
-    // Unrecognized. In some cases this is unexpected and the caller can
-    // rightfully crash.
-    return none;
-  }
-}
-
-const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager() {
-  return GetBuiltinCompressionManager(2);
+  return v2_as_base;
 }
 
 // ***********************************************************************

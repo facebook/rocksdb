@@ -263,6 +263,21 @@ struct BlockBasedTableOptions {
 
   IndexType index_type = kBinarySearch;
 
+  // The search algorithm used when seeking to entries in the index block.
+  enum BlockSearchType : char {
+    // Standard binary search
+    kBinary = 0x00,
+    // Interpolation search, which may be better suited for uniformly
+    // distributed keys. This will only be applicable if the comparator is the
+    // byte-wise comparator. Avoid using
+    // IndexShorteningMode::kShortenSeparatorsAndSuccessor as shortening the
+    // succesor can skew the end key and make interpolation search significantly
+    // less performant.
+    kInterpolation = 0x01,
+  };
+
+  BlockSearchType index_block_search_type = kBinary;
+
   // The index type that will be used for the data block.
   enum DataBlockIndexType : char {
     kDataBlockBinarySearch = 0,   // traditional block type
@@ -558,8 +573,9 @@ struct BlockBasedTableOptions {
   uint32_t read_amp_bytes_per_bit = 0;
 
   // We currently have these format versions:
-  // 0 - 1 -- Unsupported for writing new files and quietly sanitized to 2.
-  // Read support is deprecated and could be removed in the future.
+  // 0 - 1 -- No longer supported. Attempting to read files with these format
+  // versions will return an error. To upgrade, load the data with RocksDB
+  // >= 4.6.0 and < 11.0.0, then run a full compaction.
   // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use

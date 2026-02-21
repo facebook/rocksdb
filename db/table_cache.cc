@@ -98,6 +98,8 @@ Status TableCache::GetTableReader(
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
   fopts.temperature = file_temperature;
+  fopts.file_checksum = file_meta.file_checksum;
+  fopts.file_checksum_func_name = file_meta.file_checksum_func_name;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   TEST_SYNC_POINT_CALLBACK("TableCache::GetTableReader:BeforeOpenFile",
                            const_cast<Status*>(&s));
@@ -113,8 +115,7 @@ Status TableCache::GetTableReader(
     Status temp_s =
         PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
     if (temp_s.ok()) {
-      temp_s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
-                                                 nullptr);
+      temp_s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
     }
     if (temp_s.ok()) {
       RecordTick(ioptions_.stats, NO_FILE_OPENS);
