@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cinttypes>
+#include <cstdint>
 #include <memory>
 
 #include "db/blob/blob_read_request.h"

@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cinttypes>
+#include <cstdint>
 
 #include "rocksdb/compression_type.h"
 #include "rocksdb/slice.h"

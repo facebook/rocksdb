@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cinttypes>
+#include <cstdint>
 #include <memory>
 
 #include "cache/cache_key.h"
