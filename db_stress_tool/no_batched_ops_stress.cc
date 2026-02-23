@@ -123,7 +123,7 @@ class NonBatchedOpsStressTest : public StressTest {
           std::string from_db;
 
           if (iter->Valid()) {
-            const int diff = iter->key().compare(k);
+            const int diff = MaybeStripTimestamp(iter->key()).compare(k);
 
             if (diff > 0) {
               s = Status::NotFound();
@@ -2628,7 +2628,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       // iter is valid, the range (last_key, current key) was skipped
-      GetIntVal(iter->key().ToString(), &curr);
+      GetIntVal(GetUserKeyForParsing(iter->key()), &curr);
       if (static_cast<int64_t>(curr) <= last_key) {
         thread->shared->SetVerificationFailure();
         fprintf(stderr,
@@ -2700,7 +2700,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       // the range (current key, last key) was skipped
-      GetIntVal(iter->key().ToString(), &curr);
+      GetIntVal(GetUserKeyForParsing(iter->key()), &curr);
       if (last_key <= static_cast<int64_t>(curr)) {
         thread->shared->SetVerificationFailure();
         fprintf(stderr,
@@ -2775,7 +2775,7 @@ class NonBatchedOpsStressTest : public StressTest {
           return Status::OK();
         }
       } else if (iter->Valid()) {
-        GetIntVal(iter->key().ToString(), &curr);
+        GetIntVal(GetUserKeyForParsing(iter->key()), &curr);
         if (static_cast<int64_t>(curr) < mid) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
@@ -2799,7 +2799,7 @@ class NonBatchedOpsStressTest : public StressTest {
           return Status::OK();
         }
       } else if (iter->Valid()) {
-        GetIntVal(iter->key().ToString(), &curr);
+        GetIntVal(GetUserKeyForParsing(iter->key()), &curr);
         if (mid < static_cast<int64_t>(curr)) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
@@ -2831,7 +2831,7 @@ class NonBatchedOpsStressTest : public StressTest {
         return Status::OK();
       }
 
-      GetIntVal(iter->key().ToString(), &curr);
+      GetIntVal(GetUserKeyForParsing(iter->key()), &curr);
       if (static_cast<int64_t>(curr) < lb) {
         iter->Next();
         op_logs += "N";
@@ -2871,7 +2871,7 @@ class NonBatchedOpsStressTest : public StressTest {
             break;
           }
           uint64_t next = 0;
-          GetIntVal(iter->key().ToString(), &next);
+          GetIntVal(GetUserKeyForParsing(iter->key()), &next);
           if (next <= curr) {
             thread->shared->SetVerificationFailure();
             fprintf(stderr,
@@ -2896,7 +2896,7 @@ class NonBatchedOpsStressTest : public StressTest {
             break;
           }
           uint64_t prev = 0;
-          GetIntVal(iter->key().ToString(), &prev);
+          GetIntVal(GetUserKeyForParsing(iter->key()), &prev);
           if (curr <= prev) {
             thread->shared->SetVerificationFailure();
             fprintf(stderr,
