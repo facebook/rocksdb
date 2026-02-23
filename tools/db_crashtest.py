@@ -1111,6 +1111,10 @@ def finalize_and_sanitize(src_params):
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
             dest_params["disable_wal"] = 0
+    if dest_params.get("user_timestamp_size", 0) > 0:
+        # Interpolation search requires BytewiseComparator but user-defined
+        # timestamps use BytewiseComparatorWithU64TsWrapper.
+        dest_params["index_block_search_type"] = 0
     if (
         dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1
