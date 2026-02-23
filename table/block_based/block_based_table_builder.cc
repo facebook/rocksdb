@@ -1324,7 +1324,7 @@ struct BlockBasedTableBuilder::Rep {
     props.data_block_restart_interval = table_options.block_restart_interval;
     props.index_block_restart_interval =
         table_options.index_block_restart_interval;
-    props.separated_kv_in_data_block =
+    props.separate_key_value_in_data_block =
         table_options.separate_key_value_in_data_block ? 1 : 0;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");

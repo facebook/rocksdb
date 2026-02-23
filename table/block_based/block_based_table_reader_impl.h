@@ -108,6 +108,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   }
 
   assert(block.GetValue() != nullptr);
+  assert(block_type != BlockType::kData ||
+         block.GetValue()->HasSeparatedKV() ==
+             rep_->separate_key_value_in_data_block);
 
   // Block contents are pinned and it is still pinned after the iterator
   // is destroyed as long as cleanup functions are moved to another object,
@@ -169,6 +172,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   }
 
   assert(block.GetValue() != nullptr);
+  assert(block.GetValue()->HasSeparatedKV() ==
+         rep_->separate_key_value_in_data_block);
   // Block contents are pinned and it is still pinned after the iterator
   // is destroyed as long as cleanup functions are moved to another object,
   // when:

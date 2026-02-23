@@ -332,8 +332,8 @@ const std::string TablePropertiesNames::kDataBlockRestartInterval =
     "rocksdb.data.block.restart.interval";
 const std::string TablePropertiesNames::kIndexBlockRestartInterval =
     "rocksdb.index.block.restart.interval";
-const std::string TablePropertiesNames::kSeparatedKVInDataBlock =
-    "rocksdb.separated.kv.in.data.block";
+const std::string TablePropertiesNames::kSeparateKeyValueInDataBlock =
+    "rocksdb.separate.key.value.in.data.block";
 
 static std::unordered_map<std::string, OptionTypeInfo>
     table_properties_type_info = {
@@ -464,8 +464,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct TableProperties, index_block_restart_interval),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"separated_kv_in_data_block",
-         {offsetof(struct TableProperties, separated_kv_in_data_block),
+        {"separate_key_value_in_data_block",
+         {offsetof(struct TableProperties, separate_key_value_in_data_block),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"db_id",

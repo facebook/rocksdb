@@ -698,6 +698,9 @@ struct BlockBasedTable::Rep {
   uint32_t data_block_restart_interval = 0;
   uint32_t index_block_restart_interval = 0;
 
+  // If true, then data blocks have keys and values separated.
+  bool separate_key_value_in_data_block = false;
+
   // Whether block checksums in metadata blocks were verified on open.
   // This is only to mostly maintain current dubious behavior of VerifyChecksum
   // with respect to index blocks, but only when the checksum was previously

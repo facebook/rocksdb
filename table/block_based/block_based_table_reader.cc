@@ -1110,6 +1110,8 @@ Status BlockBasedTable::ReadPropertiesBlock(
       rep_->table_properties->data_block_restart_interval);
   rep_->index_block_restart_interval = static_cast<uint32_t>(
       rep_->table_properties->index_block_restart_interval);
+  rep_->separate_key_value_in_data_block =
+      rep_->table_properties->separate_key_value_in_data_block > 0;
 
   rep_->index_has_first_key =
       rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;

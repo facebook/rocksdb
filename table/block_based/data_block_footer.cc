@@ -15,8 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Hash index bit (bit 31)
 constexpr uint32_t kHashIndexBit = 1u << 31;
-// Separated KV storage bit (bit 30)
-constexpr uint32_t kSeparatedKVBit = 1u << 30;
+// Separated KV storage bit (bit 28)
+constexpr uint32_t kSeparatedKVBit = 1u << 28;
 
 void DataBlockFooter::EncodeTo(std::string* dst) const {
   assert(num_restarts <= kMaxNumRestarts);

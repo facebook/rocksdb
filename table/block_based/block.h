@@ -282,9 +282,10 @@ class Block {
     ProtectionInfo64().ProtectKV(key, value).Encode(checksum_len, checksum_ptr);
   }
 
+  bool HasSeparatedKV() const { return values_section_ != nullptr; }
+
   const char* TEST_GetKVChecksum() const { return kv_checksum_; }
 
- private:
  private:
   // Returns a detailed error status by re-processing the footer.
   // Should only be called when size() == 0 (error marker).

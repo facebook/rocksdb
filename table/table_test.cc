@@ -2298,11 +2298,11 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
   Slice block_contents = builder.Finish();
   std::string block_data = block_contents.ToString();
 
-  // The footer is the last 4 bytes - corrupt it by setting reserved bit 28
+  // The footer is the last 4 bytes - corrupt it by setting reserved bit 29
   ASSERT_GE(block_data.size(), sizeof(uint32_t));
   size_t footer_offset = block_data.size() - sizeof(uint32_t);
   uint32_t footer = DecodeFixed32(block_data.data() + footer_offset);
-  footer |= (1u << 28);  // Set lowest reserved bit
+  footer |= (1u << 29);  // Set a reserved bit
   EncodeFixed32(&block_data[footer_offset], footer);
 
   // Try to construct a Block from the corrupted data
