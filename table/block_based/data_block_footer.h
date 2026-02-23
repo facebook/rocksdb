@@ -40,8 +40,7 @@ namespace ROCKSDB_NAMESPACE {
 // which can cause overflow.
 //
 // When separated KV is enabled, an additional uint32_t is prepended before the
-// packed footer word, storing the offset to the values section within the
-// block.
+// packed footer, storing the offset to the values section within the block.
 //
 // When any unrecognized reserved bit is set, DecodeFrom() returns an error,
 // allowing older versions to fail gracefully on newer formats.

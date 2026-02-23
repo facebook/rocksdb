@@ -21,7 +21,7 @@ constexpr uint32_t kSeparatedKVBit = 1u << 28;
 void DataBlockFooter::EncodeTo(std::string* dst) const {
   assert(num_restarts <= kMaxNumRestarts);
 
-  // If separated KV, write the values_section_offset before the packed word
+  // If separated KV, write the values_section_offset before the packed footer
   if (separated_kv) {
     PutFixed32(dst, values_section_offset);
   }
@@ -44,11 +44,10 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     return Status::Corruption("Block too small for footer");
   }
 
-  // Decode the packed footer word from the end of input
+  // Decode from the end of the inpu
   const char* footer_ptr = input->data() + input->size() - sizeof(uint32_t);
   uint32_t packed = DecodeFixed32(footer_ptr);
 
-  // Parse known feature bits
   if (packed & kHashIndexBit) {
     index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
     packed &= ~kHashIndexBit;
@@ -71,16 +70,14 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
 
   num_restarts = packed;
 
-  // Remove the packed footer word
   input->remove_suffix(sizeof(uint32_t));
 
-  // If separated KV, read values_section_offset from before the packed word
+  // If separated KV, read values_section_offset from before the packed footer
   if (separated_kv) {
     if (input->size() < sizeof(uint32_t)) {
       return Status::Corruption(
           "Block too small for separated KV values section offset");
     }
-    // values_section_offset is at the end of input (just before packed word)
     values_section_offset =
         DecodeFixed32(input->data() + input->size() - sizeof(uint32_t));
     input->remove_suffix(sizeof(uint32_t));
