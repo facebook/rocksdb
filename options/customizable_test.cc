@@ -1281,8 +1281,6 @@ class MockSliceTransform : public SliceTransform {
   Slice Transform(const Slice& /*key*/) const override { return Slice(); }
 
   bool InDomain(const Slice& /*key*/) const override { return false; }
-
-  bool InRange(const Slice& /*key*/) const override { return false; }
 };
 
 class MockMemoryAllocator : public BaseMemoryAllocator {

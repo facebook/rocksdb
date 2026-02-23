@@ -2569,14 +2569,19 @@ TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
         options.statistics->getTickerCount(Tickers::BLOCK_CACHE_FILTER_ADD), 1);
   }
 
-  // Create external SST file but skip bloom filters
+  // Create external SST file but skip bloom filters by using options
+  // with no filter policy
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   DestroyAndReopen(options);
   {
     std::string file_path = sst_files_dir_ + "sst_with_no_bloom.sst";
-    SstFileWriter sst_file_writer(EnvOptions(), options, nullptr, true,
-                                  Env::IOPriority::IO_TOTAL,
-                                  true /* skip_filters */);
+    // Use options with no filter policy to skip bloom filters
+    Options no_filter_options = options;
+    BlockBasedTableOptions no_filter_table_options = table_options;
+    no_filter_table_options.filter_policy.reset();
+    no_filter_options.table_factory.reset(
+        NewBlockBasedTableFactory(no_filter_table_options));
+    SstFileWriter sst_file_writer(EnvOptions(), no_filter_options);
     ASSERT_OK(sst_file_writer.Open(file_path));
     ASSERT_OK(sst_file_writer.Put("Key1", "Value1"));
     ASSERT_OK(sst_file_writer.Finish());

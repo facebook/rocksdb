@@ -333,8 +333,11 @@ inline void DeleteIOUring(void* p) {
   delete iu;
 }
 
-inline struct io_uring* CreateIOUring(unsigned int flags = 0) {
+inline struct io_uring* CreateIOUring() {
   struct io_uring* new_io_uring = new struct io_uring;
+  unsigned int flags = 0;
+  flags |= IORING_SETUP_SINGLE_ISSUER;
+  flags |= IORING_SETUP_DEFER_TASKRUN;
   int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, flags);
   if (ret) {
     delete new_io_uring;
