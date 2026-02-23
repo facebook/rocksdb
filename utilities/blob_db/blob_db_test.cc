@@ -829,16 +829,15 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
   // Write to plain rocksdb.
   Options options;
   options.create_if_missing = true;
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
   for (size_t i = 0; i < kNumIteration; i++) {
     auto key_index = rnd.Next() % kNumKey;
     std::string key = "key" + std::to_string(key_index);
-    PutRandom(db, key, &rnd, &data);
+    PutRandom(db.get(), key, &rnd, &data);
   }
-  VerifyDB(db, data);
-  delete db;
-  db = nullptr;
+  VerifyDB(db.get(), data);
+  db.reset();
 
   // Open as blob db. Verify it can read existing data.
   Open();
@@ -868,7 +867,6 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
       ASSERT_EQ(data[key], value);
     }
   }
-  delete db;
 }
 
 // Test to verify that a NoSpace IOError Status is returned on reaching

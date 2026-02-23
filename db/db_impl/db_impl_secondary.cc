@@ -509,10 +509,6 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
   }
-  if (read_options.managed) {
-    return NewErrorIterator(
-        Status::NotSupported("Managed iterator is not supported anymore."));
-  }
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
@@ -587,9 +583,6 @@ Status DBImplSecondary::NewIterators(
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
-  }
-  if (read_options.managed) {
-    return Status::NotSupported("Managed iterator is not supported anymore.");
   }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
@@ -1546,7 +1539,7 @@ Status DB::OpenAndCompact(
   }
 
   // 5. Open db As Secondary
-  DB* db;
+  std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   s = DB::OpenAsSecondary(db_options, name, output_directory, column_families,
                           &handles, &db);
@@ -1556,7 +1549,7 @@ Status DB::OpenAndCompact(
   assert(db);
 
   TEST_SYNC_POINT_CALLBACK(
-      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db);
+      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db.get());
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;
@@ -1571,7 +1564,8 @@ Status DB::OpenAndCompact(
   // 7. Run the compaction without installation.
   // Output will be stored in the directory specified by output_directory
   CompactionServiceResult compaction_result;
-  DBImplSecondary* db_secondary = static_cast_with_check<DBImplSecondary>(db);
+  DBImplSecondary* db_secondary =
+      static_cast_with_check<DBImplSecondary>(db.get());
   s = db_secondary->CompactWithoutInstallation(options, cfh, compaction_input,
                                                &compaction_result);
 
@@ -1582,7 +1576,7 @@ Status DB::OpenAndCompact(
   for (auto& handle : handles) {
     delete handle;
   }
-  delete db;
+  db.reset();
   if (s.ok()) {
     return serialization_status;
   } else {

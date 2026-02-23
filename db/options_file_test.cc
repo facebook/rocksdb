@@ -66,16 +66,16 @@ TEST_F(OptionsFileTest, NumberOfOptionsFiles) {
   opt.create_if_missing = true;
   ASSERT_OK(DestroyDB(dbname_, opt));
   std::unordered_set<std::string> filename_history;
-  DB* db;
+  std::unique_ptr<DB> db;
   for (int i = 0; i < kReopenCount; ++i) {
     ASSERT_OK(DB::Open(opt, dbname_, &db));
     int num_options_files = 0;
-    UpdateOptionsFiles(db, &filename_history, &num_options_files);
+    UpdateOptionsFiles(db.get(), &filename_history, &num_options_files);
     ASSERT_GT(num_options_files, 0);
     ASSERT_LE(num_options_files, 2);
     // Make sure we always keep the latest option files.
-    VerifyOptionsFileName(db, filename_history);
-    delete db;
+    VerifyOptionsFileName(db.get(), filename_history);
+    db.reset();
   }
 }
 

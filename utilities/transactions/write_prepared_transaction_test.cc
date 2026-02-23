@@ -196,7 +196,7 @@ TEST(PreparedHeap, Concurrent) {
 TEST(WriteBatchWithIndex, SubBatchCnt) {
   ColumnFamilyOptions cf_options;
   std::string cf_name = "two";
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   const std::string dbname = test::PerThreadDBPath("transaction_testdb");
@@ -285,7 +285,6 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
   }
 
   delete cf_handle;
-  delete db;
 }
 
 TEST(CommitEntry64b, BasicTest) {

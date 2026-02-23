@@ -1,0 +1,88 @@
+# When making changes, verify the output of:
+#   clang-tidy -list-checks
+---
+Checks: "-*,\
+  bugprone-argument-comment,\
+  bugprone-dangling-handle,\
+  bugprone-fold-init-type,\
+  bugprone-forward-declaration-namespace,\
+  bugprone-forwarding-reference-overload,\
+  bugprone-shadow,\
+  bugprone-sizeof-*,\
+  bugprone-string-constructor,\
+  bugprone-undefined-memory-manipulation,\
+  bugprone-unused-return-value,\
+  bugprone-use-after-move,\
+  cert-env33-c,\
+  cert-err58-cpp,\
+  cert-msc30-c,\
+  cert-msc50-cpp,\
+  clang-analyzer-core.NullDereference,\
+  clang-analyzer-core.StackAddressEscape,\
+  clang-analyzer-deadcode.DeadStores,\
+  clang-diagnostic-*,\
+  -clang-diagnostic-missing-designated-field-initializers,\
+  concurrency-mt-unsafe,\
+  cppcoreguidelines-avoid-non-const-global-variables,\
+  cppcoreguidelines-missing-std-forward,\
+  cppcoreguidelines-pro-type-member-init,\
+  cppcoreguidelines-special-member-functions,\
+  cppcoreguidelines-virtual-class-destructor,\
+  google-build-using-namespace,\
+  google-explicit-constructor,\
+  google-readability-avoid-underscore-in-googletest-name,\
+  misc-definitions-in-headers,\
+  misc-redundant-expression,\
+  modernize-make-shared,\
+  modernize-use-emplace,\
+  modernize-use-noexcept,\
+  modernize-use-override,\
+  modernize-use-using,\
+  performance-faster-string-find,\
+  performance-for-range-copy,\
+  performance-implicit-conversion-in-loop,\
+  performance-inefficient-algorithm,\
+  performance-inefficient-string-concatenation,\
+  performance-inefficient-vector-operation,\
+  performance-move-const-arg,\
+  performance-move-constructor-init,\
+  performance-no-automatic-move,\
+  performance-no-int-to-ptr,\
+  performance-noexcept-move-constructor,\
+  performance-noexcept-swap,\
+  performance-trivially-destructible,\
+  performance-type-promotion-in-math-fn,\
+  performance-unnecessary-copy-initialization,\
+  performance-unnecessary-value-param,\
+  readability-braces-around-statements,\
+  readability-duplicate-include,\
+  readability-isolate-declaration,\
+  readability-operators-representation,\
+  readability-redundant-string-init"
+
+WarningsAsErrors: "bugprone-use-after-move"
+
+CheckOptions:
+- key: bugprone-easily-swappable-parameters.MinimumLength
+  value: 4
+- key: cppcoreguidelines-avoid-non-const-global-variables.AllowThreadLocal
+  value: true
+- key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+  value: true
+- key: cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove
+  value: true
+- key: modernize-use-using.IgnoreExternC
+  value: true
+- key: performance-move-const-arg.CheckTriviallyCopyableMove
+  value: false
+- key: performance-unnecessary-value-param.AllowedTypes
+  value: '[Pp]ointer$;[Pp]tr$;[Rr]ef(erence)?$'
+- key: performance-unnecessary-copy-initialization.AllowedTypes
+  value: '[Pp]ointer$;[Pp]tr$;[Rr]ef(erence)?$'
+- key: readability-operators-representation.BinaryOperators
+  value: '&&;&=;&;|;~;!;!=;||;|=;^;^='
+- key: readability-redundant-string-init.StringNames
+  value: '::std::basic_string'
+- key: readability-named-parameter.InsertPlainNamesInForwardDecls
+  value: true
+...

@@ -1,0 +1,46 @@
+---
+title: "RocksDB development finds a CPU bug"
+layout: post
+author: pdillinger
+category: blog
+---
+
+This is the story of how a RocksDB unit test I added four years ago, a mini-stress test you might call it, revealed [a novel hardware bug in a newer CPU](https://www.amd.com/en/resources/product-security/bulletin/amd-sb-7055.html). It was scary enough to be assigned a "high severity" CVE.
+
+## Background: Unique Identifiers
+About four years ago, we [added unique identifiers to SST files](https://github.com/facebook/rocksdb/pull/9126) to give them stable identifiers across different filesystems for caching purposes. Part of the motivation here was to eliminate our dependence on the uniqueness and non-recycling of unique identifiers on files provided by the OS filesystem. (Some filesystems were only [guaranteeing uniqueness among existing files, not among all files even in recent history](https://github.com/facebook/rocksdb/issues/7405#issuecomment-694595587).) I would call this dependency problem the *great tension* between reusing existing solutions and code self-reliance. You don't want to duplicate others' work but you also don't want to be subject to their bugs or changing / misaligned requirements. Striking this balance can be tricky, but in this case it was clear to us that we didn't want to rely on all the possible filesystems providing quality unique identifiers.
+
+If you're comfortable with large random numbers (e.g. 128 bits), you probably agree that persisting random identifiers (or [quasi-random](https://github.com/pdillinger/unique_id/blob/main/README.md), which [I helped formalize in a paper](https://dl.acm.org/doi/10.1145/3584372.3588674), [also on arXiv](https://arxiv.org/abs/2304.07109)) with each file would be safer and more predictable than relying so crucially on a minor feature of OS filesystems.
+
+## High Quality Randomness
+However, that assumes we have access to *high quality* random numbers (at least a good one or two to start from - see the paper). Because RocksDB intends to be cross-platform, we want to minimize platform-specific dependencies and prefer cross-platform dependencies. But that could easily land us back where we didn't want to be: susceptible to a bug or hiccup in one implementation of what we needed.
+
+Fortunately, the nature of random entropy allows *combining* sources so that your result is as good as your *best* input source, so even if one is bad, you only have a problem if they're all bad. And we had the advantages that (a) we only needed uniqueness, not security, which reduced the need for extra scrutiny and allowed us to use the quasi-random approach, and (b) the quasi-random approach minimized the amount of entropy needed, so the performance cost of acquiring each unit of entropy was almost inconsequential. Therefore, I combined these sources of entropy:
+
+* C++11's [std::random_device](https://en.cppreference.com/w/cpp/numeric/random/random_device.html) which is supposed to provide high quality but is allowed not to.
+* A hash of various environment parameters including hostname, process id, thread id, and various macro and micro time readings.
+* Platform-specific UUID generator (Linux and Windows only)
+
+## Trust But Verify
+To verify the quality of each of these sources on an ongoing basis, [I added unit tests](https://github.com/facebook/rocksdb/pull/8708) that used many threads to create thousands of unique identifiers based on one of the above sources at a time and verified their uniqueness. For a high quality source, the probability of any duplicate 128-bit IDs among thousands is negligible, even if running these tests continuously for decades.
+
+## That's Weird
+That was pretty much the story until some months ago the test based on `std::random_device` failed, once. It was quite suspicious because the number of unique IDs was not just one short of expectation, it was dozens or hundreds short. However, even that could be explained by a random CPU hiccup or bit flip in which we generated fewer IDs to begin with. (You might have noticed an increasing amount of RocksDB development effort and portion of CPU time going into checks that are logically redundant but exist to detect CPU miscalculations before the corruption propagates too far.)
+
+But then it failed again about a month later. No failures for four years, then two failures in two months. This smelled really bad. Digging into the details I noticed a crucial correlation: both of the failed test jobs had run on the same type of hardware, though in completely different data centers.
+
+From there I did the natural thing for an engineer: scale it up to try to reproduce the failure. And that was remarkably easy. By increasing the number of threads in the job to around the number of cores it would fail quickly and consistently on all systems using the same type of newer CPU, and pass on everything else. I tested some variants of this to establish some more details, including
+
+* `std::random_device` using "rdrand" and "/dev/urandom" sources were not affected, and
+* libc++ (from clang) was not affected, only libstdc++ (from GCC)
+
+## Root Cause Analysis
+From there Meta colleagues investigated the low-level details. They found the problem to be that the RDSEED instruction on this type of processor would return 0 and "success" much more often than would randomly be expected, but only on some cores and only under "complex micro-architectural conditions reproducible under memory-load," as a colleague describes it. A mitigating Linux kernel patch was developed to signal that RDSEED was unavailable on these processors, with the intention of rolling it out internally at Meta to avoid problems until a fix came from the OEM. [AMD quickly acknowledged the issue and announced planned mitigation](https://www.amd.com/en/resources/product-security/bulletin/amd-sb-7055.html), including a CPU microcode update.
+
+## With Apologies
+Although I worked to keep the information confidential until the OEM publicly acknowledged the issue, the uncoordinated disclosure via the Linux mailing list was due to zealous remediation efforts that crossed multiple infrastructure teams at Meta. We regret the mistake and are working to improve controls on the processes that failed to coordinate with the OEM first.
+
+## Key Takeaways
+* Test what you depend on.
+* Have redundancies and/or sanity checks for what you depend on.
+* Even CPUs can have bugs, usually flaky individual units but occasionally a bug affecting all units.

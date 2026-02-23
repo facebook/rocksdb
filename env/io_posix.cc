@@ -755,10 +755,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     iu = static_cast<struct io_uring*>(
         thread_local_multi_read_io_urings_->Get());
     if (iu == nullptr) {
-      unsigned int flags = 0;
-      flags |= IORING_SETUP_SINGLE_ISSUER;
-      flags |= IORING_SETUP_DEFER_TASKRUN;
-      iu = CreateIOUring(flags);
+      iu = CreateIOUring();
       if (iu != nullptr) {
         thread_local_multi_read_io_urings_->Reset(iu);
       }
@@ -1090,10 +1087,7 @@ IOStatus PosixRandomAccessFile::ReadAsync(
     iu = static_cast<struct io_uring*>(
         thread_local_async_read_io_urings_->Get());
     if (iu == nullptr) {
-      unsigned int flags = 0;
-      flags |= IORING_SETUP_SINGLE_ISSUER;
-      flags |= IORING_SETUP_DEFER_TASKRUN;
-      iu = CreateIOUring(flags);
+      iu = CreateIOUring();
       if (iu != nullptr) {
         thread_local_async_read_io_urings_->Reset(iu);
       }

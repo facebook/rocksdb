@@ -31,11 +31,11 @@ constexpr char db_path[] = "/tmp/testdb";
 // enum. The goal is to capture sanitizer bugs, so the code should be
 // compiled with a given sanitizer (ASan, UBSan, MSan).
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  ROCKSDB_NAMESPACE::DB* db;
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
   ROCKSDB_NAMESPACE::Options options;
+  ROCKSDB_NAMESPACE::Status status;
   options.create_if_missing = true;
-  ROCKSDB_NAMESPACE::Status status =
-      ROCKSDB_NAMESPACE::DB::Open(options, db_path, &db);
+  status = ROCKSDB_NAMESPACE::DB::Open(options, db_path, &db);
   if (!status.ok()) {
     return 0;
   }
@@ -88,7 +88,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       }
       case kOpenClose: {
         db->Close();
-        delete db;
+        db.reset();
         status = ROCKSDB_NAMESPACE::DB::Open(options, db_path, &db);
         if (!status.ok()) {
           ROCKSDB_NAMESPACE::DestroyDB(db_path, options);
@@ -104,7 +104,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                                    "new_cf", &cf);
         s = db->DestroyColumnFamilyHandle(cf);
         db->Close();
-        delete db;
+        db.reset();
 
         // open DB with two column families
         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
@@ -166,7 +166,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Cleanup DB
   db->Close();
-  delete db;
+  db.reset();
   ROCKSDB_NAMESPACE::DestroyDB(db_path, options);
   return 0;
 }

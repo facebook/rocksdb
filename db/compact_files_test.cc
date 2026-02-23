@@ -75,10 +75,9 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
   options.compression = kNoCompression;
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
-  Status s = DB::Open(options, db_name_, &db);
-  assert(s.ok());
+  ASSERT_OK(DB::Open(options, db_name_, &db));
   assert(db);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
@@ -114,7 +113,6 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
     }
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  delete db;
 }
 
 TEST_F(CompactFilesTest, MultipleLevel) {
@@ -128,11 +126,11 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
-  ASSERT_NE(db, nullptr);
+  ASSERT_NE(db.get(), nullptr);
 
   // create couple files in L0, L3, L4 and L5
   for (int i = 5; i > 2; --i) {
@@ -141,7 +139,8 @@ TEST_F(CompactFilesTest, MultipleLevel) {
     ASSERT_OK(db->Flush(FlushOptions()));
     // Ensure background work is fully finished including listener callbacks
     // before accessing listener state.
-    ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db.get())->TEST_WaitForBackgroundWork());
     auto l0_files = collector->GetFlushedFiles();
     ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, i));
 
@@ -191,8 +190,6 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   ASSERT_OK(db->CompactFiles(CompactionOptions(), files, 5));
   SyncPoint::GetInstance()->DisableProcessing();
   thread.join();
-
-  delete db;
 }
 
 TEST_F(CompactFilesTest, ObsoleteFiles) {
@@ -212,11 +209,11 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
-  ASSERT_NE(db, nullptr);
+  ASSERT_NE(db.get(), nullptr);
 
   // create couple files
   for (int i = 1000; i < 2000; ++i) {
@@ -226,13 +223,12 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   auto l0_files = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForCompact());
+  ASSERT_OK(static_cast_with_check<DBImpl>(db.get())->TEST_WaitForCompact());
 
   // verify all compaction input files are deleted
   for (const auto& fname : l0_files) {
     ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
-  delete db;
 }
 
 TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
@@ -251,10 +247,9 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
-  Status s = DB::Open(options, db_name_, &db);
-  assert(s.ok());
+  ASSERT_OK(DB::Open(options, db_name_, &db));
   assert(db);
 
   // create couple files
@@ -262,19 +257,20 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
     ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(1000, 'a' + (i % 26))));
   }
-  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
     ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(1000, 'a' + (i % 26))));
   }
-  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
   auto l0_files_2 = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_1, 0));
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 0));
   // no assertion failure
-  delete db;
 }
 
 TEST_F(CompactFilesTest, CapturingPendingFiles) {
@@ -289,7 +285,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
@@ -303,7 +299,8 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 
   // Ensure background work is fully finished including listener callbacks
   // before accessing listener state.
-  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForBackgroundWork());
   auto l0_files = collector->GetFlushedFiles();
   EXPECT_EQ(5, l0_files.size());
 
@@ -327,13 +324,12 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
-  delete db;
+  db.reset();
 
   // Make sure we can reopen the DB.
   s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   assert(db);
-  delete db;
 }
 
 TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
@@ -365,12 +361,12 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   options.create_if_missing = true;
   options.compaction_filter = cf.get();
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
 
-  cf->SetDB(db);
+  cf->SetDB(db.get());
 
   // Write one L0 file
   ASSERT_OK(db->Put(WriteOptions(), "K1", "V1"));
@@ -384,8 +380,6 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
     ASSERT_OK(
         db->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), {fname}, 0));
   }
-
-  delete db;
 }
 
 TEST_F(CompactFilesTest, SentinelCompressionType) {
@@ -413,7 +407,7 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     options.create_if_missing = true;
     FlushedFileCollector* collector = new FlushedFileCollector();
     options.listeners.emplace_back(collector);
-    DB* db = nullptr;
+    std::unique_ptr<DB> db;
     ASSERT_OK(DB::Open(options, db_name_, &db));
 
     ASSERT_OK(db->Put(WriteOptions(), "key", "val"));
@@ -421,7 +415,8 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
 
     // Ensure background work is fully finished including listener callbacks
     // before accessing listener state.
-    ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db.get())->TEST_WaitForBackgroundWork());
     auto l0_files = collector->GetFlushedFiles();
     ASSERT_EQ(1, l0_files.size());
 
@@ -437,7 +432,6 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
       // compression_name property
       ASSERT_EQ("BuiltinV2;02;", name_and_table_props.second->compression_name);
     }
-    delete db;
   }
 }
 
@@ -462,11 +456,7 @@ TEST_F(CompactFilesTest, CompressionWithBlockAlign) {
   }
 
   std::unique_ptr<DB> db;
-  {
-    DB* _db = nullptr;
-    ASSERT_OK(DB::Open(options, db_name_, &_db));
-    db.reset(_db);
-  }
+  ASSERT_OK(DB::Open(options, db_name_, &db));
 
   ASSERT_OK(db->Put(WriteOptions(), "key", "val"));
   ASSERT_OK(db->Flush(FlushOptions()));
@@ -505,7 +495,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
@@ -516,7 +506,8 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
     ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(1000, 'a' + (i % 26))));
   }
-  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   CompactionOptions co;
   co.compression = CompressionType::kLZ4Compression;
@@ -532,7 +523,6 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   ASSERT_EQ(compaction_job_info.output_level, 0);
   ASSERT_OK(compaction_job_info.status);
   // no assertion failure
-  delete db;
 }
 
 // Helper function to generate zero-padded keys
@@ -548,11 +538,11 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
   options.compression = kNoCompression;
   options.level_compaction_dynamic_level_bytes = false;
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
-  ASSERT_NE(db, nullptr);
+  ASSERT_NE(db.get(), nullptr);
 
   // Create 3 non-overlapping files in L0
   // File 1: keys [a00-a99]
@@ -665,8 +655,6 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
     ASSERT_OK(db->Get(ReadOptions(), key, &value));
     ASSERT_EQ(value, "value_" + key);
   }
-
-  delete db;
 }
 
 TEST_F(CompactFilesTest, TrivialMoveBlockedByOverlap) {
@@ -677,11 +665,11 @@ TEST_F(CompactFilesTest, TrivialMoveBlockedByOverlap) {
   options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 7;
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
-  ASSERT_NE(db, nullptr);
+  ASSERT_NE(db.get(), nullptr);
 
   // Create a file in L6 with keys [m00-m99] (wide range)
   for (int i = 0; i < 100; i++) {
@@ -757,8 +745,6 @@ TEST_F(CompactFilesTest, TrivialMoveBlockedByOverlap) {
     ASSERT_OK(db->Get(ReadOptions(), key, &value));
     ASSERT_EQ(value, "updated_value_" + key);
   }
-
-  delete db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

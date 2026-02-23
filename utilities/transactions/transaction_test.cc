@@ -9005,7 +9005,7 @@ class CommitBypassMemtableTest
     txn_db_opts.use_per_key_point_lock_mgr = std::get<1>(GetParam());
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
     ASSERT_NE(txn_db, nullptr);
-    db_ = txn_db;
+    db_.reset(txn_db);
   }
 };
 
@@ -9453,9 +9453,9 @@ TEST_P(CommitBypassMemtableTest, Recovery) {
   VerifyDBFromMap(expected);
 
   ASSERT_OK(txn_db->Close());
-  delete txn_db;
+  db_.reset();  // destroys txn_db (owned by db_)
   ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
-  db_ = txn_db;
+  db_.reset(txn_db);
 
   VerifyDBFromMap(expected);
 }

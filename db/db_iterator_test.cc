@@ -1842,11 +1842,6 @@ class SliceTransformLimitedDomainGeneric : public SliceTransform {
     // prefix will be x????
     return src.size() >= 1;
   }
-
-  bool InRange(const Slice& dst) const override {
-    // prefix will be x????
-    return dst.size() == 1;
-  }
 };
 
 TEST_P(DBIteratorTest, IterSeekForPrevCrossingFiles) {
@@ -2574,7 +2569,7 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
         ReadOptions read_options;
         std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
         if (explicit_snapshot) {
-          snapshot = std::make_unique<ManagedSnapshot>(db_);
+          snapshot = std::make_unique<ManagedSnapshot>(db_.get());
         }
         read_options.snapshot =
             explicit_snapshot ? snapshot->snapshot() : nullptr;

@@ -98,15 +98,6 @@ public class ReadOptionsTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void managed() {
-    try (final ReadOptions opt = new ReadOptions()) {
-      opt.setManaged(true);
-      assertThat(opt.managed()).isTrue();
-    }
-  }
-
   @Test
   public void totalOrderSeek() {
     try (final ReadOptions opt = new ReadOptions()) {

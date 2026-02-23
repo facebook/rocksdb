@@ -183,11 +183,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
 // is waiting to be finished but DBs tries to write meanwhile.
 TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   std::vector<std::string> dbnames;
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   int num_dbs = 3;
 
   for (int i = 0; i < num_dbs; i++) {
-    dbs.push_back(nullptr);
+    dbs.emplace_back();
     dbnames.push_back(
         test::PerThreadDBPath("db_shared_wb_db" + std::to_string(i)));
   }
@@ -266,7 +266,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   //  Last writer will write and when its blocked it will signal Flush to
   //  continue to clear the stall.
 
-  threads.emplace_back(write_db, db_);
+  threads.emplace_back(write_db, db_.get());
   // Wait untill first DB is blocked and then create the multiple writers for
   // different DBs which will be blocked from getting added to the queue because
   // stall is in effect.
@@ -277,7 +277,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
     }
   }
   for (int i = 0; i < num_dbs; i++) {
-    threads.emplace_back(write_db, dbs[i]);
+    threads.emplace_back(write_db, dbs[i].get());
   }
   for (auto& t : threads) {
     t.join();
@@ -289,7 +289,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -300,11 +300,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
 // blocked when stall by WriteBufferManager is in effect.
 TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   std::vector<std::string> dbnames;
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   int num_dbs = 3;
 
   for (int i = 0; i < num_dbs; i++) {
-    dbs.push_back(nullptr);
+    dbs.emplace_back();
     dbnames.push_back(
         test::PerThreadDBPath("db_shared_wb_db" + std::to_string(i)));
   }
@@ -407,7 +407,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   //  |
   //  Last writer thread will write and when its blocked it will signal Flush to
   //  continue to clear the stall.
-  threads.emplace_back(write_db, db_);
+  threads.emplace_back(write_db, db_.get());
   // Wait untill first thread is blocked and then create the multiple writer
   // threads.
   {
@@ -421,7 +421,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
     // Write to multiple columns of db_.
     writer_threads.emplace_back(write_cf, i % 3);
     // Write to different dbs.
-    threads.emplace_back(write_db, dbs[i]);
+    threads.emplace_back(write_db, dbs[i].get());
   }
   for (auto& t : threads) {
     t.join();
@@ -441,7 +441,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -604,11 +604,11 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
 // dbs by passing different values to WriteOption.no_slown_down.
 TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   std::vector<std::string> dbnames;
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   int num_dbs = 4;
 
   for (int i = 0; i < num_dbs; i++) {
-    dbs.push_back(nullptr);
+    dbs.emplace_back();
     dbnames.push_back(
         test::PerThreadDBPath("db_shared_wb_db" + std::to_string(i)));
   }
@@ -732,7 +732,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   //  |
   //  Last writer thread will write and when its blocked/return it will signal
   //  Flush to continue to clear the stall.
-  threads.emplace_back(write_slow_down, db_);
+  threads.emplace_back(write_slow_down, db_.get());
   // Wait untill first thread writing to DB is blocked and then
   // create the multiple writers.
   {
@@ -744,11 +744,11 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   for (int i = 0; i < num_dbs; i += 2) {
     // Write to multiple columns of db_.
-    writer_threads.emplace_back(write_slow_down, db_);
-    writer_threads.emplace_back(write_no_slow_down, db_);
+    writer_threads.emplace_back(write_slow_down, db_.get());
+    writer_threads.emplace_back(write_no_slow_down, db_.get());
     // Write to different DBs.
-    threads.emplace_back(write_slow_down, dbs[i]);
-    threads.emplace_back(write_no_slow_down, dbs[i + 1]);
+    threads.emplace_back(write_slow_down, dbs[i].get());
+    threads.emplace_back(write_no_slow_down, dbs[i + 1].get());
   }
 
   for (auto& t : threads) {
@@ -773,7 +773,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -809,7 +809,7 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
 
   Reopen(options);
   std::string dbname = test::PerThreadDBPath("db_shared_wbm_db");
-  DB* shared_wbm_db = nullptr;
+  std::unique_ptr<DB> shared_wbm_db;
 
   ASSERT_OK(DestroyDB(dbname, options));
   ASSERT_OK(DB::Open(options, dbname, &shared_wbm_db));
@@ -842,7 +842,7 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   sleeping_task_high.WaitUntilDone();
   ASSERT_OK(shared_wbm_db->Close());
   ASSERT_OK(DestroyDB(dbname, options));
-  delete shared_wbm_db;
+  shared_wbm_db.reset();
 }
 
 TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {

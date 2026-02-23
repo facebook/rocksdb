@@ -27,6 +27,63 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+#ifndef NDEBUG
+static void AssertCleanCut(const InternalKeyComparator* icmp,
+                           VersionStorageInfo* vstorage,
+                           CompactionInputFiles* inputs, int level,
+                           Logger* logger) {
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(level);
+  if (inputs->files.empty() || level_files.empty()) {
+    return;
+  }
+
+  const Comparator* ucmp = icmp->user_comparator();
+
+  // Find first and last input file indices in level
+  int first_input_idx = -1;
+  int last_input_idx = -1;
+  for (size_t i = 0; i < level_files.size(); i++) {
+    if (level_files[i] == inputs->files.front()) {
+      first_input_idx = static_cast<int>(i);
+    }
+    if (level_files[i] == inputs->files.back()) {
+      last_input_idx = static_cast<int>(i);
+    }
+  }
+
+  // Check file before first input
+  if (first_input_idx > 0) {
+    const FileMetaData* prev_file = level_files[first_input_idx - 1];
+    const FileMetaData* first_file = inputs->files.front();
+    int cmp = sstableKeyCompare(ucmp, prev_file->largest, first_file->smallest);
+    if (cmp == 0) {
+      ROCKS_LOG_ERROR(logger,
+                      "Clean cut violated: L%d unselected file %" PRIu64
+                      " adjacent to first selected file %" PRIu64,
+                      level, prev_file->fd.GetNumber(),
+                      first_file->fd.GetNumber());
+      assert(false);
+    }
+  }
+
+  // Check file after last input
+  if (last_input_idx >= 0 &&
+      static_cast<size_t>(last_input_idx) < level_files.size() - 1) {
+    const FileMetaData* last_file = inputs->files.back();
+    const FileMetaData* next_file = level_files[last_input_idx + 1];
+    int cmp = sstableKeyCompare(ucmp, last_file->largest, next_file->smallest);
+    if (cmp == 0) {
+      ROCKS_LOG_ERROR(logger,
+                      "Clean cut violated: L%d unselected file %" PRIu64
+                      " adjacent to last selected file %" PRIu64,
+                      level, next_file->fd.GetNumber(),
+                      last_file->fd.GetNumber());
+      assert(false);
+    }
+  }
+}
+#endif  // NDEBUG
+
 bool PickCostBasedIntraL0Compaction(
     const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
     uint64_t max_compact_bytes_per_del_file, uint64_t max_compaction_bytes,
@@ -248,6 +305,10 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
   // we started off with inputs non-empty and the previous loop only grew
   // inputs. thus, inputs should be non-empty here
   assert(!inputs->empty());
+
+#ifndef NDEBUG
+  AssertCleanCut(icmp_, vstorage, inputs, level, ioptions_.logger);
+#endif  // NDEBUG
 
   // If, after the expansion, there are files that are already under
   // compaction, then we must drop/cancel this compaction.

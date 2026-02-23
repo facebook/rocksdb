@@ -11,6 +11,7 @@
 
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -595,7 +596,6 @@ struct rocksdb_slicetransform_t : public SliceTransform {
   char* (*transform_)(void*, const char* key, size_t length,
                       size_t* dst_length);
   unsigned char (*in_domain_)(void*, const char* key, size_t length);
-  unsigned char (*in_range_)(void*, const char* key, size_t length);
 
   ~rocksdb_slicetransform_t() override { (*destructor_)(state_); }
 
@@ -609,10 +609,6 @@ struct rocksdb_slicetransform_t : public SliceTransform {
 
   bool InDomain(const Slice& src) const override {
     return (*in_domain_)(state_, src.data(), src.size());
-  }
-
-  bool InRange(const Slice& src) const override {
-    return (*in_range_)(state_, src.data(), src.size());
   }
 };
 
@@ -1222,12 +1218,12 @@ char* rocksdb_open_and_compact_with_options(
 
 rocksdb_t* rocksdb_open(const rocksdb_options_t* options, const char* name,
                         char** errptr) {
-  DB* db;
-  if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
+  std::unique_ptr<DB> dbptr;
+  if (SaveError(errptr, DB::Open(options->rep, std::string(name), &dbptr))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1247,13 +1243,14 @@ rocksdb_t* rocksdb_open_for_read_only(const rocksdb_options_t* options,
                                       const char* name,
                                       unsigned char error_if_wal_file_exists,
                                       char** errptr) {
-  DB* db;
-  if (SaveError(errptr, DB::OpenForReadOnly(options->rep, std::string(name),
-                                            &db, error_if_wal_file_exists))) {
+  std::unique_ptr<DB> dbptr;
+  if (SaveError(errptr,
+                DB::OpenForReadOnly(options->rep, std::string(name), &dbptr,
+                                    error_if_wal_file_exists))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1261,14 +1258,14 @@ rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
                                      const char* name,
                                      const char* secondary_path,
                                      char** errptr) {
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   if (SaveError(errptr,
                 DB::OpenAsSecondary(options->rep, std::string(name),
-                                    std::string(secondary_path), &db))) {
+                                    std::string(secondary_path), &dbptr))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1582,11 +1579,11 @@ rocksdb_t* rocksdb_open_and_trim_history(
 
   std::string trim_ts_(trim_ts, trim_tslen);
 
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
   if (SaveError(errptr, DB::OpenAndTrimHistory(
                             DBOptions(db_options->rep), std::string(name),
-                            column_families, &handles, &db, trim_ts_))) {
+                            column_families, &handles, &dbptr, trim_ts_))) {
     return nullptr;
   }
 
@@ -1598,7 +1595,7 @@ rocksdb_t* rocksdb_open_and_trim_history(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1614,10 +1611,10 @@ rocksdb_t* rocksdb_open_column_families(
         ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
   if (SaveError(errptr, DB::Open(DBOptions(db_options->rep), std::string(name),
-                                 column_families, &handles, &db))) {
+                                 column_families, &handles, &dbptr))) {
     return nullptr;
   }
 
@@ -1629,7 +1626,7 @@ rocksdb_t* rocksdb_open_column_families(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1682,12 +1679,12 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
         ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr,
-                DB::OpenForReadOnly(DBOptions(db_options->rep),
-                                    std::string(name), column_families,
-                                    &handles, &db, error_if_wal_file_exists))) {
+  if (SaveError(errptr, DB::OpenForReadOnly(DBOptions(db_options->rep),
+                                            std::string(name), column_families,
+                                            &handles, &dbptr,
+                                            error_if_wal_file_exists))) {
     return nullptr;
   }
 
@@ -1699,7 +1696,7 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -1715,12 +1712,12 @@ rocksdb_t* rocksdb_open_as_secondary_column_families(
         std::string(column_family_names[i]),
         ColumnFamilyOptions(column_family_options[i]->rep));
   }
-  DB* db;
+  std::unique_ptr<DB> dbptr;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr, DB::OpenAsSecondary(DBOptions(db_options->rep),
-                                            std::string(name),
-                                            std::string(secondary_path),
-                                            column_families, &handles, &db))) {
+  if (SaveError(errptr, DB::OpenAsSecondary(
+                            DBOptions(db_options->rep), std::string(name),
+                            std::string(secondary_path), column_families,
+                            &handles, &dbptr))) {
     return nullptr;
   }
   for (size_t i = 0; i != handles.size(); ++i) {
@@ -1731,7 +1728,7 @@ rocksdb_t* rocksdb_open_as_secondary_column_families(
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
-  result->rep = db;
+  result->rep = dbptr.release();
   return result;
 }
 
@@ -4679,16 +4676,6 @@ unsigned char rocksdb_options_get_skip_stats_update_on_db_open(
   return opt->rep.skip_stats_update_on_db_open;
 }
 
-void rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt, unsigned char val) {
-  opt->rep.skip_checking_sst_file_sizes_on_db_open = val;
-}
-
-unsigned char rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
-    rocksdb_options_t* opt) {
-  return opt->rep.skip_checking_sst_file_sizes_on_db_open;
-}
-
 /* Blob Options Settings */
 void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
                                            unsigned char val) {
@@ -6104,11 +6091,6 @@ unsigned char rocksdb_readoptions_get_tailing(rocksdb_readoptions_t* opt) {
   return opt->rep.tailing;
 }
 
-void rocksdb_readoptions_set_managed(rocksdb_readoptions_t* opt,
-                                     unsigned char v) {
-  opt->rep.managed = v;
-}
-
 void rocksdb_readoptions_set_readahead_size(rocksdb_readoptions_t* opt,
                                             size_t v) {
   opt->rep.readahead_size = v;
@@ -6909,14 +6891,12 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create(
     char* (*transform)(void*, const char* key, size_t length,
                        size_t* dst_length),
     unsigned char (*in_domain)(void*, const char* key, size_t length),
-    unsigned char (*in_range)(void*, const char* key, size_t length),
     const char* (*name)(void*)) {
   rocksdb_slicetransform_t* result = new rocksdb_slicetransform_t;
   result->state_ = state;
   result->destructor_ = destructor;
   result->transform_ = transform;
   result->in_domain_ = in_domain;
-  result->in_range_ = in_range;
   result->name_ = name;
   return result;
 }
@@ -6932,7 +6912,6 @@ struct SliceTransformWrapper : public rocksdb_slicetransform_t {
     return rep_->Transform(src);
   }
   bool InDomain(const Slice& src) const override { return rep_->InDomain(src); }
-  bool InRange(const Slice& src) const override { return rep_->InRange(src); }
   static void DoNothing(void*) {}
 };
 

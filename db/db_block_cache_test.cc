@@ -1661,7 +1661,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   std::string export_files_dir = dbname_ + "/exported";
   ExportImportFilesMetaData* metadata_ptr_ = nullptr;
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir,
                                            &metadata_ptr_));
   ASSERT_NE(metadata_ptr_, nullptr);
@@ -1698,7 +1698,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   // StableCacheKeyTestFS, Checkpoint will resort to full copy not hard link.
   // (Checkpoint  not available in LITE mode to test this.)
   auto db_copy_name = dbname_ + "-copy";
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(db_copy_name));
   delete checkpoint;
 

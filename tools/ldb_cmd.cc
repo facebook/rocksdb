@@ -595,7 +595,7 @@ void LDBCommand::OpenDB() {
       st = TransactionDB::Open(options_, txn_db_options, db_path_,
                                column_families_, &handles_opened, &db_txn_);
     }
-    db_ = db_txn_;
+    db_.reset(db_txn_);
   } else if (is_db_ttl_) {
     // ldb doesn't yet support TTL DB with multiple column families
     if (!column_family_name_.empty() || !column_families_.empty()) {
@@ -611,7 +611,7 @@ void LDBCommand::OpenDB() {
     } else {
       st = DBWithTTL::Open(options_, db_path_, &db_ttl_);
     }
-    db_ = db_ttl_;
+    db_.reset(db_ttl_);
   } else {
     if (!secondary_path_.empty() && !leader_path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -631,9 +631,7 @@ void LDBCommand::OpenDB() {
         } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_, &db_);
         } else {
-          std::unique_ptr<DB> dbptr;
-          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &dbptr);
-          db_ = dbptr.release();
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &db_);
         }
       } else {
         if (secondary_path_.empty() && leader_path_.empty()) {
@@ -643,10 +641,8 @@ void LDBCommand::OpenDB() {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_,
                                    column_families_, &handles_opened, &db_);
         } else {
-          std::unique_ptr<DB> dbptr;
           st = DB::OpenAsFollower(options_, db_path_, leader_path_,
-                                  column_families_, &handles_opened, &dbptr);
-          db_ = dbptr.release();
+                                  column_families_, &handles_opened, &db_);
         }
       }
     }
@@ -691,8 +687,9 @@ void LDBCommand::CloseDB() {
     }
     Status s = db_->Close();
     s.PermitUncheckedError();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
+    db_ttl_ = nullptr;
+    db_txn_ = nullptr;
   }
 }
 
@@ -2227,9 +2224,9 @@ void InternalDumpCommand::DoCommand() {
 
   // Cast as DBImpl to get internal iterator
   std::vector<KeyVersion> key_versions;
-  Status st =
-      GetAllKeyVersions(db_, GetCfHandle(), has_from_ ? from_ : OptSlice{},
-                        has_to_ ? to_ : OptSlice{}, max_keys_, &key_versions);
+  Status st = GetAllKeyVersions(
+      db_.get(), GetCfHandle(), has_from_ ? from_ : OptSlice{},
+      has_to_ ? to_ : OptSlice{}, max_keys_, &key_versions);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
@@ -4501,7 +4498,7 @@ void CheckPointCommand::DoCommand() {
     return;
   }
   Checkpoint* checkpoint;
-  Status status = Checkpoint::Create(db_, &checkpoint);
+  Status status = Checkpoint::Create(db_.get(), &checkpoint);
   status = checkpoint->CreateCheckpoint(checkpoint_dir_);
   if (status.ok()) {
     fprintf(stdout, "OK\n");
@@ -4656,7 +4653,7 @@ void BackupCommand::DoCommand() {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
     return;
   }
-  status = backup_engine->CreateNewBackup(db_);
+  status = backup_engine->CreateNewBackup(db_.get());
   if (status.ok()) {
     fprintf(stdout, "create new backup OK\n");
   } else {

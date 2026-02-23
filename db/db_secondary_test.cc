@@ -56,12 +56,11 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
       ASSERT_OK(db_secondary_->DestroyColumnFamilyHandle(h));
     }
     handles_secondary_.clear();
-    delete db_secondary_;
-    db_secondary_ = nullptr;
+    db_secondary_.reset();
   }
 
   DBImplSecondary* db_secondary_full() {
-    return static_cast<DBImplSecondary*>(db_secondary_);
+    return static_cast<DBImplSecondary*>(db_secondary_.get());
   }
 
   void CheckFileTypeCounts(const std::string& dir, int expected_log,
@@ -69,7 +68,7 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
 
   std::string secondary_path_;
   std::vector<ColumnFamilyHandle*> handles_secondary_;
-  DB* db_secondary_;
+  std::unique_ptr<DB> db_secondary_;
 };
 
 void DBSecondaryTestBase::OpenSecondary(const Options& options) {
@@ -152,8 +151,8 @@ TEST_F(DBSecondaryTest, NonExistingDb) {
   options.env = env_;
   options.max_open_files = -1;
   const std::string dbname = "/doesnt/exist";
-  Status s =
-      DB::OpenAsSecondary(options, dbname, secondary_path_, &db_secondary_);
+  std::unique_ptr<DB> dbptr;
+  Status s = DB::OpenAsSecondary(options, dbname, secondary_path_, &dbptr);
   ASSERT_TRUE(s.IsIOError());
 }
 
@@ -182,7 +181,7 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
 
   ReadOptions ropts;
   ropts.verify_checksums = true;
-  auto db1 = static_cast<DBImplSecondary*>(db_);
+  auto db1 = static_cast<DBImplSecondary*>(db_.get());
   ASSERT_NE(nullptr, db1);
   Iterator* iter = db1->NewIterator(ropts);
   ASSERT_NE(nullptr, iter);
@@ -834,7 +833,7 @@ TEST_F(DBSecondaryTest, OpenWithSubsetOfColumnFamilies) {
   options1.max_open_files = -1;
   OpenSecondary(options1);
   ASSERT_EQ(0, handles_secondary_.size());
-  ASSERT_NE(nullptr, db_secondary_);
+  ASSERT_NE(nullptr, db_secondary_.get());
 
   ASSERT_OK(Put(0 /*cf*/, "foo", "foo_value"));
   ASSERT_OK(Put(1 /*cf*/, "foo", "foo_value"));
@@ -1152,7 +1151,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   for (int k = 0; k != 16; ++k) {
     ASSERT_OK(Put("key" + std::to_string(k), "value" + std::to_string(k)));
     ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
-    verify_db(dbfull(), db_secondary_);
+    verify_db(dbfull(), db_secondary_.get());
   }
 }
 
@@ -1221,7 +1220,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
     TEST_SYNC_POINT(
         "DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp");
     ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
-    verify_db(dbfull(), handles_, db_secondary_, handles_secondary_);
+    verify_db(dbfull(), handles_, db_secondary_.get(), handles_secondary_);
     SyncPoint::GetInstance()->ClearTrace();
   }
 }
@@ -1357,7 +1356,7 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
   TransactionDBOptions txn_db_opts;
   ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
   ASSERT_NE(txn_db, nullptr);
-  db_ = txn_db;
+  db_.reset(txn_db);
 
   std::vector<std::string> cfs = {"new_CF"};
   CreateColumnFamilies(cfs, options);
@@ -1561,7 +1560,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
          it->Next(), ++count, ++key) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                          "value" + std::to_string(i), write_timestamps[i]);
-      get_value_and_check(db_, read_opts, it->key(), it->value(),
+      get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
     ASSERT_OK(it->status());
@@ -1574,7 +1573,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
          it->Prev(), ++count, --key) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                          "value" + std::to_string(i), write_timestamps[i]);
-      get_value_and_check(db_, read_opts, it->key(), it->value(),
+      get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
     ASSERT_OK(it->status());
@@ -1596,7 +1595,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
            it->Valid(); it->Next(), ++key, ++count) {
         CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
-        get_value_and_check(db_, read_opts, it->key(), it->value(),
+        get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
       ASSERT_OK(it->status());
@@ -1606,7 +1605,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
            it->Valid(); it->Prev(), --key, ++count) {
         CheckIterUserEntry(it.get(), Key1(key - 1), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
-        get_value_and_check(db_, read_opts, it->key(), it->value(),
+        get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
       ASSERT_OK(it->status());

@@ -305,7 +305,8 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
-DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
+DBWithTTLImpl::DBWithTTLImpl(std::unique_ptr<DB>&& db)
+    : DBWithTTL(std::move(db)), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
@@ -372,7 +373,7 @@ Status DBWithTTL::Open(
     DBWithTTLImpl::SanitizeOptions(
         ttls[i], &column_families_sanitized[i].options, clock);
   }
-  DB* db;
+  std::unique_ptr<DB> db;
 
   Status st;
   if (read_only) {
@@ -382,7 +383,7 @@ Status DBWithTTL::Open(
     st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
   }
   if (st.ok()) {
-    *dbptr = new DBWithTTLImpl(db);
+    *dbptr = new DBWithTTLImpl(std::move(db));
   } else {
     *dbptr = nullptr;
   }

@@ -384,7 +384,7 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
 
     // Hold open a snapshot to prevent range tombstones from being compacted
     // away.
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
 
     Random rnd(5632);
     for (int table = 1; table <= kTableCount; ++table) {
@@ -582,7 +582,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   DestroyAndReopen(options);
 
   // Hold open a snapshot to prevent range tombstones from being compacted away.
-  ManagedSnapshot snapshot(db_);
+  ManagedSnapshot snapshot(db_.get());
 
   std::string level_tp_strings[kMaxLevel];
   std::string tp_string;
@@ -1864,7 +1864,7 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
   options.listeners.push_back(listener);
   options.level0_file_num_compaction_trigger = kNumL0Files;
   DestroyAndReopen(options);
-  listener->SetDB(db_);
+  listener->SetDB(db_.get());
 
   for (int i = 0; i < kNumL0Files; ++i) {
     // Make sure they overlap in keyspace to prevent trivial move

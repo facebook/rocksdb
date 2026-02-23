@@ -164,10 +164,6 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   const TableFileCreationReason reason;
   // END for FilterBuildingContext
 
-  // XXX: only used by BlockBasedTableBuilder for SstFileWriter. If you
-  // want to skip filters, that should be (for example) null filter_policy
-  // in the table options of the ioptions.table_factory
-  bool skip_filters = false;
   const uint64_t cur_file_num;
 };
 

@@ -104,7 +104,7 @@ TEST_F(DBTest, MockEnvTest) {
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
-  DB* db;
+  std::unique_ptr<DB> db;
 
   const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
   const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
@@ -132,7 +132,7 @@ TEST_F(DBTest, MockEnvTest) {
   ASSERT_OK(iterator->status());
   delete iterator;
 
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db.get());
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
@@ -141,7 +141,7 @@ TEST_F(DBTest, MockEnvTest) {
     ASSERT_TRUE(res == vals[i]);
   }
 
-  delete db;
+  db.reset();
 }
 
 TEST_F(DBTest, RequestIdPlumbingTest) {
@@ -264,7 +264,7 @@ TEST_F(DBTest, MemEnvTest) {
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
-  DB* db;
+  std::unique_ptr<DB> db;
 
   const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
   const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
@@ -292,7 +292,7 @@ TEST_F(DBTest, MemEnvTest) {
   ASSERT_OK(iterator->status());
   delete iterator;
 
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db.get());
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
@@ -301,7 +301,7 @@ TEST_F(DBTest, MemEnvTest) {
     ASSERT_TRUE(res == vals[i]);
   }
 
-  delete db;
+  db.reset();
 
   options.create_if_missing = false;
   ASSERT_OK(DB::Open(options, "/dir/db", &db));
@@ -310,7 +310,7 @@ TEST_F(DBTest, MemEnvTest) {
     ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
-  delete db;
+  db.reset();
 }
 
 TEST_F(DBTest, WriteEmptyBatch) {
@@ -1078,7 +1078,9 @@ TEST_F(DBTest, WrongLevel0Config) {
   options.level0_stop_writes_trigger = 1;
   options.level0_slowdown_writes_trigger = 2;
   options.level0_file_num_compaction_trigger = 3;
-  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  {
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+  }
 }
 
 TEST_F(DBTest, GetOrderedByLevels) {
@@ -1207,8 +1209,10 @@ TEST_F(DBTest, FlushSchedule) {
     t.join();
   }
 
-  auto default_tables = GetNumberOfSstFilesForColumnFamily(db_, "default");
-  auto pikachu_tables = GetNumberOfSstFilesForColumnFamily(db_, "pikachu");
+  auto default_tables =
+      GetNumberOfSstFilesForColumnFamily(db_.get(), "default");
+  auto pikachu_tables =
+      GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu");
   ASSERT_LE(default_tables, static_cast<uint64_t>(10));
   ASSERT_GT(default_tables, static_cast<uint64_t>(0));
   ASSERT_LE(pikachu_tables, static_cast<uint64_t>(10));
@@ -2368,7 +2372,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_OK(Put(1, "foo", "1v3"));
 
     {
-      ManagedSnapshot s3(db_);
+      ManagedSnapshot s3(db_.get());
       ASSERT_EQ(3U, GetNumSnapshots());
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
@@ -2725,37 +2729,43 @@ TEST_F(DBTest, DBOpen_Options) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   // Does not exist, and create_if_missing == false: error
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   options.create_if_missing = false;
-  Status s = DB::Open(options, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
+  {
+    Status s = DB::Open(options, dbname, &db);
+    ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
+  }
   ASSERT_TRUE(db == nullptr);
 
   // Does not exist, and create_if_missing == true: OK
   options.create_if_missing = true;
-  s = DB::Open(options, dbname, &db);
-  ASSERT_OK(s);
+  {
+    Status s = DB::Open(options, dbname, &db);
+    ASSERT_OK(s);
+  }
   ASSERT_TRUE(db != nullptr);
 
-  delete db;
-  db = nullptr;
+  db.reset();
 
   // Does exist, and error_if_exists == true: error
   options.create_if_missing = false;
   options.error_if_exists = true;
-  s = DB::Open(options, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
+  {
+    Status s = DB::Open(options, dbname, &db);
+    ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
+  }
   ASSERT_TRUE(db == nullptr);
 
   // Does exist, and error_if_exists == false: OK
   options.create_if_missing = true;
   options.error_if_exists = false;
-  s = DB::Open(options, dbname, &db);
-  ASSERT_OK(s);
+  {
+    Status s = DB::Open(options, dbname, &db);
+    ASSERT_OK(s);
+  }
   ASSERT_TRUE(db != nullptr);
 
-  delete db;
-  db = nullptr;
+  db.reset();
 }
 
 TEST_F(DBTest, DBOpen_Change_NumLevels) {
@@ -2793,25 +2803,36 @@ TEST_F(DBTest, DestroyDBMetaDatabase) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   // Setup databases
-  DB* db = nullptr;
-  ASSERT_OK(DB::Open(options, dbname, &db));
-  delete db;
-  db = nullptr;
-  ASSERT_OK(DB::Open(options, metadbname, &db));
-  delete db;
-  db = nullptr;
-  ASSERT_OK(DB::Open(options, metametadbname, &db));
-  delete db;
-  db = nullptr;
+  {
+    std::unique_ptr<DB> db;
+    ASSERT_OK(DB::Open(options, dbname, &db));
+  }
+  {
+    std::unique_ptr<DB> db;
+    ASSERT_OK(DB::Open(options, metadbname, &db));
+  }
+  {
+    std::unique_ptr<DB> db;
+    ASSERT_OK(DB::Open(options, metametadbname, &db));
+  }
 
   // Delete databases
   ASSERT_OK(DestroyDB(dbname, options));
 
   // Check if deletion worked.
   options.create_if_missing = false;
-  ASSERT_TRUE(!(DB::Open(options, dbname, &db)).ok());
-  ASSERT_TRUE(!(DB::Open(options, metadbname, &db)).ok());
-  ASSERT_TRUE(!(DB::Open(options, metametadbname, &db)).ok());
+  {
+    std::unique_ptr<DB> dbptr;
+    ASSERT_TRUE(!(DB::Open(options, dbname, &dbptr)).ok());
+  }
+  {
+    std::unique_ptr<DB> dbptr;
+    ASSERT_TRUE(!(DB::Open(options, metadbname, &dbptr)).ok());
+  }
+  {
+    std::unique_ptr<DB> dbptr;
+    ASSERT_TRUE(!(DB::Open(options, metametadbname, &dbptr)).ok());
+  }
 }
 
 TEST_F(DBTest, SnapshotFiles) {
@@ -2890,13 +2911,11 @@ TEST_F(DBTest, SnapshotFiles) {
     column_families.emplace_back("default", ColumnFamilyOptions());
     column_families.emplace_back("pikachu", ColumnFamilyOptions());
     std::vector<ColumnFamilyHandle*> cf_handles;
-    DB* snapdb;
+    std::unique_ptr<DB> snapdb;
     DBOptions opts;
     opts.env = env_;
     opts.create_if_missing = false;
-    Status stat =
-        DB::Open(opts, snapdir, column_families, &cf_handles, &snapdb);
-    ASSERT_OK(stat);
+    ASSERT_OK(DB::Open(opts, snapdir, column_families, &cf_handles, &snapdb));
 
     ReadOptions roptions;
     std::string val;
@@ -2907,7 +2926,7 @@ TEST_F(DBTest, SnapshotFiles) {
     for (auto cfh : cf_handles) {
       delete cfh;
     }
-    delete snapdb;
+    snapdb.reset();
 
     // look at the new live files after we added an 'extra' key
     // and after we took the first snapshot.
@@ -3109,7 +3128,7 @@ struct MTThread {
 static void MTThreadBody(void* arg) {
   MTThread* t = static_cast<MTThread*>(arg);
   int id = t->id;
-  DB* db = t->state->test->db_;
+  DB* db = t->state->test->db_.get();
   int counter = 0;
   std::shared_ptr<SystemClock> clock = SystemClock::Default();
   auto end_micros = clock->NowMicros() + kTestSeconds * 1000000U;
@@ -3324,7 +3343,7 @@ TEST_F(DBTest, GroupCommitTest) {
     GCThread thread[kGCNumThreads];
     for (int id = 0; id < kGCNumThreads; id++) {
       thread[id].id = id;
-      thread[id].db = db_;
+      thread[id].db = db_.get();
       thread[id].done = false;
       env_->StartThread(GCThreadBody, &thread[id]);
     }
@@ -3996,8 +4015,10 @@ TEST_P(DBTestRandomized, Randomized) {
       // than return a key that is close to it.
       if (option_config_ != kBlockBasedTableWithWholeKeyHashIndex &&
           option_config_ != kBlockBasedTableWithPrefixHashIndex) {
-        ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
-        ASSERT_TRUE(CompareIterators(step, &model, db_, model_snap, db_snap));
+        ASSERT_TRUE(
+            CompareIterators(step, &model, db_.get(), nullptr, nullptr));
+        ASSERT_TRUE(
+            CompareIterators(step, &model, db_.get(), model_snap, db_snap));
       }
 
       // Save a snapshot from each DB this time that we'll use next
@@ -4011,7 +4032,7 @@ TEST_P(DBTestRandomized, Randomized) {
       }
 
       Reopen(options);
-      ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
+      ASSERT_TRUE(CompareIterators(step, &model, db_.get(), nullptr, nullptr));
 
       model_snap = model.GetSnapshot();
       db_snap = db_->GetSnapshot();
@@ -5437,7 +5458,7 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
     // Compact all
     MakeTables(1, "a", "z", 1);
     ASSERT_EQ("1,0,2", FilesPerLevel(1));
-    CancelAllBackgroundWork(db_);
+    CancelAllBackgroundWork(db_.get());
     ASSERT_TRUE(
         db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr)
             .IsShutdownInProgress());
@@ -5457,7 +5478,7 @@ TEST_F(DBTest, PreShutdownFlush) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(1, "key", "value"));
-  CancelAllBackgroundWork(db_);
+  CancelAllBackgroundWork(db_.get());
   Status s =
       db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
   ASSERT_TRUE(s.IsShutdownInProgress());
@@ -5538,7 +5559,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
 
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
   ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
-  CancelAllBackgroundWork(db_);
+  CancelAllBackgroundWork(db_.get());
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
   ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
@@ -5624,7 +5645,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   }
 
   ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
-  CancelAllBackgroundWork(db_);
+  CancelAllBackgroundWork(db_.get());
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:Preshutdown");
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown");
   ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
@@ -5645,7 +5666,7 @@ TEST_F(DBTest, FlushOnDestroy) {
   WriteOptions wo;
   wo.disableWAL = true;
   ASSERT_OK(Put("foo", "v1", wo));
-  CancelAllBackgroundWork(db_);
+  CancelAllBackgroundWork(db_.get());
 }
 
 TEST_F(DBTest, DynamicCompactionOptions) {
@@ -6513,7 +6534,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
 
   // compact it three times
   for (int i = 0; i < 3; ++i) {
-    ASSERT_OK(experimental::SuggestCompactRange(db_, nullptr, nullptr));
+    ASSERT_OK(experimental::SuggestCompactRange(db_.get(), nullptr, nullptr));
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
@@ -6526,7 +6547,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
 
   // nonoverlapping with the file on level 0
   Slice start("a"), end("b");
-  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(experimental::SuggestCompactRange(db_.get(), &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // should not compact the level 0 file
@@ -6534,7 +6555,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
 
   start = Slice("j");
   end = Slice("m");
-  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(experimental::SuggestCompactRange(db_.get(), &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   // SuggestCompactRange() is not going to be reported as manual compaction
   ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
@@ -6585,7 +6606,7 @@ TEST_F(DBTest, SuggestCompactRangeUniversal) {
 
   // nonoverlapping with the file on level 0
   Slice start("a"), end("b");
-  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(experimental::SuggestCompactRange(db_.get(), &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // should not compact the level 0 file
@@ -6593,7 +6614,7 @@ TEST_F(DBTest, SuggestCompactRangeUniversal) {
 
   start = Slice("j");
   end = Slice("m");
-  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(experimental::SuggestCompactRange(db_.get(), &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // now it should compact the level 0 file to the last level
@@ -6630,7 +6651,7 @@ TEST_F(DBTest, PromoteL0) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);  // No files in L1
 
   // Promote L0 level to L2.
-  ASSERT_OK(experimental::PromoteL0(db_, db_->DefaultColumnFamily(), 2));
+  ASSERT_OK(experimental::PromoteL0(db_.get(), db_->DefaultColumnFamily(), 2));
   // We expect that all the files were trivially moved from L0 to L2
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2, 0), level0_files);
@@ -6655,7 +6676,7 @@ TEST_F(DBTest, PromoteL0Failure) {
 
   Status status;
   // Fails because L0 has overlapping files.
-  status = experimental::PromoteL0(db_, db_->DefaultColumnFamily());
+  status = experimental::PromoteL0(db_.get(), db_->DefaultColumnFamily());
   ASSERT_TRUE(status.IsInvalidArgument());
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -6665,7 +6686,7 @@ TEST_F(DBTest, PromoteL0Failure) {
   ASSERT_OK(Put(Key(5), ""));
   ASSERT_OK(Flush());
   // Fails because L1 is non-empty.
-  status = experimental::PromoteL0(db_, db_->DefaultColumnFamily());
+  status = experimental::PromoteL0(db_.get(), db_->DefaultColumnFamily());
   ASSERT_TRUE(status.IsInvalidArgument());
 }
 
@@ -7736,7 +7757,7 @@ TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
   });
 
   TEST_SYNC_POINT("DBTest::ShuttingDownNotBlockStalledWrites");
-  CancelAllBackgroundWork(db_, true);
+  CancelAllBackgroundWork(db_.get(), true);
 
   thd.join();
 }

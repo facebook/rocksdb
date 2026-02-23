@@ -6,18 +6,28 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFetcher;
+class BlobIndex;
+class FilePrefetchBuffer;
+class PinnableSlice;
+class PrefetchBufferCollection;
 class Slice;
 
 // Wide-column serialization/deserialization primitives.
 //
+// Version 1 Layout:
 // The two main parts of the layout are 1) a sorted index containing the column
 // names and column value sizes and 2) the column values themselves. Keeping the
 // index and the values separate will enable selectively reading column values
@@ -40,16 +50,224 @@ class Slice;
 //          ...---+----------+-------+----------+-------+---...---+-------+
 //                | varint32 | bytes | varint32 | bytes |         | bytes |
 //          ...---+----------+-------+----------+-------+---...---+-------+
+//
+// Version 2 Layout (with blob index support):
+// Groups all metadata upfront before variable-length data. This enables
+// efficient access patterns: index-based value access skips name data
+// entirely, default column access is O(1), and type checks are O(1).
+//
+// Legend: cn = column name, cv = column value, cns = column name size,
+//         cvs = column value size, ct = column type.
+//
+// Section 1: HEADER (2 varints)
+//   +----------+--------------+
+//   | version  | # of columns |
+//   | varint32 |   varint32   |
+//   +----------+--------------+
+//
+// Section 2: SKIP INFO (3 varints)
+//   +-------------------+---------------------+------------------+
+//   | name_sizes_bytes  | value_sizes_bytes   | names_bytes      |
+//   | varint32          | varint32            | varint32         |
+//   +-------------------+---------------------+------------------+
+//   name_sizes_bytes  = byte size of NAME SIZES section (section 4)
+//   value_sizes_bytes = byte size of VALUE SIZES section (section 5)
+//   names_bytes       = byte size of NAMES section (section 6)
+//
+//   Placed immediately after the header so that header + skip info form
+//   a contiguous varint sequence (5 varints), enabling future SIMD-based
+//   varint decoding.
+//
+// Section 3: COLUMN TYPES (N bytes, fixed-size)
+//   +------+------+---...---+--------+
+//   | ct_0 | ct_1 |         | ct_N-1 |
+//   | byte | byte |         |  byte  |
+//   +------+------+---...---+--------+
+//   ct values are ValueType entries from db/dbformat.h, e.g.:
+//     kTypeValue (0x01) = inline value
+//     kTypeBlobIndex (0x11) = blob index reference
+//   Future per-column types (kTypeMerge, kTypeDeletion, etc.) can be
+//   added without format changes.
+//
+// Section 4: NAME SIZES (N varints)
+//   +----------+----------+---...---+------------+
+//   | cns_0    | cns_1    |         | cns_{N-1}  |
+//   | varint32 | varint32 |         | varint32   |
+//   +----------+----------+---...---+------------+
+//
+// Section 5: VALUE SIZES (N varints)
+//   +----------+----------+---...---+------------+
+//   | cvs_0    | cvs_1    |         | cvs_{N-1}  |
+//   | varint32 | varint32 |         | varint32   |
+//   +----------+----------+---...---+------------+
+//
+// Section 6: COLUMN NAMES (concatenated, sorted)
+//   +------+------+---...---+--------+
+//   | cn_0 | cn_1 |         | cn_N-1 |
+//   | bytes| bytes|         | bytes  |
+//   +------+------+---...---+--------+
+//
+// Section 7: COLUMN VALUES (concatenated)
+//   +------+------+---...---+--------+
+//   | cv_0 | cv_1 |         | cv_N-1 |
+//   | bytes| bytes|         | bytes  |
+//   +------+------+---...---+--------+
+//
+// When ct = kTypeBlobIndex, the cv contains a serialized BlobIndex.
 
 class WideColumnSerialization {
  public:
+  // Version constants for wide column serialization format.
+  // - kVersion1: Original format with inline column values only.
+  // - kVersion2: Extended format that supports blob index references in
+  //              columns. Used when large column values are stored in blob
+  //              files.
+  static constexpr uint32_t kVersion1 = 1;
+  static constexpr uint32_t kVersion2 = 2;
+
+  // Serialize columns using version 1 format (no blob support)
   static Status Serialize(const WideColumns& columns, std::string& output);
 
+  // Serialize columns with some columns replaced by blob indices (version 2)
+  // columns: vector of (column_name, column_value) pairs
+  // blob_columns: vector of (column_index, blob_index) pairs indicating which
+  //               columns should be stored as blob references
+  static Status SerializeV2(
+      const std::vector<std::pair<std::string, std::string>>& columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+      std::string& output);
+
+  // Overload that takes Slice-based WideColumns directly, avoiding the
+  // need to copy column names and values into string pairs.
+  static Status SerializeV2(
+      const WideColumns& columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+      std::string& output);
+
+  // Deserialize columns (version 1 format only)
   static Status Deserialize(Slice& input, WideColumns& columns);
+
+  // Deserialize columns and separate inline columns from blob columns
+  // columns: receives inline column values
+  // blob_columns: receives (column_index, blob_index) pairs for blob references
+  static Status DeserializeV2(
+      Slice& input, std::vector<WideColumn>& columns,
+      std::vector<std::pair<size_t, BlobIndex>>& blob_columns);
+
+  // Check if the serialized entity has any blob column references.
+  // Sets *has_blob_columns to true if version >= 2 and at least one column
+  // has blob type; false otherwise.
+  // Returns Status::Corruption on decode errors.
+  static Status HasBlobColumns(const Slice& input, bool& has_blob_columns);
 
   static Status GetValueOfDefaultColumn(Slice& input, Slice& value);
 
-  static constexpr uint32_t kCurrentVersion = 1;
+  // Resolves all blob column references in a V2 wide-column entity,
+  // fetches the blob values, and re-serializes as a V1 entity (all inline).
+  // Handles inlined blobs (IsInlined) defensively.
+  //
+  // Used by the read path (GetContext, DBIter) when a V2 entity with blob
+  // column references needs to be converted to V1 format for consumption by
+  // APIs that only support V1 (e.g., TimedFullMerge,
+  // PinnableWideColumns::SetWideColumnValue).
+  //
+  // Sets *resolved to false and leaves resolved_entity unchanged when
+  // no blob columns are present.
+  //
+  // Optional parameters:
+  //   prefetch_buffers - for prefetch optimization (nullptr = no prefetch)
+  //   total_bytes_read - accumulates bytes read from blob files (nullptr =
+  //   skip) num_blobs_resolved - count of blob columns resolved (nullptr =
+  //   skip)
+  static Status ResolveEntityBlobColumns(
+      const Slice& entity_value, const Slice& user_key,
+      const BlobFetcher* blob_fetcher,
+      PrefetchBufferCollection* prefetch_buffers, std::string& resolved_entity,
+      bool& resolved, uint64_t* total_bytes_read, uint64_t* num_blobs_resolved);
+
+  // Extracts the default column value from a V2 entity, resolving its
+  // blob reference if needed. The default column (empty name) is always
+  // at index 0 when present (columns are sorted).
+  //
+  // Sets result to the resolved default column value (fetching from blob
+  // file if it's a blob reference). If there is no default column, result
+  // is set to empty. Sets *resolved to true if a blob was found for the
+  // default column, false otherwise.
+  static Status GetValueOfDefaultColumnResolvingBlobs(
+      const Slice& entity_value, const Slice& user_key,
+      const BlobFetcher* blob_fetcher, PinnableSlice& result, bool& resolved);
+
+ private:
+  friend class WideColumnSerializationTest;
+  // Get the serialization version from the input.
+  // Sets *version to the version number.
+  // Returns Status::Corruption on decode errors.
+  static Status GetVersion(const Slice& input, uint32_t& version);
+
+  // Merges deserialized columns with resolved blob values and serializes
+  // the result using version 1 format (all values inline).
+  static Status SerializeResolvedEntity(
+      const std::vector<WideColumn>& columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+      const std::vector<std::string>& resolved_blob_values,
+      std::string& output);
+
+  // Returns InvalidArgument with the given message if size exceeds uint32_t.
+  static Status ValidateWideColumnLimit(size_t size, const char* msg) {
+    if (size > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+      return Status::InvalidArgument(msg);
+    }
+    return Status::OK();
+  }
+
+  // Returns Corruption if prev_name >= name (columns must be strictly ordered).
+  static Status ValidateColumnOrder(const Slice& prev_name, const Slice& name) {
+    if (prev_name.compare(name) >= 0) {
+      return Status::Corruption("Wide columns out of order");
+    }
+    return Status::OK();
+  }
+
+  // Shared implementation for both SerializeV2 overloads.
+  // get_name(i): returns Slice for column i's name
+  // get_value(i): returns Slice for column i's inline value
+  template <typename GetName, typename GetValue>
+  static Status SerializeV2Impl(
+      size_t num_columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+      std::string& output, GetName get_name, GetValue get_value);
+
+  // Validates num_columns limit and builds a per-column lookup map from
+  // blob_columns. Returns InvalidArgument on validation failure.
+  static Status BuildBlobIndexMap(
+      size_t num_columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+      std::vector<const BlobIndex*>& blob_index_map);
+
+  // Parses V1 layout (interleaved name/value_size pairs followed by values)
+  // into columns. Used by both Deserialize and DeserializeV2 to avoid
+  // code duplication.
+  static Status DeserializeV1(Slice& input, uint32_t num_columns,
+                              std::vector<WideColumn>& columns);
+
+  // Parses V2 layout sections 2-7 (skip info through values) into columns and
+  // column types. Used by both Deserialize and DeserializeV2 to avoid
+  // code duplication.
+  static Status DeserializeV2Impl(Slice& input, uint32_t num_columns,
+                                  std::vector<WideColumn>& columns,
+                                  std::vector<ValueType>& column_types);
+
+  // Returns true if t is a supported per-column ValueType. Currently only
+  // kTypeValue (inline) and kTypeBlobIndex are supported. Notably,
+  // kTypeWideColumnEntity is rejected to prevent recursive nesting.
+  static bool IsValidColumnValueType(ValueType t) {
+    return t == kTypeValue || t == kTypeBlobIndex;
+  }
+
+  // Returns true if any of the first num_columns type bytes equals
+  // kTypeBlobIndex. Typical entities have <10 columns, so a linear
+  // scan is sufficient; SIMD could be considered if column counts grow.
+  static bool ContainsBlobType(const char* type_bytes, uint32_t num_columns);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

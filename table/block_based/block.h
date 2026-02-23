@@ -167,7 +167,7 @@ class Block {
   const char* data() const { return contents_.data.data(); }
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
-  uint32_t NumRestarts() const;
+  uint32_t NumRestarts() const { return num_restarts_; }
   bool own_bytes() const { return contents_.own_bytes(); }
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
@@ -282,8 +282,15 @@ class Block {
   const char* TEST_GetKVChecksum() const { return kv_checksum_; }
 
  private:
+  // Returns a detailed error status by re-processing the footer.
+  // Should only be called when size() == 0 (error marker).
+  Status GetCorruptionStatus() const;
+
   BlockContents contents_;
-  uint32_t restart_offset_;  // Offset in data_ of restart array
+  // Normal state: offset in data_ of restart array.
+  // Error state (size()==0): original data size if footer decode failed,
+  //   otherwise 0. Used by GetCorruptionStatus() to re-decode footer.
+  uint32_t restart_offset_;
   uint32_t num_restarts_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   char* kv_checksum_{nullptr};
@@ -575,12 +582,16 @@ class BlockIter : public InternalIteratorBase<TValue> {
     CorruptionError(error_msg);
   }
 
-  void UpdateRawKeyAndMaybePadMinTimestamp(const Slice& key) {
+  void UpdateRawKeyAndMaybePadMinTimestamp(IterKey& raw_key, const Slice& key) {
     if (pad_min_timestamp_) {
-      raw_key_.SetKeyWithPaddedMinTimestamp(key, ts_sz_);
+      raw_key.SetKeyWithPaddedMinTimestamp(key, ts_sz_);
     } else {
-      raw_key_.SetKey(key, false /* copy */);
+      raw_key.SetKey(key, false /* copy */);
     }
+  }
+
+  void UpdateRawKeyAndMaybePadMinTimestamp(const Slice& key) {
+    UpdateRawKeyAndMaybePadMinTimestamp(raw_key_, key);
   }
 
   // Must be called every time a key is found that needs to be returned to user,
@@ -626,7 +637,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Uses user comparator when the block stores user keys, otherwise uses the
   // internal key comparator. When global_seqno is not disabled, applies it to
   // the LHS key for comparison.
-  int CompareKey(const Slice& a, const Slice& b) {
+  int CompareKey(const Slice& a, const Slice& b) const {
     assert(icmp_.user_comparator() != nullptr);
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
@@ -637,12 +648,16 @@ class BlockIter : public InternalIteratorBase<TValue> {
     return icmp_.Compare(a, global_seqno_, b, kDisableGlobalSequenceNumber);
   }
 
-  // Compares the current key (with global seqno applied) against `other`.
-  int CompareCurrentKey(const Slice& other) {
-    if (raw_key_.IsUserKey()) {
-      return CompareKey(raw_key_.GetUserKey(), other);
+  int CompareKey(const IterKey& a, const Slice& b) const {
+    if (a.IsUserKey()) {
+      return CompareKey(a.GetUserKey(), b);
     }
-    return CompareKey(raw_key_.GetInternalKey(), other);
+    return CompareKey(a.GetInternalKey(), b);
+  }
+
+  // Compares the current key (with global seqno applied) against `other`.
+  int CompareCurrentKey(const Slice& other) const {
+    return CompareKey(raw_key_, other);
   }
 
  private:

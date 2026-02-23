@@ -2508,7 +2508,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     }
   }
   for (int i = 0; i < 2; ++i) {
-    DB* db;
+    std::unique_ptr<DB> db;
     Status s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
 
@@ -2526,7 +2526,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     ASSERT_EQ("b", val);
 
     ASSERT_OK(db->Close());
-    delete db;
+    db.reset();
     ASSERT_OK(DestroyDB(dbname, opts));
 
     dbname = dbname2_;

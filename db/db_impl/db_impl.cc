@@ -320,6 +320,22 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   WaitForBackgroundWork();
 
+  TEST_SYNC_POINT("DBImpl::ResumeImpl:Start");
+
+  // With two_write_queues=true, sequence numbers are allocated via
+  // FetchAddLastAllocatedSequence() before writes complete, but only
+  // published via SetLastSequence() after success. If we're recovering from
+  // an error, there may be allocated-but-not-published sequence numbers.
+  // We must sync last_sequence_ with last_allocated_sequence_ before creating
+  // any new memtables/WALs, otherwise the new WAL could start with a sequence
+  // number lower than what was already written, causing "sequence number
+  // going backwards" corruption on subsequent recovery.
+  if (immutable_db_options_.two_write_queues) {
+    versions_->SyncLastSequenceWithAllocated();
+  }
+
+  TEST_SYNC_POINT("DBImpl::ResumeImpl:AfterSyncSeq");
+
   Status s;
   if (shutdown_initiated_) {
     // Returning shutdown status to SFM during auto recovery will cause it
@@ -3909,10 +3925,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kDBIterator;
   }
 
-  if (read_options.managed) {
-    return NewErrorIterator(
-        Status::NotSupported("Managed iterator is not supported anymore."));
-  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -4111,9 +4123,6 @@ Status DBImpl::NewIterators(
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
-  }
-  if (read_options.managed) {
-    return Status::NotSupported("Managed iterator is not supported anymore.");
   }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(

@@ -138,12 +138,11 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
 
-    // For old sst format, ReadTableProperties might fail but file can be read
-    if (ReadTableProperties(magic_number, file_.get(), file_size,
+    s = ReadTableProperties(magic_number, file_.get(), file_size,
                             (magic_number == kBlockBasedTableMagicNumber)
                                 ? &prefetch_buffer
-                                : nullptr)
-            .ok()) {
+                                : nullptr);
+    if (s.ok()) {
       s = SetTableOptionsByMagicNumber(magic_number);
       if (s.ok()) {
         if (table_properties_ && !table_properties_->comparator_name.empty()) {
@@ -158,8 +157,6 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
           }
         }
       }
-    } else {
-      s = SetOldTableOptions();
     }
     options_.comparator = internal_comparator_.user_comparator();
 
@@ -521,19 +518,6 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
              "Unsupported table magic number --- %lx",
              (long)table_magic_number);
     return Status::InvalidArgument(error_msg_buffer);
-  }
-
-  return Status::OK();
-}
-
-Status SstFileDumper::SetOldTableOptions() {
-  assert(table_properties_ == nullptr);
-  if (!options_.table_factory->IsInstanceOf(
-          TableFactory::kBlockBasedTableName())) {
-    options_.table_factory = std::make_shared<BlockBasedTableFactory>();
-  }
-  if (!silent_) {
-    fprintf(stdout, "Sst file format: block-based(old version)\n");
   }
 
   return Status::OK();

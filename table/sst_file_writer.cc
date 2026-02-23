@@ -30,7 +30,7 @@ const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
-      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
+      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache,
       std::string _db_session_id)
       : env_options(_env_options),
         ioptions(options),
@@ -39,7 +39,6 @@ struct SstFileWriter::Rep {
         internal_comparator(_user_comparator),
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
-        skip_filters(_skip_filters),
         db_session_id(_db_session_id),
         ts_sz(_user_comparator->timestamp_size()),
         strip_timestamp(ts_sz > 0 &&
@@ -67,7 +66,6 @@ struct SstFileWriter::Rep {
   // The size of the file during the last time we called Fadvise to remove
   // cached pages from page cache.
   uint64_t last_fadvise_size = 0;
-  bool skip_filters;
   std::string db_session_id;
   uint64_t next_file_number = 1;
   size_t ts_sz;
@@ -305,9 +303,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family,
                              bool invalidate_page_cache,
-                             Env::IOPriority io_priority, bool skip_filters)
+                             Env::IOPriority io_priority)
     : rep_(new Rep(env_options, options, io_priority, user_comparator,
-                   column_family, invalidate_page_cache, skip_filters,
+                   column_family, invalidate_page_cache,
                    DBImpl::GenerateDbSessionId(options.env))) {
   // SstFileWriter is used to create sst files that can be added to database
   // later. Therefore, no real db_id and db_session_id are associated with it.
@@ -403,9 +401,6 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   // assign fake file numbers to each file (into table properties) and keep
   // the same session id for the life of the SstFileWriter.
   r->next_file_number++;
-  // XXX: when we can remove skip_filters from the SstFileWriter public API
-  // we can remove it from TableBuilderOptions.
-  table_builder_options.skip_filters = r->skip_filters;
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
@@ -422,10 +417,6 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   r->file_info.file_path = file_path;
   r->file_info.version = 2;
   return s;
-}
-
-Status SstFileWriter::Add(const Slice& user_key, const Slice& value) {
-  return rep_->Add(user_key, value, ValueType::kTypeValue);
 }
 
 Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {

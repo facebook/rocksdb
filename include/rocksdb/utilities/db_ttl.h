@@ -66,7 +66,7 @@ class DBWithTTL : public StackableDB {
   virtual Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) = 0;
 
  protected:
-  explicit DBWithTTL(DB* db) : StackableDB(db) {}
+  explicit DBWithTTL(std::unique_ptr<DB>&& db) : StackableDB(std::move(db)) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

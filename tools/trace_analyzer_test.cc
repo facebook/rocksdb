@@ -69,7 +69,7 @@ class TraceAnalyzerTest : public testing::Test {
     ro.iterate_lower_bound = &lower_bound;
     WriteOptions wo;
     TraceOptions trace_opt;
-    DB* db_ = nullptr;
+    std::unique_ptr<DB> db_;
     std::string value;
     std::unique_ptr<TraceWriter> trace_writer;
     Iterator* single_iter = nullptr;
@@ -125,7 +125,7 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(env_->NewWritableFile(whole_path, &whole_f, env_options_));
     std::string whole_str = "0x61\n0x62\n0x63\n0x64\n0x65\n0x66\n";
     ASSERT_OK(whole_f->Append(whole_str));
-    delete db_;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, options));
   }
 
@@ -786,7 +786,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
 }
 
 TEST_F(TraceAnalyzerTest, ExistsPreviousTraceWriteError) {
-  DB* db_ = nullptr;
+  std::unique_ptr<DB> db_;
   Options options;
   options.create_if_missing = true;
 
@@ -823,7 +823,7 @@ TEST_F(TraceAnalyzerTest, ExistsPreviousTraceWriteError) {
   ASSERT_TRUE(s.ToString().find("Tracing has seen error") != std::string::npos);
   ASSERT_TRUE(s.ToString().find("Injected") != std::string::npos);
 
-  delete db_;
+  db_.reset();
   ASSERT_OK(DestroyDB(dbname_, options));
 }
 

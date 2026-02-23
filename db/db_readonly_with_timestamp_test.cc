@@ -237,7 +237,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
          it->Next(), ++count, ++key) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                          "value" + std::to_string(i), write_timestamps[i]);
-      get_value_and_check(db_, read_opts, it->key(), it->value(),
+      get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
     ASSERT_OK(it->status());
@@ -250,7 +250,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
          it->Prev(), ++count, --key) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                          "value" + std::to_string(i), write_timestamps[i]);
-      get_value_and_check(db_, read_opts, it->key(), it->value(),
+      get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
     ASSERT_OK(it->status());
@@ -272,7 +272,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
            it->Valid(); it->Next(), ++key, ++count) {
         CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
-        get_value_and_check(db_, read_opts, it->key(), it->value(),
+        get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
       ASSERT_OK(it->status());
@@ -282,7 +282,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
            it->Valid(); it->Prev(), --key, ++count) {
         CheckIterUserEntry(it.get(), Key1(key - 1), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
-        get_value_and_check(db_, read_opts, it->key(), it->value(),
+        get_value_and_check(db_.get(), read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
       ASSERT_OK(it->status());

@@ -97,7 +97,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   EXPECT_OK(DestroyDB(dbname_, delete_options));
   // Destroy it for not alternative WAL dir is used.
   EXPECT_OK(DestroyDB(dbname_, options));
-  db_ = nullptr;
+  db_.reset();
   Reopen(options);
   Random::GetTLSInstance()->Reset(0xdeadbeef);
 }
@@ -664,7 +664,8 @@ Status DBTestBase::TryReopenWithColumnFamilies(
   DBOptions db_opts = DBOptions(options[0]);
   last_options_ = options[0];
   MaybeInstallTimeElapseOnlySleep(db_opts);
-  return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
+  Status s = DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
+  return s;
 }
 
 Status DBTestBase::TryReopenWithColumnFamilies(
@@ -683,8 +684,7 @@ void DBTestBase::Close() {
     EXPECT_OK(db_->DestroyColumnFamilyHandle(h));
   }
   handles_.clear();
-  delete db_;
-  db_ = nullptr;
+  db_.reset();
 }
 
 void DBTestBase::DestroyAndReopen(const Options& options) {
@@ -709,7 +709,8 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
   Close();
   MaybeInstallTimeElapseOnlySleep(options);
-  return DB::OpenForReadOnly(options, dbname_, &db_);
+  Status s = DB::OpenForReadOnly(options, dbname_, &db_);
+  return s;
 }
 
 Status DBTestBase::EnforcedReadOnlyReopen(const Options& options) {
@@ -720,7 +721,8 @@ Status DBTestBase::EnforcedReadOnlyReopen(const Options& options) {
       std::make_shared<ReadOnlyFileSystem>(env_->GetFileSystem());
   env_read_only_ = std::make_shared<CompositeEnvWrapper>(env_, fs_read_only);
   options_copy.env = env_read_only_.get();
-  return DB::OpenForReadOnly(options_copy, dbname_, &db_);
+  Status s = DB::OpenForReadOnly(options_copy, dbname_, &db_);
+  return s;
 }
 
 Status DBTestBase::TryReopen(const Options& options) {
@@ -735,7 +737,8 @@ Status DBTestBase::TryReopen(const Options& options) {
   // clears the block cache.
   last_options_ = options;
   MaybeInstallTimeElapseOnlySleep(options);
-  return DB::Open(options, dbname_, &db_);
+  Status s = DB::Open(options, dbname_, &db_);
+  return s;
 }
 
 bool DBTestBase::IsDirectIOSupported() {
@@ -1162,7 +1165,7 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
 int DBTestBase::NumTableFilesAtLevel(int level, ColumnFamilyHandle* cfh,
                                      DB* db) {
   if (!db) {
-    db = db_;
+    db = db_.get();
   }
   std::string property;
   EXPECT_TRUE(db->GetProperty(
@@ -1208,7 +1211,7 @@ std::string DBTestBase::FilesPerLevel(int cf) {
 
 std::string DBTestBase::FilesPerLevel(ColumnFamilyHandle* cfh, DB* db) {
   if (!db) {
-    db = db_;
+    db = db_.get();
   }
   int num_levels = db->NumberLevels(cfh);
   std::string result;

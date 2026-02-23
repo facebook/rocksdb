@@ -258,12 +258,12 @@ class ComparatorDBTest
  private:
   std::string dbname_;
   Env* env_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   Options last_options_;
   std::unique_ptr<const Comparator> comparator_guard;
 
  public:
-  ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
+  ComparatorDBTest() : env_(Env::Default()) {
     kTestComparator = BytewiseComparator();
     dbname_ = test::PerThreadDBPath("comparator_db_test");
     BlockBasedTableOptions toptions;
@@ -274,12 +274,12 @@ class ComparatorDBTest
   }
 
   ~ComparatorDBTest() override {
-    delete db_;
+    db_.reset();
     EXPECT_OK(DestroyDB(dbname_, last_options_));
     kTestComparator = BytewiseComparator();
   }
 
-  DB* GetDB() { return db_; }
+  DB* GetDB() { return db_.get(); }
 
   void SetOwnedComparator(const Comparator* cmp, bool owner = true) {
     if (owner) {
@@ -301,14 +301,12 @@ class ComparatorDBTest
   }
 
   void Destroy() {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, last_options_));
   }
 
   Status TryReopen() {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     last_options_.create_if_missing = true;
 
     return DB::Open(last_options_, dbname_, &db_);

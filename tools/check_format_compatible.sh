@@ -367,6 +367,13 @@ do
   then
     echo "== Use $checkout_ref to open DB generated using $current_checkout_name..."
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
+
+    echo "== Use $checkout_ref to compact a copy of DB generated using $current_checkout_name..."
+    [ "$SANITY_CHECK" ] || cp -a $current_db_test_dir ${current_db_test_dir}_copy_for_${checkout_ref}
+    compact_db ${current_db_test_dir}_copy_for_${checkout_ref} 0
+
+    echo "== After compaction, re-verify DB copy originally from $current_checkout_name..."
+    compare_db ${current_db_test_dir}_copy_for_${checkout_ref} $current_db_test_dir forward_${checkout_ref}_dump_after_compact.txt 0
   fi
 
   if member_of_array "$checkout_ref" "${db_forward_with_options_refs[@]}"

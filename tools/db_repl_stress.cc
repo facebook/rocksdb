@@ -83,7 +83,7 @@ int main(int argc, const char** argv) {
   options.create_if_missing = true;
   options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
   options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
-  DB* db;
+  std::unique_ptr<DB> db;
   DestroyDB(default_db_path, options);
 
   Status s = DB::Open(options, default_db_path, &db);
@@ -94,7 +94,7 @@ int main(int argc, const char** argv) {
   }
 
   DataPumpThread dataPump;
-  dataPump.db = db;
+  dataPump.db = db.get();
   env->StartThread(DataPumpThreadBody, &dataPump);
 
   std::unique_ptr<TransactionLogIterator> iter;
