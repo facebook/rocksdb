@@ -148,7 +148,8 @@ CompactionJob::CompactionJob(
     const std::atomic<int>& compaction_aborted, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
     std::string trim_ts, BlobFileCompletionCallback* blob_callback,
-    int* bg_compaction_scheduled, int* bg_bottom_compaction_scheduled)
+    int* bg_compaction_scheduled, int* bg_bottom_compaction_scheduled,
+    int* bg_remote_compaction_waiting)
     : compact_(new CompactionState(compaction)),
       internal_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -193,7 +194,8 @@ CompactionJob::CompactionJob(
       blob_callback_(blob_callback),
       extra_num_subcompaction_threads_reserved_(0),
       bg_compaction_scheduled_(bg_compaction_scheduled),
-      bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled) {
+      bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled),
+      bg_remote_compaction_waiting_(bg_remote_compaction_waiting) {
   assert(job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   assert(job_context);
@@ -457,9 +459,11 @@ void CompactionJob::AcquireSubcompactionResources(
   // against compaction limits. And then try to reserve threads for extra
   // subcompactions. The actual number of reserved threads could be less than
   // the desired number.
+  int remote_waiting =
+      bg_remote_compaction_waiting_ ? *bg_remote_compaction_waiting_ : 0;
   int available_bg_compactions_against_db_limit =
       std::max(max_db_compactions - *bg_compaction_scheduled_ -
-                   *bg_bottom_compaction_scheduled_,
+                   *bg_bottom_compaction_scheduled_ + remote_waiting,
                0);
   // Reservation only supports backgrdoun threads of which the priority is
   // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the

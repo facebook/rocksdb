@@ -166,7 +166,8 @@ class CompactionJob {
                 std::string full_history_ts_low = "", std::string trim_ts = "",
                 BlobFileCompletionCallback* blob_callback = nullptr,
                 int* bg_compaction_scheduled = nullptr,
-                int* bg_bottom_compaction_scheduled = nullptr);
+                int* bg_bottom_compaction_scheduled = nullptr,
+                int* bg_remote_compaction_waiting = nullptr);
 
   virtual ~CompactionJob();
 
@@ -497,6 +498,11 @@ class CompactionJob {
   // or updating it.
   int* bg_compaction_scheduled_;
   int* bg_bottom_compaction_scheduled_;
+
+  // Pointer to bg_remote_compaction_waiting_ in DBImpl. Used to release
+  // compaction scheduling slots during remote compaction Wait(). Mutex is
+  // required when accessing or updating it.
+  int* bg_remote_compaction_waiting_;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.

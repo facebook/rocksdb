@@ -2858,6 +2858,309 @@ TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithTimedPut) {
 
   VerifyResumeBytes();
 }
+
+// Test that remote compaction wait releases the compaction scheduling slot,
+// allowing additional compactions to run concurrently.
+TEST_F(CompactionServiceTest, RemoteWaitReleasesCompactionSlot) {
+  Options options = CurrentOptions();
+  // Only allow 1 concurrent compaction normally
+  options.max_background_compactions = 1;
+  options.max_background_remote_compactions = 1;
+  options.level0_file_num_compaction_trigger = 2;
+  ReopenWithCompactionService(&options);
+
+  // Two-sync-point pattern:
+  // BeforeWait signals that slot has been released -> main can check counter
+  // BeforeWait:2 blocks compaction thread until main releases it
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactionServiceJob::"
+        "ProcessKeyValueCompactionWithCompactionService:BeforeWait",
+        "CompactionServiceTest::RemoteWaitReleasesCompactionSlot:"
+        "CheckCounter"},
+       {"CompactionServiceTest::RemoteWaitReleasesCompactionSlot:"
+        "ReleaseWait",
+        "CompactionServiceJob::"
+        "ProcessKeyValueCompactionWithCompactionService:BeforeWait:2"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Generate files to trigger compaction on cf 0
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value2_" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+
+  // Wait for the first compaction to reach the BeforeWait point
+  // (slot has been released at this point)
+  TEST_SYNC_POINT(
+      "CompactionServiceTest::RemoteWaitReleasesCompactionSlot:CheckCounter");
+
+  // The first compaction has released its scheduling slot.
+  // Verify the counter is set.
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 1);
+  }
+
+  // Let the Wait() proceed
+  TEST_SYNC_POINT(
+      "CompactionServiceTest::RemoteWaitReleasesCompactionSlot:ReleaseWait");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Wait for all compactions to complete
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify the counter returns to 0
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 0);
+  }
+
+  // Verify data is still correct
+  for (int j = 0; j < 10; j++) {
+    ASSERT_EQ(Get(0, Key(j)), "value2_" + std::to_string(j));
+  }
+}
+
+// Test that the remote compaction waiting counter returns to zero after
+// Wait() returns a failure.
+TEST_F(CompactionServiceTest, RemoteWaitCounterConsistentOnFailure) {
+  Options options = CurrentOptions();
+  options.max_background_compactions = 1;
+  options.max_background_remote_compactions = 1;
+  options.level0_file_num_compaction_trigger = 2;
+  ReopenWithCompactionService(&options);
+
+  auto my_cs = GetCompactionService();
+
+  // Make Wait() return failure
+  my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kFailure);
+
+  // Generate files to trigger compaction
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value2_" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+
+  // Wait for compaction to complete (it will fail, which sets a bg error)
+  dbfull()->TEST_WaitForCompact().PermitUncheckedError();
+
+  // Counter should be back to 0
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 0);
+  }
+
+  // Reset override and reopen to clear the bg error
+  my_cs->ResetOverride();
+  ReopenWithCompactionService(&options);
+
+  // Trigger another compaction
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value3_" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value4_" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Counter should still be 0
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 0);
+  }
+}
+
+// Test that shutdown completes cleanly while a compaction is waiting
+// for remote results.
+TEST_F(CompactionServiceTest, ShutdownDuringRemoteWait) {
+  Options options = CurrentOptions();
+  options.max_background_compactions = 1;
+  options.max_background_remote_compactions = 1;
+  options.level0_file_num_compaction_trigger = 2;
+  ReopenWithCompactionService(&options);
+
+  auto my_cs = GetCompactionService();
+
+  // Make Wait() fallback to local (which will complete quickly)
+  // This tests that CancelAwaitingJobs is called and shutdown works
+  my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kUseLocal);
+
+  // Generate files to trigger compaction
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value2_" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+
+  // Close DB - this should call CancelAwaitingJobs and complete cleanly
+  Close();
+
+  // Verify CancelAwaitingJobs was called
+  ASSERT_TRUE(my_cs->GetCanceled());
+}
+
+// Test that max_background_remote_compactions=0 (default) disables slot
+// release during remote compaction Wait().
+TEST_F(CompactionServiceTest, RemoteWaitSlotReleaseDisabledByDefault) {
+  Options options = CurrentOptions();
+  options.max_background_compactions = 1;
+  // max_background_remote_compactions=0 is the default; slot release disabled
+  options.max_background_remote_compactions = 0;
+  options.level0_file_num_compaction_trigger = 2;
+  ReopenWithCompactionService(&options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactionServiceJob::"
+        "ProcessKeyValueCompactionWithCompactionService:BeforeWait",
+        "CompactionServiceTest::RemoteWaitSlotReleaseDisabledByDefault:"
+        "CheckCounter"},
+       {"CompactionServiceTest::RemoteWaitSlotReleaseDisabledByDefault:"
+        "ReleaseWait",
+        "CompactionServiceJob::"
+        "ProcessKeyValueCompactionWithCompactionService:BeforeWait:2"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Generate files to trigger compaction
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+  for (int j = 0; j < 10; j++) {
+    ASSERT_OK(Put(0, Key(j), "value2_" + std::to_string(j)));
+  }
+  ASSERT_OK(Flush(0));
+
+  TEST_SYNC_POINT(
+      "CompactionServiceTest::RemoteWaitSlotReleaseDisabledByDefault:"
+      "CheckCounter");
+
+  // With max_background_remote_compactions=0, slot should NOT be released
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 0);
+  }
+
+  TEST_SYNC_POINT(
+      "CompactionServiceTest::RemoteWaitSlotReleaseDisabledByDefault:"
+      "ReleaseWait");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify data is still correct
+  for (int j = 0; j < 10; j++) {
+    ASSERT_EQ(Get(0, Key(j)), "value2_" + std::to_string(j));
+  }
+}
+
+// Test that max_background_remote_compactions caps the number of threads
+// that can release their scheduling slot during remote Wait().
+TEST_F(CompactionServiceTest, RemoteWaitSlotReleaseCapped) {
+  Options options = CurrentOptions();
+  // Use max_background_jobs to allow concurrent compactions with enough threads
+  options.max_background_jobs = 20;
+  // Cap at 1 remote wait slot release
+  options.max_background_remote_compactions = 1;
+  options.level0_file_num_compaction_trigger = 100;
+  ReopenWithCompactionService(&options);
+  GenerateTestData(true);
+
+  // We use an atomic to count how many compactions reach the BeforeWait point
+  std::atomic<int> compactions_at_wait{0};
+  // Gate to hold compaction threads at BeforeWait:2
+  port::Mutex gate_mutex;
+  port::CondVar gate_cv(&gate_mutex);
+  bool release_gate = false;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::"
+      "ProcessKeyValueCompactionWithCompactionService:BeforeWait",
+      [&](void* /*arg*/) { compactions_at_wait.fetch_add(1); });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::"
+      "ProcessKeyValueCompactionWithCompactionService:BeforeWait:2",
+      [&](void* /*arg*/) {
+        MutexLock l(&gate_mutex);
+        while (!release_gate) {
+          gate_cv.Wait();
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Use CompactFiles to trigger 2 concurrent compaction jobs
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+
+  std::vector<std::thread> threads;
+  int launched = 0;
+  for (const auto& file : meta.levels[1].files) {
+    if (launched >= 2) {
+      break;
+    }
+    threads.emplace_back([&, fname = file.db_path + "/" + file.name]() {
+      db_->CompactFiles(CompactionOptions(), {fname}, 2).PermitUncheckedError();
+    });
+    launched++;
+  }
+
+  // Wait until both compactions have reached BeforeWait
+  while (compactions_at_wait.load() < 2) {
+    env_->SleepForMicroseconds(1000);
+  }
+
+  // Both compactions are past BeforeWait (slot release decision made) but
+  // paused at BeforeWait:2 (before Wait() call).
+  // With cap=1, only 1 should have released its slot.
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 1);
+  }
+
+  // Release both compactions
+  {
+    MutexLock l(&gate_mutex);
+    release_gate = true;
+    gate_cv.SignalAll();
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Counter should be back to 0
+  {
+    InstrumentedMutexLock l(&dbfull()->mutex_);
+    ASSERT_EQ(dbfull()->bg_remote_compaction_waiting_, 0);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

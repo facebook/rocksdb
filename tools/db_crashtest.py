@@ -181,6 +181,7 @@ default_params = {
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": lambda: random.choice([2, 20]),
+    "max_background_remote_compactions": lambda: random.choice([0, 0, 2, 4]),
     "num_bottom_pri_threads": lambda: random.choice([0, 1, 20]),
     "max_bytes_for_level_base": 10485760,
     # max_key has to be the same across invocations for verification to work, hence no lambda
