@@ -40,7 +40,8 @@ class IndexBuilder {
       const InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
       bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
-      size_t ts_sz, bool persist_user_defined_timestamps);
+      size_t ts_sz, bool persist_user_defined_timestamps,
+      Statistics* statistics = nullptr);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -227,7 +228,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
       const bool use_value_delta_encoding,
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
       bool include_first_key, size_t ts_sz,
-      const bool persist_user_defined_timestamps)
+      const bool persist_user_defined_timestamps,
+      Statistics* statistics = nullptr)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         index_block_builder_(
             index_block_restart_interval, true /*use_delta_encoding*/,
@@ -235,14 +237,16 @@ class ShortenedIndexBuilder : public IndexBuilder {
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps, false /* is_user_key */,
-            /*use_separated_kv_storage=*/false),
+            true /* track_key_uniformity */,
+            false /* use_separated_kv_storage */, statistics),
         index_block_builder_without_seq_(
             index_block_restart_interval, true /*use_delta_encoding*/,
             use_value_delta_encoding,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps, true /* is_user_key */,
-            /*use_separated_kv_storage=*/false),
+            true /* track_key_uniformity */,
+            false /* use_separated_kv_storage */, statistics),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
@@ -649,12 +653,13 @@ class PartitionedIndexBuilder : public IndexBuilder {
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const InternalKeyComparator* comparator, bool use_value_delta_encoding,
       const BlockBasedTableOptions& table_opt, size_t ts_sz,
-      bool persist_user_defined_timestamps);
+      bool persist_user_defined_timestamps, Statistics* statistics = nullptr);
 
   PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                           const BlockBasedTableOptions& table_opt,
                           bool use_value_delta_encoding, size_t ts_sz,
-                          bool persist_user_defined_timestamps);
+                          bool persist_user_defined_timestamps,
+                          Statistics* statistics = nullptr);
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
@@ -747,6 +752,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
+  Statistics* statistics_;
   // Cached estimate of current index size, updated when data blocks are added
   RelaxedAtomic<uint64_t> estimated_index_size_{0};
   // Running estimate of completed partitions total size

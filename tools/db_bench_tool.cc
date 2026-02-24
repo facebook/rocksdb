@@ -1774,8 +1774,8 @@ DEFINE_bool(use_hash_search, false,
             "if use kHashSearch instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
 DEFINE_string(index_block_search_type, "binary_search",
-              "Search algorithm for reading index blocks: binary_search or "
-              "interpolation_search.");
+              "Search algorithm for reading index blocks: binary_search, "
+              "interpolation_search, or auto_search.");
 DEFINE_string(merge_operator, "",
               "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -4544,6 +4544,9 @@ class Benchmark {
       } else if (FLAGS_index_block_search_type == "interpolation_search") {
         block_based_options.index_block_search_type =
             BlockBasedTableOptions::kInterpolation;
+      } else if (FLAGS_index_block_search_type == "auto_search") {
+        block_based_options.index_block_search_type =
+            BlockBasedTableOptions::kAuto;
       } else {
         fprintf(stderr, "Unknown index_block_search_type: %s\n",
                 FLAGS_index_block_search_type.c_str());

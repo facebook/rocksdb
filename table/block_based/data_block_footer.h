@@ -26,7 +26,8 @@ namespace ROCKSDB_NAMESPACE {
 //   - The low 28 bits store the number of restart points (num_restarts)
 //   - The high 4 bits are reserved for metadata/features:
 //     - Bit 31: Hash index present (kDataBlockBinaryAndHash)
-//     - Bit 29-30: Reserved for future features. IMPORTANT: cannot be used
+//     - Bit 30: Uniform keys flag (for kAuto index block search)
+//     - Bit 29: Reserved for future features. IMPORTANT: cannot be used
 //     on data blocks without a format version bump.
 //     - Bit 28: Separated KV storage (keys and values stored in separate
 //       sections within the block)
@@ -75,6 +76,7 @@ struct DataBlockFooter {
   uint32_t values_section_offset = 0;
 
   uint32_t num_restarts = 0;
+  bool is_uniform = false;
 
   DataBlockFooter() = default;
   DataBlockFooter(BlockBasedTableOptions::DataBlockIndexType _index_type,

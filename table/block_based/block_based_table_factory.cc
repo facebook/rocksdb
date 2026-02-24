@@ -189,7 +189,8 @@ static std::unordered_map<std::string, BlockBasedTableOptions::BlockSearchType>
     block_base_table_index_search_type_string_map = {
         {"kBinary", BlockBasedTableOptions::BlockSearchType::kBinary},
         {"kInterpolation",
-         BlockBasedTableOptions::BlockSearchType::kInterpolation}};
+         BlockBasedTableOptions::BlockSearchType::kInterpolation},
+        {"kAuto", BlockBasedTableOptions::BlockSearchType::kAuto}};
 
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>

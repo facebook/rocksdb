@@ -412,7 +412,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void indexSearchType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(IndexSearchType.values().length).isEqualTo(2);
+    assertThat(IndexSearchType.values().length).isEqualTo(3);
     blockBasedTableConfig.setIndexSearchType(IndexSearchType.kInterpolation);
     assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kInterpolation);
     blockBasedTableConfig.setIndexSearchType(IndexSearchType.kBinary);

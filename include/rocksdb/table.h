@@ -274,6 +274,13 @@ struct BlockBasedTableOptions {
     // succesor can skew the end key and make interpolation search significantly
     // less performant.
     kInterpolation = 0x01,
+    // Automatically choose between binary and interpolation search on a
+    // per-index-block basis. During SST construction, each block's key
+    // distribution is analyzed, and provides a "is_uniform" hint in the block
+    // footer. If the keys are uniformly distributed and ordered via byte-wise
+    // comparator, then reads for the block will use interpolation search. Using
+    // kAuto on older versions will simply default to kBinary.
+    kAuto = 0x02,
   };
 
   BlockSearchType index_block_search_type = kBinary;

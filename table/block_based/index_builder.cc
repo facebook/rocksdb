@@ -29,7 +29,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
     const InternalKeySliceTransform* int_key_slice_transform,
     const bool use_value_delta_encoding,
     const BlockBasedTableOptions& table_opt, size_t ts_sz,
-    const bool persist_user_defined_timestamps) {
+    const bool persist_user_defined_timestamps, Statistics* statistics) {
   IndexBuilder* result = nullptr;
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
@@ -37,7 +37,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ false, ts_sz,
-          persist_user_defined_timestamps);
+          persist_user_defined_timestamps, statistics);
       break;
     }
     case BlockBasedTableOptions::kHashSearch: {
@@ -62,7 +62,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ true, ts_sz,
-          persist_user_defined_timestamps);
+          persist_user_defined_timestamps, statistics);
       break;
     }
     default: {
@@ -135,17 +135,17 @@ PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const bool use_value_delta_encoding,
     const BlockBasedTableOptions& table_opt, size_t ts_sz,
-    const bool persist_user_defined_timestamps) {
-  return new PartitionedIndexBuilder(comparator, table_opt,
-                                     use_value_delta_encoding, ts_sz,
-                                     persist_user_defined_timestamps);
+    const bool persist_user_defined_timestamps, Statistics* statistics) {
+  return new PartitionedIndexBuilder(
+      comparator, table_opt, use_value_delta_encoding, ts_sz,
+      persist_user_defined_timestamps, statistics);
 }
 
 PartitionedIndexBuilder::PartitionedIndexBuilder(
     const InternalKeyComparator* comparator,
     const BlockBasedTableOptions& table_opt,
     const bool use_value_delta_encoding, size_t ts_sz,
-    const bool persist_user_defined_timestamps)
+    const bool persist_user_defined_timestamps, Statistics* statistics)
     : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
       index_block_builder_(
           table_opt.index_block_restart_interval, true /*use_delta_encoding*/,
@@ -169,7 +169,8 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       // sub_index_builders could not safely exclude seq from the keys, then it
       // wil be enforced on all sub_index_builders on ::Finish.
       must_use_separator_with_seq_(false),
-      use_value_delta_encoding_(use_value_delta_encoding) {
+      use_value_delta_encoding_(use_value_delta_encoding),
+      statistics_(statistics) {
   MakeNewSubIndexBuilder();
 }
 
@@ -178,7 +179,7 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
       table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
-      persist_user_defined_timestamps_);
+      persist_user_defined_timestamps_, statistics_);
   sub_index_builder_ = new_builder.get();
   // Start next partition entry, where we will modify the key
   entries_.push_back({{}, std::move(new_builder)});

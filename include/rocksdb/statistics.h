@@ -730,6 +730,11 @@ enum Histograms : uint32_t {
   // Distribution of blocks prefetched per MultiScan Prepare()
   MULTISCAN_BLOCKS_PER_PREPARE,
 
+  // Coefficient of variation of key gaps in blocks, scaled by 10000
+  // (e.g., CV of 0.4532 is recorded as 4532). Currently only used by index
+  // blocks for uniform key distribution tracking.
+  BLOCK_KEY_DISTRIBUTION_CV,
+
   HISTOGRAM_ENUM_MAX
 };
 

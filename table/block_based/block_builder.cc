@@ -39,13 +39,62 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 #include "db/dbformat.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/comparator.h"
+#include "table/block_based/block_util.h"
 #include "table/block_based/data_block_footer.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+// Tracks whether restart-point keys are uniformly distributed using Welford's
+// online algorithm to incrementally compute the coefficient of variation (CV)
+// of gaps between consecutive restart keys.
+class UniformDataTracker {
+ public:
+  void AddKey(uint64_t key_value) {
+    if (num_keys_ > 0) {
+      double gap =
+          static_cast<double>(key_value) - static_cast<double>(prev_key_value_);
+      size_t gap_count = num_keys_;
+      double delta = gap - mean_;
+      mean_ += delta / static_cast<double>(gap_count);
+      double delta2 = gap - mean_;
+      m2_ += delta * delta2;
+    }
+    prev_key_value_ = key_value;
+    num_keys_++;
+  }
+
+  // Returns the coefficient of variation (CV) of the key gaps, or -1.0 if
+  // there are not enough data points to compute it.
+  double GetCV() const {
+    size_t gap_count = num_keys_ > 0 ? num_keys_ - 1 : 0;
+    if (gap_count < 2 || mean_ <= 0) {
+      return -1.0;
+    }
+    return std::sqrt(m2_ / static_cast<double>(gap_count)) / mean_;
+  }
+
+  bool IsUniform() const {
+    static constexpr double kUniformCvThreshold = 0.5;
+    double cv = GetCV();
+    return cv >= 0 && cv < kUniformCvThreshold;
+  }
+
+ private:
+  uint64_t prev_key_value_ = 0;
+  size_t num_keys_ = 0;
+  double mean_ = 0;
+  double m2_ = 0;
+};
+
+}  // namespace
 
 BlockBuilder::BlockBuilder(
     int block_restart_interval, bool use_delta_encoding,
@@ -53,7 +102,8 @@ BlockBuilder::BlockBuilder(
     BlockBasedTableOptions::DataBlockIndexType index_type,
     double data_block_hash_table_util_ratio, size_t ts_sz,
     bool persist_user_defined_timestamps, bool is_user_key,
-    bool use_separated_kv_storage)
+    bool track_key_uniformity, bool use_separated_kv_storage,
+    Statistics* statistics)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
@@ -62,6 +112,8 @@ BlockBuilder::BlockBuilder(
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
       finished_(false),
+      track_key_uniformity_(track_key_uniformity),
+      statistics_(statistics),
       use_separated_kv_storage_(use_separated_kv_storage) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
@@ -140,6 +192,8 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
 }
 
 Slice BlockBuilder::Finish() {
+  bool is_uniform = ScanForUniformity();
+
   // Append restart array
   size_t values_buffer_offset = buffer_.size();
 
@@ -154,6 +208,7 @@ Slice BlockBuilder::Finish() {
   DataBlockFooter footer;
   footer.num_restarts = static_cast<uint32_t>(restarts_.size());
   footer.index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
+  footer.is_uniform = is_uniform;
   if (data_block_hash_index_builder_.Valid() &&
       CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
     data_block_hash_index_builder_.Finish(buffer_);
@@ -309,4 +364,63 @@ const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
   }
   return stripped_key;
 }
+
+Slice BlockBuilder::GetRestartKey(uint32_t index, const char* limit) const {
+  assert(index < restarts_.size());
+  const char* p = buffer_.data() + restarts_[index];
+  uint32_t shared;
+  uint32_t non_shared;
+  // When separated KV storage is enabled, restart point entries include an
+  // extra value_offset varint that must be consumed to find the key delta.
+  uint32_t value_offset;
+  uint32_t* value_offset_ptr =
+      use_separated_kv_storage_ ? &value_offset : nullptr;
+  if (use_value_delta_encoding_) {
+    p = DecodeKeyV4()(p, limit, &shared, &non_shared, value_offset_ptr);
+  } else {
+    p = DecodeKey()(p, limit, &shared, &non_shared, value_offset_ptr);
+  }
+  assert(p != nullptr);
+  assert(shared == 0);
+  (void)shared;
+  return Slice(p, non_shared);
+}
+
+bool BlockBuilder::ScanForUniformity() const {
+  if (!track_key_uniformity_ || restarts_.size() < 3) {
+    return false;
+  }
+
+  const char* limit = buffer_.data() + buffer_.size();
+
+  Slice first_key = GetRestartKey(0, limit);
+  Slice last_key =
+      GetRestartKey(static_cast<uint32_t>(restarts_.size() - 1), limit);
+
+  // Keys must be long enough for ReadBe64FromKey which strips internal bytes
+  if (!is_user_key_ && (first_key.size() < kNumInternalBytes ||
+                        last_key.size() < kNumInternalBytes)) {
+    return false;
+  }
+
+  size_t prefix_len = first_key.difference_offset(last_key);
+
+  UniformDataTracker tracker;
+  for (size_t i = 0; i < restarts_.size(); i++) {
+    Slice key = GetRestartKey(static_cast<uint32_t>(i), limit);
+    if (!is_user_key_ && key.size() < kNumInternalBytes) {
+      return false;
+    }
+    tracker.AddKey(ReadBe64FromKey(key, is_user_key_, prefix_len));
+  }
+
+  double cv = tracker.GetCV();
+  if (statistics_ != nullptr && cv >= 0) {
+    RecordInHistogram(statistics_, BLOCK_KEY_DISTRIBUTION_CV,
+                      static_cast<uint64_t>(cv * 10000));
+  }
+
+  return tracker.IsUniform();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
