@@ -112,6 +112,8 @@ const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
 const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
     "prepopulate_blob_cache";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
+const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
+    "dump_uncompressed_blobs";
 const std::string LDBCommand::ARG_READ_TIMESTAMP = "read_timestamp";
 const std::string LDBCommand::ARG_GET_WRITE_UNIX_TIME = "get_write_unix_time";
 
@@ -201,7 +203,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
                  std::string from_key = "", std::string to_key = "");
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
-                  bool is_value_hex);
+                  bool is_value_hex, bool dump_uncompressed_blobs);
 
 Status EncodeUserProvidedTimestamp(const std::string& user_timestamp,
                                    std::string* ts_buf);
@@ -2332,19 +2334,21 @@ DBDumperCommand::DBDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true /* is_read_only */,
-                 BuildCmdLineOptions(
-                     {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
-                      ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM,
-                      ARG_STATS, ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET,
-                      ARG_TIMESTAMP, ARG_PATH, ARG_DECODE_BLOB_INDEX})),
+    : LDBCommand(
+          options, flags, true /* is_read_only */,
+          BuildCmdLineOptions(
+              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+               ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+               ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
+               ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       null_from_(true),
       null_to_(true),
       max_keys_(-1),
       count_only_(false),
       count_delim_(false),
       print_stats_(false),
-      decode_blob_index_(false) {
+      decode_blob_index_(false),
+      dump_uncompressed_blobs_(false) {
   auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
@@ -2385,6 +2389,7 @@ DBDumperCommand::DBDumperCommand(
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
   decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
+  dump_uncompressed_blobs_ = IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS);
 
   if (is_key_hex_) {
     if (!null_from_) {
@@ -2419,6 +2424,7 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -2465,7 +2471,8 @@ void DBDumperCommand::DoCommand() {
                          /*  json_ */ false, column_families_);
         break;
       case kBlobFile:
-        DumpBlobFile(path_, is_key_hex_, is_value_hex_);
+        DumpBlobFile(path_, is_key_hex_, is_value_hex_,
+                     dump_uncompressed_blobs_);
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(
@@ -4758,16 +4765,21 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 }
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
-                  bool is_value_hex) {
+                  bool is_value_hex, bool dump_uncompressed_blobs) {
   using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
   BlobDumpTool tool;
-  BlobDumpTool::DisplayType show_blob = is_value_hex
+  BlobDumpTool::DisplayType blob_type = is_value_hex
                                             ? BlobDumpTool::DisplayType::kHex
                                             : BlobDumpTool::DisplayType::kRaw;
+  BlobDumpTool::DisplayType show_uncompressed_blob =
+      dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
+  BlobDumpTool::DisplayType show_blob =
+      dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
   BlobDumpTool::DisplayType show_key = is_key_hex
                                            ? BlobDumpTool::DisplayType::kHex
                                            : BlobDumpTool::DisplayType::kRaw;
-  Status s = tool.Run(filename, show_key, show_blob, /* show_summary */ true);
+  Status s = tool.Run(filename, show_key, show_blob, show_uncompressed_blob,
+                      /* show_summary */ true);
   if (!s.ok()) {
     fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
   }
@@ -4791,13 +4803,17 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true /* is_read_only */,
-                 BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
-      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
+                 BuildCmdLineOptions(
+                     {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
+      dump_uncompressed_blobs_(
+          IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -4865,7 +4881,8 @@ void DBFileDumperCommand::DoCommand() {
       filename = NormalizePath(filename);
       std::cout << filename << std::endl;
       std::cout << "------------------------------" << std::endl;
-      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false);
+      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false,
+                   dump_uncompressed_blobs_);
       std::cout << std::endl;
     }
   }
