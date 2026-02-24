@@ -20,6 +20,7 @@
 
 #include <string>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/iterator_base.h"
 #include "rocksdb/options.h"
 #include "rocksdb/wide_columns.h"
@@ -93,6 +94,40 @@ class Iterator : public IteratorBase {
   virtual Slice timestamp() const {
     assert(false);
     return Slice();
+  }
+
+  // Returns the compression type of the current blob value when
+  // ReadOptions::read_blob_compressed is true. This allows the caller to
+  // determine which decompression algorithm to use for the compressed data.
+  //
+  // This method is the iterator equivalent of
+  // ReadOptions::blob_compression_types_out which is used for Get/MultiGet
+  // operations.
+  //
+  // Use cases:
+  // - Streaming compressed blob data to external storage
+  // - Backup operations that preserve original compression
+  // - Building data pipelines that forward compressed data
+  //
+  // Example usage:
+  //   ReadOptions ro;
+  //   ro.read_blob_compressed = true;
+  //   auto iter = db->NewIterator(ro);
+  //   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  //     CompressionType type = iter->GetBlobCompressionType();
+  //     Slice compressed_value = iter->value();
+  //     // Forward compressed_value with type info to external system
+  //   }
+  //
+  // Returns:
+  //   - The compression type if current entry is a blob and was read with
+  //     read_blob_compressed=true
+  //   - kNoCompression if current entry is not a blob, or read_blob_compressed
+  //     was false, or blob was stored without compression
+  //
+  // REQUIRES: Valid()
+  virtual CompressionType GetBlobCompressionType() const {
+    return kNoCompression;
   }
 
   // Prepare the iterator to scan the ranges specified in scan_opts. This

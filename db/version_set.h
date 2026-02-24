@@ -962,11 +962,11 @@ class Version {
                  uint64_t* bytes_read) const;
 
   struct BlobReadContext {
-    BlobReadContext(const BlobIndex& blob_idx, const KeyContext* key_ctx)
+    BlobReadContext(const BlobIndex& blob_idx, KeyContext* key_ctx)
         : blob_index(blob_idx), key_context(key_ctx) {}
 
     BlobIndex blob_index;
-    const KeyContext* key_context;
+    KeyContext* key_context;
     PinnableSlice result;
   };
 

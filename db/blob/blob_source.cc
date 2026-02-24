@@ -6,6 +6,7 @@
 #include "db/blob/blob_source.h"
 
 #include <cassert>
+#include <optional>
 #include <string>
 
 #include "cache/cache_reservation_manager.h"
@@ -43,8 +44,9 @@ BlobSource::BlobSource(const ImmutableOptions& immutable_options,
 
 BlobSource::~BlobSource() = default;
 
-Status BlobSource::GetBlobFromCache(
-    const Slice& cache_key, CacheHandleGuard<BlobContents>* cached_blob) const {
+Status BlobSource::GetBlobFromCache(const Slice& cache_key,
+                                    CacheHandleGuard<BlobContents>* cached_blob,
+                                    bool compressed) const {
   assert(blob_cache_);
   assert(!cache_key.empty());
   assert(cached_blob);
@@ -59,21 +61,32 @@ Status BlobSource::GetBlobFromCache(
     assert(cached_blob->GetValue());
 
     PERF_COUNTER_ADD(blob_cache_hit_count, 1);
-    RecordTick(statistics_, BLOB_DB_CACHE_HIT);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
-               cached_blob->GetValue()->size());
+    if (compressed) {
+      RecordTick(statistics_, BLOB_DB_COMPRESSED_CACHE_HIT);
+      RecordTick(statistics_, BLOB_DB_COMPRESSED_CACHE_BYTES_READ,
+                 cached_blob->GetValue()->size());
+    } else {
+      RecordTick(statistics_, BLOB_DB_CACHE_HIT);
+      RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
+                 cached_blob->GetValue()->size());
+    }
 
     return Status::OK();
   }
 
-  RecordTick(statistics_, BLOB_DB_CACHE_MISS);
+  if (compressed) {
+    RecordTick(statistics_, BLOB_DB_COMPRESSED_CACHE_MISS);
+  } else {
+    RecordTick(statistics_, BLOB_DB_CACHE_MISS);
+  }
 
   return Status::NotFound("Blob not found in cache");
 }
 
-Status BlobSource::PutBlobIntoCache(
-    const Slice& cache_key, std::unique_ptr<BlobContents>* blob,
-    CacheHandleGuard<BlobContents>* cached_blob) const {
+Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
+                                    std::unique_ptr<BlobContents>* blob,
+                                    CacheHandleGuard<BlobContents>* cached_blob,
+                                    bool compressed) const {
   assert(blob_cache_);
   assert(!cache_key.empty());
   assert(blob);
@@ -93,12 +106,22 @@ Status BlobSource::PutBlobIntoCache(
 
     assert(cached_blob->GetValue());
 
-    RecordTick(statistics_, BLOB_DB_CACHE_ADD);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
-               cached_blob->GetValue()->size());
+    if (compressed) {
+      RecordTick(statistics_, BLOB_DB_COMPRESSED_CACHE_ADD);
+      RecordTick(statistics_, BLOB_DB_COMPRESSED_CACHE_BYTES_WRITE,
+                 cached_blob->GetValue()->size());
+    } else {
+      RecordTick(statistics_, BLOB_DB_CACHE_ADD);
+      RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
+                 cached_blob->GetValue()->size());
+    }
 
   } else {
-    RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
+    if (compressed) {
+      RecordTick(statistics_, BLOB_DB_COMPRESSED_CACHE_ADD_FAILURES);
+    } else {
+      RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
+    }
   }
 
   return s;
@@ -166,17 +189,21 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   Status s;
 
-  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+  const bool want_compressed = read_options.read_blob_compressed;
+  const CacheKey cache_key =
+      GetCacheKey(file_number, file_size, offset, want_compressed);
 
   CacheHandleGuard<BlobContents> blob_handle;
 
   // First, try to get the blob from the cache
   //
-  // If blob cache is enabled, we'll try to read from it.
+  // If blob cache is enabled, we'll try to read from it. The cache key
+  // differs based on whether we want compressed or uncompressed data.
   if (blob_cache_) {
     Slice key = cache_key.AsSlice();
-    s = GetBlobFromCache(key, &blob_handle);
+    s = GetBlobFromCache(key, &blob_handle, want_compressed);
     if (s.ok()) {
+      assert(blob_handle.GetValue()->IsCompressed() == want_compressed);
       PinCachedBlob(&blob_handle, value);
 
       // For consistency, the size of on-disk (possibly compressed) blob record
@@ -228,22 +255,36 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
             : nullptr;
 
     uint64_t read_size = 0;
+    // Use local optional for compression type output
+    std::optional<CompressionType> compression_type_out;
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, allocator, &blob_contents, &read_size);
+        prefetch_buffer, allocator, &blob_contents, &read_size,
+        read_options.blob_compression_types_out ? &compression_type_out
+                                                : nullptr);
     if (!s.ok()) {
       return s;
     }
     if (bytes_read) {
       *bytes_read = read_size;
     }
+    // Copy compression type to user's output vector if provided
+    if (read_options.blob_compression_types_out &&
+        compression_type_out.has_value()) {
+      if (read_options.blob_compression_types_out->empty()) {
+        read_options.blob_compression_types_out->resize(1, kNoCompression);
+      }
+      (*read_options.blob_compression_types_out)[0] =
+          compression_type_out.value();
+    }
   }
 
+  // Cache the blob (compressed or uncompressed based on the request)
   if (blob_cache_ && read_options.fill_cache) {
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
+    s = PutBlobIntoCache(key, &blob_contents, &blob_handle, want_compressed);
     if (!s.ok()) {
       return s;
     }
@@ -304,23 +345,35 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
   uint64_t total_bytes = 0;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
+  const bool want_compressed = read_options.read_blob_compressed;
 
+  // Try cache lookup for both compressed and uncompressed requests
   if (blob_cache_) {
     size_t cached_blob_count = 0;
     for (size_t i = 0; i < num_blobs; ++i) {
       auto& req = blob_reqs[i];
 
       CacheHandleGuard<BlobContents> blob_handle;
-      const CacheKey cache_key = base_cache_key.WithOffset(req.offset);
+      // Use different cache key based on whether we want compressed data
+      const uint64_t cache_offset =
+          want_compressed ? (req.offset | kCompressedCacheKeyFlag) : req.offset;
+      const CacheKey cache_key = base_cache_key.WithOffset(cache_offset);
       const Slice key = cache_key.AsSlice();
 
-      const Status s = GetBlobFromCache(key, &blob_handle);
+      const Status s = GetBlobFromCache(key, &blob_handle, want_compressed);
 
       if (s.ok()) {
         assert(req.status);
+        assert(blob_handle.GetValue()->IsCompressed() == want_compressed);
         *req.status = s;
 
         PinCachedBlob(&blob_handle, req.result);
+
+        // Set the compression type output if requested
+        if (req.compression_type_out) {
+          *req.compression_type_out =
+              blob_handle.GetValue()->GetCompressionType();
+        }
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
@@ -397,6 +450,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     blob_file_reader.GetValue()->MultiGetBlob(read_options, allocator,
                                               _blob_reqs, &_bytes_read);
 
+    // Cache the blobs (compressed or uncompressed based on the request)
     if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put
       // the blob(s) to the cache.
@@ -405,9 +459,14 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
         if (req->status->ok()) {
           CacheHandleGuard<BlobContents> blob_handle;
-          const CacheKey cache_key = base_cache_key.WithOffset(req->offset);
+          // Use different cache key based on whether we want compressed data
+          const uint64_t cache_offset =
+              want_compressed ? (req->offset | kCompressedCacheKeyFlag)
+                              : req->offset;
+          const CacheKey cache_key = base_cache_key.WithOffset(cache_offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
+          s = PutBlobIntoCache(key, &blob_contents, &blob_handle,
+                               want_compressed);
           if (!s.ok()) {
             *req->status = s;
           } else {
@@ -434,11 +493,19 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
 bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
                                   uint64_t offset, size_t* charge) const {
-  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+  return TEST_BlobInCache(file_number, file_size, offset,
+                          /*compressed=*/false, charge);
+}
+
+bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
+                                  uint64_t offset, bool compressed,
+                                  size_t* charge) const {
+  const CacheKey cache_key =
+      GetCacheKey(file_number, file_size, offset, compressed);
   const Slice key = cache_key.AsSlice();
 
   CacheHandleGuard<BlobContents> blob_handle;
-  const Status s = GetBlobFromCache(key, &blob_handle);
+  const Status s = GetBlobFromCache(key, &blob_handle, compressed);
 
   if (s.ok() && blob_handle.GetValue() != nullptr) {
     if (charge) {
