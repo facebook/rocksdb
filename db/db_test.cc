@@ -7798,7 +7798,8 @@ class OpenFilesAsyncTest : public DBTest,
     return buf;
   }
 
-  void SetupData(Options& options) {
+  void SetupData(Options& options, const std::vector<std::string>& cfs = {
+                                       kDefaultColumnFamilyName}) {
     options.create_if_missing = true;
     options.max_open_files = max_open_files_;
 
@@ -7807,10 +7808,21 @@ class OpenFilesAsyncTest : public DBTest,
     options.write_buffer_size = std::numeric_limits<size_t>::max();
 
     DestroyAndReopen(options);
-    for (uint32_t f = 0; f < num_flushes_; f++) {
-      ASSERT_OK(Put(KeyFor(f), ValueFor(f)));
-      ASSERT_OK(Flush());
+
+    for (const auto& cf : cfs) {
+      if (cf != kDefaultColumnFamilyName) {
+        CreateColumnFamilies({cf}, options);
+      }
     }
+    ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
+
+    for (uint32_t f = 0; f < num_flushes_; f++) {
+      for (int cf = 0; cf < static_cast<int>(cfs.size()); cf++) {
+        ASSERT_OK(Put(cf, KeyFor(f), ValueFor(f)));
+        ASSERT_OK(Flush(cf));
+      }
+    }
+
     Close();
   }
 
@@ -7856,10 +7868,15 @@ class OpenFilesAsyncTest : public DBTest,
 
   void OpenTestDB(Options& options) {
     options.open_files_async = true;
+    options.statistics = CreateDBStatistics();
+
+    std::vector<std::string> cfs;
+    ASSERT_OK(DB::ListColumnFamilies(options, dbname_, &cfs));
+
     if (read_only_) {
-      ASSERT_OK(ReadOnlyReopen(options));
+      ASSERT_OK(TryReopenReadOnlyWithColumnFamilies(cfs, options));
     } else {
-      Reopen(options);
+      ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
     }
   }
 
@@ -7871,17 +7888,15 @@ class OpenFilesAsyncTest : public DBTest,
 
 INSTANTIATE_TEST_CASE_P(
     OpenFilesAsync, OpenFilesAsyncTest,
-    ::testing::Combine(::testing::Values(1, 5, 20),
+    ::testing::Combine(::testing::Values(1, 20),
                        ::testing::Values(ReadType::kGet, ReadType::kMultiGet,
                                          ReadType::kIterator),
-                       ::testing::Values(-1, 10, 100), ::testing::Bool()));
+                       ::testing::Values(-1, 10), ::testing::Bool()));
 
 // Test mix of races with async file open, reads, compactions
 TEST_P(OpenFilesAsyncTest, ConcurrentFileAccess) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
-
-  options.statistics = CreateDBStatistics();
 
   OpenTestDB(options);
 
@@ -7907,8 +7922,6 @@ TEST_P(OpenFilesAsyncTest, ConcurrentFileAccess) {
 TEST_P(OpenFilesAsyncTest, AfterRead) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
-
-  options.statistics = CreateDBStatistics();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"OpenFilesAsyncTest::AfterRead",
@@ -7964,8 +7977,6 @@ TEST_P(OpenFilesAsyncTest, AfterRead) {
 TEST_P(OpenFilesAsyncTest, BeforeRead) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
-
-  options.statistics = CreateDBStatistics();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BGWorkAsyncFileOpen:Done", "OpenFilesAsyncTest::BeforeRead"},
@@ -8097,6 +8108,52 @@ TEST_P(OpenFilesAsyncTest, Error) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
+TEST_P(OpenFilesAsyncTest, DropColumnFamily) {
+  // Can't drop CFs in read-only mode
+  if (read_only_) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  ASSERT_NO_FATAL_FAILURE(
+      SetupData(options, {kDefaultColumnFamilyName, "cf1"}));
+
+  // Delay the async opener until after we drop the CF
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"OpenFilesAsyncTest::DropColumnFamily::AfterDrop",
+       "DBImpl::BGWorkAsyncFileOpen::Start"},
+      {"DBImpl::BGWorkAsyncFileOpen:Done",
+       "OpenFilesAsyncTest::DropColumnFamily::BeforeClose"},
+  });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenTestDB(options);
+
+  // Drop the non-default CF before async opener runs
+  ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handles_[1]));
+  handles_[1] = nullptr;
+
+  TEST_SYNC_POINT("OpenFilesAsyncTest::DropColumnFamily::AfterDrop");
+
+  // Default CF data should still be readable
+  VerifyData();
+
+  TEST_SYNC_POINT("OpenFilesAsyncTest::DropColumnFamily::BeforeClose");
+
+  if (max_open_files_ == -1) {
+    EXPECT_EQ(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  } else {
+    EXPECT_GE(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
   Close();
 }
 

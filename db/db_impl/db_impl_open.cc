@@ -2719,8 +2719,10 @@ struct AsyncFileOpenContext {
   std::vector<Version*> versions;
 
   ~AsyncFileOpenContext() {
+    db->mutex()->AssertHeld();
     for (auto* v : versions) {
       v->Unref();
+      v->cfd()->UnrefAndTryDelete();
     }
   }
 };
@@ -2741,6 +2743,7 @@ void DBImpl::ScheduleAsyncFileOpening() {
       has_files = !vstorage->LevelFiles(level).empty();
     }
     if (has_files) {
+      cfd->Ref();
       current->Ref();
       ctx->versions.push_back(current);
     }
@@ -2768,13 +2771,16 @@ void DBImpl::BGWorkAsyncFileOpen(void* arg) {
   std::unique_ptr<AsyncFileOpenContext, decltype(deleter)> ctx(raw_ctx,
                                                                deleter);
 
-  if (ctx->versions.empty()) {
-    return;
-  }
   ReadOptions ro;
-
-  for (auto* version : ctx->versions) {
+  for (size_t i = 0; i < ctx->versions.size(); i++) {
+    auto* version = ctx->versions[i];
     ColumnFamilyData* cfd = version->cfd();
+
+    // Skip column families that were dropped after scheduling
+    if (cfd->IsDropped()) {
+      continue;
+    }
+
     VersionStorageInfo* vstorage = version->storage_info();
 
     MutableCFOptions mutable_cf_options;
