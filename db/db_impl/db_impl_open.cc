@@ -2721,8 +2721,9 @@ struct AsyncFileOpenContext {
   ~AsyncFileOpenContext() {
     db->mutex()->AssertHeld();
     for (auto* v : versions) {
+      ColumnFamilyData* cfd = v->cfd();
       v->Unref();
-      v->cfd()->UnrefAndTryDelete();
+      cfd->UnrefAndTryDelete();
     }
   }
 };
