@@ -1905,13 +1905,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
              initial_wal_write_may_succeed);
 
-    if ((s.IsDeadlock() || s.IsTimedOut()) &&
-        (FLAGS_use_multiget || FLAGS_use_multi_get_entity)) {
-      // Deadlock or timeout is ok, when multi get is tested. Because multi get
-      // tests execute MaybeAddKeyToTxnForRYW function which writes to the
-      // same key space but does not acquire stress test level mutex. So it is
-      // possible RocksDB returns deadlock or timeout. Return OK() for these
-      // cases
+    if (IsExpectedTxnLockTimeout(s)) {
       pending_expected_value.Rollback();
       return Status::OK();
     }
@@ -2016,6 +2010,11 @@ class NonBatchedOpsStressTest : public StressTest {
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
+      if (IsExpectedTxnLockTimeout(s)) {
+        pending_expected_value.Rollback();
+        return Status::OK();
+      }
+
       if (!s.ok()) {
         pending_expected_value.Rollback();
         if (IsErrorInjectedAndRetryable(s)) {
@@ -2082,6 +2081,11 @@ class NonBatchedOpsStressTest : public StressTest {
             &wait_for_recover_start_time, commit_bypass_memtable);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
+
+      if (IsExpectedTxnLockTimeout(s)) {
+        pending_expected_value.Rollback();
+        return Status::OK();
+      }
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
@@ -3209,15 +3213,7 @@ class NonBatchedOpsStressTest : public StressTest {
           assert(false);
       }
 
-      // It is possible that multiple thread concurrently try to write to the
-      // same key, which could cause lock timeout or deadlock in the
-      // transactiondb layer, before transaction is rolled back.
-      // E.g.
-      // Timestamp 1: Transaction A: lock key M for write
-      // Timestamp 2: Transaction B: lock key N for write
-      // Timestamp 3: Transaction B: try to lock key M for write -> wait
-      // Timestamp 4: Transaction A: try to lock key N for write -> deadlock
-      if (s.IsTimedOut() || s.IsDeadlock()) {
+      if (IsExpectedTxnLockTimeout(s)) {
         return;
       }
 

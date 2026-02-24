@@ -929,6 +929,11 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
   return s;
 }
 
+bool StressTest::IsExpectedTxnLockTimeout(const Status& s) {
+  return (s.IsDeadlock() || s.IsTimedOut()) &&
+         (FLAGS_use_multiget || FLAGS_use_multi_get_entity);
+}
+
 Status StressTest::ExecuteTransaction(WriteOptions& write_opts,
                                       ThreadState* thread,
                                       std::function<Status(Transaction&)>&& ops,
