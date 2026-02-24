@@ -2,7 +2,7 @@
 <project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.rocksdb</groupId>
+    <groupId>${rocksdb.groupId}</groupId>
     <artifactId>rocksdbjni</artifactId>
     <version>${ROCKSDB_JAVA_VERSION}</version>  <!-- this will be replaced by the Makefile's rocksdbjavageneratepom target -->
 
@@ -62,6 +62,7 @@
         <project.build.source>1.8</project.build.source>
         <project.build.target>1.8</project.build.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <rocksdb.groupId>org.rocksdb</rocksdb.groupId>
     </properties>
 
     <build>
@@ -69,7 +70,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.2</version>
+                <version>3.11.0</version>
                 <configuration>
                     <source>${project.build.source}</source>
                     <target>${project.build.target}</target>
@@ -82,7 +83,7 @@
                 <version>2.18.1</version>
                 <configuration>
                     <argLine>${argLine} -ea -Xcheck:jni -Djava.library.path=${project.build.directory}</argLine>
-                    <useManifestOnlyJar>false</useManifestOnlyJar>  
+                    <useManifestOnlyJar>false</useManifestOnlyJar>
                     <useSystemClassLoader>false</useSystemClassLoader>
                     <additionalClasspathElements>
                         <additionalClasspathElement>${project.build.directory}/*</additionalClasspathElement>
@@ -109,9 +110,17 @@
                 </executions>
             </plugin>
             <plugin>
-                <groupId>org.codehaus.gmaven</groupId>
-                <artifactId>groovy-maven-plugin</artifactId>
-                <version>2.0</version>
+                <groupId>org.codehaus.gmavenplus</groupId>
+                <artifactId>gmavenplus-plugin</artifactId>
+                <version>3.0.2</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.groovy</groupId>
+                        <artifactId>groovy</artifactId>
+                        <version>4.0.15</version>
+                        <scope>runtime</scope>
+                    </dependency>
+                </dependencies>
                 <executions>
                     <execution>
                         <phase>process-classes</phase>
@@ -119,23 +128,22 @@
                             <goal>execute</goal>
                         </goals>
                         <configuration>
-                            <defaults>
-                                <name>Xenu</name>
-                            </defaults>
-                            <source>
-                                String fileContents = new File(project.basedir.absolutePath + '/../include/rocksdb/version.h').getText('UTF-8')
-                                matcher = (fileContents =~ /(?s).*ROCKSDB_MAJOR ([0-9]+).*?/)
-                                String major_version = matcher.getAt(0).getAt(1)
-                                matcher = (fileContents =~ /(?s).*ROCKSDB_MINOR ([0-9]+).*?/)
-                                String minor_version = matcher.getAt(0).getAt(1)
-                                matcher = (fileContents =~ /(?s).*ROCKSDB_PATCH ([0-9]+).*?/)
-                                String patch_version = matcher.getAt(0).getAt(1)
-                                String version = String.format('%s.%s.%s', major_version, minor_version, patch_version)
-                                // Set version to be used in pom.properties
-                                project.version = version
-                                // Set version to be set as jar name
-                                project.build.finalName = project.artifactId + "-" + version
-                            </source>
+                            <scripts>
+                                <script>
+                                    String fileContents = new File(project.basedir.absolutePath + '/../include/rocksdb/version.h').getText('UTF-8')
+                                    matcher = (fileContents =~ /(?s).*ROCKSDB_MAJOR ([0-9]+).*?/)
+                                    String major_version = matcher.getAt(0).getAt(1)
+                                    matcher = (fileContents =~ /(?s).*ROCKSDB_MINOR ([0-9]+).*?/)
+                                    String minor_version = matcher.getAt(0).getAt(1)
+                                    matcher = (fileContents =~ /(?s).*ROCKSDB_PATCH ([0-9]+).*?/)
+                                    String patch_version = matcher.getAt(0).getAt(1)
+                                    String version = String.format('%s.%s.%s', major_version, minor_version, patch_version)
+                                    // Set version to be used in pom.properties
+                                    project.version = version
+                                    // Set version to be set as jar name
+                                    project.build.finalName = project.artifactId + "-" + version
+                                </script>
+                            </scripts>
                         </configuration>
                     </execution>
                 </executions>
@@ -146,39 +154,218 @@
                 <version>4.7.2.1</version>
                 <configuration>
                     <excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
-                </configuration>          
+                </configuration>
                 <dependencies>
                   <!-- overwrite dependency on spotbugs if you want to specify the version of spotbugs -->
-                  <dependency>
-                    <groupId>com.github.spotbugs</groupId>
-                    <artifactId>spotbugs</artifactId>
-                    <version>4.7.3</version>
-                  </dependency>
+                    <dependency>
+                        <groupId>com.github.spotbugs</groupId>
+                        <artifactId>spotbugs</artifactId>
+                        <version>4.7.3</version>
+                    </dependency>
                 </dependencies>
-              </plugin>
-              <plugin>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-pmd-plugin</artifactId>
                 <version>3.20.0</version>
                 <executions>
-                  <execution>
-                    <goals>
-                      <goal>check</goal>
-                      <goal>cpd-check</goal>
-                    </goals>
-                  </execution>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                            <goal>cpd-check</goal>
+                        </goals>
+                    </execution>
                 </executions>
                 <configuration>
                     <rulesets>
                       <!-- A rule set, that comes bundled with PMD -->
-                      <ruleset>/pmd-rules.xml</ruleset>
+                        <ruleset>/pmd-rules.xml</ruleset>
                       <!-- A rule set, that comes bundled with PMD -->
                       <!-- <ruleset>/category/java/errorprone.xml</ruleset> -->
                     </rulesets>
-                  </configuration>          
-              </plugin>
-      </plugins>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.6.0</version>
+                <configuration>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenMode>ossrh</flattenMode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <properties>
+                <central.serverId>central</central.serverId>
+            </properties>
+            <build>
+                <plugins>
+
+                    <!-- Produce sources jar -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.0</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Produce javadoc jar -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.6.3</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Copy/Stage native libs so classifier jars can be built deterministically -->
+                    <plugin>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+
+                            <!-- Copy all built natives into the main jar -->
+                            <execution>
+                                <id>copy-natives-into-main-jar</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${project.build.directory}</directory>
+                                            <includes>
+                                                <include>librocksdbjni-*.so</include>
+                                                <include>librocksdbjni-*.jnilib</include>
+                                                <include>rocksdbjni*.dll</include>
+                                            </includes>
+                                            <filtering>false</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+
+                            <!-- Stage linux64 glibc natives for classifier jar -->
+                            <execution>
+                                <id>stage-linux64-natives</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/staging/linux64</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${project.build.directory}</directory>
+                                            <includes>
+                                                <include>librocksdbjni-linux*.so</include>
+                                            </includes>
+                                            <excludes>
+                                                <exclude>librocksdbjni-linux-*-musl.so</exclude>
+                                            </excludes>
+                                            <filtering>false</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+
+                        </executions>
+                    </plugin>
+
+                    <!-- Build classifier jars -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <version>3.3.0</version>
+                        <executions>
+                            <execution>
+                                <id>jar-linux64</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classifier>linux64</classifier>
+                                    <classesDirectory>${project.build.directory}/staging/linux64</classesDirectory>
+                                    <includes>
+                                        <include>**/*</include>
+                                    </includes>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Sign artifacts (required for Central) -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.7</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Publish to Maven Central via Sonatype Central Portal -->
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.7.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>${central.serverId}</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>published</waitUntil>
+                        </configuration>
+                    </plugin>
+
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <dependencies>
         <dependency>
@@ -211,15 +398,15 @@
             <version>1.10.19</version>
             <scope>test</scope>
         </dependency>
-   </dependencies>
+    </dependencies>
 
-   <reporting>
-    <plugins>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-jxr-plugin</artifactId>
-            <version>3.3.0</version>
-        </plugin>
-    </plugins>
-  </reporting>
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+                <version>3.3.0</version>
+            </plugin>
+        </plugins>
+    </reporting>
 </project>
