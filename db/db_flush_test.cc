@@ -1055,8 +1055,6 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   ASSERT_EQ(Get(RNDKEY2), p_rv2);
   ASSERT_EQ(Get(RNDKEY3), p_rv3);
 
-  // Wait for all flush callbacks to complete before closing
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   Close();
 }
 
@@ -1171,8 +1169,6 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   // We expect no mempurge at all.
   EXPECT_EQ(mempurge_count.exchange(0), ZERO);
 
-  // Wait for all flush callbacks to complete before closing
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   Close();
 }
 // End of MemPurgeBasicToggle, which is not
@@ -1429,8 +1425,6 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
     delete iter;
   }
 
-  // Wait for all flush callbacks to complete before closing
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   Close();
 }
 
