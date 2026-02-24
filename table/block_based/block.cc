@@ -687,6 +687,15 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
     CorruptionError();
     return false;
   } else {
+    if constexpr (StrictCheck) {
+      auto entry_length =
+          non_shared + (values_section_ == nullptr ? value_length : 0);
+      if (static_cast<uint32_t>(key_limit - p) < entry_length) {
+        CorruptionError();
+        return false;
+      }
+    }
+
     assert(values_section_ == nullptr ||
            cur_entry_idx_ % block_restart_interval_ != 0 || shared == 0);
     entry_ = Slice(p_old, p - p_old + non_shared);
@@ -730,12 +739,12 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
       value_ = Slice(entry_.data() + entry_.size(), value_length);
       // extend entry slice to contain value as well
       entry_ = Slice(entry_.data(), entry_.size() + value_.size());
-    }
 
-    if constexpr (StrictCheck) {
-      if ((value_.data() + value_.size()) > data_ + restarts_) {
-        CorruptionError();
-        return false;
+      if constexpr (StrictCheck) {
+        if ((value_.data() + value_.size()) > data_ + restarts_) {
+          CorruptionError();
+          return false;
+        }
       }
     }
     assert((value_.data() + value_.size()) <= data_ + restarts_);
