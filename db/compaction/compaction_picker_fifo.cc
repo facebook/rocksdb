@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/table_cache.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
@@ -68,6 +69,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
   assert(mutable_cf_options.ttl > 0);
+  assert(table_cache_ != nullptr);
 
   const int kLevel0 = 0;
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
@@ -102,15 +104,18 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
     for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
       FileMetaData* f = *ritr;
       assert(f);
-      TableReader* t = f->fd.table_reader.load(std::memory_order_acquire);
-      if (t && t->GetTableProperties()) {
-        uint64_t newest_key_time = f->TryGetNewestKeyTime();
-        uint64_t creation_time = t->GetTableProperties()->creation_time;
-        uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
-                                           ? creation_time
-                                           : newest_key_time;
-        if (est_newest_key_time == kUnknownNewestKeyTime ||
-            est_newest_key_time >= (current_time - mutable_cf_options.ttl)) {
+      std::shared_ptr<const TableProperties> props;
+      ReadOptions ro;
+      Status s = table_cache_->GetTableProperties(table_cache_->file_options(),
+                                                  ro, *icmp_, *f, &props,
+                                                  mutable_cf_options);
+      if (s.ok() && props) {
+        uint64_t newest_key_time = props->newest_key_time;
+        if (newest_key_time == kUnknownNewestKeyTime) {
+          newest_key_time = props->creation_time;
+        }
+        if (newest_key_time == kUnknownNewestKeyTime ||
+            newest_key_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
       }
@@ -164,11 +169,18 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   for (const auto& f : inputs[0].files) {
     assert(f);
-    uint64_t newest_key_time = f->TryGetNewestKeyTime();
     uint64_t creation_time = 0;
-    TableReader* t = f->fd.table_reader.load(std::memory_order_acquire);
-    if (t && t->GetTableProperties()) {
-      creation_time = t->GetTableProperties()->creation_time;
+    uint64_t newest_key_time = kUnknownNewestKeyTime;
+    std::shared_ptr<const TableProperties> props;
+    ReadOptions ro;
+    Status s = table_cache_->GetTableProperties(table_cache_->file_options(),
+                                                ro, *icmp_, *f, &props,
+                                                mutable_cf_options);
+    if (s.ok() && props) {
+      creation_time = props->creation_time;
+      if (props->newest_key_time != kUnknownNewestKeyTime) {
+        newest_key_time = props->newest_key_time;
+      }
     }
     uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
                                        ? creation_time

@@ -432,13 +432,11 @@ class VersionBuilder::Rep {
   void UnrefFile(FileMetaData* f) {
     f->refs--;
     if (f->refs <= 0) {
-      (void)f->fd.table_reader.load(std::memory_order_acquire);
-      if (f->table_reader_handle) {
+      if (f->fd.pinned_reader.Get() != nullptr) {
         assert(table_cache_ != nullptr);
         // NOTE: have to release in raw cache interface to avoid using a
-        // TypedHandle for FileMetaData::table_reader_handle
-        table_cache_->get_cache().get()->Release(f->table_reader_handle);
-        f->table_reader_handle = nullptr;
+        // TypedHandle for PinnedTableReader's internal handle
+        f->fd.pinned_reader.Release(table_cache_->get_cache().get());
       }
 
       if (file_metadata_cache_res_mgr_) {
@@ -1655,8 +1653,17 @@ class VersionBuilder::Rep {
     size_t max_load = std::numeric_limits<size_t>::max();
 
     if (!always_load) {
-      constexpr size_t kInitialLoadLimit = 16;
+      // If it is initial loading and not set to always loading all the
+      // files, we only load up to kInitialLoadLimit files, to limit the
+      // time reopening the DB.
+      const size_t kInitialLoadLimit = 16;
       size_t load_limit;
+      // If the table cache is not 1/4 full, we pin the table handle to
+      // file metadata to avoid the cache read costs when reading the file.
+      // The downside of pinning those files is that LRU won't be followed
+      // for those files. This doesn't matter much because if number of files
+      // of the DB excceeds table cache capacity, eventually no table reader
+      // will be pinned and LRU will be followed.
       if (is_initial_load) {
         load_limit = std::min(kInitialLoadLimit, table_cache_capacity / 4);
       } else {
@@ -1665,12 +1672,14 @@ class VersionBuilder::Rep {
 
       size_t table_cache_usage = table_cache_->get_cache().get()->GetUsage();
       if (table_cache_usage >= load_limit) {
+        // TODO (yanqin) find a suitable status code.
         return Status::OK();
       } else {
         max_load = load_limit - table_cache_usage;
       }
     }
 
+    // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
     for (int level = 0; level < num_levels_; level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
@@ -1680,7 +1689,10 @@ class VersionBuilder::Rep {
             l0_missing_files_.find(file_number) != l0_missing_files_.end()) {
           continue;
         }
-        files_meta.emplace_back(file_meta, level);
+        // If the file has been opened before, just skip it.
+        if (file_meta->fd.pinned_reader.Get() == nullptr) {
+          files_meta.emplace_back(file_meta, level);
+        }
         if (files_meta.size() >= max_load) {
           break;
         }

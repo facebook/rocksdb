@@ -9,7 +9,6 @@
 //
 #pragma once
 
-#include <atomic>
 #include <memory>
 
 #include "db/version_edit.h"
@@ -54,7 +53,8 @@ class VersionBuilder {
   // Save the current Version to the provided `vstorage`.
   Status SaveTo(VersionStorageInfo* vstorage) const;
 
-  // Load table handlers for added files in the builder.
+  // Load table handlers for newly added files in the builder. This does not
+  // load any files in the base storage.
   Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,

@@ -7764,11 +7764,14 @@ TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
 
 enum class ReadType { kGet, kMultiGet, kIterator };
 
-class OpenFilesAsyncTest
-    : public DBTest,
-      public testing::WithParamInterface<std::tuple<uint32_t, ReadType>> {
+class OpenFilesAsyncTest : public DBTest,
+                           public testing::WithParamInterface<
+                               std::tuple<uint32_t, ReadType, int, bool>> {
  public:
-  OpenFilesAsyncTest() { std::tie(num_flushes_, read_type_) = GetParam(); }
+  OpenFilesAsyncTest() {
+    std::tie(num_flushes_, read_type_, max_open_files_, read_only_) =
+        GetParam();
+  }
 
   std::string BeforeFindTableSyncPoint() {
     switch (read_type_) {
@@ -7797,7 +7800,7 @@ class OpenFilesAsyncTest
 
   void SetupData(Options& options) {
     options.create_if_missing = true;
-    options.max_open_files = -1;
+    options.max_open_files = max_open_files_;
 
     // disable auto compactions/flushes
     options.disable_auto_compactions = true;
@@ -7851,19 +7854,61 @@ class OpenFilesAsyncTest
     }
   }
 
+  void OpenTestDB(Options& options) {
+    options.open_files_async = true;
+    if (read_only_) {
+      ASSERT_OK(ReadOnlyReopen(options));
+    } else {
+      Reopen(options);
+    }
+  }
+
   uint32_t num_flushes_;
   ReadType read_type_;
+  int max_open_files_;
+  bool read_only_;
 };
 
 INSTANTIATE_TEST_CASE_P(
     OpenFilesAsync, OpenFilesAsyncTest,
     ::testing::Combine(::testing::Values(1, 5, 20),
                        ::testing::Values(ReadType::kGet, ReadType::kMultiGet,
-                                         ReadType::kIterator)));
+                                         ReadType::kIterator),
+                       ::testing::Values(-1, 10, 100), ::testing::Bool()));
+
+// Test mix of races with async file open, reads, compactions
+TEST_P(OpenFilesAsyncTest, ConcurrentFileAccess) {
+  Options options = CurrentOptions();
+  ASSERT_NO_FATAL_FAILURE(SetupData(options));
+
+  options.statistics = CreateDBStatistics();
+
+  OpenTestDB(options);
+
+  port::Thread reader_thread([&]() { VerifyData(); });
+
+  port::Thread compaction_thread([&]() {
+    if (!read_only_) {
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }
+  });
+
+  reader_thread.join();
+  compaction_thread.join();
+
+  if (max_open_files_ == -1) {
+    EXPECT_EQ(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  } else {
+    EXPECT_GE(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  }
+  Close();
+}
 
 TEST_P(OpenFilesAsyncTest, AfterRead) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
+
+  options.statistics = CreateDBStatistics();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"OpenFilesAsyncTest::AfterRead",
@@ -7876,7 +7921,10 @@ TEST_P(OpenFilesAsyncTest, AfterRead) {
       BeforeFindTableSyncPoint(), [&](void* arg) {
         // First time a read request accesses a file it should not be cached
         FileDescriptor* fd = static_cast<FileDescriptor*>(arg);
-        ASSERT_EQ(fd->table_reader.load(), nullptr);
+        if (max_open_files_ == -1) {
+          // table_reader is only pinned when cache has infinite capacity
+          ASSERT_EQ(fd->pinned_reader.Get(), nullptr);
+        }
       });
 
   std::atomic<uint32_t> file_opens = 0;
@@ -7885,19 +7933,28 @@ TEST_P(OpenFilesAsyncTest, AfterRead) {
       [&](void* arg) {
         ++file_opens;
         FileMetaData* file_meta = static_cast<FileMetaData*>(arg);
-        ASSERT_NE(file_meta->fd.table_reader.load(), nullptr);
+        if (max_open_files_ == -1) {
+          // With infinite cache, reads pinned the table_reader before the async
+          // opener runs
+          ASSERT_NE(file_meta->fd.pinned_reader.Get(), nullptr);
+        }
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  options.open_files_async = true;
-  Reopen(options);
+  OpenTestDB(options);
 
   VerifyData();
   TEST_SYNC_POINT("OpenFilesAsyncTest::AfterRead");
 
   TEST_SYNC_POINT("OpenFilesAsyncTest::AfterRead::BeforeClose");
-  ASSERT_EQ(file_opens, num_flushes_);
+
+  if (max_open_files_ == -1) {
+    EXPECT_EQ(file_opens, num_flushes_);
+    EXPECT_EQ(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  } else {
+    EXPECT_GE(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -7907,6 +7964,8 @@ TEST_P(OpenFilesAsyncTest, AfterRead) {
 TEST_P(OpenFilesAsyncTest, BeforeRead) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
+
+  options.statistics = CreateDBStatistics();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BGWorkAsyncFileOpen:Done", "OpenFilesAsyncTest::BeforeRead"},
@@ -7918,7 +7977,7 @@ TEST_P(OpenFilesAsyncTest, BeforeRead) {
         // For max_open_files > 0, some files may get pinned, while others
         // may not
         if (options.max_open_files == -1) {
-          ASSERT_NE(fd->table_reader.load(), nullptr);
+          ASSERT_NE(fd->pinned_reader.Get(), nullptr);
         }
       });
 
@@ -7928,19 +7987,23 @@ TEST_P(OpenFilesAsyncTest, BeforeRead) {
       [&](void* arg) {
         ++file_opens;
         FileMetaData* file_meta = static_cast<FileMetaData*>(arg);
-        ASSERT_EQ(file_meta->fd.table_reader.load(), nullptr);
+        ASSERT_EQ(file_meta->fd.pinned_reader.Get(), nullptr);
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  options.open_files_async = true;
-  Reopen(options);
+  OpenTestDB(options);
 
   TEST_SYNC_POINT("OpenFilesAsyncTest::BeforeRead");
 
   VerifyData();
 
-  ASSERT_EQ(file_opens, num_flushes_);
+  if (max_open_files_ == -1) {
+    EXPECT_EQ(file_opens, num_flushes_);
+    EXPECT_EQ(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  } else {
+    EXPECT_GE(TestGetTickerCount(options, NO_FILE_OPENS), num_flushes_);
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -7962,8 +8025,7 @@ TEST_P(OpenFilesAsyncTest, Shutdown) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  options.open_files_async = true;
-  Reopen(options);
+  OpenTestDB(options);
 
   Close();
   TEST_SYNC_POINT("OpenFilesAsyncTest::Shutdown");
@@ -7978,16 +8040,21 @@ TEST_P(OpenFilesAsyncTest, Error) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
 
-  std::atomic<uint32_t> file_opens = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "VersionBuilder::Rep::LoadTableHandlers::BeforeFindTable",
-      [&](void* /*arg*/) { ++file_opens; });
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "VersionBuilder::Rep::LoadTableHandlers::AfterFindTable", [&](void* arg) {
-        Status* s = static_cast<Status*>(arg);
-        *s = Status::Corruption("Injected error for testing");
-      });
+  // Get SST file paths and corrupt all of them
+  std::vector<std::string> sst_files;
+  {
+    Reopen(options);
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    ASSERT_GT(metadata.size(), 0);
+    for (const auto& m : metadata) {
+      sst_files.push_back(m.directory + "/" + m.name);
+    }
+    Close();
+  }
+  for (const auto& f : sst_files) {
+    ASSERT_OK(test::CorruptFile(env_, f, 0, 100));
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BGWorkAsyncFileOpen:Done", "OpenFilesAsyncTest::Error"},
@@ -7995,27 +8062,42 @@ TEST_P(OpenFilesAsyncTest, Error) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  options.open_files_async = true;
-  Reopen(options);
+  OpenTestDB(options);
 
   TEST_SYNC_POINT("OpenFilesAsyncTest::Error");
 
-  VerifyData();
+  // The async opener should have detected the corruption and set a BG error
+  ASSERT_TRUE(dbfull()->TEST_GetBGError().IsCorruption());
 
-  ASSERT_EQ(file_opens, num_flushes_);
+  // Verify that reading from corrupted files returns an error
+  switch (read_type_) {
+    case ReadType::kGet: {
+      PinnableSlice value;
+      Status read_s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(),
+                               KeyFor(0), &value);
+      ASSERT_TRUE(read_s.IsCorruption()) << read_s.ToString();
+      break;
+    }
+    case ReadType::kMultiGet: {
+      std::vector<std::string> keys = {KeyFor(0)};
+      std::vector<Slice> key_slices = {keys[0]};
+      std::vector<std::string> values(1);
+      std::vector<Status> statuses =
+          db_->MultiGet(ReadOptions(), key_slices, &values);
+      ASSERT_TRUE(statuses[0].IsCorruption()) << statuses[0].ToString();
+      break;
+    }
+    case ReadType::kIterator: {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->status().IsCorruption()) << iter->status().ToString();
+      break;
+    }
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
-}
-
-TEST_F(DBTest, OpenFilesAsyncInvalidMaxOpenFiles) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.max_open_files = 10;
-  options.open_files_async = true;
-  Status s = TryReopen(options);
-  ASSERT_TRUE(s.IsInvalidArgument());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

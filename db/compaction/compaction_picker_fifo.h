@@ -15,8 +15,9 @@ namespace ROCKSDB_NAMESPACE {
 class FIFOCompactionPicker : public CompactionPicker {
  public:
   FIFOCompactionPicker(const ImmutableOptions& ioptions,
-                       const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+                       const InternalKeyComparator* icmp,
+                       TableCache* table_cache = nullptr)
+      : CompactionPicker(ioptions, icmp, table_cache) {}
 
   Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,

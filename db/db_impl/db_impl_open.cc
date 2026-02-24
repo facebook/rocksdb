@@ -296,11 +296,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "write_dbid_to_manifest and write_identity_file cannot both be false");
   }
 
-  if (db_options.open_files_async && db_options.max_open_files != -1) {
-    return Status::InvalidArgument(
-        "open_files_async is not useful except when max_open_files = -1.");
-  }
-
   return Status::OK();
 }
 
@@ -2751,7 +2746,7 @@ void DBImpl::ScheduleAsyncFileOpening() {
     }
   }
 
-  bg_async_file_open_scheduled_++;
+  bg_async_file_open_scheduled_ = true;
 
   // since this is a one time job, best to schedule it with high priority
   env_->Schedule(&DBImpl::BGWorkAsyncFileOpen, ctx, Env::Priority::HIGH,
@@ -2767,7 +2762,7 @@ void DBImpl::BGWorkAsyncFileOpen(void* arg) {
   auto deleter = [db](AsyncFileOpenContext* p) {
     InstrumentedMutexLock l(&db->mutex_);
     delete p;
-    db->bg_async_file_open_scheduled_--;
+    db->bg_async_file_open_scheduled_ = false;
     db->bg_cv_.SignalAll();
   };
   std::unique_ptr<AsyncFileOpenContext, decltype(deleter)> ctx(raw_ctx,
@@ -2782,8 +2777,11 @@ void DBImpl::BGWorkAsyncFileOpen(void* arg) {
     ColumnFamilyData* cfd = version->cfd();
     VersionStorageInfo* vstorage = version->storage_info();
 
-    const MutableCFOptions& mutable_cf_options =
-        cfd->GetLatestMutableCFOptions();
+    MutableCFOptions mutable_cf_options;
+    {
+      InstrumentedMutexLock l(&db->mutex_);
+      mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    }
     size_t max_file_size_for_l0_meta_pin =
         MaxFileSizeForL0MetaPin(mutable_cf_options);
 
@@ -2806,6 +2804,9 @@ void DBImpl::BGWorkAsyncFileOpen(void* arg) {
           "BGWorkAsyncFileOpen: LoadTableHandlers failed for CF %s: "
           "%s",
           cfd->GetName().c_str(), s.ToString().c_str());
+      InstrumentedMutexLock l(&db->mutex_);
+      db->error_handler_.SetBGError(s, BackgroundErrorReason::kAsyncFileOpen);
+      break;
     }
   }
   TEST_SYNC_POINT("DBImpl::BGWorkAsyncFileOpen:Done");

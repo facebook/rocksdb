@@ -29,16 +29,28 @@ Status LoadTableHandlersHelper(
     std::atomic<bool>* stop) {
   assert(table_cache != nullptr);
 
-  std::vector<Status> statuses(files_meta.size(), Status::OK());
   std::atomic<size_t> next_file_meta_idx(0);
+  std::atomic<bool> has_error(false);
+  Status ret;
   std::function<void()> load_handlers_func([&]() {
     while (true) {
       size_t file_idx = next_file_meta_idx.fetch_add(1);
+
+      if (has_error.load(std::memory_order_relaxed)) {
+        break;
+      }
+
       if (file_idx >= files_meta.size()) {
         break;
       }
 
       if (stop != nullptr && stop->load()) {
+        break;
+      }
+
+      auto* cache = table_cache->get_cache().get();
+      if (cache->GetCapacity() < TableCache::kInfiniteCapacity &&
+          cache->GetUsage() >= cache->GetCapacity()) {
         break;
       }
 
@@ -50,7 +62,7 @@ Status LoadTableHandlersHelper(
 
       TableCache::TypedHandle* handle = nullptr;
       TableReader* table_reader = nullptr;
-      statuses[file_idx] = table_cache->FindTable(
+      auto status = table_cache->FindTable(
           read_options, file_options, internal_comparator, *file_meta, &handle,
           mutable_cf_options, &table_reader, false /* no_io */,
           internal_stats->GetFileReadHist(level), false /* skip_filters */,
@@ -59,8 +71,14 @@ Status LoadTableHandlersHelper(
           true /* pin_table_handle */);
 
       TEST_SYNC_POINT_CALLBACK(
-          "VersionBuilder::Rep::LoadTableHandlers::AfterFindTable",
-          &statuses[file_idx]);
+          "VersionBuilder::Rep::LoadTableHandlers::AfterFindTable", &status);
+
+      if (!status.ok()) {
+        bool expected = false;
+        if (has_error.compare_exchange_strong(expected, true)) {
+          ret = status;
+        }
+      }
     }
   });
 
@@ -71,14 +89,6 @@ Status LoadTableHandlersHelper(
   load_handlers_func();
   for (auto& t : threads) {
     t.join();
-  }
-  Status ret;
-  for (const auto& s : statuses) {
-    if (!s.ok()) {
-      if (ret.ok()) {
-        ret = s;
-      }
-    }
   }
   return ret;
 }

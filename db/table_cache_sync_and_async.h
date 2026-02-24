@@ -23,7 +23,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   Status s;
   TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet::BeforeFindTable",
                            const_cast<FileDescriptor*>(&fd));
-  TableReader* t = fd.table_reader.load(std::memory_order_acquire);
+  TableReader* t = fd.pinned_reader.Get();
   MultiGetRange table_range(*mget_range, mget_range->begin(),
                             mget_range->end());
   if (handle != nullptr && t == nullptr) {

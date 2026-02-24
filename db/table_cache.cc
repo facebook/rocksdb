@@ -169,6 +169,7 @@ Cache::Handle* TableCache::Lookup(Cache* cache, uint64_t file_number) {
   return cache->Lookup(key);
 }
 
+// TODO: consider making handle RAII.
 Status TableCache::FindTable(
     const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator,
@@ -179,12 +180,12 @@ Status TableCache::FindTable(
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
     bool pin_table_handle) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
+  assert(handle != nullptr && *handle == nullptr);
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
 
   // Fast path: if table reader is already pinned, return it directly without a
   // cache lookup.
-  auto pinned_reader =
-      file_meta.fd.table_reader.load(std::memory_order_acquire);
+  auto pinned_reader = file_meta.fd.pinned_reader.Get();
   if (pinned_reader != nullptr) {
     *handle = nullptr;
     *out_table_reader = pinned_reader;
@@ -201,14 +202,14 @@ Status TableCache::FindTable(
   Status s = Status::OK();
   if (*handle == nullptr) {
     if (no_io) {
+      s.PermitUncheckedError();
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
     MutexLock load_lock(&loader_mutex_.Get(key));
 
     // Check if another thread has already pinned the table reader
-    pinned_reader = file_meta.fd.table_reader.load(std::memory_order_acquire);
+    pinned_reader = file_meta.fd.pinned_reader.Get();
     if (pinned_reader != nullptr) {
-      assert(file_meta.table_reader_handle != nullptr);
       *handle = nullptr;
       *out_table_reader = pinned_reader;
       return Status::OK();
@@ -241,9 +242,7 @@ Status TableCache::FindTable(
     if (s.ok()) {
       *out_table_reader = cache_.Value(*handle);
       if (pin_table_handle) {
-        file_meta.table_reader_handle = *handle;
-        file_meta.fd.table_reader.store(*out_table_reader,
-                                        std::memory_order_release);
+        file_meta.fd.pinned_reader.Pin(*handle, *out_table_reader);
         *handle = nullptr;
       }
     }
@@ -252,19 +251,13 @@ Status TableCache::FindTable(
     if (pin_table_handle) {
       // handle is in cache but not pinned. This should happen fairly rarely,
       // and once the reader is pinned, we will no longer need to go through
-      // these mutexes again. Note that we need a mutex here because we write to
-      // both table_reader_handle and fd.table_reader, and need to ensure
-      // table_reader_handle is written to BEFORE fd.table_reader is.
+      // these mutexes again.
       MutexLock load_lock(&loader_mutex_.Get(key));
-      if (file_meta.table_reader_handle != nullptr) {
-        assert(file_meta.fd.table_reader.load(std::memory_order_relaxed) !=
-               nullptr);
+      if (file_meta.fd.pinned_reader.Get() != nullptr) {
         // Another thread has pinned the handle; release our lookup ref.
         cache_.Release(*handle);
       } else {
-        file_meta.table_reader_handle = *handle;
-        file_meta.fd.table_reader.store(*out_table_reader,
-                                        std::memory_order_release);
+        file_meta.fd.pinned_reader.Pin(*handle, *out_table_reader);
       }
       *handle = nullptr;
     }
@@ -589,7 +582,8 @@ Status TableCache::MultiGetFilter(
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta, const MutableCFOptions& mutable_cf_options,
     HistogramImpl* file_read_hist, int level,
-    MultiGetContext::Range* mget_range, TypedHandle** table_handle) {
+    MultiGetContext::Range* mget_range, TypedHandle** handle) {
+  assert(*handle == nullptr);
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
 
@@ -602,18 +596,16 @@ Status TableCache::MultiGetFilter(
   }
   Status s;
   TableReader* t = nullptr;
-  TypedHandle* handle = nullptr;
   MultiGetContext::Range tombstone_range(*mget_range, mget_range->begin(),
                                          mget_range->end());
   bool pin = cache_.get()->GetCapacity() >= kInfiniteCapacity;
   s = FindTable(
-      options, file_options_, internal_comparator, file_meta, &handle,
+      options, file_options_, internal_comparator, file_meta, handle,
       mutable_cf_options, &t, options.read_tier == kBlockCacheTier /* no_io */,
       file_read_hist,
       /*skip_filters=*/false, level,
       true /* prefetch_index_and_filter_in_cache */,
       /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature, pin);
-  *table_handle = handle;
   if (s.ok()) {
     s = t->MultiGetFilter(options, mutable_cf_options.prefix_extractor.get(),
                           mget_range);
@@ -625,8 +617,8 @@ Status TableCache::MultiGetFilter(
     UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
   }
   if (mget_range->empty() && handle) {
-    cache_.Release(handle);
-    *table_handle = nullptr;
+    cache_.Release(*handle);
+    *handle = nullptr;
   }
 
   return s;

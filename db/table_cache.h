@@ -173,9 +173,20 @@ class TableCache {
   // Return handle to an existing cache entry if there is one
   static Cache::Handle* Lookup(Cache* cache, uint64_t file_number);
 
-  // Find table reader
-  // @param skip_filters Disables loading/accessing the filter block
-  // @param level == -1 means not specified
+  // Look up the TableReader for the given file in the cache, or open the file
+  // and create a new TableReader if not cached. On success, sets
+  // *out_table_reader to point to the TableReader (owned by the cache) and
+  // *handle to the cache handle (caller must release via cache_.Release()
+  // unless pin_table_handle is true). If the table reader is already pinned on
+  // file_meta, returns it directly without a cache lookup.
+  //
+  // @param no_io If true, returns Status::Incomplete() when the table is not
+  //              already in cache rather than reading from disk.
+  // @param skip_filters Disables loading/accessing the filter block.
+  // @param level The LSM level of this table, -1 if not specified.
+  // @param pin_table_handle If true, pins the table reader on file_meta so
+  //              future lookups bypass the cache. *handle is set to nullptr
+  //              on return in this case.
   Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileMetaData& file_meta, TypedHandle**,
@@ -232,6 +243,8 @@ class TableCache {
                            const MutableCFOptions& mutable_cf_options);
 
   CacheInterface& get_cache() { return cache_; }
+
+  const FileOptions& file_options() const { return file_options_; }
 
   // Capacity of the backing Cache that indicates infinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.

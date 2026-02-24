@@ -357,6 +357,9 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    if (db_options.open_files_async) {
+      impl->ScheduleAsyncFileOpening();
+    }
   }
   impl->mutex_.Unlock();
   sv_context.Clean();

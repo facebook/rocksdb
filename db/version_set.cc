@@ -170,8 +170,7 @@ class FilePicker {
     if (!search_ended_) {
       // Prefetch Level 0 table data to avoid cache miss if possible.
       for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
-        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader.load(
-            std::memory_order_acquire);
+        auto* r = (*level_files_brief_)[0].files[i].fd.pinned_reader.Get();
         if (r) {
           r->Prepare(ikey);
         }
@@ -396,8 +395,7 @@ class FilePickerMultiGet {
       // prefetching. This may not be necessary anymore once we implement
       // batching in those table readers
       for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
-        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader.load(
-            std::memory_order_acquire);
+        auto* r = (*level_files_brief_)[0].files[i].fd.pinned_reader.Get();
         if (r) {
           for (auto iter = range_.begin(); iter != range_.end(); ++iter) {
             r->Prepare(iter->ikey);
@@ -2224,7 +2222,7 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
   for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
-      assert(meta->fd.table_reader.load(std::memory_order_acquire) != nullptr);
+      assert(meta->fd.pinned_reader.Get() != nullptr);
       uint64_t file_creation_time = meta->TryGetFileCreationTime();
       if (file_creation_time == kUnknownFileCreationTime) {
         *creation_time = 0;
@@ -5601,10 +5599,10 @@ VersionSet::~VersionSet() {
     // Using uncache_aggressiveness=0 overrides any previous marking to
     // attempt to uncache the file's blocks (which after cleaning up
     // column families could cause use-after-free)
-    (void)file.metadata->fd.table_reader.load(std::memory_order_acquire);
-    TableCache::ReleaseObsolete(table_cache_, file.metadata->fd.GetNumber(),
-                                file.metadata->table_reader_handle,
-                                /*uncache_aggressiveness=*/0);
+    TableCache::ReleaseObsolete(
+        table_cache_, file.metadata->fd.GetNumber(),
+        file.metadata->fd.pinned_reader.GetCacheHandle(),
+        /*uncache_aggressiveness=*/0);
     file.DeleteMetadata();
   }
   obsolete_files_.clear();

@@ -964,7 +964,6 @@ def finalize_and_sanitize(src_params):
         # with open_files = -1
         dest_params["compaction_ttl"] = 0
         dest_params["periodic_compaction_seconds"] = 0
-        dest_params["open_files_async"] = 0
     if dest_params.get("compaction_style", 0) == 2:
         # Disable compaction TTL in FIFO compaction, because right
         # now assertion failures are triggered.

@@ -675,8 +675,8 @@ ColumnFamilyData::ColumnFamilyData(
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
-      compaction_picker_.reset(
-          new FIFOCompactionPicker(ioptions_, &internal_comparator_));
+      compaction_picker_.reset(new FIFOCompactionPicker(
+          ioptions_, &internal_comparator_, table_cache_.get()));
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
       compaction_picker_.reset(
           new NullCompactionPicker(ioptions_, &internal_comparator_));

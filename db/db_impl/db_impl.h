@@ -3067,8 +3067,8 @@ class DBImpl : public DB {
   // number of background obsolete file purge jobs, submitted to the HIGH pool
   int bg_purge_scheduled_ = 0;
 
-  // number of background async file opening jobs, submitted to the LOW pool
-  int bg_async_file_open_scheduled_ = 0;
+  // whether a background async file opening job is scheduled in the HIGH pool
+  bool bg_async_file_open_scheduled_ = false;
 
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 

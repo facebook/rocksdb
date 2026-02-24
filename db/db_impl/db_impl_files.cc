@@ -446,8 +446,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    (void)file.metadata->fd.table_reader.load(std::memory_order_acquire);
-    auto* handle = file.metadata->table_reader_handle;
+    auto* handle = file.metadata->fd.pinned_reader.GetCacheHandle();
     if (file.only_delete_metadata) {
       if (handle) {
         // Simply release handle of file that is not being deleted

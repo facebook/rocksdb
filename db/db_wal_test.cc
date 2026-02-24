@@ -600,9 +600,9 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     for (const auto& level : files) {
       for (const auto& file : level) {
         if (options.max_open_files == kSmallMaxOpenFiles) {
-          ASSERT_TRUE(file.table_reader_handle == nullptr);
+          ASSERT_TRUE(file.fd.pinned_reader.Get() == nullptr);
         } else {
-          ASSERT_TRUE(file.table_reader_handle != nullptr);
+          ASSERT_TRUE(file.fd.pinned_reader.Get() != nullptr);
         }
       }
     }
