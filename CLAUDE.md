@@ -244,6 +244,9 @@ The following patterns emerged as frequent sources of review feedback:
     `TEST_F` fixture wrappers. In wrappers, always fully qualify the
     target method to avoid infinite recursion.
 
+### Adding a new feature
+    Use the `/add_feature` skill (defined in `.claude/commands/add_feature.md`)
+
 ### Adding new public API
     Refer to claude_md/add_public_api.md
 
