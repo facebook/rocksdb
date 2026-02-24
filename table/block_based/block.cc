@@ -735,10 +735,6 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
         assert(value_.data() >= values_section_);
         value_ = Slice(value_.data() + value_.size(), value_length);
       }
-    } else {
-      value_ = Slice(entry_.data() + entry_.size(), value_length);
-      // extend entry slice to contain value as well
-      entry_ = Slice(entry_.data(), entry_.size() + value_.size());
 
       if constexpr (StrictCheck) {
         if ((value_.data() + value_.size()) > data_ + restarts_) {
@@ -746,6 +742,10 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
           return false;
         }
       }
+    } else {
+      value_ = Slice(entry_.data() + entry_.size(), value_length);
+      // extend entry slice to contain value as well
+      entry_ = Slice(entry_.data(), entry_.size() + value_.size());
     }
     assert((value_.data() + value_.size()) <= data_ + restarts_);
     return true;

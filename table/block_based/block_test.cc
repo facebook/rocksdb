@@ -25,6 +25,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/data_block_footer.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -1942,6 +1943,105 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
     }
   }
 }
+
+class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
+ public:
+  bool useSeparatedKVStorage() const { return GetParam(); }
+
+  std::string BuildBlock() {
+    BlockBuilder builder(1 /* restart_interval */,
+                         true /* use_delta_encoding */,
+                         false /* use_value_delta_encoding */,
+                         BlockBasedTableOptions::kDataBlockBinarySearch,
+                         0 /* data_block_hash_table_util_ratio */,
+                         0 /* ts_sz */, false /* persist_udt */,
+                         true /* is_user_key */, useSeparatedKVStorage());
+    builder.Add("key001", "val01");
+    builder.Add("key002", "val02");
+    builder.Add("key003", "val03");
+    builder.Add("key004", "val04");
+    Slice raw = builder.Finish();
+    return std::string(raw.data(), raw.size());
+  }
+
+  // Get the restart offset for a given restart index from the raw block data.
+  uint32_t GetRestartOffset(const std::string& block_data, int restart_idx) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    size_t restarts_start =
+        block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
+    return DecodeFixed32(block_data.data() + restarts_start +
+                         restart_idx * sizeof(uint32_t));
+  }
+
+  uint32_t GetKeyEnd(const std::string& block_data) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    uint32_t restarts_start = static_cast<uint32_t>(
+        block_data.size() - footer_size - num_restarts * sizeof(uint32_t));
+    if (useSeparatedKVStorage()) {
+      // values_section_offset is stored as the 4 bytes before the packed word.
+      return DecodeFixed32(block_data.data() + block_data.size() - 8);
+    }
+    return restarts_start;
+  }
+
+  uint32_t GetValueEnd(const std::string& block_data) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    return static_cast<uint32_t>(block_data.size() - footer_size -
+                                 num_restarts * sizeof(uint32_t));
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(P, MetaBlockEntryCorruptionTest, ::testing::Bool(),
+                        [](const testing::TestParamInfo<bool>& args) {
+                          return args.param ? "SeparatedKV" : "InlineKV";
+                        });
+
+TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t key_end = GetKeyEnd(block_data);
+
+  // Corrupt the key length of the first entry so that
+  // the key data would extend past the keys-end boundary.
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  block_data[first_entry_offset + 1] = static_cast<char>(key_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  // SeekToFirst should hit the corrupted first entry immediately.
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t value_end = GetValueEnd(block_data);
+
+  // Corrupt the first entry so that its value would extend past the
+  // values-end boundary (start of the restart array).
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  block_data[first_entry_offset + 2] = static_cast<char>(value_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  // SeekToFirst should hit the corrupted first entry immediately.
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
