@@ -71,13 +71,13 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
       assert(handle == nullptr);
-      bool pin = cache_.get()->GetCapacity() >= kInfiniteCapacity;
-      s = FindTable(
-          options, file_options_, internal_comparator, file_meta, &handle,
-          mutable_cf_options, &t,
-          options.read_tier == kBlockCacheTier /* no_io */, file_read_hist,
-          skip_filters, level, true /* prefetch_index_and_filter_in_cache */,
-          0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature, pin);
+      s = FindTable(options, file_options_, internal_comparator, file_meta,
+                    &handle, mutable_cf_options, &t,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    file_read_hist, skip_filters, level,
+                    true /* prefetch_index_and_filter_in_cache */,
+                    0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature,
+                    should_pin_table_handles_);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       assert(!s.ok() || t);
     }

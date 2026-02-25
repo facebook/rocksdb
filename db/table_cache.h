@@ -258,6 +258,18 @@ class TableCache {
     }
   }
 
+  // Returns true if the cache capacity is large enough that table handles
+  // should be pinned on FileMetaData to bypass future cache lookups.
+  bool should_pin_table_handles() const { return should_pin_table_handles_; }
+
+  // Re-evaluates should_pin_table_handles_ from the current cache capacity.
+  // Must be called after the underlying cache capacity changes (e.g. via
+  // SetDBOptions changing max_open_files).
+  void UpdateShouldPinTableHandles() {
+    should_pin_table_handles_ =
+        cache_.get()->GetCapacity() >= kInfiniteCapacity;
+  }
+
  private:
   // Build a table reader
   Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
@@ -298,6 +310,7 @@ class TableCache {
   CacheInterface cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
+  bool should_pin_table_handles_;
   BlockCacheTracer* const block_cache_tracer_;
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;

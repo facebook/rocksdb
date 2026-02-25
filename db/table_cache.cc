@@ -72,6 +72,8 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
       file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
+      should_pin_table_handles_(cache_.get()->GetCapacity() >=
+                                kInfiniteCapacity),
       block_cache_tracer_(block_cache_tracer),
       loader_mutex_(kLoadConcurency),
       io_tracer_(io_tracer),
@@ -289,14 +291,13 @@ InternalIterator* TableCache::NewIterator(
   bool for_compaction = caller == TableReaderCaller::kCompaction;
   TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator::BeforeFindTable",
                            const_cast<FileDescriptor*>(&file_meta.fd));
-  bool pin = maybe_pin_table_handle &&
-             cache_.get()->GetCapacity() >= kInfiniteCapacity;
   s = FindTable(options, file_options, icomparator, file_meta, &handle,
                 mutable_cf_options, &table_reader,
                 options.read_tier == kBlockCacheTier /* no_io */,
                 file_read_hist, skip_filters, level,
                 true /* prefetch_index_and_filter_in_cache */,
-                max_file_size_for_l0_meta_pin, file_meta.temperature, pin);
+                max_file_size_for_l0_meta_pin, file_meta.temperature,
+                maybe_pin_table_handle && should_pin_table_handles_);
   InternalIterator* result = nullptr;
   if (s.ok()) {
     if (options.table_filter &&
@@ -499,13 +500,13 @@ Status TableCache::Get(const ReadOptions& options,
   TableReader* t = nullptr;
   TypedHandle* handle = nullptr;
   if (s.ok() && !done) {
-    bool pin = cache_.get()->GetCapacity() >= kInfiniteCapacity;
     s = FindTable(options, file_options_, internal_comparator, file_meta,
                   &handle, mutable_cf_options, &t,
                   options.read_tier == kBlockCacheTier /* no_io */,
                   file_read_hist, skip_filters, level,
                   true /* prefetch_index_and_filter_in_cache */,
-                  max_file_size_for_l0_meta_pin, file_meta.temperature, pin);
+                  max_file_size_for_l0_meta_pin, file_meta.temperature,
+                  should_pin_table_handles_);
     SequenceNumber* max_covering_tombstone_seq =
         get_context->max_covering_tombstone_seq();
     if (s.ok() && max_covering_tombstone_seq != nullptr &&
@@ -598,14 +599,14 @@ Status TableCache::MultiGetFilter(
   TableReader* t = nullptr;
   MultiGetContext::Range tombstone_range(*mget_range, mget_range->begin(),
                                          mget_range->end());
-  bool pin = cache_.get()->GetCapacity() >= kInfiniteCapacity;
-  s = FindTable(
-      options, file_options_, internal_comparator, file_meta, handle,
-      mutable_cf_options, &t, options.read_tier == kBlockCacheTier /* no_io */,
-      file_read_hist,
-      /*skip_filters=*/false, level,
-      true /* prefetch_index_and_filter_in_cache */,
-      /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature, pin);
+  s = FindTable(options, file_options_, internal_comparator, file_meta, handle,
+                mutable_cf_options, &t,
+                options.read_tier == kBlockCacheTier /* no_io */,
+                file_read_hist,
+                /*skip_filters=*/false, level,
+                true /* prefetch_index_and_filter_in_cache */,
+                /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature,
+                should_pin_table_handles_);
   if (s.ok()) {
     s = t->MultiGetFilter(options, mutable_cf_options.prefix_extractor.get(),
                           mget_range);
