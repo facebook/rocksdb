@@ -438,6 +438,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            &op_failure_scope, &merge_result,
                            /* result_operand */ nullptr, &merge_result_type);
       } else if (ikey.type == kTypeWideColumnEntity) {
+        // TODO: If the entity has blob columns (V2 format), we need to resolve
+        // them before merging, since TimedFullMerge only supports V1 format.
+        // Support for merge with V2 entities in the compaction path will be
+        // added in a later commit.
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kWideBaseValue,
                            iter->value(), merge_context_.GetOperands(), logger_,
                            stats_, clock_, /* update_num_ops_stats */ false,
@@ -676,15 +680,16 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
   }
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
-  auto ret = compaction_filter_->FilterV3(
+  auto ret = compaction_filter_->FilterV4(
       level_, user_key, CompactionFilter::ValueType::kMergeOperand,
       &value_slice, /* existing_columns */ nullptr, &compaction_filter_value_,
-      /* new_columns */ nullptr, compaction_filter_skip_until_.rep());
+      /* new_columns */ nullptr, compaction_filter_skip_until_.rep(),
+      /* blob_resolver */ nullptr);
   if (ret == CompactionFilter::Decision::kRemoveAndSkipUntil) {
     if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
                                   user_key) <= 0) {
       // Invalid skip_until returned from compaction filter.
-      // Keep the key as per FilterV2/FilterV3 documentation.
+      // Keep the key as per FilterV2/V3/V4 documentation.
       ret = CompactionFilter::Decision::kKeep;
     } else {
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,

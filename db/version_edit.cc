@@ -11,6 +11,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/version_set.h"
+#include "db/wide/wide_column_serialization.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
 #include "table/unique_id_impl.h"
@@ -30,13 +31,8 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
 Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
                                       SequenceNumber seqno,
                                       ValueType value_type) {
-  if (value_type == kTypeBlobIndex) {
-    BlobIndex blob_index;
-    const Status s = blob_index.DecodeFrom(value);
-    if (!s.ok()) {
-      return s;
-    }
-
+  // Helper: update oldest_blob_file_number from a single BlobIndex.
+  auto update_oldest_blob = [&](const BlobIndex& blob_index) -> Status {
     if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
       if (blob_index.file_number() == kInvalidBlobFileNumber) {
         return Status::Corruption("Invalid blob file number");
@@ -45,6 +41,50 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       if (oldest_blob_file_number == kInvalidBlobFileNumber ||
           oldest_blob_file_number > blob_index.file_number()) {
         oldest_blob_file_number = blob_index.file_number();
+      }
+    }
+    return Status::OK();
+  };
+
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    const Status s = blob_index.DecodeFrom(value);
+    if (!s.ok()) {
+      return s;
+    }
+
+    const Status su = update_oldest_blob(blob_index);
+    if (!su.ok()) {
+      return su;
+    }
+  } else if (value_type == kTypeWideColumnEntity) {
+    // Only V2 entities can contain blob column references. HasBlobColumns()
+    // is a lightweight check that reads the version byte and scans the column
+    // type bytes without full deserialization, so this is cheap on the hot
+    // path for V1 entities.
+    bool has_blob_columns = false;
+    {
+      Status s_hbc =
+          WideColumnSerialization::HasBlobColumns(value, has_blob_columns);
+      if (!s_hbc.ok()) {
+        return s_hbc;
+      }
+    }
+    if (has_blob_columns) {
+      Slice input = value;
+      std::vector<WideColumn> columns;
+      std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+      Status s =
+          WideColumnSerialization::DeserializeV2(input, columns, blob_columns);
+      if (!s.ok()) {
+        return s;
+      }
+
+      for (const auto& blob_col : blob_columns) {
+        const Status su = update_oldest_blob(blob_col.second);
+        if (!su.ok()) {
+          return su;
+        }
       }
     }
   }

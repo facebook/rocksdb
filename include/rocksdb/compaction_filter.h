@@ -25,6 +25,51 @@ namespace ROCKSDB_NAMESPACE {
 class Slice;
 class SliceTransform;
 
+// Interface for lazily resolving blob values within wide-column entities.
+// This allows compaction filters to access blob column values on-demand,
+// avoiding unnecessary I/O for blob columns that the filter doesn't need.
+//
+// Usage in CompactionFilter::FilterV4():
+//   if (blob_resolver != nullptr) {
+//     if (blob_resolver->IsBlobColumn(0)) {
+//       Slice resolved_value;
+//       Status s = blob_resolver->ResolveColumn(0, &resolved_value);
+//       if (!s.ok()) { /* handle error */ }
+//       // Use resolved_value...
+//     }
+//   }
+//
+// Thread safety: A resolver instance is used by a single thread (the
+// compaction thread). The resolved values remain valid until the next
+// ResolveColumn call or until FilterV4 returns.
+class WideColumnBlobResolver {
+ public:
+  virtual ~WideColumnBlobResolver() = default;
+
+  // Resolve the value for the column at the given index.
+  // Returns OK on success, with resolved_value pointing to the data.
+  // The resolved_value remains valid until the next call to ResolveColumn,
+  // Reset(), or until the resolver is destroyed.
+  //
+  // For blob columns: fetches the blob value from the blob file.
+  // For non-blob (inline) columns: returns the inline value directly.
+  //
+  // Returns an error status if:
+  // - column_index is out of bounds
+  // - I/O error occurred while fetching the blob
+  //
+  // If ResolveColumn fails, the compaction filter should return
+  // kKeepFilter to avoid data loss.
+  virtual Status ResolveColumn(size_t column_index, Slice* resolved_value) = 0;
+
+  // Check if the column at the given index is a blob reference (vs inline).
+  // Returns false if column_index is out of bounds.
+  virtual bool IsBlobColumn(size_t column_index) const = 0;
+
+  // Returns the total number of columns in the entity.
+  virtual size_t NumColumns() const = 0;
+};
+
 // CompactionFilter allows an application to modify/delete a key-value during
 // table file creation.
 //
@@ -53,8 +98,8 @@ class SliceTransform;
 // including data loss, unreported corruption, deadlocks, and more.
 class CompactionFilter : public Customizable {
  public:
-  // Value type of the key-value passed to the compaction filter's FilterV2/V3
-  // methods.
+  // Value type of the key-value passed to the compaction filter's
+  // FilterV2/V3/V4 methods.
   enum ValueType {
     // Plain key-value
     kValue,
@@ -63,15 +108,15 @@ class CompactionFilter : public Customizable {
     // Used internally by the old stacked BlobDB implementation; this value type
     // is never passed to application code. Note that when using the new
     // integrated BlobDB, values stored separately as blobs are retrieved and
-    // presented to FilterV2/V3 with the type kValue above.
+    // presented to FilterV2/V3/V4 with the type kValue above.
     kBlobIndex,
     // Wide-column entity
     kWideColumnEntity,
   };
 
   // Potential decisions that can be returned by the compaction filter's
-  // FilterV2/V3 and FilterBlobByKey methods. See decision-specific caveats and
-  // constraints below.
+  // FilterV2/V3/V4 and FilterBlobByKey methods. See decision-specific caveats
+  // and constraints below.
   enum class Decision {
     // Keep the current key-value as-is.
     kKeep,
@@ -136,7 +181,7 @@ class CompactionFilter : public Customizable {
     // current key-value is already a wide-column entity, only its columns are
     // updated; if it is a plain key-value, it is converted to a wide-column
     // entity with the specified columns. Not supported for merge operands.
-    // Only applicable to FilterV3.
+    // Only applicable to FilterV3/V4.
     kChangeWideColumnEntity,
 
     // When using the integrated BlobDB implementation, it may be possible for
@@ -146,7 +191,8 @@ class CompactionFilter : public Customizable {
     // FilterBlobByKey signals that making a decision solely based on the
     // key is not possible; in this case, RocksDB reads the blob value and
     // passes the key-value to the regular filtering method. Only applicable to
-    // FilterBlobByKey; returning this value from FilterV2/V3 is not supported.
+    // FilterBlobByKey; returning this value from FilterV2/V3/V4 is not
+    // supported.
     kUndetermined,
   };
 
@@ -278,6 +324,9 @@ class CompactionFilter : public Customizable {
   // entities, and falls back to FilterV2 for plain values and merge operands.
   // If you override this method, there is no need to override FilterV2 (or
   // Filter/FilterMergeOperand).
+  //
+  // Note: prefer overriding FilterV4 instead for new code; FilterV4 extends
+  // this API with blob column lazy loading support.
   virtual Decision FilterV3(
       int level, const Slice& key, ValueType value_type,
       const Slice* existing_value, const WideColumns* existing_columns,
@@ -296,6 +345,35 @@ class CompactionFilter : public Customizable {
 
     return FilterV2(level, key, value_type, *existing_value, new_value,
                     skip_until);
+  }
+
+  // Extends FilterV3 with blob column lazy loading support. Called for plain
+  // values, merge operands, and wide-column entities.
+  //
+  // When the entity has blob columns (columns whose values are stored in blob
+  // files), the `blob_resolver` parameter provides a way to lazily resolve
+  // blob values on-demand. If `blob_resolver` is non-null:
+  // - `existing_columns` contains all columns, but blob columns will have
+  //   blob index references as their values (not the actual blob data)
+  // - Call `blob_resolver->IsBlobColumn(idx)` to check if a column is a blob
+  // - Call `blob_resolver->ResolveColumn(idx, &value)` to fetch the blob value
+  //
+  // This lazy loading mechanism allows filters to avoid I/O for blob columns
+  // they don't need to access.
+  //
+  // For compatibility, the default implementation delegates to FilterV3.
+  // If you override this method, there is no need to override
+  // FilterV3/FilterV2/Filter/FilterMergeOperand.
+  virtual Decision FilterV4(
+      int level, const Slice& key, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* new_columns,
+      std::string* skip_until, WideColumnBlobResolver* blob_resolver) const {
+    (void)blob_resolver;
+
+    return FilterV3(level, key, value_type, existing_value, existing_columns,
+                    new_value, new_columns, skip_until);
   }
 
   // Internal (BlobDB) use only. Do not override in application code.
@@ -324,11 +402,11 @@ class CompactionFilter : public Customizable {
   // Keys where the value is stored separately in a blob file will be
   // passed to this method. If the method returns a supported decision other
   // than kUndetermined, it will be considered final and performed without
-  // reading the existing value. Returning kUndetermined will cause FilterV3()
+  // reading the existing value. Returning kUndetermined will cause FilterV4()
   // to be called to make a decision as usual. The output parameters
   // `new_value` and `skip_until` are applicable to the decisions kChangeValue
   // and kRemoveAndSkipUntil respectively, and have the same semantics as
-  // the corresponding parameters of FilterV2/V3.
+  // the corresponding parameters of FilterV2/V3/V4.
   virtual Decision FilterBlobByKey(int /*level*/, const Slice& /*key*/,
                                    std::string* /*new_value*/,
                                    std::string* /*skip_until*/) const {
