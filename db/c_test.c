@@ -1261,7 +1261,7 @@ int main(int argc, char** argv) {
 
     // Compact the L0 file to L1.
     rocksdb_compact_files(cf_db, compact_opts, input_files, 1,
-                          1 /* output_level */, &err);
+                          1 /* output_level */, -1 /* output_path_id */, &err);
     CheckNoError(err);
     rocksdb_livefiles_destroy(lf);
 
@@ -1296,11 +1296,17 @@ int main(int argc, char** argv) {
     const char* input_files2[1];
     input_files2[0] = l0_file2;
     rocksdb_compact_files_cf(cf_db, default_cf, compact_opts, input_files2, 1,
-                             1 /* output_level */, &err);
+                             1 /* output_level */, -1 /* output_path_id */,
+                             &err);
     CheckNoError(err);
     rocksdb_livefiles_destroy(lf3);
 
     CheckGet(cf_db, cf_ropts, "foo2", "bar2");
+    const rocksdb_livefiles_t* lf4 = rocksdb_livefiles(cf_db);
+    for (int i = 0; i < rocksdb_livefiles_count(lf4); i++) {
+      CheckCondition(rocksdb_livefiles_level(lf4, i) == 1);
+    }
+    rocksdb_livefiles_destroy(lf4);
 
     rocksdb_compaction_options_destroy(compact_opts);
     rocksdb_readoptions_destroy(cf_ropts);

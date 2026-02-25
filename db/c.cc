@@ -2665,10 +2665,11 @@ void rocksdb_compact_files(rocksdb_t* db,
                            const rocksdb_compaction_options_t* opt,
                            const char* const* input_file_names,
                            size_t num_input_files, int output_level,
-                           char** errptr) {
+                           int output_path_id, char** errptr) {
   std::vector<std::string> files(input_file_names,
                                  input_file_names + num_input_files);
-  SaveError(errptr, db->rep->CompactFiles(opt->rep, files, output_level));
+  SaveError(errptr, db->rep->CompactFiles(opt->rep, files, output_level,
+                                          output_path_id));
 }
 
 void rocksdb_compact_files_cf(rocksdb_t* db,
@@ -2676,11 +2677,11 @@ void rocksdb_compact_files_cf(rocksdb_t* db,
                               const rocksdb_compaction_options_t* opt,
                               const char* const* input_file_names,
                               size_t num_input_files, int output_level,
-                              char** errptr) {
+                              int output_path_id, char** errptr) {
   std::vector<std::string> files(input_file_names,
                                  input_file_names + num_input_files);
   SaveError(errptr, db->rep->CompactFiles(opt->rep, column_family->rep, files,
-                                          output_level));
+                                          output_level, output_path_id));
 }
 
 void rocksdb_flush(rocksdb_t* db, const rocksdb_flushoptions_t* options,
@@ -6394,16 +6395,6 @@ rocksdb_compaction_options_t* rocksdb_compaction_options_create() {
 
 void rocksdb_compaction_options_destroy(rocksdb_compaction_options_t* opt) {
   delete opt;
-}
-
-void rocksdb_compaction_options_set_compression(
-    rocksdb_compaction_options_t* opt, int v) {
-  opt->rep.compression = static_cast<CompressionType>(v);
-}
-
-int rocksdb_compaction_options_get_compression(
-    rocksdb_compaction_options_t* opt) {
-  return static_cast<int>(opt->rep.compression);
 }
 
 void rocksdb_compaction_options_set_output_file_size_limit(

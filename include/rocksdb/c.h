@@ -774,13 +774,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
 extern ROCKSDB_LIBRARY_API void rocksdb_compact_files(
     rocksdb_t* db, const rocksdb_compaction_options_t* opt,
     const char* const* input_file_names, size_t num_input_files,
-    int output_level, char** errptr);
+    int output_level, int output_path_id, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_compact_files_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     const rocksdb_compaction_options_t* opt,
     const char* const* input_file_names, size_t num_input_files,
-    int output_level, char** errptr);
+    int output_level, int output_path_id, char** errptr);
 
 extern ROCKSDB_LIBRARY_API const rocksdb_livefiles_t* rocksdb_livefiles(
     rocksdb_t* db);
@@ -2457,10 +2457,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_full_history_ts_low(
 extern ROCKSDB_LIBRARY_API rocksdb_compaction_options_t*
 rocksdb_compaction_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_compaction_options_destroy(
-    rocksdb_compaction_options_t*);
-extern ROCKSDB_LIBRARY_API void rocksdb_compaction_options_set_compression(
-    rocksdb_compaction_options_t*, int);
-extern ROCKSDB_LIBRARY_API int rocksdb_compaction_options_get_compression(
     rocksdb_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_compaction_options_set_output_file_size_limit(
