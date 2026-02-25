@@ -49,7 +49,7 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     return Status::Corruption("Block too small for footer");
   }
 
-  // Decode from the end of the inpu
+  // Decode from the end of the input
   const char* footer_ptr = input->data() + input->size() - sizeof(uint32_t);
   uint32_t packed = DecodeFixed32(footer_ptr);
 

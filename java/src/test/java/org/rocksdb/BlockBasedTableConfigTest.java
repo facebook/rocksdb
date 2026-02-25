@@ -110,12 +110,14 @@ public class BlockBasedTableConfigTest {
     tableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
     tableConfig.setChecksumType(ChecksumType.kNoChecksum);
     tableConfig.setIndexSearchType(IndexSearchType.kBinary);
+    tableConfig.setUniformCvThreshold(0.25);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
       final String opts = getOptionAsString(options);
       assertThat(opts).contains("index_type=kBinarySearch");
       assertThat(opts).contains("data_block_index_type=kDataBlockBinarySearch");
       assertThat(opts).contains("checksum=kNoChecksum");
       assertThat(opts).contains("index_block_search_type=kBinary");
+      assertThat(opts).contains("uniform_cv_threshold=0.25");
     }
 
     tableConfig.setIndexType(IndexType.kHashSearch);
@@ -372,6 +374,16 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
+  public void uniformCvThreshold() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    assertThat(blockBasedTableConfig.uniformCvThreshold()).isEqualTo(0.2);
+    blockBasedTableConfig.setUniformCvThreshold(0.5);
+    assertThat(blockBasedTableConfig.uniformCvThreshold()).isEqualTo(0.5);
+    blockBasedTableConfig.setUniformCvThreshold(-1.0);
+    assertThat(blockBasedTableConfig.uniformCvThreshold()).isEqualTo(-1.0);
+  }
+
+  @Test
   public void enableIndexCompression() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setEnableIndexCompression(false);
@@ -417,6 +429,8 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kInterpolation);
     blockBasedTableConfig.setIndexSearchType(IndexSearchType.kBinary);
     assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kBinary);
+    blockBasedTableConfig.setIndexSearchType(IndexSearchType.kAuto);
+    assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kAuto);
   }
 
   @Deprecated

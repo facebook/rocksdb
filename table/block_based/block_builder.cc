@@ -81,12 +81,6 @@ class UniformDataTracker {
     return std::sqrt(m2_ / static_cast<double>(gap_count)) / mean_;
   }
 
-  bool IsUniform() const {
-    static constexpr double kUniformCvThreshold = 0.5;
-    double cv = GetCV();
-    return cv >= 0 && cv < kUniformCvThreshold;
-  }
-
  private:
   uint64_t prev_key_value_ = 0;
   size_t num_keys_ = 0;
@@ -102,8 +96,8 @@ BlockBuilder::BlockBuilder(
     BlockBasedTableOptions::DataBlockIndexType index_type,
     double data_block_hash_table_util_ratio, size_t ts_sz,
     bool persist_user_defined_timestamps, bool is_user_key,
-    bool track_key_uniformity, bool use_separated_kv_storage,
-    Statistics* statistics)
+    bool use_separated_kv_storage, Statistics* statistics,
+    double uniform_cv_threshold)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
@@ -112,7 +106,7 @@ BlockBuilder::BlockBuilder(
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
       finished_(false),
-      track_key_uniformity_(track_key_uniformity),
+      uniform_cv_threshold_(uniform_cv_threshold),
       statistics_(statistics),
       use_separated_kv_storage_(use_separated_kv_storage) {
   switch (index_type) {
@@ -387,7 +381,7 @@ Slice BlockBuilder::GetRestartKey(uint32_t index, const char* limit) const {
 }
 
 bool BlockBuilder::ScanForUniformity() const {
-  if (!track_key_uniformity_ || restarts_.size() < 3) {
+  if (uniform_cv_threshold_ < 0 || restarts_.size() < 3) {
     return false;
   }
 
@@ -420,7 +414,7 @@ bool BlockBuilder::ScanForUniformity() const {
                       static_cast<uint64_t>(cv * 10000));
   }
 
-  return tracker.IsUniform();
+  return cv >= 0 && cv < uniform_cv_threshold_;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

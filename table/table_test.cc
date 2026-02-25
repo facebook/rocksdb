@@ -1738,7 +1738,6 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
       BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
       true /* persist_user_defined_timestamps */, false /* is_user_key */,
-      false /* track_key_uniformity */,
       table_options.separate_key_value_in_data_block);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);

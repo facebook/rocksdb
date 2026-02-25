@@ -1039,7 +1039,6 @@ struct BlockBasedTableBuilder::Rep {
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio, ts_sz,
                    persist_user_defined_timestamps, false /* is_user_key */,
-                   false /* track_key_uniformity */,
                    table_options.separate_key_value_in_data_block,
                    tbo.ioptions.stats),
         range_del_block(

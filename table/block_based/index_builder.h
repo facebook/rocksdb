@@ -228,8 +228,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
       const bool use_value_delta_encoding,
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
       bool include_first_key, size_t ts_sz,
-      const bool persist_user_defined_timestamps,
-      Statistics* statistics = nullptr)
+      const bool persist_user_defined_timestamps, Statistics* statistics,
+      double uniform_cv_threshold)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         index_block_builder_(
             index_block_restart_interval, true /*use_delta_encoding*/,
@@ -237,16 +237,16 @@ class ShortenedIndexBuilder : public IndexBuilder {
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps, false /* is_user_key */,
-            true /* track_key_uniformity */,
-            false /* use_separated_kv_storage */, statistics),
+            false /* use_separated_kv_storage */, statistics,
+            uniform_cv_threshold),
         index_block_builder_without_seq_(
             index_block_restart_interval, true /*use_delta_encoding*/,
             use_value_delta_encoding,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps, true /* is_user_key */,
-            true /* track_key_uniformity */,
-            false /* use_separated_kv_storage */, statistics),
+            false /* use_separated_kv_storage */, statistics,
+            uniform_cv_threshold),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
@@ -520,12 +520,14 @@ class HashIndexBuilder : public IndexBuilder {
                    int index_block_restart_interval, int format_version,
                    bool use_value_delta_encoding,
                    BlockBasedTableOptions::IndexShorteningMode shortening_mode,
-                   size_t ts_sz, const bool persist_user_defined_timestamps)
+                   size_t ts_sz, const bool persist_user_defined_timestamps,
+                   double uniform_cv_threshold)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
                                shortening_mode, /* include_first_key */ false,
-                               ts_sz, persist_user_defined_timestamps),
+                               ts_sz, persist_user_defined_timestamps,
+                               nullptr /* statistics */, uniform_cv_threshold),
         hash_key_extractor_(hash_key_extractor) {}
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,

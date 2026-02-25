@@ -1580,10 +1580,11 @@ IndexBlockIter* Block::NewIndexIterator(
         total_order_seek ? nullptr : prefix_index;
 
     // Resolve kAuto to a concrete search type based on the block's
-    // uniformity flag
+    // uniformity flag. Interpolation search requires bytewise comparator;
+    // fall back to binary search otherwise.
     auto resolved_search_type = index_block_search_type;
     if (resolved_search_type == BlockBasedTableOptions::kAuto) {
-      resolved_search_type = is_uniform_
+      resolved_search_type = (is_uniform_ && raw_ucmp == BytewiseComparator())
                                  ? BlockBasedTableOptions::kInterpolation
                                  : BlockBasedTableOptions::kBinary;
     }

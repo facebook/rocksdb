@@ -627,6 +627,19 @@ struct BlockBasedTableOptions {
   // Default: false
   bool separate_key_value_in_data_block = false;
 
+  // Coefficient of variation (CV) threshold used to determine if keys in an
+  // index block are uniformly distributed. Lower CV means more "uniform", and
+  // the more likely interpolation search will outperform binary search.
+  //
+  // On the write path, if the CV is less than this threshold, then the block
+  // will be marked as "uniform", and a read with BlockSearchType::kAuto will
+  // utilize interpolation search.
+  //
+  // Currently only supports index blocks. Set to < 0 (e.g. -1) to disable.
+  //
+  // Default: 0.2
+  double uniform_cv_threshold = 0.2;
+
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
   // and read back

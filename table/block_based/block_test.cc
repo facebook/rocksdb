@@ -728,8 +728,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       indexBlockRestartInterval(), kUseDeltaEncoding, useValueDeltaEncoding(),
       BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
-      !keyIncludesSeq(), true /* track_key_uniformity */,
-      useSeparatedKVStorage());
+      !keyIncludesSeq(), useSeparatedKVStorage(), nullptr /* statistics */,
+      0.2 /* uniform_cv_threshold */);
 
   int num_records = numRecords();
 

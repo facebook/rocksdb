@@ -37,7 +37,8 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ false, ts_sz,
-          persist_user_defined_timestamps, statistics);
+          persist_user_defined_timestamps, statistics,
+          table_opt.uniform_cv_threshold);
       break;
     }
     case BlockBasedTableOptions::kHashSearch: {
@@ -48,7 +49,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, int_key_slice_transform,
           table_opt.index_block_restart_interval, table_opt.format_version,
           use_value_delta_encoding, table_opt.index_shortening, ts_sz,
-          persist_user_defined_timestamps);
+          persist_user_defined_timestamps, table_opt.uniform_cv_threshold);
       break;
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
@@ -62,7 +63,8 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ true, ts_sz,
-          persist_user_defined_timestamps, statistics);
+          persist_user_defined_timestamps, statistics,
+          table_opt.uniform_cv_threshold);
       break;
     }
     default: {
@@ -179,7 +181,8 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
       table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
-      persist_user_defined_timestamps_, statistics_);
+      persist_user_defined_timestamps_, statistics_,
+      table_opt_.uniform_cv_threshold);
   sub_index_builder_ = new_builder.get();
   // Start next partition entry, where we will modify the key
   entries_.push_back({{}, std::move(new_builder)});

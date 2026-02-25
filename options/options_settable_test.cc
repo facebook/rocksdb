@@ -208,7 +208,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
       "fail_if_no_udi_on_open=true;"
-      "separate_key_value_in_data_block=true",
+      "separate_key_value_in_data_block=true;"
+      "uniform_cv_threshold=0.2",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
