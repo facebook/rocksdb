@@ -212,6 +212,7 @@ Status TableCache::FindTable(
     // Check if another thread has already pinned the table reader
     pinned_reader = file_meta.fd.pinned_reader.Get();
     if (pinned_reader != nullptr) {
+      s.PermitUncheckedError();
       *handle = nullptr;
       *out_table_reader = pinned_reader;
       return Status::OK();
