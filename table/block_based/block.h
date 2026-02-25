@@ -155,8 +155,11 @@ class BlockReadAmpBitmap {
 class Block {
  public:
   // Initialize the block with the specified contents.
+  // If restart_interval is provided (non-zero), it will be stored directly
+  // instead of being calculated later.
   explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
-                 Statistics* statistics = nullptr);
+                 Statistics* statistics = nullptr,
+                 uint32_t restart_interval = 1);
   // No copying allowed
   Block(const Block&) = delete;
   void operator=(const Block&) = delete;
@@ -279,6 +282,8 @@ class Block {
     ProtectionInfo64().ProtectKV(key, value).Encode(checksum_len, checksum_ptr);
   }
 
+  bool HasSeparatedKV() const { return values_section_ != nullptr; }
+
   const char* TEST_GetKVChecksum() const { return kv_checksum_; }
 
  private:
@@ -299,6 +304,9 @@ class Block {
   uint32_t block_restart_interval_{0};
   uint8_t protection_bytes_per_key_{0};
   DataBlockHashIndex data_block_hash_index_;
+
+  // Pointer to values section, nullptr if not using separated KV
+  const char* values_section_{nullptr};
 };
 
 // A `BlockIter` iterates over the entries in a `Block`'s data buffer. The
@@ -338,7 +346,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 
     data_ = nullptr;
-    current_ = restarts_;
+    current_ = GetKeysEndOffset();
     status_ = s;
 
     // Call cleanup callbacks.
@@ -347,8 +355,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   bool Valid() const override {
     // When status_ is not ok, iter should be invalid.
-    assert(status_.ok() || current_ >= restarts_);
-    return current_ < restarts_;
+    auto key_end = GetKeysEndOffset();
+    assert(status_.ok() || current_ >= key_end);
+    auto valid = current_ < key_end;
+    return valid;
   }
 
   void SeekToFirst() override final {
@@ -443,6 +453,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
+  const char* values_section_;
+  // Slice of current entry in the data section. Does not contain value if
+  // values_section_ exists
+  Slice entry_;
+
   // Index of restart block in which current_ or current_-1 falls
   uint32_t restart_index_;
   uint32_t restarts_;  // Offset of restart array (list of fixed32)
@@ -473,6 +488,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   // Per key-value checksum related states
   const char* kv_checksum_;
+  // Index of the next entry to be parsed (used for checksum verification
+  // and to determine if we're at a restart point for separated KV storage)
   int32_t cur_entry_idx_;
   uint32_t block_restart_interval_;
   uint8_t protection_bytes_per_key_;
@@ -515,7 +532,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
     uint32_t count = (num_restarts_ - 1) * block_restart_interval;
     // Add number of keys from the last restart interval
     SeekToRestartPoint(num_restarts_ - 1);
-    while (NextEntryOffset() < restarts_ && status_.ok()) {
+    // For separated KV storage, keys end at values_section_, not at restarts_
+    uint32_t keys_end = values_section_
+                            ? static_cast<uint32_t>(values_section_ - data_)
+                            : restarts_;
+    while (NextEntryOffset() < keys_end && status_.ok()) {
       NextImpl();
       ++count;
     }
@@ -527,7 +548,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Sets raw_key_, value_ to the current parsed key and value.
   // Sets restart_index_ to point to the restart interval that contains
   // the current key.
-  template <typename DecodeEntryFunc>
+  template <typename DecodeEntryFunc, bool StrictCheck = false>
   inline bool ParseNextKey(bool* is_shared);
 
   // protection_bytes_per_key, kv_checksum, and block_restart_interval
@@ -536,9 +557,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
                       uint32_t restarts, uint32_t num_restarts,
                       SequenceNumber global_seqno, bool block_contents_pinned,
                       bool user_defined_timestamp_persisted,
-
                       uint8_t protection_bytes_per_key, const char* kv_checksum,
-                      uint32_t block_restart_interval) {
+                      uint32_t block_restart_interval,
+                      const char* values_section) {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
     assert(raw_ucmp != nullptr);
@@ -546,8 +567,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;
-    current_ = restarts_;
     restart_index_ = num_restarts_;
+    entry_ = Slice();
     global_seqno_ = global_seqno;
     ts_sz_ = raw_ucmp->timestamp_size();
     pad_min_timestamp_ = ts_sz_ > 0 && !user_defined_timestamp_persisted;
@@ -563,10 +584,13 @@ class BlockIter : public InternalIteratorBase<TValue> {
     assert((protection_bytes_per_key == 0 && kv_checksum == nullptr) ||
            (protection_bytes_per_key > 0 && kv_checksum != nullptr &&
             (block_restart_interval > 0 || num_restarts == 1)));
+
+    values_section_ = values_section;
+    current_ = GetKeysEndOffset();
   }
 
   void CorruptionError(const std::string& error_msg = "bad entry in block") {
-    current_ = restarts_;
+    current_ = GetKeysEndOffset();
     restart_index_ = num_restarts_;
     status_ = Status::Corruption(error_msg);
     raw_key_.Clear();
@@ -672,22 +696,35 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
     // NOTE: We don't support blocks bigger than 2GB
-    return static_cast<uint32_t>((value_.data() + value_.size()) - data_);
+    return static_cast<uint32_t>((entry_.data() + entry_.size()) - data_);
+  }
+
+  // Return the offset where the keys section ends.
+  // For separated KV storage, this is the start of the values section.
+  // Otherwise, it's the start of the restart array.
+  inline uint32_t GetKeysEndOffset() const {
+    return values_section_ ? static_cast<uint32_t>(values_section_ - data_)
+                           : restarts_;
   }
 
   uint32_t GetRestartPoint(uint32_t index) const {
     assert(index < num_restarts_);
-    return DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
+    uint32_t offset =
+        DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
+    assert(!values_section_ || offset <= values_section_ - data_);
+    return offset;
   }
 
   void SeekToRestartPoint(uint32_t index) {
     raw_key_.Clear();
     restart_index_ = index;
-    // current_ will be fixed by ParseNextKey();
+    // Set to one before the first entry so ParseNextKey() increments to correct
+    // position
+    cur_entry_idx_ = static_cast<int32_t>(index * block_restart_interval_) - 1;
 
-    // ParseNextKey() starts at the end of value_, so set value_ accordingly
+    // ParseNextKey() starts at the end of entry_, so set value_ accordingly
     uint32_t offset = GetRestartPoint(index);
-    value_ = Slice(data_ + offset, 0);
+    entry_ = Slice(data_ + offset, 0);
   }
 
  protected:
@@ -728,11 +765,11 @@ class DataBlockIter final : public BlockIter<Slice> {
                   bool user_defined_timestamps_persisted,
                   DataBlockHashIndex* data_block_hash_index,
                   uint8_t protection_bytes_per_key, const char* kv_checksum,
-                  uint32_t block_restart_interval) {
+                  uint32_t block_restart_interval, const char* values_section) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned, user_defined_timestamps_persisted,
                    protection_bytes_per_key, kv_checksum,
-                   block_restart_interval);
+                   block_restart_interval, values_section);
     raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
@@ -789,9 +826,11 @@ class DataBlockIter final : public BlockIter<Slice> {
   // last `current_` value we report to read-amp bitmp
   mutable uint32_t last_bitmap_offset_;
   struct CachedPrevEntry {
-    explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
-                             size_t _key_offset, size_t _key_size, Slice _value)
+    explicit CachedPrevEntry(uint32_t _offset, uint32_t _entry_size,
+                             const char* _key_ptr, size_t _key_offset,
+                             size_t _key_size, Slice _value)
         : offset(_offset),
+          entry_size(_entry_size),
           key_ptr(_key_ptr),
           key_offset(_key_offset),
           key_size(_key_size),
@@ -799,6 +838,8 @@ class DataBlockIter final : public BlockIter<Slice> {
 
     // offset of entry in block
     uint32_t offset;
+    // size of entry (for NextEntryOffset calculation)
+    uint32_t entry_size;
     // Pointer to key data in block (nullptr if key is delta-encoded)
     const char* key_ptr;
     // offset of key in prev_entries_keys_buff_ (0 if key_ptr is not nullptr)
@@ -827,14 +868,15 @@ class MetaBlockIter final : public BlockIter<Slice> {
   MetaBlockIter() : BlockIter() { raw_key_.SetIsUserKey(true); }
   void Initialize(const char* data, uint32_t restarts, uint32_t num_restarts,
                   bool block_contents_pinned, uint8_t protection_bytes_per_key,
-                  const char* kv_checksum, uint32_t block_restart_interval) {
+                  const char* kv_checksum, uint32_t block_restart_interval,
+                  const char* values_section) {
     // Initializes the iterator with a BytewiseComparator and
     // the raw key being a user key.
     InitializeBase(BytewiseComparator(), data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
                    /* user_defined_timestamps_persisted */ true,
                    protection_bytes_per_key, kv_checksum,
-                   block_restart_interval);
+                   block_restart_interval, values_section);
     raw_key_.SetIsUserKey(true);
   }
 
@@ -872,11 +914,12 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       bool key_includes_seq, bool value_is_full, bool block_contents_pinned,
       bool user_defined_timestamps_persisted, uint8_t protection_bytes_per_key,
       const char* kv_checksum, uint32_t block_restart_interval,
+      const char* values_section,
       BlockBasedTableOptions::BlockSearchType index_block_search_type) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
                    user_defined_timestamps_persisted, protection_bytes_per_key,
-                   kv_checksum, block_restart_interval);
+                   kv_checksum, block_restart_interval, values_section);
     raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
@@ -931,7 +974,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   void SeekForPrevImpl(const Slice&) override {
     assert(false);
-    current_ = restarts_;
+    current_ = GetKeysEndOffset();
     restart_index_ = num_restarts_;
     status_ = Status::InvalidArgument(
         "RocksDB internal error: should never call SeekForPrev() on index "

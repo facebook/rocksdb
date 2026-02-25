@@ -611,6 +611,15 @@ struct BlockBasedTableOptions {
   // who might only upgrade a few times per year.
   uint32_t format_version = 7;
 
+  // When true, data blocks store keys and values separately. Keys are stored
+  // at the beginning of the block, followed by values at the end. This can
+  // improve read performance at a cost of a varint per restart interval (~1 bit
+  // per key by default), in addition to improving compression. Small values or
+  // low block_restart_interval may prefer to set this as false.
+  //
+  // Default: false
+  bool separate_key_value_in_data_block = false;
+
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
   // and read back

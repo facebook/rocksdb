@@ -1,6 +1,33 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.0.0 (02/23/2026)
+### New Features
+* Added support for storing wide-column entity column values in blob files. When `min_blob_size` is configured, large column values in wide-column entities will be stored in blob files, reducing SST file size and improving read performance.
+* Added `CompactionOptionsFIFO::max_data_files_size` to support FIFO compaction trimming based on combined SST and blob file sizes. Added `CompactionOptionsFIFO::use_kv_ratio_compaction` to enable a capacity-derived intra-L0 compaction strategy optimized for BlobDB workloads, producing uniform-sized compacted files for predictable FIFO trimming.
+* Include interpolation search as an alternative to binary search, which typically performs better when keys are uniformly distributed. This is exposed as a new table option `index_block_search_type`. The default is `binary_search`.
+
+### Public API Changes
+* Added new virtual methods `AbortAllCompactions()` and `ResumeAllCompactions()` to the `DB` class. Added new `Status::SubCode::kCompactionAborted` to indicate a compaction was aborted. Added `Status::IsCompactionAborted()` helper method to check if a status represents an aborted compaction.
+* Drop support for reading (and writing) SST files using `BlockBasedTableOptions.format_version` < 2, which hasn't been the default format for about 10 years. An upgrade path is still possible with full compaction using a RocksDB version >= 4.6.0 and < 11.0.0 and then using the newer version.
+* Remove deprecated raw `DB*` variants of `DB::Open` and related functions. Some other minor public APIs were updated as a result
+* Remove deprecated `DB::MaxMemCompactionLevel()`
+* Remove useless option `CompressedSecondaryCacheOptions::compress_format_version`
+* Remove deprecated DB option `skip_checking_sst_file_sizes_on_db_open`. The option was deprecated in 10.5.0 and has been a no-op since then. File size validation is now always performed in parallel during DB open.
+* Remove deprecated `SliceTransform::InRange()` virtual method and the `in_range` callback parameter from `rocksdb_slicetransform_create()` in the C API. `InRange()` was never called by RocksDB and existed only for backward compatibility.
+* Remove deprecated, unused APIs and options: `ReadOptions::managed` and `ColumnFamilyOptions::snap_refresh_nanos`. Corresponding C and Java APIs are also removed.
+* Remove deprecated `SstFileWriter::Add()` method (use `Put()` instead) and the deprecated `skip_filters` parameter from `SstFileWriter` constructors (use `BlockBasedTableOptions::filter_policy` set to `nullptr` to skip filter generation instead).
+
+### Behavior Changes
+* Change the default value of `CompactionOptionsUniversal::reduce_file_locking` from `false` to `true` to improve write stall and reduce read regression
+
+### Bug Fixes
+* Fix longstanding failures that can arise from reading and/or compacting old DB dirs with range deletions (likely from version < 5.19.0) in many newer versions.
+* Fix a bug where WritePrepared/WriteUnprepared TransactionDB with two_write_queues=true could experience "sequence number going backwards" corruption during recovery from a background error, due to allocated-but-not-published sequence numbers not being synced before creating new WAL files.
+
+### Performance Improvements
+* Add a new table option `separate_key_value_in_data_block`. When set to true keys and values will be stored separately in the data block, which can result in higher cpu cache hit rate and better compression. Works best with data blocks with sufficient restart intervals and large values. Previous versions of RocksDB will reject files written using this option.
+
 ## 10.11.0 (01/23/2026)
 ### Public API Changes
 * New SetOptions API that allows setting options for multiple CFs, avoiding the need to reserialize OPTIONS file for each CF

@@ -1,0 +1,74 @@
+name: clang-tidy
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  clang-tidy:
+    if: github.repository_owner == 'facebook'
+    runs-on:
+      labels: 4-core-ubuntu
+    container:
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        fetch-depth: 2
+    - name: Mark workspace as safe for git
+      run: git config --global --add safe.directory $GITHUB_WORKSPACE
+    - name: Determine diff base
+      id: diff-base
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          BASE="${{ github.event.pull_request.base.sha }}"
+          git fetch --depth=1 origin "$BASE"
+        else
+          BASE="${{ github.event.before }}"
+          if echo "$BASE" | grep -q '^0\{40\}$'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "New branch push; skipping clang-tidy."
+            exit 0
+          fi
+        fi
+        echo "ref=$BASE" >> "$GITHUB_OUTPUT"
+        echo "skip=false" >> "$GITHUB_OUTPUT"
+    - name: Install clang-tidy
+      if: steps.diff-base.outputs.skip != 'true'
+      run: apt-get update && apt-get install -y clang-tidy
+    - name: Generate compile_commands.json
+      if: steps.diff-base.outputs.skip != 'true'
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+              -DCMAKE_C_COMPILER=clang-18 \
+              -DCMAKE_CXX_COMPILER=clang++-18 ..
+        cd ..
+        ln -sf build/compile_commands.json compile_commands.json
+    - name: Run clang-tidy on changed files
+      id: clang-tidy
+      if: steps.diff-base.outputs.skip != 'true'
+      run: |
+        python3 tools/run_clang_tidy.py \
+          -j 4 \
+          --diff-base ${{ steps.diff-base.outputs.ref }} \
+          --github-annotations \
+          --github-step-summary \
+          --comment-output clang-tidy-comment.md
+      continue-on-error: true
+    - name: Save PR number
+      if: github.event_name == 'pull_request' && always()
+      run: echo "${{ github.event.pull_request.number }}" > pr_number.txt
+    - name: Upload clang-tidy results
+      if: always()
+      uses: actions/upload-artifact@v4.0.0
+      with:
+        name: clang-tidy-result
+        path: |
+          clang-tidy-comment.md
+          pr_number.txt
+        if-no-files-found: ignore
+    - name: Fail if clang-tidy found issues
+      if: steps.clang-tidy.outcome == 'failure'
+      run: exit 1

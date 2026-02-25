@@ -1112,7 +1112,7 @@ class GeneralTableTest : public TableTest {};
 class BlockBasedTableTestBase : public TableTest {};
 class BlockBasedTableTest : public BlockBasedTableTestBase,
                             virtual public ::testing::WithParamInterface<
-                                std::tuple<uint32_t, size_t, size_t>> {
+                                std::tuple<uint32_t, size_t, size_t, bool>> {
  public:
   BlockBasedTableTest() : format_(std::get<0>(GetParam())) {
     env_ = Env::Default();
@@ -1124,6 +1124,8 @@ class BlockBasedTableTest : public BlockBasedTableTestBase,
     auto param = GetParam();
     options.super_block_alignment_size = std::get<1>(param);
     options.super_block_alignment_space_overhead_ratio = std::get<2>(param);
+    // separate_key_value_in_data_block
+    options.separate_key_value_in_data_block = std::get<3>(param);
     return options;
   }
 
@@ -1360,7 +1362,7 @@ INSTANTIATE_TEST_CASE_P(
     testing::Combine(testing::ValuesIn(test::kFooterFormatVersionsToTest),
                      testing::Values(0, 128 * 1024, 512 * 1024,
                                      2 * 1024 * 1024),
-                     testing::Values(2048, 32, 128)));
+                     testing::Values(2048, 32, 128), testing::Bool()));
 
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
@@ -1730,7 +1732,13 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
-  BlockBuilder block_builder(1);
+  BlockBuilder block_builder(
+      1 /* block_restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      table_options.separate_key_value_in_data_block);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }
@@ -2287,11 +2295,11 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
   Slice block_contents = builder.Finish();
   std::string block_data = block_contents.ToString();
 
-  // The footer is the last 4 bytes - corrupt it by setting reserved bit 28
+  // The footer is the last 4 bytes - corrupt it by setting reserved bit 29
   ASSERT_GE(block_data.size(), sizeof(uint32_t));
   size_t footer_offset = block_data.size() - sizeof(uint32_t);
   uint32_t footer = DecodeFixed32(block_data.data() + footer_offset);
-  footer |= (1u << 28);  // Set lowest reserved bit
+  footer |= (1u << 29);  // Set a reserved bit
   EncodeFixed32(&block_data[footer_offset], footer);
 
   // Try to construct a Block from the corrupted data
@@ -6337,6 +6345,46 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_FALSE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
+}
+
+// Test that a single large entry with value larger than block size works
+TEST_P(BlockBasedTableTest, SingleLargeEntry) {
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+
+  // Set a small block size
+  constexpr size_t kBlockSize = 1024;
+  table_options.block_size = kBlockSize;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression = kNoCompression;
+
+  // Create a value that is larger than the block size
+  const size_t kLargeValueSize = kBlockSize * 4;
+  std::string large_value(kLargeValueSize, 'x');
+  c.Add("key1", large_value);
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  auto* reader = c.GetTableReader();
+  ReadOptions read_options;
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(large_value, iter->value().ToString());
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 class ChargeCompressionDictionaryBuildingBufferTest

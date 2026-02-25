@@ -15,15 +15,25 @@ namespace ROCKSDB_NAMESPACE {
 
 // Hash index bit (bit 31)
 constexpr uint32_t kHashIndexBit = 1u << 31;
+// Separated KV storage bit (bit 28)
+constexpr uint32_t kSeparatedKVBit = 1u << 28;
 
 void DataBlockFooter::EncodeTo(std::string* dst) const {
   assert(num_restarts <= kMaxNumRestarts);
+
+  // If separated KV, write the values_section_offset before the packed footer
+  if (separated_kv) {
+    PutFixed32(dst, values_section_offset);
+  }
 
   uint32_t packed = num_restarts;
   if (index_type == BlockBasedTableOptions::kDataBlockBinaryAndHash) {
     packed |= kHashIndexBit;
   } else {
     assert(index_type == BlockBasedTableOptions::kDataBlockBinarySearch);
+  }
+  if (separated_kv) {
+    packed |= kSeparatedKVBit;
   }
 
   PutFixed32(dst, packed);
@@ -34,8 +44,8 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     return Status::Corruption("Block too small for footer");
   }
 
-  // Decode from the end of the input
-  const char* footer_ptr = input->data() + input->size() - kMinEncodedLength;
+  // Decode from the end of the inpu
+  const char* footer_ptr = input->data() + input->size() - sizeof(uint32_t);
   uint32_t packed = DecodeFixed32(footer_ptr);
 
   if (packed & kHashIndexBit) {
@@ -45,8 +55,14 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
   }
 
-  // Check for reserved/unrecognized feature bits (anything beyond
-  // kMaxNumRestarts)
+  if (packed & kSeparatedKVBit) {
+    separated_kv = true;
+    packed &= ~kSeparatedKVBit;
+  } else {
+    separated_kv = false;
+  }
+
+  // Check for unrecognized reserved bits (anything beyond kMaxNumRestarts)
   if (packed > kMaxNumRestarts) {
     return Status::Corruption(
         "Unrecognized feature in block footer (reserved bits set)");
@@ -54,8 +70,18 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
 
   num_restarts = packed;
 
-  // Remove the footer from the input slice
-  input->remove_suffix(kMinEncodedLength);
+  input->remove_suffix(sizeof(uint32_t));
+
+  // If separated KV, read values_section_offset from before the packed footer
+  if (separated_kv) {
+    if (input->size() < sizeof(uint32_t)) {
+      return Status::Corruption(
+          "Block too small for separated KV values section offset");
+    }
+    values_section_offset =
+        DecodeFixed32(input->data() + input->size() - sizeof(uint32_t));
+    input->remove_suffix(sizeof(uint32_t));
+  }
 
   return Status::OK();
 }

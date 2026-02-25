@@ -9237,8 +9237,8 @@ class BlockBasedTableOptionsJni
       return nullptr;
     }
 
-    jmethodID method_id_init =
-        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZJJBBBJD)V");
+    jmethodID method_id_init = env->GetMethodID(
+        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZZJJBBBJD)V");
     if (method_id_init == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -9281,6 +9281,7 @@ class BlockBasedTableOptionsJni
         table_factory_options->verify_compression,
         table_factory_options->read_amp_bytes_per_bit,
         table_factory_options->format_version,
+        table_factory_options->separate_key_value_in_data_block,
         table_factory_options->enable_index_compression,
         table_factory_options->block_align,
         static_cast<jlong>(table_factory_options->super_block_alignment_size),

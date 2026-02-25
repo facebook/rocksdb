@@ -867,7 +867,8 @@ Status BlockBasedTable::Open(
       &rep->table_options, &rep->ioptions, rep->ioptions.stats,
       rep->decompressor.get(), block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
-      rep->index_has_first_key);
+      rep->index_has_first_key, rep->data_block_restart_interval,
+      rep->index_block_restart_interval);
 
   // Check expected unique id if provided
   if (expected_unique_id != kNullUniqueId64x2) {
@@ -1104,6 +1105,16 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
   assert(table_properties != nullptr);
   rep_->table_properties = std::move(table_properties);
+
+  rep_->data_block_restart_interval = static_cast<uint32_t>(
+      rep_->table_properties->data_block_restart_interval);
+  rep_->index_block_restart_interval = static_cast<uint32_t>(
+      rep_->table_properties->index_block_restart_interval);
+  rep_->separate_key_value_in_data_block =
+      rep_->table_properties->separate_key_value_in_data_block > 0;
+
+  rep_->index_has_first_key =
+      rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
 
   s = rep_->seqno_to_time_mapping.DecodeFrom(
       rep_->table_properties->seqno_to_time_mapping);

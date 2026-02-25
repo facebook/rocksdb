@@ -150,11 +150,13 @@ TEST_F(WritePreparedTransactionSeqnoTest,
   Status s = db_->Flush(FlushOptions());
   ASSERT_NOK(s);
 
-  // Wait for recovery to start, then re-enable filesystem and let it proceed
+  // Wait for recovery to start, then re-enable filesystem and let it proceed.
+  // Clear the callback first to prevent it from re-disabling the filesystem
+  // if recovery's ResumeImpl triggers WriteManifest before we re-enable.
   TEST_SYNC_POINT("SeqnoGoesBackwardsDuringErrorRecovery:0");
-  fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearCallBack(
       "VersionSet::LogAndApply:WriteManifest");
+  fault_fs_->SetFilesystemActive(true);
   TEST_SYNC_POINT("SeqnoGoesBackwardsDuringErrorRecovery:1");
 
   // Wait for recovery to complete
@@ -266,11 +268,13 @@ TEST_F(WritePreparedTransactionSeqnoTest, SeqnoDiscrepancyDuringErrorRecovery) {
   Status flush_s = db_->Flush(FlushOptions());
   ASSERT_NOK(flush_s);
 
-  // Wait for recovery to start, re-enable filesystem, let it proceed
+  // Wait for recovery to start, re-enable filesystem, let it proceed.
+  // Clear the callback first to prevent it from re-disabling the filesystem
+  // if recovery's ResumeImpl triggers WriteManifest before we re-enable.
   TEST_SYNC_POINT("SeqnoDiscrepancyDuringErrorRecovery:0");
-  fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearCallBack(
       "VersionSet::LogAndApply:WriteManifest");
+  fault_fs_->SetFilesystemActive(true);
   TEST_SYNC_POINT("SeqnoDiscrepancyDuringErrorRecovery:1");
 
   // Wait for recovery to complete
@@ -384,11 +388,13 @@ TEST_F(WritePreparedTransactionSeqnoTest, ConcurrentWritesDuringErrorRecovery) {
   Status flush_s = db_->Flush(FlushOptions());
   ASSERT_NOK(flush_s);
 
-  // Wait for recovery to start, re-enable filesystem, let it proceed
+  // Wait for recovery to start, re-enable filesystem, let it proceed.
+  // Clear the callback first to prevent it from re-disabling the filesystem
+  // if recovery's ResumeImpl triggers WriteManifest before we re-enable.
   TEST_SYNC_POINT("ConcurrentWritesDuringErrorRecovery:0");
-  fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearCallBack(
       "VersionSet::LogAndApply:WriteManifest");
+  fault_fs_->SetFilesystemActive(true);
   TEST_SYNC_POINT("ConcurrentWritesDuringErrorRecovery:1");
 
   // Wait for recovery to complete

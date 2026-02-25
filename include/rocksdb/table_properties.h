@@ -77,6 +77,9 @@ struct TablePropertiesNames {
   static const std::string kUserDefinedTimestampsPersisted;
   static const std::string kKeyLargestSeqno;
   static const std::string kKeySmallestSeqno;
+  static const std::string kDataBlockRestartInterval;
+  static const std::string kIndexBlockRestartInterval;
+  static const std::string kSeparateKeyValueInDataBlock;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -319,6 +322,18 @@ struct TableProperties {
   uint64_t key_smallest_seqno = UINT64_MAX;
 
   bool HasKeySmallestSeqno() const { return key_smallest_seqno != UINT64_MAX; }
+
+  // Block restart intervals used when building this SST file.
+  // 0 means unknown (for backwards compatibility with older SST files).
+  uint64_t data_block_restart_interval = 0;
+  uint64_t index_block_restart_interval = 0;
+
+  // Whether the SST file uses separated key/value storage in data blocks (0 =
+  // false). The block footer stores the real source of truth of whether the
+  // block has separated key values, but this table property is useful for
+  // debugging/validation purposes. Consider removing this if we ever decide to
+  // mix separation strategies for a sst.
+  uint64_t separate_key_value_in_data_block = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

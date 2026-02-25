@@ -18,6 +18,7 @@
 #pragma once
 #include <algorithm>
 #include <string>
+#include <type_traits>
 
 #include "port/port.h"
 #include "rocksdb/slice.h"
@@ -38,10 +39,9 @@ const uint32_t kMaxVarint64Length = 10;
 void PutFixed16(std::string* dst, uint16_t value);
 void PutFixed32(std::string* dst, uint32_t value);
 void PutFixed64(std::string* dst, uint64_t value);
-void PutVarint32(std::string* dst, uint32_t value);
-void PutVarint32Varint32(std::string* dst, uint32_t value1, uint32_t value2);
-void PutVarint32Varint32Varint32(std::string* dst, uint32_t value1,
-                                 uint32_t value2, uint32_t value3);
+
+template <typename... Args>
+void PutVarint32(std::string* dst, Args... args);
 void PutVarint64(std::string* dst, uint64_t value);
 void PutVarint64Varint64(std::string* dst, uint64_t value1, uint64_t value2);
 void PutVarint32Varint64(std::string* dst, uint32_t value1, uint64_t value2);
@@ -149,25 +149,14 @@ inline void PutFixed64(std::string* dst, uint64_t value) {
   }
 }
 
-inline void PutVarint32(std::string* dst, uint32_t v) {
-  char buf[5];
-  char* ptr = EncodeVarint32(buf, v);
-  dst->append(buf, static_cast<size_t>(ptr - buf));
-}
-
-inline void PutVarint32Varint32(std::string* dst, uint32_t v1, uint32_t v2) {
-  char buf[10];
-  char* ptr = EncodeVarint32(buf, v1);
-  ptr = EncodeVarint32(ptr, v2);
-  dst->append(buf, static_cast<size_t>(ptr - buf));
-}
-
-inline void PutVarint32Varint32Varint32(std::string* dst, uint32_t v1,
-                                        uint32_t v2, uint32_t v3) {
-  char buf[15];
-  char* ptr = EncodeVarint32(buf, v1);
-  ptr = EncodeVarint32(ptr, v2);
-  ptr = EncodeVarint32(ptr, v3);
+template <typename... Args>
+inline void PutVarint32(std::string* dst, Args... args) {
+  static_assert((std::is_convertible_v<Args, uint32_t> && ...),
+                "All arguments must be convertible to uint32_t");
+  constexpr size_t kMaxBytesPerVarint32 = 5;
+  char buf[sizeof...(args) * kMaxBytesPerVarint32];
+  char* ptr = buf;
+  ((ptr = EncodeVarint32(ptr, static_cast<uint32_t>(args))), ...);
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 

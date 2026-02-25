@@ -3743,6 +3743,11 @@ void rocksdb_block_based_options_set_format_version(
   options->rep.format_version = v;
 }
 
+void rocksdb_block_based_options_set_separate_key_value_in_data_block(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.separate_key_value_in_data_block = v;
+}
+
 void rocksdb_block_based_options_set_index_type(
     rocksdb_block_based_table_options_t* options, int v) {
   options->rep.index_type = static_cast<BlockBasedTableOptions::IndexType>(v);

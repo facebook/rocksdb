@@ -234,13 +234,15 @@ class ShortenedIndexBuilder : public IndexBuilder {
             use_value_delta_encoding,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-            persist_user_defined_timestamps, false /* is_user_key */),
+            persist_user_defined_timestamps, false /* is_user_key */,
+            /*use_separated_kv_storage=*/false),
         index_block_builder_without_seq_(
             index_block_restart_interval, true /*use_delta_encoding*/,
             use_value_delta_encoding,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-            persist_user_defined_timestamps, true /* is_user_key */),
+            persist_user_defined_timestamps, true /* is_user_key */,
+            /*use_separated_kv_storage=*/false),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
@@ -609,10 +611,9 @@ class HashIndexBuilder : public IndexBuilder {
   void FlushPendingPrefix() {
     prefix_block_.append(pending_entry_prefix_.data(),
                          pending_entry_prefix_.size());
-    PutVarint32Varint32Varint32(
-        &prefix_meta_block_,
-        static_cast<uint32_t>(pending_entry_prefix_.size()),
-        pending_entry_index_, pending_block_num_);
+    PutVarint32(&prefix_meta_block_,
+                static_cast<uint32_t>(pending_entry_prefix_.size()),
+                pending_entry_index_, pending_block_num_);
   }
 
   ShortenedIndexBuilder primary_index_builder_;

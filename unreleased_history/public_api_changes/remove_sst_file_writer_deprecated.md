@@ -1,1 +1,0 @@
-Remove deprecated `SstFileWriter::Add()` method (use `Put()` instead) and the deprecated `skip_filters` parameter from `SstFileWriter` constructors (use `BlockBasedTableOptions::filter_policy` set to `nullptr` to skip filter generation instead).

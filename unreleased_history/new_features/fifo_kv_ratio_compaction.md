@@ -1,1 +1,0 @@
-Added `CompactionOptionsFIFO::max_data_files_size` to support FIFO compaction trimming based on combined SST and blob file sizes. Added `CompactionOptionsFIFO::use_kv_ratio_compaction` to enable a capacity-derived intra-L0 compaction strategy optimized for BlobDB workloads, producing uniform-sized compacted files for predictable FIFO trimming.

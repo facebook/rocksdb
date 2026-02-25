@@ -364,6 +364,14 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
+  public void separateKeyValueInDataBlock() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    assertThat(blockBasedTableConfig.separateKeyValueInDataBlock()).isFalse();
+    blockBasedTableConfig.setSeparateKeyValueInDataBlock(true);
+    assertThat(blockBasedTableConfig.separateKeyValueInDataBlock()).isTrue();
+  }
+
+  @Test
   public void enableIndexCompression() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setEnableIndexCompression(false);

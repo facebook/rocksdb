@@ -929,6 +929,11 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
   return s;
 }
 
+bool StressTest::IsExpectedTxnLockTimeout(const Status& s) {
+  return (s.IsDeadlock() || s.IsTimedOut()) &&
+         (FLAGS_use_multiget || FLAGS_use_multi_get_entity);
+}
+
 Status StressTest::ExecuteTransaction(WriteOptions& write_opts,
                                       ThreadState* thread,
                                       std::function<Status(Transaction&)>&& ops,
@@ -4313,6 +4318,8 @@ void InitializeOptionsFromFlags(
             : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
+  block_based_options.separate_key_value_in_data_block =
+      FLAGS_separate_key_value_in_data_block;
   block_based_options.index_block_restart_interval =
       static_cast<int32_t>(FLAGS_index_block_restart_interval);
   block_based_options.filter_policy = filter_policy;

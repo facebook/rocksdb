@@ -26,7 +26,21 @@ namespace ROCKSDB_NAMESPACE {
 //   - The low 28 bits store the number of restart points (num_restarts)
 //   - The high 4 bits are reserved for metadata/features:
 //     - Bit 31: Hash index present (kDataBlockBinaryAndHash)
-//     - Bits 28-30: Reserved for future features
+//     - Bit 29-30: Reserved for future features. IMPORTANT: cannot be used
+//     on data blocks without a format version bump.
+//     - Bit 28: Separated KV storage (keys and values stored in separate
+//       sections within the block)
+//
+// Note on bits 29-30: To support forward compatibility, we cannot use bits
+// 29-30 on data blocks. When older versions see this, they will assume an
+// extremely large # of restarts. For binary search blocks, this is detected,
+// but for binary search and hash block
+// (https://github.com/facebook/rocksdb/blob/10.11.fb/table/block_based/block.cc#L1093),
+// this can be silently ignored due to the fact we multiply num_restarts by 4,
+// which can cause overflow.
+//
+// When separated KV is enabled, an additional uint32_t is prepended before the
+// packed footer, storing the offset to the values section within the block.
 //
 // When any unrecognized reserved bit is set, DecodeFrom() returns an error,
 // allowing older versions to fail gracefully on newer formats.
@@ -43,15 +57,23 @@ struct DataBlockFooter {
   // per restart, fits at most (2^32 - 4) / 16 ≈ 268 million restarts.
   static constexpr uint32_t kMaxNumRestarts = (1u << 28) - 1;
 
-  // Maximum encoded length of a DataBlockFooter (for buffer sizing)
-  // Currently 4 bytes, but may grow in future format versions.
-  static constexpr uint32_t kMaxEncodedLength = sizeof(uint32_t);
+  // Maximum encoded length of a DataBlockFooter (for buffer sizing).
+  // 8 bytes when separated KV is enabled (values_section_offset + packed),
+  // 4 bytes otherwise.
+  static constexpr uint32_t kMaxEncodedLength = 2 * sizeof(uint32_t);
 
   // Minimum encoded length (for current format version)
   static constexpr uint32_t kMinEncodedLength = sizeof(uint32_t);
 
   BlockBasedTableOptions::DataBlockIndexType index_type =
       BlockBasedTableOptions::kDataBlockBinarySearch;
+
+  // Whether the block uses separated KV storage (keys and values in separate
+  // sections). When true, values_section_offset indicates where the values
+  // section begins within the block data.
+  bool separated_kv = false;
+  uint32_t values_section_offset = 0;
+
   uint32_t num_restarts = 0;
 
   DataBlockFooter() = default;

@@ -25,6 +25,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/data_block_footer.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -75,13 +76,16 @@ void GenerateRandomKVs(std::vector<std::string>* keys,
   }
 }
 
-// Test Param 1): key use delta encoding.
-// Test Param 2): user-defined timestamp test mode.
-// Test Param 3): data block index type.
-class BlockTest : public testing::Test,
-                  public testing::WithParamInterface<
-                      std::tuple<bool, test::UserDefinedTimestampTestMode,
-                                 BlockBasedTableOptions::DataBlockIndexType>> {
+// Test Param 0): key use delta encoding.
+// Test Param 1): user-defined timestamp test mode.
+// Test Param 2): data block index type.
+// Test Param 3): restart interval.
+// Test Param 4): use separated KV storage.
+class BlockTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::tuple<
+          bool, test::UserDefinedTimestampTestMode,
+          BlockBasedTableOptions::DataBlockIndexType, uint32_t, bool>> {
  public:
   bool keyUseDeltaEncoding() const { return std::get<0>(GetParam()); }
   bool isUDTEnabled() const {
@@ -94,6 +98,10 @@ class BlockTest : public testing::Test,
   BlockBasedTableOptions::DataBlockIndexType dataBlockIndexType() const {
     return std::get<2>(GetParam());
   }
+
+  uint32_t getRestartInterval() const { return std::get<3>(GetParam()); }
+
+  bool useSeparatedKVStorage() const { return std::get<4>(GetParam()); }
 };
 
 // block test
@@ -110,11 +118,12 @@ TEST_P(BlockTest, SimpleTest) {
   BlockBasedTableOptions::DataBlockIndexType index_type =
       isUDTEnabled() ? BlockBasedTableOptions::kDataBlockBinarySearch
                      : dataBlockIndexType();
-  BlockBuilder builder(16, keyUseDeltaEncoding(),
-                       false /* use_value_delta_encoding */, index_type,
-                       0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-                       shouldPersistUDT(), false /* is_user_key */);
-  int num_records = 100000;
+  BlockBuilder builder(
+      static_cast<int>(getRestartInterval()), keyUseDeltaEncoding(),
+      false /* use_value_delta_encoding */, index_type,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
+      false /* is_user_key */, useSeparatedKVStorage());
+  int num_records = 20;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */,
                     0 /* padding_size */, 1 /* keys_share_prefix */, ts_sz);
@@ -129,7 +138,8 @@ TEST_P(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  Block reader(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+               nullptr /* statistics */, getRestartInterval());
 
   // read contents of block sequentially
   int count = 0;
@@ -174,12 +184,13 @@ BlockContents GetBlockContents(
     const std::vector<std::string>& values, bool key_use_delta_encoding,
     size_t ts_sz, bool should_persist_udt, const int /*prefix_group_size*/ = 1,
     BlockBasedTableOptions::DataBlockIndexType dblock_index_type =
-        BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch) {
-  builder->reset(
-      new BlockBuilder(1 /* restart interval */, key_use_delta_encoding,
-                       false /* use_value_delta_encoding */, dblock_index_type,
-                       0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-                       should_persist_udt, false /* is_user_key */));
+        BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+    bool use_separated_kv_storage = false, uint32_t restart_interval = 1) {
+  builder->reset(new BlockBuilder(
+      static_cast<int>(restart_interval), key_use_delta_encoding,
+      false /* use_value_delta_encoding */, dblock_index_type,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, should_persist_udt,
+      false /* is_user_key */, use_separated_kv_storage));
 
   // Add only half of the keys
   for (size_t i = 0; i < keys.size(); ++i) {
@@ -196,12 +207,15 @@ BlockContents GetBlockContents(
 void CheckBlockContents(BlockContents contents, const int max_key,
                         const std::vector<std::string>& keys,
                         const std::vector<std::string>& values,
-                        bool is_udt_enabled, bool should_persist_udt) {
+                        bool is_udt_enabled, bool should_persist_udt,
+                        uint32_t restart_interval) {
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents));
-  Block reader2(std::move(contents_ref));
+  Block reader1(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+                nullptr /* statistics */, restart_interval);
+  Block reader2(std::move(contents_ref), 0 /* read_amp_bytes_per_bit */,
+                nullptr /* statistics */, restart_interval);
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
@@ -253,10 +267,11 @@ TEST_P(BlockTest, SimpleIndexHash) {
       1 /* prefix_group_size */,
       isUDTEnabled()
           ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
-          : dataBlockIndexType());
+          : dataBlockIndexType(),
+      useSeparatedKVStorage(), getRestartInterval());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
-                     shouldPersistUDT());
+                     shouldPersistUDT(), getRestartInterval());
 }
 
 TEST_P(BlockTest, IndexHashWithSharedPrefix) {
@@ -276,14 +291,15 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
   std::unique_ptr<BlockBuilder> builder;
 
   auto contents = GetBlockContents(
-      &builder, keys, values, keyUseDeltaEncoding(), isUDTEnabled(),
-      shouldPersistUDT(), kPrefixGroup,
+      &builder, keys, values, keyUseDeltaEncoding(), ts_sz, shouldPersistUDT(),
+      kPrefixGroup,
       isUDTEnabled()
           ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
-          : dataBlockIndexType());
+          : dataBlockIndexType(),
+      useSeparatedKVStorage(), getRestartInterval());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
-                     shouldPersistUDT());
+                     shouldPersistUDT(), getRestartInterval());
 }
 
 // Param 0: key use delta encoding
@@ -292,6 +308,8 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
 // compatible with `kDataBlockBinaryAndHash` data block index type because the
 // user comparator doesn't provide a `CanKeysWithDifferentByteContentsBeEqual`
 // override. This combination is disabled.
+// Param 3: restart interval
+// Param 4: use separated KV storage
 INSTANTIATE_TEST_CASE_P(
     P, BlockTest,
     ::testing::Combine(
@@ -299,7 +317,8 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(
             BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
             BlockBasedTableOptions::DataBlockIndexType::
-                kDataBlockBinaryAndHash)));
+                kDataBlockBinaryAndHash),
+        ::testing::Values(1, 8, 16), ::testing::Bool()));
 
 // A slow and accurate version of BlockReadAmpBitmap that simply store
 // all the marked ranges in a set.
@@ -596,32 +615,37 @@ enum class KeyDistribution { kUniform, kNonUniform };
 class IndexBlockTest
     : public testing::Test,
       public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, test::UserDefinedTimestampTestMode,
+          std::tuple<bool, bool, bool, bool, test::UserDefinedTimestampTestMode,
                      BlockBasedTableOptions::BlockSearchType, int, int, int,
-                     int, KeyDistribution>> {
+                     std::pair<int, KeyDistribution>>> {
  public:
   IndexBlockTest() = default;
 
   bool keyIncludesSeq() const { return std::get<0>(GetParam()); }
   bool useValueDeltaEncoding() const { return std::get<1>(GetParam()); }
   bool includeFirstKey() const { return std::get<2>(GetParam()); }
+  bool useSeparatedKVStorage() const { return std::get<3>(GetParam()); }
   bool isUDTEnabled() const {
-    return test::IsUDTEnabled(std::get<3>(GetParam()));
+    return test::IsUDTEnabled(std::get<4>(GetParam()));
   }
   bool shouldPersistUDT() const {
-    return test::ShouldPersistUDT(std::get<3>(GetParam()));
+    return test::ShouldPersistUDT(std::get<4>(GetParam()));
   }
   BlockBasedTableOptions::BlockSearchType indexSearchType() const {
     return isUDTEnabled() ? BlockBasedTableOptions::kBinary
-                          : std::get<4>(GetParam());
+                          : std::get<5>(GetParam());
   }
   int numRecords() const {
-    return std::min(1 << keyLength(), std::get<5>(GetParam()));
+    return std::min(1 << keyLength(), std::get<6>(GetParam()));
   }
-  int indexBlockRestartInterval() const { return std::get<6>(GetParam()); }
-  int keyLength() const { return std::get<7>(GetParam()); }
-  int prefixLength() const { return std::get<8>(GetParam()); }
-  KeyDistribution keyDistribution() const { return std::get<9>(GetParam()); }
+  int indexBlockRestartInterval() const { return std::get<7>(GetParam()); }
+  int keyLength() const { return std::get<8>(GetParam()); }
+  // prefix_length and key_distribution are bundled into a std::pair to stay
+  // within gtest 1.8.1's 10-parameter Combine limit.
+  int prefixLength() const { return std::get<9>(GetParam()).first; }
+  KeyDistribution keyDistribution() const {
+    return std::get<9>(GetParam()).second;
+  }
 };
 
 // Similar to GenerateRandomKVs but for index block contents. Keys always
@@ -689,11 +713,11 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   std::vector<BlockHandle> block_handles;
   std::vector<std::string> first_keys;
   const bool kUseDeltaEncoding = true;
-  BlockBuilder builder(indexBlockRestartInterval(), kUseDeltaEncoding,
-                       useValueDeltaEncoding(),
-                       BlockBasedTableOptions::kDataBlockBinarySearch,
-                       0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-                       shouldPersistUDT(), !keyIncludesSeq());
+  BlockBuilder builder(
+      indexBlockRestartInterval(), kUseDeltaEncoding, useValueDeltaEncoding(),
+      BlockBasedTableOptions::kDataBlockBinarySearch,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
+      !keyIncludesSeq(), useSeparatedKVStorage());
 
   int num_records = numRecords();
 
@@ -724,7 +748,9 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  Block reader(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+               nullptr /* statistics */,
+               static_cast<uint32_t>(indexBlockRestartInterval()));
 
   const bool kTotalOrderSeek = true;
   IndexBlockIter* kNullIter = nullptr;
@@ -790,27 +816,28 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
 // key as key entry in index block).
 // Param 1: use value delta encoding
 // Param 2: include first key
-// Param 3: user-defined timestamp test mode
-// Param 4: index search type (binary search or interpolation search)
-// Param 5: number of records
-// Param 6: index block restart interval
-// Param 7: key length
-// Param 8: prefix length
-// Param 9: key distribution (uniform or non-uniform)
+// Param 3: use separated KV storage
+// Param 4: user-defined timestamp test mode
+// Param 5: index search type (binary search or interpolation search)
+// Param 6: number of records
+// Param 7: index block restart interval
+// Param 8: key length
+// Param 9: (prefix_length, key_distribution) pair
 INSTANTIATE_TEST_CASE_P(
     P, IndexBlockTest,
     ::testing::Combine(
         ::testing::Bool(), ::testing::Bool(), ::testing::Bool(),
-        ::testing::ValuesIn(test::GetUDTTestModes()),
+        ::testing::Bool(), ::testing::ValuesIn(test::GetUDTTestModes()),
         ::testing::Values(
             BlockBasedTableOptions::BlockSearchType::kBinary,
             BlockBasedTableOptions::BlockSearchType::kInterpolation),
         ::testing::Values(1, 100),    // num_records
         ::testing::Values(1, 16),     // index_block_restart_interval
         ::testing::Values(1, 8, 12),  // key_length
-        ::testing::Values(0, 50),     // prefix_length
-        ::testing::Values(KeyDistribution::kUniform,
-                          KeyDistribution::kNonUniform)));
+        ::testing::Values(std::make_pair(0, KeyDistribution::kUniform),
+                          std::make_pair(0, KeyDistribution::kNonUniform),
+                          std::make_pair(50, KeyDistribution::kUniform),
+                          std::make_pair(50, KeyDistribution::kNonUniform))));
 
 TEST(IndexBlockTest, InterpolationSearchPrefixBoundary) {
   const bool kIncludeFirstKey = false;
@@ -1916,6 +1943,105 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
     }
   }
 }
+
+class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
+ public:
+  bool useSeparatedKVStorage() const { return GetParam(); }
+
+  std::string BuildBlock() {
+    BlockBuilder builder(1 /* restart_interval */,
+                         true /* use_delta_encoding */,
+                         false /* use_value_delta_encoding */,
+                         BlockBasedTableOptions::kDataBlockBinarySearch,
+                         0 /* data_block_hash_table_util_ratio */,
+                         0 /* ts_sz */, false /* persist_udt */,
+                         true /* is_user_key */, useSeparatedKVStorage());
+    builder.Add("key001", "val01");
+    builder.Add("key002", "val02");
+    builder.Add("key003", "val03");
+    builder.Add("key004", "val04");
+    Slice raw = builder.Finish();
+    return std::string(raw.data(), raw.size());
+  }
+
+  // Get the restart offset for a given restart index from the raw block data.
+  uint32_t GetRestartOffset(const std::string& block_data, int restart_idx) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    size_t restarts_start =
+        block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
+    return DecodeFixed32(block_data.data() + restarts_start +
+                         restart_idx * sizeof(uint32_t));
+  }
+
+  uint32_t GetKeyEnd(const std::string& block_data) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    uint32_t restarts_start = static_cast<uint32_t>(
+        block_data.size() - footer_size - num_restarts * sizeof(uint32_t));
+    if (useSeparatedKVStorage()) {
+      // values_section_offset is stored as the 4 bytes before the packed word.
+      return DecodeFixed32(block_data.data() + block_data.size() - 8);
+    }
+    return restarts_start;
+  }
+
+  uint32_t GetValueEnd(const std::string& block_data) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    return static_cast<uint32_t>(block_data.size() - footer_size -
+                                 num_restarts * sizeof(uint32_t));
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(P, MetaBlockEntryCorruptionTest, ::testing::Bool(),
+                        [](const testing::TestParamInfo<bool>& args) {
+                          return args.param ? "SeparatedKV" : "InlineKV";
+                        });
+
+TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t key_end = GetKeyEnd(block_data);
+
+  // Corrupt the key length of the first entry so that
+  // the key data would extend past the keys-end boundary.
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  block_data[first_entry_offset + 1] = static_cast<char>(key_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  // SeekToFirst should hit the corrupted first entry immediately.
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t value_end = GetValueEnd(block_data);
+
+  // Corrupt the first entry so that its value would extend past the
+  // values-end boundary (start of the restart array).
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  block_data[first_entry_offset + 2] = static_cast<char>(value_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  // SeekToFirst should hit the corrupted first entry immediately.
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -14,8 +14,10 @@
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "port/port.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
+#include "table/format.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -25,7 +27,9 @@ BlobDumpTool::BlobDumpTool()
     : reader_(nullptr), buffer_(nullptr), buffer_size_(0) {}
 
 Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
-                         DisplayType show_blob, bool show_summary) {
+                         DisplayType show_blob,
+                         DisplayType show_uncompressed_blob,
+                         bool show_summary) {
   constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
   Status s;
   const auto fs = FileSystem::Default();
@@ -51,7 +55,8 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   reader_.reset(new RandomAccessFileReader(std::move(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
-  s = DumpBlobLogHeader(&offset);
+  CompressionType compression = kNoCompression;
+  s = DumpBlobLogHeader(&offset, &compression);
   if (!s.ok()) {
     return s;
   }
@@ -62,10 +67,12 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   uint64_t total_records = 0;
   uint64_t total_key_size = 0;
   uint64_t total_blob_size = 0;
-  if (show_key != DisplayType::kNone) {
+  uint64_t total_uncompressed_blob_size = 0;
+  if (show_key != DisplayType::kNone || show_summary) {
     while (offset < footer_offset) {
-      s = DumpRecord(show_key, show_blob, &offset, &total_records,
-                     &total_key_size, &total_blob_size);
+      s = DumpRecord(show_key, show_blob, show_uncompressed_blob, show_summary,
+                     compression, &offset, &total_records, &total_key_size,
+                     &total_blob_size, &total_uncompressed_blob_size);
       if (!s.ok()) {
         break;
       }
@@ -76,6 +83,10 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
     fprintf(stdout, "  total records: %" PRIu64 "\n", total_records);
     fprintf(stdout, "  total key size: %" PRIu64 "\n", total_key_size);
     fprintf(stdout, "  total blob size: %" PRIu64 "\n", total_blob_size);
+    if (compression != kNoCompression) {
+      fprintf(stdout, "  total raw blob size: %" PRIu64 "\n",
+              total_uncompressed_blob_size);
+    }
   }
   return s;
 }
@@ -101,7 +112,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
   return s;
 }
 
-Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset) {
+Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset,
+                                       CompressionType* compression) {
   Slice slice;
   Status s = Read(0, BlobLogHeader::kSize, &slice);
   if (!s.ok()) {
@@ -116,10 +128,17 @@ Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset) {
   fprintf(stdout, "  Version          : %" PRIu32 "\n", header.version);
   fprintf(stdout, "  Column Family ID : %" PRIu32 "\n",
           header.column_family_id);
-  fprintf(stdout, "  Compression      : kNoCompression\n");
+  std::string compression_str;
+  if (!GetStringFromCompressionType(&compression_str, header.compression)
+           .ok()) {
+    compression_str = "Unrecongnized compression type (" +
+                      std::to_string((int)header.compression) + ")";
+  }
+  fprintf(stdout, "  Compression      : %s\n", compression_str.c_str());
   fprintf(stdout, "  Expiration range : %s\n",
           GetString(header.expiration_range).c_str());
   *offset = BlobLogHeader::kSize;
+  *compression = header.compression;
   return s;
 }
 
@@ -152,9 +171,12 @@ Status BlobDumpTool::DumpBlobLogFooter(uint64_t file_size,
 }
 
 Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
+                                DisplayType show_uncompressed_blob,
+                                bool show_summary, CompressionType compression,
                                 uint64_t* offset, uint64_t* total_records,
                                 uint64_t* total_key_size,
-                                uint64_t* total_blob_size) {
+                                uint64_t* total_blob_size,
+                                uint64_t* total_uncompressed_blob_size) {
   if (show_key != DisplayType::kNone) {
     fprintf(stdout, "Read record with offset 0x%" PRIx64 " (%" PRIu64 "):\n",
             *offset, *offset);
@@ -181,6 +203,31 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   if (!s.ok()) {
     return s;
   }
+  // Decompress value
+  std::string uncompressed_value;
+  if (compression != kNoCompression &&
+      (show_uncompressed_blob != DisplayType::kNone || show_summary)) {
+    auto decompressor =
+        GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
+            compression);
+    if (!decompressor) {
+      return Status::NotSupported("Unsupported compression type");
+    }
+    Slice compressed_data(slice.data() + key_size,
+                          static_cast<size_t>(value_size));
+    Decompressor::Args args;
+    args.compression_type = compression;
+    args.compressed_data = compressed_data;
+    s = decompressor->ExtractUncompressedSize(args);
+    if (!s.ok()) {
+      return s;
+    }
+    uncompressed_value.resize(args.uncompressed_size);
+    s = decompressor->DecompressBlock(args, uncompressed_value.data());
+    if (!s.ok()) {
+      return s;
+    }
+  }
   if (show_key != DisplayType::kNone) {
     fprintf(stdout, "  key        : ");
     DumpSlice(Slice(slice.data(), static_cast<size_t>(key_size)), show_key);
@@ -190,11 +237,16 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
                       static_cast<size_t>(value_size)),
                 show_blob);
     }
+    if (show_uncompressed_blob != DisplayType::kNone) {
+      fprintf(stdout, "  raw blob   : ");
+      DumpSlice(Slice(uncompressed_value), show_uncompressed_blob);
+    }
   }
   *offset += key_size + value_size;
   *total_records += 1;
   *total_key_size += key_size;
   *total_blob_size += value_size;
+  *total_uncompressed_blob_size += uncompressed_value.size();
   return s;
 }
 

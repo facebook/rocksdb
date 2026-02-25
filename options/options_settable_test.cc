@@ -207,7 +207,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
-      "fail_if_no_udi_on_open=true",
+      "fail_if_no_udi_on_open=true;"
+      "separate_key_value_in_data_block=true",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -293,7 +294,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "name=64656661756C74;user_defined_timestamps_persisted=1;num_entries=100;"
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
-      "18;",
+      "18;data_block_restart_interval=16;index_block_restart_interval=1;"
+      "separate_key_value_in_data_block=0;",
       new_tp));
 
   // All bytes are set from the parse

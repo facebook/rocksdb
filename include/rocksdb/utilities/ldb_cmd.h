@@ -75,6 +75,7 @@ class LDBCommand {
   static const std::string ARG_BLOB_FILE_STARTING_LEVEL;
   static const std::string ARG_PREPOPULATE_BLOB_CACHE;
   static const std::string ARG_DECODE_BLOB_INDEX;
+  static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
   static const std::string ARG_READ_TIMESTAMP;
   static const std::string ARG_GET_WRITE_UNIX_TIME;
 

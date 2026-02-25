@@ -254,6 +254,7 @@ default_params = {
     "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
     "writepercent": 35,
     "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
+    "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
@@ -1112,6 +1113,10 @@ def finalize_and_sanitize(src_params):
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
             dest_params["disable_wal"] = 0
+    if dest_params.get("user_timestamp_size", 0) > 0:
+        # Interpolation search requires BytewiseComparator but user-defined
+        # timestamps use BytewiseComparatorWithU64TsWrapper.
+        dest_params["index_block_search_type"] = 0
     if (
         dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1

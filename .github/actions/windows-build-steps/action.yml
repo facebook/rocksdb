@@ -4,16 +4,15 @@ runs:
   steps:
   - name: Add msbuild to PATH
     uses: microsoft/setup-msbuild@v1.3.1
-  - name: Cache ccache directory
-    id: ccache-cache
-    uses: actions/cache@v4
-    with:
-      path: C:\a\rocksdb\rocksdb\.ccache
-      key: rocksdb-build-${{ runner.os }}-${{ runner.arch }}-ccache-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}-v1
   - name: ccache
     uses: hendrikmuhs/ccache-action@v1.2
     with:
       max-size: "10GB"
+  - name: Configure ccache
+    shell: pwsh
+    run: |
+      ccache --set-config=base_dir=C:\a\rocksdb\rocksdb
+      ccache --set-config=hash_dir=false
   - name: Custom steps
     env:
       THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
