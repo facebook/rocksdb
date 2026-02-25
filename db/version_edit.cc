@@ -25,7 +25,10 @@ namespace {}  // anonymous namespace
 PinnedTableReader& PinnedTableReader::operator=(
     const PinnedTableReader& other) {
   TableReader* r = other.reader_.load(std::memory_order_acquire);
-  handle_ = other.handle_;
+  // Only read handle_ when reader_ is non-null. Pin() writes handle_ before
+  // reader_ (with release), so a non-null reader_ guarantees handle_ is stable.
+  // If reader_ is null, Pin() may be in progress — avoid reading handle_.
+  handle_ = (r != nullptr) ? other.handle_ : nullptr;
   reader_.store(r, std::memory_order_release);
   return *this;
 }
