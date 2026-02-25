@@ -1208,31 +1208,31 @@ int main(int argc, char** argv) {
 
   StartPhase("compact_files");
   {
-    // The output level must be >= base_level to satisfy RocksDB's invariants.
-    // With level_compaction_dynamic_level_bytes=true (default) and a small
-    // dataset the base level equals num_levels-1, so we compact directly to
-    // the last level.
-    int num_levels = rocksdb_options_get_num_levels(options);
-    int target_level = num_levels - 1;
+    // Use a dedicated fresh DB with level_compaction_dynamic_level_bytes=false
+    // so that base_level is always 1, making output_level=1 unconditionally
+    // valid and the post-compaction level assertion exact.
+    char compact_files_dbname[200];
+    snprintf(compact_files_dbname, sizeof(compact_files_dbname),
+             "%s/rocksdb_c_test-%d-compact_files", GetTempDir(),
+             ((int)geteuid()));
 
-    // Write a unique key and flush to create an L0 SST file.
-    rocksdb_put(db, woptions, "cf_key", 6, "cf_value", 8, &err);
-    CheckNoError(err);
-    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
-    rocksdb_flushoptions_set_wait(flush_opts, 1);
-    rocksdb_flush(db, flush_opts, &err);
-    CheckNoError(err);
-    rocksdb_flushoptions_destroy(flush_opts);
+    rocksdb_options_t* cf_opts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(cf_opts, 1);
+    rocksdb_options_set_level_compaction_dynamic_level_bytes(cf_opts, 0);
 
-    // Create CompactionOptions and verify defaults.
+    rocksdb_t* cf_db = rocksdb_open(cf_opts, compact_files_dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_readoptions_t* cf_ropts = rocksdb_readoptions_create();
+    rocksdb_writeoptions_t* cf_wopts = rocksdb_writeoptions_create();
+
+    // Exercise CompactionOptions setters/getters.
     rocksdb_compaction_options_t* compact_opts =
         rocksdb_compaction_options_create();
     CheckCondition(
         rocksdb_compaction_options_get_allow_trivial_move(compact_opts) == 0);
     CheckCondition(
         rocksdb_compaction_options_get_max_subcompactions(compact_opts) == 0);
-
-    // Exercise setters/getters.
     rocksdb_compaction_options_set_allow_trivial_move(compact_opts, 1);
     CheckCondition(
         rocksdb_compaction_options_get_allow_trivial_move(compact_opts) == 1);
@@ -1242,54 +1242,48 @@ int main(int argc, char** argv) {
         rocksdb_compaction_options_get_max_subcompactions(compact_opts) == 2);
     rocksdb_compaction_options_set_max_subcompactions(compact_opts, 0);
 
-    // Find the L0 file name from livefiles.  Keep lf alive until after the
-    // compact_files call since the returned name pointer points into lf.
-    const rocksdb_livefiles_t* lf = rocksdb_livefiles(db);
-    int lf_count = rocksdb_livefiles_count(lf);
-    const char* l0_file = NULL;
-    for (int i = 0; i < lf_count; i++) {
-      if (rocksdb_livefiles_level(lf, i) == 0) {
-        l0_file = rocksdb_livefiles_name(lf, i);
-        break;
-      }
-    }
-    CheckCondition(l0_file != NULL);
-
-    // Compact the L0 file to target_level.
-    const char* input_files[1];
-    input_files[0] = l0_file;
-    rocksdb_compact_files(db, compact_opts, input_files, 1, target_level, &err);
+    // Write a key and flush to produce a single L0 SST file.
+    rocksdb_put(cf_db, cf_wopts, "foo", 3, "bar", 3, &err);
     CheckNoError(err);
-    rocksdb_livefiles_destroy(lf);
-
-    // The key must still be readable after compaction.
-    CheckGet(db, roptions, "cf_key", "cf_value");
-
-    // Verify no L0 files remain after the compaction.
-    const rocksdb_livefiles_t* lf2 = rocksdb_livefiles(db);
-    int lf2_count = rocksdb_livefiles_count(lf2);
-    int l0_count = 0;
-    for (int i = 0; i < lf2_count; i++) {
-      if (rocksdb_livefiles_level(lf2, i) == 0) {
-        l0_count++;
-      }
-    }
-    CheckCondition(l0_count == 0);
-    rocksdb_livefiles_destroy(lf2);
-
-    // Test the _cf variant using the default column family handle.
-    rocksdb_put(db, woptions, "cf_key2", 7, "cf_value2", 9, &err);
-    CheckNoError(err);
-    flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_opts, 1);
-    rocksdb_flush(db, flush_opts, &err);
+    rocksdb_flush(cf_db, flush_opts, &err);
     CheckNoError(err);
     rocksdb_flushoptions_destroy(flush_opts);
 
-    const rocksdb_livefiles_t* lf3 = rocksdb_livefiles(db);
-    int lf3_count = rocksdb_livefiles_count(lf3);
+    // Find the L0 file name.  Keep lf alive through the compact_files call
+    // since the returned pointer is owned by lf.
+    const rocksdb_livefiles_t* lf = rocksdb_livefiles(cf_db);
+    CheckCondition(rocksdb_livefiles_count(lf) == 1);
+    CheckCondition(rocksdb_livefiles_level(lf, 0) == 0);
+    const char* input_files[1];
+    input_files[0] = rocksdb_livefiles_name(lf, 0);
+
+    // Compact the L0 file to L1.
+    rocksdb_compact_files(cf_db, compact_opts, input_files, 1,
+                          1 /* output_level */, &err);
+    CheckNoError(err);
+    rocksdb_livefiles_destroy(lf);
+
+    // Key must still be readable and the file must now be at L1.
+    CheckGet(cf_db, cf_ropts, "foo", "bar");
+    const rocksdb_livefiles_t* lf2 = rocksdb_livefiles(cf_db);
+    CheckCondition(rocksdb_livefiles_count(lf2) == 1);
+    CheckCondition(rocksdb_livefiles_level(lf2, 0) == 1);
+    rocksdb_livefiles_destroy(lf2);
+
+    // Test the _cf variant using the default column family handle.
+    rocksdb_put(cf_db, cf_wopts, "foo2", 4, "bar2", 4, &err);
+    CheckNoError(err);
+    flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(cf_db, flush_opts, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_destroy(flush_opts);
+
+    const rocksdb_livefiles_t* lf3 = rocksdb_livefiles(cf_db);
     const char* l0_file2 = NULL;
-    for (int i = 0; i < lf3_count; i++) {
+    for (int i = 0; i < rocksdb_livefiles_count(lf3); i++) {
       if (rocksdb_livefiles_level(lf3, i) == 0) {
         l0_file2 = rocksdb_livefiles_name(lf3, i);
         break;
@@ -1298,23 +1292,23 @@ int main(int argc, char** argv) {
     CheckCondition(l0_file2 != NULL);
 
     rocksdb_column_family_handle_t* default_cf =
-        rocksdb_get_default_column_family_handle(db);
+        rocksdb_get_default_column_family_handle(cf_db);
     const char* input_files2[1];
     input_files2[0] = l0_file2;
-    rocksdb_compact_files_cf(db, default_cf, compact_opts, input_files2, 1,
-                             target_level, &err);
+    rocksdb_compact_files_cf(cf_db, default_cf, compact_opts, input_files2, 1,
+                             1 /* output_level */, &err);
     CheckNoError(err);
     rocksdb_livefiles_destroy(lf3);
 
-    CheckGet(db, roptions, "cf_key2", "cf_value2");
-
-    // Clean up: remove the test keys so later test phases are not disturbed.
-    rocksdb_delete(db, woptions, "cf_key", 6, &err);
-    CheckNoError(err);
-    rocksdb_delete(db, woptions, "cf_key2", 7, &err);
-    CheckNoError(err);
+    CheckGet(cf_db, cf_ropts, "foo2", "bar2");
 
     rocksdb_compaction_options_destroy(compact_opts);
+    rocksdb_readoptions_destroy(cf_ropts);
+    rocksdb_writeoptions_destroy(cf_wopts);
+    rocksdb_close(cf_db);
+    rocksdb_destroy_db(cf_opts, compact_files_dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(cf_opts);
   }
 
   // Simple check cache usage
