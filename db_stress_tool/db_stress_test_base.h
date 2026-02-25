@@ -33,6 +33,11 @@ class StressTest {
            !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
+  // Returns true if the status is a transaction lock conflict (deadlock or
+  // timeout) that is expected when MaybeAddKeyToTxnForRYW writes to the same
+  // key space without acquiring the stress-test-level mutex.
+  static bool IsExpectedTxnLockTimeout(const Status& s);
+
   StressTest();
 
   virtual ~StressTest() {}

@@ -1,105 +1,58 @@
-name: clang-tidy
+name: Post clang-tidy PR comment
 on:
-  push:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: ["clang-tidy"]
+    types: [completed]
 
 permissions:
   pull-requests: write
 
 jobs:
-  clang-tidy:
-    if: github.repository_owner == 'facebook'
-    runs-on:
-      labels: 4-core-ubuntu
-    container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4.1.0
+    - name: Download clang-tidy results
+      id: download
+      uses: actions/download-artifact@v4.0.0
       with:
-        ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
-    - name: Mark workspace as safe for git
-      run: git config --global --add safe.directory $GITHUB_WORKSPACE
-    - name: Determine diff base
-      id: diff-base
-      run: |
-        if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-          BASE="${{ github.event.pull_request.base.sha }}"
-        else
-          BASE="${{ github.event.before }}"
-        fi
-        if [ -z "$BASE" ] || echo "$BASE" | grep -q '^0\{40\}$'; then
-          echo "skip=true" >> "$GITHUB_OUTPUT"
-          echo "No valid diff base; skipping clang-tidy."
-        else
-          git fetch --depth=1 origin "$BASE"
-          echo "ref=$BASE" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-        fi
-    - name: Install clang-tidy
-      if: steps.diff-base.outputs.skip != 'true'
-      run: apt-get update && apt-get install -y clang-tidy
-    - name: Generate compile_commands.json
-      if: steps.diff-base.outputs.skip != 'true'
-      run: |
-        mkdir build && cd build
-        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-              -DCMAKE_C_COMPILER=clang-18 \
-              -DCMAKE_CXX_COMPILER=clang++-18 ..
-        cd ..
-        ln -sf build/compile_commands.json compile_commands.json
-    - name: Run clang-tidy on changed files
-      id: clang-tidy
-      if: steps.diff-base.outputs.skip != 'true'
-      run: |
-        python3 tools/run_clang_tidy.py \
-          -j 4 \
-          --diff-base ${{ steps.diff-base.outputs.ref }} \
-          --github-annotations \
-          --github-step-summary \
-          --comment-output clang-tidy-comment.md
+        name: clang-tidy-result
+        run-id: ${{ github.event.workflow_run.id }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
       continue-on-error: true
-    - name: Post clang-tidy results to PR
-      if: github.event_name == 'pull_request_target' && always() && steps.diff-base.outputs.skip != 'true'
+    - name: Post or update PR comment
+      if: steps.download.outcome == 'success'
       uses: actions/github-script@v7
       with:
         script: |
           const fs = require('fs');
-          const commentPath = 'clang-tidy-comment.md';
-          if (!fs.existsSync(commentPath)) {
-            core.info('No comment file generated; skipping PR comment.');
+          if (!fs.existsSync('clang-tidy-comment.md') || !fs.existsSync('pr_number.txt')) {
+            core.info('No clang-tidy results found; skipping.');
             return;
           }
-          const body = fs.readFileSync(commentPath, 'utf8');
+          const body = fs.readFileSync('clang-tidy-comment.md', 'utf8');
+          const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim());
           const marker = '<!-- clang-tidy-bot -->';
-          const prNumber = context.payload.pull_request.number;
-          try {
-            const { data: comments } = await github.rest.issues.listComments({
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+          });
+          const existing = comments.find(c => c.body.includes(marker));
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+            core.info(`Updated existing comment ${existing.id}`);
+          } else {
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
+              body,
             });
-            const existing = comments.find(c => c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-              core.info(`Updated existing comment ${existing.id}`);
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body,
-              });
-              core.info('Created new PR comment');
-            }
-          } catch (err) {
-            core.warning(`Could not post PR comment: ${err.message}`);
+            core.info('Created new PR comment');
           }
-    - name: Fail if clang-tidy found issues
-      if: steps.clang-tidy.outcome == 'failure'
-      run: exit 1

@@ -250,6 +250,9 @@ The following patterns emerged as frequent sources of review feedback:
 ### Adding new option
     Refer to claude_md/add_option.md
 
+### Removing deprecated option
+    Refer to claude_md/remove_option.md
+
 ### Metrics
 * When adding a new feature, evaluate whether there is opportunity to add
     metrics. Try to avoid causing performance regression on hot path when adding

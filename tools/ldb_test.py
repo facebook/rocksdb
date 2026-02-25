@@ -2,7 +2,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import glob
-
 import os
 import os.path
 import re
@@ -99,7 +98,9 @@ class LDBTestCase(unittest.TestCase):
         Uses the default test db.
         """
         self.assertRunOKFull(
-            "{} {}".format(self.dbParam(self.DB_NAME), params), expectedOutput, unexpected
+            "{} {}".format(self.dbParam(self.DB_NAME), params),
+            expectedOutput,
+            unexpected,
         )
 
     def assertRunFAIL(self, params):
@@ -186,11 +187,15 @@ class LDBTestCase(unittest.TestCase):
 
     def writeExternSst(self, params, inputDumpFile, outputSst):
         return 0 == run_err_null(
-            "cat {} | ./ldb write_extern_sst {} {}".format(inputDumpFile, outputSst, params)
+            "cat {} | ./ldb write_extern_sst {} {}".format(
+                inputDumpFile, outputSst, params
+            )
         )
 
     def ingestExternSst(self, params, inputSst):
-        return 0 == run_err_null("./ldb ingest_extern_sst {} {}".format(inputSst, params))
+        return 0 == run_err_null(
+            "./ldb ingest_extern_sst {} {}".format(inputSst, params)
+        )
 
     def testStringBatchPut(self):
         print("Running testStringBatchPut...")
@@ -312,8 +317,12 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("get --hex 0x6131", "0x6231")
         self.assertRunOK("get a2", "b2")
         self.assertRunOK("get --hex 0x6132", "0x6232")
-        self.assertRunOK("multi_get --hex 0x6131 0x6132", "0x6131 ==> 0x6231\n0x6132 ==> 0x6232")
-        self.assertRunOK("multi_get --hex 0x6131 0xBEEF", "0x6131 ==> 0x6231\nKey not found: 0xBEEF")
+        self.assertRunOK(
+            "multi_get --hex 0x6131 0x6132", "0x6131 ==> 0x6231\n0x6132 ==> 0x6232"
+        )
+        self.assertRunOK(
+            "multi_get --hex 0x6131 0xBEEF", "0x6131 ==> 0x6231\nKey not found: 0xBEEF"
+        )
         self.assertRunOK("get --key_hex 0x6132", "b2")
         self.assertRunOK("get --key_hex --value_hex 0x6132", "0x6232")
         self.assertRunOK("get --value_hex a2", "0x6232")
@@ -540,7 +549,9 @@ class LDBTestCase(unittest.TestCase):
             "'b' seq:2, type:1 => val\nInternal keys in range: 2",
         )
         self.assertRunOK(
-            "idump --input_key_hex --from={} --to={}".format(hex(ord("a")), hex(ord("b"))),
+            "idump --input_key_hex --from={} --to={}".format(
+                hex(ord("a")), hex(ord("b"))
+            ),
             "'a' seq:1, type:1 => val\nInternal keys in range: 1",
         )
 
@@ -626,7 +637,9 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("checkconsistency")
 
     def dumpLiveFiles(self, params, dumpFile):
-        return 0 == run_err_null("./ldb dump_live_files {} > {}".format(params, dumpFile))
+        return 0 == run_err_null(
+            "./ldb dump_live_files {} > {}".format(params, dumpFile)
+        )
 
     def testDumpLiveFiles(self):
         print("Running testDumpLiveFiles...")
@@ -651,7 +664,7 @@ class LDBTestCase(unittest.TestCase):
         # Call the dump_live_files function with the edited dbPath name.
         self.assertTrue(
             self.dumpLiveFiles(
-                "--db=%s --decode_blob_index" % dbPath,
+                "--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath,
                 dumpFilePath,
             )
         )
@@ -919,7 +932,7 @@ class LDBTestCase(unittest.TestCase):
         expected_pattern = re.compile(regex)
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
-        cmd = "dump --path=%s"
+        cmd = "dump --path=%s --dump_uncompressed_blobs"
         self.assertRunOKFull(
             (cmd) % (blob_files[0]), expected_pattern, unexpected=False, isPattern=True
         )
