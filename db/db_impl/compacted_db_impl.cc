@@ -103,6 +103,7 @@ Status CompactedDBImpl::Get(const ReadOptions& _read_options,
       true /* pin_table_handle */);
   if (s.ok()) {
     assert(handle == nullptr);
+    // Use TableReader directly to avoid extra table_cache->Get() overheads
     s = t->Get(read_options, lkey.internal_key(), &get_context, nullptr);
   }
   if (!s.ok() && !s.IsNotFound()) {
@@ -195,6 +196,7 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
         true /* pin_table_handle */);
     if (status.ok()) {
       assert(handle == nullptr);
+      // Use TableReader directly to avoid extra table_cache->Get() overheads
       status = t->Get(read_options, lkey.internal_key(), &get_context, nullptr);
     }
     if (!status.ok() && !status.IsNotFound()) {

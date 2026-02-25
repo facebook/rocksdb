@@ -258,10 +258,6 @@ class TableCache {
     }
   }
 
-  // Returns true if the cache capacity is large enough that table handles
-  // should be pinned on FileMetaData to bypass future cache lookups.
-  bool should_pin_table_handles() const { return should_pin_table_handles_; }
-
   // Re-evaluates should_pin_table_handles_ from the current cache capacity.
   // Must be called after the underlying cache capacity changes (e.g. via
   // SetDBOptions changing max_open_files).

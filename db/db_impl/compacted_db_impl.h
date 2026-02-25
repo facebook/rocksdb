@@ -143,6 +143,6 @@ class CompactedDBImpl : public DBImpl {
   Version* version_;
   const Comparator* user_comparator_;
   LevelFilesBrief files_;
-  int files_level_ = 0;
+  int files_level_{0};
 };
 }  // namespace ROCKSDB_NAMESPACE

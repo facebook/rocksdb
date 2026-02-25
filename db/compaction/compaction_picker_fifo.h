@@ -12,12 +12,15 @@
 #include "db/compaction/compaction_picker.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class TableCache;
+
 class FIFOCompactionPicker : public CompactionPicker {
  public:
   FIFOCompactionPicker(const ImmutableOptions& ioptions,
                        const InternalKeyComparator* icmp,
-                       TableCache* table_cache = nullptr)
-      : CompactionPicker(ioptions, icmp, table_cache) {}
+                       TableCache* table_cache)
+      : CompactionPicker(ioptions, icmp), table_cache_(table_cache) {}
 
   Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
@@ -83,5 +86,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       LogBuffer* log_buffer) const;
+
+  TableCache* table_cache_;
 };
 }  // namespace ROCKSDB_NAMESPACE

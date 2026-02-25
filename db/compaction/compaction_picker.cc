@@ -183,9 +183,8 @@ CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
 }
 
 CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
-                                   const InternalKeyComparator* icmp,
-                                   TableCache* table_cache)
-    : ioptions_(ioptions), table_cache_(table_cache), icmp_(icmp) {}
+                                   const InternalKeyComparator* icmp)
+    : ioptions_(ioptions), icmp_(icmp) {}
 
 CompactionPicker::~CompactionPicker() = default;
 

@@ -7836,11 +7836,13 @@ class OpenFilesAsyncTest : public DBTest,
       case ReadType::kMultiGet: {
         std::vector<std::string> keys;
         std::vector<Slice> key_slices;
+        keys.reserve(num_flushes_);
+        key_slices.reserve(num_flushes_);
         for (uint32_t f = 0; f < num_flushes_; f++) {
           keys.push_back(KeyFor(f));
         }
         for (auto& k : keys) {
-          key_slices.push_back(k);
+          key_slices.emplace_back(k);
         }
         std::vector<std::string> values(num_flushes_);
         std::vector<Status> statuses =

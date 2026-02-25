@@ -236,7 +236,7 @@ Status TableCache::FindTable(
         s = cache_.Insert(key, table_reader.get(), 1, handle);
         if (s.ok()) {
           // Release ownership of table reader.
-          table_reader.release();
+          (void)table_reader.release();
         }
       }
     }

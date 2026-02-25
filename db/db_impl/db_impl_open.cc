@@ -295,7 +295,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
     return Status::InvalidArgument(
         "write_dbid_to_manifest and write_identity_file cannot both be false");
   }
-
   return Status::OK();
 }
 
@@ -2712,15 +2711,21 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   return s;
 }
 
-// Context for async file opening background work
 struct AsyncFileOpenContext {
-  DBImpl* db;
+  DBImpl* db = nullptr;
   FileOptions file_options;
   std::vector<Version*> versions;
+
+  AsyncFileOpenContext() = default;
+  AsyncFileOpenContext(const AsyncFileOpenContext&) = delete;
+  AsyncFileOpenContext& operator=(const AsyncFileOpenContext&) = delete;
+  AsyncFileOpenContext(AsyncFileOpenContext&&) = delete;
+  AsyncFileOpenContext& operator=(AsyncFileOpenContext&&) = delete;
 
   ~AsyncFileOpenContext() {
     db->mutex()->AssertHeld();
     for (auto* v : versions) {
+      // must unref version before cfd
       ColumnFamilyData* cfd = v->cfd();
       v->Unref();
       cfd->UnrefAndTryDelete();
