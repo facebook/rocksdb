@@ -144,7 +144,6 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: make-with-folly
-        portable: "false"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly
     - uses: "./.github/actions/build-folly"
@@ -194,7 +193,6 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: cmake-folly-coroutines
-        portable: "false"
     - uses: "./.github/actions/cache-folly"
       id: cache-folly
     - uses: "./.github/actions/build-folly"
