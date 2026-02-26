@@ -7906,7 +7906,8 @@ TEST_P(OpenFilesAsyncTest, ConcurrentFileAccess) {
 
   port::Thread compaction_thread([&]() {
     if (!read_only_) {
-      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+          .PermitUncheckedError();
     }
   });
 
