@@ -7870,6 +7870,7 @@ class OpenFilesAsyncTest : public DBTest,
 
   void OpenTestDB(Options& options) {
     options.open_files_async = true;
+    options.skip_stats_update_on_db_open = true;
     options.statistics = CreateDBStatistics();
 
     std::vector<std::string> cfs;
