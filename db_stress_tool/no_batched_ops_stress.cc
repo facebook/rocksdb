@@ -626,6 +626,7 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice key = key_str;
     std::string ignore;
     ReadOptions read_opts_copy = read_opts;
+    MaybeReadBlobCompressed(thread, read_opts_copy);
 
     std::string read_ts_str;
     Slice read_ts_slice;
@@ -665,6 +666,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string from_db;
 
     ReadOptions read_opts_copy = read_opts;
+    MaybeReadBlobCompressed(thread, read_opts_copy);
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
@@ -786,6 +788,7 @@ class NonBatchedOpsStressTest : public StressTest {
     bool do_consistency_check = FLAGS_check_multiget_consistency;
 
     ReadOptions readoptionscopy = read_opts;
+    MaybeReadBlobCompressed(thread, readoptionscopy);
 
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
@@ -1115,6 +1118,7 @@ class NonBatchedOpsStressTest : public StressTest {
     PinnableAttributeGroups attribute_groups_from_db;
 
     ReadOptions read_opts_copy = read_opts;
+    MaybeReadBlobCompressed(thread, read_opts_copy);
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
@@ -1248,6 +1252,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    MaybeReadBlobCompressed(thread, read_opts_copy);
 
     assert(!rand_column_families.empty());
 
@@ -1609,6 +1614,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
+    MaybeReadBlobCompressed(thread, ro_copy);
 
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
@@ -2450,6 +2456,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     ReadOptions ro(read_opts);
+    MaybeReadBlobCompressed(thread, ro);
 
     if (FLAGS_prefix_size > 0) {
       ro.total_order_seek = true;

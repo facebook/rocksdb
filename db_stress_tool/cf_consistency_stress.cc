@@ -261,6 +261,7 @@ class CfConsistencyStressTest : public StressTest {
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
     ReadOptions readoptionscopy = read_opts;
+    MaybeReadBlobCompressed(thread, readoptionscopy);
     readoptionscopy.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
@@ -329,6 +330,7 @@ class CfConsistencyStressTest : public StressTest {
 
       ReadOptions read_opts_copy = read_opts;
       read_opts_copy.snapshot = snapshot_guard.snapshot();
+      MaybeReadBlobCompressed(thread, read_opts_copy);
 
       assert(rand_column_families[0] >= 0);
       assert(rand_column_families[0] <
@@ -519,6 +521,7 @@ class CfConsistencyStressTest : public StressTest {
 
     ReadOptions read_opts_copy = read_opts;
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    MaybeReadBlobCompressed(thread, read_opts_copy);
 
     const size_t num_cfs = rand_column_families.size();
 
@@ -776,6 +779,7 @@ class CfConsistencyStressTest : public StressTest {
     Slice ub_slice;
 
     ReadOptions ro_copy = readoptions;
+    MaybeReadBlobCompressed(thread, ro_copy);
     std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
     if (ro_copy.auto_refresh_iterator_with_snapshot) {
       snapshot = std::make_unique<ManagedSnapshot>(db_);

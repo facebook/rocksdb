@@ -55,6 +55,42 @@
 namespace ROCKSDB_NAMESPACE {
 class MockEnv;
 
+// Helper to verify that data is compressed and matches expected value.
+// Uses the Decompressor API to decompress the data.
+// Asserts that:
+// 1. Compressed data is smaller than the original uncompressed data
+// 2. Decompression succeeds
+// 3. Decompressed data matches the expected uncompressed value
+inline void VerifyCompressedData(const Slice& compressed_data,
+                                 CompressionType compression_type,
+                                 const std::string& expected_uncompressed) {
+  // Verify the compressed data is smaller than original
+  ASSERT_LT(compressed_data.size(), expected_uncompressed.size());
+
+  // Get a decompressor from the builtin compression manager
+  auto compression_manager = GetBuiltinV2CompressionManager();
+  ASSERT_NE(compression_manager, nullptr);
+  auto decompressor = compression_manager->GetDecompressor();
+  ASSERT_NE(decompressor, nullptr);
+
+  // Decompress and verify the data
+  Decompressor::Args args;
+  args.compression_type = compression_type;
+  args.compressed_data = compressed_data;
+
+  Status s = decompressor->ExtractUncompressedSize(args);
+  ASSERT_OK(s);
+
+  CacheAllocationPtr output = AllocateBlock(args.uncompressed_size, nullptr);
+  ASSERT_NE(output, nullptr);
+
+  s = decompressor->DecompressBlock(args, output.get());
+  ASSERT_OK(s);
+
+  ASSERT_EQ(std::string(output.get(), args.uncompressed_size),
+            expected_uncompressed);
+}
+
 namespace anon {
 class AtomicCounter {
  public:

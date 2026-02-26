@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 #include <memory>
+#include <optional>
 
 #include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
@@ -43,13 +44,12 @@ class BlobFileReader {
 
   ~BlobFileReader();
 
-  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 uint64_t offset, uint64_t value_size,
-                 CompressionType compression_type,
-                 FilePrefetchBuffer* prefetch_buffer,
-                 MemoryAllocator* allocator,
-                 std::unique_ptr<BlobContents>* result,
-                 uint64_t* bytes_read) const;
+  Status GetBlob(
+      const ReadOptions& read_options, const Slice& user_key, uint64_t offset,
+      uint64_t value_size, CompressionType compression_type,
+      FilePrefetchBuffer* prefetch_buffer, MemoryAllocator* allocator,
+      std::unique_ptr<BlobContents>* result, uint64_t* bytes_read,
+      std::optional<CompressionType>* compression_type_out = nullptr) const;
 
   // offsets must be sorted in ascending order by caller.
   void MultiGetBlob(

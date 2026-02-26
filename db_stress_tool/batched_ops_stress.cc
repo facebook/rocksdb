@@ -291,6 +291,7 @@ class BatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    MaybeReadBlobCompressed(thread, read_opts_copy);
 
     assert(!rand_keys.empty());
 
@@ -399,6 +400,7 @@ class BatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
+    MaybeReadBlobCompressed(thread, read_opts_copy);
 
     const size_t num_keys = rand_keys.size();
 
@@ -585,6 +587,7 @@ class BatchedOpsStressTest : public StressTest {
 
       ro_copies[i] = readoptions;
       ro_copies[i].snapshot = snapshot;
+      MaybeReadBlobCompressed(thread, ro_copies[i]);
       if (thread->rand.OneIn(2) &&
           GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
         // For half of the time, set the upper bound to the next prefix

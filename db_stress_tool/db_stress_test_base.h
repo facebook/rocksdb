@@ -394,6 +394,17 @@ class StressTest {
   virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 
+  // Randomly enable compressed blob reads when blob compression is not used,
+  // so that stress validation (which compares raw values) is not confused by
+  // compressed bytes.
+  // TODO: to cover the actual-compression path, decompress returned data
+  // before value comparison so we can stress-test with any compression type.
+  void MaybeReadBlobCompressed(ThreadState* thread, ReadOptions& read_opts) {
+    read_opts.read_blob_compressed =
+        options_.blob_compression_type == kNoCompression &&
+        thread->rand.OneIn(2);
+  }
+
   // Returns whether the timestamp of read_opts is updated.
   bool MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                             std::string& ts_str,
