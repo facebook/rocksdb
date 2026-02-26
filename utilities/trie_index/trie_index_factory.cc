@@ -117,7 +117,10 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   has_prev_key_ = false;
 
   if (!iter_.Seek(target)) {
-    result->bound_check_result = IterBoundCheck::kOutOfBound;
+    // Use kUnknown rather than kOutOfBound: we cannot be certain that all
+    // keys in this file exceed the upper bound. The next SST file in the
+    // level may still contain keys within the scan range.
+    result->bound_check_result = IterBoundCheck::kUnknown;
     result->key = Slice();
     return Status::OK();
   }
@@ -143,7 +146,10 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   has_prev_key_ = true;
 
   if (!iter_.Next()) {
-    result->bound_check_result = IterBoundCheck::kOutOfBound;
+    // Use kUnknown rather than kOutOfBound: we cannot be certain that all
+    // keys in this file exceed the upper bound. The next SST file in the
+    // level may still contain keys within the scan range.
+    result->bound_check_result = IterBoundCheck::kUnknown;
     result->key = Slice();
     return Status::OK();
   }

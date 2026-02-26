@@ -241,7 +241,7 @@ default_params = {
     "use_merge": lambda: random.randint(0, 1),
     # use_trie_index must be the same across invocations because it restricts
     # operations (no deletes/merges) and existing SSTs may contain non-Put types
-    "use_trie_index": random.choice([0, 0, 0, 1]),
+    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
