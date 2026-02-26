@@ -802,6 +802,7 @@ Status DB::OpenAsSecondary(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    impl->MarkAsyncFileOpenNotNeeded();
   }
   impl->mutex_.Unlock();
   sv_context.Clean();
@@ -811,6 +812,7 @@ Status DB::OpenAsSecondary(
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
     }
+    impl->opened_successfully_ = true;
   } else {
     for (auto h : *handles) {
       delete h;

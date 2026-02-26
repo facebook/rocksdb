@@ -22,6 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {}  // anonymous namespace
 
+// After copying, we rely on the caller to ensure no double releases. Fragile,
+// but keeps copying cheap.
 PinnedTableReader& PinnedTableReader::operator=(
     const PinnedTableReader& other) {
   TableReader* r = other.reader_.load(std::memory_order_acquire);

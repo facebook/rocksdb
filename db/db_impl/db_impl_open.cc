@@ -2613,7 +2613,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // The WriteOptionsFile() will release and lock the mutex internally.
     persist_options_status =
         impl->WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
-    impl->opened_successfully_ = true;
   } else {
     persist_options_status.PermitUncheckedError();
   }
@@ -2701,6 +2700,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->options_mutex_.Unlock();
   if (s.ok()) {
+    impl->opened_successfully_ = true;
     *dbptr = std::move(impl);
   } else {
     for (auto* h : *handles) {
@@ -2755,24 +2755,31 @@ void DBImpl::ScheduleAsyncFileOpening() {
     }
   }
 
-  bg_async_file_open_scheduled_ = true;
+  bg_async_file_open_state_ = AsyncFileOpenState::kScheduled;
 
   // since this is a one time job, best to schedule it with high priority
   env_->Schedule(&DBImpl::BGWorkAsyncFileOpen, ctx, Env::Priority::HIGH,
                  nullptr);
 }
 
+void DBImpl::MarkAsyncFileOpenNotNeeded() {
+  mutex_.AssertHeld();
+  assert(bg_async_file_open_state_ == AsyncFileOpenState::kNotScheduled);
+  bg_async_file_open_state_ = AsyncFileOpenState::kComplete;
+}
+
 void DBImpl::BGWorkAsyncFileOpen(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkAsyncFileOpen::Start");
 
-  AsyncFileOpenContext* raw_ctx = reinterpret_cast<AsyncFileOpenContext*>(arg);
+  AsyncFileOpenContext* raw_ctx = static_cast<AsyncFileOpenContext*>(arg);
   DBImpl* db = raw_ctx->db;
 
-  auto deleter = [db](AsyncFileOpenContext* p) {
-    InstrumentedMutexLock l(&db->mutex_);
+  auto deleter = [](AsyncFileOpenContext* p) {
+    auto* dbPtr = p->db;
+    InstrumentedMutexLock l(&dbPtr->mutex_);
     delete p;
-    db->bg_async_file_open_scheduled_ = false;
-    db->bg_cv_.SignalAll();
+    dbPtr->bg_async_file_open_state_ = AsyncFileOpenState::kComplete;
+    dbPtr->bg_cv_.SignalAll();
   };
   std::unique_ptr<AsyncFileOpenContext, decltype(deleter)> ctx(raw_ctx,
                                                                deleter);

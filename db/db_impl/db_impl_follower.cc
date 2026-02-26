@@ -321,10 +321,12 @@ Status DB::OpenAsFollower(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    impl->MarkAsyncFileOpenNotNeeded();
   }
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
+    impl->opened_successfully_ = true;
     dbptr->reset(impl);
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(

@@ -675,8 +675,8 @@ ColumnFamilyData::ColumnFamilyData(
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
-      compaction_picker_.reset(new FIFOCompactionPicker(
-          ioptions_, &internal_comparator_, table_cache_.get()));
+      compaction_picker_.reset(
+          new FIFOCompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
       compaction_picker_.reset(
           new NullCompactionPicker(ioptions_, &internal_comparator_));
@@ -1567,6 +1567,17 @@ Status ColumnFamilyData::ValidateOptions(
       db_options.max_open_files != -1 && cf_options.ttl > 0) {
     return Status::NotSupported(
         "FIFO compaction only supported with max_open_files = -1.");
+  }
+
+  if (cf_options.compaction_style == kCompactionStyleFIFO &&
+      db_options.open_files_async) {
+    // FIFO TTL picker relies on reading the files table properties inside a DB
+    // mutex. This can be slow files are opened asynchronously, so we disable
+    // it.
+    // TODO: consider blocking fifo compaction until async file open task
+    // completes.
+    return Status::NotSupported(
+        "FIFO compaction is not supported with open_files_async = true.");
   }
 
   if (cf_options.compaction_options_fifo.use_kv_ratio_compaction) {

@@ -174,11 +174,11 @@ class TableCache {
   static Cache::Handle* Lookup(Cache* cache, uint64_t file_number);
 
   // Look up the TableReader for the given file in the cache, or open the file
-  // and create a new TableReader if not cached. On success, sets
-  // *out_table_reader to point to the TableReader (owned by the cache) and
-  // *handle to the cache handle (caller must release via cache_.Release()
-  // unless pin_table_handle is true). If the table reader is already pinned on
-  // file_meta, returns it directly without a cache lookup.
+  // and create a new TableReader if not cached. On success, sets *table_reader
+  // to point to the TableReader (owned by the cache) and *handle to the cache
+  // handle (caller must release via cache_.Release() unless pin_table_handle is
+  // true). If the table reader is already pinned on file_meta, returns it
+  // directly without a cache lookup.
   //
   // @param no_io If true, returns Status::Incomplete() when the table is not
   //              already in cache rather than reading from disk.

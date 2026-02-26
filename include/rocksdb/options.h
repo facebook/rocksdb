@@ -785,8 +785,11 @@ struct DBOptions {
 
   // If true, SST files are opened and validated asynchronously in the
   // background after DB::Open returns. This reduces DB open time for
-  // databases with many SST files. Mostly useful when max_open_files = -1, as
-  // max_open_files != -1 usually has fast open times.
+  // databases with many SST files and high latency file systems. Mostly useful
+  // when max_open_files = -1, as max_open_files != -1 usually has fast open
+  // times. See also `max_file_opening_threads` to improve file open latency.
+  //
+  // Note: This option is currently not compatible with FIFO compaction.
   //
   // Errors will no longer show up in DB::Open, but instead can show up as
   // either background errors and/or operations that access the file (e.g.

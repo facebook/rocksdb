@@ -14,7 +14,6 @@
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
 #include "db/compaction/file_pri.h"
-#include "db/table_cache.h"
 #include "rocksdb/advanced_options.h"
 #include "table/mock_table.h"
 #include "table/unique_id_impl.h"
@@ -53,9 +52,6 @@ class CompactionPickerTestBase : public testing::Test {
   // input files to compaction process.
   std::vector<CompactionInputFiles> input_files_;
   int compaction_level_start_;
-  std::shared_ptr<Cache> table_cache_backing_;
-  FileOptions file_options_;
-  std::unique_ptr<TableCache> table_cache_;
 
   explicit CompactionPickerTestBase(const Comparator* _ucmp)
       : ucmp_(_ucmp),
@@ -83,15 +79,6 @@ class CompactionPickerTestBase : public testing::Test {
     // not run to set this option to false. So we do the sanitization
     // here. Tests that test this option set this option to true explicitly.
     ioptions_.level_compaction_dynamic_level_bytes = false;
-
-    LRUCacheOptions co;
-    co.capacity = TableCache::kInfiniteCapacity;
-    co.metadata_charge_policy = kDontChargeCacheMetadata;
-    table_cache_backing_ = NewLRUCache(co);
-    table_cache_.reset(
-        new TableCache(ioptions_, &file_options_, table_cache_backing_.get(),
-                       nullptr /* block_cache_tracer */,
-                       nullptr /* io_tracer */, "" /* db_session_id */));
   }
 
   ~CompactionPickerTestBase() override { ClearFiles(); }
@@ -1238,8 +1225,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 
   fifo_options_.max_table_files_size = kMaxSize;
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_,
-                                              table_cache_.get());
+  FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), false);
@@ -1276,8 +1262,7 @@ TEST_F(CompactionPickerTest, FIFOToCold1) {
 
     auto copiedIOptions = ioptions_;
     copiedIOptions.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_,
-                                                table_cache_.get());
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1329,8 +1314,7 @@ TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
 
     auto copiedIOptions = ioptions_;
     copiedIOptions.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_,
-                                                table_cache_.get());
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1400,8 +1384,7 @@ TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
 
     auto copiedIOptions = ioptions_;
     copiedIOptions.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_,
-                                                table_cache_.get());
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1469,8 +1452,7 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
 
     auto copiedIOptions = ioptions_;
     copiedIOptions.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_,
-                                                table_cache_.get());
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1540,8 +1522,7 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
 
     auto copiedIOptions = ioptions_;
     copiedIOptions.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_,
-                                                table_cache_.get());
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -5040,7 +5021,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
   // Sub-test 1: fewer than trigger (3 files < trigger 4) -> no compaction
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 1ULL * 1024 * 1024 * 1024, 4);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
     Add(0, 1U, "100", "200", 64 * 1024);
     Add(0, 2U, "200", "300", 64 * 1024);
     Add(0, 3U, "300", "400", 64 * 1024);
@@ -5056,7 +5037,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
   // Sub-test 2: exactly trigger (4 files = trigger 4) -> compaction fires
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 1ULL * 1024 * 1024 * 1024, 4);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
     Add(0, 1U, "100", "200", 64 * 1024);
     Add(0, 2U, "200", "300", 32 * 1024);
     Add(0, 3U, "300", "400", 48 * 1024);
@@ -5078,7 +5059,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFileCountThreshold) {
   // Sub-test 3: more than trigger (8 files > trigger 4) -> compaction fires
   {
     SetupFIFORatioBased(100 * 1024 * 1024, 500ULL * 1024 * 1024, 4);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
     Add(0, 1U, "100", "199", 64 * 1024);
     Add(0, 2U, "200", "299", 32 * 1024);
     Add(0, 3U, "300", "399", 48 * 1024);
@@ -5107,7 +5088,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionNoBlobsFallback) {
   // can accumulate will be found. The algorithm should still work
   // correctly (not crash) and produce a compaction at a low tier boundary.
   SetupFIFORatioBased(10 * 1024 * 1024, 10ULL * 1024 * 1024 * 1024, 4);
-  FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
 
   // Small SST files, no blob files
   Add(0, 1U, "100", "200", 64 * 1024);
@@ -5133,7 +5114,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionNoRecompaction) {
   // no re-compaction should happen. Files >= target are skipped at every
   // tier boundary.
   SetupFIFORatioBased(100 * 1024 * 1024, 500ULL * 1024 * 1024, 4);
-  FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
   // Use max_compaction_bytes to set an explicit target of 256KB.
   // Make all files >= 256KB so they are "graduated" (at or above target).
   mutable_cf_options_.max_compaction_bytes = 256 * 1024;
@@ -5153,7 +5134,7 @@ TEST_F(CompactionPickerTest,
        FIFORatioBasedCompactionWithExplicitMaxCompactionBytes) {
   // When max_compaction_bytes > 0, it overrides the auto-calculated target.
   SetupFIFORatioBased(100 * 1024 * 1024, 10ULL * 1024 * 1024 * 1024, 4);
-  FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
   // Explicitly set target to 256KB
   mutable_cf_options_.max_compaction_bytes = 256 * 1024;
 
@@ -5186,7 +5167,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
   {
     SetupFIFORatioBased(10 * 1024 * 1024, 0, 4,
                         /*allow_compaction=*/false, /*use_kv_ratio=*/false);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
     Add(0, 1U, "100", "200", 64 * 1024);
     Add(0, 2U, "200", "300", 64 * 1024);
     Add(0, 3U, "300", "400", 64 * 1024);
@@ -5207,7 +5188,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
     // In production this is sanitized to target_file_size_base * 25,
     // but tests bypass sanitization, so set it explicitly.
     mutable_cf_options_.max_compaction_bytes = 64 * 1024 * 1024;  // 64MB
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
     Add(0, 1U, "100", "200", 64 * 1024);
     Add(0, 2U, "200", "300", 64 * 1024);
     Add(0, 3U, "300", "400", 64 * 1024);
@@ -5300,7 +5281,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedMultiLevelMigration) {
                         /*allow_compaction=*/true,
                         /*use_kv_ratio=*/true,
                         /*num_levels=*/4);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     Add(0, 1U, "100", "200", 64 * 1024);
     Add(0, 2U, "200", "300", 64 * 1024);
@@ -5330,7 +5311,7 @@ TEST_F(CompactionPickerTest, FIFORatioBasedMultiLevelMigration) {
                         /*allow_compaction=*/true,
                         /*use_kv_ratio=*/true,
                         /*num_levels=*/4);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     Add(0, 1U, "100", "200", 64 * 1024);
     Add(0, 2U, "200", "300", 32 * 1024);
@@ -5371,7 +5352,7 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationSingleLevel) {
     mutable_cf_options_.compaction_options_fifo.max_data_files_size = limit;
     mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
     mutable_cf_options_.ttl = 3600;
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     uint64_t recent_time = static_cast<uint64_t>(time(nullptr));
     Add(0, 1U, "100", "200", 50 * 1024, 0, 100, 100, 0, false,
@@ -5449,7 +5430,7 @@ TEST_F(CompactionPickerTest, FIFOTTLBlobEstimationMultiLevel) {
   mutable_cf_options_.compaction_options_fifo.max_data_files_size = 850 * 1024;
   mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
   mutable_cf_options_.ttl = 3600;
-  FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+  FIFOCompactionPicker picker(ioptions_, &icmp_);
 
   uint64_t recent_time = static_cast<uint64_t>(time(nullptr));
   // L0 files: 2 recent, 2 expired
@@ -5490,7 +5471,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
                         /*trigger=*/4,
                         /*allow_compaction=*/true,
                         /*use_kv_ratio=*/false);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     Add(0, 1U, "100", "199", 40 * 1024);
     Add(0, 2U, "200", "299", 40 * 1024);
@@ -5520,7 +5501,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
         400 * 1024;
     mutable_cf_options_.compaction_options_fifo.allow_compaction = true;
     mutable_cf_options_.ttl = 0;
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     Add(0, 1U, "100", "200", 50 * 1024);
     Add(0, 2U, "200", "300", 50 * 1024);
@@ -5545,7 +5526,7 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
                         /*trigger=*/4,
                         /*allow_compaction=*/true,
                         /*use_kv_ratio=*/true);
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     Add(0, 1U, "100", "199", 64 * 1024);
     Add(0, 2U, "200", "299", 64 * 1024);
@@ -5816,7 +5797,7 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
                           uint64_t max_data_files_size,
                           const FlushGenerator& gen) {
     ioptions_.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
 
     // Use max_data_files_size for both limits. When max_data_files_size > 0,
     // it takes precedence and max_table_files_size is ignored, but keeping
@@ -5894,7 +5875,7 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
   void AssertGraduatedNotPicked(const std::vector<L0File>& files, int trigger,
                                 uint64_t max_data_files_size) {
     ioptions_.compaction_style = kCompactionStyleFIFO;
-    FIFOCompactionPicker picker(ioptions_, &icmp_, table_cache_.get());
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
     const uint64_t max_table_files_size = max_data_files_size;
 
     CompactionReason reason;

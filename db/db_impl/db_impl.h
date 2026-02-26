@@ -1722,6 +1722,10 @@ class DBImpl : public DB {
   // Called when open_files_async is enabled.
   void ScheduleAsyncFileOpening();
 
+  // Mark async file opening as not needed. Used by subclasses that load
+  // table files through a different mechanism (e.g., ReactiveVersionSet).
+  void MarkAsyncFileOpenNotNeeded();
+
   // Background work function for async file opening.
   static void BGWorkAsyncFileOpen(void* arg);
 
@@ -1734,6 +1738,9 @@ class DBImpl : public DB {
                                           log::Reader::Reporter& reporter,
                                           Status& status, bool& stop_replay,
                                           WriteBatch& batch);
+
+  // Indicate DB was opened successfully
+  bool opened_successfully_ = false;
 
  private:
   friend class DB;
@@ -3067,8 +3074,15 @@ class DBImpl : public DB {
   // number of background obsolete file purge jobs, submitted to the HIGH pool
   int bg_purge_scheduled_ = 0;
 
-  // whether a background async file opening job is scheduled in the HIGH pool
-  bool bg_async_file_open_scheduled_ = false;
+  enum class AsyncFileOpenState : uint8_t {
+    kNotScheduled = 0,  // Async file opening has not been scheduled.
+    kScheduled,         // Async file opening is in-flight in the HIGH pool.
+    kComplete,          // Async file opening has finished (or was not needed).
+  };
+
+  // Tracks whether background async file opening has been scheduled/completed.
+  AsyncFileOpenState bg_async_file_open_state_ =
+      AsyncFileOpenState::kNotScheduled;
 
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
@@ -3124,9 +3138,6 @@ class DBImpl : public DB {
 
   // Guard against multiple concurrent refitting
   bool refitting_level_ = false;
-
-  // Indicate DB was opened successfully
-  bool opened_successfully_ = false;
 
   // The min threshold to triggere bottommost compaction for removing
   // garbages, among all column families.
