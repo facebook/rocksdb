@@ -3001,7 +3001,9 @@ TEST_F(TrieIndexFactoryTest, EmptyTrieIterator) {
 
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("anything"), &result));
-  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+  // kUnknown because we cannot be certain all keys in this file exceed the
+  // upper bound — the next file may still have in-range keys.
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
 
 TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
@@ -3141,9 +3143,10 @@ TEST_F(TrieIndexFactoryTest, ScanWithNoLimit) {
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // No more blocks.
+  // No more blocks — kUnknown because we cannot be certain all keys in this
+  // file exceed the upper bound.
   ASSERT_OK(iter->NextAndGetResult(&result));
-  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
 
 TEST_F(TrieIndexFactoryTest, NewReaderWithCorruptedData) {
