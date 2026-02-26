@@ -454,6 +454,26 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void writeBufferManagerDynamicSettings() throws RocksDBException {
+    try (final DBOptions opt = new DBOptions(); final Cache cache = new LRUCache(8 * 1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(4 * 1024 * 1024, cache, false)) {
+      opt.setWriteBufferManager(writeBufferManager);
+      
+      // Test initial state
+      assertThat(writeBufferManager.enabled()).isTrue();
+      assertThat(writeBufferManager.bufferSize()).isEqualTo(4 * 1024 * 1024);
+      assertThat(writeBufferManager.allowStall()).isFalse();
+      
+      // Test dynamic updates
+      writeBufferManager.setBufferSize(8 * 1024 * 1024);
+      assertThat(writeBufferManager.bufferSize()).isEqualTo(8 * 1024 * 1024);
+      
+      writeBufferManager.setAllowStall(true);
+      assertThat(writeBufferManager.allowStall()).isTrue();
+    }
+  }
+
+  @Test
   public void compactionReadaheadSize() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
