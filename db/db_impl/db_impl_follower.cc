@@ -326,7 +326,6 @@ Status DB::OpenAsFollower(
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    impl->opened_successfully_ = true;
     dbptr->reset(impl);
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(

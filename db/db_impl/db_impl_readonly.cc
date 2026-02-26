@@ -357,16 +357,16 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+
+    impl->opened_successfully_ = true;
+
     if (db_options.open_files_async) {
       impl->ScheduleAsyncFileOpening();
-    } else {
-      impl->MarkAsyncFileOpenNotNeeded();
     }
   }
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    impl->opened_successfully_ = true;
     dbptr->reset(impl);
     for (auto* h : *handles) {
       impl->NewThreadStatusCfInfo(

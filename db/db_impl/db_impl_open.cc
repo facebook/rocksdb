@@ -2613,6 +2613,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // The WriteOptionsFile() will release and lock the mutex internally.
     persist_options_status =
         impl->WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
+    impl->opened_successfully_ = true;
   } else {
     persist_options_status.PermitUncheckedError();
   }
@@ -2700,7 +2701,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->options_mutex_.Unlock();
   if (s.ok()) {
-    impl->opened_successfully_ = true;
     *dbptr = std::move(impl);
   } else {
     for (auto* h : *handles) {

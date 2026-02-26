@@ -812,7 +812,6 @@ Status DB::OpenAsSecondary(
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
     }
-    impl->opened_successfully_ = true;
   } else {
     for (auto h : *handles) {
       delete h;
