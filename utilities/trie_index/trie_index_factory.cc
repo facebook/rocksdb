@@ -231,6 +231,37 @@ void TrieIndexIterator::Prepare(const ScanOptions scan_opts[],
   prepared_ = true;
 }
 
+Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
+  // Reset overflow state — SeekToFirst always lands on the primary block
+  // of the first trie leaf.
+  overflow_run_index_ = 0;
+  overflow_run_size_ = 0;
+  overflow_base_idx_ = 0;
+
+  if (!iter_.SeekToFirst()) {
+    result->bound_check_result = IterBoundCheck::kUnknown;
+    result->key = Slice();
+    return Status::OK();
+  }
+
+  result->key = iter_.Key();
+  current_key_scratch_ = result->key.ToString();
+  result->key = Slice(current_key_scratch_);
+
+  // Set up overflow state for the first leaf if seqno encoding is active.
+  if (has_seqno_encoding_) {
+    uint64_t leaf_idx = iter_.LeafIndex();
+    uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
+    overflow_run_size_ = block_count;
+    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
+  }
+
+  // The very first entry is always in bounds (no target to compare against
+  // the limit, and the first block cannot precede any scan range).
+  result->bound_check_result = IterBoundCheck::kInbound;
+  return Status::OK();
+}
+
 Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
                                            IterateResult* result,
                                            const SeekContext& context) {

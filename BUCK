@@ -5627,6 +5627,12 @@ cpp_unittest_wrapper(name="transaction_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="trie_index_db_test",
+            srcs=["utilities/trie_index/trie_index_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="trie_index_test",
             srcs=["utilities/trie_index/trie_index_test.cc"],
             deps=[":rocksdb_test_lib"],

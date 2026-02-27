@@ -33,6 +33,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "utilities/merge_operators.h"
 #include "utilities/trie_index/bitvector.h"
 #include "utilities/trie_index/louds_trie.h"
 #include "utilities/trie_index/trie_index_factory.h"
@@ -3265,24 +3266,29 @@ TEST_F(TrieIndexFactoryTest, NewReaderWithCorruptedData) {
 }
 
 TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
-  // Verify that OnKeyAdded() is a no-op and doesn't crash.
+  // Verify that OnKeyAdded() is a no-op for the trie builder regardless of
+  // the ValueType. The trie only uses separator keys from AddIndexEntry().
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
   std::unique_ptr<UserDefinedIndexBuilder> builder;
   ASSERT_OK(factory_->NewBuilder(option, builder));
 
-  // Call OnKeyAdded with various inputs — it should do nothing.
+  // Call OnKeyAdded with all ValueType variants — all should be no-ops.
   builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::kValue,
                       Slice("value1"));
-  builder->OnKeyAdded(Slice("key2"), UserDefinedIndexBuilder::kValue,
-                      Slice("value2"));
+  builder->OnKeyAdded(Slice("key2"), UserDefinedIndexBuilder::kDelete,
+                      Slice(""));
+  builder->OnKeyAdded(Slice("key3"), UserDefinedIndexBuilder::kMerge,
+                      Slice("merge_operand"));
+  builder->OnKeyAdded(Slice("key4"), UserDefinedIndexBuilder::kOther,
+                      Slice("blob_ref"));
   builder->OnKeyAdded(Slice(""), UserDefinedIndexBuilder::kValue, Slice(""));
 
   // Building should still succeed (OnKeyAdded should not affect state).
   UserDefinedIndexBuilder::BlockHandle handle{0, 500};
   std::string scratch;
-  builder->AddIndexEntry(Slice("key3"), nullptr, handle, &scratch, {0, 0});
+  builder->AddIndexEntry(Slice("key5"), nullptr, handle, &scratch, {0, 0});
 
   Slice index_contents;
   ASSERT_OK(builder->Finish(&index_contents));
@@ -4853,16 +4859,21 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
   ASSERT_EQ(count, 3);
 }
 
-// Regression test for a crash in
-// UserDefinedIndexBuilderWrapper::OnKeyAdded(). When the UDI wrapper
-// encountered a non-Put key type (e.g., Delete), it set its internal status_
-// to non-OK and stopped forwarding OnKeyAdded() to the wrapped internal index
+// Regression test for a historical crash in
+// UserDefinedIndexBuilderWrapper::OnKeyAdded(). Originally, the UDI wrapper
+// rejected non-Put key types (e.g., Delete) by setting its internal status_
+// to non-OK and stopping OnKeyAdded() forwarding to the wrapped internal index
 // builder. However, AddIndexEntry() was always forwarded unconditionally.
 // This asymmetry caused the internal ShortenedIndexBuilder's
 // current_block_first_internal_key_ to remain empty, hitting an assertion
 // in GetFirstInternalKey() during the buffered-block replay in
-// MaybeEnterUnbuffered(). The fix ensures the internal builder always
-// receives OnKeyAdded() regardless of UDI-specific errors.
+// MaybeEnterUnbuffered(). That bug was fixed by ensuring the internal builder
+// always receives OnKeyAdded() regardless of UDI-specific errors.
+//
+// Since then, the UDI wrapper has been updated to support all operation types
+// (Put, Delete, Merge, SingleDelete, etc.), so Finish() now succeeds. This
+// test remains valuable as a regression guard for the compression dictionary
+// buffered-mode code path with mixed key types.
 TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
   auto dict_compressions = GetSupportedDictCompressions();
   if (dict_compressions.empty()) {
@@ -4888,9 +4899,8 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
   options.compression_opts.max_dict_buffer_bytes = 4096;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  // Build an SST directly using the TableBuilder interface so we can add
-  // entries with non-Put value types (Delete, Merge), which SstFileWriter
-  // does not support.
+  // Build an SST directly using the TableBuilder interface so we have
+  // fine-grained control over internal key types (Delete, Merge, etc.).
   test::StringSink* sink = new test::StringSink();
   std::unique_ptr<FSWritableFile> holder(sink);
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
@@ -4913,8 +4923,8 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
       file_writer.get()));
 
   // Add enough keys to fill multiple data blocks. Mix in Delete and Merge
-  // entries which previously caused the UDI wrapper to poison its status_
-  // and stop forwarding OnKeyAdded() to the internal index builder.
+  // entries to exercise the compression dictionary buffered-mode code path
+  // with all operation types.
   constexpr int kNumKeys = 1000;
   for (int i = 0; i < kNumKeys; i++) {
     char buf[32];
@@ -4940,15 +4950,12 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
     builder->Add(ik.Encode(), value);
   }
 
-  // Before the fix, Finish() would crash with:
+  // Before the original fix, Finish() would crash with:
   //   Assertion `!current_block_first_internal_key_.empty()' failed.
   // during the MaybeEnterUnbuffered() replay of buffered data blocks.
-  // After the fix, Finish() may return a non-OK status (because UDI doesn't
-  // support non-Put types yet) but must not crash.
+  // The UDI wrapper now supports all operation types, so Finish() succeeds.
   Status s = builder->Finish();
-  // We don't assert OK because the UDI wrapper legitimately rejects non-Put
-  // types. The important thing is no crash/assertion failure.
-  s.PermitUncheckedError();
+  ASSERT_OK(s);
 }
 
 // ============================================================================
@@ -5167,6 +5174,246 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
   }
 
   fprintf(stderr, "\n");
+}
+
+// ============================================================================
+// Mixed key type tests — verifies UDI works with Delete, Merge, etc.
+// ============================================================================
+
+TEST_F(TrieIndexSSTTest, MixedKeyTypesWithTrieUDI) {
+  // Write an SST containing Puts, Deletes, and Merges using the trie UDI.
+  // This validates that the UDI builder wrapper correctly handles all
+  // operation types, and the resulting SST is readable via both the native
+  // index and the trie UDI.
+  Options options;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(sst_path_));
+
+  // Write sorted entries with mixed types. SstFileWriter requires keys
+  // to be added in strictly increasing order.
+  ASSERT_OK(writer.Put("key_0001", "value_0001"));
+  ASSERT_OK(writer.Merge("key_0002", "merge_operand_0002"));
+  ASSERT_OK(writer.Put("key_0003", "value_0003"));
+  ASSERT_OK(writer.Delete("key_0004"));
+  ASSERT_OK(writer.Put("key_0005", "value_0005"));
+  ASSERT_OK(writer.Merge("key_0006", "merge_operand_0006"));
+  ASSERT_OK(writer.Delete("key_0007"));
+  ASSERT_OK(writer.Put("key_0008", "value_0008"));
+
+  ASSERT_OK(writer.Finish());
+
+  // Verify the SST is structurally correct using the native index. The native
+  // binary search index is always present alongside the UDI. DBIter hides
+  // delete tombstones, so we expect 6 visible entries (4 Puts + 2 Merges).
+  {
+    Options read_options;
+    read_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    BlockBasedTableOptions read_table_options;
+    read_options.table_factory.reset(
+        NewBlockBasedTableFactory(read_table_options));
+
+    SstFileReader reader(read_options);
+    ASSERT_OK(reader.Open(sst_path_));
+
+    ReadOptions ro;
+    std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
+    iter->SeekToFirst();
+    int count = 0;
+    for (; iter->Valid(); iter->Next()) {
+      count++;
+    }
+    ASSERT_OK(iter->status());
+    // 4 Puts + 2 Merges visible; 2 Deletes hidden by DBIter.
+    ASSERT_EQ(count, 6);
+  }
+
+  // Read with trie UDI using the logical (DB) iterator. This iterator hides
+  // delete tombstones and resolves merges, so we expect 6 visible entries
+  // (4 Puts + 2 Merges; 2 Deletes are hidden).
+  {
+    Options read_options;
+    read_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    BlockBasedTableOptions read_table_options;
+    read_table_options.user_defined_index_factory = trie_factory_;
+    read_options.table_factory.reset(
+        NewBlockBasedTableFactory(read_table_options));
+
+    SstFileReader reader(read_options);
+    ASSERT_OK(reader.Open(sst_path_));
+
+    ReadOptions ro;
+    ro.table_index_factory = trie_factory_.get();
+    std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
+
+    // Full forward scan — expect 6 logically visible entries.
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid())
+        << "SeekToFirst invalid, status: " << iter->status().ToString();
+
+    // Collect all visible keys.
+    std::vector<std::string> visible_keys;
+    for (; iter->Valid(); iter->Next()) {
+      visible_keys.push_back(iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+    // 4 Puts + 2 Merges = 6 visible; 2 Deletes are hidden by DBIter.
+    ASSERT_EQ(visible_keys.size(), 6u);
+    // Verify the expected visible keys (deletes key_0004 and key_0007 skipped).
+    std::vector<std::string> expected_visible = {
+        "key_0001", "key_0002", "key_0003", "key_0005", "key_0006", "key_0008",
+    };
+    ASSERT_EQ(visible_keys, expected_visible);
+
+    // Point seek to a merged key — should find it.
+    iter->Seek("key_0002");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key_0002");
+
+    // Point seek to a deleted key — should advance past the tombstone.
+    iter->Seek("key_0004");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key_0005");
+
+    // Point seek to the last deleted key — should advance to key_0008.
+    iter->Seek("key_0007");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key_0008");
+  }
+}
+
+TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
+  // Larger test with many keys of different types to exercise multiple data
+  // blocks and verify the trie index handles block boundaries correctly.
+  Options options;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  // Use small block size to force many data blocks, stressing the index.
+  table_options.block_size = 128;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(sst_path_));
+
+  const int kNumKeys = 500;
+  // Track all keys and their types, plus the subset visible via DBIter.
+  std::vector<std::pair<std::string, char>> all_entries;
+  std::vector<std::string>
+      visible_keys;  // Keys visible via DBIter (non-delete)
+  all_entries.reserve(kNumKeys);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    char key_buf[32];
+    snprintf(key_buf, sizeof(key_buf), "key_%06d", i);
+    std::string key(key_buf);
+
+    // Distribute types: 60% Put, 20% Delete, 20% Merge.
+    if (i % 5 == 0) {
+      ASSERT_OK(writer.Delete(key));
+      all_entries.emplace_back(key, 'D');
+      // Deletes are hidden by DBIter — not added to visible_keys.
+    } else if (i % 5 == 1) {
+      char val_buf[32];
+      snprintf(val_buf, sizeof(val_buf), "merge_%06d", i);
+      ASSERT_OK(writer.Merge(key, Slice(val_buf)));
+      all_entries.emplace_back(key, 'M');
+      visible_keys.push_back(key);
+    } else {
+      char val_buf[32];
+      snprintf(val_buf, sizeof(val_buf), "value_%06d", i);
+      ASSERT_OK(writer.Put(key, Slice(val_buf)));
+      all_entries.emplace_back(key, 'P');
+      visible_keys.push_back(key);
+    }
+  }
+  ASSERT_OK(writer.Finish());
+
+  // Verify all 500 raw entries exist using the native index via the logical
+  // (DB) iterator without UDI. The native binary search index is always
+  // present alongside the UDI, so we can verify the SST structure with it.
+  // Note: DBIter hides delete tombstones, so we count visible entries only.
+  {
+    Options read_options;
+    read_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    BlockBasedTableOptions read_table_options;
+    read_options.table_factory.reset(
+        NewBlockBasedTableFactory(read_table_options));
+
+    SstFileReader reader(read_options);
+    ASSERT_OK(reader.Open(sst_path_));
+
+    ReadOptions ro;
+    std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
+    iter->SeekToFirst();
+    int count = 0;
+    for (; iter->Valid(); iter->Next()) {
+      count++;
+    }
+    ASSERT_OK(iter->status());
+    // Visible entries = Puts + Merges (deletes hidden by DBIter).
+    ASSERT_EQ(count, static_cast<int>(visible_keys.size()));
+  }
+
+  // Read with trie UDI via the logical (DB) iterator. Delete tombstones are
+  // hidden, so we iterate only the visible keys (Puts + Merges).
+  {
+    Options read_options;
+    read_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    BlockBasedTableOptions read_table_options;
+    read_table_options.user_defined_index_factory = trie_factory_;
+    read_options.table_factory.reset(
+        NewBlockBasedTableFactory(read_table_options));
+
+    SstFileReader reader(read_options);
+    ASSERT_OK(reader.Open(sst_path_));
+
+    ReadOptions ro;
+    ro.table_index_factory = trie_factory_.get();
+    std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
+
+    // Full forward scan — only visible keys should appear.
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    int count = 0;
+    for (; iter->Valid(); iter->Next()) {
+      ASSERT_LT(count, static_cast<int>(visible_keys.size()))
+          << "Too many visible keys";
+      ASSERT_EQ(iter->key().ToString(), visible_keys[count])
+          << "Visible key mismatch at " << count;
+      count++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, static_cast<int>(visible_keys.size()));
+
+    // Point seek to every 10th visible key to verify trie index correctness.
+    for (int i = 0; i < static_cast<int>(visible_keys.size()); i += 10) {
+      iter->Seek(visible_keys[i]);
+      ASSERT_TRUE(iter->Valid()) << "Seek failed for " << visible_keys[i];
+      ASSERT_EQ(iter->key().ToString(), visible_keys[i]);
+    }
+
+    // Point seek to deleted keys — should advance past the tombstone.
+    for (int i = 0; i < kNumKeys; i++) {
+      if (all_entries[i].second == 'D') {
+        iter->Seek(all_entries[i].first);
+        // A deleted key should either advance to the next visible key or
+        // reach end-of-file if it's the last key.
+        if (iter->Valid()) {
+          ASSERT_GT(iter->key().ToString(), all_entries[i].first)
+              << "Seek to deleted key " << all_entries[i].first
+              << " should have advanced past it";
+        }
+        ASSERT_OK(iter->status());
+      }
+    }
+  }
 }
 
 }  // namespace trie_index

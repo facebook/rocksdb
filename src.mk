@@ -670,6 +670,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/transactions/timestamped_snapshot_test.cc                   \
   utilities/ttl/ttl_test.cc                                             \
+  utilities/trie_index/trie_index_db_test.cc                            \
   utilities/trie_index/trie_index_test.cc                               \
   utilities/types_util_test.cc                                          \
   utilities/util_merge_operators_test.cc                                \
