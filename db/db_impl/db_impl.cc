@@ -784,6 +784,36 @@ void DBImpl::PrintStatistics() {
   }
 }
 
+// Computes the minimum time-based compaction interval for a CF based on
+// various options.
+// Returns 0 if all time-based compaction options are disabled.
+static uint64_t GetMinTimeBasedCompactionInterval(
+    const ColumnFamilyOptions& cf_opts) {
+  uint64_t min_interval = UINT64_MAX;
+  if (cf_opts.periodic_compaction_seconds > 0) {
+    min_interval = std::min(min_interval, cf_opts.periodic_compaction_seconds);
+  }
+  if (cf_opts.ttl > 0) {
+    min_interval = std::min(min_interval, cf_opts.ttl);
+  }
+  const auto& fifo_thresholds =
+      cf_opts.compaction_options_fifo.file_temperature_age_thresholds;
+  if (!fifo_thresholds.empty() && fifo_thresholds[0].age > 0) {
+    // Thresholds are in increasing order by age, so first is smallest
+    min_interval = std::min(min_interval, fifo_thresholds[0].age);
+  }
+  if (cf_opts.bottommost_file_compaction_delay > 0) {
+    // NOTE: 0 does not exactly mean "disabled" in this case but it does mean
+    // there's no time component to the relevant compaction picking.
+    min_interval = std::min(min_interval,
+                            uint64_t{cf_opts.bottommost_file_compaction_delay});
+  }
+  // Note: Assume sentinel values like UINT64_MAX - 1 (used by ttl and
+  // periodic_compaction_seconds) are like disabling, if they reach here
+  // unsanitized.
+  return min_interval > UINT64_MAX / 2 ? 0 : min_interval;
+}
+
 uint64_t DBImpl::ComputeTriggerCompactionPeriod() {
   // Start with a maximum period of every 12 hours.
   uint64_t period_sec = 12 * 60 * 60;
@@ -806,21 +836,10 @@ uint64_t DBImpl::ComputeTriggerCompactionPeriod() {
     if (cfd->IsDropped()) {
       continue;
     }
-    const auto& cf_opts = cfd->GetLatestCFOptions();
-    // 0 means disabled
-    if (cf_opts.periodic_compaction_seconds > 0) {
-      compaction_trigger_sec =
-          std::min(compaction_trigger_sec, cf_opts.periodic_compaction_seconds);
-    }
-    if (cf_opts.ttl > 0) {
-      compaction_trigger_sec = std::min(compaction_trigger_sec, cf_opts.ttl);
-    }
-    const auto& fifo_thresholds =
-        cf_opts.compaction_options_fifo.file_temperature_age_thresholds;
-    if (!fifo_thresholds.empty() && fifo_thresholds[0].age > 0) {
-      // Thresholds are in increasing order by age, so first is smallest
-      compaction_trigger_sec =
-          std::min(compaction_trigger_sec, fifo_thresholds[0].age);
+    uint64_t cf_min =
+        GetMinTimeBasedCompactionInterval(cfd->GetLatestCFOptions());
+    if (cf_min > 0) {
+      compaction_trigger_sec = std::min(compaction_trigger_sec, cf_min);
     }
   }
   // We might not align with those timings perfectly, so we tolerate only some
@@ -842,7 +861,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
       "DBImpl::StartPeriodicTaskScheduler:DisableScheduler",
       &disable_scheduler);
   if (disable_scheduler) {
-    return Status::OK();
+    return s;
   }
 
   {
@@ -6967,8 +6986,17 @@ void DBImpl::TriggerPeriodicCompaction() {
       if (cfd->IsDropped()) {
         continue;
       }
-      if (cfd->GetLatestCFOptions().periodic_compaction_seconds &&
-          !cfd->queued_for_compaction()) {
+      if (cfd->queued_for_compaction()) {
+        continue;
+      }
+      // Check if this CF has any time-based compaction trigger configured.
+      // This includes periodic_compaction_seconds, ttl, or FIFO temperature
+      // thresholds. Note: periodic_compaction_seconds may be 0 even when
+      // ttl or temperature thresholds are set, due to option sanitization.
+      if (GetMinTimeBasedCompactionInterval(cfd->GetLatestCFOptions()) > 0) {
+        TEST_SYNC_POINT_CALLBACK(
+            "DBImpl::TriggerPeriodicCompaction:BeforeComputeCompactionScore",
+            cfd);
         cfd->current()->storage_info()->ComputeCompactionScore(
             cfd->ioptions(), cfd->GetLatestMutableCFOptions(),
             cfd->GetFullHistoryTsLow());
