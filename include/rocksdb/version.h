@@ -13,7 +13,7 @@
 // minor or major version number planned for release.
 #define ROCKSDB_MAJOR 11
 #define ROCKSDB_MINOR 0
-#define ROCKSDB_PATCH 1
+#define ROCKSDB_PATCH 2
 
 // Make it easy to do conditional compilation based on version checks, i.e.
 // #if ROCKSDB_VERSION_GE(4, 5, 6)
