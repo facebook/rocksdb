@@ -7807,6 +7807,7 @@ class OpenFilesAsyncTest : public DBTest,
     options.disable_auto_compactions = true;
     options.write_buffer_size = std::numeric_limits<size_t>::max();
 
+    options.info_log_level = FATAL_LEVEL;  // reduce LOG size
     DestroyAndReopen(options);
 
     for (const auto& cf : cfs) {
@@ -7872,6 +7873,7 @@ class OpenFilesAsyncTest : public DBTest,
     options.open_files_async = true;
     options.skip_stats_update_on_db_open = true;
     options.statistics = CreateDBStatistics();
+    options.info_log_level = FATAL_LEVEL;  // reduce LOG size
 
     std::vector<std::string> cfs;
     ASSERT_OK(DB::ListColumnFamilies(options, dbname_, &cfs));
