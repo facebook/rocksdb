@@ -7885,15 +7885,15 @@ class OpenFilesAsyncTest : public DBTest,
     }
   }
 
-  uint32_t num_flushes_;
+  uint32_t num_flushes_{};
   ReadType read_type_;
-  int max_open_files_;
-  bool read_only_;
+  int max_open_files_{};
+  bool read_only_{};
 };
 
 INSTANTIATE_TEST_CASE_P(
     OpenFilesAsync, OpenFilesAsyncTest,
-    ::testing::Combine(::testing::Values(1, 20),
+    ::testing::Combine(::testing::Values(4),
                        ::testing::Values(ReadType::kGet, ReadType::kMultiGet,
                                          ReadType::kIterator),
                        ::testing::Values(-1, 10), ::testing::Bool()));

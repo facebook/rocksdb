@@ -204,18 +204,17 @@ Status TableCache::FindTable(
   Status s = Status::OK();
   if (*handle == nullptr) {
     if (no_io) {
-      s.PermitUncheckedError();
-      return Status::Incomplete("Table not found in table_cache, no_io is set");
+      s = Status::Incomplete("Table not found in table_cache, no_io is set");
+      return s;
     }
     MutexLock load_lock(&loader_mutex_.Get(key));
 
     // Check if another thread has already pinned the table reader
     pinned_reader = file_meta.fd.pinned_reader.Get();
     if (pinned_reader != nullptr) {
-      s.PermitUncheckedError();
       *handle = nullptr;
       *out_table_reader = pinned_reader;
-      return Status::OK();
+      return s;
     }
 
     // We check the cache again under loading mutex
