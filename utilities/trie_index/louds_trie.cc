@@ -1773,6 +1773,26 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
   }
 }
 
+bool LoudsTrieIterator::SeekToFirst() {
+  valid_ = false;
+  leaf_index_ = 0;
+  key_len_ = 0;
+  path_.clear();
+  is_at_prefix_key_ = false;
+
+  if (trie_->NumKeys() == 0) {
+    return false;
+  }
+
+  // Descend directly from root to the leftmost leaf.
+  // Compared to Seek(""), this skips the SeekImpl target-consumption loop
+  // (a no-op for empty target) and the redundant prefix key check that
+  // SeekImpl performs at the root before calling DescendToLeftmostLeaf.
+  // DescendToLeftmostLeaf itself handles prefix keys at every node.
+  bool in_dense = (trie_->cutoff_level_ > 0);
+  return DescendToLeftmostLeaf(in_dense, /*node_num=*/0);
+}
+
 // Main Seek implementation.
 // Uses SuRF-style Select-free traversal for sparse regions: instead of
 // tracking node_num and calling FindNthOneBit to find node boundaries, we

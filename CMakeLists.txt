@@ -1557,6 +1557,7 @@ if(WITH_TESTS)
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc
         utilities/transactions/timestamped_snapshot_test.cc
+        utilities/trie_index/trie_index_db_test.cc
         utilities/trie_index/trie_index_test.cc
         utilities/ttl/ttl_test.cc
         utilities/types_util_test.cc

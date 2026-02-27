@@ -136,6 +136,10 @@ class TrieIndexIterator : public UserDefinedIndexIterator {
   // Prepare for a batch of scans. Stores scan bounds for later use.
   void Prepare(const ScanOptions scan_opts[], size_t num_opts) override;
 
+  // Position at the very first index entry. Descends directly to the
+  // leftmost leaf without a full seek traversal.
+  Status SeekToFirstAndGetResult(IterateResult* result) override;
+
   // Seek to the first index entry >= target. When has_seqno_encoding_ is
   // true, the trie is searched with user_key only, then post-seek correction
   // uses target_seq from context to advance through overflow blocks as needed.

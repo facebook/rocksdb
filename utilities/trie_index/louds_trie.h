@@ -470,6 +470,13 @@ class LoudsTrieIterator {
  public:
   explicit LoudsTrieIterator(const LoudsTrie* trie);
 
+  // Position on the very first leaf (smallest key) by descending from the
+  // root to the leftmost leaf. More efficient than Seek(Slice()) because it
+  // skips SeekImpl's target-consumption loop and its redundant prefix key
+  // check at root (DescendToLeftmostLeaf handles prefix keys at every node).
+  // Returns true if positioned on a valid leaf.
+  bool SeekToFirst();
+
   // Seek to the first leaf whose key is >= `target`.
   // Returns true if positioned on a valid leaf.
   //
