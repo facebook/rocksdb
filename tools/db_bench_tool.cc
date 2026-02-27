@@ -94,6 +94,7 @@
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
+#include "utilities/trie_index/trie_index_factory.h"
 #ifdef MEMKIND
 #include "memory/memkind_kmem_allocator.h"
 #endif
@@ -661,6 +662,12 @@ DEFINE_bool(partition_index_and_filters, false,
 DEFINE_bool(partition_index, false, "Partition index blocks");
 
 DEFINE_bool(index_with_first_key, false, "Include first key in the index");
+
+DEFINE_bool(use_trie_index, false,
+            "Use trie-based user-defined index (UDI) for block-based tables. "
+            "Builds a LOUDS-encoded succinct trie from separator keys, "
+            "providing space reduction compared to the default binary search "
+            "index. Requires BytewiseComparator.");
 
 DEFINE_bool(
     optimize_filters_for_memory,
@@ -2837,6 +2844,7 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   ReadOptions read_options_;
   WriteOptions write_options_;
+  std::shared_ptr<ROCKSDB_NAMESPACE::UserDefinedIndexFactory> udi_factory_;
   Options open_options_;  // keep options around to properly destroy db later
   TraceOptions trace_options_;
   TraceOptions block_cache_trace_options_;
@@ -3601,6 +3609,9 @@ class Benchmark {
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
+      if (FLAGS_use_trie_index && udi_factory_) {
+        read_options_.table_index_factory = udi_factory_.get();
+      }
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -4762,6 +4773,11 @@ class Benchmark {
                 FLAGS_prepopulate_blob_cache);
       } else {
         fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+      }
+
+      if (FLAGS_use_trie_index) {
+        udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
+        block_based_options.user_defined_index_factory = udi_factory_;
       }
 
       options.table_factory.reset(

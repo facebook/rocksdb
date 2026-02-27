@@ -239,6 +239,9 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
+    # use_trie_index must be the same across invocations because it restricts
+    # operations (no deletes/merges) and existing SSTs may contain non-Put types
+    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -887,6 +890,23 @@ def finalize_and_sanitize(src_params):
         dest_params["sync_fault_injection"] = 0
     else:
         dest_params["allow_resumption_one_in"] = 0
+
+    # Trie UDI only supports Put (kTypeValue). Disable incompatible operations.
+    if dest_params.get("use_trie_index") == 1:
+        dest_params["use_merge"] = 0
+        dest_params["use_put_entity_one_in"] = 0
+        dest_params["use_timed_put_one_in"] = 0
+        dest_params["use_get_entity"] = 0
+        dest_params["use_multi_get_entity"] = 0
+        # Redistribute delete/delrange percents to write percent
+        dest_params["writepercent"] += dest_params["delpercent"]
+        dest_params["writepercent"] += dest_params["delrangepercent"]
+        dest_params["delpercent"] = 0
+        dest_params["delrangepercent"] = 0
+        # Ingestion with standalone range deletions is incompatible
+        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        # Parallel compression is incompatible with UDI
+        dest_params["compression_parallel_threads"] = 1
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.

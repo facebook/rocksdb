@@ -30,4 +30,4 @@ runs:
       # - The docker image, which may not always be specified/known
       # - Hash of folly.mk, which includes the folly repository commit hash
       # NOTE: this is still only intended for DEBUG folly builds
-      key: folly-build-${{ runner.os }}-${{ runner.arch }}-${{ github.job_container.image }}-${{ steps.extract-folly-hash.outputs.hash }}-portable
+      key: folly-build-${{ runner.os }}-${{ runner.arch }}-${{ github.job_container.image }}-${{ steps.extract-folly-hash.outputs.hash }}-${{ env.PORTABLE == '1' && 'portable' || 'native' }}

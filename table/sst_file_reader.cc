@@ -93,6 +93,7 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
   auto r = rep_.get();
   const Comparator* user_comparator =
       r->ioptions.internal_comparator.user_comparator();
+  Statistics* statistics = r->ioptions.stats;
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
@@ -105,11 +106,12 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
     merge_ctx.emplace_back();
     key_context.emplace_back(nullptr, keys[i], val, nullptr,
                              nullptr /* timestamp */, &statuses[i]);
-    get_ctx.emplace_back(user_comparator, r->ioptions.merge_operator.get(),
-                         nullptr, nullptr, GetContext::kNotFound,
-                         *key_context[i].key, val, nullptr, nullptr, nullptr,
-                         &merge_ctx[i], true,
-                         &key_context[i].max_covering_tombstone_seq, nullptr);
+    get_ctx.emplace_back(
+        user_comparator, r->ioptions.merge_operator.get(), nullptr /* logger */,
+        statistics, GetContext::kNotFound, *key_context[i].key, val,
+        nullptr /* columns */, nullptr /* timestamp */,
+        nullptr /* value_found */, &merge_ctx[i], true,
+        &key_context[i].max_covering_tombstone_seq, r->ioptions.clock);
     key_context[i].get_context = &get_ctx[i];
   }
   for (size_t i = 0; i < num_keys; ++i) {
@@ -139,6 +141,8 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
 
   values->resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    get_ctx[i].ReportCounters();
+
     if (statuses[i].ok()) {
       switch (get_ctx[i].State()) {
         case GetContext::kFound:
