@@ -124,17 +124,65 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(5, flush_info_log_counter);
 
-  ASSERT_EQ(0, trigger_compaction_counter);
-  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
-    mock_clock_->MockSleepForSeconds(static_cast<int>(12 * 60 * 60));
-  });
-  ASSERT_EQ(1, trigger_compaction_counter);
-  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
-    mock_clock_->MockSleepForSeconds(static_cast<int>(12 * 60 * 60));
-  });
-  ASSERT_EQ(2, trigger_compaction_counter);
+  // With the new ComputeTriggerCompactionPeriod() logic, since
+  // stats_dump_period_sec = stats_persist_period_sec = kPeriodSec, the trigger
+  // compaction period is also kPeriodSec. Unlike other periodic tasks,
+  // kTriggerCompaction uses run_immediately=false, so it doesn't fire on
+  // initial registration. It fires after each period elapses.
+  // By now we've had: initial 9s + 10s + 10s + 10s + 10s = 49s elapsed.
+  // kTriggerCompaction fires at t=10, 20, 30, 40 = 4 times.
+  ASSERT_EQ(4, trigger_compaction_counter);
+
+  // Sleep one more period and verify it increments
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+  ASSERT_EQ(5, trigger_compaction_counter);
 
   Close();
+}
+
+TEST_F(PeriodicTaskSchedulerTest, TriggerCompactionPeriodComputation) {
+  // Test that ComputeTriggerCompactionPeriod() returns the expected values
+  // for different configurations.
+  Close();
+
+  // Helper to capture the trigger compaction period on Reopen
+  uint64_t trigger_compaction_period = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PeriodicTaskScheduler::Register:TaskRegistered", [&](void* arg) {
+        auto* task_info =
+            static_cast<std::pair<PeriodicTaskType, uint64_t>*>(arg);
+        if (task_info->first == PeriodicTaskType::kTriggerCompaction) {
+          trigger_compaction_period = task_info->second;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto test_period = [&](Options& options, uint64_t expected_period) {
+    options.create_if_missing = true;
+    options.env = mock_env_.get();
+    trigger_compaction_period = 0;
+    Reopen(options);
+    ASSERT_EQ(expected_period, trigger_compaction_period);
+    Close();
+  };
+
+  // Case 1: 12-hour cap when stats_dump_period is longer
+  {
+    Options options;
+    options.stats_dump_period_sec = 24 * 60 * 60;  // 24 hours
+    options.stats_persist_period_sec = 0;
+    test_period(options, 12 * 60 * 60);  // Expect 12 hours (cap)
+  }
+
+  // Case 2: periodic_compaction_seconds / kTriggerDivisor
+  {
+    Options options;
+    options.stats_dump_period_sec = 24 * 60 * 60;  // 24 hours
+    options.stats_persist_period_sec = 0;
+    options.periodic_compaction_seconds = 500;  // 500 / 5 = 100
+    test_period(options, 100);
+  }
 }
 
 TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {

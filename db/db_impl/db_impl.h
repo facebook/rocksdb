@@ -2506,6 +2506,13 @@ class DBImpl : public DB {
   // Schedule background tasks
   Status StartPeriodicTaskScheduler();
 
+  // Compute the repeat period for the kTriggerCompaction task, which ensures
+  // compactions not dependent on writes (flushes) are eventually triggered when
+  // there are no writes (flushes). NOT thread safe; only called during DB open
+  // (StartPeriodicTaskScheduler). KNOWN LIMITATION: doesn't get updated with
+  // dynamic option updates. (Probably not worth the extra complexity.)
+  uint64_t ComputeTriggerCompactionPeriod();
+
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 

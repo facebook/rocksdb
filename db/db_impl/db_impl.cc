@@ -784,7 +784,57 @@ void DBImpl::PrintStatistics() {
   }
 }
 
+uint64_t DBImpl::ComputeTriggerCompactionPeriod() {
+  // Start with a maximum period of every 12 hours.
+  uint64_t period_sec = 12 * 60 * 60;
+
+  // Consider DB-level options that have the DB waking up periodically anyway.
+  // Waking up to check for compactions at the same interval should be no
+  // problem, as it should be less overhead than these.
+  if (mutable_db_options_.stats_dump_period_sec > 0) {
+    period_sec = std::min(period_sec,
+                          (uint64_t)mutable_db_options_.stats_dump_period_sec);
+  }
+  if (mutable_db_options_.stats_persist_period_sec > 0) {
+    period_sec = std::min(
+        period_sec, (uint64_t)mutable_db_options_.stats_persist_period_sec);
+  }
+
+  // Consider per-CF settings that can trigger compaction based on time.
+  uint64_t compaction_trigger_sec = UINT64_MAX;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    const auto& cf_opts = cfd->GetLatestCFOptions();
+    // 0 means disabled
+    if (cf_opts.periodic_compaction_seconds > 0) {
+      compaction_trigger_sec =
+          std::min(compaction_trigger_sec, cf_opts.periodic_compaction_seconds);
+    }
+    if (cf_opts.ttl > 0) {
+      compaction_trigger_sec = std::min(compaction_trigger_sec, cf_opts.ttl);
+    }
+    const auto& fifo_thresholds =
+        cf_opts.compaction_options_fifo.file_temperature_age_thresholds;
+    if (!fifo_thresholds.empty() && fifo_thresholds[0].age > 0) {
+      // Thresholds are in increasing order by age, so first is smallest
+      compaction_trigger_sec =
+          std::min(compaction_trigger_sec, fifo_thresholds[0].age);
+    }
+  }
+  // We might not align with those timings perfectly, so we tolerate only some
+  // proportional delay, up to 1/kTriggerDivisor ~= 20%.
+  constexpr uint64_t kTriggerDivisor = 5;
+  period_sec = std::min(period_sec, compaction_trigger_sec / kTriggerDivisor);
+  // But must be > 0
+  period_sec = std::max(period_sec, uint64_t{1});
+
+  return period_sec;
+}
+
 Status DBImpl::StartPeriodicTaskScheduler() {
+  Status s;
 #ifndef NDEBUG
   // It only used by test to disable scheduler
   bool disable_scheduler = false;
@@ -803,7 +853,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 
 #endif  // !NDEBUG
   if (mutable_db_options_.stats_dump_period_sec > 0) {
-    Status s = periodic_task_scheduler_.Register(
+    s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kDumpStats,
         periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
         mutable_db_options_.stats_dump_period_sec,
@@ -813,7 +863,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     }
   }
   if (mutable_db_options_.stats_persist_period_sec > 0) {
-    Status s = periodic_task_scheduler_.Register(
+    s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kPersistStats,
         periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
         mutable_db_options_.stats_persist_period_sec,
@@ -823,17 +873,18 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     }
   }
 
-  Status s = periodic_task_scheduler_.Register(
+  s = periodic_task_scheduler_.Register(
       PeriodicTaskType::kFlushInfoLog,
       periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog),
       /*run_immediately=*/true);
-
-  if (s.ok()) {
-    s = periodic_task_scheduler_.Register(
-        PeriodicTaskType::kTriggerCompaction,
-        periodic_task_functions_.at(PeriodicTaskType::kTriggerCompaction),
-        /*run_immediately=*/false);
+  if (!s.ok()) {
+    return s;
   }
+
+  s = periodic_task_scheduler_.Register(
+      PeriodicTaskType::kTriggerCompaction,
+      periodic_task_functions_.at(PeriodicTaskType::kTriggerCompaction),
+      ComputeTriggerCompactionPeriod(), /*run_immediately=*/false);
 
   return s;
 }
