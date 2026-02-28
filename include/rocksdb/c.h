@@ -2455,6 +2455,31 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushoptions_get_wait(
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
 rocksdb_jemalloc_nodump_allocator_create(char** errptr);
+
+/* Create a custom memory allocator using user-provided function pointers.
+ * This allows language bindings (Rust, Go, Python, etc.) to plug in
+ * allocators like mimalloc, tcmalloc, or snmalloc without requiring them
+ * to be linked at RocksDB build time.
+ *
+ * allocate:   called to allocate `size` bytes. Must be thread-safe.
+ * deallocate: called to free a block previously returned by allocate.
+ *             Must be thread-safe.
+ * usable_size: (optional, may be NULL) returns the usable size of an
+ *              allocation. If NULL, returns the originally requested size.
+ * name:       (optional, may be NULL) returns allocator name for logging.
+ *             If NULL, defaults to "CustomMemoryAllocator".
+ * destructor: (optional, may be NULL) called when the allocator is destroyed,
+ *             to clean up `state`.
+ * state:      opaque pointer passed to all callbacks.
+ */
+extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
+rocksdb_memory_allocator_create(
+    void* state, void (*destructor)(void*),
+    void* (*allocate)(void*, size_t),
+    void (*deallocate)(void*, void*),
+    size_t (*usable_size)(void*, void*, size_t),
+    const char* (*name)(void*));
+
 extern ROCKSDB_LIBRARY_API void rocksdb_memory_allocator_destroy(
     rocksdb_memory_allocator_t*);
 
