@@ -93,6 +93,12 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   void OnKeyAdded(const Slice& key,
                   const std::optional<Slice>& value) override {
+    // Always forward to internal index builder first. It relies on receiving
+    // OnKeyAdded for every key to maintain state (e.g.,
+    // current_block_first_internal_key_) needed by AddIndexEntry, which is
+    // always forwarded regardless of UDI status.
+    internal_index_builder_->OnKeyAdded(key, value);
+
     ParsedInternalKey pkey;
     if (status_.ok()) {
       if (!value.has_value()) {
@@ -110,9 +116,6 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     if (!status_.ok()) {
       return;
     }
-
-    // Forward the call to both index builders
-    internal_index_builder_->OnKeyAdded(key, value);
 
     // Pass the user key to the UDI. We don't expect multiple entries with
     // different sequence numbers for the same key in the file. RocksDB may
