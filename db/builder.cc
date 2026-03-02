@@ -330,6 +330,14 @@ Status BuildTable(
     }
     if (!s.ok() || empty) {
       builder->Abandon();
+      // Propagate the builder's error when the builder is empty due to an
+      // internal error (e.g., write fault injection causing all Add() calls to
+      // return early). Without this, `s` would remain OK and the downstream
+      // key count validation in flush_job.cc would produce a misleading
+      // Corruption error instead of the actual builder error.
+      if (s.ok() && !builder->status().ok()) {
+        s = builder->status();
+      }
     } else {
       SeqnoToTimeMapping relevant_mapping;
       if (seqno_to_time_mapping) {
