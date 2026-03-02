@@ -902,6 +902,9 @@ def finalize_and_sanitize(src_params):
         # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
         # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
         dest_params["use_txn"] = 0
+        # Trie UDI uses zero-copy pointers into block data, which is
+        # incompatible with mmap_read.
+        dest_params["mmap_read"] = 0
         # Redistribute delete/delrange percents to write percent
         dest_params["writepercent"] += dest_params["delpercent"]
         dest_params["writepercent"] += dest_params["delrangepercent"]

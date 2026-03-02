@@ -255,14 +255,19 @@ int db_stress_tool(int argc, char** argv) {
               "use_timed_put_one_in > 0\n");
       exit(1);
     }
-    // TransactionDB uses internal marker types (kTypeBeginPrepareXID,
-    // kTypeEndPrepareXID, kTypeCommitXID, etc.) which are non-Put types.
-    // These are incompatible with UDI which only supports kTypeValue.
     if (FLAGS_use_txn) {
       fprintf(stderr,
               "Error: use_trie_index is incompatible with use_txn. "
-              "TransactionDB uses internal marker types that are not "
-              "supported by user-defined index.\n");
+              "TransactionDB rollback is executed as delete operation during "
+              "crash recovery, which are non-Put types, not supported by "
+              "user-defined index.\n");
+      exit(1);
+    }
+    if (FLAGS_mmap_read) {
+      fprintf(stderr,
+              "Error: use_trie_index is incompatible with mmap_read. "
+              "The trie index uses zero-copy pointers into block data "
+              "which is unsafe with mmap'd reads.\n");
       exit(1);
     }
   }
