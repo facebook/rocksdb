@@ -898,6 +898,9 @@ def finalize_and_sanitize(src_params):
         dest_params["use_timed_put_one_in"] = 0
         dest_params["use_get_entity"] = 0
         dest_params["use_multi_get_entity"] = 0
+        # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
+        # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
+        dest_params["use_txn"] = 0
         # Redistribute delete/delrange percents to write percent
         dest_params["writepercent"] += dest_params["delpercent"]
         dest_params["writepercent"] += dest_params["delrangepercent"]

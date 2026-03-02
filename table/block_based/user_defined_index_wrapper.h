@@ -107,6 +107,14 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
             "compression");
       } else {
         status_ = ParseInternalKey(key, &pkey, /*lof_err_key*/ false);
+        // UDI only supports kTypeValue (Put) entries. Non-Put types include:
+        // - kTypeDeletion, kTypeSingleDeletion, kTypeRangeDeletion (deletes)
+        // - kTypeMerge (merge operands)
+        // - kTypeWideColumnEntity (PutEntity)
+        // This makes UDI incompatible with:
+        // - Delete/Merge/SingleDelete/DeleteRange operations
+        // - TransactionDB (ROLLBACK writes DELETE entries to undo changes)
+        // See T257683723 for analysis of TransactionDB incompatibility.
         if (status_.ok() && pkey.type != ValueType::kTypeValue) {
           status_ = Status::InvalidArgument(
               "user_defined_index_factory only supported with Puts");
@@ -117,11 +125,9 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       return;
     }
 
-    // Pass the user key to the UDI. We don't expect multiple entries with
-    // different sequence numbers for the same key in the file. RocksDB may
-    // enforce it in the future by allowing UDIs only for read only
-    // bulkloaded use cases, and only allow ingestion of files with
-    // sequence number 0.
+    // Pass the user key to the UDI. UDI is designed for ingest-only use cases
+    // where files contain only Put entries with unique keys. We don't expect
+    // multiple entries with different sequence numbers for the same key.
     user_defined_index_builder_->OnKeyAdded(
         pkey.user_key, UserDefinedIndexBuilder::ValueType::kValue,
         value.value());
