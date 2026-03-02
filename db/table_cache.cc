@@ -617,7 +617,7 @@ Status TableCache::MultiGetFilter(
     // is, it may be called with fewer keys in the rangedue to filtering.
     UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
   }
-  if (mget_range->empty() && handle) {
+  if (mget_range->empty() && *handle) {
     cache_.Release(*handle);
     *handle = nullptr;
   }
