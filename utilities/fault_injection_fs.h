@@ -17,9 +17,13 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdarg>
 #include <map>
 #include <set>
 #include <string>
+#include <thread>
 
 #include "file/filename.h"
 #include "rocksdb/file_system.h"
@@ -28,6 +32,87 @@
 #include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// A fixed-size circular buffer that records recently injected errors.
+// Thread-safe for concurrent writes. Designed to be safe to read from a
+// signal handler (PrintAll uses only fprintf to stderr).
+class InjectedErrorLog {
+ public:
+  static constexpr size_t kMaxEntries = 1000;
+  static constexpr size_t kMaxMessageLen = 256;
+
+  struct Entry {
+    uint64_t timestamp_us;
+    uint64_t thread_id;
+    char context[kMaxMessageLen];
+  };
+
+  InjectedErrorLog() : head_(0) { memset(entries_, 0, sizeof(entries_)); }
+
+  void Record(const char* fmt, ...)
+#if defined(__GNUC__) || defined(__clang__)
+      __attribute__((format(printf, 2, 3)))
+#endif
+  {
+    size_t idx = head_.fetch_add(1, std::memory_order_relaxed) % kMaxEntries;
+    Entry& e = entries_[idx];
+    e.thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    auto now = std::chrono::system_clock::now();
+    e.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         now.time_since_epoch())
+                         .count();
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(e.context, kMaxMessageLen, fmt, args);
+    va_end(args);
+  }
+
+  // Format the first few bytes of a buffer as hex for logging.
+  // Returns a string like "ab cd ef 01 02 ..."
+  static std::string HexHead(const char* data, size_t size,
+                             size_t max_bytes = 8) {
+    std::string result;
+    size_t n = std::min(size, max_bytes);
+    char buf[4];
+    for (size_t i = 0; i < n; i++) {
+      snprintf(buf, sizeof(buf), "%02x ", (unsigned char)data[i]);
+      result += buf;
+    }
+    if (size > max_bytes) result += "...";
+    if (!result.empty() && result.back() == ' ') result.pop_back();
+    return result;
+  }
+
+  // Print all recorded entries to stderr. Safe to call from a signal handler
+  // (uses only fprintf and write).
+  void PrintAll() const {
+    fprintf(stdout,
+            "\n=== Recently Injected Fault Injection Errors "
+            "(most recent last) ===\n");
+    size_t total = head_.load(std::memory_order_relaxed);
+    if (total == 0) {
+      fprintf(stdout, "(none)\n");
+      return;
+    }
+    size_t count = std::min(total, kMaxEntries);
+    size_t start = (total >= kMaxEntries) ? (total % kMaxEntries) : 0;
+    for (size_t i = 0; i < count; i++) {
+      size_t idx = (start + i) % kMaxEntries;
+      const Entry& e = entries_[idx];
+      if (e.timestamp_us == 0) continue;
+      uint64_t secs = e.timestamp_us / 1000000;
+      uint64_t usecs = e.timestamp_us % 1000000;
+      fprintf(stdout, "[%llu.%06llu] thread=%llu: %s\n",
+              (unsigned long long)secs, (unsigned long long)usecs,
+              (unsigned long long)e.thread_id, e.context);
+    }
+    fprintf(stdout, "=== End of injected error log (%zu entries) ===\n", count);
+  }
+
+ private:
+  std::atomic<size_t> head_;
+  Entry entries_[kMaxEntries];
+};
 
 class TestFSWritableFile;
 class FaultInjectionTestFS;
@@ -610,6 +695,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void ReadUnsynced(const std::string& fname, uint64_t offset, size_t n,
                     Slice* result, char* scratch, int64_t* pos_at_last_sync);
 
+  // Access the injected error log for printing on crash or test failure.
+  InjectedErrorLog& GetInjectedErrorLog() { return injected_error_log_; }
+  const InjectedErrorLog& GetInjectedErrorLog() const {
+    return injected_error_log_;
+  }
+
+  // Print recently injected errors to stderr. Call this on test failure
+  // to see what errors were injected leading up to the failure.
+  void PrintRecentInjectedErrors() const { injected_error_log_.PrintAll(); }
+
   inline static const std::string kInjected = "injected";
 
  private:
@@ -676,6 +771,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool fail_get_file_unique_id_ = false;
   bool fail_random_access_get_file_size_sst_ = false;
   bool fail_fs_get_file_size_sst_ = false;
+  InjectedErrorLog injected_error_log_;
 
   // Inject an error. For a READ operation, a status of IOError(), a
   // corruption in the contents of scratch, or truncation of slice
