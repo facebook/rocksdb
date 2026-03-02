@@ -93,6 +93,12 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   void OnKeyAdded(const Slice& key,
                   const std::optional<Slice>& value) override {
+    // Always forward to internal index builder first. It relies on receiving
+    // OnKeyAdded for every key to maintain state (e.g.,
+    // current_block_first_internal_key_) needed by AddIndexEntry, which is
+    // always forwarded regardless of UDI status.
+    internal_index_builder_->OnKeyAdded(key, value);
+
     ParsedInternalKey pkey;
     if (status_.ok()) {
       if (!value.has_value()) {
@@ -110,9 +116,6 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     if (!status_.ok()) {
       return;
     }
-
-    // Forward the call to both index builders
-    internal_index_builder_->OnKeyAdded(key, value);
 
     // Pass the user key to the UDI. We don't expect multiple entries with
     // different sequence numbers for the same key in the file. RocksDB may
@@ -179,13 +182,17 @@ class UserDefinedIndexIteratorWrapper
       std::unique_ptr<UserDefinedIndexIterator>&& udi_iter)
       : udi_iter_(std::move(udi_iter)), valid_(false) {}
 
+  ~UserDefinedIndexIteratorWrapper() override = default;
+
   bool Valid() const override { return valid_; }
 
   void SeekToFirst() override {
+    valid_ = false;
     status_ = Status::NotSupported("SeekToFirst not supported");
   }
 
   void SeekToLast() override {
+    valid_ = false;
     status_ = Status::NotSupported("SeekToLast not supported");
   }
 
@@ -234,10 +241,14 @@ class UserDefinedIndexIteratorWrapper
   }
 
   void SeekForPrev(const Slice& /*target*/) override {
+    valid_ = false;
     status_ = Status::NotSupported("SeekForPrev not supported");
   }
 
-  void Prev() override { status_ = Status::NotSupported("Prev not supported"); }
+  void Prev() override {
+    valid_ = false;
+    status_ = Status::NotSupported("Prev not supported");
+  }
 
   Slice key() const override { return Slice(*ikey_.const_rep()); }
 

@@ -219,6 +219,44 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_atomic_flush = true;
   }
 
+  // Trie UDI only supports Seek + Next. Disable backward scan testing so
+  // that other features lacking backward scan support can reuse this flag.
+  if (FLAGS_use_trie_index) {
+    FLAGS_test_backward_scan = false;
+  }
+
+  // Trie UDI only supports kTypeValue (Put) entries. Reject incompatible
+  // operations that would produce non-Put types during flush/compaction.
+  if (FLAGS_use_trie_index) {
+    if (FLAGS_delpercent > 0) {
+      fprintf(stderr,
+              "Error: use_trie_index is incompatible with delpercent > 0\n");
+      exit(1);
+    }
+    if (FLAGS_delrangepercent > 0) {
+      fprintf(stderr,
+              "Error: use_trie_index is incompatible with "
+              "delrangepercent > 0\n");
+      exit(1);
+    }
+    if (FLAGS_use_merge) {
+      fprintf(stderr, "Error: use_trie_index is incompatible with use_merge\n");
+      exit(1);
+    }
+    if (FLAGS_use_put_entity_one_in > 0) {
+      fprintf(stderr,
+              "Error: use_trie_index is incompatible with "
+              "use_put_entity_one_in > 0\n");
+      exit(1);
+    }
+    if (FLAGS_use_timed_put_one_in > 0) {
+      fprintf(stderr,
+              "Error: use_trie_index is incompatible with "
+              "use_timed_put_one_in > 0\n");
+      exit(1);
+    }
+  }
+
   if (FLAGS_read_only) {
     if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
         FLAGS_delrangepercent != 0) {
