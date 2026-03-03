@@ -94,6 +94,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.max_background_jobs = mutable_db_options.max_background_jobs;
   options.max_background_compactions =
       mutable_db_options.max_background_compactions;
+  options.max_background_remote_compactions =
+      mutable_db_options.max_background_remote_compactions;
   options.max_subcompactions = mutable_db_options.max_subcompactions;
   options.max_background_flushes = mutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;

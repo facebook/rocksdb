@@ -129,6 +129,7 @@ DECLARE_int32(format_version);
 DECLARE_bool(separate_key_value_in_data_block);
 DECLARE_int32(index_block_restart_interval);
 DECLARE_int32(max_background_compactions);
+DECLARE_int32(max_background_remote_compactions);
 DECLARE_int32(num_bottom_pri_threads);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(compaction_thread_pool_variations);

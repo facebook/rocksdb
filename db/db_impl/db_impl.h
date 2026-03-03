@@ -1774,6 +1774,12 @@ class DBImpl : public DB {
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class CompactionServiceTest_PreservedOptionsLocalCompaction_Test;
   friend class CompactionServiceTest_PreservedOptionsRemoteCompaction_Test;
+  friend class CompactionServiceTest_RemoteWaitReleasesCompactionSlot_Test;
+  friend class CompactionServiceTest_RemoteWaitCounterConsistentOnFailure_Test;
+  friend class CompactionServiceTest_ShutdownDuringRemoteWait_Test;
+  friend class
+      CompactionServiceTest_RemoteWaitSlotReleaseDisabledByDefault_Test;
+  friend class CompactionServiceTest_RemoteWaitSlotReleaseCapped_Test;
 #endif
 
   struct CompactionState;
@@ -3071,6 +3077,11 @@ class DBImpl : public DB {
 
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
+
+  // stores the number of compactions currently waiting for remote compaction
+  // results. These threads are blocked in CompactionService::Wait() and
+  // should not count against the max_compactions scheduling limit.
+  int bg_remote_compaction_waiting_ = 0;
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;

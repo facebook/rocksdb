@@ -128,10 +128,43 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Waiting for remote compaction...",
                  compaction->column_family_data()->GetName().c_str(), job_id_);
+
+  // Release compaction scheduling slot during remote wait.
+  // The Wait() is a cheap blocking operation that shouldn't count toward
+  // the max concurrent compaction limit.
+  // Only release the slot if max_background_remote_compactions > 0 (feature
+  // enabled) and the current number of waiting threads is below the cap.
+  bool slot_released = false;
+  if (bg_remote_compaction_waiting_ != nullptr) {
+    int max_remote = mutable_db_options_copy_.max_background_remote_compactions;
+    if (max_remote > 0) {
+      InstrumentedMutexLock l(db_mutex_);
+      if (*bg_remote_compaction_waiting_ < max_remote) {
+        (*bg_remote_compaction_waiting_)++;
+        env_->ReserveThreads(1, Env::Priority::LOW);
+        slot_released = true;
+      }
+    }
+  }
+
+  TEST_SYNC_POINT(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService:"
+      "BeforeWait");
+  TEST_SYNC_POINT(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService:"
+      "BeforeWait:2");
+
   std::string compaction_result_binary;
   CompactionServiceJobStatus compaction_status =
       db_options_.compaction_service->Wait(response.scheduled_job_id,
                                            &compaction_result_binary);
+
+  // Reacquire compaction scheduling slot after remote wait completes
+  if (slot_released) {
+    InstrumentedMutexLock l(db_mutex_);
+    (*bg_remote_compaction_waiting_)--;
+    env_->ReleaseThreads(1, Env::Priority::LOW);
+  }
 
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
     ROCKS_LOG_ERROR(

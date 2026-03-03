@@ -4399,6 +4399,8 @@ void InitializeOptionsFromFlags(
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
   }
   options.max_background_compactions = FLAGS_max_background_compactions;
+  options.max_background_remote_compactions =
+      FLAGS_max_background_remote_compactions;
   options.max_background_flushes = FLAGS_max_background_flushes;
   options.compaction_style =
       static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);

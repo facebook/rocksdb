@@ -64,6 +64,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, max_background_compactions),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"max_background_remote_compactions",
+         {offsetof(struct MutableDBOptions, max_background_remote_compactions),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"max_subcompactions",
          {offsetof(struct MutableDBOptions, max_subcompactions),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
@@ -1029,6 +1033,8 @@ MutableDBOptions::MutableDBOptions() : MutableDBOptions(DBOptions{}) {}
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
       max_background_compactions(options.max_background_compactions),
+      max_background_remote_compactions(
+          options.max_background_remote_compactions),
       max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       writable_file_max_buffer_size(options.writable_file_max_buffer_size),
@@ -1055,6 +1061,9 @@ void MutableDBOptions::Dump(Logger* log) const {
                    max_background_jobs);
   ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
                    max_background_compactions);
+  ROCKS_LOG_HEADER(log,
+                   "            Options.max_background_remote_compactions: %d",
+                   max_background_remote_compactions);
   ROCKS_LOG_HEADER(log, "            Options.max_subcompactions: %" PRIu32,
                    max_subcompactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",

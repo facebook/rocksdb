@@ -403,6 +403,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_file_opening_threads=35;"
                              "max_background_jobs=8;"
                              "max_background_compactions=33;"
+                             "max_background_remote_compactions=4;"
                              "use_fsync=true;"
                              "use_adaptive_mutex=false;"
                              "max_total_wal_size=4295005604;"

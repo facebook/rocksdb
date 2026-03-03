@@ -517,6 +517,11 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions"
              " that can occur in parallel.");
 
+DEFINE_int32(max_background_remote_compactions,
+             ROCKSDB_NAMESPACE::Options().max_background_remote_compactions,
+             "Maximum number of compaction threads that can wait for remote "
+             "compaction results without consuming scheduling slots.");
+
 DEFINE_uint64(subcompactions, 1,
               "For CompactRange, set max_subcompactions for each compaction "
               "job in this CompactRange, for auto compactions, this is "
@@ -4438,6 +4443,8 @@ class Benchmark {
         FLAGS_max_write_buffer_size_to_maintain;
     options.max_background_jobs = FLAGS_max_background_jobs;
     options.max_background_compactions = FLAGS_max_background_compactions;
+    options.max_background_remote_compactions =
+        FLAGS_max_background_remote_compactions;
     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;

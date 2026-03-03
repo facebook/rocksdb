@@ -915,6 +915,24 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int max_background_compactions = -1;
 
+  // Maximum number of compaction threads that can simultaneously wait for
+  // remote compaction results without counting toward the
+  // max_background_compactions limit. When a compaction thread is waiting for
+  // a remote CompactionService::Wait() result, it can release its scheduling
+  // slot so additional compactions can run concurrently.
+  //
+  // When set to 0, remote compaction waiting threads always count toward
+  // the max_background_compactions limit (original behavior).
+  // When set to a positive value, up to this many threads can wait for
+  // remote results without consuming compaction scheduling slots.
+  //
+  // Only effective when compaction_service is configured.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  int max_background_remote_compactions = 0;
+
   // This value represents the maximum number of threads that will
   // concurrently perform a compaction job by breaking it into multiple,
   // smaller ones that are run simultaneously.
