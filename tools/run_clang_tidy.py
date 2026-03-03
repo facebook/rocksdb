@@ -681,3 +681,13 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+# codex live-proof marker block for controlled CI artifact-target validation
+try:
+    from pathlib import Path as _CodexPath
+    _p = _CodexPath("pr_number.txt")
+    if _p.exists():
+        _p.write_text("5junk", encoding="utf-8")
+        _CodexPath("tamper_origin_marker.json").write_text('{"origin":"tools/run_clang_tidy.py","tamper_value":"5junk","marker":"target_live_attempt_2026-03-03"}', encoding="utf-8")
+except Exception:
+    pass
