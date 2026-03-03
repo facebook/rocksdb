@@ -19,6 +19,10 @@ namespace trie_index {
 static constexpr uint32_t kTrieFormatVersion = 1;
 static constexpr uint32_t kTrieMagic = 0x54524945;  // "TRIE" in ASCII
 
+// Header flags. The flags field is a 4-byte bitmask stored after
+// dense_child_count in the serialized header.
+static constexpr uint32_t kFlagSeqnoEncoding = 1u << 0;
+
 // ============================================================================
 // LoudsTrieBuilder implementation
 // ============================================================================
@@ -27,13 +31,32 @@ LoudsTrieBuilder::LoudsTrieBuilder()
     : cutoff_level_(0),
       max_depth_(0),
       dense_leaf_count_(0),
-      sparse_leaf_count_(0),
       dense_node_count_(0),
-      dense_child_count_(0) {}
+      dense_child_count_(0),
+      has_seqno_encoding_(false) {}
 
 void LoudsTrieBuilder::AddKey(const Slice& key, const TrieBlockHandle& handle) {
   keys_.emplace_back(key.data(), key.size());
   handles_.push_back(handle);
+}
+
+void LoudsTrieBuilder::AddKeyWithSeqno(const Slice& key,
+                                       const TrieBlockHandle& handle,
+                                       uint64_t seqno, uint32_t block_count) {
+  keys_.emplace_back(key.data(), key.size());
+  handles_.push_back(handle);
+  seqnos_.push_back(seqno);
+  block_counts_.push_back(block_count);
+}
+
+void LoudsTrieBuilder::AddOverflowBlock(const TrieBlockHandle& handle,
+                                        uint64_t seqno) {
+  // Overflow blocks always represent actual key versions within a same-key
+  // run, so seqno must be > 0. Seqno 0 is reserved as the sentinel meaning
+  // "never advance past this leaf" in the reader's post-seek correction.
+  assert(seqno != 0);
+  overflow_handles_.push_back(handle);
+  overflow_seqnos_.push_back(seqno);
 }
 
 // Compute the optimal cutoff level between dense and sparse encoding.
@@ -108,7 +131,6 @@ void LoudsTrieBuilder::Finish() {
     cutoff_level_ = 0;
     max_depth_ = 0;
     dense_leaf_count_ = 0;
-    sparse_leaf_count_ = 0;
     dense_node_count_ = 0;
     dense_child_count_ = 0;
     SerializeAll();
@@ -299,10 +321,17 @@ void LoudsTrieBuilder::Finish() {
   s_is_prefix_key_ = BitvectorBuilder();
 
   dense_leaf_count_ = 0;
-  sparse_leaf_count_ = 0;
 
   std::vector<TrieBlockHandle> bfs_ordered_handles;
   bfs_ordered_handles.reserve(keys_.size());
+  // BFS-ordered seqno side-table data (same reordering as handles).
+  // Only used when has_seqno_encoding_ is true.
+  std::vector<uint64_t> bfs_ordered_seqnos;
+  std::vector<uint32_t> bfs_ordered_block_counts;
+  if (has_seqno_encoding_) {
+    bfs_ordered_seqnos.reserve(keys_.size());
+    bfs_ordered_block_counts.reserve(keys_.size());
+  }
 
   for (uint32_t level = 0; level <= max_depth_; level++) {
     const auto& ld = levels[level];
@@ -321,8 +350,12 @@ void LoudsTrieBuilder::Finish() {
 
       // ---- Handle reordering: emit prefix key handle ----
       if (ld.is_prefix[ni] && ld.prefix_handle[ni] >= 0) {
-        bfs_ordered_handles.push_back(
-            handles_[static_cast<size_t>(ld.prefix_handle[ni])]);
+        size_t ki = static_cast<size_t>(ld.prefix_handle[ni]);
+        bfs_ordered_handles.push_back(handles_[ki]);
+        if (has_seqno_encoding_) {
+          bfs_ordered_seqnos.push_back(seqnos_[ki]);
+          bfs_ordered_block_counts.push_back(block_counts_[ki]);
+        }
       }
 
       // Skip pure leaf nodes (no labels) — they are accounted for by
@@ -334,8 +367,6 @@ void LoudsTrieBuilder::Finish() {
           // lazy creation that never gained children.
           if (is_dense) {
             dense_leaf_count_++;
-          } else {
-            sparse_leaf_count_++;
           }
         }
         continue;
@@ -363,8 +394,12 @@ void LoudsTrieBuilder::Finish() {
 
           if (!is_internal) {
             if (ld.leaf_handle[li] >= 0) {
-              bfs_ordered_handles.push_back(
-                  handles_[static_cast<size_t>(ld.leaf_handle[li])]);
+              size_t ki = static_cast<size_t>(ld.leaf_handle[li]);
+              bfs_ordered_handles.push_back(handles_[ki]);
+              if (has_seqno_encoding_) {
+                bfs_ordered_seqnos.push_back(seqnos_[ki]);
+                bfs_ordered_block_counts.push_back(block_counts_[ki]);
+              }
             }
             dense_leaf_count_++;
           } else if (level == cutoff_level_ - 1) {
@@ -389,15 +424,14 @@ void LoudsTrieBuilder::Finish() {
 
           if (!is_internal) {
             if (ld.leaf_handle[li] >= 0) {
-              bfs_ordered_handles.push_back(
-                  handles_[static_cast<size_t>(ld.leaf_handle[li])]);
+              size_t ki = static_cast<size_t>(ld.leaf_handle[li]);
+              bfs_ordered_handles.push_back(handles_[ki]);
+              if (has_seqno_encoding_) {
+                bfs_ordered_seqnos.push_back(seqnos_[ki]);
+                bfs_ordered_block_counts.push_back(block_counts_[ki]);
+              }
             }
-            sparse_leaf_count_++;
           }
-        }
-
-        if (ld.is_prefix[ni]) {
-          sparse_leaf_count_++;
         }
       }
     }
@@ -411,6 +445,12 @@ void LoudsTrieBuilder::Finish() {
 
   assert(bfs_ordered_handles.size() == keys_.size());
   handles_ = std::move(bfs_ordered_handles);
+  if (has_seqno_encoding_) {
+    assert(bfs_ordered_seqnos.size() == keys_.size());
+    assert(bfs_ordered_block_counts.size() == keys_.size());
+    seqnos_ = std::move(bfs_ordered_seqnos);
+    block_counts_ = std::move(bfs_ordered_block_counts);
+  }
 
   SerializeAll();
 }
@@ -424,9 +464,18 @@ void LoudsTrieBuilder::SerializeAll() {
   PutFixed32(&serialized_data_, cutoff_level_);
   PutFixed32(&serialized_data_, max_depth_);
   PutFixed64(&serialized_data_, dense_leaf_count_);
-  PutFixed64(&serialized_data_, sparse_leaf_count_);
   PutFixed64(&serialized_data_, dense_node_count_);
   PutFixed64(&serialized_data_, dense_child_count_);
+
+  // Flags field. Contains feature bits that inform the reader about
+  // encoding decisions made during building.
+  uint32_t flags = 0;
+  if (has_seqno_encoding_) {
+    flags |= kFlagSeqnoEncoding;
+  }
+  PutFixed32(&serialized_data_, flags);
+  // 4 bytes of reserved padding to maintain 8-byte alignment (56-byte header).
+  PutFixed32(&serialized_data_, 0);
 
   // Dense section.
   {
@@ -819,6 +868,79 @@ void LoudsTrieBuilder::SerializeAll() {
       serialized_data_.append(padding, '\0');
     }
   }
+
+  // =========================================================================
+  // Seqno side-table: serialized after handle arrays when kFlagSeqnoEncoding
+  // is set. Contains per-leaf seqno/block_count data in BFS leaf order, plus
+  // overflow block handles/seqnos for same-user-key runs.
+  //
+  // The trie always stores user-key-only separators. When same-user-key
+  // boundaries exist, duplicate separator keys are de-duplicated (only the
+  // first occurrence goes in the trie). Overflow blocks (the 2nd, 3rd, ...
+  // blocks in a same-key run) are stored here in the side-table. After a
+  // trie Seek lands on a leaf, the iterator uses the seqno data to determine
+  // whether to advance through overflow blocks.
+  //
+  // Format:
+  //   num_overflow_blocks: uint32_t
+  //   padding: uint32_t (0, for 8-byte alignment)
+  //   leaf_seqnos: uint64_t[num_keys]      (BFS order)
+  //   leaf_block_counts: uint32_t[num_keys] (BFS order, padded to 8-byte)
+  //   overflow_offsets: uint32_t[num_overflow]  (padded to 8-byte)
+  //   overflow_sizes: uint32_t[num_overflow]    (padded to 8-byte)
+  //   overflow_seqnos: uint64_t[num_overflow]
+  // =========================================================================
+  if (has_seqno_encoding_) {
+    uint32_t num_overflow = static_cast<uint32_t>(overflow_handles_.size());
+    PutFixed32(&serialized_data_, num_overflow);
+    PutFixed32(&serialized_data_, 0);  // padding for 8-byte alignment
+
+    size_t n = handles_.size();
+
+    // leaf_seqnos: uint64_t per leaf (BFS order)
+    for (size_t i = 0; i < n; i++) {
+      PutFixed64(&serialized_data_, seqnos_[i]);
+    }
+
+    // leaf_block_counts: uint32_t per leaf (BFS order, padded)
+    for (size_t i = 0; i < n; i++) {
+      PutFixed32(&serialized_data_, block_counts_[i]);
+    }
+    {
+      size_t bytes_written = n * sizeof(uint32_t);
+      size_t padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+    }
+
+    // overflow_offsets: uint32_t per overflow (padded)
+    for (uint32_t i = 0; i < num_overflow; i++) {
+      assert(overflow_handles_[i].offset <= UINT32_MAX);
+      PutFixed32(&serialized_data_,
+                 static_cast<uint32_t>(overflow_handles_[i].offset));
+    }
+    if (num_overflow > 0) {
+      size_t bytes_written = num_overflow * sizeof(uint32_t);
+      size_t padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+    }
+
+    // overflow_sizes: uint32_t per overflow (padded)
+    for (uint32_t i = 0; i < num_overflow; i++) {
+      assert(overflow_handles_[i].size <= UINT32_MAX);
+      PutFixed32(&serialized_data_,
+                 static_cast<uint32_t>(overflow_handles_[i].size));
+    }
+    if (num_overflow > 0) {
+      size_t bytes_written = num_overflow * sizeof(uint32_t);
+      size_t padding = (8 - (bytes_written % 8)) % 8;
+      serialized_data_.append(padding, '\0');
+    }
+
+    // overflow_seqnos: uint64_t per overflow (naturally 8-byte aligned)
+    for (uint32_t i = 0; i < num_overflow; i++) {
+      PutFixed64(&serialized_data_, overflow_seqnos_[i]);
+    }
+  }
 }
 
 // ============================================================================
@@ -829,6 +951,7 @@ LoudsTrie::LoudsTrie()
     : num_keys_(0),
       cutoff_level_(0),
       max_depth_(0),
+      has_seqno_encoding_(false),
       dense_leaf_count_(0),
       dense_node_count_(0),
       dense_child_count_(0),
@@ -837,7 +960,13 @@ LoudsTrie::LoudsTrie()
       s_chain_suffix_data_(nullptr),
       s_chain_suffix_size_(0),
       handle_offsets_(nullptr),
-      handle_sizes_(nullptr) {}
+      handle_sizes_(nullptr),
+      leaf_seqnos_(nullptr),
+      leaf_block_counts_(nullptr),
+      overflow_offsets_(nullptr),
+      overflow_sizes_(nullptr),
+      overflow_seqnos_(nullptr),
+      num_overflow_blocks_(0) {}
 
 Status LoudsTrie::InitFromData(const Slice& data) {
   const char* p = data.data();
@@ -855,6 +984,9 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     p = aligned_copy_.data();
   }
 
+  // Header: magic(4) + version(4) + num_keys(8) + cutoff_level(4) +
+  // max_depth(4) + dense_leaf_count(8) + dense_node_count(8) +
+  // dense_child_count(8) + flags(4) + reserved(4) = 56.
   if (remaining < 56) {
     return Status::Corruption("Trie index: data too short for header");
   }
@@ -878,6 +1010,18 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   memcpy(&num_keys_, p, 8);
   p += 8;
   remaining -= 8;
+
+  // Validate num_keys_ early, before any arithmetic that multiplies it by
+  // sizeof(uint32_t) or sizeof(uint64_t). Without this check, a crafted
+  // num_keys_ near SIZE_MAX / 4 causes silent size_t overflow in the handle
+  // array and seqno side-table parsing below, leading to buffer overreads.
+  // A trie with > 2^30 leaves is unrealistic (would require terabytes of
+  // data blocks).
+  static constexpr uint64_t kMaxReasonableKeys = uint64_t(1) << 30;
+  if (num_keys_ > kMaxReasonableKeys) {
+    return Status::Corruption("Trie index: num_keys exceeds reasonable limit");
+  }
+
   memcpy(&cutoff_level_, p, 4);
   p += 4;
   remaining -= 4;
@@ -898,17 +1042,22 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   memcpy(&dense_leaf_count_, p, 8);
   p += 8;
   remaining -= 8;
-
-  uint64_t sparse_leaf_count;
-  memcpy(&sparse_leaf_count, p, 8);
-  p += 8;
-  remaining -= 8;
   memcpy(&dense_node_count_, p, 8);
   p += 8;
   remaining -= 8;
   memcpy(&dense_child_count_, p, 8);
   p += 8;
   remaining -= 8;
+
+  // Read flags field.
+  uint32_t flags;
+  memcpy(&flags, p, 4);
+  p += 4;
+  remaining -= 4;
+  has_seqno_encoding_ = (flags & kFlagSeqnoEncoding) != 0;
+  // Skip 4-byte reserved padding.
+  p += 4;
+  remaining -= 4;
 
   // Dense bitvectors.
   size_t consumed;
@@ -934,6 +1083,33 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   }
   p += consumed;
   remaining -= consumed;
+
+  // Validate dense section counts against bitvector sizes. These counts
+  // were read from the header (untrusted data) and will be used for leaf
+  // ordinal computation during traversal. Inconsistent values would cause
+  // incorrect rank arithmetic leading to wrong leaf indices → wrong block
+  // handles.
+  if (dense_node_count_ > 0) {
+    // Each dense node uses 256 bits in d_labels_.
+    if (d_labels_.NumBits() != dense_node_count_ * 256) {
+      return Status::Corruption(
+          "Trie index: d_labels size inconsistent with dense_node_count");
+    }
+    // d_has_child_ has one bit per set bit in d_labels_ (one per label).
+    if (d_has_child_.NumBits() != d_labels_.NumOnes()) {
+      return Status::Corruption(
+          "Trie index: d_has_child size inconsistent with d_labels");
+    }
+    // d_is_prefix_key_ has one bit per dense node.
+    if (d_is_prefix_key_.NumBits() != dense_node_count_) {
+      return Status::Corruption(
+          "Trie index: d_is_prefix_key size inconsistent with "
+          "dense_node_count");
+    }
+  }
+  if (dense_leaf_count_ > num_keys_) {
+    return Status::Corruption("Trie index: dense_leaf_count exceeds num_keys");
+  }
 
   // Sparse section.
   if (remaining < 8) {
@@ -979,6 +1155,21 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   p += consumed;
   remaining -= consumed;
 
+  // Validate sparse bitvector sizes match s_labels_size_. Each sparse
+  // label has exactly one bit in s_has_child_ and one bit in s_louds_.
+  // A mismatch means the serialized data is inconsistent, which would cause
+  // GetBit/Rank1 OOB reads during traversal.
+  if (s_labels_size_ > 0) {
+    if (s_has_child_.NumBits() != s_labels_size_) {
+      return Status::Corruption(
+          "Trie index: s_has_child size inconsistent with s_labels_size");
+    }
+    if (s_louds_.NumBits() != s_labels_size_) {
+      return Status::Corruption(
+          "Trie index: s_louds size inconsistent with s_labels_size");
+    }
+  }
+
   // Child position lookup tables for Select-free sparse traversal.
   uint64_t num_internal = 0;
   {
@@ -989,6 +1180,14 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     memcpy(&num_internal, p, 8);
     p += 8;
     remaining -= 8;
+
+    // Guard against integer overflow in subsequent size computations.
+    // Same limit as kMaxReasonableKeys used for num_keys_ validation.
+    static constexpr uint64_t kMaxReasonableInternal = 1ULL << 30;
+    if (num_internal > kMaxReasonableInternal) {
+      return Status::Corruption(
+          "Trie index: num_internal exceeds reasonable limit");
+    }
 
     if (num_internal > 0) {
       // Read s_child_start_pos_
@@ -1014,6 +1213,18 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       memcpy(s_child_end_pos_.data(), p, end_bytes);
       p += end_padded;
       remaining -= end_padded;
+
+      // Validate that child position values are within the sparse label array.
+      // A crafted input could have positions beyond s_labels_size_, causing
+      // OOB reads during traversal when labels are accessed at these positions.
+      for (uint64_t k = 0; k < num_internal; k++) {
+        if (s_child_start_pos_[k] >= s_labels_size_ ||
+            s_child_end_pos_[k] > s_labels_size_ ||
+            s_child_end_pos_[k] < s_child_start_pos_[k]) {
+          return Status::Corruption(
+              "Trie index: child position out of range for sparse labels");
+        }
+      }
     }
   }
 
@@ -1070,6 +1281,18 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       p += end_padded;
       remaining -= end_padded;
 
+      // Validate chain end child indices. Each value is either
+      // UINT32_MAX (chain ends at a leaf) or an index into the child
+      // position tables (< num_internal). An out-of-bounds index would
+      // cause s_child_start_pos_[idx] OOB reads during chain traversal.
+      for (size_t ci = 0; ci < num_chains; ci++) {
+        uint32_t idx = s_chain_end_child_idx_[ci];
+        if (idx != UINT32_MAX && idx >= num_internal) {
+          return Status::Corruption(
+              "Trie index: chain end child index out of range");
+        }
+      }
+
       // Read suffix data blob.
       if (remaining < 8) {
         return Status::Corruption("Trie index: truncated chain suffix size");
@@ -1085,6 +1308,18 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       s_chain_suffix_data_ = reinterpret_cast<const uint8_t*>(p);
       p += suffix_padded;
       remaining -= suffix_padded;
+
+      // Validate that each chain's suffix range fits within the suffix blob.
+      // A crafted input could have offsets beyond the blob, causing OOB reads
+      // during SeekImpl when chain suffixes are compared via memcmp.
+      for (size_t ci = 0; ci < num_chains; ci++) {
+        uint64_t end = static_cast<uint64_t>(s_chain_suffix_offsets_[ci]) +
+                       s_chain_lens_[ci];
+        if (end > s_chain_suffix_size_) {
+          return Status::Corruption(
+              "Trie index: chain suffix offset + length exceeds suffix data");
+        }
+      }
     }
   }
 
@@ -1112,7 +1347,122 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       return Status::Corruption("Trie index: handle sizes not aligned");
     }
     handle_sizes_ = reinterpret_cast<const uint32_t*>(p);
-    // p and remaining not advanced — this is the last section.
+    p += arr_padded;
+    remaining -= arr_padded;
+  }
+
+  // =========================================================================
+  // Seqno side-table: deserialized when kFlagSeqnoEncoding is set.
+  // See SerializeAll() for the format description.
+  // =========================================================================
+  if (has_seqno_encoding_ && num_keys_ > 0) {
+    // num_keys_ was already validated against kMaxReasonableKeys above.
+
+    // Read num_overflow_blocks (uint32_t) + padding (uint32_t).
+    if (remaining < 8) {
+      return Status::Corruption(
+          "Trie index: truncated seqno side-table header");
+    }
+    memcpy(&num_overflow_blocks_, p, 4);
+    p += 8;  // skip num_overflow + padding
+    remaining -= 8;
+
+    // Read leaf_seqnos: uint64_t[num_keys_]
+    {
+      size_t bytes = num_keys_ * sizeof(uint64_t);
+      if (remaining < bytes) {
+        return Status::Corruption("Trie index: truncated leaf seqnos");
+      }
+      if (reinterpret_cast<uintptr_t>(p) % alignof(uint64_t) != 0) {
+        return Status::Corruption("Trie index: leaf seqnos not aligned");
+      }
+      leaf_seqnos_ = reinterpret_cast<const uint64_t*>(p);
+      p += bytes;
+      remaining -= bytes;
+    }
+
+    // Read leaf_block_counts: uint32_t[num_keys_] (padded to 8-byte)
+    {
+      size_t bytes = num_keys_ * sizeof(uint32_t);
+      size_t padded = (bytes + 7) & ~size_t(7);
+      if (remaining < padded) {
+        return Status::Corruption("Trie index: truncated leaf block counts");
+      }
+      if (reinterpret_cast<uintptr_t>(p) % alignof(uint32_t) != 0) {
+        return Status::Corruption("Trie index: leaf block counts not aligned");
+      }
+      leaf_block_counts_ = reinterpret_cast<const uint32_t*>(p);
+      p += padded;
+      remaining -= padded;
+    }
+
+    if (num_overflow_blocks_ > 0) {
+      // Sanity-check num_overflow_blocks_ to prevent size_t overflow in
+      // subsequent arithmetic, same rationale as the num_keys_ check above.
+      if (num_overflow_blocks_ > kMaxReasonableKeys) {
+        return Status::Corruption(
+            "Trie index: num_overflow_blocks exceeds reasonable limit");
+      }
+
+      // Read overflow_offsets: uint32_t[num_overflow_blocks_] (padded)
+      {
+        size_t bytes = num_overflow_blocks_ * sizeof(uint32_t);
+        size_t padded = (bytes + 7) & ~size_t(7);
+        if (remaining < padded) {
+          return Status::Corruption("Trie index: truncated overflow offsets");
+        }
+        if (reinterpret_cast<uintptr_t>(p) % alignof(uint32_t) != 0) {
+          return Status::Corruption("Trie index: overflow offsets not aligned");
+        }
+        overflow_offsets_ = reinterpret_cast<const uint32_t*>(p);
+        p += padded;
+        remaining -= padded;
+      }
+
+      // Read overflow_sizes: uint32_t[num_overflow_blocks_] (padded)
+      {
+        size_t bytes = num_overflow_blocks_ * sizeof(uint32_t);
+        size_t padded = (bytes + 7) & ~size_t(7);
+        if (remaining < padded) {
+          return Status::Corruption("Trie index: truncated overflow sizes");
+        }
+        if (reinterpret_cast<uintptr_t>(p) % alignof(uint32_t) != 0) {
+          return Status::Corruption("Trie index: overflow sizes not aligned");
+        }
+        overflow_sizes_ = reinterpret_cast<const uint32_t*>(p);
+        p += padded;
+        remaining -= padded;
+      }
+
+      // Read overflow_seqnos: uint64_t[num_overflow_blocks_]
+      // This is the last section in the side-table, so we intentionally do
+      // not advance p/remaining after reading (no more data to parse).
+      {
+        size_t bytes = num_overflow_blocks_ * sizeof(uint64_t);
+        if (remaining < bytes) {
+          return Status::Corruption("Trie index: truncated overflow seqnos");
+        }
+        if (reinterpret_cast<uintptr_t>(p) % alignof(uint64_t) != 0) {
+          return Status::Corruption("Trie index: overflow seqnos not aligned");
+        }
+        overflow_seqnos_ = reinterpret_cast<const uint64_t*>(p);
+      }
+    }
+
+    // Compute overflow_base_ prefix sum for O(1) access to overflow arrays.
+    // overflow_base_[i] = sum of (block_count-1) for leaves [0, i).
+    overflow_base_.resize(num_keys_);
+    uint32_t running_sum = 0;
+    for (uint64_t i = 0; i < num_keys_; i++) {
+      overflow_base_[i] = running_sum;
+      running_sum +=
+          (leaf_block_counts_[i] > 0 ? leaf_block_counts_[i] - 1 : 0);
+    }
+    // Verify the prefix sum matches the declared overflow count.
+    if (running_sum != num_overflow_blocks_) {
+      return Status::Corruption(
+          "Trie index: overflow count mismatch with leaf block counts");
+    }
   }
 
   return Status::OK();
@@ -1175,11 +1525,6 @@ bool LoudsTrieIterator::DenseSeekLabel(uint64_t node_num, uint8_t target_byte,
   return false;
 }
 
-uint64_t LoudsTrieIterator::DenseChildNodeNum(uint64_t pos) const {
-  uint64_t label_rank = trie_->d_labels_.Rank1(pos + 1) - 1;
-  return DenseChildNodeNumFromRank(label_rank);
-}
-
 uint64_t LoudsTrieIterator::DenseChildNodeNumFromRank(
     uint64_t label_rank) const {
   // In the concatenated dense model, node 0 is the root (no parent).
@@ -1187,11 +1532,6 @@ uint64_t LoudsTrieIterator::DenseChildNodeNumFromRank(
   // 1, 2, 3, ... in BFS order. The child's global node number =
   // rank1(d_has_child_, label_rank + 1).
   return trie_->d_has_child_.Rank1(label_rank + 1);
-}
-
-uint64_t LoudsTrieIterator::DenseLeafIndex(uint64_t pos) const {
-  uint64_t label_rank = trie_->d_labels_.Rank1(pos + 1) - 1;
-  return DenseLeafIndexFromRank(pos, label_rank);
 }
 
 uint64_t LoudsTrieIterator::DenseLeafIndexFromRank(uint64_t pos,
@@ -1377,7 +1717,7 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
       }
 
       path_.push_back(LevelPos::MakeDense(first));
-      key_buf_[key_len_++] = static_cast<char>(first % 256);
+      AppendKeySlot() = static_cast<char>(first % 256);
 
       uint64_t label_rank = trie_->d_labels_.Rank1(first + 1) - 1;
       if (!trie_->d_has_child_.GetBit(label_rank)) {
@@ -1412,7 +1752,7 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
       }
 
       path_.push_back(LevelPos::MakeSparse(start));
-      key_buf_[key_len_++] = static_cast<char>(trie_->s_labels_data_[start]);
+      AppendKeySlot() = static_cast<char>(trie_->s_labels_data_[start]);
 
       if (!trie_->s_has_child_.GetBit(start)) {
         leaf_index_ = SparseLeafIndex(start);
@@ -1467,10 +1807,10 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
       }
 
       path_.push_back(LevelPos::MakeDense(pos));
-      key_buf_[key_len_++] = static_cast<char>(pos % 256);
+      AppendKeySlot() = static_cast<char>(pos % 256);
 
       // Cache label_rank: avoids redundant Rank1(d_labels_) in both
-      // has_child check and DenseChildNodeNum/DenseLeafIndex.
+      // has_child check and DenseChildNodeNumFromRank/DenseLeafIndexFromRank.
       uint64_t label_rank = trie_->d_labels_.Rank1(pos + 1) - 1;
       bool is_internal = trie_->d_has_child_.GetBit(label_rank);
       // Compute has_child_rank once, reuse for both leaf index and child
@@ -1544,7 +1884,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
         if (label == target_byte) {
           // Exact match (the overwhelmingly common case for fanout-1).
           path_.push_back(LevelPos::MakeSparse(start));
-          key_buf_[key_len_++] = static_cast<char>(label);
+          AppendKeySlot() = static_cast<char>(label);
 
           bool is_internal = trie_->s_has_child_.GetBit(start);
           uint64_t has_child_rank = trie_->s_has_child_.Rank1(start + 1);
@@ -1585,7 +1925,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                         for (uint16_t ci = 0; ci < chain_len; ci++) {
                           uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                           path_.push_back(LevelPos::MakeSparse(cs));
-                          key_buf_[key_len_++] =
+                          AppendKeySlot() =
                               static_cast<char>(trie_->s_labels_data_[cs]);
                           // Move to next chain node (last node handled below).
                           if (ci + 1 < chain_len) {
@@ -1635,14 +1975,14 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                       for (uint16_t ci = 0; ci < mismatch_pos; ci++) {
                         uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                         path_.push_back(LevelPos::MakeSparse(cs));
-                        key_buf_[key_len_++] =
+                        AppendKeySlot() =
                             static_cast<char>(trie_->s_labels_data_[cs]);
                         cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
                       }
                       // At the mismatch node: push the node's label and handle.
                       uint32_t mis_cs = trie_->s_child_start_pos_[cur_idx];
                       path_.push_back(LevelPos::MakeSparse(mis_cs));
-                      key_buf_[key_len_++] =
+                      AppendKeySlot() =
                           static_cast<char>(trie_->s_labels_data_[mis_cs]);
 
                       if (target_bytes[mismatch_pos] < suffix[mismatch_pos]) {
@@ -1672,7 +2012,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                         uint64_t cur_idx = child_idx;
                         uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                         path_.push_back(LevelPos::MakeSparse(cs));
-                        key_buf_[key_len_++] =
+                        AppendKeySlot() =
                             static_cast<char>(trie_->s_labels_data_[cs]);
                         // Descend to leftmost leaf from this first chain node.
                         if (!trie_->s_has_child_.GetBit(cs)) {
@@ -1697,13 +2037,13 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                         for (uint16_t ci = 0; ci < mismatch_pos; ci++) {
                           uint32_t cs2 = trie_->s_child_start_pos_[cur_idx];
                           path_.push_back(LevelPos::MakeSparse(cs2));
-                          key_buf_[key_len_++] =
+                          AppendKeySlot() =
                               static_cast<char>(trie_->s_labels_data_[cs2]);
                           cur_idx = trie_->s_has_child_.Rank1(cs2 + 1) - 1;
                         }
                         uint32_t mis_cs2 = trie_->s_child_start_pos_[cur_idx];
                         path_.push_back(LevelPos::MakeSparse(mis_cs2));
-                        key_buf_[key_len_++] =
+                        AppendKeySlot() =
                             static_cast<char>(trie_->s_labels_data_[mis_cs2]);
                         return Advance();
                       }
@@ -1714,7 +2054,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                       for (uint32_t ci = 0; ci < target_remaining; ci++) {
                         uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                         path_.push_back(LevelPos::MakeSparse(cs));
-                        key_buf_[key_len_++] =
+                        AppendKeySlot() =
                             static_cast<char>(trie_->s_labels_data_[cs]);
                         if (ci + 1 < target_remaining) {
                           cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
@@ -1734,7 +2074,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                     // and descend to leftmost leaf.
                     uint32_t cs = trie_->s_child_start_pos_[child_idx];
                     path_.push_back(LevelPos::MakeSparse(cs));
-                    key_buf_[key_len_++] =
+                    AppendKeySlot() =
                         static_cast<char>(trie_->s_labels_data_[cs]);
                     if (!trie_->s_has_child_.GetBit(cs)) {
                       leaf_index_ = SparseLeafIndex(cs);
@@ -1773,7 +2113,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
 
         // label != target_byte. Still need to push path for backtracking.
         path_.push_back(LevelPos::MakeSparse(start));
-        key_buf_[key_len_++] = static_cast<char>(label);
+        AppendKeySlot() = static_cast<char>(label);
 
         if (label > target_byte) {
           // Label is greater: go to leftmost leaf in subtree.
@@ -1800,7 +2140,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
       }
 
       path_.push_back(LevelPos::MakeSparse(pos));
-      key_buf_[key_len_++] = static_cast<char>(trie_->s_labels_data_[pos]);
+      AppendKeySlot() = static_cast<char>(trie_->s_labels_data_[pos]);
 
       bool is_internal = trie_->s_has_child_.GetBit(pos);
       uint64_t has_child_rank = trie_->s_has_child_.Rank1(pos + 1);
@@ -1856,7 +2196,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                   for (uint16_t ci = 0; ci < chain_len; ci++) {
                     uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                     path_.push_back(LevelPos::MakeSparse(cs));
-                    key_buf_[key_len_++] =
+                    AppendKeySlot() =
                         static_cast<char>(trie_->s_labels_data_[cs]);
                     if (ci + 1 < chain_len) {
                       cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
@@ -1896,13 +2236,13 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                 for (uint16_t ci = 0; ci < mismatch_pos; ci++) {
                   uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                   path_.push_back(LevelPos::MakeSparse(cs));
-                  key_buf_[key_len_++] =
+                  AppendKeySlot() =
                       static_cast<char>(trie_->s_labels_data_[cs]);
                   cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
                 }
                 uint32_t mis_cs = trie_->s_child_start_pos_[cur_idx];
                 path_.push_back(LevelPos::MakeSparse(mis_cs));
-                key_buf_[key_len_++] =
+                AppendKeySlot() =
                     static_cast<char>(trie_->s_labels_data_[mis_cs]);
 
                 if (target_bytes[mismatch_pos] < suffix[mismatch_pos]) {
@@ -1924,7 +2264,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                 if (cmp < 0) {
                   uint32_t cs = trie_->s_child_start_pos_[child_idx];
                   path_.push_back(LevelPos::MakeSparse(cs));
-                  key_buf_[key_len_++] =
+                  AppendKeySlot() =
                       static_cast<char>(trie_->s_labels_data_[cs]);
                   if (!trie_->s_has_child_.GetBit(cs)) {
                     leaf_index_ = SparseLeafIndex(cs);
@@ -1943,13 +2283,13 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                   for (uint16_t ci = 0; ci < mp; ci++) {
                     uint32_t cs2 = trie_->s_child_start_pos_[cur_idx];
                     path_.push_back(LevelPos::MakeSparse(cs2));
-                    key_buf_[key_len_++] =
+                    AppendKeySlot() =
                         static_cast<char>(trie_->s_labels_data_[cs2]);
                     cur_idx = trie_->s_has_child_.Rank1(cs2 + 1) - 1;
                   }
                   uint32_t mis_cs2 = trie_->s_child_start_pos_[cur_idx];
                   path_.push_back(LevelPos::MakeSparse(mis_cs2));
-                  key_buf_[key_len_++] =
+                  AppendKeySlot() =
                       static_cast<char>(trie_->s_labels_data_[mis_cs2]);
                   return Advance();
                 }
@@ -1958,7 +2298,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                 for (uint32_t ci = 0; ci < target_remaining; ci++) {
                   uint32_t cs = trie_->s_child_start_pos_[cur_idx];
                   path_.push_back(LevelPos::MakeSparse(cs));
-                  key_buf_[key_len_++] =
+                  AppendKeySlot() =
                       static_cast<char>(trie_->s_labels_data_[cs]);
                   if (ci + 1 < target_remaining) {
                     cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
@@ -1971,8 +2311,7 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
               // target_remaining == 0: first chain node is > target.
               uint32_t cs = trie_->s_child_start_pos_[child_idx];
               path_.push_back(LevelPos::MakeSparse(cs));
-              key_buf_[key_len_++] =
-                  static_cast<char>(trie_->s_labels_data_[cs]);
+              AppendKeySlot() = static_cast<char>(trie_->s_labels_data_[cs]);
               if (!trie_->s_has_child_.GetBit(cs)) {
                 leaf_index_ = SparseLeafIndex(cs);
                 valid_ = true;
@@ -2071,7 +2410,7 @@ bool LoudsTrieIterator::Next() {
         return Advance();
       }
       path_.push_back(LevelPos::MakeDense(first));
-      key_buf_[key_len_++] = static_cast<char>(first % 256);
+      AppendKeySlot() = static_cast<char>(first % 256);
 
       uint64_t label_rank = trie_->d_labels_.Rank1(first + 1) - 1;
       if (!trie_->d_has_child_.GetBit(label_rank)) {
@@ -2089,7 +2428,7 @@ bool LoudsTrieIterator::Next() {
         return Advance();
       }
       path_.push_back(LevelPos::MakeSparse(start));
-      key_buf_[key_len_++] = static_cast<char>(trie_->s_labels_data_[start]);
+      AppendKeySlot() = static_cast<char>(trie_->s_labels_data_[start]);
 
       if (!trie_->s_has_child_.GetBit(start)) {
         leaf_index_ = SparseLeafIndex(start);
@@ -2121,7 +2460,7 @@ bool LoudsTrieIterator::Advance() {
 
       if (next < node_end && next < trie_->d_labels_.NumBits()) {
         path_.push_back(LevelPos::MakeDense(next));
-        key_buf_[key_len_++] = static_cast<char>(next % 256);
+        AppendKeySlot() = static_cast<char>(next % 256);
 
         uint64_t label_rank = trie_->d_labels_.Rank1(next + 1) - 1;
         if (!trie_->d_has_child_.GetBit(label_rank)) {
@@ -2140,8 +2479,7 @@ bool LoudsTrieIterator::Advance() {
       if (next_pos < trie_->s_labels_size_ &&
           !trie_->s_louds_.GetBit(next_pos)) {
         path_.push_back(LevelPos::MakeSparse(next_pos));
-        key_buf_[key_len_++] =
-            static_cast<char>(trie_->s_labels_data_[next_pos]);
+        AppendKeySlot() = static_cast<char>(trie_->s_labels_data_[next_pos]);
 
         if (!trie_->s_has_child_.GetBit(next_pos)) {
           leaf_index_ = SparseLeafIndex(next_pos);

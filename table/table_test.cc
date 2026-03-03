@@ -7657,7 +7657,8 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
       Slice AddIndexEntry(const Slice& last_key_in_current_block,
                           const Slice* first_key_in_next_block,
                           const BlockHandle& block_handle,
-                          std::string* separator_scratch) override {
+                          std::string* separator_scratch,
+                          const IndexEntryContext& /*context*/) override {
         if (keys_added_ == 0) {
           return last_key_in_current_block;
         }
@@ -7773,8 +7774,8 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
               next_error_count_(factory->next_error_count_),
               comparator_(comparator) {}
 
-        Status SeekAndGetResult(const Slice& key,
-                                IterateResult* result) override {
+        Status SeekAndGetResult(const Slice& key, IterateResult* result,
+                                const SeekContext& /*context*/) override {
           Status s;
           if (seek_error_count_) {
             seek_error_count_--;

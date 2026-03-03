@@ -16,6 +16,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -48,33 +49,48 @@ class UserDefinedIndexBuilder {
     uint64_t size;
   };
 
+  // Optional context for AddIndexEntry providing sequence numbers at block
+  // boundaries. Passed as a struct for forward-compatible extensibility
+  // (new fields can be added without breaking existing implementations).
+  struct IndexEntryContext {
+    // Sequence number of last_key_in_current_block.
+    SequenceNumber last_key_seq = 0;
+    // Sequence number of first_key_in_next_block (valid only when
+    // first_key_in_next_block != nullptr).
+    SequenceNumber first_key_seq = 0;
+  };
+
   virtual ~UserDefinedIndexBuilder() = default;
 
-  // Add a new index entry to index block. The key for the new index entry
-  // should be >= last_key_in_current_block and < first_key_in_next_block.
-  // The previous index entry key and the new index entry key cover
-  // all the keys in the data block associated with the new index entry.
+  // Add a new index entry for a data block boundary.
   //
-  // The last_key_in_current_block and first_key_in_next_block will be user
-  // keys, i.e the user key string, and optionally the user timestamp if one
-  // is configured, without a sequence number suffix.
+  // The keys are user keys (without the 8-byte internal key trailer).
+  //
+  // The UDI is free to compute a separator between the two user keys and
+  // store it along with the block handle. The separator must satisfy:
+  //   last_key_in_current_block <= separator < first_key_in_next_block
+  // in user-key order (ignoring sequence numbers).
   //
   // Called before the OnKeyAdded() call for first_key_in_next_block.
-  // @last_key_in_current_block: The last key in the current data block
-  // @first_key_in_next_block: it will be nullptr if the entry being added is
-  //                           the last one in the table
-  // @block_handle: offset/size of the data block referenced by this index
-  //                entry. This should be stored along with the index entry
-  //                key
-  // @separator_scratch: a scratch buffer to back a computed separator between
-  //                     those, as needed. May be modified on each call.
-  // @return: the key or separator stored in the index, which could be
-  //          last_key_in_current_block or a computed separator backed by
-  //          separator_scratch.
+  // @last_key_in_current_block: The last user key in the current data block
+  // @first_key_in_next_block: First user key in the next data block, or
+  //                           nullptr if this is the last block
+  // @block_handle: offset/size of the data block
+  // @separator_scratch: scratch buffer for a computed separator
+  // @context: sequence number context for block boundaries. The sequence
+  //   numbers are needed when the same user key spans a data block boundary
+  //   (e.g., when snapshots keep multiple versions of a key). Without
+  //   sequence numbers, the UDI cannot produce a separator that distinguishes
+  //   the two blocks. This mirrors the internal index's behavior of switching
+  //   to full internal-key separators (see
+  //   ShortenedIndexBuilder::must_use_separator_with_seq_).
+  //   Implementations that don't need sequence numbers can ignore the context.
+  // @return: the separator stored in the index
   virtual Slice AddIndexEntry(const Slice& last_key_in_current_block,
                               const Slice* first_key_in_next_block,
                               const BlockHandle& block_handle,
-                              std::string* separator_scratch) = 0;
+                              std::string* separator_scratch,
+                              const IndexEntryContext& context) = 0;
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
@@ -104,13 +120,25 @@ class UserDefinedIndexIterator {
   // this as an opportunity to do any prefetching and buffering of results.
   virtual void Prepare(const ScanOptions scan_opts[], size_t num_opts) = 0;
 
+  // Optional context for SeekAndGetResult providing the target sequence
+  // number. Passed as a struct for forward-compatible extensibility.
+  struct SeekContext {
+    // Sequence number of the target key. Used by UDI implementations that
+    // encode sequence numbers (when the same user key spans multiple data
+    // blocks) to locate the correct block.
+    SequenceNumber target_seq = 0;
+  };
+
   // Given the target key, position the index iterator at the index entry
-  // with the smallest key >= target. The result must be updated with the
-  // index key, and the bound_check_result. The bound_check_result should
-  // be set to kOutOfBound if no block satisfies the target key and
-  // termination criteria, kInbound if the data block is definitely fully
-  // within bounds, or kUnknown if the data block could be partially
-  // within bounds.
+  // for the data block that may contain the target.
+  //
+  // The target is a user key.
+  //
+  // The result must be updated with the index key and bound_check_result.
+  // bound_check_result should be kOutOfBound if no block satisfies the
+  // target, kInbound if the data block is definitely within bounds, or
+  // kUnknown if partially within bounds.
+  //
   // The UDI implementation needs to be careful about returning kOutOfBound.
   // If a limit key is specified in ScanOptions, an implementation that
   // does not store the first key in the block for the corresponding index
@@ -119,8 +147,14 @@ class UserDefinedIndexIterator {
   // is out of bounds w.r.t the limit. Other termination criteria (specified
   // in property_bag) may cause the scan to terminate earlier, in which case
   // kOutOfBound can be returned earlier.
-  virtual Status SeekAndGetResult(const Slice& target,
-                                  IterateResult* result) = 0;
+  //
+  // @context: sequence number context for the seek. The sequence number is
+  //   needed when the same user key spans multiple data blocks with different
+  //   sequence numbers. Without it, the UDI cannot distinguish which block to
+  //   return for a given (user_key, seqno) target. Implementations that don't
+  //   need sequence numbers can ignore the context.
+  virtual Status SeekAndGetResult(const Slice& target, IterateResult* result,
+                                  const SeekContext& context) = 0;
 
   // Advance to the next index entry. The result must be populated similar
   // to SeekAndGetResult.
@@ -174,14 +208,14 @@ class UserDefinedIndexFactory : public Customizable {
       std::unique_ptr<UserDefinedIndexBuilder>& builder) const {
     builder.reset(NewBuilder());
     return Status::OK();
-  };
+  }
 
   virtual Status NewReader(
       const UserDefinedIndexOption& /*option*/, Slice& index_block,
       std::unique_ptr<UserDefinedIndexReader>& reader) const {
     reader = NewReader(index_block);
     return Status::OK();
-  };
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

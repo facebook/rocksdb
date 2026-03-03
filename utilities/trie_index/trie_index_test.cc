@@ -1882,7 +1882,8 @@ TEST_F(LoudsTrieTest, InitFromDataMaxDepthCorruption) {
   //
   // Build the header manually: magic(4) + version(4) + num_keys(8) +
   // cutoff_level(4) + max_depth(4) + dense_leaf_count(8) +
-  // sparse_leaf_count(8) + dense_node_count(8) + dense_child_count(8) = 56.
+  // dense_node_count(8) + dense_child_count(8) + flags(4) +
+  // reserved(4) = 56 bytes.
   std::string header;
   uint32_t magic = 0x54524945;  // "TRIE"
   uint32_t version = 1;
@@ -1890,6 +1891,7 @@ TEST_F(LoudsTrieTest, InitFromDataMaxDepthCorruption) {
   uint32_t cutoff_level = 0;
   uint32_t max_depth = UINT32_MAX;  // Corrupt value
   uint64_t zeros = 0;
+  uint32_t zero32 = 0;
 
   header.append(reinterpret_cast<const char*>(&magic), 4);
   header.append(reinterpret_cast<const char*>(&version), 4);
@@ -1897,10 +1899,11 @@ TEST_F(LoudsTrieTest, InitFromDataMaxDepthCorruption) {
   header.append(reinterpret_cast<const char*>(&cutoff_level), 4);
   header.append(reinterpret_cast<const char*>(&max_depth), 4);
   header.append(reinterpret_cast<const char*>(&zeros), 8);  // dense_leaf_count
-  header.append(reinterpret_cast<const char*>(&zeros), 8);  // sparse_leaf_count
   header.append(reinterpret_cast<const char*>(&zeros), 8);  // dense_node_count
   header.append(reinterpret_cast<const char*>(&zeros), 8);  // dense_child_count
-  // Pad with enough data to pass the header size check.
+  header.append(reinterpret_cast<const char*>(&zero32), 4);  // flags
+  header.append(reinterpret_cast<const char*>(&zero32), 4);  // reserved
+  // Pad with enough data to pass subsequent parsing.
   header.append(256, '\0');
 
   LoudsTrie trie2;
@@ -1917,7 +1920,8 @@ TEST_F(LoudsTrieTest, InitFromDataMaxDepthCorruption) {
   header2.append(reinterpret_cast<const char*>(&zeros), 8);
   header2.append(reinterpret_cast<const char*>(&zeros), 8);
   header2.append(reinterpret_cast<const char*>(&zeros), 8);
-  header2.append(reinterpret_cast<const char*>(&zeros), 8);
+  header2.append(reinterpret_cast<const char*>(&zero32), 4);  // flags
+  header2.append(reinterpret_cast<const char*>(&zero32), 4);  // reserved
   header2.append(256, '\0');
 
   LoudsTrie trie3;
@@ -2624,7 +2628,7 @@ TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
     std::string scratch;
     Slice next_slice(first_keys[i]);
     const Slice* next = (i < last_keys.size() - 1) ? &next_slice : nullptr;
-    builder->AddIndexEntry(Slice(last_keys[i]), next, handle, &scratch);
+    builder->AddIndexEntry(Slice(last_keys[i]), next, handle, &scratch, {0, 0});
   }
 
   // Finish building.
@@ -2645,7 +2649,8 @@ TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
 
   // Seek to "banana" — should find the separator for the second block.
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("banana"), &result));
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("banana"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 }
 
@@ -2705,9 +2710,9 @@ TEST_F(TrieIndexFactoryTest, IteratorBoundsChecking) {
       char next_buf[16];
       snprintf(next_buf, sizeof(next_buf), "key_%02d", i + 1);
       Slice next(next_buf);
-      udi_builder->AddIndexEntry(Slice(sep), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(sep), &next, handle, &scratch, {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(sep), nullptr, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(sep), nullptr, handle, &scratch, {0, 0});
     }
   }
 
@@ -2726,7 +2731,8 @@ TEST_F(TrieIndexFactoryTest, IteratorBoundsChecking) {
 
   // Seek to first key — should be in bound.
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("key_00"), &result));
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key_00"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
   // Next — should be in bound (key_01 < key_01z).
@@ -2752,7 +2758,7 @@ TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
 
   UserDefinedIndexBuilder::BlockHandle handle{0, 500};
   std::string scratch;
-  udi_builder->AddIndexEntry(Slice("key"), nullptr, handle, &scratch);
+  udi_builder->AddIndexEntry(Slice("key"), nullptr, handle, &scratch, {0, 0});
 
   Slice index_contents;
   ASSERT_OK(udi_builder->Finish(&index_contents));
@@ -2765,7 +2771,8 @@ TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
 
   // No Prepare() call — bounds should be kInbound.
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result));
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 }
 
@@ -2786,20 +2793,20 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
     UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
     std::string scratch;
     Slice next("c");
-    udi_builder->AddIndexEntry(Slice("az"), &next, handle, &scratch);
+    udi_builder->AddIndexEntry(Slice("az"), &next, handle, &scratch, {0, 0});
   }
   // Block 1: last="cz", next_first="e" → separator ≈ "d"
   {
     UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
     std::string scratch;
     Slice next("e");
-    udi_builder->AddIndexEntry(Slice("cz"), &next, handle, &scratch);
+    udi_builder->AddIndexEntry(Slice("cz"), &next, handle, &scratch, {0, 0});
   }
   // Block 2: last="ez", no next → separator ≈ "f"
   {
     UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
     std::string scratch;
-    udi_builder->AddIndexEntry(Slice("ez"), nullptr, handle, &scratch);
+    udi_builder->AddIndexEntry(Slice("ez"), nullptr, handle, &scratch, {0, 0});
   }
 
   Slice index_contents;
@@ -2817,7 +2824,7 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
 
   IterateResult result;
   // Seek("a") → lands on block 0 (separator "b"). target "a" < "d" → kInbound.
-  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 0u);
 
@@ -2859,9 +2866,11 @@ TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
     std::string scratch;
     if (b.next_first) {
       Slice next(b.next_first);
-      udi_builder->AddIndexEntry(Slice(b.last_key), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(b.last_key), &next, handle, &scratch,
+                                 {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(b.last_key), nullptr, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(b.last_key), nullptr, handle, &scratch,
+                                 {0, 0});
     }
   }
 
@@ -2885,7 +2894,7 @@ TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
 
   // --- Scan 0 ---
   // Seek("a") → block 0 (separator "b"). target "a" < limit "c" → kInbound.
-  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 0u);
 
@@ -2902,7 +2911,7 @@ TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
   // Seek("e") should advance current_scan_idx_ to 1 (target "e" >= scan 0
   // limit "c"), then check against scan 1's limit "g".
   // Lands on block 2 (separator "f"). target "e" < "g" → kInbound.
-  ASSERT_OK(iter->SeekAndGetResult(Slice("e"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("e"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 2000u);
 
@@ -2963,9 +2972,11 @@ TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
     std::string scratch;
     if (i < 99) {
       Slice next(next_buf);
-      udi_builder->AddIndexEntry(Slice(last_buf), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(last_buf), &next, handle, &scratch,
+                                 {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(last_buf), nullptr, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(last_buf), nullptr, handle, &scratch,
+                                 {0, 0});
     }
   }
 
@@ -3005,10 +3016,11 @@ TEST_F(TrieIndexFactoryTest, EmptyTrieIterator) {
   ASSERT_NE(iter, nullptr);
 
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("anything"), &result));
-  // kUnknown because we cannot be certain all keys in this file exceed the
-  // upper bound — the next file may still have in-range keys.
-  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("anything"), &result, {kMaxSequenceNumber}));
+  // kOutOfBound: no leaf has a key >= target, so the target is past all
+  // blocks in this SST.
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
 TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
@@ -3028,10 +3040,11 @@ TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
     std::string scratch;
     if (next_keys[i]) {
       Slice next(next_keys[i]);
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch,
+                                 {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
-                                 &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle, &scratch,
+                                 {0, 0});
     }
   }
 
@@ -3048,7 +3061,7 @@ TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
   iter->Prepare(nullptr, 0);
 
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 }
 
@@ -3068,10 +3081,11 @@ TEST_F(TrieIndexFactoryTest, RePrepareResetsScanState) {
     std::string scratch;
     if (next_keys[i]) {
       Slice next(next_keys[i]);
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch,
+                                 {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
-                                 &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle, &scratch,
+                                 {0, 0});
     }
   }
 
@@ -3089,7 +3103,7 @@ TEST_F(TrieIndexFactoryTest, RePrepareResetsScanState) {
   iter->Prepare(&scan1, 1);
 
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
   // Re-prepare with a broader limit "f".
@@ -3097,7 +3111,7 @@ TEST_F(TrieIndexFactoryTest, RePrepareResetsScanState) {
   iter->Prepare(&scan2, 1);
 
   // Should be able to seek to "d" and get inbound with the new limit.
-  ASSERT_OK(iter->SeekAndGetResult(Slice("d"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("d"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 }
 
@@ -3117,10 +3131,11 @@ TEST_F(TrieIndexFactoryTest, ScanWithNoLimit) {
     std::string scratch;
     if (next_keys[i]) {
       Slice next(next_keys[i]);
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch,
+                                 {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
-                                 &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle, &scratch,
+                                 {0, 0});
     }
   }
 
@@ -3139,7 +3154,7 @@ TEST_F(TrieIndexFactoryTest, ScanWithNoLimit) {
 
   // All seeks should be inbound with no limit.
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
   ASSERT_OK(iter->NextAndGetResult(&result));
@@ -3148,10 +3163,9 @@ TEST_F(TrieIndexFactoryTest, ScanWithNoLimit) {
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // No more blocks — kUnknown because we cannot be certain all keys in this
-  // file exceed the upper bound.
+  // No more blocks — kOutOfBound because we're past the end of this SST.
   ASSERT_OK(iter->NextAndGetResult(&result));
-  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
 TEST_F(TrieIndexFactoryTest, NewReaderWithCorruptedData) {
@@ -3184,7 +3198,7 @@ TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
   // Building should still succeed (OnKeyAdded should not affect state).
   UserDefinedIndexBuilder::BlockHandle handle{0, 500};
   std::string scratch;
-  builder->AddIndexEntry(Slice("key3"), nullptr, handle, &scratch);
+  builder->AddIndexEntry(Slice("key3"), nullptr, handle, &scratch, {0, 0});
 
   Slice index_contents;
   ASSERT_OK(builder->Finish(&index_contents));
@@ -3229,10 +3243,11 @@ TEST_F(TrieIndexFactoryTest, SeekSucceedsButTargetPastLimit) {
     std::string scratch;
     if (next_keys[i]) {
       Slice next(next_keys[i]);
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), &next, handle, &scratch,
+                                 {0, 0});
     } else {
-      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle,
-                                 &scratch);
+      udi_builder->AddIndexEntry(Slice(last_keys[i]), nullptr, handle, &scratch,
+                                 {0, 0});
     }
   }
 
@@ -3251,11 +3266,1376 @@ TEST_F(TrieIndexFactoryTest, SeekSucceedsButTargetPastLimit) {
 
   // Seek to "c" — target == limit, so CheckBounds returns kOutOfBound.
   IterateResult result;
-  ASSERT_OK(iter->SeekAndGetResult(Slice("c"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("c"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 
   // Seek to "d" — target > limit, also kOutOfBound.
-  ASSERT_OK(iter->SeekAndGetResult(Slice("d"), &result));
+  ASSERT_OK(iter->SeekAndGetResult(Slice("d"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+// ============================================================================
+// Sequence number encoding tests
+//
+// These tests verify the same-user-key boundary handling: when the same user
+// key spans a data block boundary with different sequence numbers, the trie
+// builder detects this and encodes ALL separators with sequence number suffixes
+// so the trie can distinguish the two blocks.
+// ============================================================================
+
+TEST_F(TrieIndexFactoryTest, SameUserKeyBoundaryTriggersSeqnoEncoding) {
+  // When the same user key spans two adjacent data blocks (e.g.,
+  // "foo"|seq=100 ends Block 0, "foo"|seq=50 starts Block 1), the
+  // builder must detect this and switch to seqno-encoded separators.
+  // Without this, FindShortestSeparator("foo", "foo") = "foo" and the
+  // trie cannot distinguish the two blocks, causing incorrect Seek.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Block 0: last_key="foo" seq=100, next_first="foo" seq=50.
+  // Same user key at the boundary — triggers must_use_separator_with_seq_.
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next_key("foo");
+    builder->AddIndexEntry(Slice("foo"), &next_key, handle, &scratch,
+                           {100, 50});
+  }
+  // Block 1: last_key="foo" seq=50, next_first="bar" seq=1 (different user
+  // key, no same-key boundary here, but the all-or-nothing flag is already
+  // set from the previous boundary).
+  // Note: "bar" < "foo" violates sorted order in practice, but we use it
+  // just to test the builder logic. In real SSTs, the next_first would be
+  // "goo" or similar. Let's use a realistic example instead.
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    Slice next_key("goo");
+    builder->AddIndexEntry(Slice("foo"), &next_key, handle, &scratch, {50, 1});
+  }
+  // Block 2: last_key="goo" seq=1, no next.
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("goo"), nullptr, handle, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+  ASSERT_GT(index_contents.size(), 0u);
+
+  // Read back and verify seeking works correctly.
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  ASSERT_NE(iter, nullptr);
+
+  IterateResult result;
+
+  // Seek for "foo" with seq=100 (highest seqno — should find Block 0).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("foo"), &result, {100}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek for "foo" with seq=75 (between 100 and 50). In RocksDB's internal
+  // key ordering, higher seqno = "smaller" key. So:
+  //   "foo"|seq=100 < "foo"|seq=75  (the separator for Block 0 is LESS than
+  //                                   the target)
+  // Therefore the trie correctly skips Block 0 and returns Block 1.
+  // This matches the internal binary search index behavior exactly:
+  // the index directs us to the NEXT block, and the data block iterator
+  // within that block will find the first key >= target.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("foo"), &result, {75}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek for "foo" with seq=50 (exact seqno of Block 1's first key —
+  // should find Block 1).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("foo"), &result, {50}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek for "foo" with seq=1 (lower than any foo seqno — should find
+  // Block 1, because in descending seqno order seq=1 comes after seq=50).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("foo"), &result, {1}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek for "goo" with kMaxSequenceNumber — should find Block 2.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("goo"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Next from Block 0 should advance to Block 1.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("foo"), &result, {100}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Next from Block 1 should advance to Block 2.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+}
+
+TEST_F(TrieIndexFactoryTest, DistinctUserKeysNoSeqnoOverhead) {
+  // When all user keys are distinct (the common case), the trie should NOT
+  // use seqno encoding. This verifies zero overhead for the normal case.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Build 3 blocks with distinct user keys.
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next("cherry");
+    builder->AddIndexEntry(Slice("apple"), &next, handle, &scratch, {100, 50});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    Slice next("elderberry");
+    builder->AddIndexEntry(Slice("cherry"), &next, handle, &scratch, {50, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("elderberry"), nullptr, handle, &scratch,
+                           {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  // Read back and verify — seeking with kMaxSequenceNumber should work
+  // identically to the non-seqno case.
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("apple"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("cherry"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  ASSERT_OK(iter->SeekAndGetResult(Slice("elderberry"), &result,
+                                   {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+}
+
+TEST_F(TrieIndexFactoryTest, MultipleSameUserKeyBoundaries) {
+  // Multiple same-user-key boundaries in one SST: the same user key appears
+  // across 3 consecutive blocks with decreasing seqnos.
+  // Block 0: "key"|seq=300
+  // Block 1: "key"|seq=200
+  // Block 2: "key"|seq=100
+  // Block 3: "other"|seq=50
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {300, 200});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {200, 100});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
+    std::string scratch;
+    Slice next("other");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {100, 50});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{3000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("other"), nullptr, handle, &scratch, {50, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+
+  // Seek "key"|seq=300 → Block 0
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {300}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "key"|seq=250 → Block 1. In internal key order, higher seqno is
+  // "smaller", so "key"|300 < "key"|250. Block 0's separator "key"+enc(300)
+  // is less than the target → skip. Block 1's separator "key"+enc(200)
+  // is >= target because enc(200) > enc(250) (lower seqno → larger encoded
+  // bytes). So the first separator >= target is Block 1.
+  // This matches the internal binary search index behavior.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {250}));
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek "key"|seq=200 → Block 1
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {200}));
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek "key"|seq=150 → Block 2. "key"+enc(300) < target (skip Block 0),
+  // "key"+enc(200) < target (skip Block 1, because enc(200) < enc(150):
+  // 200 > 150 → higher seqno → smaller encoding). The next separator is
+  // Block 2's separator which is >= target → Block 2.
+  // This matches the internal binary search index behavior.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {150}));
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Seek "key"|seq=100 → Block 2
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {100}));
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Seek "key"|seq=1 → Block 2 (below all key seqnos)
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {1}));
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Seek "other"|kMaxSequenceNumber → Block 3
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("other"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 3000u);
+
+  // Full forward scan: Block 0 → 1 → 2 → 3
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {300}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 1000u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 2000u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 3000u);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingRoundTripSerialization) {
+  // Verify that the seqno encoding flag survives serialization/deserialization.
+  // Build a trie with a same-user-key boundary (triggers seqno encoding),
+  // serialize it, deserialize it, and verify the flag is set and seeks work.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Same user key "x" at the boundary.
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 500};
+    std::string scratch;
+    Slice next("x");
+    builder->AddIndexEntry(Slice("x"), &next, handle, &scratch, {10, 5});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{500, 500};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("x"), nullptr, handle, &scratch, {5, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  // Copy the serialized data to ensure it's independent.
+  std::string data_copy(index_contents.data(), index_contents.size());
+  Slice data_slice(data_copy);
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, data_slice, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+
+  // Seek "x"|seq=10 → Block 0
+  ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {10}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "x"|seq=5 → Block 1
+  ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {5}));
+  ASSERT_EQ(iter->value().offset, 500u);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingWithBoundsChecking) {
+  // Verify that bounds checking still works correctly when seqno encoding
+  // is active. The bounds comparison should use user keys only (not the
+  // seqno-encoded internal representation).
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Same user key "key" at boundary (triggers seqno encoding).
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {100, 50});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {50, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, handle, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // Set upper bound to "zzz".
+  ScanOptions scan(Slice("key"), Slice("zzz"));
+  iter->Prepare(&scan, 1);
+
+  IterateResult result;
+
+  // Seek "key"|seq=100 → Block 0, within bounds.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {100}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Next → Block 1, previous separator "key" < "zzz" → kInbound.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+}
+
+// ============================================================================
+// Side-table comprehensive tests
+//
+// These tests exercise the side-table seqno encoding for same-user-key
+// boundaries. Key insight: FindShortestSeparator shortens separator keys
+// when the two user keys differ. For example, FindShortestSeparator("aaa",
+// "mmm") = "b". Only same-user-key boundaries produce identical separators.
+// The trie de-duplicates these into overflow runs with a seqno side-table.
+//
+// Coverage:
+//   - Large overflow runs (10+ blocks with the same user key)
+//   - Mixed runs (multiple different user keys each with multi-block runs)
+//   - Adjacent runs (two different user keys, each with their own run)
+//   - Seek with kMaxSequenceNumber on same-user-key blocks
+//   - Seek with seq=0 on same-user-key blocks
+//   - result.key is the trie separator (no encoded suffix)
+//   - Seeking non-existent keys when seqno encoding is active
+//   - Seeking past all keys / Next() past last block with seqno encoding
+//   - kOutOfBound with seqno encoding and overflow
+//   - Next() transitions: overflow→next leaf, overflow→next overflow run
+//   - Bounds checking during overflow run iteration
+//   - Size comparison: seqno-free trie same size as without the feature
+//   - Re-seeking after being positioned in an overflow run
+// ============================================================================
+
+TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
+  // 12 blocks all with user key "key", seqnos descending from 1200 to 100.
+  // The last "key" block transitions to "zzz", so
+  // FindShortestSeparator("key", "zzz") = "l". The trie has:
+  //   "key" (11-block run, seqnos 1200..200) → "l" (block 11) → "{" (block 12)
+  // The overflow run for "key" has 10 overflow entries (blocks 1-10).
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  const int kNumKeyBlocks = 12;
+  for (int i = 0; i < kNumKeyBlocks; i++) {
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                1000};
+    std::string scratch;
+    SequenceNumber seq = static_cast<SequenceNumber>((kNumKeyBlocks - i) * 100);
+
+    if (i < kNumKeyBlocks - 1) {
+      // Same-user-key boundary: "key" → "key".
+      Slice next("key");
+      SequenceNumber next_seq =
+          static_cast<SequenceNumber>((kNumKeyBlocks - i - 1) * 100);
+      builder->AddIndexEntry(Slice("key"), &next, handle, &scratch,
+                             {seq, next_seq});
+    } else {
+      // Last "key" block transitions to "zzz".
+      // FindShortestSeparator("key", "zzz") = "l".
+      Slice next("zzz");
+      builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {seq, 1});
+    }
+  }
+  // Final "zzz" block. FindShortSuccessor("zzz") = "{".
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{
+        static_cast<uint64_t>(kNumKeyBlocks) * 1000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, handle, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Seek "key"|kMax → Block 0.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "key"|1100 → leaf_seqno=1200, 1100<1200 → advance.
+  // overflow[0]=1100, 1100>=1100 → Block 1.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {1100}));
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek "key"|550 → advance through overflow:
+  //   overflow seqnos: 1100,1000,900,800,700,600,500,400,300,200
+  //   550 < 1100..600, 550 >= 500? No, 550 is not < 600:
+  //   Actually: 550<1100 skip, 550<1000 skip, 550<900 skip, 550<800 skip,
+  //   550<700 skip, 550<600 skip, 550>=500 → found at overflow index 6.
+  //   overflow_run_index_ = 7 (1-based) → Block 7, offset 7000.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {550}));
+  ASSERT_EQ(iter->value().offset, 7000u);
+
+  // Seek "key"|50 → below all "key" overflow seqnos (minimum is 200).
+  // All 10 overflow seqnos exhausted → advance to next leaf "l" (block 11).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {50}));
+  ASSERT_EQ(iter->value().offset, 11000u);
+
+  // Seek "key"|0 → same: advance past run → "l" (block 11).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {0}));
+  ASSERT_EQ(iter->value().offset, 11000u);
+
+  // Full forward scan: blocks 0..10 ("key" run) → 11 ("l") → 12 ("{").
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  for (int i = 1; i <= kNumKeyBlocks; i++) {
+    ASSERT_OK(iter->NextAndGetResult(&result));
+    ASSERT_EQ(iter->value().offset, static_cast<uint64_t>(i) * 1000)
+        << "Next failed at block " << i;
+  }
+  // Past end.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
+  // Two different user keys each with multi-block runs, plus distinct blocks.
+  //
+  // The trie structure (after FindShortestSeparator shortening):
+  //   "aaa" (2-block run, seqnos 300, 200) → "b" (block 2) →
+  //   "mmm" (1-block, seqno 60) → "n" (block 4) → "{" (block 5)
+  //
+  // Block 0: "aaa"|300 → next "aaa"|200 (same-key → separator "aaa")
+  // Block 1: "aaa"|200 → next "mmm"    (diff-key → separator "b")
+  // Block 2: "mmm"|60  → next "mmm"|30 (same-key → separator "mmm")
+  // Block 3: "mmm"|30  → next "zzz"    (diff-key → separator "n")
+  // Block 4: "zzz"|10  → null          (last → separator "{")
+  //
+  // "aaa" run: blocks 0-1 (2 entries, run of 2 in trie)
+  // block 2 gets separator "b" (separate trie leaf)
+  // "mmm" run: block 3 only (run of 1 in trie)
+  // block 4 gets separator "n" (separate trie leaf)
+  // block 5 gets separator "{" (separate trie leaf)
+  //
+  // Wait — let me recount. We have 6 AddIndexEntry calls:
+  //   Entry 0: "aaa" 300 next="aaa" → sep="aaa"
+  //   Entry 1: "aaa" 200 next="mmm" → sep="b"
+  //   Entry 2: "mmm"  60 next="mmm" → sep="mmm"
+  //   Entry 3: "mmm"  30 next="zzz" → sep="n"
+  //   Entry 4: "zzz"  10 next=null  → sep="{"
+  //
+  // De-duplicated separators: "aaa" appears once (run=1), "b", "mmm" appears
+  // once (run=1), "n", "{". So actually there are no overflow runs here!
+  // The "aaa" run is only block 0, and block 1 gets separator "b".
+  // The "mmm" run is only block 2, and block 3 gets separator "n".
+  //
+  // For a true multi-block overflow run for "aaa", we need 3+ consecutive
+  // blocks ALL with "aaa" → "aaa" boundaries.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // "aaa" run: 3 blocks (all same-key boundaries).
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("aaa");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {300, 200});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("aaa");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {200, 100});
+  }
+  // Last "aaa" block transitions to "mmm" → separator "b".
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    Slice next("mmm");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {100, 60});
+  }
+  // "mmm" run: 2 blocks (one same-key boundary).
+  {
+    UserDefinedIndexBuilder::BlockHandle h{3000, 1000};
+    std::string scratch;
+    Slice next("mmm");
+    builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, {60, 30});
+  }
+  // Last "mmm" block transitions to "zzz" → separator "n".
+  {
+    UserDefinedIndexBuilder::BlockHandle h{4000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, {30, 10});
+  }
+  // "zzz": 1 block (last → separator "{").
+  {
+    UserDefinedIndexBuilder::BlockHandle h{5000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, h, &scratch, {10, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Trie structure: "aaa"(run=2) → "b" → "mmm"(run=1) → "n" → "{"
+  //
+  // Seek "aaa"|kMax → Block 0.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("aaa"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "aaa"|250 → leaf_seqno=300, 250<300 → advance.
+  // overflow[0]=200, 250>=200 → Block 1.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result, {250}));
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Seek "aaa"|50 → leaf_seqno=300, 50<300 → advance.
+  // overflow[0]=200, 50<200 → skip. All exhausted → next leaf "b" (block 2).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result, {50}));
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Seek "mmm"|kMax → Block 3 (the "mmm" trie leaf).
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("mmm"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 3000u);
+
+  // Seek "mmm"|45 → leaf_seqno=60, 45<60 → advance.
+  // "mmm" has run_size=1 (only 1 block in trie), no overflow → next leaf "n".
+  // Wait — "mmm" appears only once in the separator list (entry 2), because
+  // entry 3 has separator "n". So "mmm" trie leaf has block_count=1.
+  // 45 < 60, no overflow → advance to "n" (block 4).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("mmm"), &result, {45}));
+  ASSERT_EQ(iter->value().offset, 4000u);
+
+  // Full forward scan: 0 → 1 → 2 → 3 → 4 → 5.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("aaa"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  uint64_t expected_offsets[] = {0, 1000, 2000, 3000, 4000, 5000};
+  for (int i = 1; i < 6; i++) {
+    ASSERT_OK(iter->NextAndGetResult(&result));
+    ASSERT_EQ(iter->value().offset, expected_offsets[i])
+        << "Next failed at i=" << i;
+  }
+  // Past end.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
+  // Two adjacent same-user-key runs. The trick is that the last block of
+  // the first run has a different-key boundary, creating a non-run trie leaf
+  // between the two runs. To get true adjacency we make ALL "aaa" blocks
+  // transition to "aaa", and ALL "bbb" blocks transition to "bbb", with
+  // the boundary between runs being "aaa"→"bbb".
+  //
+  // Entries (separator after FindShortestSeparator):
+  //   Entry 0: "aaa" 200 next="aaa" → sep="aaa" (same-key)
+  //   Entry 1: "aaa" 100 next="bbb" → sep="b"   (diff-key)
+  //   Entry 2: "bbb"  80 next="bbb" → sep="bbb"  (same-key)
+  //   Entry 3: "bbb"  40 next=null  → sep="c"    (FindShortSuccessor)
+  //
+  // Trie: "aaa"(run=1, seq=200) → "b"(1 block) → "bbb"(run=1, seq=80) → "c"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("aaa");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {200, 100});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("bbb");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {100, 80});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    Slice next("bbb");
+    builder->AddIndexEntry(Slice("bbb"), &next, h, &scratch, {80, 40});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{3000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("bbb"), nullptr, h, &scratch, {40, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Full scan: "aaa" (block 0) → "b" (block 1) → "bbb" (block 2) → "c" (block
+  // 3).
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("aaa"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_EQ(result.key.ToString(), "aaa");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 1000u);
+  // Separator for block 1 is "b" (FindShortestSeparator("aaa", "bbb")).
+  ASSERT_EQ(result.key.ToString(), "b");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 2000u);
+  ASSERT_EQ(result.key.ToString(), "bbb");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 3000u);
+  // Separator for last block is "c" (FindShortSuccessor("bbb")).
+  ASSERT_EQ(result.key.ToString(), "c");
+
+  // Past end.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingResultKeyIsUserKey) {
+  // Verify that result.key from SeekAndGetResult is the trie separator key
+  // (no encoded seqno suffix). For same-key boundary leaves, the separator
+  // IS the original user key. For different-key boundaries, the separator
+  // is shortened.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Same user key boundary triggers seqno encoding.
+  // Entries:
+  //   "foo" 100 next="foo" → sep="foo" (same-key, run of 2)
+  //   "foo"  50 next="zoo" → sep="g"   (FindShortestSeparator("foo","zoo"))
+  //   "zoo"   1 next=null  → sep="{"   (FindShortSuccessor("zoo") might be
+  //                                      different, but 'z'+1='{')
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 500};
+    std::string scratch;
+    Slice next("foo");
+    builder->AddIndexEntry(Slice("foo"), &next, h, &scratch, {100, 50});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{500, 500};
+    std::string scratch;
+    Slice next("zoo");
+    builder->AddIndexEntry(Slice("foo"), &next, h, &scratch, {50, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 500};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zoo"), nullptr, h, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Seek to "foo"|100 → "foo" leaf. result.key = "foo" (3 bytes, no suffix).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("foo"), &result, {100}));
+  ASSERT_EQ(result.key.ToString(), "foo");
+  ASSERT_EQ(result.key.size(), 3u);
+
+  // Next → "g" leaf (FindShortestSeparator("foo", "zoo") = "g").
+  // result.key = "g" (1 byte).
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.key.size(), 1u);
+  // The separator is "g" (or similar shortened form).
+  ASSERT_GE(result.key.ToString(), "g");
+  ASSERT_LT(result.key.ToString(), "zoo");
+}
+
+TEST_F(TrieIndexFactoryTest, SeekNonExistentKeyWithSeqnoEncoding) {
+  // When seqno encoding is active, seeking for a key that doesn't exist
+  // in the trie should still work correctly (lands on the next valid leaf).
+  //
+  // Entries:
+  //   "mmm" 100 next="mmm" → sep="mmm" (same-key, run of 2 in trie)
+  //   "mmm"  50 next="zzz" → sep="n"
+  //   "zzz"   1 next=null  → sep="{"
+  //
+  // Trie: "mmm"(run=1, seq=100) → "n" → "{"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("mmm");
+    builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, {100, 50});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, {50, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, h, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Seek "aaa" (before all keys) → lands on "mmm" leaf, Block 0.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("aaa"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "nnn" (between "n" and "{") → lands on "{" leaf, Block 2.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("nnn"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Seek "|" (past "{" which is 0x7B, "|" is 0x7C) → past all keys.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("|"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingPastEndAndNextPastEnd) {
+  // Verify seeking past all keys and Next() past the last block with seqno
+  // encoding active.
+  //
+  // Entries:
+  //   "key" 10 next="key" → sep="key" (same-key, run in trie)
+  //   "key"  5 next=null  → sep="l"   (FindShortSuccessor("key")='l')
+  //
+  // Trie: "key"(run=1, seq=10) → "l"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 500};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {10, 5});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{500, 500};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("key"), nullptr, h, &scratch, {5, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Seek past all keys ("zzz" > "l" and > "{" wouldn't exist here).
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("zzz"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+
+  // Seek to "key"|5 → leaf_seqno=10, 5<10 → advance. No overflow → next
+  // leaf "l" (block 1, offset 500).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {5}));
+  ASSERT_EQ(iter->value().offset, 500u);
+  // Next from "l" → past end.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+
+  // Seek to first block, Next through all, then past end.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_OK(iter->NextAndGetResult(&result));  // → "l" (block 1)
+  ASSERT_EQ(iter->value().offset, 500u);
+  ASSERT_OK(iter->NextAndGetResult(&result));  // past end
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
+  // Verify that bounds checking works correctly with seqno encoding and
+  // overflow blocks.
+  //
+  // Entries:
+  //   "key" 300 next="key" → sep="key" (same-key)
+  //   "key" 200 next="key" → sep="key" (same-key)
+  //   "key" 100 next="zzz" → sep="l"
+  //   "zzz"   1 next=null  → sep="{"
+  //
+  // Trie: "key"(run=2, seqnos 300,200) → "l" → "{"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {300, 200});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {200, 100});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {100, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{3000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, h, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  // Set upper bound "zzz".
+  ScanOptions scan(Slice("key"), Slice("zzz"));
+  iter->Prepare(&scan, 1);
+
+  IterateResult result;
+
+  // Seek "key"|300 → Block 0, target "key" < "zzz" → kInbound.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {300}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Next → Block 1 (overflow within "key" run), prev "key" < "zzz" → kInbound.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Next → "l" leaf (block 2), prev "key" < "zzz" → kInbound.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Next → "{" leaf (block 3). prev key is "l", "l" < "zzz" → kInbound.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 3000u);
+
+  // Now test with a tighter bound: limit = "l".
+  // "l" is the separator for block 2. Since limit is exclusive and the
+  // prev_key comparison uses "key" (the separator for block 0/1):
+  ScanOptions scan2(Slice("key"), Slice("l"));
+  iter->Prepare(&scan2, 1);
+
+  // Seek "key"|300 → Block 0, target "key" < "l" → kInbound.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {300}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Next → Block 1 (overflow), prev "key" < "l" → kInbound.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Next → "l" leaf (block 2). prev "key" < "l" → kInbound (conservative).
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Next → "{" leaf (block 3). prev "l" >= "l" → kOutOfBound.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingZeroOverhead) {
+  // Verify that when all user keys are distinct, the serialized trie with
+  // seqno parameters is identical in size to a trie built without them.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  // Build trie with distinct keys, seqno=0.
+  std::unique_ptr<UserDefinedIndexBuilder> builder_no_seq;
+  ASSERT_OK(factory_->NewBuilder(option, builder_no_seq));
+  for (int i = 0; i < 50; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "key_%04d", i);
+    char next_buf[16];
+    snprintf(next_buf, sizeof(next_buf), "key_%04d", i + 1);
+
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (i < 49) {
+      Slice next(next_buf);
+      builder_no_seq->AddIndexEntry(Slice(buf), &next, handle, &scratch,
+                                    {0, 0});
+    } else {
+      builder_no_seq->AddIndexEntry(Slice(buf), nullptr, handle, &scratch,
+                                    {0, 0});
+    }
+  }
+  Slice contents_no_seq;
+  ASSERT_OK(builder_no_seq->Finish(&contents_no_seq));
+  size_t size_no_seq = contents_no_seq.size();
+
+  // Same keys but with nonzero seqnos (still distinct → no seqno encoding).
+  std::unique_ptr<UserDefinedIndexBuilder> builder_with_seq;
+  ASSERT_OK(factory_->NewBuilder(option, builder_with_seq));
+  for (int i = 0; i < 50; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "key_%04d", i);
+    char next_buf[16];
+    snprintf(next_buf, sizeof(next_buf), "key_%04d", i + 1);
+
+    UserDefinedIndexBuilder::BlockHandle handle{static_cast<uint64_t>(i) * 1000,
+                                                500};
+    std::string scratch;
+    if (i < 49) {
+      Slice next(next_buf);
+      builder_with_seq->AddIndexEntry(Slice(buf), &next, handle, &scratch,
+                                      {100, 50});
+    } else {
+      builder_with_seq->AddIndexEntry(Slice(buf), nullptr, handle, &scratch,
+                                      {100, 0});
+    }
+  }
+  Slice contents_with_seq;
+  ASSERT_OK(builder_with_seq->Finish(&contents_with_seq));
+  size_t size_with_seq = contents_with_seq.size();
+
+  ASSERT_EQ(size_no_seq, size_with_seq);
+}
+
+TEST_F(TrieIndexFactoryTest, SeekWithMaxSeqOnSameKeyBlocks) {
+  // kMaxSequenceNumber should always land on Block 0 of a same-key run.
+  //
+  // Entries:
+  //   "key" 400 next="key" → sep="key"
+  //   "key" 300 next="key" → sep="key"
+  //   "key" 200 next="key" → sep="key"
+  //   "key" 100 next=null  → sep="l"
+  //
+  // Trie: "key"(run=3, seqnos 400,300,200) → "l"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  for (int i = 0; i < 4; i++) {
+    UserDefinedIndexBuilder::BlockHandle h{static_cast<uint64_t>(i) * 1000,
+                                           1000};
+    std::string scratch;
+    SequenceNumber seq = static_cast<SequenceNumber>((4 - i) * 100);
+    if (i < 3) {
+      Slice next("key");
+      SequenceNumber next_seq = static_cast<SequenceNumber>((3 - i) * 100);
+      builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {seq, next_seq});
+    } else {
+      builder->AddIndexEntry(Slice("key"), nullptr, h, &scratch, {seq, 0});
+    }
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+}
+
+TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
+  // seq=0 is below all overflow seqnos → advance past the entire run.
+  //
+  // Entries:
+  //   "key" 300 next="key" → sep="key"
+  //   "key" 200 next="key" → sep="key"
+  //   "key" 100 next="zzz" → sep="l"
+  //   "zzz"   1 next=null  → sep="{"
+  //
+  // Trie: "key"(run=2, seqnos 300,200) → "l" → "{"
+  // seq=0 < all overflow seqnos → advance past run → lands on "l" (block 2).
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {300, 200});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {200, 100});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {100, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{3000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, h, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // "key" run has leaf_seqno=300, overflow[0]=200. seq=0 < both → exhausted.
+  // Advance to next leaf "l" (block 2, offset 2000).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {0}));
+  ASSERT_EQ(iter->value().offset, 2000u);
+}
+
+TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
+  // Test Next() transitioning from one overflow run to the next trie leaf
+  // that also has an overflow run.
+  //
+  // To get two true adjacent overflow runs, both user keys need multiple
+  // same-key boundaries. We need a 3rd user key to separate them in the trie.
+  //
+  // Entries:
+  //   "aaa" 200 next="aaa" → sep="aaa" (same-key)
+  //   "aaa" 100 next="aaa" → sep="aaa" (same-key)
+  //   "aaa"  50 next="bbb" → sep="b"   (diff-key)
+  //   "bbb"  90 next="bbb" → sep="bbb" (same-key)
+  //   "bbb"  60 next="bbb" → sep="bbb" (same-key)
+  //   "bbb"  30 next=null  → sep="c"   (FindShortSuccessor)
+  //
+  // Trie: "aaa"(run=2, seqnos 200,100) → "b" → "bbb"(run=2, seqnos 90,60) → "c"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("aaa");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {200, 100});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("aaa");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {100, 50});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    Slice next("bbb");
+    builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch, {50, 90});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{3000, 1000};
+    std::string scratch;
+    Slice next("bbb");
+    builder->AddIndexEntry(Slice("bbb"), &next, h, &scratch, {90, 60});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{4000, 1000};
+    std::string scratch;
+    Slice next("bbb");
+    builder->AddIndexEntry(Slice("bbb"), &next, h, &scratch, {60, 30});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{5000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("bbb"), nullptr, h, &scratch, {30, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Full forward scan.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("aaa"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_EQ(result.key.ToString(), "aaa");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));  // "aaa" overflow
+  ASSERT_EQ(iter->value().offset, 1000u);
+  ASSERT_EQ(result.key.ToString(), "aaa");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));  // → "b" leaf (block 2)
+  ASSERT_EQ(iter->value().offset, 2000u);
+  ASSERT_EQ(result.key.ToString(), "b");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));  // → "bbb" leaf (block 3)
+  ASSERT_EQ(iter->value().offset, 3000u);
+  ASSERT_EQ(result.key.ToString(), "bbb");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));  // "bbb" overflow (block 4)
+  ASSERT_EQ(iter->value().offset, 4000u);
+  ASSERT_EQ(result.key.ToString(), "bbb");
+
+  ASSERT_OK(iter->NextAndGetResult(&result));  // ��� "c" leaf (block 5)
+  ASSERT_EQ(iter->value().offset, 5000u);
+  ASSERT_EQ(result.key.ToString(), "c");
+
+  // Past end.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
+TEST_F(TrieIndexFactoryTest, SingleBlockWithSeqnoActive) {
+  // With only 2 blocks and seqno encoding active, test seeking for seqnos
+  // that fall within and below the run.
+  //
+  // Entries:
+  //   "x" 10 next="x" → sep="x" (same-key)
+  //   "x"  5 next=null → sep="y" (FindShortSuccessor("x") = "y")
+  //
+  // Trie: "x"(run=1, seq=10) → "y"
+  // The "x" leaf has block_count=1 in the trie (no overflow).
+  // Wait — the first entry has sep="x", the second has sep="y".
+  // These are different separators, so "x" run = 1 block, "y" = 1 block.
+  // The "x" leaf has seqno=10, block_count=1.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 500};
+    std::string scratch;
+    Slice next("x");
+    builder->AddIndexEntry(Slice("x"), &next, h, &scratch, {10, 5});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{500, 500};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("x"), nullptr, h, &scratch, {5, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Seek "x"|10 → leaf_seqno=10, 10>=10 → Block 0.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {10}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "x"|7 → leaf_seqno=10, 7<10 → advance. block_count=1, no overflow.
+  // Advance to next leaf "y" (block 1, offset 500).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {7}));
+  ASSERT_EQ(iter->value().offset, 500u);
+
+  // Seek "x"|3 → same: advance past "x" → "y" (block 1).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {3}));
+  ASSERT_EQ(iter->value().offset, 500u);
+}
+
+TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
+  // Verify that re-seeking after being positioned in an overflow run
+  // correctly resets the overflow state.
+  //
+  // Entries:
+  //   "key" 300 next="key" → sep="key"
+  //   "key" 200 next="key" → sep="key"
+  //   "key" 100 next="zzz" → sep="l"
+  //   "zzz"   1 next=null  → sep="{"
+  //
+  // Trie: "key"(run=2, seqnos 300,200) → "l" → "{"
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {300, 200});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{1000, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {200, 100});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("key"), &next, h, &scratch, {100, 1});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{3000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, h, &scratch, {1, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // Position in overflow: seek "key"|150 → leaf_seqno=300, 150<300 → advance.
+  // overflow[0]=200, 150<200 → skip. Exhausted → next leaf "l" (block 2).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {150}));
+  ASSERT_EQ(iter->value().offset, 2000u);
+
+  // Re-seek to "key"|300 → should reset to Block 0.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {300}));
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Re-seek to "zzz" → "{" leaf (block 3), overflow state should be clean.
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("zzz"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 3000u);
+
+  // Next should go past end.
+  ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
