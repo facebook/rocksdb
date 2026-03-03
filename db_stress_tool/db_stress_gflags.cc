@@ -203,6 +203,9 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
+DEFINE_bool(open_files_async, ROCKSDB_NAMESPACE::Options().open_files_async,
+            "Options.open_files_async");
+
 DEFINE_uint64(compressed_secondary_cache_size, 0,
               "Number of bytes to use as a cache of compressed data."
               " 0 means use default settings.");
@@ -617,6 +620,16 @@ DEFINE_int32(index_block_search_type,
                                       .index_block_search_type),
              "Search algorithm for index blocks (see `enum BlockSearchType` in "
              "table.h)");
+
+DEFINE_bool(
+    use_trie_index, false,
+    "Use trie-based user defined index (UDI) for SST files. "
+    "Only compatible with Put operations (no Merge/Delete/SingleDelete). "
+    "When enabled, incompatible flags are automatically adjusted.");
+
+DEFINE_bool(test_backward_scan, true,
+            "Test backward iteration (Prev, SeekForPrev) in stress tests. "
+            "Automatically set to false when use_trie_index is enabled.");
 
 DEFINE_string(db, "", "Use the db with the following name.");
 

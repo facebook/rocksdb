@@ -325,6 +325,19 @@ public class Options extends RocksObject
   }
 
   @Override
+  public boolean openFilesAsync() {
+    assert (isOwningHandle());
+    return openFilesAsync(nativeHandle_);
+  }
+
+  @Override
+  public Options setOpenFilesAsync(final boolean openFilesAsync) {
+    assert (isOwningHandle());
+    setOpenFilesAsync(nativeHandle_, openFilesAsync);
+    return this;
+  }
+
+  @Override
   public int maxOpenFiles() {
     assert(isOwningHandle());
     return maxOpenFiles(nativeHandle_);
@@ -2137,6 +2150,8 @@ public class Options extends RocksObject
   private static native boolean errorIfExists(long handle);
   private static native void setParanoidChecks(long handle, boolean paranoidChecks);
   private static native boolean paranoidChecks(long handle);
+  private static native void setOpenFilesAsync(long handle, boolean openFilesAsync);
+  private static native boolean openFilesAsync(long handle);
   private static native void setRateLimiter(long handle, long rateLimiterHandle);
   private static native void setSstFileManager(final long handle, final long sstFileManagerHandle);
   private static native void setLogger(

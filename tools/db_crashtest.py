@@ -193,6 +193,7 @@ default_params = {
     # overwrites.
     "nooverwritepercent": 1,
     "open_files": lambda: random.choice([-1, -1, 100, 500000]),
+    "open_files_async": lambda: random.choice([0, 1]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
@@ -239,6 +240,9 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
+    # use_trie_index must be the same across invocations because it restricts
+    # operations (no deletes/merges) and existing SSTs may contain non-Put types
+    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -888,6 +892,29 @@ def finalize_and_sanitize(src_params):
     else:
         dest_params["allow_resumption_one_in"] = 0
 
+    # Trie UDI only supports Put (kTypeValue). Disable incompatible operations.
+    if dest_params.get("use_trie_index") == 1:
+        dest_params["use_merge"] = 0
+        dest_params["use_put_entity_one_in"] = 0
+        dest_params["use_timed_put_one_in"] = 0
+        dest_params["use_get_entity"] = 0
+        dest_params["use_multi_get_entity"] = 0
+        # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
+        # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
+        dest_params["use_txn"] = 0
+        # Trie UDI uses zero-copy pointers into block data, which is
+        # incompatible with mmap_read.
+        dest_params["mmap_read"] = 0
+        # Redistribute delete/delrange percents to write percent
+        dest_params["writepercent"] += dest_params["delpercent"]
+        dest_params["writepercent"] += dest_params["delrangepercent"]
+        dest_params["delpercent"] = 0
+        dest_params["delrangepercent"] = 0
+        # Ingestion with standalone range deletions is incompatible
+        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        # Parallel compression is incompatible with UDI
+        dest_params["compression_parallel_threads"] = 1
+
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (
@@ -969,6 +996,8 @@ def finalize_and_sanitize(src_params):
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
         dest_params["periodic_compaction_seconds"] = 0
+        # FIFO compaction is not supported with open_files_async
+        dest_params["open_files_async"] = 0
         # Disable irrelevant tiering options
         dest_params["preclude_last_level_data_seconds"] = 0
         dest_params["last_level_temperature"] = "kUnknown"
@@ -1262,6 +1291,11 @@ def finalize_and_sanitize(src_params):
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
+
+    # open_files_async requires skip_stats_update_on_db_open to avoid
+    # synchronous I/O in UpdateAccumulatedStats during DB open
+    if dest_params.get("skip_stats_update_on_db_open", 0) == 0:
+        dest_params["open_files_async"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek

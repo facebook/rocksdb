@@ -96,6 +96,7 @@ LIB_SOURCES =                                                   \
   db/version_edit.cc                                            \
   db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
+  db/version_util.cc                                            \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
   db/wide/wide_column_serialization.cc                          \
@@ -333,6 +334,9 @@ LIB_SOURCES =                                                   \
   utilities/transactions/write_unprepared_txn.cc                \
   utilities/transactions/write_unprepared_txn_db.cc             \
   utilities/ttl/db_ttl_impl.cc                                  \
+  utilities/trie_index/bitvector.cc                              \
+  utilities/trie_index/louds_trie.cc                             \
+  utilities/trie_index/trie_index_factory.cc                     \
   utilities/types_util.cc                                       \
   utilities/wal_filter.cc                                       \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
@@ -666,6 +670,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/transactions/timestamped_snapshot_test.cc                   \
   utilities/ttl/ttl_test.cc                                             \
+  utilities/trie_index/trie_index_test.cc                               \
   utilities/types_util_test.cc                                          \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \

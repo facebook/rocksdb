@@ -33,6 +33,17 @@ static std::string NEW_VALUE = "NewValue";
 class DBFlushTest : public DBTestBase {
  public:
   DBFlushTest() : DBTestBase("db_flush_test", /*env_do_fsync=*/true) {}
+
+  // Wait for all background flush callbacks to complete before Close().
+  // Close() calls db_.reset() which nulls the unique_ptr before the destructor
+  // runs, so a concurrent OnFlushCompleted reading test_->db_ would race.
+  // WaitForCompact() waits for bg_flush_scheduled_==0 (which is decremented
+  // after listener callbacks return) without setting shutting_down_ (so
+  // callbacks are not skipped) and without requiring NumNotFlushed()==0 (which
+  // would hang when mempurge leaves a memtable in imm()).
+  Status WaitForFlushCallbacks() {
+    return db_->WaitForCompact(WaitForCompactOptions());
+  }
 };
 
 class DBFlushDirectIOTest : public DBFlushTest,
@@ -1055,6 +1066,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   ASSERT_EQ(Get(RNDKEY2), p_rv2);
   ASSERT_EQ(Get(RNDKEY3), p_rv3);
 
+  ASSERT_OK(WaitForFlushCallbacks());
   Close();
 }
 
@@ -1169,6 +1181,7 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   // We expect no mempurge at all.
   EXPECT_EQ(mempurge_count.exchange(0), ZERO);
 
+  ASSERT_OK(WaitForFlushCallbacks());
   Close();
 }
 // End of MemPurgeBasicToggle, which is not
@@ -1425,6 +1438,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
     delete iter;
   }
 
+  ASSERT_OK(WaitForFlushCallbacks());
   Close();
 }
 

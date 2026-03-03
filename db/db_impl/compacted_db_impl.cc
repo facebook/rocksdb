@@ -91,8 +91,21 @@ Status CompactedDBImpl::Get(const ReadOptions& _read_options,
           /*b_has_ts=*/false) < 0) {
     return Status::NotFound();
   }
-  Status s = f.fd.table_reader->Get(read_options, lkey.internal_key(),
-                                    &get_context, nullptr);
+  TableReader* t = nullptr;
+  TableCache::TypedHandle* handle = nullptr;
+  Status s = cfd_->table_cache()->FindTable(
+      read_options, cfd_->table_cache()->file_options(),
+      cfd_->internal_comparator(), *f.file_metadata, &handle,
+      version_->GetMutableCFOptions(), &t, false /* no_io */,
+      nullptr /* file_read_hist */, false /* skip_filters */, files_level_,
+      true /* prefetch_index_and_filter_in_cache */,
+      0 /* max_file_size_for_l0_meta_pin */, f.file_metadata->temperature,
+      true /* pin_table_handle */);
+  if (s.ok()) {
+    assert(handle == nullptr);
+    // Use TableReader directly to avoid extra table_cache->Get() overheads
+    s = t->Get(read_options, lkey.internal_key(), &get_context, nullptr);
+  }
   if (!s.ok() && !s.IsNotFound()) {
     return s;
   }
@@ -152,7 +165,6 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
-  autovector<TableReader*, 16> reader_list;
   for (size_t i = 0; i < num_keys; ++i) {
     const Slice& key = keys[i];
     LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
@@ -162,38 +174,40 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
             ExtractUserKeyAndStripTimestamp(f.smallest_key,
                                             user_comparator_->timestamp_size()),
             /*b_has_ts=*/false) < 0) {
-      reader_list.push_back(nullptr);
-    } else {
-      f.fd.table_reader->Prepare(lkey.internal_key());
-      reader_list.push_back(f.fd.table_reader);
+      statuses[i] = Status::NotFound();
+      continue;
     }
-  }
-  for (size_t i = 0; i < num_keys; ++i) {
-    statuses[i] = Status::NotFound();
-  }
-  int idx = 0;
-  for (auto* r : reader_list) {
-    if (r != nullptr) {
-      PinnableSlice& pinnable_val = values[idx];
-      LookupKey lkey(keys[idx], kMaxSequenceNumber, read_options.timestamp);
-      std::string* timestamp = timestamps ? &timestamps[idx] : nullptr;
-      GetContext get_context(
-          user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
-          lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
-          user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
-          nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
-      Status status =
-          r->Get(read_options, lkey.internal_key(), &get_context, nullptr);
-      assert(static_cast<size_t>(idx) < num_keys);
-      if (!status.ok() && !status.IsNotFound()) {
-        statuses[idx] = status;
+    PinnableSlice& pinnable_val = values[i];
+    std::string* timestamp = timestamps ? &timestamps[i] : nullptr;
+    GetContext get_context(
+        user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
+        lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
+        user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
+        nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
+    TableReader* t = nullptr;
+    TableCache::TypedHandle* handle = nullptr;
+    Status status = cfd_->table_cache()->FindTable(
+        read_options, cfd_->table_cache()->file_options(),
+        cfd_->internal_comparator(), *f.file_metadata, &handle,
+        version_->GetMutableCFOptions(), &t, false /* no_io */,
+        nullptr /* file_read_hist */, false /* skip_filters */, files_level_,
+        true /* prefetch_index_and_filter_in_cache */,
+        0 /* max_file_size_for_l0_meta_pin */, f.file_metadata->temperature,
+        true /* pin_table_handle */);
+    if (status.ok()) {
+      assert(handle == nullptr);
+      // Use TableReader directly to avoid extra table_cache->Get() overheads
+      status = t->Get(read_options, lkey.internal_key(), &get_context, nullptr);
+    }
+    if (!status.ok() && !status.IsNotFound()) {
+      statuses[i] = status;
+    } else {
+      if (get_context.State() == GetContext::kFound) {
+        statuses[i] = Status::OK();
       } else {
-        if (get_context.State() == GetContext::kFound) {
-          statuses[idx] = Status::OK();
-        }
+        statuses[i] = Status::NotFound();
       }
     }
-    ++idx;
   }
 }
 
@@ -230,6 +244,7 @@ Status CompactedDBImpl::Init(const Options& options) {
       return Status::NotSupported("Both L0 and other level contain files");
     }
     files_ = l0;
+    files_level_ = 0;
     return Status::OK();
   }
 
@@ -242,6 +257,7 @@ Status CompactedDBImpl::Init(const Options& options) {
   int level = vstorage->num_non_empty_levels() - 1;
   if (vstorage->LevelFilesBrief(level).num_files > 0) {
     files_ = vstorage->LevelFilesBrief(level);
+    files_level_ = level;
     return Status::OK();
   }
   return Status::NotSupported("no file exists");
@@ -261,6 +277,13 @@ Status CompactedDBImpl::Open(const Options& options, const std::string& dbname,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
+    {
+      InstrumentedMutexLock l(&db->mutex_);
+      db->opened_successfully_ = true;
+      if (db->immutable_db_options_.open_files_async) {
+        db->ScheduleAsyncFileOpening();
+      }
+    }
     s = db->StartPeriodicTaskScheduler();
   }
   if (s.ok()) {

@@ -1569,6 +1569,28 @@ Status ColumnFamilyData::ValidateOptions(
         "FIFO compaction only supported with max_open_files = -1.");
   }
 
+  if (db_options.open_files_async) {
+    // FIFO TTL picker relies on reading the files table properties inside a
+    // DB mutex. This can be slow if files are opened asynchronously, so we
+    // disable it.
+    //
+    // TODO: consider blocking fifo compaction until async file open task
+    // completes.
+    if (cf_options.compaction_style == kCompactionStyleFIFO) {
+      return Status::NotSupported(
+          "FIFO compaction is not supported with open_files_async = true.");
+    }
+    // Open files async is not useful if skip_stats_update_on_db_open=true
+    // because DB open will still block on IO.
+    //
+    // TODO: consider moving stats update inside async file open background
+    // task.
+    if (!db_options.skip_stats_update_on_db_open) {
+      return Status::InvalidArgument(
+          "open_files_async requires skip_stats_update_on_db_open = true.");
+    }
+  }
+
   if (cf_options.compaction_options_fifo.use_kv_ratio_compaction) {
     if (cf_options.compaction_style != kCompactionStyleFIFO) {
       return Status::InvalidArgument(

@@ -7,6 +7,7 @@
 #include "db/periodic_task_scheduler.h"
 
 #include "rocksdb/system_clock.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,7 +27,7 @@ static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
     {PeriodicTaskType::kPersistStats, kInvalidPeriodSec},
     {PeriodicTaskType::kFlushInfoLog, 10},
     {PeriodicTaskType::kRecordSeqnoTime, kInvalidPeriodSec},
-    {PeriodicTaskType::kTriggerCompaction, 12 * 60 * 60}  // 12 hours
+    {PeriodicTaskType::kTriggerCompaction, kInvalidPeriodSec},
 };
 
 static const std::map<PeriodicTaskType, std::string> kPeriodicTaskTypeNames = {
@@ -85,6 +86,14 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
   if (!result.second) {
     return Status::Aborted("Failed to add periodic task");
   }
+#ifndef NDEBUG
+  {
+    std::pair<PeriodicTaskType, uint64_t> task_info{task_type,
+                                                    repeat_period_seconds};
+    TEST_SYNC_POINT_CALLBACK("PeriodicTaskScheduler::Register:TaskRegistered",
+                             &task_info);
+  }
+#endif  // NDEBUG
   return Status::OK();
 }
 

@@ -783,6 +783,25 @@ struct DBOptions {
   // Default: 16
   int max_file_opening_threads = 16;
 
+  // If true, SST files are opened and validated asynchronously in the
+  // background after DB::Open returns. This reduces DB open time for
+  // databases with many SST files and high latency file systems. Mostly useful
+  // when max_open_files = -1, as max_open_files != -1 usually has fast open
+  // times. See also `max_file_opening_threads` and
+  // `skip_stats_update_on_db_open` to improve file open latency.
+  //
+  // Note: This option is currently not compatible with FIFO compaction and
+  // requires skip_stats_update_on_db_open=true.
+  //
+  // Errors will no longer show up in DB::Open, but instead can show up as
+  // either background errors and/or operations that access the file (e.g.
+  // reads, compactions).
+  //
+  // When false (default), SST files are opened and validated during DB::Open.
+  //
+  // Default: false
+  bool open_files_async = false;
+
   // Once write-ahead logs exceed this size, we will start forcing the flush of
   // column families whose memtables are backed by the oldest live WAL file
   // (i.e. the ones that are causing all the space amplification). If set to 0

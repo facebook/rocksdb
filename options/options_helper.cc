@@ -65,6 +65,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.create_missing_column_families;
   options.error_if_exists = immutable_db_options.error_if_exists;
   options.paranoid_checks = immutable_db_options.paranoid_checks;
+  options.open_files_async = immutable_db_options.open_files_async;
   options.flush_verify_memtable_count =
       immutable_db_options.flush_verify_memtable_count;
   options.compaction_verify_record_count =

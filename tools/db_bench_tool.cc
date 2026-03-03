@@ -94,6 +94,7 @@
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
+#include "utilities/trie_index/trie_index_factory.h"
 #ifdef MEMKIND
 #include "memory/memkind_kmem_allocator.h"
 #endif
@@ -661,6 +662,12 @@ DEFINE_bool(partition_index_and_filters, false,
 DEFINE_bool(partition_index, false, "Partition index blocks");
 
 DEFINE_bool(index_with_first_key, false, "Include first key in the index");
+
+DEFINE_bool(use_trie_index, false,
+            "Use trie-based user-defined index (UDI) for block-based tables. "
+            "Builds a LOUDS-encoded succinct trie from separator keys, "
+            "providing space reduction compared to the default binary search "
+            "index. Requires BytewiseComparator.");
 
 DEFINE_bool(
     optimize_filters_for_memory,
@@ -1639,6 +1646,12 @@ DEFINE_bool(print_malloc_stats, false,
             "Print malloc stats to stdout after benchmarks finish.");
 
 DEFINE_bool(disable_auto_compactions, false, "Do not auto trigger compactions");
+
+DEFINE_bool(open_files_async, false,
+            "Open SST files asynchronously during DB open");
+
+DEFINE_bool(skip_stats_update_on_db_open, false,
+            "Skip loading table properties to update stats during DB open");
 
 DEFINE_uint64(wal_ttl_seconds, 0, "Set the TTL for the WAL Files in seconds.");
 DEFINE_uint64(wal_size_limit_MB, 0,
@@ -2842,6 +2855,7 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   ReadOptions read_options_;
   WriteOptions write_options_;
+  std::shared_ptr<ROCKSDB_NAMESPACE::UserDefinedIndexFactory> udi_factory_;
   Options open_options_;  // keep options around to properly destroy db later
   TraceOptions trace_options_;
   TraceOptions block_cache_trace_options_;
@@ -3606,6 +3620,9 @@ class Benchmark {
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
+      if (FLAGS_use_trie_index && udi_factory_) {
+        read_options_.table_index_factory = udi_factory_.get();
+      }
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -4773,6 +4790,11 @@ class Benchmark {
         fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
       }
 
+      if (FLAGS_use_trie_index) {
+        udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
+        block_based_options.user_defined_index_factory = udi_factory_;
+      }
+
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
     }
@@ -4863,6 +4885,14 @@ class Benchmark {
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+    options.open_files_async = FLAGS_open_files_async;
+    if (FLAGS_open_files_async && !FLAGS_skip_stats_update_on_db_open) {
+      FLAGS_skip_stats_update_on_db_open = true;
+      fprintf(stderr,
+              "open_files_async requires skip_stats_update_on_db_open, "
+              "enabling it automatically\n");
+    }
+    options.skip_stats_update_on_db_open = FLAGS_skip_stats_update_on_db_open;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
     options.paranoid_checks = FLAGS_paranoid_checks;
     options.force_consistency_checks = FLAGS_force_consistency_checks;
