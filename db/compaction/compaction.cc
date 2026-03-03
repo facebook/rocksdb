@@ -72,6 +72,12 @@ void Compaction::FinalizeInputInfo(Version* _input_version) {
   cfd_->Ref();
   input_version_->Ref();
   edit_.SetColumnFamily(cfd_->GetID());
+
+  // Set transient flag based on CF options. We set it here while db mutex is
+  // held, because cfd is guaranteed to not be nullptr - this way we can
+  // reference the flag to decide whether to write edits to manifest (when cfd
+  // could be null)
+  edit_.SetIsTransientColumnFamily(cfd_->ioptions().is_transient);
 }
 
 void Compaction::GetBoundaryKeys(
