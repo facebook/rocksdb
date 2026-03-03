@@ -940,8 +940,8 @@ TEST_F(DBWriteBufferManagerTest,
   options.enforce_write_buffer_manager_during_recovery = false;
 
   // Use large WBM limit during writes to avoid triggering flushes
-  options.write_buffer_manager.reset(
-      new WriteBufferManager(kWbmLimitForWrites, nullptr, true));
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForWrites, nullptr, true);
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumKeys; i++) {
@@ -953,8 +953,8 @@ TEST_F(DBWriteBufferManagerTest,
   Close();
 
   // Use smaller WBM limit for recovery
-  options.write_buffer_manager.reset(
-      new WriteBufferManager(kWbmLimit, nullptr, true));
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimit, nullptr, true);
 
   // Recovery without enforcement - memory should exceed the limit
   Reopen(options);
@@ -978,8 +978,8 @@ TEST_F(DBWriteBufferManagerTest,
   options.enforce_write_buffer_manager_during_recovery = true;
 
   // Use large WBM limit during writes to avoid triggering flushes
-  options.write_buffer_manager.reset(
-      new WriteBufferManager(kWbmLimitForWrites, nullptr, true));
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForWrites, nullptr, true);
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumKeys; i++) {
@@ -990,8 +990,8 @@ TEST_F(DBWriteBufferManagerTest,
   Close();
 
   // Use smaller WBM limit for recovery
-  options.write_buffer_manager.reset(
-      new WriteBufferManager(kWbmLimit, nullptr, true));
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimit, nullptr, true);
 
   // Recovery with enforcement - memory should be bounded
   Reopen(options);
@@ -1042,8 +1042,8 @@ TEST_F(DBWriteBufferManagerTest,
   // WBM limits are not enforced during recovery
   options.enforce_write_buffer_manager_during_recovery = false;
 
-  options.write_buffer_manager.reset(
-      new WriteBufferManager(kWbmLimitForTwoDbs, nullptr, true));
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForTwoDbs, nullptr, true);
   DestroyAndReopen(options);
 
   // Use of 2.5MB shouldn't trigger flush
