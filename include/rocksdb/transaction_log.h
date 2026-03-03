@@ -32,7 +32,7 @@ enum WalFileType {
   kAliveLogFile = 1
 };
 
-class WalFile {
+class ROCKSDB_API WalFile {
  public:
   WalFile() {}
   virtual ~WalFile() {}
@@ -89,7 +89,7 @@ struct BatchResult {
 // A TransactionLogIterator is used to iterate over the transactions in a db.
 // One run of the iterator is continuous, i.e. the iterator will stop at the
 // beginning of any gap in sequences
-class TransactionLogIterator {
+class ROCKSDB_API TransactionLogIterator {
  public:
   TransactionLogIterator() {}
   virtual ~TransactionLogIterator() {}
