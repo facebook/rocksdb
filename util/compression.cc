@@ -1539,6 +1539,10 @@ class BuiltinDecompressorV2SnappyOnly final : public BuiltinDecompressorV2 {
   }
 
   Status ExtractUncompressedSize(Args& args) override {
+#ifndef SNAPPY
+    // Avoid unused-parameter warnings when snappy support is not compiled in.
+    (void)args;
+#endif
     assert(args.compression_type == kSnappyCompression);
 #ifdef SNAPPY
     size_t uncompressed_length = 0;

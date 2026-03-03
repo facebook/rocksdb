@@ -2451,7 +2451,17 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_set_wait(
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushoptions_get_wait(
     rocksdb_flushoptions_t*);
 
-/* Memory allocator */
+/* Memory allocator: allow pluggable MemoryAllocator instances,
+ * including user-defined allocators created via callbacks. */
+
+extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
+rocksdb_memory_allocator_create_custom(
+    void* (*allocate)(void* state, size_t size),
+    void (*deallocate)(void* state, void* p),
+    size_t (*usable_size)(void* state, void* p, size_t allocation_size),
+    void (*destructor)(void* state),
+    void* state,
+    const char* name);
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
 rocksdb_jemalloc_nodump_allocator_create(char** errptr);

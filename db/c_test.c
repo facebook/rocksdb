@@ -804,6 +804,67 @@ static rocksdb_compactionservice_scheduleresponse_t* NullSchedule(
   return NULL;  // Return NULL to simulate failure
 }
 
+// Custom memory allocator callbacks and test to exercise the
+// rocksdb_memory_allocator_create_custom C API end-to-end.
+static void* mock_allocate(void* state, size_t size) {
+  (void)state;
+  return malloc(size);
+}
+
+static void mock_deallocate(void* state, void* p) {
+  (void)state;
+  free(p);
+}
+
+// Verifies that a DB can be opened and destroyed successfully when using
+// a cache configured with a custom memory allocator created via the C API.
+// Build: make clean && make -j$(sysctl -n hw.ncpu) c_test
+//   DISABLE_WARNING_AS_ERROR=1 ROCKSDB_USE_IO_URING=0 PORTABLE=1 && ./c_test
+static void CheckCustomAllocator(void) {
+  StartPhase("custom_allocator");
+
+  char* err = NULL;
+
+  rocksdb_memory_allocator_t* alloc =
+      rocksdb_memory_allocator_create_custom(mock_allocate, mock_deallocate,
+                                             NULL, NULL, NULL,
+                                             "test_allocator");
+
+  rocksdb_lru_cache_options_t* cache_opts =
+      rocksdb_lru_cache_options_create();
+  rocksdb_lru_cache_options_set_capacity(cache_opts, 100000);
+  rocksdb_lru_cache_options_set_memory_allocator(cache_opts, alloc);
+  rocksdb_cache_t* cache = rocksdb_cache_create_lru_opts(cache_opts);
+
+  rocksdb_options_t* options = rocksdb_options_create();
+  rocksdb_block_based_table_options_t* table_options =
+      rocksdb_block_based_options_create();
+
+  rocksdb_block_based_options_set_block_cache(table_options, cache);
+  rocksdb_options_set_block_based_table_factory(options, table_options);
+  rocksdb_options_set_create_if_missing(options, 1);
+
+  char alloc_dbpath[200];
+  snprintf(alloc_dbpath, sizeof(alloc_dbpath),
+           "%s/rocksdb_c_test_alloc-%d", GetTempDir(), (int)geteuid());
+
+  rocksdb_t* db = rocksdb_open(options, alloc_dbpath, &err);
+  CheckNoError(err);
+
+  rocksdb_close(db);
+
+  rocksdb_destroy_db(options, alloc_dbpath, &err);
+  Free(&err);
+
+  rocksdb_options_destroy(options);
+  rocksdb_block_based_options_destroy(table_options);
+  rocksdb_cache_destroy(cache);
+  rocksdb_lru_cache_options_destroy(cache_opts);
+  rocksdb_memory_allocator_destroy(alloc);
+
+  fprintf(stdout, "PASS: Custom Allocator Test\n");
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -4879,6 +4940,8 @@ int main(int argc, char** argv) {
 
     rocksdb_sst_file_manager_destroy(sst_file_manager);
   }
+
+  CheckCustomAllocator();
 
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
