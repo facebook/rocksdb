@@ -4429,6 +4429,13 @@ void InitializeOptionsFromFlags(
     }
   }
   options.max_open_files = FLAGS_open_files;
+  options.open_files_async = FLAGS_open_files_async;
+  if (FLAGS_open_files_async && !FLAGS_skip_stats_update_on_db_open) {
+    FLAGS_skip_stats_update_on_db_open = true;
+    fprintf(stderr,
+            "open_files_async requires skip_stats_update_on_db_open, "
+            "enabling it automatically\n");
+  }
   if (FLAGS_statistics) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   }

@@ -203,6 +203,9 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
+DEFINE_bool(open_files_async, ROCKSDB_NAMESPACE::Options().open_files_async,
+            "Options.open_files_async");
+
 DEFINE_uint64(compressed_secondary_cache_size, 0,
               "Number of bytes to use as a cache of compressed data."
               " 0 means use default settings.");

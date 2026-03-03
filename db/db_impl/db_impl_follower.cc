@@ -321,6 +321,7 @@ Status DB::OpenAsFollower(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    impl->MarkAsyncFileOpenNotNeeded();
   }
   impl->mutex_.Unlock();
   sv_context.Clean();

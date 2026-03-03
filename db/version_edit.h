@@ -134,14 +134,57 @@ constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
+// PinnedTableReader is used to safely access a table reader in a multi-threaded
+// context. It holds both a pointer to the table reader and a cache handle.
+class PinnedTableReader {
+ public:
+  PinnedTableReader() : reader_(nullptr), handle_(nullptr) {}
+  ~PinnedTableReader() = default;
+  PinnedTableReader(const PinnedTableReader& other)
+      : reader_(nullptr), handle_(nullptr) {
+    *this = other;
+  }
+  PinnedTableReader& operator=(const PinnedTableReader& other);
+  PinnedTableReader(PinnedTableReader&&) = delete;
+  PinnedTableReader& operator=(PinnedTableReader&&) = delete;
+
+  // Returns the pinned TableReader, or nullptr if not pinned.
+  TableReader* Get() const { return reader_.load(std::memory_order_acquire); }
+
+  // Returns the cache handle that keeps TableReader alive, or nullptr if not
+  // pinned.
+  Cache::Handle* GetCacheHandle() const;
+
+  // Pin a table reader with its cache handle.
+  void Pin(Cache::Handle* handle, TableReader* reader);
+
+  // Release the pinned handle via the given cache and reset state.
+  void Release(Cache* cache);
+
+  // Test-only: set a reader without a cache handle.
+  void TEST_SetReader(TableReader* reader) {
+    reader_.store(reader, std::memory_order_release);
+  }
+
+ private:
+  // Internally, we need to ensure reads and writes to reader_ and handle_ are
+  // properly ordered. handle_ must be written to before reader_ is written to
+  // with release semantics. handle_ must be read after reader_ is read with
+  // acquire semantics.
+  std::atomic<TableReader*> reader_;
+  Cache::Handle* handle_;
+};
+
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
 struct FileDescriptor {
-  // Table reader in table_reader_handle
-  TableReader* table_reader;
+  // Fast access to table reader without cache lookup. Marked mutable because
+  // reads can pin the table reader, but can also be done safely in a
+  // multi-threaded context.
+  mutable PinnedTableReader pinned_reader;
   uint64_t packed_number_and_path_id;
   uint64_t file_size;             // File size in bytes
   SequenceNumber smallest_seqno;  // The smallest seqno in this file
@@ -154,7 +197,7 @@ struct FileDescriptor {
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
                  SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
-      : table_reader(nullptr),
+      : pinned_reader(),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
         file_size(_file_size),
         smallest_seqno(_smallest_seqno),
@@ -163,7 +206,7 @@ struct FileDescriptor {
   FileDescriptor(const FileDescriptor& fd) { *this = fd; }
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
-    table_reader = fd.table_reader;
+    pinned_reader = fd.pinned_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
     file_size = fd.file_size;
     smallest_seqno = fd.smallest_seqno;
@@ -197,9 +240,6 @@ struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;  // Smallest internal key served by table
   InternalKey largest;   // Largest internal key served by table
-
-  // Needs to be disposed when refs becomes 0.
-  Cache::Handle* table_reader_handle = nullptr;
 
   FileSampledStats stats;
 
@@ -347,9 +387,10 @@ struct FileMetaData {
   uint64_t TryGetOldestAncesterTime() {
     if (oldest_ancester_time != kUnknownOldestAncesterTime) {
       return oldest_ancester_time;
-    } else if (fd.table_reader != nullptr &&
-               fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->creation_time;
+    }
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      return reader->GetTableProperties()->creation_time;
     }
     return kUnknownOldestAncesterTime;
   }
@@ -357,9 +398,10 @@ struct FileMetaData {
   uint64_t TryGetFileCreationTime() {
     if (file_creation_time != kUnknownFileCreationTime) {
       return file_creation_time;
-    } else if (fd.table_reader != nullptr &&
-               fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->file_creation_time;
+    }
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      return reader->GetTableProperties()->file_creation_time;
     }
     return kUnknownFileCreationTime;
   }
@@ -367,10 +409,9 @@ struct FileMetaData {
   // Tries to get the newest key time from the current file
   // Falls back on oldest ancestor time of previous (newer) file
   uint64_t TryGetNewestKeyTime(FileMetaData* prev_file = nullptr) {
-    if (fd.table_reader != nullptr &&
-        fd.table_reader->GetTableProperties() != nullptr) {
-      uint64_t newest_key_time =
-          fd.table_reader->GetTableProperties()->newest_key_time;
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      uint64_t newest_key_time = reader->GetTableProperties()->newest_key_time;
       if (newest_key_time != kUnknownNewestKeyTime) {
         return newest_key_time;
       }

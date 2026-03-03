@@ -193,6 +193,7 @@ default_params = {
     # overwrites.
     "nooverwritepercent": 1,
     "open_files": lambda: random.choice([-1, -1, 100, 500000]),
+    "open_files_async": lambda: random.choice([0, 1]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
@@ -992,6 +993,8 @@ def finalize_and_sanitize(src_params):
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
         dest_params["periodic_compaction_seconds"] = 0
+        # FIFO compaction is not supported with open_files_async
+        dest_params["open_files_async"] = 0
         # Disable irrelevant tiering options
         dest_params["preclude_last_level_data_seconds"] = 0
         dest_params["last_level_temperature"] = "kUnknown"
@@ -1285,6 +1288,11 @@ def finalize_and_sanitize(src_params):
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
+
+    # open_files_async requires skip_stats_update_on_db_open to avoid
+    # synchronous I/O in UpdateAccumulatedStats during DB open
+    if dest_params.get("skip_stats_update_on_db_open", 0) == 0:
+        dest_params["open_files_async"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek

@@ -178,7 +178,8 @@ class CompactionPickerTestBase : public testing::Test {
     }
     TableProperties tp;
     tp.newest_key_time = newest_key_time;
-    f->fd.table_reader = new mock::MockTableReader(mock::KVVector{}, tp);
+    f->fd.pinned_reader.TEST_SetReader(
+        new mock::MockTableReader(mock::KVVector{}, tp));
 
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
@@ -272,8 +273,9 @@ class CompactionPickerTestBase : public testing::Test {
 
   void ClearFiles() {
     for (auto& file : files_) {
-      if (file->fd.table_reader != nullptr) {
-        delete file->fd.table_reader;
+      TableReader* t = file->fd.pinned_reader.Get();
+      if (t != nullptr) {
+        delete t;
       }
     }
     files_.clear();
