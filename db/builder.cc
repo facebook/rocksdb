@@ -99,6 +99,44 @@ Status BuildTable(
                                    /*enable_hash=*/paranoid_file_checks);
   Status s;
   meta->fd.file_size = 0;
+
+  // Early check for empty iterator to avoid unnecessary work
+  iter->SeekToFirst();
+  if (!iter->Valid()) {
+    // Check if range deletions exist without keys
+    std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+        new CompactionRangeDelAggregator(&tboptions.internal_comparator,
+                                         snapshots, full_history_ts_low));
+    uint64_t num_unfragmented_tombstones = 0;
+    uint64_t total_tombstone_payload_bytes = 0;
+    // Reserve capacity to avoid reallocations when possible
+    if (!range_del_iters.empty()) {
+      range_del_agg->Reserve(range_del_iters.size());
+    }
+    for (auto& range_del_iter : range_del_iters) {
+      num_unfragmented_tombstones +=
+          range_del_iter->num_unfragmented_tombstones();
+      total_tombstone_payload_bytes +=
+          range_del_iter->total_tombstone_payload_bytes();
+      range_del_agg->AddTombstones(std::move(range_del_iter));
+    }
+
+    // Return early if no data to process (no keys and no range deletions)
+    if (range_del_agg->IsEmpty()) {
+      std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
+                                        meta->fd.GetPathId());
+      std::string file_checksum = kUnknownFileChecksum;
+      std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
+      Status status_for_listener = Status::Aborted("Empty SST file not kept");
+      EventHelpers::LogAndNotifyTableFileCreationFinished(
+          event_logger, ioptions.listeners, dbname, tboptions.column_family_name,
+          "(nil)", job_id, meta->fd, kInvalidBlobFileNumber, TableProperties{},
+          tboptions.reason, status_for_listener, kUnknownFileChecksum,
+          kUnknownFileChecksumFuncName);
+      return status_for_listener;
+    }
+  }
+
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
@@ -285,9 +323,8 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
     }
-    if (!s.ok()) {
-      c_iter.status().PermitUncheckedError();
-    } else if (!c_iter.status().ok()) {
+    // Consolidated status check after iteration to reduce repeated checks
+    if (s.ok() && !c_iter.status().ok()) {
       s = c_iter.status();
     }
 
@@ -351,7 +388,11 @@ Status BuildTable(
       *io_status = builder->io_status();
     }
 
-    if (s.ok() && !empty) {
+    // Cache the combined condition to avoid repeated checks
+    const bool should_process_file_ops = s.ok() && !empty;
+    const bool should_perform_file_io = should_process_file_ops && io_status->ok();
+
+    if (should_process_file_ops) {
       if (flush_stats) {
         flush_stats->bytes_written_pre_comp = builder->PreCompressionSize();
         // Add worker CPU micros here. Caller needs to add CPU micros from
@@ -398,15 +439,15 @@ Status BuildTable(
     IOOptions opts;
     *io_status =
         WritableFileWriter::PrepareIOOptions(tboptions.write_options, opts);
-    if (s.ok() && io_status->ok() && !empty) {
+    if (should_perform_file_io) {
       StopWatch sw(ioptions.clock, ioptions.stats, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(opts, ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");
-    if (s.ok() && io_status->ok() && !empty) {
+    if (should_perform_file_io) {
       *io_status = file_writer->Close(opts);
     }
-    if (s.ok() && io_status->ok() && !empty) {
+    if (should_perform_file_io) {
       // Add the checksum information to file metadata.
       meta->file_checksum = file_writer->GetFileChecksum();
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
@@ -441,7 +482,8 @@ Status BuildTable(
     // TODO Also check the IO status when create the Iterator.
 
     TEST_SYNC_POINT("BuildTable:BeforeOutputValidation");
-    if (s.ok() && !empty) {
+    // Use cached condition to avoid repeated checks
+    if (should_process_file_ops) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
       // here because this is a special case after we finish the table building.
@@ -479,7 +521,9 @@ Status BuildTable(
     s = iter->status();
   }
 
-  if (!s.ok() || meta->fd.GetFileSize() == 0) {
+  // Cache the condition to avoid repeated checks
+  const bool should_cleanup = !s.ok() || meta->fd.GetFileSize() == 0;
+  if (should_cleanup) {
     TEST_SYNC_POINT("BuildTable:BeforeDeleteFile");
 
     constexpr IODebugContext* dbg = nullptr;
