@@ -1590,12 +1590,18 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
   // When multiple RocksDB instances share a WriteBufferManager, a recovering
   // instance could exceed the global memory limit. Schedule flushes when needed
   // to prevent OOM during WAL recovery.
+  //
+  // TODO: Currently we schedule all CFs with non-empty memtables for flush
+  // (similar to the atomic_flush=false path in the normal write flow). This
+  // may produce more, smaller L0 files in some CFs. A future improvement
+  // could flush only the oldest CF or pick CFs more selectively to reduce
+  // unnecessary L0 file creation.
   if (status.ok() && *has_valid_writes &&
       immutable_db_options_.enforce_write_buffer_manager_during_recovery &&
       write_buffer_manager_ != nullptr &&
       write_buffer_manager_->ShouldFlush()) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->mem() != nullptr && cfd->mem()->GetDataSize() > 0) {
+      if (cfd->mem() != nullptr && cfd->mem()->GetFirstSequenceNumber() != 0) {
         flush_scheduler_.ScheduleWork(cfd);
       }
     }

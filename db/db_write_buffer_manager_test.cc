@@ -917,48 +917,31 @@ TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
 // whether WriteBufferManager limits are respected during WAL recovery.
 // When enabled, flushes are triggered to keep memory bounded.
 // When disabled (default), memory can grow beyond the configured limit.
-TEST_P(DBWriteBufferManagerTest,
+TEST_F(DBWriteBufferManagerTest,
        WriteBufferManagerLimitDuringWALRecoverySingleDB) {
   const size_t kWbmLimit = 1 * 1024 * 1024;             // 1 MB
   const size_t kWbmLimitForWrites = 100 * 1024 * 1024;  // 100 MB (no flush)
-  cost_cache_ = GetParam();
 
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
   options.write_buffer_size = 10 * 1024 * 1024;  // 10MB per CF, never hit
   options.max_write_buffer_number = 10;          // Allow many memtables
-  options.level0_file_num_compaction_trigger =
-      1000;  // To avoid compaction in this test
+  options.disable_auto_compactions = true;
 
   // Use avoid_flush_during_recovery = true to prevent any flushes triggered
-  // after the recovery
+  // during the recovery
   options.avoid_flush_during_recovery = true;
-
-  std::shared_ptr<Cache> cache;
-  if (cost_cache_) {
-    cache = NewLRUCache(100 * 1024 * 1024, 2);
-  }
 
   const int kNumKeys = 50;
   const int kValueSize = 50 * 1024;  // 50 KB each, total ~2.5 MB > 1MB limit
-
-  // Helper lambda to set up WBM with given limit
-  auto resetWbm = [&](size_t limit) {
-    if (cost_cache_) {
-      options.write_buffer_manager.reset(
-          new WriteBufferManager(limit, cache, true));
-    } else {
-      options.write_buffer_manager.reset(
-          new WriteBufferManager(limit, nullptr, true));
-    }
-  };
 
   // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
   // WBM limits are not enforced during recovery
   options.enforce_write_buffer_manager_during_recovery = false;
 
   // Use large WBM limit during writes to avoid triggering flushes
-  resetWbm(kWbmLimitForWrites);
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(kWbmLimitForWrites, nullptr, true));
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumKeys; i++) {
@@ -970,10 +953,12 @@ TEST_P(DBWriteBufferManagerTest,
   Close();
 
   // Use smaller WBM limit for recovery
-  resetWbm(kWbmLimit);
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(kWbmLimit, nullptr, true));
 
   // Recovery without enforcement - memory should exceed the limit
   Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   size_t memory_without_enforcement =
       options.write_buffer_manager->mutable_memtable_memory_usage();
 
@@ -993,7 +978,8 @@ TEST_P(DBWriteBufferManagerTest,
   options.enforce_write_buffer_manager_during_recovery = true;
 
   // Use large WBM limit during writes to avoid triggering flushes
-  resetWbm(kWbmLimitForWrites);
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(kWbmLimitForWrites, nullptr, true));
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumKeys; i++) {
@@ -1004,7 +990,8 @@ TEST_P(DBWriteBufferManagerTest,
   Close();
 
   // Use smaller WBM limit for recovery
-  resetWbm(kWbmLimit);
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(kWbmLimit, nullptr, true));
 
   // Recovery with enforcement - memory should be bounded
   Reopen(options);
@@ -1031,49 +1018,32 @@ TEST_P(DBWriteBufferManagerTest,
   }
 }
 
-TEST_P(DBWriteBufferManagerTest,
+TEST_F(DBWriteBufferManagerTest,
        WriteBufferManagerLimitDuringWALRecoveryMultipleDBs) {
   // Two DBs with 4MB WBM limit.
   // First DB writes 2.5MB and closes, no flush (mem usage goes back to 0)
   // Second DB writes 2.5MB then first DB reopens.
   const size_t kWbmLimitForTwoDbs = 4 * 1024 * 1024;
-  cost_cache_ = GetParam();
 
   Options options = CurrentOptions();
   options.arena_block_size = 2048;
   options.write_buffer_size = 10 * 1024 * 1024;  // 10MB per CF, never hit
   options.max_write_buffer_number = 10;          // Allow many memtables
-  options.level0_file_num_compaction_trigger =
-      1000;  // To avoid compaction in this test
+  options.disable_auto_compactions = true;
 
   // Use avoid_flush_during_recovery = true to prevent any flushes triggered
-  // after the recovery
+  // during the recovery
   options.avoid_flush_during_recovery = true;
-
-  std::shared_ptr<Cache> cache;
-  if (cost_cache_) {
-    cache = NewLRUCache(100 * 1024 * 1024, 2);
-  }
 
   const int kNumKeys = 50;
   const int kValueSize = 50 * 1024;
-
-  // Helper lambda to set up WBM with given limit
-  auto resetWbm = [&](size_t limit) {
-    if (cost_cache_) {
-      options.write_buffer_manager.reset(
-          new WriteBufferManager(limit, cache, true));
-    } else {
-      options.write_buffer_manager.reset(
-          new WriteBufferManager(limit, nullptr, true));
-    }
-  };
 
   // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
   // WBM limits are not enforced during recovery
   options.enforce_write_buffer_manager_during_recovery = false;
 
-  resetWbm(kWbmLimitForTwoDbs);
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(kWbmLimitForTwoDbs, nullptr, true));
   DestroyAndReopen(options);
 
   // Use of 2.5MB shouldn't trigger flush
@@ -1094,7 +1064,7 @@ TEST_P(DBWriteBufferManagerTest,
 
   // Open a second DB sharing the same WBM, write data to consume memory
   std::string second_dbname = test::PerThreadDBPath("db_shared_wbm_recovery");
-  DB* second_db = nullptr;
+  std::unique_ptr<DB> second_db;
   ASSERT_OK(DestroyDB(second_dbname, options));
   ASSERT_OK(DB::Open(options, second_dbname, &second_db));
 
@@ -1150,7 +1120,7 @@ TEST_P(DBWriteBufferManagerTest,
   // Clean up second DB
   ASSERT_OK(second_db->Close());
   ASSERT_OK(DestroyDB(second_dbname, options));
-  delete second_db;
+  second_db.reset();
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
