@@ -161,4 +161,19 @@ inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
   return true;
 }
 
+// Variant for un-sealed blob files that don't have a footer.
+inline bool IsValidBlobOffsetNoFooter(uint64_t value_offset, uint64_t key_size,
+                                      uint64_t value_size, uint64_t file_size) {
+  if (value_offset <
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size) {
+    return false;
+  }
+
+  if (value_offset + value_size > file_size) {
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

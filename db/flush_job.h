@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/flush_scheduler.h"
@@ -90,6 +91,12 @@ class FlushJob {
              ErrorHandler* error_handler = nullptr);
   void Cancel();
   const autovector<ReadOnlyMemTable*>& GetMemTables() const { return mems_; }
+
+  // Add external blob file additions to the flush's version edit.
+  // Used by write-path blob direct write to register un-sealed blob files.
+  void AddExternalBlobFileAdditions(std::vector<BlobFileAddition>&& additions) {
+    external_blob_file_additions_ = std::move(additions);
+  }
 
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
@@ -213,6 +220,7 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+  std::vector<BlobFileAddition> external_blob_file_additions_;
 
   // Shared copy of DB's seqno to time mapping stored in SuperVersion. The
   // ownership is shared with this FlushJob when it's created.

@@ -23,6 +23,21 @@ class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
 
+// Public interface for blob file partition assignment.
+// Users can implement custom strategies to control which partition
+// a blob is written to, based on key and value content.
+// Used with the blob direct write feature (enable_blob_direct_write).
+class BlobFilePartitionStrategy {
+ public:
+  virtual ~BlobFilePartitionStrategy() = default;
+
+  // Select a partition index for the given key and value.
+  // Returns a value in [0, num_partitions).
+  virtual uint32_t SelectPartition(uint32_t num_partitions,
+                                   uint32_t column_family_id, const Slice& key,
+                                   const Slice& value) = 0;
+};
+
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
@@ -1133,6 +1148,37 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+
+  // When enabled, blob values >= min_blob_size are written directly to blob
+  // files during the write path. Only the small BlobIndex pointer is stored
+  // in WAL and memtable, meaning the full blob value bypasses both WAL and
+  // memtable entirely. This reduces WAL write amplification and memtable
+  // memory usage for large values.
+  // Requires enable_blob_files = true to have effect.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_direct_write = false;
+
+  // Number of blob file partitions for concurrent write-path blob writes.
+  // Each partition has its own blob file and mutex, reducing lock contention
+  // when multiple writer threads write blobs simultaneously.
+  // Only used when enable_blob_direct_write = true.
+  //
+  // Default: 1
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint32_t blob_direct_write_partitions = 1;
+
+  // Custom partition strategy for blob direct writes. Controls which
+  // partition a blob is assigned to based on key and value content.
+  // If nullptr, uses the default round-robin strategy.
+  // Only used when enable_blob_direct_write = true.
+  //
+  // Default: nullptr (round-robin)
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //

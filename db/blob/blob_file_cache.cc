@@ -73,9 +73,18 @@ Status BlobFileCache::GetBlobFileReader(
 
   {
     assert(file_options_);
-    const Status s = BlobFileReader::Create(
+    Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
+    if (!s.ok()) {
+      // Retry with footer validation skipped (for un-sealed write-path
+      // blob files that don't have a footer yet).
+      reader.reset();
+      s = BlobFileReader::Create(
+          *immutable_options_, read_options, *file_options_, column_family_id_,
+          blob_file_read_hist_, blob_file_number, io_tracer_,
+          /*skip_footer_validation=*/true, &reader);
+    }
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;

@@ -9,6 +9,7 @@
 #include <cinttypes>
 #include <deque>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -286,6 +287,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
+    // Seal write-path blob files and inject their additions into the flush
+    // edit, so they're registered in the same version as the flush SST.
+    if (blob_partition_manager_) {
+      std::vector<BlobFileAddition> write_path_additions;
+      blob_partition_manager_->SealAllPartitions(
+          WriteOptions(Env::IOActivity::kFlush), &write_path_additions);
+      if (!write_path_additions.empty()) {
+        flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
+      }
+    }
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
                       &switched_to_mempurge, &skip_set_bg_error,
                       &error_handler_);

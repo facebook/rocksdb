@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -2687,6 +2688,33 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       impl->ScheduleAsyncFileOpening();
     }
     impl->mutex_.Unlock();
+  }
+
+  // Initialize blob partition manager if any CF has blob direct write enabled.
+  if (s.ok()) {
+    bool need_partition_manager = false;
+    uint32_t max_partitions = 1;
+    std::shared_ptr<BlobFilePartitionStrategy> strategy;
+    for (const auto& cf : column_families) {
+      if (cf.options.enable_blob_files && cf.options.enable_blob_direct_write) {
+        need_partition_manager = true;
+        max_partitions =
+            std::max(max_partitions, cf.options.blob_direct_write_partitions);
+        if (cf.options.blob_direct_write_partition_strategy) {
+          strategy = cf.options.blob_direct_write_partition_strategy;
+        }
+      }
+    }
+    if (need_partition_manager) {
+      impl->blob_partition_manager_ =
+          std::make_unique<BlobFilePartitionManager>(
+              max_partitions, strategy,
+              [vs = impl->versions_.get()]() { return vs->NewFileNumber(); },
+              impl->fs_.get(), impl->immutable_db_options_.clock, impl->stats_,
+              impl->file_options_, dbname,
+              column_families[0].options.blob_file_size,
+              impl->immutable_db_options_.use_fsync);
+    }
   }
 
   if (s.ok()) {

@@ -535,6 +535,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct ColumnFamilyOptions,
+                blob_direct_write_partition_strategy),
+       sizeof(std::shared_ptr<BlobFilePartitionStrategy>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -672,6 +675,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
       "prepopulate_blob_cache=kDisable;"
+      "enable_blob_direct_write=true;"
+      "blob_direct_write_partitions=4;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
       "default_write_temperature=kCold;"

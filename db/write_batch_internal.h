@@ -94,6 +94,10 @@ class WriteBatchInternal {
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
                           const Slice& key, const WideColumns& columns);
 
+  // PutEntity with pre-serialized entity (for pass-through in transformers).
+  static Status PutEntityRaw(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key, const Slice& entity);
+
   static Status Delete(WriteBatch* batch, uint32_t column_family_id,
                        const SliceParts& key);
 

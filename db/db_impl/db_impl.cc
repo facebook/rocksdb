@@ -28,6 +28,11 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/attribute_group_iterator_impl.h"
+#include "db/blob/blob_contents.h"
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_index.h"
 #include "db/builder.h"
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
@@ -577,6 +582,17 @@ Status DBImpl::CloseHelper() {
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
+
+  // Seal any open blob partition files.
+  if (blob_partition_manager_) {
+    WriteOptions wo;
+    std::vector<BlobFileAddition> additions;
+    blob_partition_manager_->SealAllPartitions(wo, &additions)
+        .PermitUncheckedError();
+    // Note: additions are not registered in MANIFEST during shutdown.
+    // They will be discovered as un-sealed files on next recovery.
+    blob_partition_manager_.reset();
+  }
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -2616,18 +2632,66 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool done = false;
   std::string* timestamp =
       ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
+
+  // When blob direct write is enabled, memtable may contain kTypeBlobIndex
+  // entries. We need to pass is_blob_index to handle them correctly.
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  if (!is_blob_ptr && blob_partition_manager_) {
+    is_blob_ptr = &is_blob_index;
+  }
+
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(
-              lkey,
-              get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
-              get_impl_options.columns, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
-              false /* immutable_memtable */, get_impl_options.callback,
-              get_impl_options.is_blob_index)) {
+      if (sv->mem->Get(lkey,
+                       get_impl_options.value
+                           ? get_impl_options.value->GetSelf()
+                           : nullptr,
+                       get_impl_options.columns, timestamp, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options,
+                       false /* immutable_memtable */,
+                       get_impl_options.callback, is_blob_ptr)) {
         done = true;
+
+        // Resolve blob index from memtable if needed.
+        if (s.ok() && is_blob_index && is_blob_ptr == &is_blob_index &&
+            get_impl_options.value) {
+          BlobIndex blob_idx;
+          s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
+          if (s.ok()) {
+            PinnableSlice blob_value;
+            constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+            constexpr uint64_t* bytes_read = nullptr;
+            s = sv->current->GetBlob(read_options, key, blob_idx,
+                                     prefetch_buffer, &blob_value, bytes_read);
+            if (s.IsCorruption() && blob_partition_manager_) {
+              // Blob file not yet registered in version (write-path blob).
+              // Read directly via BlobFileCache, bypassing version metadata.
+              auto* blob_cfd = static_cast<ColumnFamilyHandleImpl*>(
+                                   get_impl_options.column_family)
+                                   ->cfd();
+              CacheHandleGuard<BlobFileReader> reader;
+              s = blob_cfd->blob_file_cache()->GetBlobFileReader(
+                  read_options, blob_idx.file_number(), &reader);
+              if (s.ok()) {
+                std::unique_ptr<BlobContents> blob_contents;
+                s = reader.GetValue()->GetBlob(
+                    read_options, key, blob_idx.offset(), blob_idx.size(),
+                    blob_idx.compression(), prefetch_buffer, nullptr,
+                    &blob_contents, bytes_read);
+                if (s.ok()) {
+                  blob_value.PinSelf(blob_contents->data());
+                }
+              }
+            }
+            if (s.ok()) {
+              get_impl_options.value->Reset();
+              get_impl_options.value->PinSelf(blob_value);
+            }
+          }
+          is_blob_index = false;
+        }
 
         if (get_impl_options.value) {
           get_impl_options.value->PinSelf();
@@ -2635,15 +2699,33 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
-                              get_impl_options.columns, timestamp, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, get_impl_options.callback,
-                              get_impl_options.is_blob_index)) {
+                 sv->imm->Get(
+                     lkey,
+                     get_impl_options.value ? get_impl_options.value->GetSelf()
+                                            : nullptr,
+                     get_impl_options.columns, timestamp, &s, &merge_context,
+                     &max_covering_tombstone_seq, read_options,
+                     get_impl_options.callback, is_blob_ptr)) {
         done = true;
+
+        // Resolve blob index from immutable memtable if needed.
+        if (s.ok() && is_blob_index && is_blob_ptr == &is_blob_index &&
+            get_impl_options.value) {
+          BlobIndex blob_idx;
+          s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
+          if (s.ok()) {
+            PinnableSlice blob_value;
+            constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+            constexpr uint64_t* bytes_read = nullptr;
+            s = sv->current->GetBlob(read_options, key, blob_idx,
+                                     prefetch_buffer, &blob_value, bytes_read);
+            if (s.ok()) {
+              get_impl_options.value->Reset();
+              get_impl_options.value->PinSelf(blob_value);
+            }
+          }
+          is_blob_index = false;
+        }
 
         if (get_impl_options.value) {
           get_impl_options.value->PinSelf();

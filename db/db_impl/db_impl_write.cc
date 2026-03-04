@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_write_batch_transformer.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -543,6 +545,42 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
+
+  // Blob direct write: transform batch by writing large values to blob files
+  // and replacing them with BlobIndex entries, before entering the write group.
+  WriteBatch transformed_batch;
+  if (my_batch != nullptr && blob_partition_manager_ != nullptr) {
+    auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
+      BlobDirectWriteSettings settings;
+      auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      if (cfd) {
+        const auto& cf_opts = cfd->GetCurrentMutableCFOptions();
+        settings.enable_blob_direct_write =
+            cf_opts.enable_blob_direct_write && cf_opts.enable_blob_files;
+        settings.min_blob_size = cf_opts.min_blob_size;
+        settings.compression_type = cf_opts.blob_compression_type;
+      }
+      return settings;
+    };
+    bool transformed = false;
+    Status blob_s = BlobWriteBatchTransformer::TransformBatch(
+        write_options, my_batch, &transformed_batch,
+        blob_partition_manager_.get(), settings_provider, &transformed);
+    if (!blob_s.ok()) {
+      return blob_s;
+    }
+    if (transformed) {
+      my_batch = &transformed_batch;
+      // Sync blob files before WAL write if sync is requested.
+      if (write_options.sync) {
+        blob_s = blob_partition_manager_->SyncAllOpenFiles(write_options);
+        if (!blob_s.ok()) {
+          return blob_s;
+        }
+      }
+    }
+  }
+
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,
                         pre_release_callback, post_memtable_callback,

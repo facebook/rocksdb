@@ -1121,6 +1121,25 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   return save.commit();
 }
 
+Status WriteBatchInternal::PutEntityRaw(WriteBatch* b,
+                                        uint32_t column_family_id,
+                                        const Slice& key, const Slice& entity) {
+  assert(b);
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyWideColumnEntity));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+  PutLengthPrefixedSlice(&b->rep_, key);
+  PutLengthPrefixedSlice(&b->rep_, entity);
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_PUT_ENTITY,
+                          std::memory_order_relaxed);
+  return Status::OK();
+}
+
 Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
                              const Slice& key, const WideColumns& columns) {
   if (!column_family) {
