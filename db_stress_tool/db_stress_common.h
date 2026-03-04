@@ -195,6 +195,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_uint64(stats_dump_period_sec);
+DECLARE_uint64(max_periodic_compaction_trigger_seconds);
 DECLARE_uint64(bytes_per_sync);
 DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
@@ -450,6 +451,7 @@ DECLARE_uint64(compaction_on_deletion_min_file_size);
 DECLARE_int32(compaction_on_deletion_trigger_count);
 DECLARE_int32(compaction_on_deletion_window_size);
 DECLARE_double(compaction_on_deletion_ratio);
+DECLARE_double(read_triggered_compaction_threshold);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

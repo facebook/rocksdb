@@ -815,8 +815,9 @@ static uint64_t GetMinTimeBasedCompactionInterval(
 }
 
 uint64_t DBImpl::ComputeTriggerCompactionPeriod() {
-  // Start with a maximum period of every 12 hours.
-  uint64_t period_sec = 12 * 60 * 60;
+  // Start with the configured maximum, then reduce based on other options.
+  uint64_t period_sec =
+      mutable_db_options_.max_periodic_compaction_trigger_seconds;
 
   // Consider DB-level options that have the DB waking up periodically anyway.
   // Waking up to check for compactions at the same interval should be no
@@ -6989,11 +6990,12 @@ void DBImpl::TriggerPeriodicCompaction() {
       if (cfd->queued_for_compaction()) {
         continue;
       }
-      // Check if this CF has any time-based compaction trigger configured.
-      // This includes periodic_compaction_seconds, ttl, or FIFO temperature
-      // thresholds. Note: periodic_compaction_seconds may be 0 even when
-      // ttl or temperature thresholds are set, due to option sanitization.
-      if (GetMinTimeBasedCompactionInterval(cfd->GetLatestCFOptions()) > 0) {
+      // Check if this CF has any time-based or read-triggered compaction
+      // configured. This includes periodic_compaction_seconds, ttl, FIFO
+      // temperature thresholds, or read_triggered_compaction_threshold.
+      if (GetMinTimeBasedCompactionInterval(cfd->GetLatestCFOptions()) > 0 ||
+          cfd->GetLatestMutableCFOptions().read_triggered_compaction_threshold >
+              0.0) {
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::TriggerPeriodicCompaction:BeforeComputeCompactionScore",
             cfd);

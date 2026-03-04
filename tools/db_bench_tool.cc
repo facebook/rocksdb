@@ -1121,6 +1121,13 @@ DEFINE_uint64(blob_compaction_readahead_size,
                   .blob_compaction_readahead_size,
               "[Integrated BlobDB] Compaction readahead for blob files.");
 
+DEFINE_double(read_triggered_compaction_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .read_triggered_compaction_threshold,
+              "Threshold for read-triggered compaction. An SST file is marked "
+              "for compaction when num_reads_sampled / file_size exceeds this "
+              "value. 0 disables the feature.");
+
 DEFINE_int32(
     blob_file_starting_level,
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
@@ -1751,6 +1758,10 @@ DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+DEFINE_uint64(
+    max_periodic_compaction_trigger_seconds,
+    ROCKSDB_NAMESPACE::Options().max_periodic_compaction_trigger_seconds,
+    "Maximum interval in seconds between periodic compaction trigger checks.");
 DEFINE_uint64(stats_persist_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
@@ -4397,6 +4408,8 @@ class Benchmark {
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+    options.max_periodic_compaction_trigger_seconds =
+        FLAGS_max_periodic_compaction_trigger_seconds;
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
@@ -4956,6 +4969,8 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+    options.read_triggered_compaction_threshold =
+        FLAGS_read_triggered_compaction_threshold;
 
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
