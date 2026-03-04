@@ -843,6 +843,7 @@ set(SOURCES
         table/block_based/block_based_table_builder.cc
         table/block_based/block_based_table_factory.cc
         table/block_based/block_based_table_iterator.cc
+        table/block_based/multi_scan_index_iterator.cc
         table/block_based/block_based_table_reader.cc
         table/block_based/block_builder.cc
         table/block_based/block_cache.cc
