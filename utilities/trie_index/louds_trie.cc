@@ -1454,19 +1454,26 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     overflow_base_.resize(num_keys_);
     uint32_t running_sum = 0;
     for (uint64_t i = 0; i < num_keys_; i++) {
+      if (leaf_block_counts_[i] == 0) {
+        return Status::Corruption(
+            "Trie index: leaf block count is zero for leaf " +
+            std::to_string(i));
+      }
       overflow_base_[i] = running_sum;
-      running_sum +=
-          (leaf_block_counts_[i] > 0 ? leaf_block_counts_[i] - 1 : 0);
+      running_sum += leaf_block_counts_[i] - 1;
     }
     // Verify the prefix sum matches the declared overflow count.
     if (running_sum != num_overflow_blocks_) {
       return Status::Corruption(
           "Trie index: overflow count mismatch with leaf block counts");
     }
+
+    return Status::OK();
   }
 
   return Status::OK();
 }
+
 TrieBlockHandle LoudsTrie::GetHandle(uint64_t leaf_index) const {
   assert(leaf_index < num_keys_);
   return TrieBlockHandle{handle_offsets_[leaf_index],
@@ -1647,8 +1654,8 @@ uint64_t LoudsTrieIterator::SparseLeafIndexFromHasChildRank(
 
 uint64_t LoudsTrieIterator::SparsePrefixKeyLeafIndex(
     uint64_t sparse_node_num) const {
-  // Leaf ordinal for a sparse prefix key. Same logic as DensePrefixKeyLeafIndex
-  // but offset by dense_leaf_count_.
+  // Leaf ordinal for a sparse prefix key. Same logic as
+  // DensePrefixKeyLeafIndex but offset by dense_leaf_count_.
   uint64_t start_pos = SparseNodeStartPos(sparse_node_num);
   uint64_t prefix_keys_before = trie_->s_is_prefix_key_.Rank1(sparse_node_num);
   uint64_t internal_before = trie_->s_has_child_.Rank1(start_pos);
@@ -1768,8 +1775,8 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
 
 // Main Seek implementation.
 // Uses SuRF-style Select-free traversal for sparse regions: instead of
-// tracking node_num and calling FindNthOneBit to find node boundaries, we track
-// (start_pos, end_pos) directly and use only Rank1 + array lookup.
+// tracking node_num and calling FindNthOneBit to find node boundaries, we
+// track (start_pos, end_pos) directly and use only Rank1 + array lookup.
 template <bool kHasChains>
 bool LoudsTrieIterator::SeekImpl(const Slice& target) {
   valid_ = false;
@@ -1897,8 +1904,9 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                 // Check if this child starts a fanout-1 chain. If so, compare
                 // the remaining target bytes against the chain suffix with a
                 // single memcmp instead of traversing level by level.
-                // Guarded by if constexpr: when kHasChains=false, the compiler
-                // eliminates this entire block from the generated code.
+                // Guarded by if constexpr: when kHasChains=false, the
+                // compiler eliminates this entire block from the generated
+                // code.
                 if constexpr (kHasChains) {
                   if (child_idx < trie_->s_chain_bitmap_.NumBits() &&
                       trie_->s_chain_bitmap_.GetBit(child_idx)) {
@@ -1927,7 +1935,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                           path_.push_back(LevelPos::MakeSparse(cs));
                           AppendKeySlot() =
                               static_cast<char>(trie_->s_labels_data_[cs]);
-                          // Move to next chain node (last node handled below).
+                          // Move to next chain node (last node handled
+                          // below).
                           if (ci + 1 < chain_len) {
                             cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
                           }
@@ -1939,7 +1948,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                         uint32_t end_child_idx =
                             trie_->s_chain_end_child_idx_[chain_idx];
                         if (end_child_idx == UINT32_MAX) {
-                          // Chain ends at a leaf. Check if target is consumed.
+                          // Chain ends at a leaf. Check if target is
+                          // consumed.
                           uint32_t last_cs = trie_->s_child_start_pos_[cur_idx];
                           uint64_t last_hcr =
                               trie_->s_has_child_.Rank1(last_cs + 1);
@@ -1950,7 +1960,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                             valid_ = true;
                             return true;
                           }
-                          // Target has more bytes, trie key < target. Advance.
+                          // Target has more bytes, trie key < target.
+                          // Advance.
                           leaf_index_ = SparseLeafIndexFromHasChildRank(
                               last_cs, last_hcr);
                           valid_ = true;
@@ -1979,7 +1990,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                             static_cast<char>(trie_->s_labels_data_[cs]);
                         cur_idx = trie_->s_has_child_.Rank1(cs + 1) - 1;
                       }
-                      // At the mismatch node: push the node's label and handle.
+                      // At the mismatch node: push the node's label and
+                      // handle.
                       uint32_t mis_cs = trie_->s_child_start_pos_[cur_idx];
                       path_.push_back(LevelPos::MakeSparse(mis_cs));
                       AppendKeySlot() =
@@ -1997,11 +2009,13 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                             false, SparseChildNodeNum(mis_cs));
                       }
                       // target_bytes[mismatch_pos] > suffix[mismatch_pos]:
-                      // All keys through this chain node are < target. Advance.
+                      // All keys through this chain node are < target.
+                      // Advance.
                       return Advance();
                     }
                     // Target runs out before chain ends.
-                    // Check if target's remaining bytes match the chain prefix.
+                    // Check if target's remaining bytes match the chain
+                    // prefix.
                     if (target_remaining > 0) {
                       const uint8_t* target_bytes =
                           reinterpret_cast<const uint8_t*>(target.data()) +
@@ -2014,7 +2028,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                         path_.push_back(LevelPos::MakeSparse(cs));
                         AppendKeySlot() =
                             static_cast<char>(trie_->s_labels_data_[cs]);
-                        // Descend to leftmost leaf from this first chain node.
+                        // Descend to leftmost leaf from this first chain
+                        // node.
                         if (!trie_->s_has_child_.GetBit(cs)) {
                           leaf_index_ = SparseLeafIndex(cs);
                           valid_ = true;
@@ -2024,8 +2039,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                                                      SparseChildNodeNum(cs));
                       }
                       if (cmp > 0) {
-                        // Target > chain prefix at some point. We need to find
-                        // the exact divergence point.
+                        // Target > chain prefix at some point. We need to
+                        // find the exact divergence point.
                         uint16_t mismatch_pos = 0;
                         while (mismatch_pos < target_remaining &&
                                target_bytes[mismatch_pos] ==
@@ -2048,8 +2063,8 @@ bool LoudsTrieIterator::SeekImpl(const Slice& target) {
                         return Advance();
                       }
                       // cmp == 0: target matches chain prefix exactly. Target
-                      // is fully consumed. Push matched nodes and check prefix
-                      // key / descend to leftmost leaf.
+                      // is fully consumed. Push matched nodes and check
+                      // prefix key / descend to leftmost leaf.
                       uint64_t cur_idx = child_idx;
                       for (uint32_t ci = 0; ci < target_remaining; ci++) {
                         uint32_t cs = trie_->s_child_start_pos_[cur_idx];
