@@ -228,6 +228,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
   src/main/java/org/rocksdb/ReusedSynchronisationType.java
+  src/main/java/org/rocksdb/RibbonFilter.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDB.java
   src/main/java/org/rocksdb/RocksDBException.java
@@ -733,6 +734,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.ReadOptions
           org.rocksdb.RemoveEmptyValueCompactionFilter
           org.rocksdb.RestoreOptions
+          org.rocksdb.RibbonFilter
           org.rocksdb.RocksCallbackObject
           org.rocksdb.RocksDB
           org.rocksdb.RocksEnv
