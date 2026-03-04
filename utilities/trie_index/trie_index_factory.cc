@@ -60,11 +60,42 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     if (!must_use_separator_with_seq_ && same_user_key) {
       must_use_separator_with_seq_ = true;
     }
+
+    // Edge case: FindShortestSeparator may fail to shorten the key even when
+    // the user keys are different. Example: FindShortestSeparator("abc","abd")
+    // returns "abc" unchanged because incrementing 'c' would yield "abd" which
+    // is not < limit. When the resulting separator matches the previous entry's
+    // separator, the blocks will be grouped into the same run in Finish().
+    // We must mark this as a same-user-key boundary so it gets a real seqno
+    // rather than kMaxSequenceNumber (which would trigger the overflow block
+    // assertion in Finish()).
+    if (!same_user_key && !buffered_entries_.empty() &&
+        buffered_entries_.back().separator_key == *separator_scratch) {
+      same_user_key = true;
+      if (!must_use_separator_with_seq_) {
+        must_use_separator_with_seq_ = true;
+      }
+    }
   } else {
     // Last block: use a short successor of the last key.
     *separator_scratch = last_key_in_current_block.ToString();
     comparator_->FindShortSuccessor(separator_scratch);
     separator = Slice(*separator_scratch);
+
+    // Edge case: FindShortSuccessor may fail to shorten the key (e.g.,
+    // all-0xFF keys like "\xff\xff" — no byte can be incremented). When
+    // this happens AND the previous entry has the same separator, the last
+    // block is actually part of a same-user-key run. Without this check,
+    // the last block would get seqno=kMaxSequenceNumber (sentinel), but
+    // Finish() would group it into the run and hit the assert that overflow
+    // blocks must have real seqnos.
+    if (!buffered_entries_.empty() &&
+        buffered_entries_.back().separator_key == *separator_scratch) {
+      same_user_key = true;
+      if (!must_use_separator_with_seq_) {
+        must_use_separator_with_seq_ = true;
+      }
+    }
   }
 
   // Buffer the entry for deferred trie construction in Finish().
@@ -229,7 +260,11 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   // When seqno encoding is active, post-seek correction handles the seqno.
   if (!iter_.Seek(target)) {
     // No leaf has a key >= target: the target is past all blocks in this SST.
-    result->bound_check_result = IterBoundCheck::kOutOfBound;
+    // Return kUnknown (not kOutOfBound) because exhausting this SST's trie
+    // says nothing about the upper bound — the next SST on the level may
+    // still contain in-bound keys. kOutOfBound would cause LevelIterator to
+    // stop scanning the level prematurely.
+    result->bound_check_result = IterBoundCheck::kUnknown;
     result->key = Slice();
     return Status::OK();
   }
@@ -289,7 +324,8 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
         // trie leaf (the block after the run).
         if (!iter_.Next()) {
           // Exhausted all blocks: target is past the end of this SST.
-          result->bound_check_result = IterBoundCheck::kOutOfBound;
+          // Return kUnknown — see comment in Seek path above.
+          result->bound_check_result = IterBoundCheck::kUnknown;
           result->key = Slice();
           return Status::OK();
         }
@@ -344,7 +380,8 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
 
   if (!iter_.Next()) {
     // No more blocks: past the end of this SST.
-    result->bound_check_result = IterBoundCheck::kOutOfBound;
+    // Return kUnknown — see comment in Seek path above.
+    result->bound_check_result = IterBoundCheck::kUnknown;
     result->key = Slice();
     return Status::OK();
   }
