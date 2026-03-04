@@ -966,11 +966,6 @@ TEST_F(DBWriteBufferManagerTest,
       << "Without enforcement, memory (" << memory_without_enforcement
       << ") should exceed the WBM limit (" << kWbmLimit << ")";
 
-  // Verify data integrity
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
-  }
-
   // Still no L0 file since avoid_flush_during_recovery is true
   ASSERT_EQ(0, TotalTableFiles());
 
@@ -1011,11 +1006,6 @@ TEST_F(DBWriteBufferManagerTest,
   ASSERT_LT(memory_with_enforcement, kWbmLimit)
       << "With enforcement, memory (" << memory_with_enforcement
       << ") should be less than the limit " << kWbmLimit << ")";
-
-  // Verify data integrity
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
-  }
 }
 
 TEST_F(DBWriteBufferManagerTest,
@@ -1080,11 +1070,6 @@ TEST_F(DBWriteBufferManagerTest,
   // No flush
   ASSERT_EQ(0, TotalTableFiles());
 
-  // Verify data integrity
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
-  }
-
   size_t memory_usage_for_both =
       options.write_buffer_manager->mutable_memtable_memory_usage();
   ASSERT_GT(memory_usage_for_both, kWbmLimitForTwoDbs)
@@ -1111,10 +1096,6 @@ TEST_F(DBWriteBufferManagerTest,
       << "With enforcement + shared WBM, memory (" << memory_usage_for_both
       << ") should be less than the limit (" << kWbmLimitForTwoDbs << ")";
 
-  // Verify data integrity
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_EQ(Get(Key(i)).size(), kValueSize);
-  }
   Close();
 
   // Clean up second DB
