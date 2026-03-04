@@ -931,8 +931,19 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
 }
 
 bool StressTest::IsExpectedTxnLockTimeout(const Status& s) {
-  return (s.IsDeadlock() || s.IsTimedOut()) &&
-         (FLAGS_use_multiget || FLAGS_use_multi_get_entity);
+  if ((s.IsDeadlock() || s.IsTimedOut()) &&
+      (FLAGS_use_multiget || FLAGS_use_multi_get_entity)) {
+    return true;
+  }
+  // Optimistic transaction may return TryAgain when memtable history is
+  // insufficient for conflict detection (controlled by
+  // max_write_buffer_size_to_maintain). ExecuteTransaction retries up to 10
+  // times, and if all retries fail, it returns TryAgain. This is an expected
+  // condition and should not crash the stress test.
+  if (s.IsTryAgain() && FLAGS_use_optimistic_txn) {
+    return true;
+  }
+  return false;
 }
 
 Status StressTest::ExecuteTransaction(WriteOptions& write_opts,
