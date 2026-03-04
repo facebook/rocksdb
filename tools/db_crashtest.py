@@ -972,14 +972,6 @@ def finalize_and_sanitize(src_params):
         # Disable irrelevant tiering options
         dest_params["preclude_last_level_data_seconds"] = 0
         dest_params["last_level_temperature"] = "kUnknown"
-        # use_kv_ratio_compaction requires allow_compaction and
-        # max_data_files_size > 0
-        if dest_params.get("fifo_compaction_use_kv_ratio_compaction", 0) == 1:
-            if (
-                dest_params.get("fifo_allow_compaction", 0) != 1
-                or dest_params.get("fifo_compaction_max_data_files_size_mb", 0) == 0
-            ):
-                dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     else:
         # Disable irrelevant tiering options
         dest_params["file_temperature_age_thresholds"] = ""

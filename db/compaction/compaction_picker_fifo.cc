@@ -473,8 +473,28 @@ Compaction* FIFOCompactionPicker::PickIntraL0Compaction(
   }
 
   if (fifo_opts.use_kv_ratio_compaction) {
-    return PickRatioBasedIntraL0Compaction(
-        cf_name, mutable_cf_options, mutable_db_options, vstorage, log_buffer);
+    if (fifo_opts.max_data_files_size == 0) {
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] FIFO kv-ratio compaction: skipping — "
+          "max_data_files_size is 0, cannot compute target file size. ",
+          cf_name.c_str());
+    } else if (fifo_opts.max_data_files_size < fifo_opts.max_table_files_size) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO kv-ratio compaction: skipping — "
+                       "max_data_files_size (%" PRIu64
+                       ") < max_table_files_size "
+                       "(%" PRIu64 ").",
+                       cf_name.c_str(), fifo_opts.max_data_files_size,
+                       fifo_opts.max_table_files_size);
+    } else {
+      return PickRatioBasedIntraL0Compaction(cf_name, mutable_cf_options,
+                                             mutable_db_options, vstorage,
+                                             log_buffer);
+    }
+    ROCKS_LOG_BUFFER(
+        log_buffer, "[%s] FIFO: falling back to cost-based intra-L0 compaction",
+        cf_name.c_str());
   }
 
   // Old intra-L0 path: merge small files using PickCostBasedIntraL0Compaction.
