@@ -3747,7 +3747,11 @@ class FSBufferPrefetchTest
     stats_ = CreateDBStatistics();
   }
 
-  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+  void TearDown() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    EXPECT_OK(DestroyDir(env_, test_dir_));
+  }
 
   void Write(const std::string& fname, const std::string& content) {
     std::unique_ptr<FSWritableFile> f;
