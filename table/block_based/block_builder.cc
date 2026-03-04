@@ -59,8 +59,7 @@ class UniformDataTracker {
  public:
   void AddKey(uint64_t key_value) {
     if (num_keys_ > 0) {
-      double gap =
-          static_cast<double>(key_value) - static_cast<double>(prev_key_value_);
+      double gap = static_cast<double>(key_value - prev_key_value_);
       size_t gap_count = num_keys_;
       double delta = gap - mean_;
       mean_ += delta / static_cast<double>(gap_count);

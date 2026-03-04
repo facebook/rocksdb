@@ -62,43 +62,6 @@ struct DecodeEntry {
   }
 };
 
-// Similar to DecodeEntry but does not have assertions.
-// Instead, returns nullptr so that caller can detect and report failure.
-struct CheckAndDecodeEntry {
-  inline const char* operator()(const char* p, const char* limit,
-                                uint32_t* shared, uint32_t* non_shared,
-                                uint32_t* value_length) {
-    // We need 2 bytes for shared and non_shared size. We also need one more
-    // byte either for value size or the actual value in case of value delta
-    // encoding.
-    if (limit - p < 3) {
-      return nullptr;
-    }
-    *shared = reinterpret_cast<const unsigned char*>(p)[0];
-    *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
-    *value_length = reinterpret_cast<const unsigned char*>(p)[2];
-    if ((*shared | *non_shared | *value_length) < 128) {
-      // Fast path: all three values are encoded in one byte each
-      p += 3;
-    } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
-        return nullptr;
-      }
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
-        return nullptr;
-      }
-      if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
-        return nullptr;
-      }
-    }
-
-    if (static_cast<uint32_t>(limit - p) < (*non_shared + *value_length)) {
-      return nullptr;
-    }
-    return p;
-  }
-};
-
 struct DecodeKey {
   inline const char* operator()(const char* p, const char* limit,
                                 uint32_t* shared, uint32_t* non_shared,

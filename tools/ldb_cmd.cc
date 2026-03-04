@@ -88,6 +88,7 @@ const std::string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
 const std::string LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES =
     "compression_max_dict_bytes";
 const std::string LDBCommand::ARG_BLOCK_SIZE = "block_size";
+const std::string LDBCommand::ARG_UNIFORM_CV_THRESHOLD = "uniform_cv_threshold";
 const std::string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
 const std::string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const std::string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
@@ -717,6 +718,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_LEADER_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
+                                  ARG_UNIFORM_CV_THRESHOLD,
                                   ARG_AUTO_COMPACTION,
                                   ARG_COMPRESSION_TYPE,
                                   ARG_COMPRESSION_MAX_DICT_BYTES,
@@ -1029,6 +1031,13 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     }
   }
 
+  double uniform_cv_threshold;
+  if (ParseDoubleOption(option_map_, ARG_UNIFORM_CV_THRESHOLD,
+                        uniform_cv_threshold, exec_state_)) {
+    use_table_options = true;
+    table_options.uniform_cv_threshold = uniform_cv_threshold;
+  }
+
   // Default comparator is BytewiseComparator, so only when it's not, it
   // means user has a command line override.
   if (options_.comparator != nullptr &&
@@ -1194,6 +1203,8 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
           LDBCommandExecuteResult::Failed(ARG_FIX_PREFIX_LEN + " must be > 0.");
     }
   }
+
+  table_options.uniform_cv_threshold = 0.2;
 }
 
 // First, initializes the options state using the OPTIONS file when enabled.

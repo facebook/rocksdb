@@ -75,6 +75,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES +
              "=<int,e.g.:16384>\n");
   ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE + "=<block_size_in_bytes>\n");
+  ret.append("  --" + LDBCommand::ARG_UNIFORM_CV_THRESHOLD +
+             "=<double,e.g.:0.2>\n");
   ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
   ret.append("  --" + LDBCommand::ARG_DB_WRITE_BUFFER_SIZE +
              "=<int,e.g.:16777216>\n");

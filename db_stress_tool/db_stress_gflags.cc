@@ -621,6 +621,11 @@ DEFINE_int32(index_block_search_type,
              "Search algorithm for index blocks (see `enum BlockSearchType` in "
              "table.h)");
 
+DEFINE_double(uniform_cv_threshold,
+              ROCKSDB_NAMESPACE::BlockBasedTableOptions().uniform_cv_threshold,
+              "CV threshold for marking index blocks as uniform. Set to -1 to "
+              "disable. (see `uniform_cv_threshold` in table.h)");
+
 DEFINE_bool(
     use_trie_index, false,
     "Use trie-based user defined index (UDI) for SST files. "

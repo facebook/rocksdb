@@ -264,6 +264,9 @@ struct BlockBasedTableOptions {
   IndexType index_type = kBinarySearch;
 
   // The search algorithm used when seeking to entries in the index block.
+  //
+  // Note: This option is only used at read time and is compatible with any type
+  // of block.
   enum BlockSearchType : char {
     // Standard binary search
     kBinary = 0x00,
@@ -274,12 +277,15 @@ struct BlockBasedTableOptions {
     // succesor can skew the end key and make interpolation search significantly
     // less performant.
     kInterpolation = 0x01,
-    // Automatically choose between binary and interpolation search on a
-    // per-index-block basis. During SST construction, each block's key
-    // distribution is analyzed, and provides a "is_uniform" hint in the block
-    // footer. If the keys are uniformly distributed and ordered via byte-wise
-    // comparator, then reads for the block will use interpolation search. Using
-    // kAuto on older versions will simply default to kBinary.
+    // See `uniform_cv_threshold`. On the write path if `uniform_cv_threshold`
+    // >= 0, then it is possible for a block to be marked as "is_uniform=true"
+    // in the block footer via bit flag. On files from older versions or
+    // produced via `uniform_cv_threshold` < 0, blocks are always marked as
+    // "is_uniform=false".
+    //
+    // When kAuto is used, the search algorithm will use interpolation search if
+    // "is_uniform" flag is set in the block footer, otherwise it will use
+    // binary search.
     kAuto = 0x02,
   };
 
@@ -631,14 +637,17 @@ struct BlockBasedTableOptions {
   // index block are uniformly distributed. Lower CV means more "uniform", and
   // the more likely interpolation search will outperform binary search.
   //
-  // On the write path, if the CV is less than this threshold, then the block
-  // will be marked as "uniform", and a read with BlockSearchType::kAuto will
-  // utilize interpolation search.
+  // On the write path, if the CV of key gaps in an index
+  // block is less than this threshold, the "is_uniform" hint is set in that
+  // block's footer. To disable (i.e. always have "is_uniform=false"), set value
+  // to -1.
   //
-  // Currently only supports index blocks. Set to < 0 (e.g. -1) to disable.
+  // On the read path, if `BlockSearchType::kAuto` is set, then it will use the
+  // is_uniform hint to select an appropriate search algorithm for the block.
   //
-  // Default: 0.2
-  double uniform_cv_threshold = 0.2;
+  // NOTE: Currently only supports index blocks. May update to include data
+  // blocks in the future.
+  double uniform_cv_threshold = -1;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted

@@ -15,8 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Hash index bit (bit 31)
 constexpr uint32_t kHashIndexBit = 1u << 31;
-// Uniform keys bit (bit 30) - indicates keys are uniformly distributed
-constexpr uint32_t kUniformKeysBit = 1u << 30;
+// Uniform keys bit (bit 29) - indicates keys are uniformly distributed
+constexpr uint32_t kUniformKeysBit = 1u << 29;
 // Separated KV storage bit (bit 28)
 constexpr uint32_t kSeparatedKVBit = 1u << 28;
 
