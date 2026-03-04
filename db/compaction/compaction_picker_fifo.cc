@@ -477,16 +477,14 @@ Compaction* FIFOCompactionPicker::PickIntraL0Compaction(
       ROCKS_LOG_BUFFER(
           log_buffer,
           "[%s] FIFO kv-ratio compaction: skipping — "
-          "max_data_files_size is 0, cannot compute target file size. "
-          "Falling back to cost-based intra-L0 compaction.",
+          "max_data_files_size is 0, cannot compute target file size. ",
           cf_name.c_str());
     } else if (fifo_opts.max_data_files_size < fifo_opts.max_table_files_size) {
       ROCKS_LOG_BUFFER(log_buffer,
                        "[%s] FIFO kv-ratio compaction: skipping — "
                        "max_data_files_size (%" PRIu64
                        ") < max_table_files_size "
-                       "(%" PRIu64
-                       "). Falling back to cost-based intra-L0 compaction.",
+                       "(%" PRIu64 ").",
                        cf_name.c_str(), fifo_opts.max_data_files_size,
                        fifo_opts.max_table_files_size);
     } else {
