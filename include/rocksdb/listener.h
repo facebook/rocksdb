@@ -201,6 +201,7 @@ enum class BackgroundErrorReason {
   kManifestWrite,
   kFlushNoWAL,
   kManifestWriteNoWAL,
+  kAsyncFileOpen,
 };
 
 struct WriteStallInfo {

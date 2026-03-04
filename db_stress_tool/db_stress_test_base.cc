@@ -1043,6 +1043,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       // Commenting this out as we don't want to reset stats on each open.
       // thread->stats.Start();
+      if (FLAGS_use_trie_index && udi_factory_) {
+        read_opts.table_index_factory = udi_factory_.get();
+      }
     }
 
 #ifndef NDEBUG
@@ -1985,9 +1988,15 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    // SeekToFirst and SeekToLast require backward scan support.
+    // UserDefinedIndexIterator only supports Seek(target) + Next() - it
+    // requires a target key for seeks. SeekToFirst/SeekToLast have no target
+    // key, and SeekForPrev/Prev are not supported. Check if UDI is being used
+    // either via ReadOptions or CF-level configuration.
+    const bool using_udi =
+        (ro.table_index_factory != nullptr) || (udi_factory_ != nullptr);
     const bool support_seek_first_or_last =
-        expect_total_order && FLAGS_test_backward_scan;
+        expect_total_order && FLAGS_test_backward_scan && !using_udi;
+    const bool support_seek_for_prev = FLAGS_test_backward_scan && !using_udi;
 
     // Write-prepared and Write-unprepared and multi-cf-iterator do not support
     // Refresh() yet.
@@ -2012,7 +2021,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       cmp_iter->SeekToLast();
       last_op = kLastOpSeekToLast;
       op_logs += "STL ";
-    } else if (FLAGS_test_backward_scan && thread->rand.OneIn(8)) {
+    } else if (support_seek_for_prev && thread->rand.OneIn(8)) {
       iter->SeekForPrev(key);
       cmp_iter->SeekForPrev(key);
       last_op = kLastOpSeekForPrev;
@@ -4418,6 +4427,13 @@ void InitializeOptionsFromFlags(
     }
   }
   options.max_open_files = FLAGS_open_files;
+  options.open_files_async = FLAGS_open_files_async;
+  if (FLAGS_open_files_async && !FLAGS_skip_stats_update_on_db_open) {
+    FLAGS_skip_stats_update_on_db_open = true;
+    fprintf(stderr,
+            "open_files_async requires skip_stats_update_on_db_open, "
+            "enabling it automatically\n");
+  }
   if (FLAGS_statistics) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   }

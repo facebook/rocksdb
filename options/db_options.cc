@@ -230,6 +230,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, paranoid_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"open_files_async",
+         {offsetof(struct ImmutableDBOptions, open_files_async),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"flush_verify_memtable_count",
          {offsetof(struct ImmutableDBOptions, flush_verify_memtable_count),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -717,6 +721,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
+      open_files_async(options.open_files_async),
       flush_verify_memtable_count(options.flush_verify_memtable_count),
       compaction_verify_record_count(options.compaction_verify_record_count),
       track_and_verify_wals_in_manifest(
@@ -814,6 +819,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    create_if_missing);
   ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
                    paranoid_checks);
+  ROCKS_LOG_HEADER(log, "                       Options.open_files_async: %d",
+                   open_files_async);
   ROCKS_LOG_HEADER(log, "            Options.flush_verify_memtable_count: %d",
                    flush_verify_memtable_count);
   ROCKS_LOG_HEADER(log, "         Options.compaction_verify_record_count: %d",

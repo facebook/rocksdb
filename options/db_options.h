@@ -24,6 +24,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool open_files_async;
   bool flush_verify_memtable_count;
   bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;

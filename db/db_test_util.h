@@ -1177,6 +1177,12 @@ class DBTestBase : public testing::Test {
   Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
                                      const Options& options);
 
+  Status TryReopenReadOnlyWithColumnFamilies(
+      const std::vector<std::string>& cfs, const std::vector<Options>& options);
+
+  Status TryReopenReadOnlyWithColumnFamilies(
+      const std::vector<std::string>& cfs, const Options& options);
+
   void Reopen(const Options& options);
 
   void Close();

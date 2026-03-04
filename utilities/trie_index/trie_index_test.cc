@@ -15,6 +15,9 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "file/writable_file_writer.h"
+#include "options/cf_options.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
@@ -26,7 +29,9 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_builder.h"
 #include "table/format.h"
+#include "table/table_builder.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "utilities/trie_index/bitvector.h"
 #include "utilities/trie_index/louds_trie.h"
 #include "utilities/trie_index/trie_index_factory.h"
@@ -3462,6 +3467,103 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
   }
   ASSERT_OK(iter->status());
   ASSERT_EQ(count, 3);
+}
+
+// Regression test for a crash in UserDefinedIndexBuilderWrapper::OnKeyAdded().
+// When the UDI wrapper encountered a non-Put key type (e.g., Delete), it set
+// its internal status_ to non-OK and stopped forwarding OnKeyAdded() to the
+// wrapped internal index builder. However, AddIndexEntry() was always forwarded
+// unconditionally. This asymmetry caused the internal ShortenedIndexBuilder's
+// current_block_first_internal_key_ to remain empty, hitting an assertion
+// in GetFirstInternalKey() during the buffered-block replay in
+// MaybeEnterUnbuffered(). The fix ensures the internal builder always receives
+// OnKeyAdded() regardless of UDI-specific errors.
+TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
+  auto dict_compressions = GetSupportedDictCompressions();
+  if (dict_compressions.empty()) {
+    ROCKSDB_GTEST_SKIP("No dictionary-capable compression available");
+    return;
+  }
+  const auto kCompression = dict_compressions[0];
+
+  BlockBasedTableOptions table_options;
+  // Use kBinarySearchWithFirstKey so that include_first_key_ is true in the
+  // ShortenedIndexBuilder, which is required to trigger the assertion in
+  // GetFirstInternalKey().
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  table_options.user_defined_index_factory = trie_factory_;
+
+  Options options;
+  options.compression = kCompression;
+  // Enable compression dictionary to trigger buffered mode in the table
+  // builder. In buffered mode, OnKeyAdded() is deferred to the replay in
+  // MaybeEnterUnbuffered(), which is the code path that hit the crash.
+  options.compression_opts.max_dict_bytes = 4096;
+  options.compression_opts.max_dict_buffer_bytes = 4096;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  // Build an SST directly using the TableBuilder interface so we can add
+  // entries with non-Put value types (Delete, Merge), which SstFileWriter
+  // does not support.
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "test_file_name", FileOptions()));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(
+          ioptions, moptions, read_options, write_options, ikc,
+          &internal_tbl_prop_coll_factories, kCompression,
+          options.compression_opts,
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+          "test_cf", -1 /* level */, kUnknownNewestKeyTime),
+      file_writer.get()));
+
+  // Add enough keys to fill multiple data blocks. Mix in Delete and Merge
+  // entries which previously caused the UDI wrapper to poison its status_
+  // and stop forwarding OnKeyAdded() to the internal index builder.
+  constexpr int kNumKeys = 1000;
+  for (int i = 0; i < kNumKeys; i++) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "key_%06d", i);
+    std::string user_key(buf);
+
+    ValueType type;
+    if (i % 10 == 5) {
+      type = kTypeDeletion;
+    } else if (i % 10 == 7) {
+      type = kTypeMerge;
+    } else {
+      type = kTypeValue;
+    }
+
+    // Use decreasing sequence numbers so the ordering is valid:
+    // different user keys are sorted ascending, within the same user key
+    // they would be sorted by descending seqno, but all keys here are unique.
+    SequenceNumber seq = static_cast<SequenceNumber>(kNumKeys - i);
+    InternalKey ik(user_key, seq, type);
+    // Deletions use empty value; everything else gets a payload.
+    std::string value = (type == kTypeDeletion) ? "" : "value_" + user_key;
+    builder->Add(ik.Encode(), value);
+  }
+
+  // Before the fix, Finish() would crash with:
+  //   Assertion `!current_block_first_internal_key_.empty()' failed.
+  // during the MaybeEnterUnbuffered() replay of buffered data blocks.
+  // After the fix, Finish() may return a non-OK status (because UDI doesn't
+  // support non-Put types yet) but must not crash.
+  Status s = builder->Finish();
+  // We don't assert OK because the UDI wrapper legitimately rejects non-Put
+  // types. The important thing is no crash/assertion failure.
+  s.PermitUncheckedError();
 }
 
 // ============================================================================

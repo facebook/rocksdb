@@ -414,6 +414,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "db_log_dir=path/to/db_log_dir;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
+                             "open_files_async=true;"
                              "flush_verify_memtable_count=true;"
                              "compaction_verify_record_count=true;"
                              "track_and_verify_wals_in_manifest=true;"

@@ -4351,6 +4351,15 @@ unsigned char rocksdb_options_get_paranoid_checks(rocksdb_options_t* opt) {
   return opt->rep.paranoid_checks;
 }
 
+void rocksdb_options_set_open_files_async(rocksdb_options_t* opt,
+                                          unsigned char v) {
+  opt->rep.open_files_async = v;
+}
+
+unsigned char rocksdb_options_get_open_files_async(rocksdb_options_t* opt) {
+  return opt->rep.open_files_async;
+}
+
 void rocksdb_options_set_db_paths(rocksdb_options_t* opt,
                                   const rocksdb_dbpath_t** dbpath_values,
                                   size_t num_paths) {

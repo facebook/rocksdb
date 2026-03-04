@@ -113,6 +113,7 @@ DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
+DECLARE_bool(open_files_async);
 DECLARE_uint64(compressed_secondary_cache_size);
 DECLARE_int32(compressed_secondary_cache_numshardbits);
 DECLARE_int32(secondary_cache_update_interval);

@@ -99,7 +99,8 @@ class TableCache {
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       const SequenceNumber* range_del_read_seqno = nullptr,
-      std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter = nullptr);
+      std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter = nullptr,
+      bool maybe_pin_table_handle = false);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -172,19 +173,31 @@ class TableCache {
   // Return handle to an existing cache entry if there is one
   static Cache::Handle* Lookup(Cache* cache, uint64_t file_number);
 
-  // Find table reader
-  // @param skip_filters Disables loading/accessing the filter block
-  // @param level == -1 means not specified
+  // Look up the TableReader for the given file in the cache, or open the file
+  // and create a new TableReader if not cached. On success, sets *table_reader
+  // to point to the TableReader (owned by the cache) and *handle to the cache
+  // handle (caller must release via cache_.Release() unless pin_table_handle is
+  // true). If the table reader is already pinned on file_meta, returns it
+  // directly without a cache lookup.
+  //
+  // @param no_io If true, returns Status::Incomplete() when the table is not
+  //              already in cache rather than reading from disk.
+  // @param skip_filters Disables loading/accessing the filter block.
+  // @param level The LSM level of this table, -1 if not specified.
+  // @param pin_table_handle If true, pins the table reader on file_meta so
+  //              future lookups bypass the cache. *handle is set to nullptr
+  //              on return in this case.
   Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileMetaData& file_meta, TypedHandle**,
                    const MutableCFOptions& mutable_cf_options,
-                   const bool no_io = false,
+                   TableReader** table_reader, const bool no_io = false,
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
                    bool prefetch_index_and_filter_in_cache = true,
                    size_t max_file_size_for_l0_meta_pin = 0,
-                   Temperature file_temperature = Temperature::kUnknown);
+                   Temperature file_temperature = Temperature::kUnknown,
+                   bool pin_table_handle = false);
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -231,6 +244,8 @@ class TableCache {
 
   CacheInterface& get_cache() { return cache_; }
 
+  const FileOptions& file_options() const { return file_options_; }
+
   // Capacity of the backing Cache that indicates infinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
@@ -241,6 +256,14 @@ class TableCache {
     if (cache_.get()->GetCapacity() >= kInfiniteCapacity) {
       immortal_tables_ = true;
     }
+  }
+
+  // Re-evaluates should_pin_table_handles_ from the current cache capacity.
+  // Must be called after the underlying cache capacity changes (e.g. via
+  // SetDBOptions changing max_open_files).
+  void UpdateShouldPinTableHandles() {
+    should_pin_table_handles_ =
+        cache_.get()->GetCapacity() >= kInfiniteCapacity;
   }
 
  private:
@@ -283,6 +306,7 @@ class TableCache {
   CacheInterface cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
+  bool should_pin_table_handles_;
   BlockCacheTracer* const block_cache_tracer_;
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;

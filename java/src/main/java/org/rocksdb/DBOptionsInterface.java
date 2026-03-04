@@ -146,6 +146,26 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   boolean paranoidChecks();
 
   /**
+   * If true, SST files are opened and validated asynchronously in the
+   * background after DB::Open returns. This reduces DB open time for
+   * databases with many SST files.
+   *
+   * Default: false
+   *
+   * @param openFilesAsync true to enable async file opening.
+   * @return the reference to the current option.
+   */
+  T setOpenFilesAsync(boolean openFilesAsync);
+
+  /**
+   * If true, SST files are opened and validated asynchronously in the
+   * background after DB::Open returns.
+   *
+   * @return a boolean indicating whether async file opening is enabled.
+   */
+  boolean openFilesAsync();
+
+  /**
    * Use to control write rate of flush and compaction. Flush has higher
    * priority than compaction. Rate limiting is disabled if nullptr.
    * Default: nullptr

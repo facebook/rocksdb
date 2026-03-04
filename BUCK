@@ -106,6 +106,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/version_edit.cc",
         "db/version_edit_handler.cc",
         "db/version_set.cc",
+        "db/version_util.cc",
         "db/wal_edit.cc",
         "db/wal_manager.cc",
         "db/wide/wide_column_serialization.cc",

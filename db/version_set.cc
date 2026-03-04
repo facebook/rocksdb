@@ -170,7 +170,7 @@ class FilePicker {
     if (!search_ended_) {
       // Prefetch Level 0 table data to avoid cache miss if possible.
       for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
-        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader;
+        auto* r = (*level_files_brief_)[0].files[i].fd.pinned_reader.Get();
         if (r) {
           r->Prepare(ikey);
         }
@@ -395,7 +395,7 @@ class FilePickerMultiGet {
       // prefetching. This may not be necessary anymore once we implement
       // batching in those table readers
       for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
-        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader;
+        auto* r = (*level_files_brief_)[0].files[i].fd.pinned_reader.Get();
         if (r) {
           for (auto iter = range_.begin(); iter != range_.end(); ++iter) {
             r->Prepare(iter->ikey);
@@ -1298,7 +1298,8 @@ class LevelIterator final : public InternalIterator {
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_, &read_seq_,
-        range_tombstone_iter_);
+        range_tombstone_iter_,
+        /*maybe_pin_table_handle=*/true);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -2221,7 +2222,7 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
   for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
-      assert(meta->fd.table_reader != nullptr);
+      assert(meta->fd.pinned_reader.Get() != nullptr);
       uint64_t file_creation_time = meta->TryGetFileCreationTime();
       if (file_creation_time == kUnknownFileCreationTime) {
         *creation_time = 0;
@@ -2357,7 +2358,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr, allow_unprepared_value,
-          /*range_del_read_seqno=*/nullptr, &tombstone_iter);
+          /*range_del_read_seqno=*/nullptr, &tombstone_iter,
+          /*maybe_pin_table_handle=*/true);
       if (read_options.ignore_range_deletions) {
         merge_iter_builder->AddIterator(table_iter);
       } else {
@@ -5597,9 +5599,10 @@ VersionSet::~VersionSet() {
     // Using uncache_aggressiveness=0 overrides any previous marking to
     // attempt to uncache the file's blocks (which after cleaning up
     // column families could cause use-after-free)
-    TableCache::ReleaseObsolete(table_cache_, file.metadata->fd.GetNumber(),
-                                file.metadata->table_reader_handle,
-                                /*uncache_aggressiveness=*/0);
+    TableCache::ReleaseObsolete(
+        table_cache_, file.metadata->fd.GetNumber(),
+        file.metadata->fd.pinned_reader.GetCacheHandle(),
+        /*uncache_aggressiveness=*/0);
     file.DeleteMetadata();
   }
   obsolete_files_.clear();
@@ -6537,7 +6540,8 @@ Status VersionSet::Recover(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_found_and_missing_files=*/false, no_error_if_files_missing,
         io_tracer_, read_options, /*allow_incomplete_valid_version=*/false,
-        EpochNumberRequirement::kMightMissing);
+        EpochNumberRequirement::kMightMissing,
+        /*skip_load_table_files=*/db_options_->open_files_async);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -7856,10 +7860,12 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
     InternalStats* internal_stats = cfd->internal_stats();
 
     TableCache::TypedHandle* handle = nullptr;
+    TableReader* table_reader = nullptr;
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
         read_options, file_opts, *icmp, meta_copy, &handle, cf_opts,
-        /*no_io=*/false, internal_stats->GetFileReadHist(level), false, level,
+        &table_reader, /*no_io=*/false, internal_stats->GetFileReadHist(level),
+        false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);
     if (handle) {
