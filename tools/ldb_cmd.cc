@@ -1203,8 +1203,6 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
           LDBCommandExecuteResult::Failed(ARG_FIX_PREFIX_LEN + " must be > 0.");
     }
   }
-
-  table_options.uniform_cv_threshold = 0.2;
 }
 
 // First, initializes the options state using the OPTIONS file when enabled.
