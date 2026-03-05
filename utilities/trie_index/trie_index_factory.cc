@@ -235,7 +235,7 @@ Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
   // Reset overflow state — SeekToFirst always lands on the primary block
   // of the first trie leaf.
   overflow_run_index_ = 0;
-  overflow_run_size_ = 0;
+  overflow_run_size_ = 1;
   overflow_base_idx_ = 0;
 
   if (!iter_.SeekToFirst()) {
@@ -537,13 +537,13 @@ Status TrieIndexFactory::NewBuilder(
 Status TrieIndexFactory::NewReader(
     const UserDefinedIndexOption& option, Slice& index_block,
     std::unique_ptr<UserDefinedIndexReader>& reader) const {
-  if (option.comparator != nullptr &&
-      option.comparator != BytewiseComparator()) {
+  const Comparator* cmp =
+      option.comparator ? option.comparator : BytewiseComparator();
+  if (cmp != BytewiseComparator()) {
     return Status::NotSupported(
-        "TrieIndexFactory requires BytewiseComparator; got: ",
-        option.comparator->Name());
+        "TrieIndexFactory requires BytewiseComparator; got: ", cmp->Name());
   }
-  auto trie_reader = std::make_unique<TrieIndexReader>(option.comparator);
+  auto trie_reader = std::make_unique<TrieIndexReader>(cmp);
   Status s = trie_reader->InitFromSlice(index_block);
   if (!s.ok()) {
     return s;

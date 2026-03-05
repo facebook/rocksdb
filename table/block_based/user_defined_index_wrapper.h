@@ -295,8 +295,10 @@ class UserDefinedIndexIteratorWrapper
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
         ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        result->key = key();
       }
-      *result = result_;
+      result->bound_check_result = result_.bound_check_result;
+      result->value_prepared = result_.value_prepared;
     } else {
       valid_ = false;
     }

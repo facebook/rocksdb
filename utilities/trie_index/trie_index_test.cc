@@ -28,6 +28,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/user_defined_index_wrapper.h"
 #include "table/format.h"
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
@@ -3296,23 +3297,51 @@ TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
 }
 
 TEST_F(TrieIndexFactoryTest, NullComparator) {
-  // NewBuilder and NewReader with nullptr comparator should succeed.
-  // Note: AddIndexEntry uses comparator_->FindShortSeparator() which requires
-  // a non-null comparator, so we only test that the factory accepts nullptr.
+  // NewBuilder and NewReader with nullptr comparator should default to
+  // BytewiseComparator. This tests that the null-comparator guard in both
+  // NewBuilder and NewReader prevents null-pointer dereferences.
   UserDefinedIndexOption option;
   option.comparator = nullptr;
 
+  // Build a non-trivial index with null comparator. The builder internally
+  // defaults to BytewiseComparator.
   std::unique_ptr<UserDefinedIndexBuilder> builder;
   ASSERT_OK(factory_->NewBuilder(option, builder));
   ASSERT_NE(builder, nullptr);
 
-  // Finish without adding entries — nullptr comparator is accepted.
+  // Add some entries — AddIndexEntry uses the defaulted comparator internally.
+  std::string scratch;
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 100};
+    Slice next("b");
+    builder->AddIndexEntry(Slice("a"), &next, h, &scratch, {0, 0});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{100, 100};
+    builder->AddIndexEntry(Slice("b"), nullptr, h, &scratch, {0, 0});
+  }
+
   Slice index_contents;
   ASSERT_OK(builder->Finish(&index_contents));
 
-  // NewReader with nullptr comparator should also succeed on an empty index
-  // (empty index produces empty Slice, which may not be parseable, so we
-  // just verify NewBuilder accepts nullptr).
+  // NewReader with nullptr comparator should also default to
+  // BytewiseComparator. Without the fix, this would store a null comparator
+  // in the reader and crash on Seek when CheckBounds dereferences it.
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+  ASSERT_NE(reader, nullptr);
+
+  // Verify the reader works — Seek uses the comparator for bounds checking.
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("a"), &result, {}));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  EXPECT_EQ(iter->value().offset, 0u);
+
+  ASSERT_OK(iter->SeekAndGetResult(Slice("b"), &result, {}));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  EXPECT_EQ(iter->value().offset, 100u);
 }
 
 TEST_F(TrieIndexFactoryTest, SeekSucceedsButTargetPastLimit) {
@@ -5334,10 +5363,10 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
   }
   ASSERT_OK(writer.Finish());
 
-  // Verify all 500 raw entries exist using the native index via the logical
-  // (DB) iterator without UDI. The native binary search index is always
-  // present alongside the UDI, so we can verify the SST structure with it.
-  // Note: DBIter hides delete tombstones, so we count visible entries only.
+  // Verify visible entries (Puts + Merges) exist using the native index via
+  // the logical (DB) iterator without UDI. The native binary search index is
+  // always present alongside the UDI, so we can verify the SST structure
+  // with it. DBIter hides delete tombstones, so only visible entries counted.
   {
     Options read_options;
     read_options.merge_operator = MergeOperators::CreateStringAppendOperator();
@@ -5414,6 +5443,286 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
       }
     }
   }
+}
+
+TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Build a 3-block index: separators "a", "b", "c".
+  std::string scratch;
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 100};
+    Slice next("b");
+    builder->AddIndexEntry(Slice("a"), &next, h, &scratch, {0, 0});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{100, 100};
+    Slice next("c");
+    builder->AddIndexEntry(Slice("b"), &next, h, &scratch, {0, 0});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle h{200, 100};
+    builder->AddIndexEntry(Slice("c"), nullptr, h, &scratch, {0, 0});
+  }
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto udi_iter = reader->NewIterator(ro);
+  // Wrap the UDI iterator in the adapter that converts to InternalIterator.
+  UserDefinedIndexIteratorWrapper wrapper(std::move(udi_iter));
+
+  // Seek to "a" — constructs an internal key from user key "a".
+  InternalKey seek_ikey;
+  seek_ikey.Set(Slice("a"), 0, ValueType::kTypeValue);
+  wrapper.Seek(Slice(*seek_ikey.const_rep()));
+  ASSERT_TRUE(wrapper.Valid());
+  ASSERT_OK(wrapper.status());
+
+  // wrapper.key() must be an internal key: user_key("a") + 8 bytes suffix.
+  Slice wrapper_key = wrapper.key();
+  ASSERT_EQ(wrapper_key.size(), 1u + 8u)
+      << "key() should be internal key (user_key + 8-byte footer)";
+  ParsedInternalKey parsed;
+  ASSERT_OK(ParseInternalKey(wrapper_key, &parsed, /*log_err_key=*/false));
+  EXPECT_EQ(parsed.user_key.ToString(), "a");
+  EXPECT_EQ(parsed.type, ValueType::kTypeValue);
+
+  // Now test NextAndGetResult — this is the method we fixed.
+  IterateResult result;
+  bool valid = wrapper.NextAndGetResult(&result);
+  ASSERT_TRUE(valid);
+  ASSERT_OK(wrapper.status());
+
+  // result.key must also be an internal key, not a raw user key.
+  // Before the fix, result.key would be "b" (1 byte, raw user key).
+  // After the fix, result.key is "b" + 8-byte internal key suffix.
+  ASSERT_EQ(result.key.size(), 1u + 8u)
+      << "NextAndGetResult key must be internal key (user_key + 8-byte "
+         "footer), got size "
+      << result.key.size();
+  ASSERT_OK(ParseInternalKey(result.key, &parsed, /*log_err_key=*/false));
+  EXPECT_EQ(parsed.user_key.ToString(), "b");
+  EXPECT_EQ(parsed.type, ValueType::kTypeValue);
+
+  // result.key must match wrapper.key() — both views of the current key.
+  EXPECT_EQ(result.key, wrapper.key());
+
+  // Advance again and verify. The last block's separator is "d"
+  // (FindShortSuccessor("c") → "d"), not "c".
+  valid = wrapper.NextAndGetResult(&result);
+  ASSERT_TRUE(valid);
+  ASSERT_OK(wrapper.status());
+  ASSERT_EQ(result.key.size(), 1u + 8u);
+  ASSERT_OK(ParseInternalKey(result.key, &parsed, /*log_err_key=*/false));
+  EXPECT_EQ(parsed.user_key.ToString(), "d");
+  EXPECT_EQ(result.key, wrapper.key());
+
+  // One more advance — past end.
+  valid = wrapper.NextAndGetResult(&result);
+  EXPECT_FALSE(valid);
+}
+
+// Regression test: overflow blocks must be BFS-reordered alongside primary
+// handles. Without BFS reordering, when separator keys have different lengths
+// (causing BFS leaf order to differ from key-sorted order), the overflow_base_
+// prefix sum maps overflow blocks to the wrong leaves.
+//
+// Key design:
+//   Trie entries: "ab"(bc=2), "ac"(bc=1), "b"(bc=2), "c"(bc=1), "e"(bc=1)
+//
+//   Trie structure:
+//     Root: ['a'(internal), 'b'(leaf), 'c'(leaf), 'e'(leaf)]
+//     Level 1 under 'a': ['b'(leaf="ab"), 'c'(leaf="ac")]
+//
+//   BFS leaf order: "b"(0), "c"(1), "e"(2), "ab"(3), "ac"(4)
+//   Key-sorted order: "ab"(0), "ac"(1), "b"(2), "c"(3), "e"(4)
+//
+//   Both "ab" and "b" have overflow runs. Key-sorted overflow is
+//   ["ab"-overflow, "b"-overflow]. BFS-reordered overflow must be
+//   ["b"-overflow, "ab"-overflow].
+//
+//   Without fix: Seek("b") at low seqno gets "ab"'s overflow data (wrong
+//   offset and seqno), while Seek("ab") at low seqno gets "b"'s overflow.
+TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  std::string scratch;
+  Slice sep;
+
+  // Block 0: last="ab", next="ab" (same-key boundary)
+  // → sep="ab", same_user_key=true, seqno=500
+  {
+    UserDefinedIndexBuilder::BlockHandle h{0, 100};
+    Slice next("ab");
+    sep = builder->AddIndexEntry(Slice("ab"), &next, h, &scratch, {500, 0});
+    ASSERT_EQ(scratch, "ab") << "Block 0 separator";
+  }
+  // Block 1: last="ab", next="abc" (prefix — FindShortestSeparator no-op)
+  // → sep="ab", edge-case match with prev sep, same_user_key=true, seqno=400
+  {
+    UserDefinedIndexBuilder::BlockHandle h{100, 100};
+    Slice next("abc");
+    sep = builder->AddIndexEntry(Slice("ab"), &next, h, &scratch, {400, 0});
+    ASSERT_EQ(scratch, "ab") << "Block 1 separator (prefix edge case)";
+  }
+  // Block 2: last="abc", next="b"
+  // FindShortestSeparator("abc","b"): diff_index=0, 'a' vs 'b',
+  // limit.size()-1=0 so fallback: increment start[1] 'b'→'c' → "ac"
+  // → sep="ac", different key, seqno=kMax→0
+  {
+    UserDefinedIndexBuilder::BlockHandle h{200, 100};
+    Slice next("b");
+    sep = builder->AddIndexEntry(Slice("abc"), &next, h, &scratch, {0, 0});
+    ASSERT_EQ(scratch, "ac") << "Block 2 separator";
+  }
+  // Block 3: last="b", next="b" (same-key boundary)
+  // → sep="b", same_user_key=true, seqno=300
+  {
+    UserDefinedIndexBuilder::BlockHandle h{300, 100};
+    Slice next("b");
+    sep = builder->AddIndexEntry(Slice("b"), &next, h, &scratch, {300, 0});
+    ASSERT_EQ(scratch, "b") << "Block 3 separator";
+  }
+  // Block 4: last="b", next="ba" (prefix — FindShortestSeparator no-op)
+  // → sep="b", edge-case match with prev sep, same_user_key=true, seqno=200
+  {
+    UserDefinedIndexBuilder::BlockHandle h{400, 100};
+    Slice next("ba");
+    sep = builder->AddIndexEntry(Slice("b"), &next, h, &scratch, {200, 0});
+    ASSERT_EQ(scratch, "b") << "Block 4 separator (prefix edge case)";
+  }
+  // Block 5: last="ba", next="d"
+  // FindShortestSeparator("ba","d"): diff_index=0, 'b' vs 'd',
+  // start_byte+1='c' < 'd' → increment and truncate → "c"
+  // → sep="c", different key, seqno=kMax→0
+  {
+    UserDefinedIndexBuilder::BlockHandle h{500, 100};
+    Slice next("d");
+    sep = builder->AddIndexEntry(Slice("ba"), &next, h, &scratch, {0, 0});
+    ASSERT_EQ(scratch, "c") << "Block 5 separator";
+  }
+  // Block 6: last="d", next=null (last block)
+  // FindShortSuccessor("d") → "e"
+  // → sep="e", different from prev, seqno=kMax→0
+  {
+    UserDefinedIndexBuilder::BlockHandle h{600, 100};
+    sep = builder->AddIndexEntry(Slice("d"), nullptr, h, &scratch, {0, 0});
+    ASSERT_EQ(scratch, "e") << "Block 6 separator";
+  }
+
+  // After Finish(), trie entries (key-sorted):
+  //   ki=0: "ab" bc=2, primary={offset=0,seqno=500},
+  //         overflow=[{offset=100,seqno=400}]
+  //   ki=1: "ac" bc=1, {offset=200,seqno=0}
+  //   ki=2: "b"  bc=2, primary={offset=300,seqno=300},
+  //         overflow=[{offset=400,seqno=200}]
+  //   ki=3: "c"  bc=1, {offset=500,seqno=0}
+  //   ki=4: "e"  bc=1, {offset=600,seqno=0}
+  //
+  // BFS leaf order: "b"(0), "c"(1), "e"(2), "ab"(3), "ac"(4)
+  // BFS-reordered overflow: [{offset=400,seqno=200}, {offset=100,seqno=400}]
+  // overflow_base_: leaf0("b")=0, leaf3("ab")=1
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+
+  // --- Full forward scan: verify all block offsets in key order ---
+  // Expected order: ab(0), ab-overflow(100), ac(200), b(300),
+  //                 b-overflow(400), c(500), e(600)
+  ASSERT_OK(iter->SeekToFirstAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "ab");
+  EXPECT_EQ(iter->value().offset, 0u) << "SeekToFirst: ab primary";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "ab");
+  EXPECT_EQ(iter->value().offset, 100u) << "Next: ab overflow";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "ac");
+  EXPECT_EQ(iter->value().offset, 200u) << "Next: ac primary";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "b");
+  EXPECT_EQ(iter->value().offset, 300u) << "Next: b primary";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "b");
+  EXPECT_EQ(iter->value().offset, 400u) << "Next: b overflow";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "c");
+  EXPECT_EQ(iter->value().offset, 500u) << "Next: c primary";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.key.ToString(), "e");
+  EXPECT_EQ(iter->value().offset, 600u) << "Next: e primary";
+
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kUnknown) << "past end";
+
+  // --- Seek-based tests: verify overflow data is correctly associated ---
+
+  // "ab" primary: Seek("ab", kMax) → offset=0
+  ASSERT_OK(iter->SeekAndGetResult(Slice("ab"), &result, {kMaxSequenceNumber}));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  EXPECT_EQ(iter->value().offset, 0u) << "Seek(ab,kMax): ab primary";
+
+  // "ab" overflow: Seek("ab", 400) → offset=100
+  // Primary seqno=500, 400<500 → advance to overflow. Overflow seqno=400,
+  // 400>=400 → match.
+  ASSERT_OK(iter->SeekAndGetResult(Slice("ab"), &result, {400}));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  EXPECT_EQ(iter->value().offset, 100u) << "Seek(ab,400): ab overflow";
+
+  // "ab" advance past run: Seek("ab", 50) → advances to "ac" at offset=200
+  // Primary seqno=500, 50<500 → overflow seqno=400, 50<400 → exhaust run →
+  // advance to next trie leaf "ac".
+  ASSERT_OK(iter->SeekAndGetResult(Slice("ab"), &result, {50}));
+  EXPECT_EQ(result.key.ToString(), "ac")
+      << "Seek(ab,50): should advance past ab run";
+  EXPECT_EQ(iter->value().offset, 200u) << "Seek(ab,50): expected ac (200)";
+
+  // "b" primary: Seek("b", kMax) → offset=300
+  ASSERT_OK(iter->SeekAndGetResult(Slice("b"), &result, {kMaxSequenceNumber}));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  EXPECT_EQ(iter->value().offset, 300u) << "Seek(b,kMax): b primary";
+
+  // "b" overflow: Seek("b", 200) → offset=400
+  // Primary seqno=300, 200<300 → advance to overflow. Overflow seqno=200,
+  // 200>=200 → match.
+  // WITHOUT THE FIX: overflow[0] would be ab's data {offset=100,seqno=400},
+  // and 200<400 would fail to match, incorrectly advancing to "c".
+  ASSERT_OK(iter->SeekAndGetResult(Slice("b"), &result, {200}));
+  EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  EXPECT_EQ(result.key.ToString(), "b")
+      << "Seek(b,200): must stay on b, not advance";
+  EXPECT_EQ(iter->value().offset, 400u) << "Seek(b,200): b overflow";
+
+  // "b" advance past run: Seek("b", 50) → advances to "c" at offset=500
+  ASSERT_OK(iter->SeekAndGetResult(Slice("b"), &result, {50}));
+  EXPECT_EQ(result.key.ToString(), "c")
+      << "Seek(b,50): should advance past b run";
+  EXPECT_EQ(iter->value().offset, 500u) << "Seek(b,50): expected c (500)";
 }
 
 }  // namespace trie_index
