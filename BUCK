@@ -208,6 +208,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/block_based/hash_index_reader.cc",
         "table/block_based/index_builder.cc",
         "table/block_based/index_reader_common.cc",
+        "table/block_based/multi_scan_index_iterator.cc",
         "table/block_based/parsed_full_filter_block.cc",
         "table/block_based/partitioned_filter_block.cc",
         "table/block_based/partitioned_index_iterator.cc",
