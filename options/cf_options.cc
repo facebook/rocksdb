@@ -919,6 +919,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, cf_allow_ingest_behind),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"memtable_multi_get_finger_search",
+         {offsetof(struct ImmutableCFOptions, memtable_multi_get_finger_search),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -1059,7 +1063,9 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       blob_cache(cf_options.blob_cache),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
-      cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind) {}
+      cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind),
+      memtable_multi_get_finger_search(
+          cf_options.memtable_multi_get_finger_search) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 

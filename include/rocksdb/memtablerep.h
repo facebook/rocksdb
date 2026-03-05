@@ -211,6 +211,19 @@ class MemTableRep {
     return Status::NotSupported("GetAndValidate() not implemented.");
   }
 
+  // Batch lookup of multiple sorted keys. For each key, finds the first
+  // matching entry and calls callback_func with callback_args[i] and the
+  // entry. Continues calling for subsequent entries until callback_func
+  // returns false.
+  //
+  // Keys must be memtable-encoded and in non-decreasing order. Implementations
+  // may exploit the sorted key order for more efficient lookups.
+  //
+  // Default implementation calls Get() per key via an iterator.
+  virtual void MultiGet(size_t num_keys, const char* const* keys,
+                        void** callback_args,
+                        bool (*callback_func)(void* arg, const char* entry));
+
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
     return 0;
