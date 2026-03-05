@@ -158,7 +158,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
 
 Status BlobFilePartitionManager::WriteBlobDeferred(
     Partition* partition, const Slice& key, const Slice& value,
-    uint64_t* blob_offset, uint64_t batch_id) {
+    uint64_t* blob_offset, std::string key_copy_, std::string value_copy_) {
   assert(partition);
   assert(buffer_size_ > 0);
 
@@ -173,10 +173,9 @@ Status BlobFilePartitionManager::WriteBlobDeferred(
 
   const uint64_t t_offset = clock_ ? clock_->NowNanos() : 0;
 
-  // Store zero-copy Slice references into the WriteBatch buffer.
-  // current_rep_owner_ holds shared ownership set by AdoptBatchBuffer().
+  // Move pre-copied strings into pending record (no memcpy under mutex).
   partition->pending_records.push_back(
-      {key, value, {}, partition->file_number, *blob_offset, batch_id});
+      {std::move(key_copy_), std::move(value_copy_), partition->file_number, *blob_offset});
   partition->pending_bytes.fetch_add(record_size, std::memory_order_relaxed);
 
   const uint64_t t_end = clock_ ? clock_->NowNanos() : 0;
@@ -223,7 +222,7 @@ bool BlobFilePartitionManager::GetPendingBlobValue(
     MutexLock lock(&partition->mutex);
     for (const auto& record : partition->pending_records) {
       if (record.file_number == file_number && record.blob_offset == offset) {
-        value->assign(record.value.data(), record.value.size());
+        *value = record.value;
         return true;
       }
     }
@@ -231,27 +230,10 @@ bool BlobFilePartitionManager::GetPendingBlobValue(
   return false;
 }
 
-uint64_t BlobFilePartitionManager::AllocateBatchId() {
-  return next_batch_id_.fetch_add(1, std::memory_order_relaxed) + 1;
-}
-
-void BlobFilePartitionManager::AdoptBatchBuffer(
-    uint64_t batch_id, std::shared_ptr<std::string> rep_owner) {
-  for (auto& partition : partitions_) {
-    MutexLock lock(&partition->mutex);
-    for (auto& record : partition->pending_records) {
-      if (record.batch_id == batch_id && !record.rep_owner) {
-        record.rep_owner = rep_owner;
-      }
-    }
-  }
-}
-
 Status BlobFilePartitionManager::WriteBlob(
     const WriteOptions& /*write_options*/, uint32_t column_family_id,
     CompressionType compression, const Slice& key, const Slice& value,
-    uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size,
-    uint64_t batch_id) {
+    uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size) {
   assert(blob_file_number);
   assert(blob_offset);
   assert(blob_size);
@@ -279,6 +261,13 @@ Status BlobFilePartitionManager::WriteBlob(
   }
 
   bool need_flush = false;
+  // Pre-copy key and value OUTSIDE the mutex to minimize critical section.
+  std::string key_copy, value_copy;
+  if (buffer_size_ > 0) {
+    key_copy.assign(key.data(), key.size());
+    value_copy.assign(value.data(), value.size());
+  }
+
   const uint64_t t_pre_mutex = clock_ ? clock_->NowNanos() : 0;
   {
     MutexLock lock(&partition->mutex);
@@ -304,7 +293,8 @@ Status BlobFilePartitionManager::WriteBlob(
 
     Status s;
     if (buffer_size_ > 0) {
-      s = WriteBlobDeferred(partition, key, value, blob_offset, batch_id);
+      s = WriteBlobDeferred(partition, key, value, blob_offset,
+                            std::move(key_copy), std::move(value_copy));
     } else {
       s = WriteBlobSync(partition, key, value, blob_offset);
     }
@@ -380,7 +370,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     uint64_t actual_blob_offset = 0;
     WriteOptions wo;
 
-    Status s = writer->AddRecord(wo, record.key, record.value, &key_offset,
+    Status s = writer->AddRecord(wo, Slice(record.key), Slice(record.value), &key_offset,
                                  &actual_blob_offset);
     if (!s.ok()) {
       partition->pending_cv.SignalAll();
@@ -390,9 +380,6 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
 
     const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
                                   record.key.size() + record.value.size();
-
-    // Release shared ref to WB buffer.
-    record.rep_owner.reset();
 
     partition->pending_bytes.fetch_sub(record_bytes,
                                       std::memory_order_relaxed);

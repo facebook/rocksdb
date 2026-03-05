@@ -29,8 +29,7 @@ Status BlobWriteBatchTransformer::TransformBatch(
     WriteBatch* output_batch,
     BlobFilePartitionManager* partition_manager,
     const BlobDirectWriteSettingsProvider& settings_provider,
-    bool* transformed,
-    uint64_t batch_id) {
+    bool* transformed) {
   assert(input_batch);
   assert(output_batch);
   assert(transformed);
@@ -40,7 +39,6 @@ Status BlobWriteBatchTransformer::TransformBatch(
 
   BlobWriteBatchTransformer transformer(partition_manager, output_batch,
                                         settings_provider);
-  transformer.batch_id_ = batch_id;
 
   Status s = input_batch->Iterate(&transformer);
   if (!s.ok()) {
@@ -73,7 +71,7 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
   WriteOptions wo;
   Status s = partition_manager_->WriteBlob(
       wo, column_family_id, settings.compression_type, key, value,
-      &blob_file_number, &blob_offset, &blob_size, batch_id_);
+      &blob_file_number, &blob_offset, &blob_size);
   if (!s.ok()) {
     return s;
   }

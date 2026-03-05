@@ -78,18 +78,11 @@ class BlobFilePartitionManager {
                    uint32_t column_family_id, CompressionType compression,
                    const Slice& key, const Slice& value,
                    uint64_t* blob_file_number, uint64_t* blob_offset,
-                   uint64_t* blob_size,
-                   uint64_t batch_id = 0);
+                   uint64_t* blob_size);
 
 
   // Set rep_owner on all pending records that have an empty rep_owner.
   // Called after TransformBatch + std::move to transfer buffer ownership.
-  // Allocate a unique batch ID for deferred mode.
-  uint64_t AllocateBatchId();
-
-  void AdoptBatchBuffer(uint64_t batch_id,
-                        std::shared_ptr<std::string> rep_owner);
-
   // Look up an unflushed blob value by file number and offset.
   // Returns true if found (copies into *value), false if not pending.
   bool GetPendingBlobValue(uint64_t file_number, uint64_t offset,
@@ -118,12 +111,10 @@ class BlobFilePartitionManager {
   // A pending blob record waiting to be flushed to disk.
   // key/value Slices point into rep_owner's buffer (zero-copy from WriteBatch).
   struct PendingRecord {
-    Slice key;
-    Slice value;
-    std::shared_ptr<std::string> rep_owner;  // keeps WB buffer alive
+    std::string key;
+    std::string value;
     uint64_t file_number;
     uint64_t blob_offset;
-    uint64_t batch_id;
   };
 
   struct Partition {
@@ -161,7 +152,7 @@ class BlobFilePartitionManager {
   // Deferred write path (when buffer_size_ > 0).
   Status WriteBlobDeferred(Partition* partition, const Slice& key,
                            const Slice& value, uint64_t* blob_offset,
-                           uint64_t batch_id);
+                           std::string key_copy, std::string value_copy);
 
   const uint32_t num_partitions_;
   std::shared_ptr<BlobFilePartitionStrategy> strategy_;
@@ -178,7 +169,6 @@ class BlobFilePartitionManager {
 
 
   std::vector<std::unique_ptr<Partition>> partitions_;
-  std::atomic<uint64_t> next_batch_id_{0};
   port::Mutex completed_files_mutex_;
 
   // Timing instrumentation (atomic relaxed for low overhead).
