@@ -121,10 +121,13 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
         // - kTypeDeletion, kTypeSingleDeletion, kTypeRangeDeletion (deletes)
         // - kTypeMerge (merge operands)
         // - kTypeWideColumnEntity (PutEntity)
+        // - kTypeBlobIndex (BlobDB stores values in blob files)
         // This makes UDI incompatible with:
         // - Delete/Merge/SingleDelete/DeleteRange operations
         // - TransactionDB (ROLLBACK writes DELETE entries to undo changes)
+        // - BlobDB (writes kTypeBlobIndex entries during flush)
         // See T257683723 for analysis of TransactionDB incompatibility.
+        // See T258398372 for analysis of BlobDB incompatibility.
         if (status_.ok() && pkey.type != ValueType::kTypeValue) {
           status_ = Status::InvalidArgument(
               "user_defined_index_factory only supported with Puts");
