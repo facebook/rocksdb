@@ -1745,6 +1745,14 @@ Compaction* UniversalCompactionBuilder::PickReadTriggeredCompaction() {
     return nullptr;
   }
 
+  // For intra L0 compactions, pick up all overlapping files
+  if (vstorage_->num_levels() == 1 && start_level_inputs.level == 0) {
+    if (!picker_->GetOverlappingL0Files(vstorage_, &start_level_inputs,
+                                        /*output_level=*/0, nullptr, nullptr)) {
+      return nullptr;
+    }
+  }
+
   return BuildCompactionToNextLevel(start_level_inputs,
                                     CompactionReason::kReadTriggered);
 }

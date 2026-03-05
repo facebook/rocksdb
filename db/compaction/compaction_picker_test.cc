@@ -1126,6 +1126,39 @@ TEST_F(CompactionPickerTest, UniversalReadTriggeredNoPickWhenNotMarked) {
   ASSERT_FALSE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
 }
 
+TEST_F(CompactionPickerTest, UniversalReadTriggeredIntraL0) {
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.read_triggered_compaction_threshold = 0.001;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 10;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  // Single-level universal with overlapping L0 files
+  NewVersionStorage(1, kCompactionStyleUniversal);
+
+  // Two L0 files with overlapping key ranges
+  Add(0, 1U, "100", "300", kFileSize, 0, 500, 550);
+  Add(0, 2U, "200", "400", kFileSize, 0, 400, 450);
+
+  // Mark file 1 as hot
+  file_map_[1U].first->stats.num_reads_sampled.store(kFileSize);
+  UpdateVersionStorageInfo();
+
+  ASSERT_FALSE(vstorage_->ReadTriggeredCompactionFiles().empty());
+  ASSERT_TRUE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /*snapshot_checker=*/nullptr,
+          vstorage_.get(), &log_buffer_, /*full_history_ts_low=*/""));
+
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(compaction->compaction_reason(), CompactionReason::kReadTriggered);
+  ASSERT_EQ(compaction->start_level(), 0);
+  ASSERT_EQ(compaction->output_level(), 0);
+}
+
 TEST_F(CompactionPickerTest, UniversalIncrementalSpace2) {
   const uint64_t kFileSize = 100000;
 

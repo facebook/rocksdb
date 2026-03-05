@@ -11689,8 +11689,6 @@ TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
   MoveFilesToLevel(1);
   ASSERT_EQ("0,1,1", FilesPerLevel());
 
-  // Now simulate reads by setting num_reads_sampled on the L1 file.
-  // Access the internal file metadata through ColumnFamilyMetaData.
   ColumnFamilyMetaData cf_meta;
   dbfull()->GetColumnFamilyMetaData(dbfull()->DefaultColumnFamily(), &cf_meta);
   ASSERT_EQ(cf_meta.levels[1].files.size(), 1);
@@ -11699,7 +11697,6 @@ TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
   uint64_t reads_needed =
       static_cast<uint64_t>(0.002 * static_cast<double>(file_size));
 
-  // Access internal VersionStorageInfo to set num_reads_sampled
   {
     auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
                     dbfull()->DefaultColumnFamily())
@@ -11710,7 +11707,6 @@ TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
     }
   }
 
-  // Track compaction reason
   int read_triggered_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {

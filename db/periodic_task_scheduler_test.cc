@@ -293,6 +293,33 @@ TEST_F(PeriodicTaskSchedulerTest, TriggerCompactionPeriodComputation) {
     options.ttl = 3;  // 3 / 5 = 0, but clamped to 1
     test_period(options, 1);
   }
+
+  // Case 11: max_periodic_compaction_trigger_seconds caps the period
+  {
+    Options options;
+    options.stats_dump_period_sec = 24 * 60 * 60;  // 24 hours
+    options.stats_persist_period_sec = 0;
+    options.max_periodic_compaction_trigger_seconds = 600;  // 10 minutes
+    test_period(options, 600);
+  }
+
+  // Case 12: max_periodic_compaction_trigger_seconds lower than stats_dump
+  {
+    Options options;
+    options.stats_dump_period_sec = 3600;  // 1 hour
+    options.stats_persist_period_sec = 0;
+    options.max_periodic_compaction_trigger_seconds = 300;  // 5 minutes
+    test_period(options, 300);  // max_periodic cap wins
+  }
+
+  // Case 13: max_periodic_compaction_trigger_seconds larger than stats_dump
+  {
+    Options options;
+    options.stats_dump_period_sec = 300;  // 5 minutes
+    options.stats_persist_period_sec = 0;
+    options.max_periodic_compaction_trigger_seconds = 3600;  // 1 hour
+    test_period(options, 300);  // stats_dump wins (smaller)
+  }
 }
 
 // Test that TriggerPeriodicCompaction() properly considers CFs for compaction

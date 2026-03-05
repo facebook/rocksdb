@@ -263,6 +263,7 @@ default_params = {
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "max_periodic_compaction_trigger_seconds": lambda: random.choice([43200, 600, 30]),
+    "read_triggered_compaction_threshold": lambda: random.choice([0, 0.001, 0.01, 0.1]),
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
     ),
@@ -685,7 +686,6 @@ blob_params = {
     ),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
-    "read_triggered_compaction_threshold": lambda: random.choice([0, 0.001, 0.01, 0.1]),
     "blob_file_starting_level": lambda: random.choice(
         [0] * 4 + [1] * 3 + [2] * 2 + [3]
     ),
