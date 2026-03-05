@@ -533,7 +533,7 @@ void BlobFileReader::MultiGetBlob(
     }
 
     // Uncompress blob if needed
-    Slice value_slice(record_slice.data() + adjustments[i], req->len);
+    Slice value_slice(record_slice.data() + adjustments[j - 1], req->len);
     *req->status = UncompressBlobIfNeeded(
         value_slice, compression_type_, decompressor_.get(), allocator, clock_,
         statistics_, &blob_reqs[i].second);
