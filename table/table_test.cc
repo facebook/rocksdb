@@ -8114,7 +8114,8 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
       /* unique_id */ {}, /* largest_seqno */ 0,
       /* tail_size */ 0, ioptions.persist_user_defined_timestamps);
   // Verify that the user-defined index was created
-  std::string meta_block_name = kUserDefinedIndexPrefix + "test_index";
+  std::string meta_block_name =
+      std::string(kUserDefinedIndexPrefix) + "test_index";
   BlockHandle block_handle;
   uint64_t file_size = 0;
   std::unique_ptr<FSRandomAccessFile> file;

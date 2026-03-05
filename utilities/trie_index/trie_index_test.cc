@@ -1277,6 +1277,7 @@ TEST_F(LoudsTrieTest, KeyReconstructionSingleByteKeys) {
 TEST_F(LoudsTrieTest, KeyReconstructionLongSharedPrefix) {
   // Keys with long shared prefixes.
   std::vector<std::string> keys;
+  keys.reserve(26);
   std::string prefix = "common_prefix_that_is_quite_long_";
   for (int i = 0; i < 26; i++) {
     keys.push_back(prefix + static_cast<char>('a' + i));
@@ -1410,6 +1411,7 @@ TEST_F(LoudsTrieTest, PrefixKeysDiverging) {
   // "common_prefix_2" is a prefix of "common_prefix_20", etc.
   // This is the exact pattern that exposed the bug in the streaming builder.
   std::vector<std::string> keys;
+  keys.reserve(30);
   for (int i = 0; i < 30; i++) {
     keys.push_back("p_" + std::to_string(i));
   }
@@ -2091,6 +2093,7 @@ TEST_F(LoudsTrieTest, StressTestPrefixKeyPatterns) {
   // handling: many keys where single-digit variants are prefixes of
   // multi-digit variants ("x_1" prefix of "x_10", "x_2" of "x_20", etc).
   std::vector<std::string> keys;
+  keys.reserve(200);
   for (int i = 0; i < 200; i++) {
     keys.push_back("item_" + std::to_string(i));
   }
@@ -3789,7 +3792,8 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
   // 12 blocks all with user key "key", seqnos descending from 1200 to 100.
   // The last "key" block transitions to "zzz", so
   // FindShortestSeparator("key", "zzz") = "l". The trie has:
-  //   "key" (11-block run, seqnos 1200..200) → "l" (block 11) → "{" (block 12)
+  //   "key" (11-block run, seqnos 1200..200) → "l" (block 11) → "zzz" (block
+  //   12)
   // The overflow run for "key" has 10 overflow entries (blocks 1-10).
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
@@ -3818,7 +3822,7 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
       builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {seq, 1});
     }
   }
-  // Final "zzz" block. FindShortSuccessor("zzz") = "{".
+  // Final "zzz" block. Last block uses "zzz" as separator (no shortening).
   {
     UserDefinedIndexBuilder::BlockHandle handle{
         static_cast<uint64_t>(kNumKeyBlocks) * 1000, 1000};
@@ -3864,7 +3868,7 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {0}));
   ASSERT_EQ(iter->value().offset, 11000u);
 
-  // Full forward scan: blocks 0..10 ("key" run) → 11 ("l") → 12 ("{").
+  // Full forward scan: blocks 0..10 ("key" run) → 11 ("l") → 12 ("zzz").
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(iter->value().offset, 0u);
@@ -3883,29 +3887,29 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
   //
   // The trie structure (after FindShortestSeparator shortening):
   //   "aaa" (2-block run, seqnos 300, 200) → "b" (block 2) →
-  //   "mmm" (1-block, seqno 60) → "n" (block 4) → "{" (block 5)
+  //   "mmm" (1-block, seqno 60) → "n" (block 4) → "zzz" (block 5)
   //
   // Block 0: "aaa"|300 → next "aaa"|200 (same-key → separator "aaa")
   // Block 1: "aaa"|200 → next "mmm"    (diff-key → separator "b")
   // Block 2: "mmm"|60  → next "mmm"|30 (same-key → separator "mmm")
   // Block 3: "mmm"|30  → next "zzz"    (diff-key → separator "n")
-  // Block 4: "zzz"|10  → null          (last → separator "{")
+  // Block 4: "zzz"|10  → null          (last → separator "zzz")
   //
   // "aaa" run: blocks 0-1 (2 entries, run of 2 in trie)
   // block 2 gets separator "b" (separate trie leaf)
   // "mmm" run: block 3 only (run of 1 in trie)
   // block 4 gets separator "n" (separate trie leaf)
-  // block 5 gets separator "{" (separate trie leaf)
+  // block 5 gets separator "zzz" (separate trie leaf, no shortening)
   //
   // Wait — let me recount. We have 6 AddIndexEntry calls:
   //   Entry 0: "aaa" 300 next="aaa" → sep="aaa"
   //   Entry 1: "aaa" 200 next="mmm" → sep="b"
   //   Entry 2: "mmm"  60 next="mmm" → sep="mmm"
   //   Entry 3: "mmm"  30 next="zzz" → sep="n"
-  //   Entry 4: "zzz"  10 next=null  → sep="{"
+  //   Entry 4: "zzz"  10 next=null  → sep="zzz"
   //
   // De-duplicated separators: "aaa" appears once (run=1), "b", "mmm" appears
-  // once (run=1), "n", "{". So actually there are no overflow runs here!
+  // once (run=1), "n", "zzz". So actually there are no overflow runs here!
   // The "aaa" run is only block 0, and block 1 gets separator "b".
   // The "mmm" run is only block 2, and block 3 gets separator "n".
   //
@@ -3951,7 +3955,7 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
     Slice next("zzz");
     builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, {30, 10});
   }
-  // "zzz": 1 block (last → separator "{").
+  // "zzz": 1 block (last → separator "zzz", no shortening).
   {
     UserDefinedIndexBuilder::BlockHandle h{5000, 1000};
     std::string scratch;
@@ -3968,7 +3972,7 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
   auto iter = reader->NewIterator(ro);
   IterateResult result;
 
-  // Trie structure: "aaa"(run=2) → "b" → "mmm"(run=1) → "n" → "{"
+  // Trie structure: "aaa"(run=2) → "b" → "mmm"(run=1) → "n" → "zzz"
   //
   // Seek "aaa"|kMax → Block 0.
   ASSERT_OK(
@@ -4025,9 +4029,10 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
   //   Entry 0: "aaa" 200 next="aaa" → sep="aaa" (same-key)
   //   Entry 1: "aaa" 100 next="bbb" → sep="b"   (diff-key)
   //   Entry 2: "bbb"  80 next="bbb" → sep="bbb"  (same-key)
-  //   Entry 3: "bbb"  40 next=null  → sep="c"    (FindShortSuccessor)
+  //   Entry 3: "bbb"  40 next=null  → sep="bbb"  (last block, no shortening)
   //
-  // Trie: "aaa"(run=1, seq=200) → "b"(1 block) → "bbb"(run=1, seq=80) → "c"
+  // Trie: "aaa"(run=1, seq=200) → "b"(1 block) → "bbb"(run=2, seqnos 80,40)
+  // Note: the last block joins the "bbb" run since its separator also is "bbb".
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
@@ -4068,8 +4073,8 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
   auto iter = reader->NewIterator(ro);
   IterateResult result;
 
-  // Full scan: "aaa" (block 0) → "b" (block 1) → "bbb" (block 2) → "c" (block
-  // 3).
+  // Full scan: "aaa" (block 0) → "b" (block 1) → "bbb" (block 2) → "bbb"
+  // overflow (block 3).
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("aaa"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(iter->value().offset, 0u);
@@ -4077,7 +4082,6 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
 
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(iter->value().offset, 1000u);
-  // Separator for block 1 is "b" (FindShortestSeparator("aaa", "bbb")).
   ASSERT_EQ(result.key.ToString(), "b");
 
   ASSERT_OK(iter->NextAndGetResult(&result));
@@ -4086,8 +4090,7 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
 
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(iter->value().offset, 3000u);
-  // Separator for last block is "c" (FindShortSuccessor("bbb")).
-  ASSERT_EQ(result.key.ToString(), "c");
+  ASSERT_EQ(result.key.ToString(), "bbb");
 
   // Past end — kUnknown (exhaustion doesn't imply upper bound reached).
   ASSERT_OK(iter->NextAndGetResult(&result));
@@ -4109,8 +4112,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingResultKeyIsUserKey) {
   // Entries:
   //   "foo" 100 next="foo" → sep="foo" (same-key, run of 2)
   //   "foo"  50 next="zoo" → sep="g"   (FindShortestSeparator("foo","zoo"))
-  //   "zoo"   1 next=null  → sep="{"   (FindShortSuccessor("zoo") might be
-  //                                      different, but 'z'+1='{')
+  //   "zoo"   1 next=null  → sep="zoo" (last block, no successor shortening)
   {
     UserDefinedIndexBuilder::BlockHandle h{0, 500};
     std::string scratch;
@@ -4156,7 +4158,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingResultKeyIsUserKey) {
 TEST_F(TrieIndexFactoryTest, SeekNonExistentKeyWithSeqnoEncoding) {
   // Seeking for keys not in the trie when seqno encoding is active.
   //
-  // Trie: "mmm"(run=1, seq=100) → "n" → "{"
+  // Trie: "mmm"(run=1, seq=100) → "n" → "zzz"
   auto ctx = BuildTrieAndGetIterator({
       {"mmm", "mmm", 0, 1000, 100, 50},
       {"mmm", "zzz", 1000, 1000, 50, 1},
@@ -4166,10 +4168,10 @@ TEST_F(TrieIndexFactoryTest, SeekNonExistentKeyWithSeqnoEncoding) {
 
   // Seek "aaa" (before all keys) → lands on "mmm" leaf, Block 0.
   AssertSeekOffset(iter, Slice("aaa"), kMaxSequenceNumber, 0u);
-  // Seek "nnn" (between "n" and "{") → lands on "{" leaf, Block 2.
+  // Seek "nnn" (between "n" and "zzz") → lands on "zzz" leaf, Block 2.
   AssertSeekOffset(iter, Slice("nnn"), kMaxSequenceNumber, 2000u);
 
-  // Seek "|" (past all keys) → kUnknown.
+  // Seek "|" (past all keys, "|" > "zzz") → kUnknown.
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("|"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
@@ -4179,7 +4181,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingPastEndAndNextPastEnd) {
   // Verify seeking past all keys and Next() past the last block with seqno
   // encoding active.
   //
-  // Trie: "key"(run=1, seq=10) → "l"
+  // Trie: "key"(run=2, seqnos 10,5)
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 500, 10, 5},
       {"key", "", 500, 500, 5, 0},
@@ -4192,10 +4194,11 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingPastEndAndNextPastEnd) {
       iter->SeekAndGetResult(Slice("zzz"), &result, {kMaxSequenceNumber}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 
-  // Seek "key"|5 → advance past run → "l" (block 1).
+  // Seek "key"|5 → seqno=10 on primary, 5<10 → overflow seqno=5, 5>=5 →
+  // overflow block 1.
   AssertSeekOffset(iter, Slice("key"), 5, 500u);
 
-  // Next from "l" → past end.
+  // Next from last block in run → past end.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 
@@ -4211,9 +4214,9 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
   //   "key" 300 next="key" → sep="key" (same-key)
   //   "key" 200 next="key" → sep="key" (same-key)
   //   "key" 100 next="zzz" → sep="l"
-  //   "zzz"   1 next=null  → sep="{"
+  //   "zzz"   1 next=null  → sep="zzz" (last block, no shortening)
   //
-  // Trie: "key"(run=2, seqnos 300,200) → "l" → "{"
+  // Trie: "key"(run=2, seqnos 300,200) → "l" → "zzz"
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
@@ -4274,7 +4277,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 2000u);
 
-  // Next → "{" leaf (block 3). prev key is "l", "l" < "zzz" → kInbound.
+  // Next → "zzz" leaf (block 3). prev key is "l", "l" < "zzz" → kInbound.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 3000u);
@@ -4297,7 +4300,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next → "{" leaf (block 3). prev "l" >= "l" → kOutOfBound.
+  // Next → "zzz" leaf (block 3). prev "l" >= "l" → kOutOfBound.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
@@ -4377,7 +4380,7 @@ TEST_F(TrieIndexFactoryTest, SeekWithMaxSeqOnSameKeyBlocks) {
 TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
   // seq=0 is below all overflow seqnos → advance past the entire run.
   //
-  // Trie: "key"(run=2, seqnos 300,200) → "l" → "{"
+  // Trie: "key"(run=2, seqnos 300,200) → "l" → "zzz"
   // seq=0 < all overflow seqnos → advance past run → lands on "l" (block 2).
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 300, 200},
@@ -4401,9 +4404,12 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   //   "aaa"  50 next="bbb" → sep="b"   (diff-key)
   //   "bbb"  90 next="bbb" → sep="bbb" (same-key)
   //   "bbb"  60 next="bbb" → sep="bbb" (same-key)
-  //   "bbb"  30 next=null  → sep="c"   (FindShortSuccessor)
+  //   "bbb"  30 next=null  → sep="bbb" (last block, no successor shortening)
   //
-  // Trie: "aaa"(run=2, seqnos 200,100) → "b" → "bbb"(run=2, seqnos 90,60) → "c"
+  // Trie: "aaa"(run=2, seqnos 200,100) → "b" → "bbb"(run=3, seqnos 90,60,30)
+  // Note: the last block's separator is "bbb" (not "c"), matching the standard
+  // index builder's behavior with kShortenSeparators (the default). This means
+  // the last block joins the "bbb" run, making it a 3-block run.
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
@@ -4462,7 +4468,7 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   ASSERT_EQ(iter->value().offset, 0u);
   ASSERT_EQ(result.key.ToString(), "aaa");
 
-  ASSERT_OK(iter->NextAndGetResult(&result));  // "aaa" overflow
+  ASSERT_OK(iter->NextAndGetResult(&result));  // "aaa" overflow (block 1)
   ASSERT_EQ(iter->value().offset, 1000u);
   ASSERT_EQ(result.key.ToString(), "aaa");
 
@@ -4478,9 +4484,9 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   ASSERT_EQ(iter->value().offset, 4000u);
   ASSERT_EQ(result.key.ToString(), "bbb");
 
-  ASSERT_OK(iter->NextAndGetResult(&result));  // ��� "c" leaf (block 5)
+  ASSERT_OK(iter->NextAndGetResult(&result));  // "bbb" overflow (block 5)
   ASSERT_EQ(iter->value().offset, 5000u);
-  ASSERT_EQ(result.key.ToString(), "c");
+  ASSERT_EQ(result.key.ToString(), "bbb");
 
   // Past end — kUnknown (exhaustion doesn't imply upper bound reached).
   ASSERT_OK(iter->NextAndGetResult(&result));
@@ -4488,27 +4494,38 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
 }
 
 TEST_F(TrieIndexFactoryTest, SingleBlockWithSeqnoActive) {
-  // Trie: "x"(run=1, seq=10) → "y". The "x" leaf has block_count=1 (no
-  // overflow), and seqno=10. Seeking below the seqno advances to "y".
+  // Both blocks have the same user key "x". Without successor shortening
+  // for the last block, both separators are "x", forming a 2-block run:
+  //   "x"(run=2, seqnos 10,5)
   auto ctx = BuildTrieAndGetIterator({
       {"x", "x", 0, 500, 10, 5},
       {"x", "", 500, 500, 5, 0},
   });
   auto* iter = ctx.iter.get();
 
-  // Seek "x"|10 → leaf_seqno=10, 10>=10 → Block 0.
+  // Seek "x"|10 ��� leaf_seqno=10, 10>=10 → Block 0.
   AssertSeekOffset(iter, Slice("x"), 10, 0u);
-  // Seek "x"|7 → 7<10, no overflow → advance to "y" (block 1).
+  // Seek "x"|7 → 7<10 → advance through overflow. overflow seqno=5, 7>=5 →
+  // overflow block 1.
   AssertSeekOffset(iter, Slice("x"), 7, 500u);
-  // Seek "x"|3 → same: advance past "x" → "y" (block 1).
-  AssertSeekOffset(iter, Slice("x"), 3, 500u);
+  // Seek "x"|3 → 3<10 → advance. overflow seqno=5, 3<5 → not found. Advance
+  // past run. No more leaves → invalid. This matches the standard index
+  // behavior: seeking for internal key "x"|3 is past the standard index's
+  // last separator "x"|5.
+  {
+    IterateResult result;
+    UserDefinedIndexIterator::SeekContext ctx_seek;
+    ctx_seek.target_seq = 3;
+    ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, ctx_seek));
+    ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
+  }
 }
 
 TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
   // Verify that re-seeking after being positioned in an overflow run
   // correctly resets the overflow state.
   //
-  // Trie: "key"(run=2, seqnos 300,200) → "l" → "{"
+  // Trie: "key"(run=2, seqnos 300,200) → "l" → "zzz"
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 300, 200},
       {"key", "key", 1000, 1000, 200, 100},
@@ -4521,7 +4538,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
   AssertSeekOffset(iter, Slice("key"), 150, 2000u);
   // Re-seek to "key"|300 → should reset to Block 0.
   AssertSeekOffset(iter, Slice("key"), 300, 0u);
-  // Re-seek to "zzz" → "{" leaf (block 3), overflow state should be clean.
+  // Re-seek to "zzz" → "zzz" leaf (block 3), overflow state should be clean.
   AssertSeekOffset(iter, Slice("zzz"), kMaxSequenceNumber, 3000u);
 
   // Next should go past end.
@@ -4532,9 +4549,9 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
 
 TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithSameKeyBoundary) {
   // Regression test: all-0xFF last key with same-user-key boundary preceding
-  // it. FindShortSuccessor("\xff\xff") cannot shorten, so AddIndexEntry
-  // detects the separator collision with the previous entry and correctly
-  // treats it as a same-user-key continuation.
+  // it. The last block uses "\xff\xff" as its separator (no shortening), which
+  // matches the previous entry's separator. AddIndexEntry detects the collision
+  // and correctly treats it as a same-user-key continuation.
   std::string ff("\xff\xff", 2);
   auto ctx = BuildTrieAndGetIterator({
       {ff, ff, 0, 500, 200, 100},
@@ -4904,7 +4921,7 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
 // test remains valuable as a regression guard for the compression dictionary
 // buffered-mode code path with mixed key types.
 TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
-  auto dict_compressions = GetSupportedDictCompressions();
+  const auto& dict_compressions = GetSupportedDictCompressions();
   if (dict_compressions.empty()) {
     ROCKSDB_GTEST_SKIP("No dictionary-capable compression available");
     return;
@@ -5516,14 +5533,14 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   // result.key must match wrapper.key() — both views of the current key.
   EXPECT_EQ(result.key, wrapper.key());
 
-  // Advance again and verify. The last block's separator is "d"
-  // (FindShortSuccessor("c") → "d"), not "c".
+  // Advance again and verify. The last block's separator is "c"
+  // (the actual last key, no successor shortening for last block).
   valid = wrapper.NextAndGetResult(&result);
   ASSERT_TRUE(valid);
   ASSERT_OK(wrapper.status());
   ASSERT_EQ(result.key.size(), 1u + 8u);
   ASSERT_OK(ParseInternalKey(result.key, &parsed, /*log_err_key=*/false));
-  EXPECT_EQ(parsed.user_key.ToString(), "d");
+  EXPECT_EQ(parsed.user_key.ToString(), "c");
   EXPECT_EQ(result.key, wrapper.key());
 
   // One more advance — past end.
@@ -5614,13 +5631,11 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
     sep = builder->AddIndexEntry(Slice("ba"), &next, h, &scratch, {0, 0});
     ASSERT_EQ(scratch, "c") << "Block 5 separator";
   }
-  // Block 6: last="d", next=null (last block)
-  // FindShortSuccessor("d") → "e"
-  // → sep="e", different from prev, seqno=kMax→0
+  // Block 6: last="d", next=null (last block, no successor shortening)
+  // → sep="d", different from prev "c", seqno=kMax→0
   {
     UserDefinedIndexBuilder::BlockHandle h{600, 100};
     sep = builder->AddIndexEntry(Slice("d"), nullptr, h, &scratch, {0, 0});
-    ASSERT_EQ(scratch, "e") << "Block 6 separator";
   }
 
   // After Finish(), trie entries (key-sorted):
@@ -5630,9 +5645,9 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   //   ki=2: "b"  bc=2, primary={offset=300,seqno=300},
   //         overflow=[{offset=400,seqno=200}]
   //   ki=3: "c"  bc=1, {offset=500,seqno=0}
-  //   ki=4: "e"  bc=1, {offset=600,seqno=0}
+  //   ki=4: "d"  bc=1, {offset=600,seqno=0}
   //
-  // BFS leaf order: "b"(0), "c"(1), "e"(2), "ab"(3), "ac"(4)
+  // BFS leaf order: "b"(0), "c"(1), "d"(2), "ab"(3), "ac"(4)
   // BFS-reordered overflow: [{offset=400,seqno=200}, {offset=100,seqno=400}]
   // overflow_base_: leaf0("b")=0, leaf3("ab")=1
 
@@ -5674,8 +5689,8 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   EXPECT_EQ(iter->value().offset, 500u) << "Next: c primary";
 
   ASSERT_OK(iter->NextAndGetResult(&result));
-  EXPECT_EQ(result.key.ToString(), "e");
-  EXPECT_EQ(iter->value().offset, 600u) << "Next: e primary";
+  EXPECT_EQ(result.key.ToString(), "d");
+  EXPECT_EQ(iter->value().offset, 600u) << "Next: d primary";
 
   ASSERT_OK(iter->NextAndGetResult(&result));
   EXPECT_EQ(result.bound_check_result, IterBoundCheck::kUnknown) << "past end";

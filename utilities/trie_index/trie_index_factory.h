@@ -111,7 +111,7 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
   //     at Finish() time as a sentinel meaning "never advance")
   struct BufferedEntry {
     std::string separator_key;
-    SequenceNumber seqno;
+    SequenceNumber seqno{};
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;

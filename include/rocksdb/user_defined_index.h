@@ -21,7 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Prefix for user-defined index block names
-inline const std::string kUserDefinedIndexPrefix =
+inline constexpr const char* kUserDefinedIndexPrefix =
     "rocksdb.user_defined_index.";
 
 // This is a public API for user-defined index builders.
@@ -212,7 +212,7 @@ struct UserDefinedIndexOption {
 // Factory for creating user-defined index builders.
 class UserDefinedIndexFactory : public Customizable {
  public:
-  virtual ~UserDefinedIndexFactory() = default;
+  ~UserDefinedIndexFactory() override = default;
 
   static const char* Type() { return "UserDefinedIndexFactory"; }
 
