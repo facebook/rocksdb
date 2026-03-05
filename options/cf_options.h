@@ -84,6 +84,8 @@ struct ImmutableCFOptions {
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
+
+  bool memtable_multi_get_finger_search;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {

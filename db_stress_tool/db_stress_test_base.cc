@@ -4535,6 +4535,8 @@ void InitializeOptionsFromFlags(
   options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   options.memtable_veirfy_per_key_checksum_on_seek =
       FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+  options.memtable_multi_get_finger_search =
+      FLAGS_memtable_multi_get_finger_search;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;

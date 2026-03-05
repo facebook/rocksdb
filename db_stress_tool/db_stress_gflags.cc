@@ -1545,6 +1545,10 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
     "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
 
+DEFINE_bool(memtable_multi_get_finger_search,
+            ROCKSDB_NAMESPACE::Options().memtable_multi_get_finger_search,
+            "Sets CF option memtable_multi_get_finger_search.");
+
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
