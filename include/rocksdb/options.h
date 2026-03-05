@@ -1411,8 +1411,29 @@ struct DBOptions {
   // WAL logs will be kept, so that if crash happened before flush, we still
   // have logs to recover from.
   //
+  // Note: when `enforce_write_buffer_manager_during_recovery` is also enabled,
+  // flushes may still occur during recovery to respect the
+  // WriteBufferManager's global memory limit, even if this option is true.
+  // Once any such WBM-triggered flush happens, all remaining memtables will
+  // also be flushed at the end of recovery (similar to the behavior when this
+  // option is false).
+  //
   // DEFAULT: false
   bool avoid_flush_during_recovery = false;
+
+  // If true and a WriteBufferManager is configured, RocksDB will check
+  // WriteBufferManager::ShouldFlush() during WAL recovery and schedule
+  // flushes when needed. This prevents OOM when multiple RocksDB instances
+  // share a WriteBufferManager and one instance is recovering from WAL.
+  //
+  // When triggered, all column families with non-empty memtables are scheduled
+  // for flush, which may produce smaller L0 files in some column families.
+  // This also overrides `avoid_flush_during_recovery`: once a WBM-triggered
+  // flush occurs mid-recovery, all remaining non-empty memtables will be
+  // flushed at the end of recovery as well.
+  //
+  // DEFAULT: true
+  bool enforce_write_buffer_manager_during_recovery = true;
 
   // By default RocksDB will flush all memtables on DB close if there are
   // unpersisted data (i.e. with WAL disabled) The flush can be skip to speedup

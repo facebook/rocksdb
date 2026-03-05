@@ -272,6 +272,7 @@ DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
 DECLARE_bool(write_identity_file);
 DECLARE_bool(avoid_flush_during_recovery);
+DECLARE_bool(enforce_write_buffer_manager_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);

@@ -4518,6 +4518,8 @@ void InitializeOptionsFromFlags(
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
   options.write_identity_file = FLAGS_write_identity_file;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
+  options.enforce_write_buffer_manager_during_recovery =
+      FLAGS_enforce_write_buffer_manager_during_recovery;
   options.max_write_batch_group_size_bytes =
       FLAGS_max_write_batch_group_size_bytes;
   options.level_compaction_dynamic_level_bytes =
@@ -4760,10 +4762,18 @@ void InitializeOptionsGeneral(
               "`preserve_unverified_changes` to keep all files\n");
       options.avoid_flush_during_recovery = true;
     }
-    // Together with `avoid_flush_during_recovery == true`, this will prevent
-    // live files from becoming obsolete and deleted between `DB::Open()` and
-    // `DisableFileDeletions()` due to flush or compaction. We do not need to
-    // warn the user since we will reenable compaction soon.
+    if (options.enforce_write_buffer_manager_during_recovery) {
+      fprintf(
+          stderr,
+          "WARNING: flipping `enforce_write_buffer_manager_during_recovery` "
+          "to false for `preserve_unverified_changes` to keep all files\n");
+      options.enforce_write_buffer_manager_during_recovery = false;
+    }
+    // Together with `avoid_flush_during_recovery == true` and
+    // `enforce_write_buffer_manager_during_recovery == false`, this will
+    // prevent live files from becoming obsolete and deleted between
+    // `DB::Open()` and `DisableFileDeletions()` due to flush or compaction.
+    // We do not need to warn the user since we will reenable compaction soon.
     options.disable_auto_compactions = true;
   }
 

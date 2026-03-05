@@ -599,6 +599,11 @@ class MemTable final : public ReadOnlyMemTable {
                                                 std::memory_order_relaxed);
   }
 
+  // Returns true if a flush has already been scheduled for this memtable
+  bool HasFlushScheduled() const {
+    return flush_state_.load(std::memory_order_relaxed) == FLUSH_SCHEDULED;
+  }
+
   InternalIterator* NewIterator(
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
