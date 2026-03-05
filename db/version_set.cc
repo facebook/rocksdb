@@ -3956,6 +3956,8 @@ void VersionStorageInfo::ComputeCompactionScore(
       mutable_cf_options.blob_garbage_collection_age_cutoff,
       mutable_cf_options.blob_garbage_collection_force_threshold,
       mutable_cf_options.enable_blob_garbage_collection);
+  ComputeFilesMarkedForReadTriggeredCompaction(
+      mutable_cf_options.read_triggered_compaction_threshold);
 
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -4177,6 +4179,58 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
     files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
   }
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
+    double threshold) {
+  read_triggered_compaction_files_.clear();
+  if (threshold <= 0.0) {
+    return;
+  }
+
+  // Skip files at the last non-empty level — there is no lower level to
+  // compact into. Exception: L0 files are allowed even when L0 is the last
+  // non-empty level, because in single-level universal compaction, L0 files
+  // can be compacted together (L0 → L0).
+  int last_non_empty = num_non_empty_levels_ - 1;
+
+  for (int level = 0; level < num_levels(); level++) {
+    if (level >= last_non_empty && level != 0) {
+      continue;
+    }
+    for (auto* f : files_[level]) {
+      if (f->being_compacted) {
+        continue;
+      }
+      uint64_t file_size = f->fd.GetFileSize();
+      if (file_size == 0) {
+        continue;
+      }
+      double reads_per_byte =
+          static_cast<double>(
+              f->stats.num_reads_sampled.load(std::memory_order_relaxed)) /
+          static_cast<double>(file_size);
+      if (reads_per_byte > threshold) {
+        read_triggered_compaction_files_.emplace_back(level, f);
+      }
+    }
+  }
+
+  // Sort by reads_per_byte descending so the hottest files are picked first
+  std::sort(read_triggered_compaction_files_.begin(),
+            read_triggered_compaction_files_.end(),
+            [](const std::pair<int, FileMetaData*>& a,
+               const std::pair<int, FileMetaData*>& b) {
+              double a_rpb =
+                  static_cast<double>(a.second->stats.num_reads_sampled.load(
+                      std::memory_order_relaxed)) /
+                  static_cast<double>(a.second->fd.GetFileSize());
+              double b_rpb =
+                  static_cast<double>(b.second->stats.num_reads_sampled.load(
+                      std::memory_order_relaxed)) /
+                  static_cast<double>(b.second->fd.GetFileSize());
+              return a_rpb > b_rpb;
+            });
 }
 
 namespace {

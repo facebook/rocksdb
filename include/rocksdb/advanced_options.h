@@ -941,6 +941,20 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
+  // When set to a positive value, enables read-triggered compaction. An SST
+  // file is marked for compaction when its read frequency (measured as
+  // num_reads_sampled / file_size) exceeds this threshold. This helps reduce
+  // read amplification for hot keys by compacting frequently-read files.
+  //
+  // For this feature to take effect on a "quiet" DB (no writes), the DB-level
+  // option `max_periodic_compaction_trigger_seconds` must also be set to a
+  // non-zero value so the periodic background job can re-evaluate files.
+  //
+  // Default: 0.0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  double read_triggered_compaction_threshold = 0.0;
+
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.
   // The compressibility is reported as stats and the stored

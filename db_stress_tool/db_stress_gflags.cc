@@ -1293,6 +1293,11 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
+DEFINE_uint64(
+    max_periodic_compaction_trigger_seconds,
+    ROCKSDB_NAMESPACE::Options().max_periodic_compaction_trigger_seconds,
+    "Sets DB option max_periodic_compaction_trigger_seconds.");
+
 DEFINE_bool(verification_only, false,
             "If true, tests will only execute verification step");
 extern "C" bool RocksDbIOUringEnable() { return true; }
@@ -1560,6 +1565,10 @@ DEFINE_int32(compaction_on_deletion_window_size, 100,
 DEFINE_double(compaction_on_deletion_ratio, 0.5,
               "Deletion ratio threshold for triggering compaction. "
               "Default: 0.5 (50%)");
+
+DEFINE_double(read_triggered_compaction_threshold,
+              ROCKSDB_NAMESPACE::Options().read_triggered_compaction_threshold,
+              "Sets CF option read_triggered_compaction_threshold.");
 
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,
