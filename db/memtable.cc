@@ -72,7 +72,9 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       allow_data_in_errors(ioptions.allow_data_in_errors),
       paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks),
       memtable_veirfy_per_key_checksum_on_seek(
-          mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek) {}
+          mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek),
+      memtable_multi_get_finger_search(
+          ioptions.memtable_multi_get_finger_search) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
@@ -1575,65 +1577,168 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
     }
   }
-  for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-    bool found_final_value{false};
-    bool merge_in_progress = iter->s->IsMergeInProgress();
-    if (!no_range_del) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          NewRangeTombstoneIteratorInternal(
-              read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
-              immutable_memtable));
-      SequenceNumber covering_seq =
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
-      if (covering_seq > iter->max_covering_tombstone_seq) {
-        iter->max_covering_tombstone_seq = covering_seq;
-        if (iter->timestamp) {
-          // Will be overwritten in SaveValue() if there is a point key with
-          // a higher seqno.
-          iter->timestamp->assign(range_del_iter->timestamp().data(),
-                                  range_del_iter->timestamp().size());
+
+  // Use finger search when enabled and not in paranoid mode
+  bool use_finger_search = moptions_.memtable_multi_get_finger_search &&
+                           !moptions_.paranoid_memory_checks &&
+                           !moptions_.memtable_veirfy_per_key_checksum_on_seek;
+
+  if (use_finger_search) {
+    // Phase 1: Handle range tombstones and set up Savers for batched lookup
+    std::array<Saver, MultiGetContext::MAX_BATCH_SIZE> savers;
+    std::array<const char*, MultiGetContext::MAX_BATCH_SIZE> memtable_keys;
+    std::array<void*, MultiGetContext::MAX_BATCH_SIZE> callback_args;
+    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> found_final_values;
+    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> merge_in_progresses;
+    size_t num_keys = 0;
+
+    for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+      if (!no_range_del) {
+        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+            NewRangeTombstoneIteratorInternal(
+                read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
+                immutable_memtable));
+        SequenceNumber covering_seq =
+            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
+        if (covering_seq > iter->max_covering_tombstone_seq) {
+          iter->max_covering_tombstone_seq = covering_seq;
+          if (iter->timestamp) {
+            iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                    range_del_iter->timestamp().size());
+          }
+        }
+      }
+
+      found_final_values[num_keys] = false;
+      merge_in_progresses[num_keys] = iter->s->IsMergeInProgress();
+      Saver& saver = savers[num_keys];
+      saver.status = iter->s;
+      saver.found_final_value = &found_final_values[num_keys];
+      saver.merge_in_progress = &merge_in_progresses[num_keys];
+      saver.key = iter->lkey;
+      saver.value = iter->value ? iter->value->GetSelf() : nullptr;
+      saver.columns = iter->columns;
+      saver.timestamp = iter->timestamp;
+      saver.seq = kMaxSequenceNumber;
+      saver.mem = this;
+      saver.merge_context = &(iter->merge_context);
+      saver.max_covering_tombstone_seq = iter->max_covering_tombstone_seq;
+      saver.merge_operator = moptions_.merge_operator;
+      saver.logger = moptions_.info_log;
+      saver.inplace_update_support = moptions_.inplace_update_support;
+      saver.statistics = moptions_.statistics;
+      saver.clock = clock_;
+      saver.callback_ = callback;
+      saver.is_blob_index = &iter->is_blob_index;
+      saver.do_merge = true;
+      saver.allow_data_in_errors = moptions_.allow_data_in_errors;
+      saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
+
+      memtable_keys[num_keys] = iter->lkey->memtable_key().data();
+      callback_args[num_keys] = &savers[num_keys];
+      num_keys++;
+    }
+
+    // Phase 2: Batched finger-search lookup
+    if (num_keys > 0) {
+      table_->MultiGet(num_keys, memtable_keys.data(), callback_args.data(),
+                       SaveValue);
+    }
+
+    // Phase 3: Process results
+    size_t result_idx = 0;
+    for (auto iter = temp_range.begin(); iter != temp_range.end();
+         ++iter, ++result_idx) {
+      bool found_final_value = found_final_values[result_idx];
+      bool merge_in_progress = merge_in_progresses[result_idx];
+
+      if (!found_final_value && merge_in_progress) {
+        if (iter->s->ok()) {
+          *(iter->s) = Status::MergeInProgress();
+        } else {
+          assert(iter->s->IsMergeInProgress());
+        }
+      }
+
+      if (found_final_value ||
+          (!iter->s->ok() && !iter->s->IsMergeInProgress())) {
+        assert(found_final_value);
+        if (iter->value) {
+          iter->value->PinSelf();
+          range->AddValueSize(iter->value->size());
+        } else {
+          assert(iter->columns);
+          range->AddValueSize(iter->columns->serialized_size());
+        }
+
+        range->MarkKeyDone(iter);
+        RecordTick(moptions_.statistics, MEMTABLE_HIT);
+        if (range->GetValueSize() > read_options.value_size_soft_limit) {
+          for (auto range_iter = range->begin(); range_iter != range->end();
+               ++range_iter) {
+            range->MarkKeyDone(range_iter);
+            *(range_iter->s) = Status::Aborted();
+          }
+          break;
         }
       }
     }
-    SequenceNumber dummy_seq;
-    GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, &iter->is_blob_index,
-                 iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
-                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
-                 &found_final_value, &merge_in_progress);
-
-    if (!found_final_value && merge_in_progress) {
-      if (iter->s->ok()) {
-        *(iter->s) = Status::MergeInProgress();
-      } else {
-        assert(iter->s->IsMergeInProgress());
-      }
-    }
-
-    if (found_final_value ||
-        (!iter->s->ok() && !iter->s->IsMergeInProgress())) {
-      // `found_final_value` should be set if an error/corruption occurs.
-      // The check on iter->s is just there in case GetFromTable() did not
-      // set `found_final_value` properly.
-      assert(found_final_value);
-      if (iter->value) {
-        iter->value->PinSelf();
-        range->AddValueSize(iter->value->size());
-      } else {
-        assert(iter->columns);
-        range->AddValueSize(iter->columns->serialized_size());
-      }
-
-      range->MarkKeyDone(iter);
-      RecordTick(moptions_.statistics, MEMTABLE_HIT);
-      if (range->GetValueSize() > read_options.value_size_soft_limit) {
-        // Set all remaining keys in range to Abort
-        for (auto range_iter = range->begin(); range_iter != range->end();
-             ++range_iter) {
-          range->MarkKeyDone(range_iter);
-          *(range_iter->s) = Status::Aborted();
+  } else {
+    // Per-key lookup path
+    for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+      bool found_final_value{false};
+      bool merge_in_progress = iter->s->IsMergeInProgress();
+      if (!no_range_del) {
+        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+            NewRangeTombstoneIteratorInternal(
+                read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
+                immutable_memtable));
+        SequenceNumber covering_seq =
+            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
+        if (covering_seq > iter->max_covering_tombstone_seq) {
+          iter->max_covering_tombstone_seq = covering_seq;
+          if (iter->timestamp) {
+            iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                    range_del_iter->timestamp().size());
+          }
         }
-        break;
+      }
+      SequenceNumber dummy_seq;
+      GetFromTable(
+          *(iter->lkey), iter->max_covering_tombstone_seq, true, callback,
+          &iter->is_blob_index, iter->value ? iter->value->GetSelf() : nullptr,
+          iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
+          &dummy_seq, &found_final_value, &merge_in_progress);
+
+      if (!found_final_value && merge_in_progress) {
+        if (iter->s->ok()) {
+          *(iter->s) = Status::MergeInProgress();
+        } else {
+          assert(iter->s->IsMergeInProgress());
+        }
+      }
+
+      if (found_final_value ||
+          (!iter->s->ok() && !iter->s->IsMergeInProgress())) {
+        assert(found_final_value);
+        if (iter->value) {
+          iter->value->PinSelf();
+          range->AddValueSize(iter->value->size());
+        } else {
+          assert(iter->columns);
+          range->AddValueSize(iter->columns->serialized_size());
+        }
+
+        range->MarkKeyDone(iter);
+        RecordTick(moptions_.statistics, MEMTABLE_HIT);
+        if (range->GetValueSize() > read_options.value_size_soft_limit) {
+          for (auto range_iter = range->begin(); range_iter != range->end();
+               ++range_iter) {
+            range->MarkKeyDone(range_iter);
+            *(range_iter->s) = Status::Aborted();
+          }
+          break;
+        }
       }
     }
   }
@@ -1838,6 +1943,20 @@ void MemTableRep::Get(const LookupKey& k, void* callback_args,
   for (iter->Seek(k.internal_key(), k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
+  }
+}
+
+void MemTableRep::MultiGet(size_t num_keys, const char* const* keys,
+                           void** callback_args,
+                           bool (*callback_func)(void* arg,
+                                                 const char* entry)) {
+  std::unique_ptr<Iterator> iter(GetIterator());
+  for (size_t i = 0; i < num_keys; ++i) {
+    Slice dummy;
+    iter->Seek(dummy, keys[i]);
+    for (; iter->Valid() && callback_func(callback_args[i], iter->key());
+         iter->Next()) {
+    }
   }
 }
 
