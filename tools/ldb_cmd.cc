@@ -2630,6 +2630,13 @@ void DBDumperCommand::DoDumpCommand() {
     }
   }
 
+  // Check for iterator errors that may have occurred during iteration
+  st = iter->status();
+  if (!st.ok()) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error: " + st.ToString());
+  }
+
   if (num_buckets > 1 && is_db_ttl_) {
     PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
