@@ -37,6 +37,7 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
+#include "monitoring/file_read_sample.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -7760,6 +7761,110 @@ TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
   CancelAllBackgroundWork(db_.get(), true);
 
   thd.join();
+}
+
+TEST_F(DBTest, FileReadSampledStats) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "should_sample_file_read:override",
+      [](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Write a key and flush to L0, then move to L1 so LevelIterator is used.
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  auto files = GetLevelFileMetadatas(1);
+  ASSERT_EQ(files.size(), 1);
+  auto* meta = files[0];
+
+  // Reset counters (may have been incremented during compaction).
+  meta->stats.num_reads_sampled.store(0, std::memory_order_relaxed);
+
+  // A Get that finds the key should increment num_reads_sampled by
+  // kFileReadSampleRate (one sampled file access).
+  ASSERT_EQ("val1", Get("key1"));
+  ASSERT_EQ(meta->stats.num_reads_sampled.load(std::memory_order_relaxed),
+            kFileReadSampleRate);
+
+  meta->stats.num_reads_sampled.store(0, std::memory_order_relaxed);
+
+  // An iterator scan should also increment num_reads_sampled by
+  // kFileReadSampleRate (one file opened by LevelIterator).
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    ASSERT_OK(iter->status());
+  }
+  ASSERT_EQ(meta->stats.num_reads_sampled.load(std::memory_order_relaxed),
+            kFileReadSampleRate);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBTest, FileCollapsibleEntryReadSampledStats) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "should_sample_file_read:override",
+      [](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  // -- Setup: create files with collapsible entries --
+  // File in L1 with a value, a delete tombstone, and a merge operand.
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "c", "merge_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  auto files = GetLevelFileMetadatas(1);
+  ASSERT_EQ(files.size(), 1);
+  auto* meta = files[0];
+
+  // -- Test Get path --
+  // Get for a found key should NOT increment collapsible counter.
+  meta->stats.num_collapsible_entry_reads_sampled.store(
+      0, std::memory_order_relaxed);
+  ASSERT_EQ("val_a", Get("a"));
+  ASSERT_EQ(meta->stats.num_collapsible_entry_reads_sampled.load(
+                std::memory_order_relaxed),
+            0);
+
+  // Get for a missing key within the file's key range (kNotFound) should
+  // increment collapsible counter by kFileReadSampleRate.
+  ASSERT_EQ("NOT_FOUND", Get("aa"));
+  ASSERT_EQ(meta->stats.num_collapsible_entry_reads_sampled.load(
+                std::memory_order_relaxed),
+            kFileReadSampleRate);
+
+  // -- Test Iterator path --
+  // Iterating should count the delete and merge as collapsible entries.
+  // The file has one delete ("b") and one merge ("c"), so the counter
+  // should increment by 2 * kFileReadSampleRate.
+  meta->stats.num_collapsible_entry_reads_sampled.store(
+      0, std::memory_order_relaxed);
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    ASSERT_OK(iter->status());
+  }
+  ASSERT_EQ(meta->stats.num_collapsible_entry_reads_sampled.load(
+                std::memory_order_relaxed),
+            2 * kFileReadSampleRate);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

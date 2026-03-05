@@ -16,6 +16,7 @@
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
+#include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/statistics.h"
