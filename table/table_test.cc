@@ -8302,8 +8302,8 @@ TEST_P(UserDefinedIndexTest, MergeWithUDI) {
 }
 
 TEST_P(UserDefinedIndexTest, DBFlushWithMixedOpsAndUDI) {
-  // Verify that Put, Delete, Merge, SingleDelete, and PutEntity all flow
-  // correctly through the UDI builder when flushed via DB::Flush.
+  // Verify that Put, Delete, Merge, and SingleDelete all flow correctly
+  // through the UDI builder when flushed via DB::Flush.
   std::string dbname = test::PerThreadDBPath("udi_db_flush_test");
   ASSERT_OK(DestroyDB(dbname, options_));
 

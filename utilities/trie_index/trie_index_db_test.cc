@@ -110,20 +110,28 @@ class TrieIndexDBTest : public testing::Test {
   // set through both the standard index and the trie index.
   void VerifyForwardScanBothIndexes(
       const std::vector<std::string>& expected_keys) {
-    SCOPED_TRACE("standard index");
-    ASSERT_EQ(ScanAllKeys(StandardIndexReadOptions()), expected_keys);
-    SCOPED_TRACE("trie index");
-    ASSERT_EQ(ScanAllKeys(TrieIndexReadOptions()), expected_keys);
+    {
+      SCOPED_TRACE("standard index");
+      ASSERT_EQ(ScanAllKeys(StandardIndexReadOptions()), expected_keys);
+    }
+    {
+      SCOPED_TRACE("trie index");
+      ASSERT_EQ(ScanAllKeys(TrieIndexReadOptions()), expected_keys);
+    }
   }
 
   // Verifies that forward scan via SeekToFirst+Next produces the same
   // (key, value) pairs through both indexes.
   void VerifyForwardScanBothIndexes(
       const std::vector<std::pair<std::string, std::string>>& expected_kvs) {
-    SCOPED_TRACE("standard index");
-    ASSERT_EQ(ScanAllKeyValues(StandardIndexReadOptions()), expected_kvs);
-    SCOPED_TRACE("trie index");
-    ASSERT_EQ(ScanAllKeyValues(TrieIndexReadOptions()), expected_kvs);
+    {
+      SCOPED_TRACE("standard index");
+      ASSERT_EQ(ScanAllKeyValues(StandardIndexReadOptions()), expected_kvs);
+    }
+    {
+      SCOPED_TRACE("trie index");
+      ASSERT_EQ(ScanAllKeyValues(TrieIndexReadOptions()), expected_kvs);
+    }
   }
 
   // Verifies that a point Get returns the expected value through both indexes.
