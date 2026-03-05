@@ -1601,7 +1601,9 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
       write_buffer_manager_ != nullptr &&
       write_buffer_manager_->ShouldFlush()) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->mem() != nullptr && cfd->mem()->GetFirstSequenceNumber() != 0) {
+      if (cfd->mem() != nullptr && cfd->mem()->GetFirstSequenceNumber() != 0 &&
+          !cfd->mem()->HasFlushScheduled()) {
+        cfd->mem()->MarkFlushScheduled();
         flush_scheduler_.ScheduleWork(cfd);
       }
     }

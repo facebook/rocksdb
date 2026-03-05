@@ -1104,6 +1104,37 @@ TEST_F(DBWriteBufferManagerTest,
   second_db.reset();
 }
 
+// Regression test: a WriteBatch that exceeds both per-CF memtable limit and
+// WBM global limit during WAL recovery should not double-schedule a CF on
+// flush_scheduler_ (which crashes debug builds via assert).
+TEST_F(DBWriteBufferManagerTest, DoubleSchedulingBugDuringWALRecovery) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  // Small per-CF limit so memtable triggers CheckMemtableFull during recovery
+  options.write_buffer_size = 64 * 1024;  // 64KB
+  options.max_write_buffer_number = 10;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  // WBM limit also small so the WBM loop in InsertLogRecordToMemtable fires
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(128 * 1024, nullptr, true);
+
+  DestroyAndReopen(options);
+
+  // Write enough data to exceed both limits during recovery replay
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(4096)));  // ~200KB total > both limits
+  }
+
+  Close();
+
+  // Reopen triggers WAL recovery. Without the fix, this crashes in debug
+  // builds with assert(checking_set_.count(cfd) == 0) in ScheduleWork().
+  ASSERT_OK(TryReopen(options));
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());
 
