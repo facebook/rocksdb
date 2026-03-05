@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
@@ -3720,6 +3721,55 @@ INSTANTIATE_TEST_CASE_P(
                      // larger than the max allowed padding size
                      testing::Values(4, kLowSpaceOverheadRatio)));
 
+// Test that when the table builder's io_status becomes bad during flush
+// (simulating write fault injection), BuildTable properly propagates the
+// builder's IO error instead of producing a misleading Corruption from the
+// num_entries mismatch check.
+TEST_F(DBFlushTest, BuilderWriteFaultPropagationDuringFlush) {
+  Options options = CurrentOptions();
+  options.flush_verify_memtable_count = true;
+  options.table_factory.reset(
+      NewBlockBasedTableFactory(BlockBasedTableOptions()));
+
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i),
+                  std::string(100, 'v') + std::to_string(i)));
+  }
+
+  // Skip all Add() calls to simulate entries not being committed (builder
+  // stays empty), as happens when fault injection causes early returns.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add::skip",
+      [&](void* skip) { *(bool*)skip = true; });
+
+  // Inject an IOError into the builder's status before the empty check.
+  // This simulates the scenario where write fault injection puts the builder
+  // in an error state, causing all Add() calls to return early (ok() is false)
+  // and leaving the builder empty.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeCheckEmpty", [&](void* arg) {
+        auto* builder = static_cast<BlockBasedTableBuilder*>(
+            static_cast<TableBuilder*>(arg));
+        builder->TEST_InjectIOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // With the fix, the builder's IOError is propagated instead of the
+  // misleading Corruption from the key count mismatch check.
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsIOError())
+      << "Expected IOError from builder error propagation, got: "
+      << s.ToString();
+
+  Close();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
