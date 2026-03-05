@@ -70,7 +70,7 @@ do
     d_arg=""
   fi
   ./ldb load --db=$db_dir --compression_type=$c $d_arg --bloom_bits=10 \
-    $cv_arg --auto_compaction=false --create_if_missing < $input_data_dir/$f
+    --auto_compaction=false --create_if_missing < $input_data_dir/$f
 
   # Use md5sum of file to deterministically decide whether to add a range
   # tombstone (approximately 1/4 of files) and which key to delete
