@@ -336,9 +336,24 @@ Status ReadSet::SyncRead(size_t block_index) {
   const auto& block_handle = job_->block_handles[block_index];
   auto* rep = job_->table->get_rep();
 
+  // Get dictionary-aware decompressor if available
+  UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
+  CachableEntry<DecompressorDict> cached_dict;
+  if (rep->uncompression_dict_reader) {
+    Status s = rep->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+        nullptr, job_->job_options.read_options, nullptr, nullptr,
+        &cached_dict);
+    if (!s.ok()) {
+      return s;
+    }
+    if (cached_dict.GetValue()) {
+      decompressor = cached_dict.GetValue()->decompressor_.get();
+    }
+  }
+
   return job_->table->RetrieveBlock<Block_kData>(
       /*prefetch_buffer=*/nullptr, job_->job_options.read_options, block_handle,
-      rep->decompressor.get(), &pinned_blocks_[block_index].As<Block_kData>(),
+      decompressor, &pinned_blocks_[block_index].As<Block_kData>(),
       /*get_context=*/nullptr, /*lookup_context=*/nullptr,
       /*for_compaction=*/false, /*use_cache=*/true,
       /*async_read=*/false, /*use_block_cache_for_lookup=*/true);

@@ -176,6 +176,22 @@ Status Bitvector::InitFromData(const char* data, size_t data_size,
     return s;
   }
 
+  // Validate select hint values. Each hint is a rank LUT index used to
+  // narrow the FindNthOneBit/FindNthZeroBit search range. An out-of-bounds
+  // hint would cause rank_lut_[hint] to read past the LUT array.
+  for (uint64_t i = 0; i < num_select1_hints_; i++) {
+    if (select1_hints_[i] >= num_rank_samples_) {
+      return Status::Corruption(
+          "Bitvector: select1 hint value exceeds rank LUT size");
+    }
+  }
+  for (uint64_t i = 0; i < num_select0_hints_; i++) {
+    if (select0_hints_[i] >= num_rank_samples_) {
+      return Status::Corruption(
+          "Bitvector: select0 hint value exceeds rank LUT size");
+    }
+  }
+
   *bytes_consumed = static_cast<size_t>(data - start);
 
   return Status::OK();
@@ -227,8 +243,9 @@ void Bitvector::BuildRankLUT() {
   // After BuildRankLUT() completes, rank_lut_ is treated as read-only.
   uint32_t* lut = const_cast<uint32_t*>(rank_lut_);
 
-  // Guard: uint32_t can hold values up to ~4 billion. Since the maximum
-  // cumulative rank equals num_bits_, assert it fits.
+  // Guard: uint32_t can hold values up to ~4 billion. The maximum cumulative
+  // rank is num_ones_ (at most num_bits_), so asserting num_bits_ fits in
+  // uint32_t guarantees all rank LUT entries fit.
   assert(num_bits_ <= UINT32_MAX);
 
   uint64_t cumulative = 0;
@@ -325,7 +342,7 @@ uint64_t Bitvector::FindNthZeroBit(uint64_t i) const {
     uint64_t zeros_in_word = valid_bits - Popcount(words_[w]);
     if (remaining < zeros_in_word) {
       // The target 0-bit is in this word. Invert to get 1-bits at zero
-      // positions, mask off padding, then use popcount-based binary search.
+      // positions, mask off padding, then find the n-th set bit in the word.
       uint64_t word = ~words_[w];
       if (valid_bits < 64) {
         word &= (uint64_t(1) << valid_bits) - 1;
@@ -494,9 +511,18 @@ Status EliasFano::InitFromData(const char* data, size_t data_size,
   data += sizeof(uint64_t);
   data_size -= 3 * sizeof(uint64_t);
 
-  // Validate.
+  // Validate header fields from untrusted data.
   if (low_bits_ > 63) {
     return Status::Corruption("EliasFano: low_bits exceeds 63");
+  }
+  // Upper-bound on count_: a sequence with > 2^30 elements would require
+  // tens of GB of data. This prevents integer overflow in subsequent
+  // count_ * low_bits_ and count_ * sizeof(...) arithmetic. Block checksums
+  // are the first line of defense; this is defense-in-depth for the
+  // deserialization path.
+  static constexpr uint64_t kMaxReasonableCount = uint64_t(1) << 30;
+  if (count_ > kMaxReasonableCount) {
+    return Status::Corruption("EliasFano: count exceeds reasonable limit");
   }
   low_mask_ =
       (low_bits_ < 64) ? ((uint64_t(1) << low_bits_) - 1) : ~uint64_t(0);
@@ -510,7 +536,8 @@ Status EliasFano::InitFromData(const char* data, size_t data_size,
   data += consumed;
   data_size -= consumed;
 
-  // Read low words.
+  // Read low words. The multiplication is safe from overflow because
+  // count_ <= 2^30 and low_bits_ <= 63, so count_ * low_bits_ <= 2^36.
   uint64_t total_low_bits = count_ * low_bits_;
   num_low_words_ = (total_low_bits + 63) / 64;
   size_t low_bytes = num_low_words_ * sizeof(uint64_t);

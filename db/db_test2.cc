@@ -94,6 +94,44 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   ASSERT_NOK(env_->FileExists(dbname));
 }
 
+// Regression test: wal_in_db_path_ was not initialized in the read-only DB
+// open path, causing UBSan "invalid-bool-load" when CloseHelper calls
+// PurgeObsoleteFiles -> DeleteObsoleteFileImpl which reads wal_in_db_path_.
+TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
+  // Create a normal DB with some data and WAL files
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "value2"));
+  Close();
+
+  // Reopen as read-only — wal_in_db_path_ must be properly initialized.
+  // Before the fix, closing this DB would read an uninitialized bool in
+  // DeleteObsoleteFileImpl, which UBSan catches as undefined behavior.
+  std::unique_ptr<DB> db_ptr;
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_ptr));
+  std::string value;
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  // Close the read-only DB — this triggers PurgeObsoleteFiles which reads
+  // wal_in_db_path_. Under UBSan, an uninitialized bool here would fail.
+  db_ptr.reset();
+
+  // Also test the column-families variant
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.emplace_back(kDefaultColumnFamilyName,
+                               ColumnFamilyOptions(options));
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(DB::OpenForReadOnly(DBOptions(options), dbname_, column_families,
+                                &handles, &db_ptr));
+  for (auto* h : handles) {
+    delete h;
+  }
+  db_ptr.reset();
+}
+
 class PartitionedIndexTestListener : public EventListener {
  public:
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {

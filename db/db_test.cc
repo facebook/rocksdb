@@ -7805,7 +7805,6 @@ class OpenFilesAsyncTest
 
     // disable auto compactions/flushes
     options.disable_auto_compactions = true;
-    options.write_buffer_size = std::numeric_limits<size_t>::max();
 
     options.info_log_level = FATAL_LEVEL;  // reduce LOG size
     DestroyAndReopen(options);
