@@ -244,6 +244,8 @@ class LoudsTrie {
   // forbidden since C++11). Trie data always exceeds the SSO threshold
   // (hundreds to thousands of bytes), so aligned_copy_ is always
   // heap-allocated, and move always preserves the buffer address.
+  ~LoudsTrie() = default;
+
   LoudsTrie(const LoudsTrie&) = delete;
   LoudsTrie& operator=(const LoudsTrie&) = delete;
   LoudsTrie(LoudsTrie&&) = default;

@@ -44,7 +44,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
                       const BlockHandle& block_handle,
                       std::string* separator_scratch,
                       bool skip_delta_encoding) override {
-    UserDefinedIndexBuilder::BlockHandle handle;
+    UserDefinedIndexBuilder::BlockHandle handle{};
     handle.offset = block_handle.offset();
     handle.size = block_handle.size();
     // Forward the call to both index builders.
@@ -354,7 +354,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
         reader_(std::move(reader)),
         udi_reader_(std::move(udi_reader)) {}
 
-  virtual InternalIteratorBase<IndexValue>* NewIterator(
+  InternalIteratorBase<IndexValue>* NewIterator(
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
@@ -371,17 +371,14 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
     std::unique_ptr<UserDefinedIndexIterator> udi_iter =
         udi_reader_->NewIterator(read_options);
     if (udi_iter) {
-      InternalIteratorBase<IndexValue>* wrap_iter =
-          new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
-      return wrap_iter;
+      return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
     }
     return NewErrorInternalIterator<IndexValue>(
         Status::NotFound("Could not create UDI iterator"));
   }
 
-  virtual Status CacheDependencies(
-      const ReadOptions& ro, bool pin,
-      FilePrefetchBuffer* tail_prefetch_buffer) override {
+  Status CacheDependencies(const ReadOptions& ro, bool pin,
+                           FilePrefetchBuffer* tail_prefetch_buffer) override {
     return reader_->CacheDependencies(ro, pin, tail_prefetch_buffer);
   }
 
@@ -390,7 +387,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
            udi_reader_->ApproximateMemoryUsage();
   }
 
-  virtual void EraseFromCacheBeforeDestruction(
+  void EraseFromCacheBeforeDestruction(
       uint32_t uncache_aggressiveness) override {
     reader_->EraseFromCacheBeforeDestruction(uncache_aggressiveness);
   }

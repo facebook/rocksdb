@@ -77,20 +77,24 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
       }
     }
   } else {
-    // Last block: use a short successor of the last key.
-    *separator_scratch = last_key_in_current_block.ToString();
-    comparator_->FindShortSuccessor(separator_scratch);
-    separator = Slice(*separator_scratch);
+    // Last block: use the last key itself as the separator, NOT a shortened
+    // successor. The standard index builder (ShortenedIndexBuilder) only
+    // calls FindShortInternalKeySuccessor when shortening_mode ==
+    // kShortenSeparatorsAndSuccessor, which is not the default. With the
+    // default kShortenSeparators, it uses last_key_in_current_block as-is.
+    //
+    // The trie must match this behavior. If the trie used a shortened
+    // successor (e.g., ":" from "9\xff\xff..."), it would claim a wider key
+    // range than the standard index. A seek for a key between the last key
+    // and the shortened successor would find a block via the trie but not
+    // via the standard index, causing incorrect iterator behavior.
+    separator = last_key_in_current_block;
 
-    // Edge case: FindShortSuccessor may fail to shorten the key (e.g.,
-    // all-0xFF keys like "\xff\xff" — no byte can be incremented). When
-    // this happens AND the previous entry has the same separator, the last
-    // block is actually part of a same-user-key run. Without this check,
-    // the last block would get seqno=kMaxSequenceNumber (sentinel), but
-    // Finish() would group it into the run and hit the assert that overflow
-    // blocks must have real seqnos.
+    // Edge case: if this last block's separator matches the previous entry's
+    // separator, they share the same user key (same-user-key run boundary).
     if (!buffered_entries_.empty() &&
-        buffered_entries_.back().separator_key == *separator_scratch) {
+        comparator_->Compare(buffered_entries_.back().separator_key,
+                             separator) == 0) {
       same_user_key = true;
       if (!must_use_separator_with_seq_) {
         must_use_separator_with_seq_ = true;

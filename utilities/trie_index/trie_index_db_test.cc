@@ -1356,6 +1356,584 @@ TEST_F(TrieIndexDBTest, MultipleColumnFamilies) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// BatchedPrefixScan: reproduces the test_batches_snapshots pattern.
+//
+// Writes batches of 10 keys {digit+key_body : value_body+digit} for digit in
+// 0..9, exactly as the crash-test stress tool does. Then scans each prefix
+// concurrently (same snapshot) and checks that:
+//   (a) all 10 iterators yield the same key bodies in lockstep, and
+//   (b) the values stripped of the trailing digit are identical across
+//   prefixes.
+//
+// We run with both the standard index and the trie index and compare.
+// ---------------------------------------------------------------------------
+TEST_F(TrieIndexDBTest, BatchedPrefixScan) {
+  // Small block size to force many data blocks (and thus many trie entries).
+  ASSERT_OK(OpenDB(/*block_size=*/256));
+
+  const int kNumBatches = 200;
+  const int kNumPrefixes = 10;
+  Random rnd(42);
+
+  // Phase 1: Write batches.
+  for (int b = 0; b < kNumBatches; ++b) {
+    WriteBatch batch;
+    // key_body is an 8-byte big-endian encoding of b (similar to
+    // AppendIntToString in db_stress_common.h).
+    std::string key_body(8, '\0');
+    uint64_t val = static_cast<uint64_t>(b);
+    for (int i = 7; i >= 0; --i) {
+      key_body[i] = static_cast<char>(val & 0xff);
+      val >>= 8;
+    }
+
+    // value_body: random bytes so that values differ across batches.
+    std::string value_body = rnd.RandomString(20);
+
+    for (int d = kNumPrefixes - 1; d >= 0; --d) {
+      std::string k = std::to_string(d) + key_body;
+      std::string v = value_body + std::to_string(d);
+      ASSERT_OK(batch.Put(k, v));
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  }
+
+  // Flush so data is in SSTs with trie index.
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Phase 2: Prefix scan with both indexes.
+  for (int idx_type = 0; idx_type < 2; ++idx_type) {
+    ReadOptions base_ro =
+        idx_type == 0 ? StandardIndexReadOptions() : TrieIndexReadOptions();
+    SCOPED_TRACE(idx_type == 0 ? "standard index" : "trie index");
+
+    const Snapshot* snap = db_->GetSnapshot();
+    base_ro.snapshot = snap;
+
+    // Create 10 iterators, one per prefix digit.
+    std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
+    std::array<std::string, kNumPrefixes> prefixes;
+    std::array<Slice, kNumPrefixes> prefix_slices;
+    std::array<ReadOptions, kNumPrefixes> ro_copies;
+    std::array<std::string, kNumPrefixes> upper_bounds;
+    std::array<Slice, kNumPrefixes> ub_slices;
+
+    for (int d = 0; d < kNumPrefixes; ++d) {
+      prefixes[d] = std::to_string(d);
+      prefix_slices[d] = Slice(prefixes[d]);
+      ro_copies[d] = base_ro;
+      // Set upper bound on even-numbered iterators to exercise the
+      // upper-bound code path.
+      if (d % 2 == 0) {
+        upper_bounds[d] = prefixes[d];
+        // Increment last byte to get next prefix.
+        upper_bounds[d].back()++;
+        ub_slices[d] = upper_bounds[d];
+        ro_copies[d].iterate_upper_bound = &ub_slices[d];
+      }
+      iters[d].reset(db_->NewIterator(ro_copies[d]));
+      iters[d]->Seek(prefix_slices[d]);
+    }
+
+    // Phase 3: Walk all iterators in lockstep.
+    uint64_t count = 0;
+    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
+      count++;
+
+      // Snapshot all keys and values BEFORE advancing any iterator.
+      std::array<std::string, kNumPrefixes> keys;
+      std::array<std::string, kNumPrefixes> values;
+      for (int d = 0; d < kNumPrefixes; ++d) {
+        ASSERT_TRUE(iters[d]->Valid())
+            << "iter " << d << " invalid at step " << count
+            << ", iter0 key=" << iters[0]->key().ToString(true);
+        ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
+            << "iter " << d << " key " << iters[d]->key().ToString(true)
+            << " doesn't start with prefix " << prefix_slices[d].ToString(true)
+            << " at step " << count;
+        keys[d] = iters[d]->key().ToString();
+        values[d] = iters[d]->value().ToString();
+      }
+
+      // Verify all key bodies and values match.
+      std::string key0_body = keys[0].substr(1);
+      std::string val0 = values[0];
+      val0.pop_back();
+      for (int d = 1; d < kNumPrefixes; ++d) {
+        std::string keyd_body = keys[d].substr(1);
+        ASSERT_EQ(key0_body, keyd_body)
+            << "key body mismatch at step " << count << " iter " << d;
+
+        std::string vald = values[d];
+        vald.pop_back();
+        ASSERT_EQ(val0, vald)
+            << "value mismatch at step " << count << " iter " << d;
+      }
+
+      // Advance all iterators.
+      for (int d = 0; d < kNumPrefixes; ++d) {
+        iters[d]->Next();
+      }
+    }
+
+    // All iterators should be done.
+    for (int d = 1; d < kNumPrefixes; ++d) {
+      ASSERT_TRUE(!iters[d]->Valid() ||
+                  !iters[d]->key().starts_with(prefix_slices[d]))
+          << "iter " << d << " still has keys after iter 0 finished, key="
+          << iters[d]->key().ToString(true);
+      ASSERT_OK(iters[d]->status());
+    }
+
+    ASSERT_EQ(count, static_cast<uint64_t>(kNumBatches))
+        << "expected " << kNumBatches << " entries per prefix";
+
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+// Same as above but with multiple flushes, compaction, and a DB reopen
+// in between to simulate the crash-recovery path.
+TEST_F(TrieIndexDBTest, BatchedPrefixScanAfterReopen) {
+  ASSERT_OK(OpenDB(/*block_size=*/256));
+
+  const int kNumBatches = 100;
+  const int kNumPrefixes = 10;
+  Random rnd(123);
+
+  for (int b = 0; b < kNumBatches; ++b) {
+    WriteBatch batch;
+    std::string key_body(8, '\0');
+    uint64_t val = static_cast<uint64_t>(b);
+    for (int i = 7; i >= 0; --i) {
+      key_body[i] = static_cast<char>(val & 0xff);
+      val >>= 8;
+    }
+    std::string value_body = rnd.RandomString(20);
+
+    for (int d = kNumPrefixes - 1; d >= 0; --d) {
+      std::string k = std::to_string(d) + key_body;
+      std::string v = value_body + std::to_string(d);
+      ASSERT_OK(batch.Put(k, v));
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+    // Flush every 20 batches to create multiple SSTs.
+    if ((b + 1) % 20 == 0) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Compact to merge SSTs.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Close and reopen (simulating recovery).
+  ASSERT_OK(db_->Close());
+  db_.reset();
+  ASSERT_OK(OpenDB(/*block_size=*/256));
+
+  // Prefix scan with trie index after reopen.
+  ReadOptions base_ro = TrieIndexReadOptions();
+  const Snapshot* snap = db_->GetSnapshot();
+  base_ro.snapshot = snap;
+
+  std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
+  std::array<std::string, kNumPrefixes> prefixes;
+  std::array<Slice, kNumPrefixes> prefix_slices;
+  std::array<ReadOptions, kNumPrefixes> ro_copies;
+  std::array<std::string, kNumPrefixes> upper_bounds;
+  std::array<Slice, kNumPrefixes> ub_slices;
+
+  for (int d = 0; d < kNumPrefixes; ++d) {
+    prefixes[d] = std::to_string(d);
+    prefix_slices[d] = Slice(prefixes[d]);
+    ro_copies[d] = base_ro;
+    if (d % 2 == 0) {
+      upper_bounds[d] = prefixes[d];
+      upper_bounds[d].back()++;
+      ub_slices[d] = upper_bounds[d];
+      ro_copies[d].iterate_upper_bound = &ub_slices[d];
+    }
+    iters[d].reset(db_->NewIterator(ro_copies[d]));
+    iters[d]->Seek(prefix_slices[d]);
+  }
+
+  uint64_t count = 0;
+  while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
+    count++;
+    for (int d = 0; d < kNumPrefixes; ++d) {
+      ASSERT_TRUE(iters[d]->Valid())
+          << "iter " << d << " invalid at step " << count;
+      ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
+          << "iter " << d << " out of prefix at step " << count;
+    }
+
+    std::string key0_body = iters[0]->key().ToString().substr(1);
+    for (int d = 1; d < kNumPrefixes; ++d) {
+      std::string keyd_body = iters[d]->key().ToString().substr(1);
+      ASSERT_EQ(key0_body, keyd_body)
+          << "key body mismatch at step " << count << " iter " << d;
+    }
+
+    for (int d = 0; d < kNumPrefixes; ++d) {
+      iters[d]->Next();
+    }
+  }
+
+  for (int d = 1; d < kNumPrefixes; ++d) {
+    ASSERT_TRUE(!iters[d]->Valid() ||
+                !iters[d]->key().starts_with(prefix_slices[d]))
+        << "iter " << d << " still has keys after iter 0 finished";
+    ASSERT_OK(iters[d]->status());
+  }
+
+  ASSERT_EQ(count, static_cast<uint64_t>(kNumBatches));
+  db_->ReleaseSnapshot(snap);
+}
+
+// Test with overwrites: multiple writes to the same key body, ensuring
+// the latest value is consistent across all prefixes.
+TEST_F(TrieIndexDBTest, BatchedPrefixScanWithOverwrites) {
+  ASSERT_OK(OpenDB(/*block_size=*/256));
+
+  const int kNumKeys = 50;
+  const int kNumOverwrites = 5;
+  const int kNumPrefixes = 10;
+  Random rnd(999);
+
+  // Write each key body multiple times.
+  for (int round = 0; round < kNumOverwrites; ++round) {
+    for (int k = 0; k < kNumKeys; ++k) {
+      WriteBatch batch;
+      std::string key_body(8, '\0');
+      uint64_t val = static_cast<uint64_t>(k);
+      for (int i = 7; i >= 0; --i) {
+        key_body[i] = static_cast<char>(val & 0xff);
+        val >>= 8;
+      }
+      std::string value_body = rnd.RandomString(20);
+
+      for (int d = kNumPrefixes - 1; d >= 0; --d) {
+        std::string key = std::to_string(d) + key_body;
+        std::string v = value_body + std::to_string(d);
+        ASSERT_OK(batch.Put(key, v));
+      }
+      ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    }
+
+    // Flush after each round.
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+
+  // Now verify with both indexes.
+  for (int idx_type = 0; idx_type < 2; ++idx_type) {
+    ReadOptions base_ro =
+        idx_type == 0 ? StandardIndexReadOptions() : TrieIndexReadOptions();
+    SCOPED_TRACE(idx_type == 0 ? "standard index" : "trie index");
+
+    const Snapshot* snap = db_->GetSnapshot();
+    base_ro.snapshot = snap;
+
+    std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
+    std::array<std::string, kNumPrefixes> prefixes;
+    std::array<Slice, kNumPrefixes> prefix_slices;
+
+    for (int d = 0; d < kNumPrefixes; ++d) {
+      prefixes[d] = std::to_string(d);
+      prefix_slices[d] = Slice(prefixes[d]);
+      iters[d].reset(db_->NewIterator(base_ro));
+      iters[d]->Seek(prefix_slices[d]);
+    }
+    uint64_t count = 0;
+    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
+      count++;
+
+      // Snapshot all keys and values BEFORE advancing.
+      std::array<std::string, kNumPrefixes> cur_keys;
+      std::array<std::string, kNumPrefixes> cur_values;
+      for (int d = 0; d < kNumPrefixes; ++d) {
+        ASSERT_TRUE(iters[d]->Valid())
+            << "iter " << d << " invalid at step " << count;
+        ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
+            << "iter " << d << " out of prefix at step " << count;
+        cur_keys[d] = iters[d]->key().ToString();
+        cur_values[d] = iters[d]->value().ToString();
+      }
+
+      std::string key0_body = cur_keys[0].substr(1);
+      std::string val0 = cur_values[0];
+      val0.pop_back();
+      for (int d = 1; d < kNumPrefixes; ++d) {
+        std::string keyd_body = cur_keys[d].substr(1);
+        ASSERT_EQ(key0_body, keyd_body)
+            << "key body mismatch at step " << count << " iter " << d;
+
+        std::string vald = cur_values[d];
+        vald.pop_back();
+        ASSERT_EQ(val0, vald)
+            << "value mismatch at step " << count << " iter " << d;
+      }
+
+      for (int d = 0; d < kNumPrefixes; ++d) {
+        iters[d]->Next();
+      }
+    }
+
+    for (int d = 1; d < kNumPrefixes; ++d) {
+      ASSERT_TRUE(!iters[d]->Valid() ||
+                  !iters[d]->key().starts_with(prefix_slices[d]))
+          << "iter " << d << " still has keys after iter 0 finished";
+      ASSERT_OK(iters[d]->status());
+    }
+
+    ASSERT_EQ(count, static_cast<uint64_t>(kNumKeys));
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+// Stress-like test: write + delete + rewrite many keys, flush between rounds,
+// then verify prefix scan consistency. Simulates the crash test pattern that
+// triggered failures.
+TEST_F(TrieIndexDBTest, BatchedPrefixScanStressLike) {
+  ASSERT_OK(OpenDB(/*block_size=*/4096));
+
+  const int kMaxKey = 10000;
+  const int kNumPrefixes = 10;
+  const int kNumRounds = 20;
+  Random rnd(7777);
+
+  auto make_key_body = [](int k) {
+    std::string key_body(8, '\0');
+    uint64_t val = static_cast<uint64_t>(k);
+    for (int i = 7; i >= 0; --i) {
+      key_body[i] = static_cast<char>(val & 0xff);
+      val >>= 8;
+    }
+    return key_body;
+  };
+
+  for (int round = 0; round < kNumRounds; ++round) {
+    // Write a batch of random keys
+    int num_writes = 100 + rnd.Uniform(200);
+    for (int w = 0; w < num_writes; ++w) {
+      int k = rnd.Uniform(kMaxKey);
+      WriteBatch batch;
+      std::string key_body = make_key_body(k);
+      std::string value_body = rnd.RandomString(rnd.Uniform(60) + 4);
+      for (int d = kNumPrefixes - 1; d >= 0; --d) {
+        std::string key = std::to_string(d) + key_body;
+        std::string v = value_body + std::to_string(d);
+        ASSERT_OK(batch.Put(key, v));
+      }
+      ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    }
+
+    // Delete some random keys
+    int num_deletes = 50 + rnd.Uniform(100);
+    for (int w = 0; w < num_deletes; ++w) {
+      int k = rnd.Uniform(kMaxKey);
+      WriteBatch batch;
+      std::string key_body = make_key_body(k);
+      for (int d = kNumPrefixes - 1; d >= 0; --d) {
+        std::string key = std::to_string(d) + key_body;
+        ASSERT_OK(batch.Delete(key));
+      }
+      ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    }
+
+    // Flush every few rounds
+    if (round % 3 == 0) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+
+    // Verify prefix scan consistency with trie index.
+    {
+      ReadOptions base_ro = TrieIndexReadOptions();
+      const Snapshot* snap = db_->GetSnapshot();
+      base_ro.snapshot = snap;
+
+      // Pick a random key to start scanning from
+      int start_key = rnd.Uniform(kMaxKey);
+      std::string key_body = make_key_body(start_key);
+
+      std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
+      std::array<std::string, kNumPrefixes> prefixes;
+      std::array<Slice, kNumPrefixes> prefix_slices;
+
+      for (int d = 0; d < kNumPrefixes; ++d) {
+        prefixes[d] = std::to_string(d) + key_body;
+        prefix_slices[d] = Slice(prefixes[d].data(), 1);
+        iters[d].reset(db_->NewIterator(base_ro));
+        iters[d]->Seek(prefix_slices[d]);
+      }
+
+      uint64_t count = 0;
+      while (iters[0]->Valid() &&
+             iters[0]->key().starts_with(prefix_slices[0])) {
+        count++;
+        for (int d = 0; d < kNumPrefixes; ++d) {
+          ASSERT_TRUE(iters[d]->Valid())
+              << "round=" << round << " step=" << count << " iter=" << d;
+          ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
+              << "round=" << round << " step=" << count << " iter=" << d;
+        }
+
+        std::string key0_body = iters[0]->key().ToString().substr(1);
+        std::string val0 = iters[0]->value().ToString();
+        if (!val0.empty()) {
+          val0.pop_back();
+        }
+        for (int d = 1; d < kNumPrefixes; ++d) {
+          std::string keyd_body = iters[d]->key().ToString().substr(1);
+          ASSERT_EQ(key0_body, keyd_body) << "key body mismatch round=" << round
+                                          << " step=" << count << " iter=" << d;
+          std::string vald = iters[d]->value().ToString();
+          if (!vald.empty()) {
+            vald.pop_back();
+          }
+          ASSERT_EQ(val0, vald) << "value mismatch round=" << round
+                                << " step=" << count << " iter=" << d;
+        }
+
+        for (int d = 0; d < kNumPrefixes; ++d) {
+          iters[d]->Next();
+        }
+      }
+
+      for (int d = 1; d < kNumPrefixes; ++d) {
+        ASSERT_TRUE(!iters[d]->Valid() ||
+                    !iters[d]->key().starts_with(prefix_slices[d]))
+            << "iter " << d << " still has keys after iter 0 finished"
+            << " round=" << round;
+        ASSERT_OK(iters[d]->status());
+      }
+
+      db_->ReleaseSnapshot(snap);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Regression test for the FindShortSuccessor last-block bug.
+//
+// Before the fix, TrieIndexBuilder::AddIndexEntry called
+// FindShortSuccessor() on the last block's separator key, producing a
+// shorter key that covered a wider range than the actual data. For example,
+// if the last key's user key was "9\xff\xff", FindShortSuccessor would
+// produce ":" (0x3A), making the trie claim it covers keys up to ":". A
+// seek for "9\xff\xff\x01" (between the real last key and ":") would find a
+// block via the trie but not via the standard index, causing prefix scan
+// iterators to desynchronize.
+//
+// The standard ShortenedIndexBuilder (with default kShortenSeparators mode)
+// does NOT call FindShortSuccessor on the last block — it uses the last key
+// as-is. The fix makes the trie builder match this behavior.
+// ---------------------------------------------------------------------------
+TEST_F(TrieIndexDBTest, LastBlockSeparatorNotShortened) {
+  // Use a small block size so each key lands in its own block.
+  ASSERT_OK(OpenDB(/*block_size=*/32));
+
+  // Write keys where the last key has trailing 0xFF bytes, which
+  // FindShortSuccessor would shorten by incrementing the byte before the
+  // 0xFF suffix ("9\xff\xff" -> ":").
+  ASSERT_OK(db_->Put(WriteOptions(), "1aaa", "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "5bbb", "v2"));
+  ASSERT_OK(db_->Put(WriteOptions(), std::string("9\xff\xff", 3), "v3"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // The key "9\xff\xff\x01" is lexicographically after "9\xff\xff" but
+  // before ":" (0x3A). With the old bug, the trie would return a valid
+  // block for this key. With the fix, both indexes correctly say "not
+  // found".
+  std::string seek_target = std::string("9\xff\xff\x01", 4);
+
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie index" : "standard index");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek(seek_target);
+    ASSERT_TRUE(!iter->Valid()) << "Expected no key at or after seek_target, "
+                                << "but got: " << iter->key().ToString(true);
+    ASSERT_OK(iter->status());
+  }
+
+  // Also verify the actual last key is still findable.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie index" : "standard index");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek(std::string("9\xff\xff", 3));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), std::string("9\xff\xff", 3));
+    ASSERT_EQ(iter->value().ToString(), "v3");
+
+    // After this key, there should be nothing more.
+    iter->Next();
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+}
+
+// Variant: tests that when deletes remove the last key, seeking past the last
+// remaining key correctly returns "not found" with both indexes.
+TEST_F(TrieIndexDBTest, LastBlockSeparatorWithDeletes) {
+  ASSERT_OK(OpenDB(/*block_size=*/32));
+
+  // Write and flush initial data.
+  ASSERT_OK(db_->Put(WriteOptions(), "1aaa", "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "5bbb", "v2"));
+  ASSERT_OK(db_->Put(WriteOptions(), std::string("9\xff\xff", 3), "v3"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Delete the last key and flush (creates a tombstone in a new SST).
+  ASSERT_OK(db_->Delete(WriteOptions(), std::string("9\xff\xff", 3)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Now seeking for the deleted key should yield "5bbb" or nothing,
+  // depending on the seek target. Both indexes must agree.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie index" : "standard index");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    // Seek to the deleted key — should skip it and land on nothing (it was
+    // the last key).
+    iter->Seek(std::string("9\xff\xff", 3));
+    ASSERT_TRUE(!iter->Valid())
+        << "Deleted key should not be visible, but got: "
+        << iter->key().ToString(true);
+    ASSERT_OK(iter->status());
+
+    // Seek to a key between "5bbb" and the deleted key — should find "5bbb"
+    // or nothing depending on order. Actually, "6" > "5bbb" and "6" <
+    // "9\xff\xff", so seeking "6" should find nothing since there's no key
+    // >= "6" that's still alive.
+    iter->Seek("6");
+    ASSERT_TRUE(!iter->Valid()) << "No live key >= '6' should exist, but got: "
+                                << iter->key().ToString(true);
+    ASSERT_OK(iter->status());
+  }
+
+  // Compact to merge the tombstone, then verify again.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie index" : "standard index");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "1aaa");
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "5bbb");
+    iter->Next();
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+}
+
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE
 
