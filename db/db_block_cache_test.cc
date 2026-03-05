@@ -45,9 +45,6 @@ class DBBlockCacheTest : public DBTestBase {
   size_t compression_dict_miss_count_ = 0;
   size_t compression_dict_hit_count_ = 0;
   size_t compression_dict_insert_count_ = 0;
-  size_t range_deletion_miss_count_ = 0;
-  size_t range_deletion_hit_count_ = 0;
-  size_t range_deletion_insert_count_ = 0;
 
  public:
   const size_t kNumBlocks = 10;
@@ -134,36 +131,6 @@ class DBBlockCacheTest : public DBTestBase {
     compression_dict_miss_count_ = new_compression_dict_miss_count;
     compression_dict_hit_count_ = new_compression_dict_hit_count;
     compression_dict_insert_count_ = new_compression_dict_insert_count;
-  }
-
-  void RecordCacheCountersForRangeDeletion(const Options& options) {
-    range_deletion_miss_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_MISS);
-    range_deletion_hit_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_HIT);
-    range_deletion_insert_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_ADD);
-  }
-
-  void CheckCacheCountersForRangeDeletion(
-      const Options& options, size_t expected_range_deletion_misses,
-      size_t expected_range_deletion_hits,
-      size_t expected_range_deletion_inserts) {
-    size_t new_range_deletion_miss_count =
-        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_MISS);
-    size_t new_range_deletion_hit_count =
-        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_HIT);
-    size_t new_range_deletion_insert_count =
-        TestGetTickerCount(options, BLOCK_CACHE_RANGE_DELETION_ADD);
-    ASSERT_EQ(range_deletion_miss_count_ + expected_range_deletion_misses,
-              new_range_deletion_miss_count);
-    ASSERT_EQ(range_deletion_hit_count_ + expected_range_deletion_hits,
-              new_range_deletion_hit_count);
-    ASSERT_EQ(range_deletion_insert_count_ + expected_range_deletion_inserts,
-              new_range_deletion_insert_count);
-    range_deletion_miss_count_ = new_range_deletion_miss_count;
-    range_deletion_hit_count_ = new_range_deletion_hit_count;
-    range_deletion_insert_count_ = new_range_deletion_insert_count;
   }
 
   const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
