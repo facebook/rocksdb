@@ -2856,6 +2856,12 @@ void BlockBasedTableBuilder::Abandon() {
   rep_->GetIOStatus().PermitUncheckedError();
 }
 
+#ifndef NDEBUG
+void BlockBasedTableBuilder::TEST_InjectIOError() {
+  rep_->SetIOStatus(IOStatus::IOError("Injected IOError for testing"));
+}
+#endif  // !NDEBUG
+
 uint64_t BlockBasedTableBuilder::NumEntries() const {
   return rep_->props.num_entries;
 }

@@ -322,6 +322,8 @@ Status BuildTable(
     }
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
+    TEST_SYNC_POINT_CALLBACK("BuildTable:BeforeCheckEmpty",
+                             static_cast<TableBuilder*>(builder));
     const bool empty = builder->IsEmpty();
     if (flush_stats) {
       assert(c_iter.HasNumInputEntryScanned());
