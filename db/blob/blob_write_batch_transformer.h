@@ -49,7 +49,8 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
       WriteBatch* output_batch,
       BlobFilePartitionManager* partition_manager,
       const BlobDirectWriteSettingsProvider& settings_provider,
-      bool* transformed);
+      bool* transformed,
+      uint64_t batch_id = 0);
 
   // WriteBatch::Handler overrides
   Status PutCF(uint32_t column_family_id, const Slice& key,
@@ -92,6 +93,7 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
   BlobDirectWriteSettingsProvider settings_provider_;
   bool has_transformed_ = false;
   std::string blob_index_buf_;
+  uint64_t batch_id_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

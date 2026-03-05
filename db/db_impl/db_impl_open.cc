@@ -2694,12 +2694,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     bool need_partition_manager = false;
     uint32_t max_partitions = 1;
+    uint64_t buffer_size = 0;
     std::shared_ptr<BlobFilePartitionStrategy> strategy;
     for (const auto& cf : column_families) {
       if (cf.options.enable_blob_files && cf.options.enable_blob_direct_write) {
         need_partition_manager = true;
         max_partitions =
             std::max(max_partitions, cf.options.blob_direct_write_partitions);
+        buffer_size =
+            std::max(buffer_size, cf.options.blob_direct_write_buffer_size);
         if (cf.options.blob_direct_write_partition_strategy) {
           strategy = cf.options.blob_direct_write_partition_strategy;
         }
@@ -2713,7 +2716,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               impl->fs_.get(), impl->immutable_db_options_.clock, impl->stats_,
               impl->file_options_, dbname,
               column_families[0].options.blob_file_size,
-              impl->immutable_db_options_.use_fsync);
+              impl->immutable_db_options_.use_fsync, buffer_size);
     }
   }
 

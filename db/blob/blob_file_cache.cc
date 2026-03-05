@@ -9,6 +9,8 @@
 #include <memory>
 
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_log_format.h"
+#include "file/filename.h"
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
@@ -76,9 +78,13 @@ Status BlobFileCache::GetBlobFileReader(
     Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
-    if (!s.ok()) {
-      // Retry with footer validation skipped (for un-sealed write-path
-      // blob files that don't have a footer yet).
+    if (!s.ok() && s.IsCorruption()) {
+      // Blob files created by direct write may not have a footer yet (still
+      // being written to, or DB crashed before the file was sealed during
+      // flush).  Retry without footer validation.  Individual blob records
+      // still have CRC checks, so real data corruption will still be caught
+      // during reads.  We only retry on Corruption (e.g. footer magic
+      // mismatch) -- I/O errors are not retried.
       reader.reset();
       s = BlobFileReader::Create(
           *immutable_options_, read_options, *file_options_, column_family_id_,

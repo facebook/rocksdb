@@ -29,7 +29,8 @@ Status BlobWriteBatchTransformer::TransformBatch(
     WriteBatch* output_batch,
     BlobFilePartitionManager* partition_manager,
     const BlobDirectWriteSettingsProvider& settings_provider,
-    bool* transformed) {
+    bool* transformed,
+    uint64_t batch_id) {
   assert(input_batch);
   assert(output_batch);
   assert(transformed);
@@ -39,6 +40,7 @@ Status BlobWriteBatchTransformer::TransformBatch(
 
   BlobWriteBatchTransformer transformer(partition_manager, output_batch,
                                         settings_provider);
+  transformer.batch_id_ = batch_id;
 
   Status s = input_batch->Iterate(&transformer);
   if (!s.ok()) {
@@ -60,6 +62,10 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
   }
 
   // Write the blob value to a partition.
+  // NOTE: If WriteBlob succeeds but the overall write later fails,
+  // the blob data is already persisted but won't be referenced by any
+  // WAL/memtable entry. These orphaned blobs will be cleaned up by
+  // garbage collection during compaction.
   uint64_t blob_file_number = 0;
   uint64_t blob_offset = 0;
   uint64_t blob_size = 0;
@@ -67,7 +73,7 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
   WriteOptions wo;
   Status s = partition_manager_->WriteBlob(
       wo, column_family_id, settings.compression_type, key, value,
-      &blob_file_number, &blob_offset, &blob_size);
+      &blob_file_number, &blob_offset, &blob_size, batch_id_);
   if (!s.ok()) {
     return s;
   }

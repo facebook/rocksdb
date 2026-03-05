@@ -293,7 +293,6 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->blob_file_starting_level = moptions.blob_file_starting_level;
   cf_opts->prepopulate_blob_cache = moptions.prepopulate_blob_cache;
   cf_opts->enable_blob_direct_write = moptions.enable_blob_direct_write;
-  cf_opts->blob_direct_write_partitions = moptions.blob_direct_write_partitions;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
@@ -349,6 +348,9 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->blob_cache = ioptions.blob_cache;
   cf_opts->blob_direct_write_partition_strategy =
       ioptions.blob_direct_write_partition_strategy;
+  cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;
+  cf_opts->blob_direct_write_buffer_size =
+      ioptions.blob_direct_write_buffer_size;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;

@@ -549,29 +549,64 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // Blob direct write: transform batch by writing large values to blob files
   // and replacing them with BlobIndex entries, before entering the write group.
   WriteBatch transformed_batch;
+  WriteBatch* original_batch = my_batch;
   if (my_batch != nullptr && blob_partition_manager_ != nullptr) {
-    auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
+    std::unordered_map<uint32_t, BlobDirectWriteSettings> cf_settings_cache;
+    auto settings_provider =
+        [this, &cf_settings_cache](uint32_t cf_id) -> BlobDirectWriteSettings {
+      auto it = cf_settings_cache.find(cf_id);
+      if (it != cf_settings_cache.end()) {
+        return it->second;
+      }
       BlobDirectWriteSettings settings;
       auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
       if (cfd) {
-        const auto& cf_opts = cfd->GetCurrentMutableCFOptions();
+        SuperVersion* sv = cfd->GetThreadLocalSuperVersion(this);
+        const auto& opts = sv->mutable_cf_options;
         settings.enable_blob_direct_write =
-            cf_opts.enable_blob_direct_write && cf_opts.enable_blob_files;
-        settings.min_blob_size = cf_opts.min_blob_size;
-        settings.compression_type = cf_opts.blob_compression_type;
+            opts.enable_blob_direct_write && opts.enable_blob_files;
+        settings.min_blob_size = opts.min_blob_size;
+        settings.compression_type = opts.blob_compression_type;
+        cfd->ReturnThreadLocalSuperVersion(sv);
       }
+      cf_settings_cache[cf_id] = settings;
       return settings;
     };
+
+    uint64_t batch_id = 0;
+    if (blob_partition_manager_->IsDeferredFlushMode()) {
+      batch_id = blob_partition_manager_->AllocateBatchId();
+    }
+
     bool transformed = false;
     Status blob_s = BlobWriteBatchTransformer::TransformBatch(
         write_options, my_batch, &transformed_batch,
-        blob_partition_manager_.get(), settings_provider, &transformed);
+        blob_partition_manager_.get(), settings_provider, &transformed,
+        batch_id);
     if (!blob_s.ok()) {
       return blob_s;
     }
     if (transformed) {
+      // In deferred mode, move the input batch's rep_ buffer into shared
+      // ownership AFTER TransformBatch. The PendingRecord Slices created
+      // during WriteBlob point into rep_'s buffer. std::string move is a
+      // pointer swap: the buffer address doesn't change, so Slices remain
+      // valid. The shared_ptr keeps the buffer alive until flush.
+      if (blob_partition_manager_->IsDeferredFlushMode()) {
+        auto rep_owner = std::make_shared<std::string>(
+            std::move(WriteBatchInternal::Rep(original_batch)));
+        // Update all pending records with this rep_owner.
+        blob_partition_manager_->AdoptBatchBuffer(batch_id, std::move(rep_owner));
+        // Restore input batch to valid empty state.
+        WriteBatchInternal::Rep(original_batch).resize(
+            WriteBatchInternal::kHeader);
+      } else {
+        blob_s = blob_partition_manager_->FlushAllOpenFiles(write_options);
+        if (!blob_s.ok()) {
+          return blob_s;
+        }
+      }
       my_batch = &transformed_batch;
-      // Sync blob files before WAL write if sync is requested.
       if (write_options.sync) {
         blob_s = blob_partition_manager_->SyncAllOpenFiles(write_options);
         if (!blob_s.ok()) {
@@ -580,6 +615,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
   }
+
 
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,

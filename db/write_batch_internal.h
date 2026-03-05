@@ -166,6 +166,7 @@ class WriteBatchInternal {
   static size_t GetFirstOffset(WriteBatch* batch);
 
   static Slice Contents(const WriteBatch* batch) { return Slice(batch->rep_); }
+  static std::string& Rep(WriteBatch* batch) { return batch->rep_; }
 
   static size_t ByteSize(const WriteBatch* batch) { return batch->rep_.size(); }
 

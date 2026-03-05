@@ -12,6 +12,11 @@
 #include <limits>
 #include <string>
 
+#include "db/blob/blob_contents.h"
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -43,7 +48,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
                ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-               bool expose_blob_index, ReadOnlyMemTable* active_mem)
+               bool expose_blob_index, ReadOnlyMemTable* active_mem,
+               BlobFileCache* blob_file_cache,
+               BlobFilePartitionManager* blob_partition_mgr)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -53,7 +60,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       iter_(iter),
       blob_reader_(version, read_options.read_tier,
                    read_options.verify_checksums, read_options.fill_cache,
-                   read_options.io_activity),
+                   read_options.io_activity, blob_file_cache,
+                   blob_partition_mgr),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -237,10 +245,47 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
+  // Check unflushed pending records first (deferred flush mode).
+  if (blob_partition_mgr_) {
+    BlobIndex blob_idx;
+    Status decode_s = blob_idx.DecodeFrom(blob_index);
+    if (decode_s.ok()) {
+      std::string pending_value;
+      if (blob_partition_mgr_->GetPendingBlobValue(
+              blob_idx.file_number(), blob_idx.offset(), &pending_value)) {
+        blob_value_.PinSelf(pending_value);
+        return Status::OK();
+      }
+    }
+  }
+
   const Status s = version_->GetBlob(read_options, user_key, blob_index,
                                      prefetch_buffer, &blob_value_, bytes_read);
 
   if (!s.ok()) {
+    if (s.IsCorruption() && blob_file_cache_) {
+      // Blob file not yet registered in version (write-path blob).
+      // Fall back to reading directly via BlobFileCache.
+      BlobIndex blob_idx;
+      Status decode_s = blob_idx.DecodeFrom(blob_index);
+      if (decode_s.ok()) {
+        CacheHandleGuard<BlobFileReader> file_reader;
+        Status cache_s = blob_file_cache_->GetBlobFileReader(
+            read_options, blob_idx.file_number(), &file_reader);
+        if (cache_s.ok()) {
+          std::unique_ptr<BlobContents> blob_contents;
+          uint64_t blob_bytes_read = 0;
+          cache_s = file_reader.GetValue()->GetBlob(
+              read_options, user_key, blob_idx.offset(), blob_idx.size(),
+              blob_idx.compression(), prefetch_buffer, nullptr, &blob_contents,
+              &blob_bytes_read);
+          if (cache_s.ok()) {
+            blob_value_.PinSelf(blob_contents->data());
+            return Status::OK();
+          }
+        }
+      }
+    }
     return s;
   }
 

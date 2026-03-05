@@ -84,6 +84,10 @@ struct ImmutableCFOptions {
   std::shared_ptr<BlobFilePartitionStrategy>
       blob_direct_write_partition_strategy;
 
+  uint32_t blob_direct_write_partitions;
+
+  uint64_t blob_direct_write_buffer_size;
+
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
@@ -162,7 +166,6 @@ struct MutableCFOptions {
         blob_file_starting_level(options.blob_file_starting_level),
         prepopulate_blob_cache(options.prepopulate_blob_cache),
         enable_blob_direct_write(options.enable_blob_direct_write),
-        blob_direct_write_partitions(options.blob_direct_write_partitions),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
@@ -234,7 +237,6 @@ struct MutableCFOptions {
         blob_file_starting_level(0),
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         enable_blob_direct_write(false),
-        blob_direct_write_partitions(1),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
@@ -340,7 +342,6 @@ struct MutableCFOptions {
   int blob_file_starting_level;
   PrepopulateBlobCache prepopulate_blob_cache;
   bool enable_blob_direct_write;
-  uint32_t blob_direct_write_partitions;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

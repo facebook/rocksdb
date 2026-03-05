@@ -21,6 +21,8 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+class BlobFileCache;
+class BlobFilePartitionManager;
 class Version;
 
 // This file declares the factory functions of DBIter, in its original form
@@ -73,14 +75,15 @@ class DBIter final : public Iterator {
                          ReadCallback* read_callback,
                          ReadOnlyMemTable* active_mem,
                          ColumnFamilyHandleImpl* cfh = nullptr,
-                         bool expose_blob_index = false,
-                         Arena* arena = nullptr) {
+                         bool expose_blob_index = false, Arena* arena = nullptr,
+                         BlobFileCache* blob_file_cache = nullptr,
+                         BlobFilePartitionManager* blob_partition_mgr = nullptr) {
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
-    DBIter* db_iter = new (mem)
-        DBIter(env, read_options, ioptions, mutable_cf_options,
-               user_key_comparator, internal_iter, version, sequence, arena,
-               read_callback, cfh, expose_blob_index, active_mem);
+    DBIter* db_iter = new (mem) DBIter(
+        env, read_options, ioptions, mutable_cf_options, user_key_comparator,
+        internal_iter, version, sequence, arena, read_callback, cfh,
+        expose_blob_index, active_mem, blob_file_cache, blob_partition_mgr);
     return db_iter;
   }
 
@@ -250,18 +253,24 @@ class DBIter final : public Iterator {
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, ReadCallback* read_callback,
          ColumnFamilyHandleImpl* cfh, bool expose_blob_index,
-         ReadOnlyMemTable* active_mem);
+         ReadOnlyMemTable* active_mem,
+         BlobFileCache* blob_file_cache = nullptr,
+         BlobFilePartitionManager* blob_partition_mgr = nullptr);
 
   class BlobReader {
    public:
     BlobReader(const Version* version, ReadTier read_tier,
                bool verify_checksums, bool fill_cache,
-               Env::IOActivity io_activity)
+               Env::IOActivity io_activity,
+               BlobFileCache* blob_file_cache = nullptr,
+               BlobFilePartitionManager* blob_partition_mgr = nullptr)
         : version_(version),
           read_tier_(read_tier),
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
-          io_activity_(io_activity) {}
+          io_activity_(io_activity),
+          blob_file_cache_(blob_file_cache),
+          blob_partition_mgr_(blob_partition_mgr) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
@@ -275,6 +284,8 @@ class DBIter final : public Iterator {
     bool verify_checksums_;
     bool fill_cache_;
     Env::IOActivity io_activity_;
+    BlobFileCache* blob_file_cache_;
+    BlobFilePartitionManager* blob_partition_mgr_;
   };
 
   // For all methods in this block:

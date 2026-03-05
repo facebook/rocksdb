@@ -495,6 +495,16 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
       result.memtable_avg_op_scan_flush_trigger = 0;
     }
   }
+  if (result.enable_blob_direct_write && !result.enable_blob_files) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "enable_blob_direct_write requires enable_blob_files=true. "
+                   "Disabling blob direct write.");
+    result.enable_blob_direct_write = false;
+  }
+  if (result.blob_direct_write_partitions == 0) {
+    result.blob_direct_write_partitions = 1;
+  }
+
   return result;
 }
 

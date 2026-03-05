@@ -646,10 +646,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, enable_blob_direct_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"blob_direct_write_partitions",
-         {offsetof(struct MutableCFOptions, blob_direct_write_partitions),
-          OptionType::kUInt32T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -932,6 +928,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, cf_allow_ingest_behind),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"blob_direct_write_partitions",
+         {offsetof(struct ImmutableCFOptions, blob_direct_write_partitions),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"blob_direct_write_buffer_size",
+         {offsetof(struct ImmutableCFOptions, blob_direct_write_buffer_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -1072,6 +1076,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       blob_cache(cf_options.blob_cache),
       blob_direct_write_partition_strategy(
           cf_options.blob_direct_write_partition_strategy),
+      blob_direct_write_partitions(cf_options.blob_direct_write_partitions),
+      blob_direct_write_buffer_size(cf_options.blob_direct_write_buffer_size),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
       cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind) {}
@@ -1313,8 +1319,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                      : "disable");
   ROCKS_LOG_INFO(log, "              enable_blob_direct_write: %s",
                  enable_blob_direct_write ? "true" : "false");
-  ROCKS_LOG_INFO(log, "         blob_direct_write_partitions: %" PRIu32,
-                 blob_direct_write_partitions);
   ROCKS_LOG_INFO(log, "                   last_level_temperature: %d",
                  static_cast<int>(last_level_temperature));
 }

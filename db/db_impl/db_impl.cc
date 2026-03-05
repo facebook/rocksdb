@@ -587,10 +587,15 @@ Status DBImpl::CloseHelper() {
   if (blob_partition_manager_) {
     WriteOptions wo;
     std::vector<BlobFileAddition> additions;
-    blob_partition_manager_->SealAllPartitions(wo, &additions)
-        .PermitUncheckedError();
+    Status seal_s = blob_partition_manager_->SealAllPartitions(wo, &additions);
+    if (!seal_s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "Error sealing blob partitions during shutdown: %s",
+                      seal_s.ToString().c_str());
+    }
     // Note: additions are not registered in MANIFEST during shutdown.
     // They will be discovered as un-sealed files on next recovery.
+    blob_partition_manager_->DumpTimingStats();
     blob_partition_manager_.reset();
   }
 
@@ -2494,6 +2499,50 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
              merge_context.GetOperands().size();
 }
 
+// Resolve a blob index for a write-path blob (stored in memtable via blob
+// direct write). First tries Version::GetBlob(), then falls back to
+// BlobFileCache if the blob file is not yet registered in the version.
+static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
+                                           const Slice& user_key,
+                                           const BlobIndex& blob_idx,
+                                           Version* current,
+                                           BlobFileCache* blob_file_cache,
+                                           BlobFilePartitionManager* partition_mgr,
+                                           PinnableSlice* blob_value) {
+  // Check unflushed pending records first (deferred flush mode).
+  if (partition_mgr) {
+    std::string pending_value;
+    if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
+                                           blob_idx.offset(), &pending_value)) {
+      blob_value->PinSelf(pending_value);
+      return Status::OK();
+    }
+  }
+
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr uint64_t* bytes_read = nullptr;
+  Status s = current->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
+                              blob_value, bytes_read);
+  if (s.IsCorruption() && blob_file_cache) {
+    // Blob file not yet registered in version (write-path blob).
+    // Read directly via BlobFileCache, bypassing version metadata.
+    CacheHandleGuard<BlobFileReader> reader;
+    s = blob_file_cache->GetBlobFileReader(read_options, blob_idx.file_number(),
+                                           &reader);
+    if (s.ok()) {
+      std::unique_ptr<BlobContents> blob_contents;
+      s = reader.GetValue()->GetBlob(read_options, user_key, blob_idx.offset(),
+                                     blob_idx.size(), blob_idx.compression(),
+                                     prefetch_buffer, nullptr, &blob_contents,
+                                     bytes_read);
+      if (s.ok()) {
+        blob_value->PinSelf(blob_contents->data());
+      }
+    }
+  }
+  return s;
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -2661,30 +2710,16 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
           if (s.ok()) {
             PinnableSlice blob_value;
-            constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-            constexpr uint64_t* bytes_read = nullptr;
-            s = sv->current->GetBlob(read_options, key, blob_idx,
-                                     prefetch_buffer, &blob_value, bytes_read);
-            if (s.IsCorruption() && blob_partition_manager_) {
-              // Blob file not yet registered in version (write-path blob).
-              // Read directly via BlobFileCache, bypassing version metadata.
-              auto* blob_cfd = static_cast<ColumnFamilyHandleImpl*>(
-                                   get_impl_options.column_family)
-                                   ->cfd();
-              CacheHandleGuard<BlobFileReader> reader;
-              s = blob_cfd->blob_file_cache()->GetBlobFileReader(
-                  read_options, blob_idx.file_number(), &reader);
-              if (s.ok()) {
-                std::unique_ptr<BlobContents> blob_contents;
-                s = reader.GetValue()->GetBlob(
-                    read_options, key, blob_idx.offset(), blob_idx.size(),
-                    blob_idx.compression(), prefetch_buffer, nullptr,
-                    &blob_contents, bytes_read);
-                if (s.ok()) {
-                  blob_value.PinSelf(blob_contents->data());
-                }
-              }
-            }
+            BlobFileCache* blob_cache =
+                blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
+                                              get_impl_options.column_family)
+                                              ->cfd()
+                                              ->blob_file_cache()
+                                        : nullptr;
+            s = ResolveBlobIndexForWritePath(read_options, key, blob_idx,
+                                             sv->current, blob_cache,
+                                             blob_partition_manager_.get(),
+                                             &blob_value);
             if (s.ok()) {
               get_impl_options.value->Reset();
               get_impl_options.value->PinSelf(blob_value);
@@ -2715,10 +2750,15 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
           if (s.ok()) {
             PinnableSlice blob_value;
-            constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-            constexpr uint64_t* bytes_read = nullptr;
-            s = sv->current->GetBlob(read_options, key, blob_idx,
-                                     prefetch_buffer, &blob_value, bytes_read);
+            BlobFileCache* blob_cache =
+                blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
+                                              get_impl_options.column_family)
+                                              ->cfd()
+                                              ->blob_file_cache()
+                                        : nullptr;
+            s = ResolveBlobIndexForWritePath(read_options, key, blob_idx,
+                                             sv->current, blob_cache,
+                                             blob_partition_manager_.get(), &blob_value);
             if (s.ok()) {
               get_impl_options.value->Reset();
               get_impl_options.value->PinSelf(blob_value);
@@ -3509,6 +3549,12 @@ Status DBImpl::MultiGetImpl(
     assert(key);
     assert(key->s);
 
+    // TODO(blob_direct_write): Add blob index resolution for memtable reads
+    // in MultiGet. Currently, write-path blob indices from memtable are not
+    // resolved in MultiGet. This requires tracking whether each key came from
+    // memtable vs SST to avoid double-resolving SST blob indices.
+    (void)blob_partition_manager_;
+
     if (key->s->ok()) {
       const auto& merge_threshold = read_options.merge_operand_count_threshold;
       if (merge_threshold.has_value() &&
@@ -4216,7 +4262,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // that they are likely to be in the same cache line and/or page.
   return NewArenaWrappedDbIterator(
       env_, read_options, cfh, sv, snapshot, read_callback, this,
-      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true);
+      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true,
+      blob_partition_manager_.get());
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
