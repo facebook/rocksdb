@@ -1200,9 +1200,12 @@ clean-rocks:
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
-clean-rocksjava: clean-rocks
+clean-rocksjava: clean-rocks clean-rocksjava-build-cache-volumes
 	rm -rf jl jls
 	cd java && $(MAKE) clean
+
+clean-rocksjava-build-cache-volumes:
+	docker volume rm rocksdb_getdeps_x86_64 rocksdb-local-build-x86_64 rocksdb-local-build-arm64v8 rocksdb_getdeps_arm64v8
 
 clean-not-downloaded-rocksjava:
 	cd java && $(MAKE) clean-not-downloaded
@@ -2125,7 +2128,7 @@ SHA256_CMD = sha256sum
 
 ZLIB_VER ?= 1.3.1
 ZLIB_SHA256 ?= 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
-ZLIB_DOWNLOAD_BASE ?= http://zlib.net
+ZLIB_DOWNLOAD_BASE ?= http://zlib.net/fossils
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_DOWNLOAD_BASE ?= http://sourceware.org/pub/bzip2
@@ -2227,7 +2230,8 @@ libsnappy.a: snappy-$(SNAPPY_VER).tar.gz
 	-rm -rf snappy-$(SNAPPY_VER)
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
-	cd snappy-$(SNAPPY_VER)/build && CFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DSNAPPY_BUILD_BENCHMARKS=OFF -DSNAPPY_BUILD_TESTS=OFF ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
+	# Use a CXX wrapper to build snappy with RTTI support
+	cd snappy-$(SNAPPY_VER)/build && CFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' REAL_CXX='$(CXX)' CXX='$(CURDIR)/build_tools/cxx-rtti-wrap.sh' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DSNAPPY_BUILD_BENCHMARKS=OFF -DSNAPPY_BUILD_TESTS=OFF ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
 lz4-$(LZ4_VER).tar.gz:
@@ -2361,7 +2365,18 @@ rocksdbjavastaticdockerx86:
 
 rocksdbjavastaticdockerx86_64:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_x64-be --platform linux/amd64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_x64-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_x64-be \
+		--platform linux/amd64 \
+	  --attach stdin --attach stdout --attach stderr \
+	  --volume $(HOME)/.m2:/root/.m2:ro \
+	  --volume `pwd`:/rocksdb-host:ro \
+	  --volume rocksdb-local-build-x86_64:/rocksdb-local-build \
+	  --volume `pwd`/java/target:/rocksdb-java-target \
+	  --mount type=volume,src=rocksdb_getdeps_x86_64,dst=/getdeps-scratch \
+	  --env GETDEPS_SCRATCH_PATH=/getdeps-scratch \
+	  --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) \
+		mirgee/rocksjava-centos9-pydev-x86_64:latest \
+	  /rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
@@ -2369,7 +2384,18 @@ rocksdbjavastaticdockerppc64le:
 
 rocksdbjavastaticdockerarm64v8:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_arm64v8-be --platform linux/aarch64 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux.sh
+	docker run --rm --name rocksdb_linux_arm64v8-be \
+		--platform linux/aarch64 \
+		--attach stdin --attach stdout --attach stderr \
+		--volume $(HOME)/.m2:/root/.m2:ro \
+		--volume `pwd`:/rocksdb-host:ro \
+		--volume rocksdb-local-build-arm64v8:/rocksdb-local-build \
+		--volume `pwd`/java/target:/rocksdb-java-target \
+		--mount type=volume,src=rocksdb_getdeps_arm64v8,dst=/getdeps-scratch \
+		--env GETDEPS_SCRATCH_PATH=/getdeps-scratch \
+		--env DEBUG_LEVEL=$(DEBUG_LEVEL) --env J=$(J) \
+		mirgee/rocksjava-centos9-pydev-arm64:latest \
+		/rocksdb-host/java/crossbuild/docker-build-linux.sh
 
 rocksdbjavastaticdockers390x:
 	mkdir -p java/target
