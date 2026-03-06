@@ -83,8 +83,11 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
-            (expected ? expected : "(null)"), (v ? v : "(null)"));
+    fprintf(stderr, "%s:%d: %s: expected '%s' (len=%zu), got '%s' (len=%zu)\n",
+            __FILE__, __LINE__, phase,
+            (expected ? expected : "(null)"),
+            (expected ? strlen(expected) : 0),
+            (v ? v : "(null)"), n);
     abort();
   }
 }
@@ -174,6 +177,20 @@ static void CheckIter(rocksdb_iterator_t* iter, const char* key,
   size_t len;
   const char* str;
   str = rocksdb_iter_key(iter, &len);
+  CheckEqual(key, str, len);
+  str = rocksdb_iter_value(iter, &len);
+  CheckEqual(val, str, len);
+}
+
+static void CheckInternalIter(rocksdb_iterator_t* iter, const char* key,
+                      const char* val) {
+  size_t len;
+  const char* str;
+  str = rocksdb_iter_key(iter, &len);
+  // Remove internal metadata (last 8 bytes: sequence number + type)
+  if (len >= 8) {
+    len -= 8;
+  }
   CheckEqual(key, str, len);
   str = rocksdb_iter_value(iter, &len);
   CheckEqual(val, str, len);
@@ -1298,6 +1315,119 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_delete(db, woptions, "sstk3", 5, &err);
     CheckNoError(err);
+  }
+
+  StartPhase("sstfilereader");
+  {
+    // Create an SST file to read
+    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
+    rocksdb_sstfilewriter_t* writer =
+        rocksdb_sstfilewriter_create(env_opt, options);
+
+    remove(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "key1", 4, "value1", 6, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "key2", 4, "value2", 6, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "key3", 4, "value3", 6, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_destroy(writer);
+    rocksdb_envoptions_destroy(env_opt);
+
+    rocksdb_sstfilereader_t* reader = rocksdb_sstfilereader_create(options);
+    rocksdb_sstfilereader_open(reader, sstfilename, &err);
+    CheckNoError(err);
+
+    rocksdb_iterator_t* iter =
+        rocksdb_sstfilereader_new_iterator(reader, roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "key1", "value1");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "key2", "value2");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "key3", "value3");
+    rocksdb_iter_next(iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_destroy(iter);
+
+    rocksdb_iterator_t* table_iter =
+        rocksdb_sstfilereader_new_table_iterator(reader);
+    CheckCondition(!rocksdb_iter_valid(table_iter));
+    rocksdb_iter_seek_to_first(table_iter);
+    CheckCondition(rocksdb_iter_valid(table_iter));
+    CheckInternalIter(table_iter, "key1", "value1");
+    rocksdb_iter_next(table_iter);
+    CheckInternalIter(table_iter, "key2", "value2");
+    rocksdb_iter_next(table_iter);
+    CheckInternalIter(table_iter, "key3", "value3");
+    rocksdb_iter_next(table_iter);
+    CheckCondition(!rocksdb_iter_valid(table_iter));
+    rocksdb_iter_destroy(table_iter);
+
+    rocksdb_sstfilereader_verify_checksum(reader, roptions, &err);
+    CheckNoError(err);
+
+    rocksdb_sstfilereader_verify_num_entries(reader, roptions, &err);
+    CheckNoError(err);
+
+    const char* keys_list[3] = {"key1", "key2", "key3"};
+    const size_t keys_list_sizes[3] = {4, 4, 4};
+    char* values_list[3] = {NULL, NULL, NULL};
+    size_t values_list_sizes[3] = {0, 0, 0};
+    char* errs[3] = {NULL, NULL, NULL};
+    rocksdb_sstfilereader_multi_get(reader, roptions, 3, keys_list,
+                                    keys_list_sizes, values_list,
+                                    values_list_sizes, errs);
+    CheckCondition(errs[0] == NULL);
+    CheckCondition(errs[1] == NULL);
+    CheckCondition(errs[2] == NULL);
+    CheckCondition(values_list_sizes[0] == 6);
+    CheckCondition(values_list_sizes[1] == 6);
+    CheckCondition(values_list_sizes[2] == 6);
+    CheckCondition(memcmp(values_list[0], "value1", 6) == 0);
+    CheckCondition(memcmp(values_list[1], "value2", 6) == 0);
+    CheckCondition(memcmp(values_list[2], "value3", 6) == 0);
+    Free(&values_list[0]);
+    Free(&values_list[1]);
+    Free(&values_list[2]);
+
+    const rocksdb_tableproperties_t* props =
+        rocksdb_sstfilereader_get_table_properties(reader);
+    CheckCondition(props != NULL);
+
+    uint64_t num_entries = rocksdb_tableproperties_get_num_entries(props);
+    CheckCondition(num_entries == 3);
+
+    uint64_t data_size = rocksdb_tableproperties_get_data_size(props);
+    CheckCondition(data_size > 0);
+
+    uint64_t raw_key_size = rocksdb_tableproperties_get_raw_key_size(props);
+    CheckCondition(raw_key_size == 36);  // 3 keys * (4 bytes + 8 metadata bytes)
+
+    uint64_t raw_value_size = rocksdb_tableproperties_get_raw_value_size(props);
+    CheckCondition(raw_value_size == 18);  // 3 values * 6 bytes each
+
+    uint64_t num_data_blocks =
+        rocksdb_tableproperties_get_num_data_blocks(props);
+    CheckCondition(num_data_blocks > 0);
+
+    uint64_t format_version = rocksdb_tableproperties_get_format_version(props);
+    CheckCondition(format_version > 0);
+
+    char* comparator_name = rocksdb_tableproperties_get_comparator_name(props);
+    CheckCondition(comparator_name != NULL);
+    Free(&comparator_name);
+
+    rocksdb_tableproperties_destroy((rocksdb_tableproperties_t*)props);
+
+    rocksdb_sstfilereader_destroy(reader);
+    remove(sstfilename);
   }
 
   StartPhase("writebatch");
