@@ -85,7 +85,7 @@ struct ImmutableCFOptions {
 
   bool cf_allow_ingest_behind;
 
-  bool memtable_multi_get_finger_search;
+  bool memtable_batch_lookup_optimization;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {

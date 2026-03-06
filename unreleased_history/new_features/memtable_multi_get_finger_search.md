@@ -1,1 +1,0 @@
-Add `memtable_multi_get_finger_search` option to use finger search optimization for memtable MultiGet with skip list memtables. After each key lookup, the search path is cached and reused for the next key, reducing per-key cost from O(log N) to O(log d) where d is the distance between consecutive keys. Benchmarks show ~7% improvement in memtable-resident MultiGet throughput.
