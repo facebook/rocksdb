@@ -9,6 +9,7 @@
 #include <cinttypes>
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/blob/blob_write_batch_transformer.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -28,6 +29,46 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   if (!s.ok()) {
     return s;
   }
+
+  // Fast path for blob direct write: write blob value directly to blob file
+  // and build a WriteBatch with only the ~30 byte BlobIndex entry.
+  // This avoids serializing the full value into WriteBatch rep_ (saves a 4KB
+  // memcpy) and skips TransformBatch in WriteImpl (saves iteration overhead).
+  if (blob_partition_manager_ != nullptr) {
+    const uint32_t cf_id = GetColumnFamilyID(column_family);
+    const auto settings = blob_partition_manager_->GetCachedSettings(cf_id);
+    if (settings.enable_blob_direct_write &&
+        val.size() >= settings.min_blob_size) {
+      uint64_t blob_file_number = 0;
+      uint64_t blob_offset = 0;
+      uint64_t blob_size = 0;
+      Status blob_s = blob_partition_manager_->WriteBlob(
+          o, cf_id, settings.compression_type, key, val, &blob_file_number,
+          &blob_offset, &blob_size);
+      if (!blob_s.ok()) {
+        return blob_s;
+      }
+
+      // Encode BlobIndex (~30 bytes) and build a tiny WriteBatch.
+      std::string blob_index_buf;
+      BlobIndex::EncodeBlob(&blob_index_buf, blob_file_number, blob_offset,
+                            blob_size, settings.compression_type);
+
+      WriteBatch batch(key.size() + blob_index_buf.size() + 24, 0,
+                       o.protection_bytes_per_key, 0);
+      blob_s = WriteBatchInternal::PutBlobIndex(&batch, cf_id, key,
+                                                blob_index_buf);
+      if (!blob_s.ok()) {
+        return blob_s;
+      }
+
+      // Write directly — blob_partition_manager_ check in WriteImpl will
+      // see the batch has HAS_BLOB_INDEX and no HAS_PUT, skipping
+      // TransformBatch.
+      return WriteImpl(o, &batch, nullptr, nullptr);
+    }
+  }
+
   return DB::Put(o, column_family, key, val);
 }
 
@@ -545,12 +586,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  const uint64_t t_phase0 = immutable_db_options_.clock->NowNanos();
 
   // Blob direct write: transform batch by writing large values to blob files
   // and replacing them with BlobIndex entries, before entering the write group.
+  // Skip if the batch was already transformed (e.g., from DBImpl::Put fast path
+  // which builds a BlobIndex-only batch directly).
   WriteBatch transformed_batch;
-  if (my_batch != nullptr && blob_partition_manager_ != nullptr) {
+  if (my_batch != nullptr && blob_partition_manager_ != nullptr &&
+      my_batch->HasPut()) {
     // Use cached settings from BlobFilePartitionManager (no SuperVersion lookup).
     auto settings_provider =
         [this](uint32_t cf_id) -> BlobDirectWriteSettings {
@@ -582,7 +625,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
 
-  const uint64_t t_phase1_join = immutable_db_options_.clock->NowNanos();
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,
                         pre_release_callback, post_memtable_callback,
@@ -590,31 +632,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
-  const uint64_t t_phase2_afterjoin = immutable_db_options_.clock->NowNanos();
-
-  // WriteImpl timing dump.
-  if (blob_partition_manager_ != nullptr) {
-    static std::atomic<uint64_t> wi_count{0};
-    static std::atomic<uint64_t> wi_transform_ns{0};
-    static std::atomic<uint64_t> wi_join_ns{0};
-
-    wi_transform_ns.fetch_add(t_phase1_join - t_phase0,
-                              std::memory_order_relaxed);
-    wi_join_ns.fetch_add(t_phase2_afterjoin - t_phase1_join,
-                         std::memory_order_relaxed);
-    uint64_t cnt = wi_count.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (cnt % 200000 == 0) {
-      fprintf(stderr,
-              "\n=== WriteImpl timing (%lu calls) ===\n"
-              "  TransformBatch:   %6lu ns/op\n"
-              "  JoinBatchGroup:   %6lu ns/op\n"
-              "  TOTAL (pre-lead): %6lu ns/op\n",
-              (unsigned long)cnt,
-              (unsigned long)(wi_transform_ns.load() / cnt),
-              (unsigned long)(wi_join_ns.load() / cnt),
-              (unsigned long)((wi_transform_ns.load() + wi_join_ns.load()) / cnt));
-    }
-  }
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_CALLER) {
     write_thread_.SetMemWritersEachStride(&w);
   }
@@ -660,25 +677,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
-  }
-  // Accumulate phase timings for blob direct write analysis.
-  if (blob_partition_manager_ != nullptr) {
-    static std::atomic<uint64_t> ph_transform{0}, ph_join_wait{0}, ph_total{0}, ph_count{0};
-    uint64_t t_end = immutable_db_options_.clock->NowNanos();
-    ph_transform.fetch_add(t_phase1_join - t_phase0, std::memory_order_relaxed);
-    ph_join_wait.fetch_add(t_phase2_afterjoin - t_phase1_join, std::memory_order_relaxed);
-    ph_total.fetch_add(t_end - t_phase0, std::memory_order_relaxed);
-    uint64_t cnt = ph_count.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (cnt % 20000 == 0) {
-      fprintf(stderr,
-              "WRITE_PHASES: %lu calls | transform=%lu ns | join_wait=%lu ns | "
-              "leader+wal+mem=%lu ns | total=%lu ns\n",
-              (unsigned long)cnt,
-              (unsigned long)(ph_transform.load() / cnt),
-              (unsigned long)(ph_join_wait.load() / cnt),
-              (unsigned long)((ph_total.load() - ph_transform.load() - ph_join_wait.load()) / cnt),
-              (unsigned long)(ph_total.load() / cnt));
-    }
   }
 
   if (w.state == WriteThread::STATE_COMPLETED) {

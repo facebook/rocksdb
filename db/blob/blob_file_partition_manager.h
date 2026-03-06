@@ -146,7 +146,7 @@ class BlobFilePartitionManager {
   // State captured under the mutex for deferred sealing outside the mutex.
   struct DeferredSeal {
     std::unique_ptr<BlobLogWriter> writer;
-    std::list<PendingRecord> records;
+    std::vector<PendingRecord> records;
     uint64_t file_number = 0;
     uint64_t blob_count = 0;
     uint64_t total_blob_bytes = 0;
@@ -172,7 +172,7 @@ class BlobFilePartitionManager {
     uint64_t unflushed_bytes = 0;
 
     // Deferred flush state
-    std::list<PendingRecord> pending_records;
+    std::vector<PendingRecord> pending_records;
     std::atomic<uint64_t> pending_bytes{0};
     uint64_t next_write_offset = 0;
 

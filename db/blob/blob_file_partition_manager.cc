@@ -135,7 +135,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   // The mutex is held during I/O, but this only blocks one partition and
   // file close is infrequent (once per blob_file_size bytes).
   if (buffer_size_ > 0 && !partition->pending_records.empty()) {
-    std::list<PendingRecord> records =
+    std::vector<PendingRecord> records =
         std::move(partition->pending_records);
     partition->pending_records.clear();
     BlobLogWriter* writer = partition->writer.get();
@@ -344,15 +344,17 @@ void BlobFilePartitionManager::DrainBackgroundWork() {
 }
 
 void BlobFilePartitionManager::BackgroundIOLoop() {
+  static std::atomic<uint64_t> bg_work_ns{0}, bg_idle_ns{0}, bg_loops{0};
+
   while (true) {
     Partition* partition = nullptr;
     std::deque<BGWorkItem> items;
 
+    uint64_t t_wait_start = clock_ ? clock_->NowNanos() : 0;
     {
       MutexLock lock(&bg_mutex_);
       while (true) {
         if (bg_stop_) {
-          // Drain remaining work before stopping.
           bool any_work = false;
           for (auto& p : partitions_) {
             if (!p->bg_queue.empty() && !p->bg_in_flight) {
@@ -361,11 +363,21 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
             }
           }
           if (!any_work) {
+            uint64_t loops = bg_loops.load(std::memory_order_relaxed);
+            if (loops > 0) {
+              fprintf(stderr,
+                      "BG_THREAD_STATS: loops=%lu | work_avg=%lu us | "
+                      "idle_avg=%lu us | utilization=%.1f%%\n",
+                      (unsigned long)loops,
+                      (unsigned long)(bg_work_ns.load() / loops / 1000),
+                      (unsigned long)(bg_idle_ns.load() / loops / 1000),
+                      100.0 * bg_work_ns.load() /
+                          (bg_work_ns.load() + bg_idle_ns.load()));
+            }
             return;
           }
         }
 
-        // Find a partition with pending work that isn't being processed.
         for (auto& p : partitions_) {
           if (!p->bg_queue.empty() && !p->bg_in_flight) {
             partition = p.get();
@@ -378,13 +390,17 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
         bg_cv_.Wait();
       }
 
-      // Take all items from this partition's queue.
       items = std::move(partition->bg_queue);
       partition->bg_queue.clear();
       partition->bg_in_flight = true;
     }
 
-    // Process items outside bg_mutex_ (but one partition at a time).
+    uint64_t t_work_start = clock_ ? clock_->NowNanos() : 0;
+    if (clock_) {
+      bg_idle_ns.fetch_add(t_work_start - t_wait_start,
+                           std::memory_order_relaxed);
+    }
+
     for (auto& item : items) {
       Status s;
       if (item.type == BGWorkItem::kSeal) {
@@ -399,6 +415,12 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
           bg_status_ = s;
         }
       }
+    }
+
+    if (clock_) {
+      bg_work_ns.fetch_add(clock_->NowNanos() - t_work_start,
+                           std::memory_order_relaxed);
+      bg_loops.fetch_add(1, std::memory_order_relaxed);
     }
 
     // Mark partition as no longer in-flight and check for drain.
@@ -433,8 +455,6 @@ Status BlobFilePartitionManager::WriteBlobDeferred(
   assert(partition);
   assert(buffer_size_ > 0);
 
-  const uint64_t t_start = clock_ ? clock_->NowNanos() : 0;
-
   // Pre-calculate the offset where this value will be written.
   *blob_offset =
       partition->next_write_offset + BlobLogRecord::kHeaderSize + key.size();
@@ -442,22 +462,10 @@ Status BlobFilePartitionManager::WriteBlobDeferred(
       BlobLogRecord::kHeaderSize + key.size() + value.size();
   partition->next_write_offset += record_size;
 
-  const uint64_t t_offset = clock_ ? clock_->NowNanos() : 0;
-
   // Move pre-copied strings into pending record (no memcpy under mutex).
   partition->pending_records.push_back(
       {std::move(key_copy_), std::move(value_copy_), partition->file_number, *blob_offset});
   partition->pending_bytes.fetch_add(record_size, std::memory_order_relaxed);
-
-  const uint64_t t_end = clock_ ? clock_->NowNanos() : 0;
-
-  if (clock_) {
-    deferred_offset_nanos_.fetch_add(t_offset - t_start,
-                                     std::memory_order_relaxed);
-    deferred_list_nanos_.fetch_add(t_end - t_offset,
-                                   std::memory_order_relaxed);
-    deferred_count_.fetch_add(1, std::memory_order_relaxed);
-  }
 
   return Status::OK();
 }
@@ -467,20 +475,12 @@ Status BlobFilePartitionManager::WriteBlobSync(
     uint64_t* blob_offset) {
   assert(partition);
 
-  const uint64_t t_start = clock_ ? clock_->NowNanos() : 0;
-
   uint64_t key_offset = 0;
   WriteOptions wo;
   Status s =
       partition->writer->AddRecord(wo, key, value, &key_offset, blob_offset);
   if (!s.ok()) {
     return s;
-  }
-
-  if (clock_) {
-    sync_addrecord_nanos_.fetch_add(clock_->NowNanos() - t_start,
-                                    std::memory_order_relaxed);
-    sync_count_.fetch_add(1, std::memory_order_relaxed);
   }
 
   return Status::OK();
@@ -509,20 +509,6 @@ Status BlobFilePartitionManager::WriteBlob(
   assert(blob_offset);
   assert(blob_size);
 
-  // Instrumentation counters (static atomics for cross-thread aggregation).
-  static std::atomic<uint64_t> wb_count{0};
-  static std::atomic<uint64_t> wb_backpressure_ns{0};
-  static std::atomic<uint64_t> wb_precopy_ns{0};
-  static std::atomic<uint64_t> wb_mutex_wait_ns{0};
-  static std::atomic<uint64_t> wb_critical_ns{0};
-  static std::atomic<uint64_t> wb_seal_ns{0};
-  static std::atomic<uint64_t> wb_hwm_flush_ns{0};
-  static std::atomic<uint64_t> wb_rollover_count{0};
-  static std::atomic<uint64_t> wb_hwm_flush_count{0};
-  static std::atomic<uint64_t> wb_backpressure_count{0};
-
-  const uint64_t t0 = clock_ ? clock_->NowNanos() : 0;
-
   const uint32_t partition_idx =
       strategy_->SelectPartition(num_partitions_, column_family_id, key, value);
   assert(partition_idx < num_partitions_);
@@ -534,42 +520,14 @@ Status BlobFilePartitionManager::WriteBlob(
   if (buffer_size_ > 0) {
     if (partition->pending_bytes.load(std::memory_order_relaxed) >=
         buffer_size_) {
-      static std::atomic<uint64_t> bp_stall_count{0};
-      static std::atomic<uint64_t> bp_stall_total_ns{0};
-      static std::atomic<uint64_t> bp_stall_max_ns{0};
-
-      wb_backpressure_count.fetch_add(1, std::memory_order_relaxed);
-      uint64_t stall_start = clock_ ? clock_->NowNanos() : 0;
-
       SubmitFlush(partition);
       MutexLock lock(&partition->mutex);
       while (partition->pending_bytes.load(std::memory_order_relaxed) >=
              buffer_size_) {
         partition->pending_cv.Wait();
       }
-
-      if (clock_) {
-        uint64_t stall_ns = clock_->NowNanos() - stall_start;
-        bp_stall_total_ns.fetch_add(stall_ns, std::memory_order_relaxed);
-        // Update max (relaxed, approximate)
-        uint64_t cur_max = bp_stall_max_ns.load(std::memory_order_relaxed);
-        while (stall_ns > cur_max) {
-          if (bp_stall_max_ns.compare_exchange_weak(cur_max, stall_ns,
-              std::memory_order_relaxed)) break;
-        }
-        uint64_t cnt = bp_stall_count.fetch_add(1, std::memory_order_relaxed) + 1;
-        if (cnt % 200 == 0) {
-          fprintf(stderr,
-                  "  BACKPRESSURE: %lu stalls | avg=%lu μs | max=%lu μs\n",
-                  (unsigned long)cnt,
-                  (unsigned long)(bp_stall_total_ns.load() / cnt / 1000),
-                  (unsigned long)(bp_stall_max_ns.load() / 1000));
-        }
-      }
     }
   }
-
-  const uint64_t t1 = clock_ ? clock_->NowNanos() : 0;
 
   bool need_flush = false;
   DeferredSeal deferred_seal;
@@ -580,11 +538,8 @@ Status BlobFilePartitionManager::WriteBlob(
     value_copy.assign(value.data(), value.size());
   }
 
-  const uint64_t t2 = clock_ ? clock_->NowNanos() : 0;
   {
     MutexLock lock(&partition->mutex);
-
-    const uint64_t t3 = clock_ ? clock_->NowNanos() : 0;
 
     if (!partition->writer ||
         partition->column_family_id != column_family_id ||
@@ -622,7 +577,6 @@ Status BlobFilePartitionManager::WriteBlob(
     partition->file_size = partition->total_blob_bytes + BlobLogHeader::kSize;
 
     if (partition->file_size >= blob_file_size_) {
-      wb_rollover_count.fetch_add(1, std::memory_order_relaxed);
       s = PrepareFileRollover(partition, column_family_id, compression,
                               &deferred_seal);
       if (!s.ok()) {
@@ -638,65 +592,16 @@ Status BlobFilePartitionManager::WriteBlob(
             high_water_mark_) {
       need_flush = true;
     }
-
-    const uint64_t t4 = clock_ ? clock_->NowNanos() : 0;
-    if (clock_) {
-      wb_mutex_wait_ns.fetch_add(t3 - t2, std::memory_order_relaxed);
-      wb_critical_ns.fetch_add(t4 - t3, std::memory_order_relaxed);
-    }
   }  // mutex released
-
-  const uint64_t t5 = clock_ ? clock_->NowNanos() : 0;
 
   // Submit seal to background thread (non-blocking).
   if (deferred_seal.writer) {
     SubmitSeal(partition, std::move(deferred_seal));
   }
 
-  const uint64_t t6 = clock_ ? clock_->NowNanos() : 0;
-
   // Submit flush to background thread (non-blocking).
   if (need_flush) {
-    wb_hwm_flush_count.fetch_add(1, std::memory_order_relaxed);
     SubmitFlush(partition);
-  }
-
-  const uint64_t t7 = clock_ ? clock_->NowNanos() : 0;
-
-  if (clock_) {
-    wb_backpressure_ns.fetch_add(t1 - t0, std::memory_order_relaxed);
-    wb_precopy_ns.fetch_add(t2 - t1, std::memory_order_relaxed);
-    wb_seal_ns.fetch_add(t6 - t5, std::memory_order_relaxed);
-    wb_hwm_flush_ns.fetch_add(t7 - t6, std::memory_order_relaxed);
-
-    uint64_t cnt = wb_count.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (cnt % 200000 == 0) {
-      fprintf(stderr,
-              "\n=== WriteBlob timing (%lu calls) ===\n"
-              "  backpressure:  %6lu ns/op  (%lu events)\n"
-              "  precopy:       %6lu ns/op\n"
-              "  mutex_wait:    %6lu ns/op\n"
-              "  critical_sec:  %6lu ns/op\n"
-              "  seal_deferred: %6lu ns/op  (%lu rollovers)\n"
-              "  hwm_flush:     %6lu ns/op  (%lu events)\n"
-              "  TOTAL:         %6lu ns/op\n",
-              (unsigned long)cnt,
-              (unsigned long)(wb_backpressure_ns.load() / cnt),
-              (unsigned long)wb_backpressure_count.load(),
-              (unsigned long)(wb_precopy_ns.load() / cnt),
-              (unsigned long)(wb_mutex_wait_ns.load() / cnt),
-              (unsigned long)(wb_critical_ns.load() / cnt),
-              (unsigned long)(wb_seal_ns.load() / cnt),
-              (unsigned long)wb_rollover_count.load(),
-              (unsigned long)(wb_hwm_flush_ns.load() / cnt),
-              (unsigned long)wb_hwm_flush_count.load(),
-              (unsigned long)((wb_backpressure_ns.load() +
-                               wb_precopy_ns.load() +
-                               wb_mutex_wait_ns.load() +
-                               wb_critical_ns.load() +
-                               wb_seal_ns.load() +
-                               wb_hwm_flush_ns.load()) / cnt));
-    }
   }
 
   return Status::OK();
@@ -712,7 +617,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   //    processes it (sequentially, after this flush completes).
   // 2. No other code path calls FlushPendingRecords (backpressure submits to
   //    BG thread and waits).
-  std::list<PendingRecord> records;
+  std::vector<PendingRecord> records;
   BlobLogWriter* writer = nullptr;
   {
     MutexLock lock(&partition->mutex);
@@ -727,8 +632,6 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   if (!writer) {
     return Status::OK();
   }
-
-  const uint64_t t_start = clock_ ? clock_->NowNanos() : 0;
 
   for (auto& record : records) {
     uint64_t key_offset = 0;
@@ -762,12 +665,6 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     if (!s.ok()) {
       return s;
     }
-  }
-
-  if (clock_) {
-    flush_nanos_.fetch_add(clock_->NowNanos() - t_start,
-                           std::memory_order_relaxed);
-    flush_count_.fetch_add(1, std::memory_order_relaxed);
   }
 
   return Status::OK();
@@ -954,53 +851,6 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
   return Status::OK();
 }
 
-void BlobFilePartitionManager::DumpTimingStats() const {
-  uint64_t dc = deferred_count_.load(std::memory_order_relaxed);
-  uint64_t sc = sync_count_.load(std::memory_order_relaxed);
-  uint64_t total = dc + sc;
-  if (dc > 0) {
-    fprintf(stderr,
-            "=== Blob Direct Write Timing (DEFERRED mode, %lu records) ===\n"
-            "  offset_calc:  %7lu ns/op\n"
-            "  list_append:  %7lu ns/op  (zero-copy Slice + shared_ptr ref)\n"
-            "  mutex_wait:   %7lu ns/op\n"
-            "  TOTAL under mutex: %7lu ns/op\n",
-            (unsigned long)dc,
-            (unsigned long)(deferred_offset_nanos_.load(
-                                std::memory_order_relaxed) /
-                            dc),
-            (unsigned long)(deferred_list_nanos_.load(
-                                std::memory_order_relaxed) /
-                            dc),
-            (unsigned long)(mutex_wait_nanos_.load(std::memory_order_relaxed) /
-                            (total > 0 ? total : 1)),
-            (unsigned long)((deferred_offset_nanos_.load(
-                                 std::memory_order_relaxed) +
-                             deferred_list_nanos_.load(
-                                 std::memory_order_relaxed)) /
-                            dc));
-    uint64_t fc = flush_count_.load(std::memory_order_relaxed);
-    if (fc > 0) {
-      fprintf(
-          stderr,
-          "  flush:        %7lu ns/flush  (%lu flushes, %lu records/flush)\n",
-          (unsigned long)(flush_nanos_.load(std::memory_order_relaxed) / fc),
-          (unsigned long)fc, (unsigned long)(dc / fc));
-    }
-    fprintf(stderr, "\n");
-  }
-  if (sc > 0) {
-    fprintf(stderr,
-            "=== Blob Direct Write Timing (SYNC mode, %lu records) ===\n"
-            "  AddRecord:    %7lu ns/op\n"
-            "  mutex_wait:   %7lu ns/op\n\n",
-            (unsigned long)sc,
-            (unsigned long)(sync_addrecord_nanos_.load(
-                                std::memory_order_relaxed) /
-                            sc),
-            (unsigned long)(mutex_wait_nanos_.load(std::memory_order_relaxed) /
-                            (total > 0 ? total : 1)));
-  }
-}
+void BlobFilePartitionManager::DumpTimingStats() const {}
 
 }  // namespace ROCKSDB_NAMESPACE
