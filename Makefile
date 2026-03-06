@@ -279,18 +279,20 @@ endif
 
 CXXFLAGS += $(ARCHFLAG)
 
-ifdef HAS_ARM
-  ifdef ARM_MARCH
-    CXXFLAGS += -march=$(ARM_MARCH)
-    CFLAGS += -march=$(ARM_MARCH)
-  endif
-  ifdef XXH_VECTOR
-    CXXFLAGS += -DXXH_VECTOR=$(XXH_VECTOR)
-    CFLAGS += -DXXH_VECTOR=$(XXH_VECTOR)
-  endif
-  ifdef ARMCRC_SOURCE
-    ARMCRC_SOURCE=1
-  endif
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
+ifneq ($(PLATFORM),OS_MACOSX)
+CXXFLAGS += -march=armv8-a+crc+crypto
+CFLAGS += -march=armv8-a+crc+crypto
+ARMCRC_SOURCE=1
+endif
+endif
+
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve -xc /dev/null 2>&1))
+ifneq ($(PLATFORM),OS_MACOSX)
+  HAVE_ARMV8_SVE=1
+  CXXFLAGS += -DHAVE_ARMV8_SVE
+  CFLAGS   += -DHAVE_ARMV8_SVE
+endif
 endif
 
 export JAVAC_ARGS
@@ -2543,6 +2545,12 @@ $(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.c
 $(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
+
+ifeq ($(HAVE_ARMV8_SVE),1)
+$(OBJ_DIR)/util/xxhash.o: util/xxhash.cc
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -march=armv8.2-a+sve -c $< -o $@ $(COVERAGEFLAGS)
+endif
+
 $(OBJ_DIR)/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
