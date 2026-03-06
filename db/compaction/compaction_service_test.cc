@@ -1113,6 +1113,8 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
             VerifyOutputFlags::kVerifyBlockChecksum,
         VerifyOutputFlags::kEnableForRemoteCompaction |
             VerifyOutputFlags::kVerifyIteration,
+        VerifyOutputFlags::kEnableForRemoteCompaction |
+            VerifyOutputFlags::kVerifyFileChecksum,
         VerifyOutputFlags::kVerifyAll}) {
     SCOPED_TRACE(
         "verify_output_flags=" +
@@ -1124,6 +1126,7 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = false;
     options.verify_output_flags = verify_output_flags;
+    options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1159,10 +1162,13 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
         !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
     const bool should_verify_iteration =
         !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+    const bool should_verify_file_checksum =
+        !!(verify_output_flags & VerifyOutputFlags::kVerifyFileChecksum);
 
     Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
     if (is_enabled_for_remote_compaction &&
-        (should_verify_block_checksum || should_verify_iteration)) {
+        (should_verify_block_checksum || should_verify_iteration ||
+         should_verify_file_checksum)) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsCorruption());
     } else {
