@@ -1,0 +1,1 @@
+Add `rocksdb_memory_allocator_create()` to the C API for creating custom memory allocators with user-provided function pointers. This enables language bindings (Rust, Go, Python, etc.) to plug in allocators like mimalloc, tcmalloc, or snmalloc without requiring them to be linked at RocksDB build time.

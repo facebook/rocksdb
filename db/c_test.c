@@ -517,6 +517,19 @@ static char* MergeOperatorPartialMerge(void* arg, const char* key,
   return result;
 }
 
+static void* CustomAllocatorAllocate(void* state, size_t size) {
+  (void)state;
+  return malloc(size);
+}
+static void CustomAllocatorDeallocate(void* state, void* p) {
+  (void)state;
+  free(p);
+}
+static const char* CustomAllocatorName(void* state) {
+  (void)state;
+  return "test_custom_allocator";
+}
+
 static void CheckTxnGet(rocksdb_transaction_t* txn,
                         const rocksdb_readoptions_t* options, const char* key,
                         const char* expected) {
@@ -4878,6 +4891,29 @@ int main(int argc, char** argv) {
                                sst_file_manager));
 
     rocksdb_sst_file_manager_destroy(sst_file_manager);
+  }
+
+  StartPhase("custom_memory_allocator");
+  {
+    rocksdb_memory_allocator_t* allocator = rocksdb_memory_allocator_create(
+        NULL,                        /* state */
+        NULL,                        /* destructor */
+        CustomAllocatorAllocate,     /* allocate */
+        CustomAllocatorDeallocate,   /* deallocate */
+        NULL,                        /* usable_size (use default) */
+        CustomAllocatorName          /* name */
+    );
+
+    rocksdb_lru_cache_options_t* co = rocksdb_lru_cache_options_create();
+    rocksdb_lru_cache_options_set_capacity(co, 1024 * 1024);
+    rocksdb_lru_cache_options_set_memory_allocator(co, allocator);
+
+    rocksdb_cache_t* co_cache = rocksdb_cache_create_lru_with_options(co);
+    CheckCondition(co_cache != NULL);
+
+    rocksdb_cache_destroy(co_cache);
+    rocksdb_lru_cache_options_destroy(co);
+    rocksdb_memory_allocator_destroy(allocator);
   }
 
   StartPhase("cancel_all_background_work");
