@@ -109,9 +109,15 @@ class SkipListRep : public MemTableRep {
     return status;
   }
 
-  void MultiGet(size_t num_keys, const char* const* keys, void** callback_args,
-                bool (*callback_func)(void* arg, const char* entry)) override {
-    skip_list_.MultiGet(num_keys, keys, callback_args, callback_func);
+  Status MultiGet(size_t num_keys, const char* const* keys,
+                  void** callback_args,
+                  bool (*callback_func)(void* arg, const char* entry),
+                  bool allow_data_in_errors, bool detect_key_out_of_order,
+                  const std::function<Status(const char*, bool)>&
+                      key_validation_callback) override {
+    return skip_list_.MultiGet(num_keys, keys, callback_args, callback_func,
+                               allow_data_in_errors, detect_key_out_of_order,
+                               key_validation_callback);
   }
 
   uint64_t ApproximateNumEntries(const Slice& start_ikey,

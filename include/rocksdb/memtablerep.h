@@ -219,10 +219,17 @@ class MemTableRep {
   // Keys must be memtable-encoded and in non-decreasing order. Implementations
   // may exploit the sorted key order for more efficient lookups.
   //
+  // When detect_key_out_of_order is true, validates key ordering during
+  // traversal and returns Corruption if out-of-order keys are found.
+  // When key_validation_callback is non-null, calls it on each visited node.
+  //
   // Default implementation calls Get() per key via an iterator.
-  virtual void MultiGet(size_t num_keys, const char* const* keys,
-                        void** callback_args,
-                        bool (*callback_func)(void* arg, const char* entry));
+  virtual Status MultiGet(
+      size_t num_keys, const char* const* keys, void** callback_args,
+      bool (*callback_func)(void* arg, const char* entry),
+      bool allow_data_in_errors = false, bool detect_key_out_of_order = false,
+      const std::function<Status(const char*, bool)>& key_validation_callback =
+          nullptr);
 
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {

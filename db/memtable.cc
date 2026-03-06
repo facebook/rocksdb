@@ -73,8 +73,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks),
       memtable_veirfy_per_key_checksum_on_seek(
           mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek),
-      memtable_multi_get_finger_search(
-          ioptions.memtable_multi_get_finger_search) {}
+      memtable_batch_lookup_optimization(
+          ioptions.memtable_batch_lookup_optimization) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
@@ -1578,12 +1578,12 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     }
   }
 
-  // Use finger search when enabled and not in paranoid mode
-  bool use_finger_search = moptions_.memtable_multi_get_finger_search &&
-                           !moptions_.paranoid_memory_checks &&
-                           !moptions_.memtable_veirfy_per_key_checksum_on_seek;
+  // Use batch lookup optimization when enabled
+  bool use_batch_optimization = moptions_.memtable_batch_lookup_optimization;
+  bool validate = moptions_.paranoid_memory_checks ||
+                  moptions_.memtable_veirfy_per_key_checksum_on_seek;
 
-  if (use_finger_search) {
+  if (use_batch_optimization) {
     // Phase 1: Handle range tombstones and set up Savers for batched lookup
     std::array<Saver, MultiGetContext::MAX_BATCH_SIZE> savers;
     std::array<const char*, MultiGetContext::MAX_BATCH_SIZE> memtable_keys;
@@ -1639,10 +1639,21 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       num_keys++;
     }
 
-    // Phase 2: Batched finger-search lookup
+    // Phase 2: Batched lookup
     if (num_keys > 0) {
-      table_->MultiGet(num_keys, memtable_keys.data(), callback_args.data(),
-                       SaveValue);
+      Status check_s =
+          table_->MultiGet(num_keys, memtable_keys.data(), callback_args.data(),
+                           SaveValue, moptions_.allow_data_in_errors,
+                           validate ? moptions_.paranoid_memory_checks : false,
+                           validate ? key_validation_callback_ : nullptr);
+      if (check_s.IsCorruption()) {
+        // Mark all remaining keys as corruption
+        for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+          *(iter->s) = check_s;
+          range->MarkKeyDone(iter);
+        }
+        return;
+      }
     }
 
     // Phase 3: Process results
@@ -1946,18 +1957,34 @@ void MemTableRep::Get(const LookupKey& k, void* callback_args,
   }
 }
 
-void MemTableRep::MultiGet(size_t num_keys, const char* const* keys,
-                           void** callback_args,
-                           bool (*callback_func)(void* arg,
-                                                 const char* entry)) {
+Status MemTableRep::MultiGet(
+    size_t num_keys, const char* const* keys, void** callback_args,
+    bool (*callback_func)(void* arg, const char* entry),
+    bool allow_data_in_errors, bool detect_key_out_of_order,
+    const std::function<Status(const char*, bool)>& key_validation_callback) {
+  bool validate = detect_key_out_of_order || key_validation_callback != nullptr;
   std::unique_ptr<Iterator> iter(GetIterator());
   for (size_t i = 0; i < num_keys; ++i) {
     Slice dummy;
-    iter->Seek(dummy, keys[i]);
-    for (; iter->Valid() && callback_func(callback_args[i], iter->key());
-         iter->Next()) {
+    if (validate) {
+      Status s = iter->SeekAndValidate(dummy, keys[i], allow_data_in_errors,
+                                       detect_key_out_of_order,
+                                       key_validation_callback);
+      for (; iter->Valid() && s.ok() &&
+             callback_func(callback_args[i], iter->key());
+           s = iter->NextAndValidate(allow_data_in_errors)) {
+      }
+      if (!s.ok()) {
+        return s;
+      }
+    } else {
+      iter->Seek(dummy, keys[i]);
+      for (; iter->Valid() && callback_func(callback_args[i], iter->key());
+           iter->Next()) {
+      }
     }
   }
+  return Status::OK();
 }
 
 void MemTable::RefLogContainingPrepSection(uint64_t log) {

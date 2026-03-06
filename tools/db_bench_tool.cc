@@ -802,8 +802,8 @@ DEFINE_bool(memtable_whole_key_filtering, false,
             "Try to use whole key bloom filter in memtables.");
 DEFINE_bool(memtable_use_huge_page, false,
             "Try to use huge page in memtables.");
-DEFINE_bool(memtable_multi_get_finger_search, false,
-            "Use finger search optimization for memtable MultiGet.");
+DEFINE_bool(memtable_batch_lookup_optimization, false,
+            "Use batch lookup optimization for memtable MultiGet.");
 
 DEFINE_bool(whole_key_filtering,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().whole_key_filtering,
@@ -4474,8 +4474,8 @@ class Benchmark {
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
     options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
-    options.memtable_multi_get_finger_search =
-        FLAGS_memtable_multi_get_finger_search;
+    options.memtable_batch_lookup_optimization =
+        FLAGS_memtable_batch_lookup_optimization;
     if (FLAGS_memtable_insert_with_hint_prefix_size > 0) {
       options.memtable_insert_with_hint_prefix_extractor.reset(
           NewCappedPrefixTransform(

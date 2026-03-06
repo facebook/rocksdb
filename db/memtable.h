@@ -65,7 +65,7 @@ struct ImmutableMemTableOptions {
   bool allow_data_in_errors;
   bool paranoid_memory_checks;
   bool memtable_veirfy_per_key_checksum_on_seek;
-  bool memtable_multi_get_finger_search;
+  bool memtable_batch_lookup_optimization;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
