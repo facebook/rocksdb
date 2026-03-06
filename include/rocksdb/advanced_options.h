@@ -160,10 +160,11 @@ struct CompactionOptionsFIFO {
   // explicitly set to a non-zero value, it overrides the auto-calculated
   // target.
   //
-  // Requires:
+  // Recommends:
   //   - allow_compaction = true (master switch for intra-L0 compaction)
   //   - max_data_files_size > 0 (needed to compute the target file size)
-  // Setting this to true without these will fail option validation.
+  // If these are not met, kv_ratio compaction is skipped and the old
+  // cost-based intra-L0 compaction algorithm is used as a fallback.
   //
   // When false, the old intra-L0 strategy is used if allow_compaction is
   // true (PickCostBasedIntraL0Compaction with 1.1 * write_buffer_size guard).

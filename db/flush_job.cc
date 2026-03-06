@@ -616,10 +616,17 @@ Status FlushJob::MemPurge() {
           !(new_mem->ShouldFlushNow())) {
         // Construct fragmented memtable range tombstones without mutex
         new_mem->ConstructFragmentedRangeTombstones();
+        TEST_SYNC_POINT("FlushJob::MemPurge:BeforeReacquireMutex");
+        TEST_SYNC_POINT("FlushJob::MemPurge:AfterWaitForTest");
         db_mutex_->Lock();
         // Take the newest id, so that memtables in MemtableList don't have
-        // out-of-order memtable ids.
-        uint64_t new_mem_id = mems_.back()->GetID();
+        // out-of-order memtable ids. While the db mutex was released during
+        // MemPurge, new memtables may have been switched to the immutable
+        // list with higher IDs, so we must use the maximum of the original
+        // flush batch ID and the current latest immutable memtable ID.
+        uint64_t new_mem_id = std::max(
+            mems_.back()->GetID(),
+            cfd_->imm()->GetLatestMemTableID(false /*for_atomic_flush*/));
 
         new_mem->SetID(new_mem_id);
         // Take the latest memtable's next log number.

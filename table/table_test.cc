@@ -2295,11 +2295,11 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
   Slice block_contents = builder.Finish();
   std::string block_data = block_contents.ToString();
 
-  // The footer is the last 4 bytes - corrupt it by setting reserved bit 29
+  // The footer is the last 4 bytes - corrupt it by setting reserved bit 30
   ASSERT_GE(block_data.size(), sizeof(uint32_t));
   size_t footer_offset = block_data.size() - sizeof(uint32_t);
   uint32_t footer = DecodeFixed32(block_data.data() + footer_offset);
-  footer |= (1u << 29);  // Set a reserved bit
+  footer |= (1u << 30);  // Set a reserved bit
   EncodeFixed32(&block_data[footer_offset], footer);
 
   // Try to construct a Block from the corrupted data
@@ -7657,7 +7657,8 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
       Slice AddIndexEntry(const Slice& last_key_in_current_block,
                           const Slice* first_key_in_next_block,
                           const BlockHandle& block_handle,
-                          std::string* separator_scratch) override {
+                          std::string* separator_scratch,
+                          const IndexEntryContext& /*context*/) override {
         if (keys_added_ == 0) {
           return last_key_in_current_block;
         }
@@ -7773,8 +7774,8 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
               next_error_count_(factory->next_error_count_),
               comparator_(comparator) {}
 
-        Status SeekAndGetResult(const Slice& key,
-                                IterateResult* result) override {
+        Status SeekAndGetResult(const Slice& key, IterateResult* result,
+                                const SeekContext& /*context*/) override {
           Status s;
           if (seek_error_count_) {
             seek_error_count_--;

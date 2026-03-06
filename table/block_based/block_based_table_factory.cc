@@ -189,7 +189,8 @@ static std::unordered_map<std::string, BlockBasedTableOptions::BlockSearchType>
     block_base_table_index_search_type_string_map = {
         {"kBinary", BlockBasedTableOptions::BlockSearchType::kBinary},
         {"kInterpolation",
-         BlockBasedTableOptions::BlockSearchType::kInterpolation}};
+         BlockBasedTableOptions::BlockSearchType::kInterpolation},
+        {"kAuto", BlockBasedTableOptions::BlockSearchType::kAuto}};
 
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>
@@ -350,6 +351,9 @@ static struct BlockBasedTableTypeInfo {
          {offsetof(struct BlockBasedTableOptions,
                    separate_key_value_in_data_block),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"uniform_cv_threshold",
+         {offsetof(struct BlockBasedTableOptions, uniform_cv_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal}},
         {"verify_compression",
          {offsetof(struct BlockBasedTableOptions, verify_compression),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
@@ -947,6 +951,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  format_version: %d\n",
            table_options_.format_version);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  uniform_cv_threshold: %lf\n",
+           table_options_.uniform_cv_threshold);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);

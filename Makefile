@@ -627,11 +627,22 @@ ROCKSDBTESTS_SUBSET ?= $(TESTS)
 #   its various tests. Parallel can fill up your /dev/shm
 # db_bloom_filter_test - serial because excessive space usage by instances
 #   of DBFilterConstructionReserveMemoryTestWithParam can fill up /dev/shm
+# perf_context_test - 1GB write_buffer_size default, parallel can fill /dev/shm
+# obsolete_files_test - ~1GB write_buffer_size/target_file_size_base
+# backup_engine_test - 1GB write_buffer_size in FailOverwritingBackups
+# prefetch_test - 1GB write_buffer_size in PrefetchWhenReseek parameterized test
+# db_io_failure_test - 256MB write_buffer_size in FlushSstRangeSyncError and
+#   CompactionSstRangeSyncError
 NON_PARALLEL_TEST = \
 	c_test \
 	env_test \
 	deletefile_test \
 	db_bloom_filter_test \
+	perf_context_test \
+	obsolete_files_test \
+	backup_engine_test \
+	prefetch_test \
+	db_io_failure_test \
 	$(PLUGIN_TESTS) \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
@@ -884,6 +895,9 @@ $(parallel_tests):
       "d=\$(TEST_TMPDIR)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
       "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+      'test_retcode=$$?' \
+      '[ $$test_retcode -eq 0 ] && rm -rf $$d' \
+      'exit $$test_retcode' \
 		> $$TEST_SCRIPT; \
 		chmod a=rx $$TEST_SCRIPT; \
 	done
@@ -1001,6 +1015,11 @@ check-progress:
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
 check: all
+	$(AM_V_at)echo "Cleaning up stale test directories older than 3 hours..."; \
+	  test_tmpdir_parent=$$(dirname $(TEST_TMPDIR)); \
+	  find $$test_tmpdir_parent -maxdepth 1 -name 'rocksdb.*' -type d \
+	    -mmin +180 -exec rm -rf {} + 2>/dev/null; \
+	  true
 	$(MAKE) gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \

@@ -372,6 +372,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.multiscan.op.prepare.iterators.micros"},
     {MULTISCAN_PREPARE_MICROS, "rocksdb.multiscan.prepare.micros"},
     {MULTISCAN_BLOCKS_PER_PREPARE, "rocksdb.multiscan.blocks.per.prepare"},
+    {BLOCK_KEY_DISTRIBUTION_CV, "rocksdb.block.key.distribution.cv"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

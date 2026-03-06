@@ -12,6 +12,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/periodic_task_scheduler.h"
+#include "db/version_util.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -1584,6 +1585,30 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
       &trim_history_scheduler_, true, wal_number, this,
       false /* concurrent_memtable_writes */, next_sequence, has_valid_writes,
       seq_per_batch_, batch_per_txn_);
+
+  // Check WriteBufferManager global limit during recovery.
+  // When multiple RocksDB instances share a WriteBufferManager, a recovering
+  // instance could exceed the global memory limit. Schedule flushes when needed
+  // to prevent OOM during WAL recovery.
+  //
+  // TODO: Currently we schedule all CFs with non-empty memtables for flush
+  // (similar to the atomic_flush=false path in the normal write flow). This
+  // may produce more, smaller L0 files in some CFs. A future improvement
+  // could flush only the oldest CF or pick CFs more selectively to reduce
+  // unnecessary L0 file creation.
+  if (status.ok() && *has_valid_writes &&
+      immutable_db_options_.enforce_write_buffer_manager_during_recovery &&
+      write_buffer_manager_ != nullptr &&
+      write_buffer_manager_->ShouldFlush()) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->mem() != nullptr && cfd->mem()->GetFirstSequenceNumber() != 0 &&
+          !cfd->mem()->HasFlushScheduled()) {
+        cfd->mem()->MarkFlushScheduled();
+        flush_scheduler_.ScheduleWork(cfd);
+      }
+    }
+  }
+
   return status;
 }
 
@@ -2657,6 +2682,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->DeleteObsoleteFiles();
     TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
     impl->MaybeScheduleFlushOrCompaction();
+
+    if (impl->immutable_db_options_.open_files_async) {
+      impl->ScheduleAsyncFileOpening();
+    }
     impl->mutex_.Unlock();
   }
 
@@ -2705,4 +2734,125 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   return s;
 }
+
+struct AsyncFileOpenContext {
+  DBImpl* db = nullptr;
+  FileOptions file_options;
+  std::vector<Version*> versions;
+
+  AsyncFileOpenContext() = default;
+  AsyncFileOpenContext(const AsyncFileOpenContext&) = delete;
+  AsyncFileOpenContext& operator=(const AsyncFileOpenContext&) = delete;
+  AsyncFileOpenContext(AsyncFileOpenContext&&) = delete;
+  AsyncFileOpenContext& operator=(AsyncFileOpenContext&&) = delete;
+
+  ~AsyncFileOpenContext() {
+    db->mutex()->AssertHeld();
+    for (auto* v : versions) {
+      // must unref version before cfd
+      ColumnFamilyData* cfd = v->cfd();
+      v->Unref();
+      cfd->UnrefAndTryDelete();
+    }
+  }
+};
+
+void DBImpl::ScheduleAsyncFileOpening() {
+  mutex_.AssertHeld();
+
+  auto* ctx = new AsyncFileOpenContext();
+  ctx->db = this;
+  ctx->file_options = versions_->file_options();
+
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    assert(!cfd->IsDropped());
+    Version* current = cfd->current();
+    VersionStorageInfo* vstorage = current->storage_info();
+    bool has_files = false;
+    for (int level = 0; level < vstorage->num_levels() && !has_files; level++) {
+      has_files = !vstorage->LevelFiles(level).empty();
+    }
+    if (has_files) {
+      cfd->Ref();
+      current->Ref();
+      ctx->versions.push_back(current);
+    }
+  }
+
+  bg_async_file_open_state_ = AsyncFileOpenState::kScheduled;
+
+  // since this is a one time job, best to schedule it with high priority
+  env_->Schedule(&DBImpl::BGWorkAsyncFileOpen, ctx, Env::Priority::HIGH,
+                 nullptr);
+}
+
+void DBImpl::MarkAsyncFileOpenNotNeeded() {
+  mutex_.AssertHeld();
+  assert(bg_async_file_open_state_ == AsyncFileOpenState::kNotScheduled);
+  bg_async_file_open_state_ = AsyncFileOpenState::kComplete;
+}
+
+void DBImpl::BGWorkAsyncFileOpen(void* arg) {
+  TEST_SYNC_POINT("DBImpl::BGWorkAsyncFileOpen::Start");
+
+  AsyncFileOpenContext* raw_ctx = static_cast<AsyncFileOpenContext*>(arg);
+  DBImpl* db = raw_ctx->db;
+
+  auto deleter = [](AsyncFileOpenContext* p) {
+    auto* dbPtr = p->db;
+    InstrumentedMutexLock l(&dbPtr->mutex_);
+    delete p;
+    dbPtr->bg_async_file_open_state_ = AsyncFileOpenState::kComplete;
+    dbPtr->bg_cv_.SignalAll();
+  };
+  std::unique_ptr<AsyncFileOpenContext, decltype(deleter)> ctx(raw_ctx,
+                                                               deleter);
+
+  ReadOptions ro;
+  for (size_t i = 0; i < ctx->versions.size(); i++) {
+    auto* version = ctx->versions[i];
+    ColumnFamilyData* cfd = version->cfd();
+
+    // Skip column families that were dropped after scheduling
+    if (cfd->IsDropped()) {
+      continue;
+    }
+
+    VersionStorageInfo* vstorage = version->storage_info();
+
+    MutableCFOptions mutable_cf_options;
+    {
+      InstrumentedMutexLock l(&db->mutex_);
+      mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    }
+    size_t max_file_size_for_l0_meta_pin =
+        MaxFileSizeForL0MetaPin(mutable_cf_options);
+
+    std::vector<std::pair<FileMetaData*, int>> files_meta;
+    for (int level = 0; level < vstorage->num_levels(); level++) {
+      for (FileMetaData* file_meta : vstorage->LevelFiles(level)) {
+        files_meta.emplace_back(file_meta, level);
+      }
+    }
+
+    Status s = LoadTableHandlersHelper(
+        files_meta, cfd->table_cache(), ctx->file_options,
+        *vstorage->InternalComparator(), cfd->internal_stats(),
+        db->immutable_db_options_.max_file_opening_threads,
+        false /* prefetch_index_and_filter_in_cache */, mutable_cf_options,
+        max_file_size_for_l0_meta_pin, ro, &db->shutting_down_);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(
+          db->immutable_db_options_.info_log,
+          "BGWorkAsyncFileOpen: LoadTableHandlers failed for CF %s: "
+          "%s",
+          cfd->GetName().c_str(), s.ToString().c_str());
+      InstrumentedMutexLock l(&db->mutex_);
+      db->error_handler_.SetBGError(s, BackgroundErrorReason::kAsyncFileOpen);
+      break;
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::BGWorkAsyncFileOpen:Done");
+}
+
 }  // namespace ROCKSDB_NAMESPACE

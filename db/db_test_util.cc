@@ -675,6 +675,28 @@ Status DBTestBase::TryReopenWithColumnFamilies(
   return TryReopenWithColumnFamilies(cfs, v_opts);
 }
 
+Status DBTestBase::TryReopenReadOnlyWithColumnFamilies(
+    const std::vector<std::string>& cfs, const std::vector<Options>& options) {
+  Close();
+  EXPECT_EQ(cfs.size(), options.size());
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (size_t i = 0; i < cfs.size(); ++i) {
+    column_families.emplace_back(cfs[i], options[i]);
+  }
+  DBOptions db_opts = DBOptions(options[0]);
+  last_options_ = options[0];
+  MaybeInstallTimeElapseOnlySleep(db_opts);
+  return DB::OpenForReadOnly(db_opts, dbname_, column_families, &handles_,
+                             &db_);
+}
+
+Status DBTestBase::TryReopenReadOnlyWithColumnFamilies(
+    const std::vector<std::string>& cfs, const Options& options) {
+  Close();
+  std::vector<Options> v_opts(cfs.size(), options);
+  return TryReopenReadOnlyWithColumnFamilies(cfs, v_opts);
+}
+
 void DBTestBase::Reopen(const Options& options) {
   ASSERT_OK(TryReopen(options));
 }

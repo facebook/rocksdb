@@ -96,6 +96,7 @@ LIB_SOURCES =                                                   \
   db/version_edit.cc                                            \
   db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
+  db/version_util.cc                                            \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
   db/wide/wide_column_serialization.cc                          \
@@ -182,6 +183,7 @@ LIB_SOURCES =                                                   \
   table/block_based/block_based_table_builder.cc                \
   table/block_based/block_based_table_factory.cc                \
   table/block_based/block_based_table_iterator.cc               \
+  table/block_based/multi_scan_index_iterator.cc                \
   table/block_based/block_based_table_reader.cc                 \
   table/block_based/block_builder.cc                            \
   table/block_based/block_cache.cc                              \

@@ -46,24 +46,34 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     UserDefinedIndexBuilder::BlockHandle handle;
     handle.offset = block_handle.offset();
     handle.size = block_handle.size();
-    // Forward the call to both index builders
+    // Forward the call to both index builders.
+    // Parse the internal keys to extract user keys and sequence numbers.
+    // There's no way to return an error here, so we remember the status and
+    // return it in Finish().
     ParsedInternalKey pkey_last;
     ParsedInternalKey pkey_first;
-    // There's no way to return an error here, so we remember the statsu and
-    // return it in Finish()
     if (status_.ok()) {
       status_ = ParseInternalKey(last_key_in_current_block, &pkey_last,
-                                 /*lof_err_key*/ false);
+                                 /*log_err_key*/ false);
     }
     if (status_.ok() && first_key_in_next_block) {
       status_ = ParseInternalKey(*first_key_in_next_block, &pkey_first,
-                                 /*lof_err_key*/ false);
+                                 /*log_err_key*/ false);
     }
     if (status_.ok()) {
+      // Pass both user keys AND sequence numbers to the UDI builder via
+      // the IndexEntryContext. The sequence numbers are needed when the
+      // same user key spans a data block boundary (e.g., due to snapshots
+      // keeping multiple versions). Without sequence numbers, the UDI
+      // cannot produce a separator that distinguishes the two blocks,
+      // causing incorrect Seek results.
+      UserDefinedIndexBuilder::IndexEntryContext ctx;
+      ctx.last_key_seq = pkey_last.sequence;
+      ctx.first_key_seq = first_key_in_next_block ? pkey_first.sequence : 0;
       user_defined_index_builder_->AddIndexEntry(
           pkey_last.user_key,
           first_key_in_next_block ? &pkey_first.user_key : nullptr, handle,
-          separator_scratch);
+          separator_scratch, ctx);
     }
     return internal_index_builder_->AddIndexEntry(
         last_key_in_current_block, first_key_in_next_block, block_handle,
@@ -106,7 +116,18 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
             "user_defined_index_factory not supported with parallel "
             "compression");
       } else {
-        status_ = ParseInternalKey(key, &pkey, /*lof_err_key*/ false);
+        status_ = ParseInternalKey(key, &pkey, /*log_err_key*/ false);
+        // UDI only supports kTypeValue (Put) entries. Non-Put types include:
+        // - kTypeDeletion, kTypeSingleDeletion, kTypeRangeDeletion (deletes)
+        // - kTypeMerge (merge operands)
+        // - kTypeWideColumnEntity (PutEntity)
+        // - kTypeBlobIndex (BlobDB stores values in blob files)
+        // This makes UDI incompatible with:
+        // - Delete/Merge/SingleDelete/DeleteRange operations
+        // - TransactionDB (ROLLBACK writes DELETE entries to undo changes)
+        // - BlobDB (writes kTypeBlobIndex entries during flush)
+        // See T257683723 for analysis of TransactionDB incompatibility.
+        // See T258398372 for analysis of BlobDB incompatibility.
         if (status_.ok() && pkey.type != ValueType::kTypeValue) {
           status_ = Status::InvalidArgument(
               "user_defined_index_factory only supported with Puts");
@@ -117,11 +138,9 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       return;
     }
 
-    // Pass the user key to the UDI. We don't expect multiple entries with
-    // different sequence numbers for the same key in the file. RocksDB may
-    // enforce it in the future by allowing UDIs only for read only
-    // bulkloaded use cases, and only allow ingestion of files with
-    // sequence number 0.
+    // Pass the user key to the UDI. UDI is designed for ingest-only use cases
+    // where files contain only Put entries with unique keys. We don't expect
+    // multiple entries with different sequence numbers for the same key.
     user_defined_index_builder_->OnKeyAdded(
         pkey.user_key, UserDefinedIndexBuilder::ValueType::kValue,
         value.value());
@@ -161,7 +180,9 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
-  uint64_t CurrentIndexSizeEstimate() const override { return 0; }
+  uint64_t CurrentIndexSizeEstimate() const override {
+    return internal_index_builder_->CurrentIndexSizeEstimate();
+  }
 
   bool separator_is_key_plus_seq() override {
     return internal_index_builder_->separator_is_key_plus_seq();
@@ -200,11 +221,23 @@ class UserDefinedIndexIteratorWrapper
     ParsedInternalKey pkey;
     status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
     if (status_.ok()) {
-      status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_);
+      // Pass both user key AND sequence number to the UDI iterator via
+      // SeekContext. The sequence number is needed when the same user key
+      // spans multiple data blocks with different sequence numbers (e.g.,
+      // due to snapshots). Without it, the UDI cannot distinguish which
+      // block to return for a given (user_key, seqno) target.
+      UserDefinedIndexIterator::SeekContext ctx;
+      ctx.target_seq = pkey.sequence;
+      status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_, ctx);
     }
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
+        // Use seq=0 for the internal key because this is a separator key
+        // (upper bound on block contents), not a real data key. seq=0 makes
+        // the key compare as "greater" in internal key order (since lower
+        // seqno = greater internal key for the same user key), which is the
+        // correct behavior for a separator used as an index entry.
         ikey_.Set(result_.key, 0, ValueType::kTypeValue);
       }
     } else {
@@ -231,9 +264,7 @@ class UserDefinedIndexIteratorWrapper
       if (valid_) {
         ikey_.Set(result_.key, 0, ValueType::kTypeValue);
       }
-      if (status_.ok()) {
-        *result = result_;
-      }
+      *result = result_;
     } else {
       valid_ = false;
     }
@@ -299,7 +330,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
     }
     if (name_ != read_options.table_index_factory->Name()) {
       return NewErrorInternalIterator<IndexValue>(Status::InvalidArgument(
-          "Bad index name" +
+          "Bad index name: " +
           std::string(read_options.table_index_factory->Name()) +
           ". Only supported UDI is " + name_));
     }
@@ -311,7 +342,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
       return wrap_iter;
     }
     return NewErrorInternalIterator<IndexValue>(
-        Status::NotFound("COuld not create UDI iterator"));
+        Status::NotFound("Could not create UDI iterator"));
   }
 
   virtual Status CacheDependencies(
@@ -321,7 +352,8 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
   }
 
   size_t ApproximateMemoryUsage() const override {
-    return reader_->ApproximateMemoryUsage();
+    return reader_->ApproximateMemoryUsage() +
+           udi_reader_->ApproximateMemoryUsage();
   }
 
   virtual void EraseFromCacheBeforeDestruction(

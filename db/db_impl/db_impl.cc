@@ -561,11 +561,17 @@ Status DBImpl::CloseHelper() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || bg_purge_scheduled_ ||
+         bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
          pending_purge_obsolete_files_ ||
          error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }
+
+  // Ensure subclasses don't forget to schedule async file opening
+  assert(!immutable_db_options_.open_files_async || !opened_successfully_ ||
+         bg_async_file_open_state_ != AsyncFileOpenState::kNotScheduled);
+
   TEST_SYNC_POINT_CALLBACK("DBImpl::CloseHelper:PendingPurgeFinished",
                            &files_grabbed_for_purge_);
   EraseThreadStatusDbInfo();
@@ -1541,6 +1547,13 @@ Status DBImpl::SetDBOptions(
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
                                           ? TableCache::kInfiniteCapacity
                                           : new_options.max_open_files - 10);
+      // Potential table cache capacity change requires updating if table
+      // handles should get pinned.
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped()) {
+          cfd->table_cache()->UpdateShouldPinTableHandles();
+        }
+      }
       wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
                                  new_options.wal_bytes_per_sync;
       wal_size_option_changed = mutable_db_options_.max_total_wal_size !=

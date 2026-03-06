@@ -174,7 +174,8 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
-    "index_block_search_type": lambda: random.choice([0, 1]),
+    "index_block_search_type": lambda: random.choice([0, 1, 2]),
+    "uniform_cv_threshold": lambda: random.choice([-1, 0.2, 1000]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
@@ -193,6 +194,7 @@ default_params = {
     # overwrites.
     "nooverwritepercent": 1,
     "open_files": lambda: random.choice([-1, -1, 100, 500000]),
+    "open_files_async": lambda: random.choice([0, 1]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
@@ -294,6 +296,7 @@ default_params = {
     "avoid_flush_during_recovery": lambda: random.choice(
         [1 if t == 0 else 0 for t in range(0, 8)]
     ),
+    "enforce_write_buffer_manager_during_recovery": random.randint(0, 1),
     "max_write_batch_group_size_bytes": lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
@@ -898,6 +901,12 @@ def finalize_and_sanitize(src_params):
         dest_params["use_timed_put_one_in"] = 0
         dest_params["use_get_entity"] = 0
         dest_params["use_multi_get_entity"] = 0
+        # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
+        # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
+        dest_params["use_txn"] = 0
+        # Trie UDI uses zero-copy pointers into block data, which is
+        # incompatible with mmap_read.
+        dest_params["mmap_read"] = 0
         # Redistribute delete/delrange percents to write percent
         dest_params["writepercent"] += dest_params["delpercent"]
         dest_params["writepercent"] += dest_params["delrangepercent"]
@@ -907,6 +916,20 @@ def finalize_and_sanitize(src_params):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
+        # Trie UDI does not support SeekToFirst/SeekToLast. Prefix scanning
+        # calls SeekToFirst internally, so disable it. Additionally,
+        # LevelIterator::SkipEmptyFileForward() calls SeekToFirst() when
+        # Next() crosses file boundaries, so general iteration (iterpercent)
+        # also fails with trie UDI. Redistribute both to reads.
+        dest_params["readpercent"] += dest_params.get("prefixpercent", 0)
+        dest_params["prefixpercent"] = 0
+        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
+        dest_params["iterpercent"] = 0
+        # BlobDB writes kTypeBlobIndex entries in SSTs instead of kTypeValue,
+        # which violates UDI's Put-only restriction. Also disable dynamic
+        # blob options to prevent SetOptions from re-enabling blob files.
+        dest_params["enable_blob_files"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -989,17 +1012,11 @@ def finalize_and_sanitize(src_params):
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
         dest_params["periodic_compaction_seconds"] = 0
+        # FIFO compaction is not supported with open_files_async
+        dest_params["open_files_async"] = 0
         # Disable irrelevant tiering options
         dest_params["preclude_last_level_data_seconds"] = 0
         dest_params["last_level_temperature"] = "kUnknown"
-        # use_kv_ratio_compaction requires allow_compaction and
-        # max_data_files_size > 0
-        if dest_params.get("fifo_compaction_use_kv_ratio_compaction", 0) == 1:
-            if (
-                dest_params.get("fifo_allow_compaction", 0) != 1
-                or dest_params.get("fifo_compaction_max_data_files_size_mb", 0) == 0
-            ):
-                dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     else:
         # Disable irrelevant tiering options
         dest_params["file_temperature_age_thresholds"] = ""
@@ -1282,6 +1299,11 @@ def finalize_and_sanitize(src_params):
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
+
+    # open_files_async requires skip_stats_update_on_db_open to avoid
+    # synchronous I/O in UpdateAccumulatedStats during DB open
+    if dest_params.get("skip_stats_update_on_db_open", 0) == 0:
+        dest_params["open_files_async"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek

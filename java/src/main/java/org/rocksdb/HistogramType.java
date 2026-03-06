@@ -226,6 +226,11 @@ public enum HistogramType {
    */
   MULTISCAN_BLOCKS_PER_PREPARE((byte) 0x41),
 
+  /**
+   * Coefficient of variation of key gaps in data blocks, scaled by 10000.
+   */
+  BLOCK_KEY_DISTRIBUTION_CV((byte) 0x42),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

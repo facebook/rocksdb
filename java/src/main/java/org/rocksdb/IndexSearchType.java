@@ -20,7 +20,14 @@ public enum IndexSearchType {
    * distributed keys. Only applicable if the comparator is the
    * byte-wise comparator.
    */
-  kInterpolation((byte) 0x1);
+  kInterpolation((byte) 0x1),
+
+  /**
+   * Automatically choose between binary and interpolation search on a
+   * per-index-block basis based on key distribution analysis.
+   * Requires BytewiseComparator, same as kInterpolation.
+   */
+  kAuto((byte) 0x2);
 
   private final byte value;
 

@@ -65,6 +65,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.create_missing_column_families;
   options.error_if_exists = immutable_db_options.error_if_exists;
   options.paranoid_checks = immutable_db_options.paranoid_checks;
+  options.open_files_async = immutable_db_options.open_files_async;
   options.flush_verify_memtable_count =
       immutable_db_options.flush_verify_memtable_count;
   options.compaction_verify_record_count =
@@ -156,6 +157,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
   options.avoid_flush_during_recovery =
       immutable_db_options.avoid_flush_during_recovery;
+  options.enforce_write_buffer_manager_during_recovery =
+      immutable_db_options.enforce_write_buffer_manager_during_recovery;
   options.avoid_flush_during_shutdown =
       mutable_db_options.avoid_flush_during_shutdown;
   options.allow_ingest_behind = immutable_db_options.allow_ingest_behind;

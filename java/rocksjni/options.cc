@@ -395,6 +395,28 @@ void Java_org_rocksdb_Options_setParanoidChecks(JNIEnv*, jclass, jlong jhandle,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    openFilesAsync
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_openFilesAsync(JNIEnv*, jclass,
+                                                 jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->open_files_async;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setOpenFilesAsync
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setOpenFilesAsync(JNIEnv*, jclass, jlong jhandle,
+                                                jboolean open_files_async) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->open_files_async =
+      static_cast<bool>(open_files_async);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setEnv
  * Signature: (JJ)V
  */
@@ -5994,6 +6016,29 @@ jboolean Java_org_rocksdb_DBOptions_paranoidChecks(JNIEnv*, jclass,
                                                    jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->paranoid_checks;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setOpenFilesAsync
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setOpenFilesAsync(JNIEnv*, jclass,
+                                                  jlong jhandle,
+                                                  jboolean open_files_async) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->open_files_async =
+      static_cast<bool>(open_files_async);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    openFilesAsync
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_openFilesAsync(JNIEnv*, jclass,
+                                                   jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->open_files_async;
 }
 
 /*

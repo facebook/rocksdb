@@ -764,6 +764,11 @@ DEFINE_double(data_block_hash_table_util_ratio, 0.75,
               "This is only valid if use_data_block_hash_index is "
               "set to true");
 
+DEFINE_double(uniform_cv_threshold,
+              ROCKSDB_NAMESPACE::BlockBasedTableOptions().uniform_cv_threshold,
+              "Coefficient of variation threshold for determining if keys in "
+              "an index block are uniformly distributed.");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -1642,6 +1647,12 @@ DEFINE_bool(print_malloc_stats, false,
 
 DEFINE_bool(disable_auto_compactions, false, "Do not auto trigger compactions");
 
+DEFINE_bool(open_files_async, false,
+            "Open SST files asynchronously during DB open");
+
+DEFINE_bool(skip_stats_update_on_db_open, false,
+            "Skip loading table properties to update stats during DB open");
+
 DEFINE_uint64(wal_ttl_seconds, 0, "Set the TTL for the WAL Files in seconds.");
 DEFINE_uint64(wal_size_limit_MB, 0,
               "Set the size limit for the WAL Files in MB.");
@@ -1781,8 +1792,8 @@ DEFINE_bool(use_hash_search, false,
             "if use kHashSearch instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
 DEFINE_string(index_block_search_type, "binary_search",
-              "Search algorithm for reading index blocks: binary_search or "
-              "interpolation_search.");
+              "Search algorithm for reading index blocks: binary_search, "
+              "interpolation_search, or auto_search.");
 DEFINE_string(merge_operator, "",
               "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -4555,6 +4566,9 @@ class Benchmark {
       } else if (FLAGS_index_block_search_type == "interpolation_search") {
         block_based_options.index_block_search_type =
             BlockBasedTableOptions::kInterpolation;
+      } else if (FLAGS_index_block_search_type == "auto_search") {
+        block_based_options.index_block_search_type =
+            BlockBasedTableOptions::kAuto;
       } else {
         fprintf(stderr, "Unknown index_block_search_type: %s\n",
                 FLAGS_index_block_search_type.c_str());
@@ -4662,6 +4676,7 @@ class Benchmark {
       block_based_options.block_align = FLAGS_block_align;
       block_based_options.separate_key_value_in_data_block =
           FLAGS_separate_key_value_in_data_block;
+      block_based_options.uniform_cv_threshold = FLAGS_uniform_cv_threshold;
       block_based_options.whole_key_filtering = FLAGS_whole_key_filtering;
       block_based_options.max_auto_readahead_size =
           FLAGS_max_auto_readahead_size;
@@ -4870,6 +4885,14 @@ class Benchmark {
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+    options.open_files_async = FLAGS_open_files_async;
+    if (FLAGS_open_files_async && !FLAGS_skip_stats_update_on_db_open) {
+      FLAGS_skip_stats_update_on_db_open = true;
+      fprintf(stderr,
+              "open_files_async requires skip_stats_update_on_db_open, "
+              "enabling it automatically\n");
+    }
+    options.skip_stats_update_on_db_open = FLAGS_skip_stats_update_on_db_open;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
     options.paranoid_checks = FLAGS_paranoid_checks;
     options.force_consistency_checks = FLAGS_force_consistency_checks;

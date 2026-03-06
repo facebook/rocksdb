@@ -178,7 +178,8 @@ class CompactionPickerTestBase : public testing::Test {
     }
     TableProperties tp;
     tp.newest_key_time = newest_key_time;
-    f->fd.table_reader = new mock::MockTableReader(mock::KVVector{}, tp);
+    f->fd.pinned_reader.TEST_SetReader(
+        new mock::MockTableReader(mock::KVVector{}, tp));
 
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
@@ -272,8 +273,9 @@ class CompactionPickerTestBase : public testing::Test {
 
   void ClearFiles() {
     for (auto& file : files_) {
-      if (file->fd.table_reader != nullptr) {
-        delete file->fd.table_reader;
+      TableReader* t = file->fd.pinned_reader.Get();
+      if (t != nullptr) {
+        delete t;
       }
     }
     files_.clear();
@@ -5205,8 +5207,8 @@ TEST_F(CompactionPickerTest, FIFORatioBasedCompactionFallbackToOldPath) {
 
 // ============================================================================
 // FIFO Option Validation Tests
-// Tests that ColumnFamilyData::ValidateOptions rejects invalid configurations
-// for use_kv_ratio_compaction.
+// Tests that ColumnFamilyData::ValidateOptions accepts kv_ratio configs
+// (prerequisites are checked at runtime in the picker, not at validation time).
 // ============================================================================
 
 TEST_F(CompactionPickerTest, FIFOOptionValidation) {
@@ -5222,36 +5224,36 @@ TEST_F(CompactionPickerTest, FIFOOptionValidation) {
     return ColumnFamilyData::ValidateOptions(DBOptions(), cf_opts);
   };
 
-  // use_kv_ratio_compaction requires FIFO compaction style
-  ASSERT_TRUE(validate([](auto& o) {
-                o.compaction_style = kCompactionStyleLevel;
-              }).IsInvalidArgument());
+  // These used to be InvalidArgument, now accepted (handled at runtime
+  // in the picker with fallback to cost-based intra-L0 compaction):
 
-  // use_kv_ratio_compaction requires allow_compaction
-  ASSERT_TRUE(validate([](auto& o) {
-                o.compaction_options_fifo.allow_compaction = false;
-              }).IsInvalidArgument());
+  // use_kv_ratio_compaction with non-FIFO compaction style
+  ASSERT_OK(
+      validate([](auto& o) { o.compaction_style = kCompactionStyleLevel; }));
 
-  // use_kv_ratio_compaction requires max_data_files_size > 0
-  ASSERT_TRUE(validate([](auto& o) {
-                o.compaction_options_fifo.max_data_files_size = 0;
-              }).IsInvalidArgument());
+  // use_kv_ratio_compaction without allow_compaction
+  ASSERT_OK(validate(
+      [](auto& o) { o.compaction_options_fifo.allow_compaction = false; }));
+
+  // use_kv_ratio_compaction without max_data_files_size
+  ASSERT_OK(validate(
+      [](auto& o) { o.compaction_options_fifo.max_data_files_size = 0; }));
+
+  // max_data_files_size < max_table_files_size
+  ASSERT_OK(validate([](auto& o) {
+    o.compaction_options_fifo.use_kv_ratio_compaction = false;
+    o.compaction_options_fifo.max_data_files_size = 0;
+    o.compaction_options_fifo.max_table_files_size = 1ULL * 1024 * 1024 * 1024;
+    o.compaction_options_fifo.max_data_files_size = 500ULL * 1024 * 1024;
+  }));
+
+  // These should still pass:
 
   // Accepts multi-level (for migration from level/universal to FIFO)
   ASSERT_OK(validate([](auto& o) { o.num_levels = 4; }));
 
   // Accepts valid single-level config
   ASSERT_OK(validate([](auto& /*o*/) {}));
-
-  // max_data_files_size < max_table_files_size is invalid when non-zero
-  ASSERT_TRUE(validate([](auto& o) {
-                o.compaction_options_fifo.use_kv_ratio_compaction = false;
-                o.compaction_options_fifo.max_data_files_size = 0;
-                o.compaction_options_fifo.max_table_files_size =
-                    1ULL * 1024 * 1024 * 1024;
-                o.compaction_options_fifo.max_data_files_size =
-                    500ULL * 1024 * 1024;
-              }).IsInvalidArgument());
 
   // max_data_files_size == max_table_files_size is valid
   ASSERT_OK(validate([](auto& o) {
@@ -5260,6 +5262,50 @@ TEST_F(CompactionPickerTest, FIFOOptionValidation) {
     o.compaction_options_fifo.max_table_files_size = 1ULL * 1024 * 1024 * 1024;
     o.compaction_options_fifo.max_data_files_size = 1ULL * 1024 * 1024 * 1024;
   }));
+}
+
+TEST_F(CompactionPickerTest, FIFORatioBasedFallbackOnInvalidConfig) {
+  // When use_kv_ratio_compaction is true but prerequisites are not met,
+  // the picker should fall back to cost-based intra-L0 compaction.
+
+  // Sub-test 1: max_data_files_size == 0 -> falls back to cost-based
+  {
+    SetupFIFORatioBased(/*max_table_files_size=*/10 * 1024 * 1024,
+                        /*max_data_files_size=*/0,
+                        /*trigger=*/4,
+                        /*allow_compaction=*/true,
+                        /*use_kv_ratio=*/true);
+    mutable_cf_options_.max_compaction_bytes = 10ULL * 1024 * 1024;
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 64 * 1024);
+    Add(0, 3U, "300", "400", 64 * 1024);
+    Add(0, 4U, "400", "500", 64 * 1024);
+    auto compaction = PickFIFOCompaction(picker);
+    // kv_ratio skipped, cost-based should pick these files
+    ASSERT_NE(nullptr, compaction.get());
+    ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+              compaction->compaction_reason());
+  }
+
+  // Sub-test 2: max_data_files_size < max_table_files_size -> falls back
+  {
+    SetupFIFORatioBased(/*max_table_files_size=*/1ULL * 1024 * 1024 * 1024,
+                        /*max_data_files_size=*/500ULL * 1024 * 1024,
+                        /*trigger=*/4,
+                        /*allow_compaction=*/true,
+                        /*use_kv_ratio=*/true);
+    mutable_cf_options_.max_compaction_bytes = 10ULL * 1024 * 1024;
+    FIFOCompactionPicker picker(ioptions_, &icmp_);
+    Add(0, 1U, "100", "200", 64 * 1024);
+    Add(0, 2U, "200", "300", 64 * 1024);
+    Add(0, 3U, "300", "400", 64 * 1024);
+    Add(0, 4U, "400", "500", 64 * 1024);
+    auto compaction = PickFIFOCompaction(picker);
+    ASSERT_NE(nullptr, compaction.get());
+    ASSERT_EQ(CompactionReason::kFIFOReduceNumFiles,
+              compaction->compaction_reason());
+  }
 }
 
 // ============================================================================

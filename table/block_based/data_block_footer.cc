@@ -15,6 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Hash index bit (bit 31)
 constexpr uint32_t kHashIndexBit = 1u << 31;
+// Uniform keys bit (bit 29) - indicates keys are uniformly distributed
+constexpr uint32_t kUniformKeysBit = 1u << 29;
 // Separated KV storage bit (bit 28)
 constexpr uint32_t kSeparatedKVBit = 1u << 28;
 
@@ -35,6 +37,9 @@ void DataBlockFooter::EncodeTo(std::string* dst) const {
   if (separated_kv) {
     packed |= kSeparatedKVBit;
   }
+  if (is_uniform) {
+    packed |= kUniformKeysBit;
+  }
 
   PutFixed32(dst, packed);
 }
@@ -44,7 +49,7 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     return Status::Corruption("Block too small for footer");
   }
 
-  // Decode from the end of the inpu
+  // Decode from the end of the input
   const char* footer_ptr = input->data() + input->size() - sizeof(uint32_t);
   uint32_t packed = DecodeFixed32(footer_ptr);
 
@@ -62,7 +67,15 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     separated_kv = false;
   }
 
-  // Check for unrecognized reserved bits (anything beyond kMaxNumRestarts)
+  if (packed & kUniformKeysBit) {
+    is_uniform = true;
+    packed &= ~kUniformKeysBit;
+  } else {
+    is_uniform = false;
+  }
+
+  // Check for reserved/unrecognized feature bits (anything beyond
+  // kMaxNumRestarts)
   if (packed > kMaxNumRestarts) {
     return Status::Corruption(
         "Unrecognized feature in block footer (reserved bits set)");
