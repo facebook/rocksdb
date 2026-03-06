@@ -1894,6 +1894,85 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   Close();
 }
 
+// Reproduction for MemPurge memtable ID ordering bug.
+// When MemPurge runs, it releases db_mutex_. During that window, new
+// memtables can be switched to the immutable list with higher IDs. When
+// MemPurge re-acquires the mutex and adds its output memtable using the
+// stale ID from mems_.back(), the ordering assertion fires.
+TEST_F(DBFlushTest, MemPurgeIdOrdering) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 1 << 20;  // 1MB
+  // Allow enough immutable memtables so writes don't stall while the
+  // flush thread is paused in the sync point.
+  options.max_write_buffer_number = 8;
+  // Always attempt MemPurge on flush.
+  options.experimental_mempurge_threshold = 1.0;
+  ASSERT_OK(TryReopen(options));
+
+  // Coordinate via LoadDependency:
+  //   1. Flush thread hits BeforeReacquireMutex -> foreground unblocks
+  //   2. Foreground writes data, triggers memtable switch
+  //   3. Foreground hits SwitchDone -> flush thread unblocks at
+  //   AfterWaitForTest
+  //   4. Flush thread re-acquires mutex, tries AddMemTable with stale ID
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"FlushJob::MemPurge:BeforeReacquireMutex",
+        "DBFlushTest::MemPurgeIdOrdering:StartWriting"},
+       {"DBFlushTest::MemPurgeIdOrdering:SwitchDone",
+        "FlushJob::MemPurge:AfterWaitForTest"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int kValueSize = 10240;  // 10KB values like MemPurgeBasic
+  const int kNumKeys = 30;
+  Random rnd(301);
+
+  // Fill the memtable with overwrites of the same keys so MemPurge
+  // can compact them down (high garbage ratio). Each round is ~300KB,
+  // need ~3 rounds to approach the 1MB write_buffer_size.
+  for (int round = 0; round < 3; round++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(kValueSize)));
+    }
+  }
+
+  // One more round should trigger a flush with MemPurge in the background.
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(kValueSize)));
+  }
+
+  // Block until MemPurge reaches the sync point (db_mutex_ released).
+  TEST_SYNC_POINT("DBFlushTest::MemPurgeIdOrdering:StartWriting");
+
+  // Now MemPurge is paused with db_mutex_ released. Write enough data
+  // to fill another memtable and trigger a switch. This creates an
+  // immutable memtable with a higher ID than the one being mempurged.
+  for (int i = 0; i < kNumKeys * 4; i++) {
+    ASSERT_OK(Put("newkey" + std::to_string(i), rnd.RandomString(kValueSize)));
+  }
+
+  // Let MemPurge continue -- it will re-acquire the mutex and try to
+  // add the output memtable with the stale ID.
+  TEST_SYNC_POINT("DBFlushTest::MemPurgeIdOrdering:SwitchDone");
+
+  // Allow background work to finish.
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // If the bug is present, the assertion in AddMemTable fires before
+  // we reach here.
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_NE(Get("key" + std::to_string(i)), "NOT_FOUND");
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Close();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
