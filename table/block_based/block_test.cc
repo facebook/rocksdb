@@ -677,7 +677,18 @@ void GenerateRandomIndexEntries(
           (keys.size() % 2 == 0) ? cluster1_prefix : cluster2_prefix;
       new_key = cp + rnd.RandomString(std::max(1, remaining));
     } else {
-      new_key = prefix + test::RandomKey(&rnd, key_length);
+      // Generate evenly-spaced keys to ensure numeric uniformity.
+      // Encode the key index as big-endian with jitter to avoid
+      // perfectly equal gaps while maintaining uniformity.
+      uint64_t base =
+          static_cast<uint64_t>(keys.size()) * 1000 + rnd.Uniform(100);
+      std::string key_bytes(key_length, '\0');
+      // Write big-endian uint64 into the last 8 bytes (or fewer if shorter)
+      for (int j = key_length - 1; j >= 0 && base > 0; j--) {
+        key_bytes[j] = static_cast<char>(base & 0xFF);
+        base >>= 8;
+      }
+      new_key = prefix + key_bytes;
     }
 
     AppendInternalKeyFooter(&new_key, 0 /* seqno */, kTypeValue);
@@ -717,7 +728,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       indexBlockRestartInterval(), kUseDeltaEncoding, useValueDeltaEncoding(),
       BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
-      !keyIncludesSeq(), useSeparatedKVStorage());
+      !keyIncludesSeq(), useSeparatedKVStorage(), nullptr /* statistics */,
+      0.2 /* uniform_cv_threshold */);
 
   int num_records = numRecords();
 
@@ -783,6 +795,16 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   }
   delete iter;
 
+  // ScanForUniformity requires at least 3 restart points to determine
+  // uniformity. With fewer restarts, is_uniform is always false.
+  // When UDT is enabled, min-timestamps alter the key byte distribution,
+  // so skip the uniformity check.
+  if (!isUDTEnabled()) {
+    bool expect_uniform = reader.NumRestarts() >= 3 &&
+                          keyDistribution() == KeyDistribution::kUniform;
+    EXPECT_EQ(reader.IsUniform(), expect_uniform);
+  }
+
   // read block contents randomly
   iter = reader.NewIndexIterator(
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
@@ -830,7 +852,8 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), ::testing::ValuesIn(test::GetUDTTestModes()),
         ::testing::Values(
             BlockBasedTableOptions::BlockSearchType::kBinary,
-            BlockBasedTableOptions::BlockSearchType::kInterpolation),
+            BlockBasedTableOptions::BlockSearchType::kInterpolation,
+            BlockBasedTableOptions::BlockSearchType::kAuto),
         ::testing::Values(1, 100),    // num_records
         ::testing::Values(1, 16),     // index_block_restart_interval
         ::testing::Values(1, 8, 12),  // key_length

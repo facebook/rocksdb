@@ -1039,7 +1039,8 @@ struct BlockBasedTableBuilder::Rep {
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio, ts_sz,
                    persist_user_defined_timestamps, false /* is_user_key */,
-                   table_options.separate_key_value_in_data_block),
+                   table_options.separate_key_value_in_data_block,
+                   tbo.ioptions.stats),
         range_del_block(
             1 /* block_restart_interval */, true /* use_delta_encoding */,
             false /* use_value_delta_encoding */,
@@ -1233,13 +1234,15 @@ struct BlockBasedTableBuilder::Rep {
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps);
+          table_options, ts_sz, persist_user_defined_timestamps,
+          ioptions.stats);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps));
+          table_options, ts_sz, persist_user_defined_timestamps,
+          ioptions.stats));
     }
 
     // If user_defined_index_factory is provided, wrap the index builder with

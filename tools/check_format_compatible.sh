@@ -133,6 +133,17 @@ with open('${sorted_input_data}', 'w') as f:
     print(k + " ==> " + v, file=f)
 EOF
 
+# Generate a file with uniformly distributed keys
+uniform_input_data=$input_data_path/uniform_data
+echo == Generating file with uniform keys ${uniform_input_data}
+$python_bin - <<EOF
+with open('${uniform_input_data}', 'w') as f:
+  for i in range(0, 2000):
+    k = f"{i:012d}"
+    v = f"value{i:012d}"
+    print(k + " ==> " + v, file=f)
+EOF
+
 # db_backward_only_refs defined below the rest
 
 # To check for DB forward compatibility with loading options (old version

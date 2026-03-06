@@ -764,6 +764,11 @@ DEFINE_double(data_block_hash_table_util_ratio, 0.75,
               "This is only valid if use_data_block_hash_index is "
               "set to true");
 
+DEFINE_double(uniform_cv_threshold,
+              ROCKSDB_NAMESPACE::BlockBasedTableOptions().uniform_cv_threshold,
+              "Coefficient of variation threshold for determining if keys in "
+              "an index block are uniformly distributed.");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -1787,8 +1792,8 @@ DEFINE_bool(use_hash_search, false,
             "if use kHashSearch instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
 DEFINE_string(index_block_search_type, "binary_search",
-              "Search algorithm for reading index blocks: binary_search or "
-              "interpolation_search.");
+              "Search algorithm for reading index blocks: binary_search, "
+              "interpolation_search, or auto_search.");
 DEFINE_string(merge_operator, "",
               "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -4561,6 +4566,9 @@ class Benchmark {
       } else if (FLAGS_index_block_search_type == "interpolation_search") {
         block_based_options.index_block_search_type =
             BlockBasedTableOptions::kInterpolation;
+      } else if (FLAGS_index_block_search_type == "auto_search") {
+        block_based_options.index_block_search_type =
+            BlockBasedTableOptions::kAuto;
       } else {
         fprintf(stderr, "Unknown index_block_search_type: %s\n",
                 FLAGS_index_block_search_type.c_str());
@@ -4668,6 +4676,7 @@ class Benchmark {
       block_based_options.block_align = FLAGS_block_align;
       block_based_options.separate_key_value_in_data_block =
           FLAGS_separate_key_value_in_data_block;
+      block_based_options.uniform_cv_threshold = FLAGS_uniform_cv_threshold;
       block_based_options.whole_key_filtering = FLAGS_whole_key_filtering;
       block_based_options.max_auto_readahead_size =
           FLAGS_max_auto_readahead_size;

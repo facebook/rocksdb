@@ -4367,6 +4367,7 @@ void InitializeOptionsFromFlags(
   block_based_options.index_block_search_type =
       static_cast<BlockBasedTableOptions::BlockSearchType>(
           FLAGS_index_block_search_type);
+  block_based_options.uniform_cv_threshold = FLAGS_uniform_cv_threshold;
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
