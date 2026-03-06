@@ -77,20 +77,24 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
       }
     }
   } else {
-    // Last block: use a short successor of the last key.
-    *separator_scratch = last_key_in_current_block.ToString();
-    comparator_->FindShortSuccessor(separator_scratch);
-    separator = Slice(*separator_scratch);
+    // Last block: use the last key itself as the separator, NOT a shortened
+    // successor. The standard index builder (ShortenedIndexBuilder) only
+    // calls FindShortInternalKeySuccessor when shortening_mode ==
+    // kShortenSeparatorsAndSuccessor, which is not the default. With the
+    // default kShortenSeparators, it uses last_key_in_current_block as-is.
+    //
+    // The trie must match this behavior. If the trie used a shortened
+    // successor (e.g., ":" from "9\xff\xff..."), it would claim a wider key
+    // range than the standard index. A seek for a key between the last key
+    // and the shortened successor would find a block via the trie but not
+    // via the standard index, causing incorrect iterator behavior.
+    separator = last_key_in_current_block;
 
-    // Edge case: FindShortSuccessor may fail to shorten the key (e.g.,
-    // all-0xFF keys like "\xff\xff" — no byte can be incremented). When
-    // this happens AND the previous entry has the same separator, the last
-    // block is actually part of a same-user-key run. Without this check,
-    // the last block would get seqno=kMaxSequenceNumber (sentinel), but
-    // Finish() would group it into the run and hit the assert that overflow
-    // blocks must have real seqnos.
+    // Edge case: if this last block's separator matches the previous entry's
+    // separator, they share the same user key (same-user-key run boundary).
     if (!buffered_entries_.empty() &&
-        buffered_entries_.back().separator_key == *separator_scratch) {
+        comparator_->Compare(buffered_entries_.back().separator_key,
+                             separator) == 0) {
       same_user_key = true;
       if (!must_use_separator_with_seq_) {
         must_use_separator_with_seq_ = true;
@@ -229,6 +233,37 @@ void TrieIndexIterator::Prepare(const ScanOptions scan_opts[],
   }
   current_scan_idx_ = 0;
   prepared_ = true;
+}
+
+Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
+  // Reset overflow state — SeekToFirst always lands on the primary block
+  // of the first trie leaf.
+  overflow_run_index_ = 0;
+  overflow_run_size_ = 1;
+  overflow_base_idx_ = 0;
+
+  if (!iter_.SeekToFirst()) {
+    result->bound_check_result = IterBoundCheck::kUnknown;
+    result->key = Slice();
+    return Status::OK();
+  }
+
+  result->key = iter_.Key();
+  current_key_scratch_ = result->key.ToString();
+  result->key = Slice(current_key_scratch_);
+
+  // Set up overflow state for the first leaf if seqno encoding is active.
+  if (has_seqno_encoding_) {
+    uint64_t leaf_idx = iter_.LeafIndex();
+    uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
+    overflow_run_size_ = block_count;
+    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
+  }
+
+  // The very first entry is always in bounds (no target to compare against
+  // the limit, and the first block cannot precede any scan range).
+  result->bound_check_result = IterBoundCheck::kInbound;
+  return Status::OK();
 }
 
 Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
@@ -506,13 +541,13 @@ Status TrieIndexFactory::NewBuilder(
 Status TrieIndexFactory::NewReader(
     const UserDefinedIndexOption& option, Slice& index_block,
     std::unique_ptr<UserDefinedIndexReader>& reader) const {
-  if (option.comparator != nullptr &&
-      option.comparator != BytewiseComparator()) {
+  const Comparator* cmp =
+      option.comparator ? option.comparator : BytewiseComparator();
+  if (cmp != BytewiseComparator()) {
     return Status::NotSupported(
-        "TrieIndexFactory requires BytewiseComparator; got: ",
-        option.comparator->Name());
+        "TrieIndexFactory requires BytewiseComparator; got: ", cmp->Name());
   }
-  auto trie_reader = std::make_unique<TrieIndexReader>(option.comparator);
+  auto trie_reader = std::make_unique<TrieIndexReader>(cmp);
   Status s = trie_reader->InitFromSlice(index_block);
   if (!s.ok()) {
     return s;

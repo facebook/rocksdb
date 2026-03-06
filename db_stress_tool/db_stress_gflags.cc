@@ -622,11 +622,10 @@ DEFINE_int32(index_block_search_type,
              "Search algorithm for index blocks (see `enum BlockSearchType` in "
              "table.h)");
 
-DEFINE_bool(
-    use_trie_index, false,
-    "Use trie-based user defined index (UDI) for SST files. "
-    "Only compatible with Put operations (no Merge/Delete/SingleDelete). "
-    "When enabled, incompatible flags are automatically adjusted.");
+DEFINE_bool(use_trie_index, false,
+            "Use trie-based user defined index (UDI) for SST files. "
+            "Compatible with all operation types (Put, Delete, Merge, etc.). "
+            "Backward scan is disabled when this is enabled.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests. "

@@ -176,7 +176,9 @@ class BitvectorBuilder {
   // when possible, which is significantly faster than the bit-by-bit loop for
   // large counts (e.g., appending 256 zeros for an empty dense node).
   void AppendMultiple(bool bit, uint64_t count) {
-    if (count == 0) return;
+    if (count == 0) {
+      return;
+    }
 
     // Fill partial word at the end of the current buffer.
     uint64_t partial = num_bits_ % 64;
@@ -267,6 +269,8 @@ class Bitvector {
   // std::string's move constructor preserves the buffer address for
   // SSO-exceeding strings. For the InitFromData case, the pointers reference
   // external memory and are unaffected by moving owned_data_ (which is empty).
+  ~Bitvector() = default;
+
   Bitvector(const Bitvector&) = delete;
   Bitvector& operator=(const Bitvector&) = delete;
   // Move constructor delegates to default ctor + move assignment to avoid
@@ -363,7 +367,8 @@ class Bitvector {
       return num_bits_;
     }
     // Use select hints to narrow the search range.
-    uint64_t lo, hi;
+    uint64_t lo;
+    uint64_t hi;
     if (num_select1_hints_ > 0) {
       uint64_t hint_idx = i / kOnesPerSelectHint;
       lo = select1_hints_[hint_idx];
@@ -500,6 +505,8 @@ class EliasFano {
         low_mask_(0),
         low_words_(nullptr),
         num_low_words_(0) {}
+
+  ~EliasFano() = default;
 
   EliasFano(const EliasFano&) = delete;
   EliasFano& operator=(const EliasFano&) = delete;

@@ -328,10 +328,48 @@ void LoudsTrieBuilder::Finish() {
   // Only used when has_seqno_encoding_ is true.
   std::vector<uint64_t> bfs_ordered_seqnos;
   std::vector<uint32_t> bfs_ordered_block_counts;
+  // Overflow arrays must also be BFS-reordered. Without this, the
+  // overflow_base_ prefix sum (computed from BFS-ordered block_counts)
+  // would index into key-sorted overflow arrays, mapping overflow blocks
+  // to the wrong leaves when BFS order differs from key-sorted order
+  // (which happens whenever separator keys have different lengths).
+  std::vector<uint32_t> key_sorted_overflow_base;
+  std::vector<TrieBlockHandle> bfs_ordered_overflow_handles;
+  std::vector<uint64_t> bfs_ordered_overflow_seqnos;
   if (has_seqno_encoding_) {
     bfs_ordered_seqnos.reserve(keys_.size());
     bfs_ordered_block_counts.reserve(keys_.size());
+    if (!overflow_handles_.empty()) {
+      key_sorted_overflow_base.resize(keys_.size());
+      uint32_t sum = 0;
+      for (size_t i = 0; i < keys_.size(); i++) {
+        key_sorted_overflow_base[i] = sum;
+        assert(block_counts_[i] >= 1);
+        sum += block_counts_[i] - 1;
+      }
+      assert(sum == static_cast<uint32_t>(overflow_handles_.size()));
+      bfs_ordered_overflow_handles.reserve(overflow_handles_.size());
+      bfs_ordered_overflow_seqnos.reserve(overflow_seqnos_.size());
+    }
   }
+
+  // Emit BFS-ordered data for a leaf with key index ki: primary handle,
+  // seqno side-table fields, and overflow blocks (if any).
+  auto emit_leaf = [&](size_t ki) {
+    bfs_ordered_handles.push_back(handles_[ki]);
+    if (has_seqno_encoding_) {
+      bfs_ordered_seqnos.push_back(seqnos_[ki]);
+      bfs_ordered_block_counts.push_back(block_counts_[ki]);
+      if (!key_sorted_overflow_base.empty() && block_counts_[ki] > 1) {
+        uint32_t base = key_sorted_overflow_base[ki];
+        uint32_t count = block_counts_[ki] - 1;
+        for (uint32_t j = 0; j < count; j++) {
+          bfs_ordered_overflow_handles.push_back(overflow_handles_[base + j]);
+          bfs_ordered_overflow_seqnos.push_back(overflow_seqnos_[base + j]);
+        }
+      }
+    }
+  };
 
   for (uint32_t level = 0; level <= max_depth_; level++) {
     const auto& ld = levels[level];
@@ -350,12 +388,7 @@ void LoudsTrieBuilder::Finish() {
 
       // ---- Handle reordering: emit prefix key handle ----
       if (ld.is_prefix[ni] && ld.prefix_handle[ni] >= 0) {
-        size_t ki = static_cast<size_t>(ld.prefix_handle[ni]);
-        bfs_ordered_handles.push_back(handles_[ki]);
-        if (has_seqno_encoding_) {
-          bfs_ordered_seqnos.push_back(seqnos_[ki]);
-          bfs_ordered_block_counts.push_back(block_counts_[ki]);
-        }
+        emit_leaf(static_cast<size_t>(ld.prefix_handle[ni]));
       }
 
       // Skip pure leaf nodes (no labels) — they are accounted for by
@@ -394,12 +427,7 @@ void LoudsTrieBuilder::Finish() {
 
           if (!is_internal) {
             if (ld.leaf_handle[li] >= 0) {
-              size_t ki = static_cast<size_t>(ld.leaf_handle[li]);
-              bfs_ordered_handles.push_back(handles_[ki]);
-              if (has_seqno_encoding_) {
-                bfs_ordered_seqnos.push_back(seqnos_[ki]);
-                bfs_ordered_block_counts.push_back(block_counts_[ki]);
-              }
+              emit_leaf(static_cast<size_t>(ld.leaf_handle[li]));
             }
             dense_leaf_count_++;
           } else if (level == cutoff_level_ - 1) {
@@ -424,12 +452,7 @@ void LoudsTrieBuilder::Finish() {
 
           if (!is_internal) {
             if (ld.leaf_handle[li] >= 0) {
-              size_t ki = static_cast<size_t>(ld.leaf_handle[li]);
-              bfs_ordered_handles.push_back(handles_[ki]);
-              if (has_seqno_encoding_) {
-                bfs_ordered_seqnos.push_back(seqnos_[ki]);
-                bfs_ordered_block_counts.push_back(block_counts_[ki]);
-              }
+              emit_leaf(static_cast<size_t>(ld.leaf_handle[li]));
             }
           }
         }
@@ -450,6 +473,12 @@ void LoudsTrieBuilder::Finish() {
     assert(bfs_ordered_block_counts.size() == keys_.size());
     seqnos_ = std::move(bfs_ordered_seqnos);
     block_counts_ = std::move(bfs_ordered_block_counts);
+    if (!overflow_handles_.empty()) {
+      assert(bfs_ordered_overflow_handles.size() == overflow_handles_.size());
+      assert(bfs_ordered_overflow_seqnos.size() == overflow_seqnos_.size());
+      overflow_handles_ = std::move(bfs_ordered_overflow_handles);
+      overflow_seqnos_ = std::move(bfs_ordered_overflow_seqnos);
+    }
   }
 
   SerializeAll();
@@ -1771,6 +1800,26 @@ bool LoudsTrieIterator::DescendToLeftmostLeaf(bool in_dense,
       in_dense = false;
     }
   }
+}
+
+bool LoudsTrieIterator::SeekToFirst() {
+  valid_ = false;
+  leaf_index_ = 0;
+  key_len_ = 0;
+  path_.clear();
+  is_at_prefix_key_ = false;
+
+  if (trie_->NumKeys() == 0) {
+    return false;
+  }
+
+  // Descend directly from root to the leftmost leaf.
+  // Compared to Seek(""), this skips the SeekImpl target-consumption loop
+  // (a no-op for empty target) and the redundant prefix key check that
+  // SeekImpl performs at the root before calling DescendToLeftmostLeaf.
+  // DescendToLeftmostLeaf itself handles prefix keys at every node.
+  bool in_dense = (trie_->cutoff_level_ > 0);
+  return DescendToLeftmostLeaf(in_dense, /*node_num=*/0);
 }
 
 // Main Seek implementation.
