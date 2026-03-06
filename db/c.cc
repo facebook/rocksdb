@@ -259,6 +259,39 @@ struct rocksdb_hyper_clock_cache_options_t {
 struct rocksdb_memory_allocator_t {
   std::shared_ptr<MemoryAllocator> rep;
 };
+// Bridges C-style allocation callbacks into a C++ MemoryAllocator
+// so C API users can provide custom allocation behavior.
+struct CustomMemoryAllocator : public MemoryAllocator {
+  void* state_;
+  void* (*allocate_)(void* state, size_t size);
+  void (*deallocate_)(void* state, void* p);
+  size_t (*usable_size_)(void* state, void* p, size_t allocation_size);
+  void (*destructor_)(void* state);
+  std::string name_;
+
+  CustomMemoryAllocator(
+      void* (*allocate)(void* state, size_t size),
+      void (*deallocate)(void* state, void* p),
+      size_t (*usable_size)(void* state, void* p, size_t allocation_size),
+      void (*destructor)(void* state),
+      void* state, const char* name)
+      : state_(state), allocate_(allocate), deallocate_(deallocate),
+        usable_size_(usable_size), destructor_(destructor),
+        name_(name ? name : "custom") {}
+
+  ~CustomMemoryAllocator() override {
+    if (destructor_) destructor_(state_);
+  }
+
+  const char* Name() const override { return name_.c_str(); }
+  void* Allocate(size_t size) override { return allocate_(state_, size); }
+  void Deallocate(void* p) override { deallocate_(state_, p); }
+
+  size_t UsableSize(void* p, size_t allocation_size) const override {
+    return usable_size_ ? usable_size_(state_, p, allocation_size)
+                        : allocation_size;
+  }
+};
 struct rocksdb_cache_t {
   std::shared_ptr<Cache> rep;
 };
@@ -6384,6 +6417,20 @@ void rocksdb_flushoptions_set_wait(rocksdb_flushoptions_t* opt,
 
 unsigned char rocksdb_flushoptions_get_wait(rocksdb_flushoptions_t* opt) {
   return opt->rep.wait;
+}
+
+// Construct a C API memory allocator handle backed by a CustomMemoryAllocator
+// that uses user-provided allocation, deallocation, and size callbacks.
+rocksdb_memory_allocator_t* rocksdb_memory_allocator_create_custom(
+    void* (*allocate)(void* state, size_t size),
+    void (*deallocate)(void* state, void* p),
+    size_t (*usable_size)(void* state, void* p, size_t allocation_size),
+    void (*destructor)(void* state),
+    void* state, const char* name) {
+  auto* result = new rocksdb_memory_allocator_t;
+  result->rep = std::make_shared<CustomMemoryAllocator>(
+      allocate, deallocate, usable_size, destructor, state, name);
+  return result;
 }
 
 rocksdb_memory_allocator_t* rocksdb_jemalloc_nodump_allocator_create(
