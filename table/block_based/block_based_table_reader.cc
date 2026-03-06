@@ -316,11 +316,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
       break;
 
     case BlockType::kRangeDeletion:
-      if (get_context) {
-        ++get_context->get_context_stats_.num_cache_range_deletion_hit;
-      } else {
-        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_HIT);
-      }
+      RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_HIT);
       break;
 
     default:
@@ -375,11 +371,7 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
       break;
 
     case BlockType::kRangeDeletion:
-      if (get_context) {
-        ++get_context->get_context_stats_.num_cache_range_deletion_miss;
-      } else {
-        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_MISS);
-      }
+      RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_MISS);
       break;
 
     default:
@@ -464,21 +456,11 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
       break;
 
     case BlockType::kRangeDeletion:
-      if (get_context) {
-        ++get_context->get_context_stats_.num_cache_range_deletion_add;
-        if (redundant) {
-          ++get_context->get_context_stats_
-                .num_cache_range_deletion_add_redundant;
-        }
-        get_context->get_context_stats_.num_cache_range_deletion_bytes_insert +=
-            usage;
-      } else {
-        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_ADD);
-        if (redundant) {
-          RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT);
-        }
-        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT, usage);
+      RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_ADD);
+      if (redundant) {
+        RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT);
       }
+      RecordTick(statistics, BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT, usage);
       break;
 
     default:
