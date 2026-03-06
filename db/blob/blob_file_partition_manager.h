@@ -6,13 +6,17 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <list>
 #include <memory>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_write_batch_transformer.h"
 #include "db/blob/blob_log_format.h"
 #include "port/port.h"
 #include "rocksdb/advanced_options.h"
@@ -104,6 +108,28 @@ class BlobFilePartitionManager {
   // Returns true if deferred flush mode is active.
   bool IsDeferredFlushMode() const { return buffer_size_ > 0; }
 
+  // Get cached blob direct write settings for a column family.
+  // Avoids SuperVersion lookup on every Put.
+  BlobDirectWriteSettings GetCachedSettings(uint32_t cf_id) const {
+    settings_mutex_.Lock();
+    auto it = cached_settings_.find(cf_id);
+    BlobDirectWriteSettings result;
+    if (it != cached_settings_.end()) {
+      result = it->second;
+    }
+    settings_mutex_.Unlock();
+    return result;
+  }
+
+  // Update cached settings for a column family.
+  // Called during DB open and SetOptions.
+  void UpdateCachedSettings(uint32_t cf_id,
+                            const BlobDirectWriteSettings& settings) {
+    settings_mutex_.Lock();
+    cached_settings_[cf_id] = settings;
+    settings_mutex_.Unlock();
+  }
+
   // Dump per-operation timing breakdown to stderr (for benchmarking).
   void DumpTimingStats() const;
 
@@ -115,6 +141,22 @@ class BlobFilePartitionManager {
     std::string value;
     uint64_t file_number;
     uint64_t blob_offset;
+  };
+
+  // State captured under the mutex for deferred sealing outside the mutex.
+  struct DeferredSeal {
+    std::unique_ptr<BlobLogWriter> writer;
+    std::list<PendingRecord> records;
+    uint64_t file_number = 0;
+    uint64_t blob_count = 0;
+    uint64_t total_blob_bytes = 0;
+  };
+
+  // Background I/O thread pool for seal and flush operations.
+  struct BGWorkItem {
+    enum Type { kSeal, kFlush };
+    Type type;
+    DeferredSeal seal;  // Only used for kSeal.
   };
 
   struct Partition {
@@ -136,6 +178,10 @@ class BlobFilePartitionManager {
 
     std::vector<BlobFileAddition> completed_files;
 
+    // Per-partition background work queue (protected by bg_mutex_).
+    std::deque<BGWorkItem> bg_queue;
+    bool bg_in_flight = false;  // A thread is currently processing this partition.
+
     Partition();
     ~Partition();
   };
@@ -144,6 +190,29 @@ class BlobFilePartitionManager {
                          CompressionType compression);
   Status CloseBlobFile(Partition* partition);
   Status FlushPendingRecords(Partition* partition);
+
+  // Prepare a file rollover under the mutex: captures old state into
+  // DeferredSeal and opens a new file. Writers can immediately continue
+  // on the new file after the mutex is released.
+  Status PrepareFileRollover(Partition* partition, uint32_t column_family_id,
+                             CompressionType compression,
+                             DeferredSeal* deferred);
+
+  // Seal a previously-prepared old file outside the mutex: flushes pending
+  // records, writes footer, records BlobFileAddition.
+  Status SealDeferredFile(Partition* partition, DeferredSeal* deferred);
+
+  // Background I/O thread: processes seal and flush work items.
+  void BackgroundIOLoop();
+
+  // Submit a deferred seal to the background thread.
+  void SubmitSeal(Partition* partition, DeferredSeal&& seal);
+
+  // Submit a flush request to the background thread.
+  void SubmitFlush(Partition* partition);
+
+  // Drain all pending background work. Called before SealAllPartitions.
+  void DrainBackgroundWork();
 
   // Synchronous write path (when buffer_size_ == 0).
   Status WriteBlobSync(Partition* partition, const Slice& key,
@@ -169,7 +238,17 @@ class BlobFilePartitionManager {
 
 
   std::vector<std::unique_ptr<Partition>> partitions_;
+  mutable port::Mutex settings_mutex_;
+  std::unordered_map<uint32_t, BlobDirectWriteSettings> cached_settings_;
+
   port::Mutex completed_files_mutex_;
+
+  port::Mutex bg_mutex_;
+  port::CondVar bg_cv_;
+  port::CondVar bg_drain_cv_;  // Signaled when all queues become empty.
+  std::vector<std::thread> bg_threads_;
+  bool bg_stop_{false};
+  Status bg_status_;  // First error from background thread.
 
   // Timing instrumentation (atomic relaxed for low overhead).
   mutable std::atomic<uint64_t> deferred_offset_nanos_{0};

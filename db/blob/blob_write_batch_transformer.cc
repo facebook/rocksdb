@@ -6,6 +6,8 @@
 #include "db/blob/blob_write_batch_transformer.h"
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "rocksdb/system_clock.h"
+#include <atomic>
 #include "db/blob/blob_index.h"
 #include "db/write_batch_internal.h"
 
@@ -34,36 +36,62 @@ Status BlobWriteBatchTransformer::TransformBatch(
   assert(output_batch);
   assert(transformed);
 
+  static std::atomic<uint64_t> tb_clear_ns{0}, tb_iterate_ns{0};
+  static std::atomic<uint64_t> tb_setup_ns{0}, tb_count{0};
+
+  auto* clock = SystemClock::Default().get();
+  uint64_t t0 = clock->NowNanos();
+
   output_batch->Clear();
   *transformed = false;
 
   BlobWriteBatchTransformer transformer(partition_manager, output_batch,
                                         settings_provider);
 
+  uint64_t t1 = clock->NowNanos();
+
   Status s = input_batch->Iterate(&transformer);
   if (!s.ok()) {
     return s;
   }
 
+  uint64_t t2 = clock->NowNanos();
+
   *transformed = transformer.HasTransformed();
+
+  tb_setup_ns.fetch_add(t1 - t0, std::memory_order_relaxed);
+  tb_iterate_ns.fetch_add(t2 - t1, std::memory_order_relaxed);
+  uint64_t cnt = tb_count.fetch_add(1, std::memory_order_relaxed) + 1;
+  if (cnt % 20000 == 0) {
+    fprintf(stderr,
+            "TRANSFORM_BATCH: %lu calls | setup+clear=%lu ns | "
+            "iterate=%lu ns | total=%lu ns\n",
+            (unsigned long)cnt,
+            (unsigned long)(tb_setup_ns.load() / cnt),
+            (unsigned long)(tb_iterate_ns.load() / cnt),
+            (unsigned long)((tb_setup_ns.load() + tb_iterate_ns.load()) / cnt));
+  }
+
   return Status::OK();
 }
 
 Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
                                         const Slice& key,
                                         const Slice& value) {
+  static std::atomic<uint64_t> pc_settings_ns{0}, pc_writeblob_ns{0};
+  static std::atomic<uint64_t> pc_encode_ns{0}, pc_putidx_ns{0}, pc_count{0};
+  auto* clock = SystemClock::Default().get();
+  uint64_t t0 = clock->NowNanos();
+
   const BlobDirectWriteSettings settings = settings_provider_(column_family_id);
+
+  uint64_t t1 = clock->NowNanos();
 
   if (!settings.enable_blob_direct_write ||
       value.size() < settings.min_blob_size) {
     return WriteBatchInternal::Put(output_batch_, column_family_id, key, value);
   }
 
-  // Write the blob value to a partition.
-  // NOTE: If WriteBlob succeeds but the overall write later fails,
-  // the blob data is already persisted but won't be referenced by any
-  // WAL/memtable entry. These orphaned blobs will be cleaned up by
-  // garbage collection during compaction.
   uint64_t blob_file_number = 0;
   uint64_t blob_offset = 0;
   uint64_t blob_size = 0;
@@ -76,13 +104,38 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
     return s;
   }
 
-  // Encode the BlobIndex and add as PutBlobIndex.
+  uint64_t t2 = clock->NowNanos();
+
   BlobIndex::EncodeBlob(&blob_index_buf_, blob_file_number, blob_offset,
                         blob_size, settings.compression_type);
 
+  uint64_t t3 = clock->NowNanos();
+
   has_transformed_ = true;
-  return WriteBatchInternal::PutBlobIndex(output_batch_, column_family_id, key,
-                                         blob_index_buf_);
+  Status rs = WriteBatchInternal::PutBlobIndex(output_batch_, column_family_id,
+                                               key, blob_index_buf_);
+
+  uint64_t t4 = clock->NowNanos();
+
+  pc_settings_ns.fetch_add(t1 - t0, std::memory_order_relaxed);
+  pc_writeblob_ns.fetch_add(t2 - t1, std::memory_order_relaxed);
+  pc_encode_ns.fetch_add(t3 - t2, std::memory_order_relaxed);
+  pc_putidx_ns.fetch_add(t4 - t3, std::memory_order_relaxed);
+  uint64_t cnt = pc_count.fetch_add(1, std::memory_order_relaxed) + 1;
+  if (cnt % 20000 == 0) {
+    fprintf(stderr,
+            "PUTCF: %lu calls | settings=%lu ns | writeblob=%lu ns | "
+            "encode=%lu ns | putblobidx=%lu ns | total=%lu ns\n",
+            (unsigned long)cnt,
+            (unsigned long)(pc_settings_ns.load() / cnt),
+            (unsigned long)(pc_writeblob_ns.load() / cnt),
+            (unsigned long)(pc_encode_ns.load() / cnt),
+            (unsigned long)(pc_putidx_ns.load() / cnt),
+            (unsigned long)((pc_settings_ns.load() + pc_writeblob_ns.load() +
+                             pc_encode_ns.load() + pc_putidx_ns.load()) / cnt));
+  }
+
+  return rs;
 }
 
 Status BlobWriteBatchTransformer::TimedPutCF(uint32_t column_family_id,

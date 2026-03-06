@@ -2717,6 +2717,18 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               impl->file_options_, dbname,
               column_families[0].options.blob_file_size,
               impl->immutable_db_options_.use_fsync, buffer_size);
+      // Cache blob direct write settings per CF to avoid SuperVersion
+      // lookup on every Put.
+      for (size_t i = 0; i < column_families.size(); i++) {
+        const auto& cf_opts = column_families[i].options;
+        BlobDirectWriteSettings settings;
+        settings.enable_blob_direct_write =
+            cf_opts.enable_blob_direct_write && cf_opts.enable_blob_files;
+        settings.min_blob_size = cf_opts.min_blob_size;
+        settings.compression_type = cf_opts.blob_compression_type;
+        uint32_t cf_id = (i < handles->size()) ? (*handles)[i]->GetID() : 0;
+        impl->blob_partition_manager_->UpdateCachedSettings(cf_id, settings);
+      }
     }
   }
 

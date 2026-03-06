@@ -545,31 +545,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  const uint64_t t_phase0 = immutable_db_options_.clock->NowNanos();
 
   // Blob direct write: transform batch by writing large values to blob files
   // and replacing them with BlobIndex entries, before entering the write group.
   WriteBatch transformed_batch;
   if (my_batch != nullptr && blob_partition_manager_ != nullptr) {
-    std::unordered_map<uint32_t, BlobDirectWriteSettings> cf_settings_cache;
+    // Use cached settings from BlobFilePartitionManager (no SuperVersion lookup).
     auto settings_provider =
-        [this, &cf_settings_cache](uint32_t cf_id) -> BlobDirectWriteSettings {
-      auto it = cf_settings_cache.find(cf_id);
-      if (it != cf_settings_cache.end()) {
-        return it->second;
-      }
-      BlobDirectWriteSettings settings;
-      auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
-      if (cfd) {
-        SuperVersion* sv = cfd->GetThreadLocalSuperVersion(this);
-        const auto& opts = sv->mutable_cf_options;
-        settings.enable_blob_direct_write =
-            opts.enable_blob_direct_write && opts.enable_blob_files;
-        settings.min_blob_size = opts.min_blob_size;
-        settings.compression_type = opts.blob_compression_type;
-        cfd->ReturnThreadLocalSuperVersion(sv);
-      }
-      cf_settings_cache[cf_id] = settings;
-      return settings;
+        [this](uint32_t cf_id) -> BlobDirectWriteSettings {
+      return blob_partition_manager_->GetCachedSettings(cf_id);
     };
 
     bool transformed = false;
@@ -597,6 +582,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
 
+  const uint64_t t_phase1_join = immutable_db_options_.clock->NowNanos();
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,
                         pre_release_callback, post_memtable_callback,
@@ -604,6 +590,31 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
+  const uint64_t t_phase2_afterjoin = immutable_db_options_.clock->NowNanos();
+
+  // WriteImpl timing dump.
+  if (blob_partition_manager_ != nullptr) {
+    static std::atomic<uint64_t> wi_count{0};
+    static std::atomic<uint64_t> wi_transform_ns{0};
+    static std::atomic<uint64_t> wi_join_ns{0};
+
+    wi_transform_ns.fetch_add(t_phase1_join - t_phase0,
+                              std::memory_order_relaxed);
+    wi_join_ns.fetch_add(t_phase2_afterjoin - t_phase1_join,
+                         std::memory_order_relaxed);
+    uint64_t cnt = wi_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (cnt % 200000 == 0) {
+      fprintf(stderr,
+              "\n=== WriteImpl timing (%lu calls) ===\n"
+              "  TransformBatch:   %6lu ns/op\n"
+              "  JoinBatchGroup:   %6lu ns/op\n"
+              "  TOTAL (pre-lead): %6lu ns/op\n",
+              (unsigned long)cnt,
+              (unsigned long)(wi_transform_ns.load() / cnt),
+              (unsigned long)(wi_join_ns.load() / cnt),
+              (unsigned long)((wi_transform_ns.load() + wi_join_ns.load()) / cnt));
+    }
+  }
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_CALLER) {
     write_thread_.SetMemWritersEachStride(&w);
   }
@@ -650,6 +661,26 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     assert(w.state == WriteThread::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
   }
+  // Accumulate phase timings for blob direct write analysis.
+  if (blob_partition_manager_ != nullptr) {
+    static std::atomic<uint64_t> ph_transform{0}, ph_join_wait{0}, ph_total{0}, ph_count{0};
+    uint64_t t_end = immutable_db_options_.clock->NowNanos();
+    ph_transform.fetch_add(t_phase1_join - t_phase0, std::memory_order_relaxed);
+    ph_join_wait.fetch_add(t_phase2_afterjoin - t_phase1_join, std::memory_order_relaxed);
+    ph_total.fetch_add(t_end - t_phase0, std::memory_order_relaxed);
+    uint64_t cnt = ph_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (cnt % 20000 == 0) {
+      fprintf(stderr,
+              "WRITE_PHASES: %lu calls | transform=%lu ns | join_wait=%lu ns | "
+              "leader+wal+mem=%lu ns | total=%lu ns\n",
+              (unsigned long)cnt,
+              (unsigned long)(ph_transform.load() / cnt),
+              (unsigned long)(ph_join_wait.load() / cnt),
+              (unsigned long)((ph_total.load() - ph_transform.load() - ph_join_wait.load()) / cnt),
+              (unsigned long)(ph_total.load() / cnt));
+    }
+  }
+
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (wal_used != nullptr) {
       *wal_used = w.wal_used;

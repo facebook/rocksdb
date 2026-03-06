@@ -38,7 +38,9 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       blob_file_size_(blob_file_size),
       use_fsync_(use_fsync),
       buffer_size_(buffer_size),
-      high_water_mark_(buffer_size_ > 0 ? buffer_size_ * 3 / 4 : 0) {
+      high_water_mark_(buffer_size_ > 0 ? buffer_size_ * 3 / 4 : 0),
+      bg_cv_(&bg_mutex_),
+      bg_drain_cv_(&bg_mutex_) {
   assert(num_partitions_ > 0);
   assert(file_number_allocator_);
   assert(fs_);
@@ -47,9 +49,32 @@ BlobFilePartitionManager::BlobFilePartitionManager(
   for (uint32_t i = 0; i < num_partitions_; ++i) {
     partitions_.emplace_back(std::make_unique<Partition>());
   }
+
+  // Start background I/O thread pool for deferred seal and flush operations.
+  // Use one thread per partition so each partition can flush independently.
+  if (buffer_size_ > 0) {
+    const uint32_t num_bg_threads = num_partitions_;
+    for (uint32_t i = 0; i < num_bg_threads; ++i) {
+      bg_threads_.emplace_back(
+          &BlobFilePartitionManager::BackgroundIOLoop, this);
+    }
+  }
 }
 
-BlobFilePartitionManager::~BlobFilePartitionManager() { DumpTimingStats(); }
+BlobFilePartitionManager::~BlobFilePartitionManager() {
+  // Stop background threads.
+  if (!bg_threads_.empty()) {
+    {
+      MutexLock lock(&bg_mutex_);
+      bg_stop_ = true;
+      bg_cv_.SignalAll();
+    }
+    for (auto& t : bg_threads_) {
+      t.join();
+    }
+  }
+  DumpTimingStats();
+}
 
 Status BlobFilePartitionManager::OpenNewBlobFile(
     Partition* partition, uint32_t column_family_id,
@@ -105,10 +130,40 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   assert(partition->writer);
 
   // Flush pending deferred records before closing.
+  // Done inline while holding the mutex to prevent other threads from adding
+  // records with pre-calculated offsets for this file during the flush.
+  // The mutex is held during I/O, but this only blocks one partition and
+  // file close is infrequent (once per blob_file_size bytes).
   if (buffer_size_ > 0 && !partition->pending_records.empty()) {
-    partition->mutex.Unlock();
-    Status s = FlushPendingRecords(partition);
-    partition->mutex.Lock();
+    std::list<PendingRecord> records =
+        std::move(partition->pending_records);
+    partition->pending_records.clear();
+    BlobLogWriter* writer = partition->writer.get();
+
+    for (auto& record : records) {
+      uint64_t key_offset = 0;
+      uint64_t actual_blob_offset = 0;
+      WriteOptions wo;
+      Status s = writer->AddRecord(wo, Slice(record.key), Slice(record.value),
+                                   &key_offset, &actual_blob_offset);
+      if (!s.ok()) {
+        return s;
+      }
+      assert(actual_blob_offset == record.blob_offset);
+
+      const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
+                                    record.key.size() + record.value.size();
+      partition->pending_bytes.fetch_sub(record_bytes,
+                                         std::memory_order_relaxed);
+    }
+
+    // Flush to OS.
+    IOOptions io_opts;
+    WriteOptions wo;
+    Status s = WritableFileWriter::PrepareIOOptions(wo, io_opts);
+    if (s.ok()) {
+      s = writer->file()->Flush(io_opts);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -154,6 +209,222 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   partition->next_write_offset = 0;
 
   return Status::OK();
+}
+
+Status BlobFilePartitionManager::PrepareFileRollover(
+    Partition* partition, uint32_t column_family_id,
+    CompressionType compression, DeferredSeal* deferred) {
+  assert(partition);
+  assert(partition->writer);
+  assert(deferred);
+
+  // Capture old file state under the mutex.
+  deferred->writer = std::move(partition->writer);
+  deferred->records = std::move(partition->pending_records);
+  partition->pending_records.clear();
+  deferred->file_number = partition->file_number;
+  deferred->blob_count = partition->blob_count;
+  deferred->total_blob_bytes = partition->total_blob_bytes;
+
+  // Reset partition state so OpenNewBlobFile succeeds.
+  partition->file_number = 0;
+  partition->file_size = 0;
+  partition->blob_count = 0;
+  partition->total_blob_bytes = 0;
+  partition->next_write_offset = 0;
+
+  // Open new file immediately so writers can continue.
+  return OpenNewBlobFile(partition, column_family_id, compression);
+}
+
+Status BlobFilePartitionManager::SealDeferredFile(
+    Partition* partition, DeferredSeal* deferred) {
+  assert(deferred);
+  assert(deferred->writer);
+
+  // Flush pending records to the old writer (outside the mutex).
+  BlobLogWriter* writer = deferred->writer.get();
+
+  for (auto& record : deferred->records) {
+    uint64_t key_offset = 0;
+    uint64_t actual_blob_offset = 0;
+    WriteOptions wo;
+    Status s = writer->AddRecord(wo, Slice(record.key), Slice(record.value),
+                                 &key_offset, &actual_blob_offset);
+    if (!s.ok()) {
+      return s;
+    }
+    assert(actual_blob_offset == record.blob_offset);
+
+    const uint64_t record_bytes =
+        BlobLogRecord::kHeaderSize + record.key.size() + record.value.size();
+    partition->pending_bytes.fetch_sub(record_bytes,
+                                       std::memory_order_relaxed);
+    partition->pending_cv.SignalAll();
+  }
+
+  // Flush to OS.
+  {
+    IOOptions io_opts;
+    WriteOptions wo;
+    Status s = WritableFileWriter::PrepareIOOptions(wo, io_opts);
+    if (s.ok()) {
+      s = writer->file()->Flush(io_opts);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  // Write footer.
+  BlobLogFooter footer;
+  footer.blob_count = deferred->blob_count;
+
+  std::string checksum_method;
+  std::string checksum_value;
+  WriteOptions wo;
+  Status s = writer->AppendFooter(wo, footer, &checksum_method,
+                                  &checksum_value);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Record completion (re-acquire mutex briefly).
+  {
+    MutexLock lock(&partition->mutex);
+    partition->completed_files.emplace_back(
+        deferred->file_number, deferred->blob_count,
+        deferred->total_blob_bytes, std::move(checksum_method),
+        std::move(checksum_value));
+  }
+
+  deferred->writer.reset();
+  return Status::OK();
+}
+
+void BlobFilePartitionManager::SubmitSeal(Partition* partition,
+                                          DeferredSeal&& seal) {
+  MutexLock lock(&bg_mutex_);
+  BGWorkItem item;
+  item.type = BGWorkItem::kSeal;
+  item.seal = std::move(seal);
+  partition->bg_queue.emplace_back(std::move(item));
+  bg_cv_.SignalAll();
+}
+
+void BlobFilePartitionManager::SubmitFlush(Partition* partition) {
+  MutexLock lock(&bg_mutex_);
+  // Avoid duplicate flush requests for the same partition.
+  for (const auto& item : partition->bg_queue) {
+    if (item.type == BGWorkItem::kFlush) {
+      return;
+    }
+  }
+  BGWorkItem item;
+  item.type = BGWorkItem::kFlush;
+  partition->bg_queue.emplace_back(std::move(item));
+  bg_cv_.SignalAll();
+}
+
+void BlobFilePartitionManager::DrainBackgroundWork() {
+  MutexLock lock(&bg_mutex_);
+  while (true) {
+    bool any_work = false;
+    for (auto& partition : partitions_) {
+      if (!partition->bg_queue.empty() || partition->bg_in_flight) {
+        any_work = true;
+        break;
+      }
+    }
+    if (!any_work) {
+      return;
+    }
+    bg_drain_cv_.Wait();
+  }
+}
+
+void BlobFilePartitionManager::BackgroundIOLoop() {
+  while (true) {
+    Partition* partition = nullptr;
+    std::deque<BGWorkItem> items;
+
+    {
+      MutexLock lock(&bg_mutex_);
+      while (true) {
+        if (bg_stop_) {
+          // Drain remaining work before stopping.
+          bool any_work = false;
+          for (auto& p : partitions_) {
+            if (!p->bg_queue.empty() && !p->bg_in_flight) {
+              any_work = true;
+              break;
+            }
+          }
+          if (!any_work) {
+            return;
+          }
+        }
+
+        // Find a partition with pending work that isn't being processed.
+        for (auto& p : partitions_) {
+          if (!p->bg_queue.empty() && !p->bg_in_flight) {
+            partition = p.get();
+            break;
+          }
+        }
+        if (partition) {
+          break;
+        }
+        bg_cv_.Wait();
+      }
+
+      // Take all items from this partition's queue.
+      items = std::move(partition->bg_queue);
+      partition->bg_queue.clear();
+      partition->bg_in_flight = true;
+    }
+
+    // Process items outside bg_mutex_ (but one partition at a time).
+    for (auto& item : items) {
+      Status s;
+      if (item.type == BGWorkItem::kSeal) {
+        s = SealDeferredFile(partition, &item.seal);
+      } else if (item.type == BGWorkItem::kFlush) {
+        s = FlushPendingRecords(partition);
+      }
+
+      if (!s.ok()) {
+        MutexLock lock(&bg_mutex_);
+        if (bg_status_.ok()) {
+          bg_status_ = s;
+        }
+      }
+    }
+
+    // Mark partition as no longer in-flight and check for drain.
+    {
+      MutexLock lock(&bg_mutex_);
+      partition->bg_in_flight = false;
+
+      // If more work arrived for this partition while we were processing,
+      // wake up threads to handle it.
+      if (!partition->bg_queue.empty()) {
+        bg_cv_.SignalAll();
+      }
+
+      // Check if all work is done (for drain waiters).
+      bool any_work = false;
+      for (auto& p : partitions_) {
+        if (!p->bg_queue.empty() || p->bg_in_flight) {
+          any_work = true;
+          break;
+        }
+      }
+      if (!any_work) {
+        bg_drain_cv_.SignalAll();
+      }
+    }
+  }
 }
 
 Status BlobFilePartitionManager::WriteBlobDeferred(
@@ -238,6 +509,20 @@ Status BlobFilePartitionManager::WriteBlob(
   assert(blob_offset);
   assert(blob_size);
 
+  // Instrumentation counters (static atomics for cross-thread aggregation).
+  static std::atomic<uint64_t> wb_count{0};
+  static std::atomic<uint64_t> wb_backpressure_ns{0};
+  static std::atomic<uint64_t> wb_precopy_ns{0};
+  static std::atomic<uint64_t> wb_mutex_wait_ns{0};
+  static std::atomic<uint64_t> wb_critical_ns{0};
+  static std::atomic<uint64_t> wb_seal_ns{0};
+  static std::atomic<uint64_t> wb_hwm_flush_ns{0};
+  static std::atomic<uint64_t> wb_rollover_count{0};
+  static std::atomic<uint64_t> wb_hwm_flush_count{0};
+  static std::atomic<uint64_t> wb_backpressure_count{0};
+
+  const uint64_t t0 = clock_ ? clock_->NowNanos() : 0;
+
   const uint32_t partition_idx =
       strategy_->SelectPartition(num_partitions_, column_family_id, key, value);
   assert(partition_idx < num_partitions_);
@@ -245,22 +530,49 @@ Status BlobFilePartitionManager::WriteBlob(
   Partition* partition = partitions_[partition_idx].get();
 
   // Backpressure: stall if pending bytes exceed buffer_size.
+  // Submit flush to background thread and wait, never flush inline.
   if (buffer_size_ > 0) {
     if (partition->pending_bytes.load(std::memory_order_relaxed) >=
         buffer_size_) {
-      FlushPendingRecords(partition);
-      if (partition->pending_bytes.load(std::memory_order_relaxed) >=
-          buffer_size_) {
-        MutexLock lock(&partition->mutex);
-        while (partition->pending_bytes.load(std::memory_order_relaxed) >=
-               buffer_size_) {
-          partition->pending_cv.Wait();
+      static std::atomic<uint64_t> bp_stall_count{0};
+      static std::atomic<uint64_t> bp_stall_total_ns{0};
+      static std::atomic<uint64_t> bp_stall_max_ns{0};
+
+      wb_backpressure_count.fetch_add(1, std::memory_order_relaxed);
+      uint64_t stall_start = clock_ ? clock_->NowNanos() : 0;
+
+      SubmitFlush(partition);
+      MutexLock lock(&partition->mutex);
+      while (partition->pending_bytes.load(std::memory_order_relaxed) >=
+             buffer_size_) {
+        partition->pending_cv.Wait();
+      }
+
+      if (clock_) {
+        uint64_t stall_ns = clock_->NowNanos() - stall_start;
+        bp_stall_total_ns.fetch_add(stall_ns, std::memory_order_relaxed);
+        // Update max (relaxed, approximate)
+        uint64_t cur_max = bp_stall_max_ns.load(std::memory_order_relaxed);
+        while (stall_ns > cur_max) {
+          if (bp_stall_max_ns.compare_exchange_weak(cur_max, stall_ns,
+              std::memory_order_relaxed)) break;
+        }
+        uint64_t cnt = bp_stall_count.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (cnt % 200 == 0) {
+          fprintf(stderr,
+                  "  BACKPRESSURE: %lu stalls | avg=%lu μs | max=%lu μs\n",
+                  (unsigned long)cnt,
+                  (unsigned long)(bp_stall_total_ns.load() / cnt / 1000),
+                  (unsigned long)(bp_stall_max_ns.load() / 1000));
         }
       }
     }
   }
 
+  const uint64_t t1 = clock_ ? clock_->NowNanos() : 0;
+
   bool need_flush = false;
+  DeferredSeal deferred_seal;
   // Pre-copy key and value OUTSIDE the mutex to minimize critical section.
   std::string key_copy, value_copy;
   if (buffer_size_ > 0) {
@@ -268,13 +580,11 @@ Status BlobFilePartitionManager::WriteBlob(
     value_copy.assign(value.data(), value.size());
   }
 
-  const uint64_t t_pre_mutex = clock_ ? clock_->NowNanos() : 0;
+  const uint64_t t2 = clock_ ? clock_->NowNanos() : 0;
   {
     MutexLock lock(&partition->mutex);
-    if (clock_) {
-      mutex_wait_nanos_.fetch_add(clock_->NowNanos() - t_pre_mutex,
-                                  std::memory_order_relaxed);
-    }
+
+    const uint64_t t3 = clock_ ? clock_->NowNanos() : 0;
 
     if (!partition->writer ||
         partition->column_family_id != column_family_id ||
@@ -312,7 +622,9 @@ Status BlobFilePartitionManager::WriteBlob(
     partition->file_size = partition->total_blob_bytes + BlobLogHeader::kSize;
 
     if (partition->file_size >= blob_file_size_) {
-      s = CloseBlobFile(partition);
+      wb_rollover_count.fetch_add(1, std::memory_order_relaxed);
+      s = PrepareFileRollover(partition, column_family_id, compression,
+                              &deferred_seal);
       if (!s.ok()) {
         return s;
       }
@@ -326,18 +638,64 @@ Status BlobFilePartitionManager::WriteBlob(
             high_water_mark_) {
       need_flush = true;
     }
+
+    const uint64_t t4 = clock_ ? clock_->NowNanos() : 0;
+    if (clock_) {
+      wb_mutex_wait_ns.fetch_add(t3 - t2, std::memory_order_relaxed);
+      wb_critical_ns.fetch_add(t4 - t3, std::memory_order_relaxed);
+    }
   }  // mutex released
 
+  const uint64_t t5 = clock_ ? clock_->NowNanos() : 0;
+
+  // Submit seal to background thread (non-blocking).
+  if (deferred_seal.writer) {
+    SubmitSeal(partition, std::move(deferred_seal));
+  }
+
+  const uint64_t t6 = clock_ ? clock_->NowNanos() : 0;
+
+  // Submit flush to background thread (non-blocking).
   if (need_flush) {
-    const uint64_t t_flush_start = clock_ ? clock_->NowNanos() : 0;
-    Status s = FlushPendingRecords(partition);
-    if (clock_) {
-      flush_nanos_.fetch_add(clock_->NowNanos() - t_flush_start,
-                             std::memory_order_relaxed);
-      flush_count_.fetch_add(1, std::memory_order_relaxed);
-    }
-    if (!s.ok()) {
-      return s;
+    wb_hwm_flush_count.fetch_add(1, std::memory_order_relaxed);
+    SubmitFlush(partition);
+  }
+
+  const uint64_t t7 = clock_ ? clock_->NowNanos() : 0;
+
+  if (clock_) {
+    wb_backpressure_ns.fetch_add(t1 - t0, std::memory_order_relaxed);
+    wb_precopy_ns.fetch_add(t2 - t1, std::memory_order_relaxed);
+    wb_seal_ns.fetch_add(t6 - t5, std::memory_order_relaxed);
+    wb_hwm_flush_ns.fetch_add(t7 - t6, std::memory_order_relaxed);
+
+    uint64_t cnt = wb_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (cnt % 200000 == 0) {
+      fprintf(stderr,
+              "\n=== WriteBlob timing (%lu calls) ===\n"
+              "  backpressure:  %6lu ns/op  (%lu events)\n"
+              "  precopy:       %6lu ns/op\n"
+              "  mutex_wait:    %6lu ns/op\n"
+              "  critical_sec:  %6lu ns/op\n"
+              "  seal_deferred: %6lu ns/op  (%lu rollovers)\n"
+              "  hwm_flush:     %6lu ns/op  (%lu events)\n"
+              "  TOTAL:         %6lu ns/op\n",
+              (unsigned long)cnt,
+              (unsigned long)(wb_backpressure_ns.load() / cnt),
+              (unsigned long)wb_backpressure_count.load(),
+              (unsigned long)(wb_precopy_ns.load() / cnt),
+              (unsigned long)(wb_mutex_wait_ns.load() / cnt),
+              (unsigned long)(wb_critical_ns.load() / cnt),
+              (unsigned long)(wb_seal_ns.load() / cnt),
+              (unsigned long)wb_rollover_count.load(),
+              (unsigned long)(wb_hwm_flush_ns.load() / cnt),
+              (unsigned long)wb_hwm_flush_count.load(),
+              (unsigned long)((wb_backpressure_ns.load() +
+                               wb_precopy_ns.load() +
+                               wb_mutex_wait_ns.load() +
+                               wb_critical_ns.load() +
+                               wb_seal_ns.load() +
+                               wb_hwm_flush_ns.load()) / cnt));
     }
   }
 
@@ -347,6 +705,13 @@ Status BlobFilePartitionManager::WriteBlob(
 Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   assert(partition);
 
+  // Only called from the single background I/O thread. Safe to release the
+  // mutex during I/O because:
+  // 1. PrepareFileRollover may move partition->writer to a DeferredSeal in the
+  //    BG queue, but the DeferredSeal keeps the writer alive until the BG thread
+  //    processes it (sequentially, after this flush completes).
+  // 2. No other code path calls FlushPendingRecords (backpressure submits to
+  //    BG thread and waits).
   std::list<PendingRecord> records;
   BlobLogWriter* writer = nullptr;
   {
@@ -413,39 +778,42 @@ Status BlobFilePartitionManager::SealAllPartitions(
     std::vector<BlobFileAddition>* additions) {
   assert(additions);
 
+  // Drain all pending background work (seals and flushes) before sealing.
   if (buffer_size_ > 0) {
-    for (auto& partition : partitions_) {
-      Status s = FlushPendingRecords(partition.get());
-      if (!s.ok()) {
-        return s;
+    DrainBackgroundWork();
+
+    // Check for background errors.
+    {
+      MutexLock lock(&bg_mutex_);
+      if (!bg_status_.ok()) {
+        return bg_status_;
       }
     }
   }
 
-  struct PendingSeal {
-    std::unique_ptr<BlobLogWriter> writer;
-    uint64_t file_number;
-    uint64_t blob_count;
-    uint64_t total_blob_bytes;
-  };
-  std::vector<PendingSeal> pending;
+  // Phase 1: Under each partition's mutex, capture state for sealing.
+  // No new file is opened (unlike rollover) since we're sealing everything.
+  std::vector<std::pair<Partition*, DeferredSeal>> seals;
 
   for (auto& partition : partitions_) {
     MutexLock lock(&partition->mutex);
 
     if (partition->writer) {
-      PendingSeal seal;
+      DeferredSeal seal;
       seal.writer = std::move(partition->writer);
+      seal.records = std::move(partition->pending_records);
+      partition->pending_records.clear();
       seal.file_number = partition->file_number;
       seal.blob_count = partition->blob_count;
       seal.total_blob_bytes = partition->total_blob_bytes;
-      pending.emplace_back(std::move(seal));
 
       partition->file_number = 0;
       partition->file_size = 0;
       partition->blob_count = 0;
       partition->total_blob_bytes = 0;
       partition->next_write_offset = 0;
+
+      seals.emplace_back(partition.get(), std::move(seal));
     }
 
     for (auto& addition : partition->completed_files) {
@@ -454,28 +822,50 @@ Status BlobFilePartitionManager::SealAllPartitions(
     partition->completed_files.clear();
   }
 
-  for (auto& seal : pending) {
+  // Phase 2: Seal all captured files outside any mutex.
+  for (auto& [partition, seal] : seals) {
+    BlobLogWriter* writer = seal.writer.get();
+
+    // Flush pending records.
+    for (auto& record : seal.records) {
+      uint64_t key_offset = 0;
+      uint64_t actual_blob_offset = 0;
+      WriteOptions wo;
+      Status s = writer->AddRecord(wo, Slice(record.key), Slice(record.value),
+                                   &key_offset, &actual_blob_offset);
+      if (!s.ok()) {
+        return s;
+      }
+      assert(actual_blob_offset == record.blob_offset);
+
+      const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
+                                    record.key.size() + record.value.size();
+      partition->pending_bytes.fetch_sub(record_bytes,
+                                         std::memory_order_relaxed);
+    }
+
+    // Flush to OS.
     {
       IOOptions io_opts;
       WriteOptions wo;
       Status s = WritableFileWriter::PrepareIOOptions(wo, io_opts);
       if (s.ok()) {
-        s = seal.writer->file()->Flush(io_opts);
+        s = writer->file()->Flush(io_opts);
       }
       if (!s.ok()) {
         return s;
       }
     }
 
+    // Write footer.
     BlobLogFooter footer;
     footer.blob_count = seal.blob_count;
 
     std::string checksum_method;
     std::string checksum_value;
-
     WriteOptions wo;
-    Status s = seal.writer->AppendFooter(wo, footer, &checksum_method,
-                                         &checksum_value);
+    Status s = writer->AppendFooter(wo, footer, &checksum_method,
+                                    &checksum_value);
     if (!s.ok()) {
       return s;
     }
