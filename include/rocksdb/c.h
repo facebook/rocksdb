@@ -105,6 +105,7 @@ typedef struct rocksdb_logger_t rocksdb_logger_t;
 typedef struct rocksdb_mergeoperator_t rocksdb_mergeoperator_t;
 typedef struct rocksdb_options_t rocksdb_options_t;
 typedef struct rocksdb_compactoptions_t rocksdb_compactoptions_t;
+typedef struct rocksdb_compaction_options_t rocksdb_compaction_options_t;
 typedef struct rocksdb_block_based_table_options_t
     rocksdb_block_based_table_options_t;
 typedef struct rocksdb_cuckoo_table_options_t rocksdb_cuckoo_table_options_t;
@@ -769,6 +770,17 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     rocksdb_compactoptions_t* opt, const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compact_files(
+    rocksdb_t* db, const rocksdb_compaction_options_t* opt,
+    const char* const* input_file_names, size_t num_input_files,
+    int output_level, int output_path_id, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compact_files_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const rocksdb_compaction_options_t* opt,
+    const char* const* input_file_names, size_t num_input_files,
+    int output_level, int output_path_id, char** errptr);
 
 extern ROCKSDB_LIBRARY_API const rocksdb_livefiles_t* rocksdb_livefiles(
     rocksdb_t* db);
@@ -2443,6 +2455,31 @@ extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_max_subcompactions(
     rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_full_history_ts_low(
     rocksdb_compactoptions_t*, char* ts, size_t tslen);
+
+/* CompactionOptions (for CompactFiles) */
+
+extern ROCKSDB_LIBRARY_API rocksdb_compaction_options_t*
+rocksdb_compaction_options_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_compaction_options_destroy(
+    rocksdb_compaction_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_options_set_output_file_size_limit(
+    rocksdb_compaction_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compaction_options_get_output_file_size_limit(
+    rocksdb_compaction_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_options_set_max_subcompactions(rocksdb_compaction_options_t*,
+                                                  uint32_t);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_compaction_options_get_max_subcompactions(
+    rocksdb_compaction_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compaction_options_set_allow_trivial_move(rocksdb_compaction_options_t*,
+                                                  unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compaction_options_get_allow_trivial_move(
+    rocksdb_compaction_options_t*);
 
 /* Flush options */
 
