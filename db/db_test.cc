@@ -7803,6 +7803,20 @@ TEST_F(DBTest, FileReadSampledStats) {
   ASSERT_EQ(meta->stats.num_reads_sampled.load(std::memory_order_relaxed),
             kFileReadSampleRate);
 
+  // -- Test L0 Get path --
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+
+  auto l0_files = GetLevelFileMetadatas(0);
+  ASSERT_EQ(l0_files.size(), 1);
+  auto* l0_meta = l0_files[0];
+  l0_meta->stats.num_reads_sampled.store(0, std::memory_order_relaxed);
+
+  // A Get on an L0 file should increment num_reads_sampled.
+  ASSERT_EQ("val2", Get("key2"));
+  ASSERT_EQ(l0_meta->stats.num_reads_sampled.load(std::memory_order_relaxed),
+            kFileReadSampleRate);
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
@@ -7862,6 +7876,33 @@ TEST_F(DBTest, FileCollapsibleEntryReadSampledStats) {
   ASSERT_EQ(meta->stats.num_collapsible_entry_reads_sampled.load(
                 std::memory_order_relaxed),
             2 * kFileReadSampleRate);
+
+  // -- Test L0 Get path --
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Flush());
+
+  auto l0_files = GetLevelFileMetadatas(0);
+  ASSERT_EQ(l0_files.size(), 1);
+  auto* l0_meta = l0_files[0];
+
+  // Get for a found key in L0 should NOT increment collapsible counter.
+  l0_meta->stats.num_collapsible_entry_reads_sampled.store(
+      0, std::memory_order_relaxed);
+  ASSERT_EQ("val_a", Get("a"));
+  ASSERT_EQ(l0_meta->stats.num_collapsible_entry_reads_sampled.load(
+                std::memory_order_relaxed),
+            0);
+
+  // Get for a missing key in L0 (kNotFound) should increment collapsible
+  // counter.
+  ASSERT_EQ("NOT_FOUND", Get("aa"));
+  ASSERT_EQ(l0_meta->stats.num_collapsible_entry_reads_sampled.load(
+                std::memory_order_relaxed),
+            kFileReadSampleRate);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

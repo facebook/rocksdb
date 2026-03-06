@@ -1549,6 +1549,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
     SkipEmptyFileBackward();
   }
   CheckMayBeOutOfLowerBound();
+  SampleRead<true>();
 }
 
 void LevelIterator::SeekToFirst() {
@@ -1580,6 +1581,7 @@ void LevelIterator::SeekToLast() {
   }
   SkipEmptyFileBackward();
   CheckMayBeOutOfLowerBound();
+  SampleRead<true>();
 }
 
 void LevelIterator::Next() {
@@ -1643,6 +1645,7 @@ void LevelIterator::Prev() {
     }
   }
   SkipEmptyFileBackward();
+  SampleRead<false>();
 }
 
 bool LevelIterator::SkipEmptyFileForward() {

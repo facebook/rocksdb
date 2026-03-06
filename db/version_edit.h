@@ -237,8 +237,7 @@ struct FileSampledStats {
 
   // number of user reads to this file.
   mutable std::atomic<uint64_t> num_reads_sampled;
-  // number of collapsible reads (kNotFound, kMerge, range tombstone
-  // encounters).
+  // number of reads of type kNotFound, kMerge, kTypeSingleDeletion
   mutable std::atomic<uint64_t> num_collapsible_entry_reads_sampled;
 };
 
