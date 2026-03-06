@@ -2362,8 +2362,6 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     return;
   }
 
-  bool should_sample = should_sample_file_read();
-
   auto* arena = merge_iter_builder->GetArena();
   if (level == 0) {
     // Merge all level zero files together since they may overlap
@@ -2387,9 +2385,10 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
             table_iter, std::move(tombstone_iter));
       }
     }
-    if (should_sample) {
+    if (should_sample_file_read()) {
       // Count ones for every L0 files. This is done per iterator creation
-      // rather than Seek(), while files in other levels are recorded per seek.
+      // rather than Seek(), while files in other levels are sampled on
+      // seek/next/prev.
       for (FileMetaData* meta : storage_info_.LevelFiles(0)) {
         sample_file_read_inc(meta);
       }
