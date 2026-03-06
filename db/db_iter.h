@@ -9,9 +9,14 @@
 
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
+#include "db/wide/read_path_blob_resolver.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -525,5 +530,11 @@ class DBIter final : public Iterator {
   bool allow_unprepared_value_;
   bool is_blob_;
   bool arena_mode_;
+
+  // Entity blob resolution support. These hold the deserialized column
+  // metadata for the current entity when it has blob columns (V2 format).
+  ReadPathBlobResolver entity_blob_resolver_;
+  std::vector<WideColumn> lazy_entity_columns_;
+  std::vector<std::pair<size_t, BlobIndex>> lazy_blob_columns_;
 };
 }  // namespace ROCKSDB_NAMESPACE
