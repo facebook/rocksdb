@@ -24,6 +24,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -92,6 +93,15 @@ int db_stress_tool(int argc, char** argv) {
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
+
+    // Register a crash callback so that recently injected errors are
+    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
+    // This helps diagnose stress test failures caused by fault injection.
+    port::RegisterCrashCallback([]() {
+      if (fault_fs_guard) {
+        fault_fs_guard->PrintRecentInjectedErrors();
+      }
+    });
   }
 
   auto db_stress_fs =
