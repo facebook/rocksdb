@@ -1,13 +1,17 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.0.4 (TODO: date)
+### Public API Changes
+* Re-remove deprecated DB::Open raw pointer variants in db.h
+
 ## 11.0.3 (03/03/2026)
 ### Public API Changes
-Relax option sanitization for kv ratio compaction
+* Relax option sanitization for kv ratio compaction
 
 ## 11.0.2 (02/26/2026)
 ### Public API Changes
-Revert removing deprecated DB::Open raw pointer variants in db.h
+* Revert removing deprecated DB::Open raw pointer variants in db.h
 
 ## 11.0.0 (02/23/2026)
 ### New Features
