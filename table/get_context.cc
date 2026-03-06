@@ -217,6 +217,26 @@ void GetContext::ReportCounters() {
     RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
                get_context_stats_.num_cache_compression_dict_bytes_insert);
   }
+  if (get_context_stats_.num_cache_range_deletion_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_RANGE_DELETION_HIT,
+               get_context_stats_.num_cache_range_deletion_hit);
+  }
+  if (get_context_stats_.num_cache_range_deletion_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_RANGE_DELETION_MISS,
+               get_context_stats_.num_cache_range_deletion_miss);
+  }
+  if (get_context_stats_.num_cache_range_deletion_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_RANGE_DELETION_ADD,
+               get_context_stats_.num_cache_range_deletion_add);
+  }
+  if (get_context_stats_.num_cache_range_deletion_add_redundant > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT,
+               get_context_stats_.num_cache_range_deletion_add_redundant);
+  }
+  if (get_context_stats_.num_cache_range_deletion_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT,
+               get_context_stats_.num_cache_range_deletion_bytes_insert);
+  }
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,

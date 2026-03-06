@@ -51,6 +51,11 @@ struct GetContextStats {
   uint64_t num_cache_compression_dict_add = 0;
   uint64_t num_cache_compression_dict_add_redundant = 0;
   uint64_t num_cache_compression_dict_bytes_insert = 0;
+  uint64_t num_cache_range_deletion_hit = 0;
+  uint64_t num_cache_range_deletion_miss = 0;
+  uint64_t num_cache_range_deletion_add = 0;
+  uint64_t num_cache_range_deletion_add_redundant = 0;
+  uint64_t num_cache_range_deletion_bytes_insert = 0;
   // MultiGet stats.
   uint64_t num_filter_read = 0;
   uint64_t num_index_read = 0;

@@ -32,12 +32,16 @@ enum Tickers : uint32_t {
   // total block cache misses
   // REQUIRES: BLOCK_CACHE_MISS == BLOCK_CACHE_INDEX_MISS +
   //                               BLOCK_CACHE_FILTER_MISS +
-  //                               BLOCK_CACHE_DATA_MISS;
+  //                               BLOCK_CACHE_DATA_MISS +
+  //                               BLOCK_CACHE_COMPRESSION_DICT_MISS +
+  //                               BLOCK_CACHE_RANGE_DELETION_MISS;
   BLOCK_CACHE_MISS = 0,
   // total block cache hit
   // REQUIRES: BLOCK_CACHE_HIT == BLOCK_CACHE_INDEX_HIT +
   //                              BLOCK_CACHE_FILTER_HIT +
-  //                              BLOCK_CACHE_DATA_HIT;
+  //                              BLOCK_CACHE_DATA_HIT +
+  //                              BLOCK_CACHE_COMPRESSION_DICT_HIT +
+  //                              BLOCK_CACHE_RANGE_DELETION_HIT;
   BLOCK_CACHE_HIT,
   // # of blocks added to block cache.
   BLOCK_CACHE_ADD,
@@ -93,6 +97,20 @@ enum Tickers : uint32_t {
   // REQUIRES: BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT
   //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
   BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
+
+  // # of times cache miss when accessing range deletion block from block
+  // cache.
+  BLOCK_CACHE_RANGE_DELETION_MISS,
+  // # of times cache hit when accessing range deletion block from block cache.
+  BLOCK_CACHE_RANGE_DELETION_HIT,
+  // # of range deletion blocks added to block cache.
+  BLOCK_CACHE_RANGE_DELETION_ADD,
+  // # of bytes of range deletion blocks inserted into cache
+  BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT,
+  // # of range deletion blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT
+  //           <= BLOCK_CACHE_RANGE_DELETION_ADD
+  BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT,
 
   // Secondary cache statistics
   SECONDARY_CACHE_HITS,
