@@ -274,34 +274,6 @@ case "$TARGET_OS" in
         exit 1
 esac
 
-if test "$TARGET_ARCHITECTURE" = "aarch64" || \
-   test "$TARGET_ARCHITECTURE" = "arm64" || \
-   echo "$TARGET_ARCHITECTURE" | grep -E '^arm' > /dev/null; then
-  
-  echo "Detected ARM architecture: $TARGET_ARCHITECTURE" >&2
-  echo "HAS_ARM=1" >> "$OUTPUT"
-
-  if $CXX -fsyntax-only -march=armv8-a+sve -xc /dev/null 2>&1; then
-    echo "HAS_SVE=1" >> "$OUTPUT"
-    
-    if $CXX -fsyntax-only -march=armv8-a+sve+crc+crypto -xc /dev/null 2>&1; then
-      echo "ARM_MARCH=armv8-a+sve+crc+crypto" >> "$OUTPUT"
-      echo "XXH_VECTOR=XXH_SVE" >> "$OUTPUT"
-      echo "ARMCRC_SOURCE=1" >> "$OUTPUT"
-    else
-      echo "ARM_MARCH=armv8-a+sve" >> "$OUTPUT"
-      echo "XXH_VECTOR=XXH_SVE" >> "$OUTPUT"
-    fi
-  else
-    if $CXX -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1; then
-      echo "ARM_MARCH=armv8-a+crc+crypto" >> "$OUTPUT"
-      echo "ARMCRC_SOURCE=1" >> "$OUTPUT"
-    else
-      echo "ARM_MARCH=armv8-a" >> "$OUTPUT"
-    fi
-  fi
-fi
-
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
