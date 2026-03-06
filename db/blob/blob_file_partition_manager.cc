@@ -344,13 +344,10 @@ void BlobFilePartitionManager::DrainBackgroundWork() {
 }
 
 void BlobFilePartitionManager::BackgroundIOLoop() {
-  static std::atomic<uint64_t> bg_work_ns{0}, bg_idle_ns{0}, bg_loops{0};
-
   while (true) {
     Partition* partition = nullptr;
     std::deque<BGWorkItem> items;
 
-    uint64_t t_wait_start = clock_ ? clock_->NowNanos() : 0;
     {
       MutexLock lock(&bg_mutex_);
       while (true) {
@@ -363,17 +360,6 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
             }
           }
           if (!any_work) {
-            uint64_t loops = bg_loops.load(std::memory_order_relaxed);
-            if (loops > 0) {
-              fprintf(stderr,
-                      "BG_THREAD_STATS: loops=%lu | work_avg=%lu us | "
-                      "idle_avg=%lu us | utilization=%.1f%%\n",
-                      (unsigned long)loops,
-                      (unsigned long)(bg_work_ns.load() / loops / 1000),
-                      (unsigned long)(bg_idle_ns.load() / loops / 1000),
-                      100.0 * bg_work_ns.load() /
-                          (bg_work_ns.load() + bg_idle_ns.load()));
-            }
             return;
           }
         }
@@ -395,12 +381,6 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
       partition->bg_in_flight = true;
     }
 
-    uint64_t t_work_start = clock_ ? clock_->NowNanos() : 0;
-    if (clock_) {
-      bg_idle_ns.fetch_add(t_work_start - t_wait_start,
-                           std::memory_order_relaxed);
-    }
-
     for (auto& item : items) {
       Status s;
       if (item.type == BGWorkItem::kSeal) {
@@ -415,12 +395,6 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
           bg_status_ = s;
         }
       }
-    }
-
-    if (clock_) {
-      bg_work_ns.fetch_add(clock_->NowNanos() - t_work_start,
-                           std::memory_order_relaxed);
-      bg_loops.fetch_add(1, std::memory_order_relaxed);
     }
 
     // Mark partition as no longer in-flight and check for drain.

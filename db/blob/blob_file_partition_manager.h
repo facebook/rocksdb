@@ -249,16 +249,6 @@ class BlobFilePartitionManager {
   std::vector<std::thread> bg_threads_;
   bool bg_stop_{false};
   Status bg_status_;  // First error from background thread.
-
-  // Timing instrumentation (atomic relaxed for low overhead).
-  mutable std::atomic<uint64_t> deferred_offset_nanos_{0};
-  mutable std::atomic<uint64_t> deferred_list_nanos_{0};
-  mutable std::atomic<uint64_t> deferred_count_{0};
-  mutable std::atomic<uint64_t> sync_addrecord_nanos_{0};
-  mutable std::atomic<uint64_t> sync_count_{0};
-  mutable std::atomic<uint64_t> mutex_wait_nanos_{0};
-  mutable std::atomic<uint64_t> flush_nanos_{0};
-  mutable std::atomic<uint64_t> flush_count_{0};
 };
 
 }  // namespace ROCKSDB_NAMESPACE
