@@ -2535,7 +2535,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
   }
 }
 
-TEST_P(DBMultiGetTestWithParam, MultiGetMemtableFingerSearch) {
+TEST_P(DBMultiGetTestWithParam, MultiGetMemtableBatchLookup) {
 #ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
     ROCKSDB_GTEST_SKIP("This test requires coroutine support");
@@ -2548,7 +2548,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMemtableFingerSearch) {
     return;
   }
   Options options = CurrentOptions();
-  options.memtable_multi_get_finger_search = true;
+  options.memtable_batch_lookup_optimization = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Insert sorted keys into memtable
@@ -2586,7 +2586,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMemtableFingerSearch) {
   ASSERT_TRUE(statuses[6].IsNotFound());  // never inserted
 }
 
-TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchOverwrite) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupOverwrite) {
 #ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
     ROCKSDB_GTEST_SKIP("This test requires coroutine support");
@@ -2598,7 +2598,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchOverwrite) {
     return;
   }
   Options options = CurrentOptions();
-  options.memtable_multi_get_finger_search = true;
+  options.memtable_batch_lookup_optimization = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Insert, then overwrite some keys
@@ -2628,7 +2628,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchOverwrite) {
   }
 }
 
-TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchWithFlush) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupWithFlush) {
 #ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
     ROCKSDB_GTEST_SKIP("This test requires coroutine support");
@@ -2640,7 +2640,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchWithFlush) {
     return;
   }
   Options options = CurrentOptions();
-  options.memtable_multi_get_finger_search = true;
+  options.memtable_batch_lookup_optimization = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Put data into SST
@@ -2675,7 +2675,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchWithFlush) {
   ASSERT_TRUE(statuses[3].IsNotFound());
 }
 
-TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchWithMerge) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupWithMerge) {
 #ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
     ROCKSDB_GTEST_SKIP("This test requires coroutine support");
@@ -2687,7 +2687,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchWithMerge) {
     return;
   }
   Options options = CurrentOptions();
-  options.memtable_multi_get_finger_search = true;
+  options.memtable_batch_lookup_optimization = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -2717,10 +2717,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchWithMerge) {
   ASSERT_TRUE(statuses[2].IsNotFound());
 }
 
-TEST_F(DBBasicTest, MultiGetFingerSearchDisabledByDefault) {
+TEST_F(DBBasicTest, MultiGetBatchLookupDisabledByDefault) {
   // Verify that finger search is off by default and MultiGet still works
   Options options = CurrentOptions();
-  ASSERT_FALSE(options.memtable_multi_get_finger_search);
+  ASSERT_FALSE(options.memtable_batch_lookup_optimization);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "k1", "v1"));
@@ -2740,7 +2740,7 @@ TEST_F(DBBasicTest, MultiGetFingerSearchDisabledByDefault) {
   ASSERT_TRUE(statuses[2].IsNotFound());
 }
 
-TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchSnapshot) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupWithParanoid) {
 #ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
     ROCKSDB_GTEST_SKIP("This test requires coroutine support");
@@ -2752,7 +2752,54 @@ TEST_P(DBMultiGetTestWithParam, MultiGetFingerSearchSnapshot) {
     return;
   }
   Options options = CurrentOptions();
-  options.memtable_multi_get_finger_search = true;
+  options.memtable_batch_lookup_optimization = true;
+  options.paranoid_memory_checks = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Insert sorted keys into memtable
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(1, Key(i), "val" + std::to_string(i)));
+  }
+  ASSERT_OK(Delete(1, Key(25)));
+
+  // MultiGet with both batch optimization and paranoid checks enabled
+  std::vector<std::string> key_strs = {Key(0),  Key(10), Key(25),
+                                       Key(50), Key(99), Key(200)};
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "val0");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "val10");
+  ASSERT_TRUE(statuses[2].IsNotFound());  // deleted
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3].ToString(), "val50");
+  ASSERT_OK(statuses[4]);
+  ASSERT_EQ(values[4].ToString(), "val99");
+  ASSERT_TRUE(statuses[5].IsNotFound());  // never inserted
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupSnapshot) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, Key(1), "v1_old"));
