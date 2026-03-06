@@ -915,11 +915,20 @@ def finalize_and_sanitize(src_params):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
-        # Trie UDI has a known issue with prefix scanning where certain prefix
-        # patterns cause "SeekToFirst not supported" errors. Disable prefix
-        # scanning and redistribute its percentage to reads.
+        # Trie UDI does not support SeekToFirst/SeekToLast. Prefix scanning
+        # calls SeekToFirst internally, so disable it. Additionally,
+        # LevelIterator::SkipEmptyFileForward() calls SeekToFirst() when
+        # Next() crosses file boundaries, so general iteration (iterpercent)
+        # also fails with trie UDI. Redistribute both to reads.
         dest_params["readpercent"] += dest_params.get("prefixpercent", 0)
         dest_params["prefixpercent"] = 0
+        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
+        dest_params["iterpercent"] = 0
+        # BlobDB writes kTypeBlobIndex entries in SSTs instead of kTypeValue,
+        # which violates UDI's Put-only restriction. Also disable dynamic
+        # blob options to prevent SetOptions from re-enabling blob files.
+        dest_params["enable_blob_files"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
