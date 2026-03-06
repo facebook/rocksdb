@@ -5020,6 +5020,15 @@ unsigned char rocksdb_options_get_allow_mmap_writes(rocksdb_options_t* opt) {
   return opt->rep.allow_mmap_writes;
 }
 
+void rocksdb_options_set_allow_fallocate(rocksdb_options_t* opt,
+                                           unsigned char v) {
+  opt->rep.allow_fallocate = v;
+}
+
+unsigned char rocksdb_options_get_allow_fallocate(rocksdb_options_t* opt) {
+  return opt->rep.allow_fallocate;
+}
+
 void rocksdb_options_set_is_fd_close_on_exec(rocksdb_options_t* opt,
                                              unsigned char v) {
   opt->rep.is_fd_close_on_exec = v;
