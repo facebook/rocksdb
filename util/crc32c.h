@@ -34,7 +34,25 @@ uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len);
 // Return the crc32c of data[0,n-1]
 inline uint32_t Value(const char* data, size_t n) { return Extend(0, data, n); }
 
-static const uint32_t kMaskDelta = 0xa282ead8ul;
+static const uint32_t kMaskDelta = UINT32_C(0xa282ead8);
+
+// Portable 32-bit rotate helpers.  The idiom ((x >> n) | (x << (32-n))) is
+// recognized by GCC/Clang as a rotation, but MSVC historically did not
+// recognize it and the shift-by-32 is undefined behaviour when n==0.
+// Use compiler builtins / intrinsics where available.
+#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 4)
+#  define ROCKSDB_ROTR32(x, r) __builtin_rotateright32((x), (r))
+#  define ROCKSDB_ROTL32(x, r) __builtin_rotateleft32((x), (r))
+#elif defined(_MSC_VER)
+#  include <intrin.h>
+#  define ROCKSDB_ROTR32(x, r) _rotr((x), (r))
+#  define ROCKSDB_ROTL32(x, r) _rotl((x), (r))
+#else
+#  define ROCKSDB_ROTR32(x, r) \
+     (((uint32_t)(x) >> (r)) | ((uint32_t)(x) << (32 - (r))))
+#  define ROCKSDB_ROTL32(x, r) \
+     (((uint32_t)(x) << (r)) | ((uint32_t)(x) >> (32 - (r))))
+#endif
 
 // Return a masked representation of crc.
 //
@@ -43,13 +61,13 @@ static const uint32_t kMaskDelta = 0xa282ead8ul;
 // somewhere (e.g., in files) should be masked before being stored.
 inline uint32_t Mask(uint32_t crc) {
   // Rotate right by 15 bits and add a constant.
-  return ((crc >> 15) | (crc << 17)) + kMaskDelta;
+  return ROCKSDB_ROTR32(crc, 15) + kMaskDelta;
 }
 
 // Return the crc whose masked representation is masked_crc.
 inline uint32_t Unmask(uint32_t masked_crc) {
   uint32_t rot = masked_crc - kMaskDelta;
-  return ((rot >> 17) | (rot << 15));
+  return ROCKSDB_ROTL32(rot, 15);
 }
 
 }  // namespace crc32c
