@@ -353,7 +353,7 @@ TEST_F(InlineSkipTest, MultiGetBasic) {
     cb_args[i] = &cb_data[i];
   }
 
-  list.MultiGet(num_queries, key_ptrs, cb_args, callback);
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, callback));
 
   // Verify: each query should find the next even number >= query key
   for (size_t i = 0; i < num_queries; i++) {
@@ -409,7 +409,7 @@ TEST_F(InlineSkipTest, MultiGetExactMatches) {
     cb_args[i] = &cb_data[i];
   }
 
-  list.MultiGet(num_queries, key_ptrs, cb_args, callback);
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, callback));
 
   for (size_t i = 0; i < num_queries; i++) {
     ASSERT_TRUE(cb_data[i].found) << "Key " << query_keys[i];
@@ -430,10 +430,10 @@ TEST_F(InlineSkipTest, MultiGetEmpty) {
   Key query_key = 42;
   const char* key_ptr = Encode(&query_key);
   void* cb_arg = nullptr;
-  list.MultiGet(1, &key_ptr, &cb_arg, callback);
+  ASSERT_OK(list.MultiGet(1, &key_ptr, &cb_arg, callback));
 
   // Zero keys
-  list.MultiGet(0, nullptr, nullptr, callback);
+  ASSERT_OK(list.MultiGet(0, nullptr, nullptr, callback));
 }
 
 TEST_F(InlineSkipTest, MultiGetSingleKey) {
@@ -462,7 +462,7 @@ TEST_F(InlineSkipTest, MultiGetSingleKey) {
   const char* key_ptr = Encode(&query);
   CallbackArg cb_data{false, 0};
   void* cb_arg = &cb_data;
-  list.MultiGet(1, &key_ptr, &cb_arg, callback);
+  ASSERT_OK(list.MultiGet(1, &key_ptr, &cb_arg, callback));
 
   ASSERT_TRUE(cb_data.found);
   ASSERT_EQ(cb_data.found_key, 100);
@@ -522,7 +522,8 @@ TEST_F(InlineSkipTest, MultiGetRandomized) {
     cb_args[i] = &cb_data[i];
   }
 
-  list.MultiGet(num_queries, key_ptrs.data(), cb_args.data(), callback);
+  ASSERT_OK(
+      list.MultiGet(num_queries, key_ptrs.data(), cb_args.data(), callback));
 
   // Validate against std::set::lower_bound
   for (size_t i = 0; i < num_queries; i++) {
