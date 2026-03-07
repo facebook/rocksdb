@@ -309,6 +309,234 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
   Validate(&list);
 }
 
+TEST_F(InlineSkipTest, MultiGetBasic) {
+  const int N = 1000;
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // Insert keys 0, 2, 4, ..., 2*(N-1)
+  for (int i = 0; i < N; i++) {
+    Key key = i * 2;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Callback that records the first key found for each query
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    if (!cb->found) {
+      cb->found = true;
+      cb->found_key = Decode(entry);
+    }
+    return false;  // stop after first match
+  };
+
+  // MultiGet for a batch of sorted keys
+  const size_t num_queries = 10;
+  Key query_keys[num_queries];
+  const char* key_ptrs[num_queries];
+  void* cb_args[num_queries];
+  CallbackArg cb_data[num_queries];
+
+  for (size_t i = 0; i < num_queries; i++) {
+    // Query keys: 1, 101, 201, ..., 901 (odd, so exact matches won't exist)
+    query_keys[i] = 1 + i * 100;
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].found = false;
+    cb_data[i].found_key = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, callback));
+
+  // Verify: each query should find the next even number >= query key
+  for (size_t i = 0; i < num_queries; i++) {
+    Key expected = (query_keys[i] + 1) & ~1ULL;  // round up to next even
+    if (expected < static_cast<Key>(N * 2)) {
+      ASSERT_TRUE(cb_data[i].found)
+          << "Query key " << query_keys[i] << " should have found a match";
+      ASSERT_EQ(cb_data[i].found_key, expected)
+          << "Query key " << query_keys[i];
+    }
+  }
+}
+
+TEST_F(InlineSkipTest, MultiGetExactMatches) {
+  const int N = 500;
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  for (int i = 0; i < N; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Query for exact matches: 0, 100, 200, ..., 900
+  const size_t num_queries = 10;
+  Key query_keys[num_queries];
+  const char* key_ptrs[num_queries];
+
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  void* cb_args[num_queries];
+  CallbackArg cb_data[num_queries];
+
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    if (!cb->found) {
+      cb->found = true;
+      cb->found_key = Decode(entry);
+    }
+    return false;
+  };
+
+  for (size_t i = 0; i < num_queries; i++) {
+    query_keys[i] = i * 100;
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].found = false;
+    cb_data[i].found_key = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, callback));
+
+  for (size_t i = 0; i < num_queries; i++) {
+    ASSERT_TRUE(cb_data[i].found) << "Key " << query_keys[i];
+    ASSERT_EQ(cb_data[i].found_key, query_keys[i]) << "Key " << query_keys[i];
+  }
+}
+
+TEST_F(InlineSkipTest, MultiGetEmpty) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  auto callback = [](void* /*arg*/, const char* /*entry*/) -> bool {
+    return false;
+  };
+
+  // MultiGet on empty list should not crash
+  Key query_key = 42;
+  const char* key_ptr = Encode(&query_key);
+  void* cb_arg = nullptr;
+  ASSERT_OK(list.MultiGet(1, &key_ptr, &cb_arg, callback));
+
+  // Zero keys
+  ASSERT_OK(list.MultiGet(0, nullptr, nullptr, callback));
+}
+
+TEST_F(InlineSkipTest, MultiGetSingleKey) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  Key key = 100;
+  char* buf = list.AllocateKey(sizeof(Key));
+  memcpy(buf, &key, sizeof(Key));
+  list.Insert(buf);
+
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    cb->found = true;
+    cb->found_key = Decode(entry);
+    return false;
+  };
+
+  // Query for the exact key
+  Key query = 100;
+  const char* key_ptr = Encode(&query);
+  CallbackArg cb_data{false, 0};
+  void* cb_arg = &cb_data;
+  ASSERT_OK(list.MultiGet(1, &key_ptr, &cb_arg, callback));
+
+  ASSERT_TRUE(cb_data.found);
+  ASSERT_EQ(cb_data.found_key, 100);
+}
+
+TEST_F(InlineSkipTest, MultiGetRandomized) {
+  uint32_t seed =
+      static_cast<uint32_t>(Env::Default()->NowMicros() & 0xFFFFFFFF);
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  Random rnd(seed);
+
+  const int N = 5000;
+  const int R = 10000;
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+  std::set<Key> inserted;
+
+  for (int i = 0; i < N; i++) {
+    Key key = rnd.Next() % R;
+    if (inserted.insert(key).second) {
+      char* buf = list.AllocateKey(sizeof(Key));
+      memcpy(buf, &key, sizeof(Key));
+      list.Insert(buf);
+    }
+  }
+
+  // Generate sorted query keys
+  const size_t num_queries = 100;
+  std::vector<Key> query_keys;
+  for (size_t i = 0; i < num_queries; i++) {
+    query_keys.push_back(rnd.Next() % R);
+  }
+  std::sort(query_keys.begin(), query_keys.end());
+
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    if (!cb->found) {
+      cb->found = true;
+      cb->found_key = Decode(entry);
+    }
+    return false;
+  };
+
+  std::vector<const char*> key_ptrs(num_queries);
+  std::vector<CallbackArg> cb_data(num_queries);
+  std::vector<void*> cb_args(num_queries);
+
+  for (size_t i = 0; i < num_queries; i++) {
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].found = false;
+    cb_data[i].found_key = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  ASSERT_OK(
+      list.MultiGet(num_queries, key_ptrs.data(), cb_args.data(), callback));
+
+  // Validate against std::set::lower_bound
+  for (size_t i = 0; i < num_queries; i++) {
+    auto model_iter = inserted.lower_bound(query_keys[i]);
+    if (model_iter == inserted.end()) {
+      ASSERT_FALSE(cb_data[i].found) << "Query " << query_keys[i];
+    } else {
+      ASSERT_TRUE(cb_data[i].found) << "Query " << query_keys[i];
+      ASSERT_EQ(cb_data[i].found_key, *model_iter) << "Query " << query_keys[i];
+    }
+  }
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // We want to make sure that with a single writer and multiple
 // concurrent readers (with no synchronization other than when a

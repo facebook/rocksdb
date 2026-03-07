@@ -2535,6 +2535,317 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
   }
 }
 
+TEST_P(DBMultiGetTestWithParam, MultiGetMemtableBatchLookup) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Insert sorted keys into memtable
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(1, Key(i), "val" + std::to_string(i)));
+  }
+  // Delete some keys
+  ASSERT_OK(Delete(1, Key(25)));
+  ASSERT_OK(Delete(1, Key(75)));
+
+  // MultiGet a batch of keys - mix of existing, deleted, and missing
+  // Store key strings to keep Slice data alive
+  std::vector<std::string> key_strs = {Key(0),  Key(10), Key(25), Key(50),
+                                       Key(75), Key(99), Key(200)};
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "val0");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "val10");
+  ASSERT_TRUE(statuses[2].IsNotFound());  // deleted
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3].ToString(), "val50");
+  ASSERT_TRUE(statuses[4].IsNotFound());  // deleted
+  ASSERT_OK(statuses[5]);
+  ASSERT_EQ(values[5].ToString(), "val99");
+  ASSERT_TRUE(statuses[6].IsNotFound());  // never inserted
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupOverwrite) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Insert, then overwrite some keys
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(1, Key(i), "old" + std::to_string(i)));
+  }
+  for (int i = 0; i < 50; i += 5) {
+    ASSERT_OK(Put(1, Key(i), "new" + std::to_string(i)));
+  }
+
+  std::vector<std::string> key_strs;
+  for (int i = 0; i < 50; i += 5) {
+    key_strs.push_back(Key(i));
+  }
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(values[i].ToString(), "new" + std::to_string(i * 5));
+  }
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupWithFlush) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Put data into SST
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(1, Key(i), "sst" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush(1));
+
+  // Put different data into memtable (overlapping some keys)
+  for (int i = 25; i < 75; i++) {
+    ASSERT_OK(Put(1, Key(i), "mem" + std::to_string(i)));
+  }
+
+  // MultiGet keys spanning both SST and memtable
+  std::vector<std::string> key_strs = {Key(10), Key(30), Key(60), Key(80)};
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "sst10");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "mem30");
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2].ToString(), "mem60");
+  ASSERT_TRUE(statuses[3].IsNotFound());
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupWithMerge) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Put base values
+  ASSERT_OK(Put(1, Key(1), "a"));
+  ASSERT_OK(Put(1, Key(2), "x"));
+  // Merge on top
+  ASSERT_OK(Merge(1, Key(1), "b"));
+  ASSERT_OK(Merge(1, Key(1), "c"));
+  ASSERT_OK(Merge(1, Key(2), "y"));
+
+  std::vector<std::string> key_strs = {Key(1), Key(2), Key(3)};
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "a,b,c");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "x,y");
+  ASSERT_TRUE(statuses[2].IsNotFound());
+}
+
+TEST_F(DBBasicTest, MultiGetBatchLookupDisabledByDefault) {
+  // Verify that finger search is off by default and MultiGet still works
+  Options options = CurrentOptions();
+  ASSERT_FALSE(options.memtable_batch_lookup_optimization);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "k1", "v1"));
+  ASSERT_OK(Put(1, "k2", "v2"));
+
+  std::vector<Slice> keys = {"k1", "k2", "k3"};
+  std::vector<PinnableSlice> values(3);
+  std::vector<Status> statuses(3);
+
+  db_->MultiGet(ReadOptions(), handles_[1], 3, keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "v1");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "v2");
+  ASSERT_TRUE(statuses[2].IsNotFound());
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupWithParanoid) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
+  options.paranoid_memory_checks = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Insert sorted keys into memtable
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(1, Key(i), "val" + std::to_string(i)));
+  }
+  ASSERT_OK(Delete(1, Key(25)));
+
+  // MultiGet with both batch optimization and paranoid checks enabled
+  std::vector<std::string> key_strs = {Key(0),  Key(10), Key(25),
+                                       Key(50), Key(99), Key(200)};
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "val0");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "val10");
+  ASSERT_TRUE(statuses[2].IsNotFound());  // deleted
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3].ToString(), "val50");
+  ASSERT_OK(statuses[4]);
+  ASSERT_EQ(values[4].ToString(), "val99");
+  ASSERT_TRUE(statuses[5].IsNotFound());  // never inserted
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupSnapshot) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.memtable_batch_lookup_optimization = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, Key(1), "v1_old"));
+  ASSERT_OK(Put(1, Key(2), "v2_old"));
+
+  const Snapshot* snap = db_->GetSnapshot();
+
+  // Write new values after snapshot
+  ASSERT_OK(Put(1, Key(1), "v1_new"));
+  ASSERT_OK(Put(1, Key(2), "v2_new"));
+  ASSERT_OK(Put(1, Key(3), "v3_new"));
+
+  // MultiGet with snapshot should see old values
+  std::vector<std::string> key_strs = {Key(1), Key(2), Key(3)};
+  std::vector<Slice> keys(key_strs.begin(), key_strs.end());
+
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  ReadOptions ro;
+  ro.snapshot = snap;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "v1_old");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "v2_old");
+  ASSERT_TRUE(statuses[2].IsNotFound());  // didn't exist at snapshot
+
+  db_->ReleaseSnapshot(snap);
+
+  // MultiGet without snapshot should see new values
+  for (auto& v : values) v.Reset();
+  db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                values.data(), statuses.data(), true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "v1_new");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "v2_new");
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2].ToString(), "v3_new");
+}
+
 INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
