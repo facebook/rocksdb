@@ -2537,9 +2537,10 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
                                      bytes_read);
       if (s.ok()) {
         blob_value->PinSelf(blob_contents->data());
-      } else if (s.IsCorruption() && !reader.GetValue()->HasFooter()) {
-        // Unsealed blob file: cached reader has stale file_size_.
-        // Evict and retry with current file size.
+      } else if (s.IsCorruption()) {
+        // Cached reader may have stale file_size_ (for unsealed files still
+        // being written, or for files that were cached pre-seal and the
+        // seal has since completed). Evict and retry with current file size.
         reader.Reset();
         blob_file_cache->Evict(blob_idx.file_number());
 

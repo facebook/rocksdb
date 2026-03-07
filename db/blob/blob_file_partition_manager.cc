@@ -5,6 +5,8 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 
+#include <algorithm>
+
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_writer.h"
 #include "file/filename.h"
@@ -227,6 +229,12 @@ Status BlobFilePartitionManager::PrepareFileRollover(
   deferred->writer = std::move(partition->writer);
   deferred->records = std::move(partition->pending_records);
   partition->pending_records.clear();
+  // Keep records visible to GetPendingBlobValue until SealDeferredFile
+  // completes. Append to (not overwrite) in_flight_records in case
+  // FlushPendingRecords also has records in flight.
+  partition->in_flight_records.insert(
+      partition->in_flight_records.end(),
+      deferred->records.begin(), deferred->records.end());
   deferred->file_number = partition->file_number;
   deferred->blob_count = partition->blob_count;
   deferred->total_blob_bytes = partition->total_blob_bytes;
@@ -248,9 +256,13 @@ Status BlobFilePartitionManager::SealDeferredFile(
   assert(deferred->writer);
 
   // Keep deferred records visible to GetPendingBlobValue during flush.
+  // Append to (not overwrite) in_flight_records in case a concurrent
+  // FlushPendingRecords also has records in flight.
   {
     MutexLock lock(&partition->mutex);
-    partition->in_flight_records = deferred->records;
+    partition->in_flight_records.insert(
+        partition->in_flight_records.end(),
+        deferred->records.begin(), deferred->records.end());
   }
 
   // Flush pending records to the old writer (outside the mutex).
@@ -484,8 +496,8 @@ bool BlobFilePartitionManager::GetPendingBlobValue(
         return true;
       }
     }
-    // Check in-flight records (being flushed by BG thread, may not be on disk
-    // yet).
+    // Check in-flight records (being flushed by BG thread or captured by
+    // PrepareFileRollover for deferred seal).
     for (const auto& record : partition->in_flight_records) {
       if (record.file_number == file_number && record.blob_offset == offset) {
         *value = record.value;
@@ -623,7 +635,9 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     partition->pending_records.clear();
     // Keep a copy in in_flight_records so GetPendingBlobValue can still
     // find these records while they're being flushed to disk.
-    partition->in_flight_records = records;
+    // Append to (not overwrite) in case deferred seal records are also present.
+    partition->in_flight_records.insert(
+        partition->in_flight_records.end(), records.begin(), records.end());
     writer = partition->writer.get();
   }
 
@@ -668,10 +682,22 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     }
   }
 
-  // Data is on disk now — clear in_flight_records.
+  // Data is on disk now — remove only the records we flushed from
+  // in_flight_records. Other records (from PrepareFileRollover) may
+  // still be there waiting for SealDeferredFile to complete.
   {
     MutexLock lock(&partition->mutex);
-    partition->in_flight_records.clear();
+    auto& ifr = partition->in_flight_records;
+    ifr.erase(std::remove_if(ifr.begin(), ifr.end(),
+        [&](const PendingRecord& r) {
+          for (const auto& flushed : records) {
+            if (r.file_number == flushed.file_number &&
+                r.blob_offset == flushed.blob_offset) {
+              return true;
+            }
+          }
+          return false;
+        }), ifr.end());
   }
 
   return Status::OK();
