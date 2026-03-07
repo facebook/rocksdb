@@ -2540,6 +2540,19 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
       }
     }
   }
+
+  // If the blob file read failed (e.g., file still being written to by BG
+  // flush thread), retry GetPendingBlobValue. The BG thread may have picked
+  // up the records between our first check and the file read attempt.
+  if (!s.ok() && s.IsCorruption() && partition_mgr) {
+    std::string pending_value;
+    if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
+                                           blob_idx.offset(), &pending_value)) {
+      blob_value->PinSelf(pending_value);
+      return Status::OK();
+    }
+  }
+
   return s;
 }
 

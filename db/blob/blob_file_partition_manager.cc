@@ -247,6 +247,12 @@ Status BlobFilePartitionManager::SealDeferredFile(
   assert(deferred);
   assert(deferred->writer);
 
+  // Keep deferred records visible to GetPendingBlobValue during flush.
+  {
+    MutexLock lock(&partition->mutex);
+    partition->in_flight_records = deferred->records;
+  }
+
   // Flush pending records to the old writer (outside the mutex).
   BlobLogWriter* writer = deferred->writer.get();
 
@@ -294,9 +300,10 @@ Status BlobFilePartitionManager::SealDeferredFile(
     return s;
   }
 
-  // Record completion (re-acquire mutex briefly).
+  // Record completion and clear in_flight_records.
   {
     MutexLock lock(&partition->mutex);
+    partition->in_flight_records.clear();
     partition->completed_files.emplace_back(
         deferred->file_number, deferred->blob_count,
         deferred->total_blob_bytes, std::move(checksum_method),
@@ -470,7 +477,16 @@ bool BlobFilePartitionManager::GetPendingBlobValue(
     uint64_t file_number, uint64_t offset, std::string* value) const {
   for (auto& partition : partitions_) {
     MutexLock lock(&partition->mutex);
+    // Check pending records (not yet picked up by BG thread).
     for (const auto& record : partition->pending_records) {
+      if (record.file_number == file_number && record.blob_offset == offset) {
+        *value = record.value;
+        return true;
+      }
+    }
+    // Check in-flight records (being flushed by BG thread, may not be on disk
+    // yet).
+    for (const auto& record : partition->in_flight_records) {
       if (record.file_number == file_number && record.blob_offset == offset) {
         *value = record.value;
         return true;
@@ -605,10 +621,16 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     }
     records = std::move(partition->pending_records);
     partition->pending_records.clear();
+    // Keep a copy in in_flight_records so GetPendingBlobValue can still
+    // find these records while they're being flushed to disk.
+    partition->in_flight_records = records;
     writer = partition->writer.get();
   }
 
   if (!writer) {
+    // Clear in_flight since we're not actually flushing.
+    MutexLock lock(&partition->mutex);
+    partition->in_flight_records.clear();
     return Status::OK();
   }
 
@@ -644,6 +666,12 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     if (!s.ok()) {
       return s;
     }
+  }
+
+  // Data is on disk now — clear in_flight_records.
+  {
+    MutexLock lock(&partition->mutex);
+    partition->in_flight_records.clear();
   }
 
   return Status::OK();

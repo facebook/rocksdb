@@ -174,6 +174,9 @@ class BlobFilePartitionManager {
 
     // Deferred flush state
     std::vector<PendingRecord> pending_records;
+    // Records currently being flushed to disk by the BG thread.
+    // Readable by GetPendingBlobValue to avoid read-after-write visibility gap.
+    std::vector<PendingRecord> in_flight_records;
     std::atomic<uint64_t> pending_bytes{0};
     uint64_t next_write_offset = 0;
 
