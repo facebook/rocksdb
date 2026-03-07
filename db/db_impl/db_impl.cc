@@ -2537,6 +2537,23 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
                                      bytes_read);
       if (s.ok()) {
         blob_value->PinSelf(blob_contents->data());
+      } else if (s.IsCorruption() && !reader.GetValue()->HasFooter()) {
+        // Unsealed blob file: cached reader has stale file_size_.
+        // Evict and retry with current file size.
+        reader.Reset();
+        blob_file_cache->Evict(blob_idx.file_number());
+
+        s = blob_file_cache->GetBlobFileReader(
+            read_options, blob_idx.file_number(), &reader);
+        if (s.ok()) {
+          s = reader.GetValue()->GetBlob(
+              read_options, user_key, blob_idx.offset(), blob_idx.size(),
+              blob_idx.compression(), prefetch_buffer, nullptr, &blob_contents,
+              bytes_read);
+          if (s.ok()) {
+            blob_value->PinSelf(blob_contents->data());
+          }
+        }
       }
     }
   }
