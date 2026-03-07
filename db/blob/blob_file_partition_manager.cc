@@ -25,7 +25,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     FileNumberAllocator file_number_allocator, FileSystem* fs,
     SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
     const std::string& db_path, uint64_t blob_file_size, bool use_fsync,
-    uint64_t buffer_size)
+    uint64_t buffer_size, bool use_direct_io)
     : num_partitions_(num_partitions),
       strategy_(strategy ? std::move(strategy)
                          : std::make_shared<RoundRobinPartitionStrategy>()),
@@ -44,6 +44,11 @@ BlobFilePartitionManager::BlobFilePartitionManager(
   assert(num_partitions_ > 0);
   assert(file_number_allocator_);
   assert(fs_);
+
+  // Enable O_DIRECT for blob file writes if requested.
+  if (use_direct_io) {
+    file_options_.use_direct_writes = true;
+  }
 
   partitions_.reserve(num_partitions_);
   for (uint32_t i = 0; i < num_partitions_; ++i) {

@@ -69,7 +69,8 @@ class BlobFilePartitionManager {
       FileNumberAllocator file_number_allocator, FileSystem* fs,
       SystemClock* clock, Statistics* statistics,
       const FileOptions& file_options, const std::string& db_path,
-      uint64_t blob_file_size, bool use_fsync, uint64_t buffer_size = 0);
+      uint64_t blob_file_size, bool use_fsync, uint64_t buffer_size = 0,
+      bool use_direct_io = false);
 
   ~BlobFilePartitionManager();
 

@@ -2695,6 +2695,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     bool need_partition_manager = false;
     uint32_t max_partitions = 1;
     uint64_t buffer_size = 0;
+    bool use_direct_io = false;
     std::shared_ptr<BlobFilePartitionStrategy> strategy;
     for (const auto& cf : column_families) {
       if (cf.options.enable_blob_files && cf.options.enable_blob_direct_write) {
@@ -2703,6 +2704,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             std::max(max_partitions, cf.options.blob_direct_write_partitions);
         buffer_size =
             std::max(buffer_size, cf.options.blob_direct_write_buffer_size);
+        use_direct_io =
+            use_direct_io || cf.options.blob_direct_write_use_direct_io;
         if (cf.options.blob_direct_write_partition_strategy) {
           strategy = cf.options.blob_direct_write_partition_strategy;
         }
@@ -2716,7 +2719,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               impl->fs_.get(), impl->immutable_db_options_.clock, impl->stats_,
               impl->file_options_, dbname,
               column_families[0].options.blob_file_size,
-              impl->immutable_db_options_.use_fsync, buffer_size);
+              impl->immutable_db_options_.use_fsync, buffer_size,
+              use_direct_io);
       // Cache blob direct write settings per CF to avoid SuperVersion
       // lookup on every Put.
       for (size_t i = 0; i < column_families.size(); i++) {

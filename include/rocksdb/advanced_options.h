@@ -1199,6 +1199,16 @@ struct AdvancedColumnFamilyOptions {
   // Default: 4194304 (4MB)
   uint64_t blob_direct_write_buffer_size = 4 * 1024 * 1024;
 
+  // Use O_DIRECT (direct I/O) for blob direct write files.
+  // Bypasses the OS page cache for blob file writes, which can improve
+  // performance on fast NVMe devices by reducing CPU overhead from
+  // page cache management. May hurt performance on slower devices or
+  // when blob data is read shortly after writing (no page cache warmup).
+  // Only used when enable_blob_direct_write = true.
+  //
+  // Default: false
+  bool blob_direct_write_use_direct_io = false;
+
   // Custom partition strategy for blob direct writes. Controls which
   // partition a blob is assigned to based on key and value content.
   // If nullptr, uses the default round-robin strategy.
