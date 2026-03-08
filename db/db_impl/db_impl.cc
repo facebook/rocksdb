@@ -593,8 +593,6 @@ Status DBImpl::CloseHelper() {
                       "Error sealing blob partitions during shutdown: %s",
                       seal_s.ToString().c_str());
     }
-    // Note: additions are not registered in MANIFEST during shutdown.
-    // They will be discovered as un-sealed files on next recovery.
     blob_partition_manager_->DumpTimingStats();
     blob_partition_manager_.reset();
   }
@@ -2538,9 +2536,7 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
       if (s.ok()) {
         blob_value->PinSelf(blob_contents->data());
       } else if (s.IsCorruption()) {
-        // Cached reader may have stale file_size_ (for unsealed files still
-        // being written, or for files that were cached pre-seal and the
-        // seal has since completed). Evict and retry with current file size.
+        // Cached reader may have stale file_size_.
         reader.Reset();
         blob_file_cache->Evict(blob_idx.file_number());
 
