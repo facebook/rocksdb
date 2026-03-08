@@ -773,6 +773,28 @@ class VersionBuilder::Rep {
     mutable_blob_file_metas_.emplace(
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
 
+    // Link existing SSTs that reference this blob file (via
+    // oldest_blob_file_number). This handles the case where SSTs were created
+    // before the blob file was registered (e.g., blob direct write recovery:
+    // SSTs with BlobIndex entries exist but blob files weren't in MANIFEST).
+    assert(base_vstorage_);
+    auto& mutable_meta = mutable_blob_file_metas_.at(blob_file_number);
+    for (int level = 0; level < num_levels_; level++) {
+      for (const auto* f : base_vstorage_->LevelFiles(level)) {
+        if (f->oldest_blob_file_number == blob_file_number) {
+          mutable_meta.LinkSst(f->fd.GetNumber());
+        }
+      }
+    }
+    // Also check SSTs added in the same batch of edits.
+    for (int level = 0; level < num_levels_; level++) {
+      for (const auto& added : levels_[level].added_files) {
+        if (added.second->oldest_blob_file_number == blob_file_number) {
+          mutable_meta.LinkSst(added.second->fd.GetNumber());
+        }
+      }
+    }
+
     Status s;
     if (track_found_and_missing_files_) {
       assert(version_edit_handler_);
@@ -1305,13 +1327,26 @@ class VersionBuilder::Rep {
     vstorage->ReserveBlob(base_vstorage_->GetBlobFiles().size() +
                           mutable_blob_file_metas_.size());
 
-    const uint64_t oldest_blob_file_with_linked_ssts =
-        GetMinOldestBlobFileNumber();
+    uint64_t oldest_blob_file_with_linked_ssts = GetMinOldestBlobFileNumber();
 
     // If there are no blob files with linked SSTs, meaning that there are no
     // valid blob files
     if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
-      return;
+      // Check if there are newly added blob files not yet in the base version.
+      // This can happen with blob direct write during recovery: blob files
+      // exist on disk but no SSTs reference them yet (memtable hasn't been
+      // flushed). Process all entries starting from file number 0.
+      bool has_new_blob_files = false;
+      for (const auto& entry : mutable_blob_file_metas_) {
+        if (!base_vstorage_->GetBlobFileMetaData(entry.first)) {
+          has_new_blob_files = true;
+          break;
+        }
+      }
+      if (!has_new_blob_files) {
+        return;
+      }
+      oldest_blob_file_with_linked_ssts = 0;
     }
 
     auto process_base =

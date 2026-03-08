@@ -594,7 +594,8 @@ Status DBImpl::CloseHelper() {
     std::vector<BlobFileAddition> additions;
     blob_partition_manager_->SealAllPartitions(wo, &additions)
         .PermitUncheckedError();
-    // Save sealed blob file numbers so FindObsoleteFiles skips them.
+    // Save sealed blob file numbers so FindObsoleteFiles skips them
+    // during shutdown cleanup.
     for (const auto& addition : additions) {
       sealed_blob_file_numbers_.insert(addition.GetBlobFileNumber());
     }
@@ -2526,13 +2527,6 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
   constexpr uint64_t* bytes_read = nullptr;
   Status s = current->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
                               blob_value, bytes_read);
-  if (!s.ok()) {
-    static std::atomic<uint64_t> dbg{0};
-    if (dbg.fetch_add(1) < 5) {
-      fprintf(stderr, "RESOLVE: GetBlob failed for file=%lu: %s\n",
-              (unsigned long)blob_idx.file_number(), s.ToString().c_str());
-    }
-  }
   if (s.IsCorruption() && blob_file_cache) {
     // Blob file not yet registered in version (write-path blob).
     // Read directly via BlobFileCache, bypassing version metadata.

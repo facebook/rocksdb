@@ -520,12 +520,9 @@ TEST_F(DBBlobDirectWriteTest, RecoveryAfterFlush) {
 
 // Test that data survives close+reopen WITHOUT explicit flush.
 // Blob files should be discovered as orphans during DB open and
-// registered in MANIFEST. WAL replay recreates the BlobIndex entries.
-// TODO: Recovery without flush requires blob files to survive DB close
-// and be registered before any flush during reopen. Currently, blob files
-// get deleted during recovery's PurgeObsoleteFiles, and the flush during
-// reopen creates SST with BlobIndex entries but no blob files.
-TEST_F(DBBlobDirectWriteTest, DISABLED_RecoveryWithoutFlush) {
+// registered in MANIFEST before DeleteObsoleteFiles runs.
+// WAL replay recreates the BlobIndex entries.
+TEST_F(DBBlobDirectWriteTest, RecoveryWithoutFlush) {
   Options options = GetBlobDirectWriteOptions();
   options.blob_direct_write_partitions = 2;
   DestroyAndReopen(options);
@@ -578,7 +575,7 @@ TEST_F(DBBlobDirectWriteTest, RecoveryWithRotation) {
 }
 
 // Test recovery with rotation and WITHOUT flush.
-TEST_F(DBBlobDirectWriteTest, DISABLED_RecoveryWithRotationNoFlush) {
+TEST_F(DBBlobDirectWriteTest, RecoveryWithRotationNoFlush) {
   Options options = GetBlobDirectWriteOptions();
   options.blob_file_size = 512;
   options.blob_direct_write_partitions = 1;

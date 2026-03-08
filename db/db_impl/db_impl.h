@@ -3024,7 +3024,7 @@ class DBImpl : public DB {
   // Blob file numbers sealed by blob direct write during shutdown.
   // These files are not yet in the MANIFEST and must not be deleted
   // during shutdown cleanup. They will be registered by orphan recovery
-  // during the next DB::Open.
+  // during the next DB::Open (before DeleteObsoleteFiles).
   std::unordered_set<uint64_t> sealed_blob_file_numbers_;
 
   // Similar to pending_outputs_, FindObsoleteFiles()/PurgeObsoleteFiles() never
