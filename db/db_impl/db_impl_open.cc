@@ -2737,8 +2737,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   // Discover and register blob files written by blob direct write that
-  // weren't registered in the MANIFEST (e.g., DB crashed or closed before
-  // memtable flush sealed them). Scan for .blob files on disk not in Version.
+  // weren't registered in the MANIFEST (e.g., DB crashed before memtable
+  // flush sealed them). Scan for .blob files on disk not in Version.
   if (s.ok() && impl->blob_partition_manager_) {
     std::vector<std::string> filenames;
     s = impl->immutable_db_options_.fs->GetChildren(
@@ -2761,7 +2761,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         if (current->storage_info()->GetBlobFileMetaData(file_number)) {
           continue;
         }
-        // Unregistered blob file — read header to get metadata, then register.
+        // Unregistered blob file — register it.
         std::string blob_path = BlobFileName(dbname, file_number);
         uint64_t file_size = 0;
         auto fs_s = impl->immutable_db_options_.fs->GetFileSize(

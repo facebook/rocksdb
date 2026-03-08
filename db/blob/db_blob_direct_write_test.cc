@@ -491,6 +491,112 @@ TEST_F(DBBlobDirectWriteTest, OptionsValidation) {
   ASSERT_EQ(Get("key1"), large_value);
 }
 
+// Test that data survives close+reopen after explicit flush.
+// Blob files should be sealed during flush and registered in MANIFEST.
+TEST_F(DBBlobDirectWriteTest, RecoveryAfterFlush) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_direct_write_partitions = 2;
+  DestroyAndReopen(options);
+
+  // Write data
+  const int num_keys = 50;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "rec_key" + std::to_string(i);
+    std::string value(100, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Flush to persist everything
+  ASSERT_OK(Flush());
+
+  // Reopen and verify all data
+  Reopen(options);
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "rec_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
+// Test that data survives close+reopen WITHOUT explicit flush.
+// Blob files should be discovered as orphans during DB open and
+// registered in MANIFEST. WAL replay recreates the BlobIndex entries.
+TEST_F(DBBlobDirectWriteTest, RecoveryWithoutFlush) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_direct_write_partitions = 2;
+  DestroyAndReopen(options);
+
+  // Write data but do NOT flush
+  const int num_keys = 50;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "nf_key" + std::to_string(i);
+    std::string value(100, 'A' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Close and reopen — WAL replay + orphan blob file recovery
+  Reopen(options);
+
+  // Verify all data is readable
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "nf_key" + std::to_string(i);
+    std::string expected(100, 'A' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
+// Test recovery after blob file rotation (small blob_file_size).
+// Multiple blob files may be sealed/unsealed at close time.
+TEST_F(DBBlobDirectWriteTest, RecoveryWithRotation) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_file_size = 512;  // Very small to force rotation
+  options.blob_direct_write_partitions = 1;
+  DestroyAndReopen(options);
+
+  // Write enough data to trigger multiple rotations
+  const int num_keys = 30;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "rot_rec_key" + std::to_string(i);
+    std::string value(100, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Flush and reopen
+  ASSERT_OK(Flush());
+  Reopen(options);
+
+  // Verify all data
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "rot_rec_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
+// Test recovery with rotation and WITHOUT flush.
+TEST_F(DBBlobDirectWriteTest, RecoveryWithRotationNoFlush) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_file_size = 512;
+  options.blob_direct_write_partitions = 1;
+  DestroyAndReopen(options);
+
+  const int num_keys = 30;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "rot_nf_key" + std::to_string(i);
+    std::string value(100, 'A' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Close and reopen without flush
+  Reopen(options);
+
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "rot_nf_key" + std::to_string(i);
+    std::string expected(100, 'A' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

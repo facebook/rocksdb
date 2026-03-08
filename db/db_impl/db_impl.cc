@@ -544,6 +544,16 @@ Status DBImpl::CloseHelper() {
   // reached.
   error_handler_.GetRecoveryError().PermitUncheckedError();
 
+  // Flush memtables before shutdown if blob direct write is active.
+  // This ensures SealAllPartitions runs through the normal flush path,
+  // which registers blob files in the MANIFEST.
+  if (blob_partition_manager_) {
+    FlushOptions fo;
+    fo.wait = true;
+    fo.allow_write_stall = true;
+    Flush(fo).PermitUncheckedError();
+  }
+
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -583,16 +593,17 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
 
-  // Seal any open blob partition files.
+  // Seal any open blob partition files. The blob files were already
+  // sealed and written to disk by SealAllPartitions, but we need to
+  // keep them (not delete as orphans). Since we can't run LogAndApply
+  // during shutdown (background threads are stopped), we just destroy
+  // the partition manager. The sealed blob files will be discovered
+  // and registered by the orphan recovery code during next DB::Open.
   if (blob_partition_manager_) {
     WriteOptions wo;
     std::vector<BlobFileAddition> additions;
-    Status seal_s = blob_partition_manager_->SealAllPartitions(wo, &additions);
-    if (!seal_s.ok()) {
-      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                      "Error sealing blob partitions during shutdown: %s",
-                      seal_s.ToString().c_str());
-    }
+    blob_partition_manager_->SealAllPartitions(wo, &additions)
+        .PermitUncheckedError();
     blob_partition_manager_->DumpTimingStats();
     blob_partition_manager_.reset();
   }
