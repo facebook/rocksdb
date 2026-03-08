@@ -18,6 +18,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -3019,6 +3020,12 @@ class DBImpl : public DB {
   // it up.
   // State is protected with db mutex.
   std::list<uint64_t> pending_outputs_;
+
+  // Blob file numbers sealed by blob direct write during shutdown.
+  // These files are not yet in the MANIFEST and must not be deleted
+  // during shutdown cleanup. They will be registered by orphan recovery
+  // during the next DB::Open.
+  std::unordered_set<uint64_t> sealed_blob_file_numbers_;
 
   // Similar to pending_outputs_, FindObsoleteFiles()/PurgeObsoleteFiles() never
   // deletes any OPTIONS file that has number bigger than any of the file number

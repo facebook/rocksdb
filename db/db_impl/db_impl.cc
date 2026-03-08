@@ -544,16 +544,6 @@ Status DBImpl::CloseHelper() {
   // reached.
   error_handler_.GetRecoveryError().PermitUncheckedError();
 
-  // Flush memtables before shutdown if blob direct write is active.
-  // This ensures SealAllPartitions runs through the normal flush path,
-  // which registers blob files in the MANIFEST.
-  if (blob_partition_manager_) {
-    FlushOptions fo;
-    fo.wait = true;
-    fo.allow_write_stall = true;
-    Flush(fo).PermitUncheckedError();
-  }
-
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -604,6 +594,10 @@ Status DBImpl::CloseHelper() {
     std::vector<BlobFileAddition> additions;
     blob_partition_manager_->SealAllPartitions(wo, &additions)
         .PermitUncheckedError();
+    // Save sealed blob file numbers so FindObsoleteFiles skips them.
+    for (const auto& addition : additions) {
+      sealed_blob_file_numbers_.insert(addition.GetBlobFileNumber());
+    }
     blob_partition_manager_->DumpTimingStats();
     blob_partition_manager_.reset();
   }
@@ -2532,6 +2526,13 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
   constexpr uint64_t* bytes_read = nullptr;
   Status s = current->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
                               blob_value, bytes_read);
+  if (!s.ok()) {
+    static std::atomic<uint64_t> dbg{0};
+    if (dbg.fetch_add(1) < 5) {
+      fprintf(stderr, "RESOLVE: GetBlob failed for file=%lu: %s\n",
+              (unsigned long)blob_idx.file_number(), s.ToString().c_str());
+    }
+  }
   if (s.IsCorruption() && blob_file_cache) {
     // Blob file not yet registered in version (write-path blob).
     // Read directly via BlobFileCache, bypassing version metadata.

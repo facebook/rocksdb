@@ -589,7 +589,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       case kBlobFile:
         keep = number >= state.min_pending_output ||
-               (blob_live_set.find(number) != blob_live_set.end());
+               (blob_live_set.find(number) != blob_live_set.end()) ||
+               (sealed_blob_file_numbers_.find(number) !=
+                sealed_blob_file_numbers_.end());
         if (!keep) {
           files_to_del.insert(number);
         }

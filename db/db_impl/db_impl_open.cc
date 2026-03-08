@@ -2690,6 +2690,81 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->mutex_.Unlock();
   }
 
+  // Discover and register blob files from blob direct write that aren't
+  // in the MANIFEST (e.g., DB crashed before memtable flush sealed them).
+  // Must run before blob partition manager init so recovered files are
+  // visible to reads during this session.
+  if (s.ok()) {
+    bool has_blob_direct_write = false;
+    for (const auto& cf : column_families) {
+      if (cf.options.enable_blob_files &&
+          cf.options.enable_blob_direct_write) {
+        has_blob_direct_write = true;
+        break;
+      }
+    }
+    if (has_blob_direct_write) {
+      std::vector<std::string> filenames;
+      auto list_s = impl->immutable_db_options_.fs->GetChildren(
+          dbname, IOOptions(), &filenames, nullptr);
+      if (list_s.ok()) {
+        std::vector<BlobFileAddition> orphaned;
+        auto* cfd = static_cast<ColumnFamilyHandleImpl*>(
+            (*handles)[0])->cfd();
+        auto* current = cfd->current();
+        int total_blobs = 0;
+
+        for (const auto& fname : filenames) {
+          uint64_t file_number;
+          FileType file_type;
+          if (!ParseFileName(fname, &file_number, &file_type) ||
+              file_type != kBlobFile) {
+            continue;
+          }
+          total_blobs++;
+          bool registered = (current->storage_info()->GetBlobFileMetaData(
+              file_number) != nullptr);
+          if (registered) {
+            continue;
+          }
+          std::string blob_path = BlobFileName(dbname, file_number);
+          uint64_t file_size = 0;
+          auto fs_s = impl->immutable_db_options_.fs->GetFileSize(
+              blob_path, IOOptions(), &file_size, nullptr);
+          if (!fs_s.ok() || file_size < BlobLogHeader::kSize) {
+            continue;
+          }
+          uint64_t total_blob_bytes = file_size - BlobLogHeader::kSize;
+          if (file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize) {
+            total_blob_bytes -= BlobLogFooter::kSize;
+          }
+          uint64_t blob_count = std::max(
+              total_blob_bytes / (BlobLogRecord::kHeaderSize + 100),
+              (uint64_t)1);
+          orphaned.emplace_back(file_number, blob_count, total_blob_bytes,
+                                std::string(), std::string());
+        }
+
+        if (!orphaned.empty()) {
+          VersionEdit edit;
+          for (auto& addition : orphaned) {
+            edit.AddBlobFile(std::move(addition));
+          }
+          InstrumentedMutexLock l(&impl->mutex_);
+          s = impl->versions_->LogAndApply(
+              cfd, read_options, write_options, &edit,
+              &impl->mutex_, impl->directories_.GetDbDir());
+          if (s.ok()) {
+            ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                           "Recovered %zu orphaned blob files from "
+                           "blob direct write",
+                           orphaned.size());
+          }
+        }
+      }
+    }
+  }
+
   // Initialize blob partition manager if any CF has blob direct write enabled.
   if (s.ok()) {
     bool need_partition_manager = false;
@@ -2732,70 +2807,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         settings.compression_type = cf_opts.blob_compression_type;
         uint32_t cf_id = (i < handles->size()) ? (*handles)[i]->GetID() : 0;
         impl->blob_partition_manager_->UpdateCachedSettings(cf_id, settings);
-      }
-    }
-  }
-
-  // Discover and register blob files written by blob direct write that
-  // weren't registered in the MANIFEST (e.g., DB crashed before memtable
-  // flush sealed them). Scan for .blob files on disk not in Version.
-  if (s.ok() && impl->blob_partition_manager_) {
-    std::vector<std::string> filenames;
-    s = impl->immutable_db_options_.fs->GetChildren(
-        dbname, IOOptions(), &filenames, nullptr);
-    if (s.ok()) {
-      std::vector<BlobFileAddition> orphaned_additions;
-      auto* vs = impl->versions_.get();
-      auto* cfd = static_cast<ColumnFamilyHandleImpl*>(
-          (*handles)[0])->cfd();
-      auto* current = cfd->current();
-
-      for (const auto& fname : filenames) {
-        uint64_t file_number;
-        FileType file_type;
-        if (!ParseFileName(fname, &file_number, &file_type) ||
-            file_type != kBlobFile) {
-          continue;
-        }
-        // Check if this blob file is already registered in the Version.
-        if (current->storage_info()->GetBlobFileMetaData(file_number)) {
-          continue;
-        }
-        // Unregistered blob file — register it.
-        std::string blob_path = BlobFileName(dbname, file_number);
-        uint64_t file_size = 0;
-        auto fs_s = impl->immutable_db_options_.fs->GetFileSize(
-            blob_path, IOOptions(), &file_size, nullptr);
-        if (!fs_s.ok() || file_size < BlobLogHeader::kSize) {
-          continue;  // Skip invalid/empty files
-        }
-        // Count blob records by scanning the file.
-        // For simplicity, estimate from file size.
-        uint64_t total_blob_bytes = file_size - BlobLogHeader::kSize;
-        if (file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize) {
-          total_blob_bytes -= BlobLogFooter::kSize;
-        }
-        uint64_t blob_count = total_blob_bytes /
-            (BlobLogRecord::kHeaderSize + 100);  // rough estimate
-        orphaned_additions.emplace_back(
-            file_number, std::max(blob_count, (uint64_t)1),
-            total_blob_bytes, std::string(), std::string());
-      }
-
-      if (!orphaned_additions.empty()) {
-        VersionEdit edit;
-        for (auto& addition : orphaned_additions) {
-          edit.AddBlobFile(std::move(addition));
-        }
-        InstrumentedMutexLock l(&impl->mutex_);
-        s = vs->LogAndApply(cfd, read_options, write_options, &edit,
-                            &impl->mutex_, impl->directories_.GetDbDir());
-        if (s.ok()) {
-          ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
-                         "Recovered %zu orphaned blob files from "
-                         "blob direct write",
-                         orphaned_additions.size());
-        }
       }
     }
   }
