@@ -1135,6 +1135,48 @@ TEST_F(DBWriteBufferManagerTest, DoubleSchedulingBugDuringWALRecovery) {
   ASSERT_OK(TryReopen(options));
 }
 
+// Read-only WAL recovery with enforce_write_buffer_manager_during_recovery
+// should not crash due to duplicate ScheduleWork() calls on the
+// flush_scheduler_. The flush scheduler was not drained in read-only mode,
+// causing the same CFD to be scheduled twice on successive WAL records,
+// triggering assert(checking_set_.count(cfd) == 0).
+TEST_F(DBWriteBufferManagerTest, ReadOnlyRecoveryWithEnforceWBMDoesNotAssert) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 10 * 1024 * 1024;  // 10MB, never hit
+  options.max_write_buffer_number = 10;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  const size_t kWbmLimitForWrites = 100 * 1024 * 1024;  // 100MB (no flush)
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForWrites, nullptr, true);
+
+  DestroyAndReopen(options);
+
+  // Write enough data so that WAL recovery will trigger
+  // WriteBufferManager::ShouldFlush() multiple times with a small WBM limit.
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(50 * 1024)));  // ~2.5MB total
+  }
+  ASSERT_EQ(0, TotalTableFiles());
+  Close();
+
+  // Reopen read-only with a small WBM limit that will trigger ShouldFlush()
+  // during WAL recovery. Without the fix, this crashes in debug builds with
+  // assert(checking_set_.count(cfd) == 0) in FlushScheduler::ScheduleWork().
+  const size_t kWbmLimit = 1 * 1024 * 1024;  // 1MB
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimit, nullptr, true);
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  // Verify data is readable
+  for (int i = 0; i < 50; i++) {
+    ASSERT_EQ(DummyString(50 * 1024), Get(Key(i)));
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());
 
