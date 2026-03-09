@@ -14,6 +14,7 @@
 #include <limits>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -166,7 +167,8 @@ class CompactionJob {
                 std::string full_history_ts_low = "", std::string trim_ts = "",
                 BlobFileCompletionCallback* blob_callback = nullptr,
                 int* bg_compaction_scheduled = nullptr,
-                int* bg_bottom_compaction_scheduled = nullptr);
+                int* bg_bottom_compaction_scheduled = nullptr,
+                std::unordered_set<uint64_t> unsealed_blob_file_numbers = {});
 
   virtual ~CompactionJob();
 
@@ -497,6 +499,10 @@ class CompactionJob {
   // or updating it.
   int* bg_compaction_scheduled_;
   int* bg_bottom_compaction_scheduled_;
+
+  // Blob file numbers currently open (unsealed) by blob direct write.
+  // Passed to CompactionIterator to skip GC on these files.
+  std::unordered_set<uint64_t> unsealed_blob_file_numbers_;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.

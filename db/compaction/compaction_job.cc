@@ -148,7 +148,8 @@ CompactionJob::CompactionJob(
     const std::atomic<int>& compaction_aborted, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
     std::string trim_ts, BlobFileCompletionCallback* blob_callback,
-    int* bg_compaction_scheduled, int* bg_bottom_compaction_scheduled)
+    int* bg_compaction_scheduled, int* bg_bottom_compaction_scheduled,
+    std::unordered_set<uint64_t> unsealed_blob_file_numbers)
     : compact_(new CompactionState(compaction)),
       internal_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -193,7 +194,8 @@ CompactionJob::CompactionJob(
       blob_callback_(blob_callback),
       extra_num_subcompaction_threads_reserved_(0),
       bg_compaction_scheduled_(bg_compaction_scheduled),
-      bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled) {
+      bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled),
+      unsealed_blob_file_numbers_(std::move(unsealed_blob_file_numbers)) {
   assert(job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   assert(job_context);
@@ -1530,7 +1532,7 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
   assert(job_context_);
 
-  return std::make_unique<CompactionIterator>(
+  auto c_iter = std::make_unique<CompactionIterator>(
       input, cfd->user_comparator(), &merge, versions_->LastSequence(),
       &(job_context_->snapshot_seqs), earliest_snapshot_,
       job_context_->earliest_write_conflict_snapshot,
@@ -1542,6 +1544,12 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
           ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
       sub_compact->compaction, compaction_filter, shutting_down_,
       db_options_.info_log, full_history_ts_low, preserve_seqno_after_);
+
+  if (!unsealed_blob_file_numbers_.empty()) {
+    c_iter->SetUnsealedBlobFileNumbers(unsealed_blob_file_numbers_);
+  }
+
+  return c_iter;
 }
 
 std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc>

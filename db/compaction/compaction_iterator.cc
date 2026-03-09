@@ -1198,6 +1198,12 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
       return;
     }
 
+    // Skip GC for blob files still being written to by blob direct write.
+    // These files are unsealed (no footer) and may not be fully flushed.
+    if (unsealed_blob_file_numbers_.count(blob_index.file_number()) > 0) {
+      return;
+    }
+
     FilePrefetchBuffer* prefetch_buffer =
         prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
                                 blob_index.file_number())

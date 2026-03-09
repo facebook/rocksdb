@@ -241,6 +241,12 @@ class CompactionIterator {
 
   void ResetRecordCounts();
 
+  // Set blob file numbers that are currently unsealed (being written to by
+  // blob direct write). GC will skip blobs from these files.
+  void SetUnsealedBlobFileNumbers(std::unordered_set<uint64_t> file_numbers) {
+    unsealed_blob_file_numbers_ = std::move(file_numbers);
+  }
+
   // Seek to the beginning of the compaction iterator output.
   //
   // REQUIRED: Call only once.
@@ -471,6 +477,11 @@ class CompactionIterator {
   PinnedIteratorsManager pinned_iters_mgr_;
 
   uint64_t blob_garbage_collection_cutoff_file_number_;
+
+  // Blob file numbers currently open (unsealed) by blob direct write.
+  // GC skips blobs from these files to avoid reading files still being
+  // written to.
+  std::unordered_set<uint64_t> unsealed_blob_file_numbers_;
 
   std::unique_ptr<BlobFetcher> blob_fetcher_;
   std::unique_ptr<PrefetchBufferCollection> prefetch_buffers_;
