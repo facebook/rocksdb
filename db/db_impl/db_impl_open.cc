@@ -2804,7 +2804,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               impl->immutable_db_options_.listeners,
               impl->immutable_db_options_.file_checksum_gen_factory.get(),
               impl->immutable_db_options_.checksum_handoff_file_types,
-              &impl->blob_callback_);
+              &impl->blob_callback_, impl->db_id_, impl->db_session_id_);
       // Cache blob direct write settings per CF to avoid SuperVersion
       // lookup on every Put.
       for (size_t i = 0; i < column_families.size(); i++) {
@@ -2814,6 +2814,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             cf_opts.enable_blob_direct_write && cf_opts.enable_blob_files;
         settings.min_blob_size = cf_opts.min_blob_size;
         settings.compression_type = cf_opts.blob_compression_type;
+        settings.blob_cache = cf_opts.blob_cache;
+        settings.prepopulate_blob_cache = cf_opts.prepopulate_blob_cache;
         uint32_t cf_id = (i < handles->size()) ? (*handles)[i]->GetID() : 0;
         impl->blob_partition_manager_->UpdateCachedSettings(cf_id, settings);
       }

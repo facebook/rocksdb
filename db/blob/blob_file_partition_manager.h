@@ -83,7 +83,8 @@ class BlobFilePartitionManager {
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
       const FileTypeSet& checksum_handoff_file_types = {},
-      BlobFileCompletionCallback* blob_callback = nullptr);
+      BlobFileCompletionCallback* blob_callback = nullptr,
+      const std::string& db_id = "", const std::string& db_session_id = "");
 
   ~BlobFilePartitionManager();
 
@@ -265,6 +266,8 @@ class BlobFilePartitionManager {
   FileChecksumGenFactory* file_checksum_gen_factory_;
   FileTypeSet checksum_handoff_file_types_;
   BlobFileCompletionCallback* blob_callback_;
+  std::string db_id_;
+  std::string db_session_id_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
   mutable port::Mutex settings_mutex_;

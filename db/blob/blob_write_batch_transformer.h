@@ -6,8 +6,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -18,12 +20,15 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFilePartitionManager;
+class Cache;
 
 // Callback to look up per-CF blob settings.
 struct BlobDirectWriteSettings {
   bool enable_blob_direct_write = false;
   uint64_t min_blob_size = 0;
   CompressionType compression_type = kNoCompression;
+  std::shared_ptr<Cache> blob_cache;
+  PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 };
 
 using BlobDirectWriteSettingsProvider =

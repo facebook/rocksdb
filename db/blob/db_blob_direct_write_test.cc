@@ -775,6 +775,47 @@ TEST_F(DBBlobDirectWriteTest, UnorderedWriteBasic) {
   VerifyLargeValues(num_keys);
 }
 
+TEST_F(DBBlobDirectWriteTest, PrepopulateBlobCache) {
+  Options options = GetBlobDirectWriteOptions();
+  options.statistics = CreateDBStatistics();
+  auto cache = NewLRUCache(1 << 20);  // 1MB cache
+  options.blob_cache = cache;
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+  DestroyAndReopen(options);
+
+  uint64_t cache_add_before =
+      options.statistics->getTickerCount(BLOB_DB_CACHE_ADD);
+
+  // Write values that exceed min_blob_size
+  const int num_keys = 10;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "cache_key" + std::to_string(i);
+    std::string value(100, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  uint64_t cache_add_after =
+      options.statistics->getTickerCount(BLOB_DB_CACHE_ADD);
+  // Each direct write Put should have added to cache
+  ASSERT_EQ(cache_add_after - cache_add_before,
+            static_cast<uint64_t>(num_keys));
+
+  // Verify values are readable (should hit cache for unflushed data)
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "cache_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+
+  // Verify after flush too
+  ASSERT_OK(Flush());
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "cache_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
 TEST_F(DBBlobDirectWriteTest, CompressionTimingMetric) {
   Options options = GetBlobDirectWriteOptions();
   options.blob_compression_type = kSnappyCompression;

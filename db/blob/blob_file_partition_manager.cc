@@ -7,9 +7,11 @@
 
 #include <algorithm>
 
+#include "cache/cache_key.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blob/blob_source.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
@@ -35,7 +37,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
     const FileTypeSet& checksum_handoff_file_types,
-    BlobFileCompletionCallback* blob_callback)
+    BlobFileCompletionCallback* blob_callback, const std::string& db_id,
+    const std::string& db_session_id)
     : num_partitions_(num_partitions),
       strategy_(strategy ? std::move(strategy)
                          : std::make_shared<RoundRobinPartitionStrategy>()),
@@ -62,6 +65,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       file_checksum_gen_factory_(file_checksum_gen_factory),
       checksum_handoff_file_types_(checksum_handoff_file_types),
       blob_callback_(blob_callback),
+      db_id_(db_id),
+      db_session_id_(db_session_id),
       bg_cv_(&bg_mutex_),
       bg_drain_cv_(&bg_mutex_) {
   assert(num_partitions_ > 0);
@@ -661,6 +666,29 @@ Status BlobFilePartitionManager::WriteBlob(
 
     *blob_file_number = partition->file_number;
     *blob_size = write_value.size();
+
+    // Prepopulate blob cache with uncompressed value if enabled.
+    {
+      const auto settings = GetCachedSettings(column_family_id);
+      if (settings.blob_cache &&
+          settings.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly) {
+        BlobSource::SharedCacheInterface blob_cache{settings.blob_cache};
+        const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
+                                                *blob_file_number);
+        const CacheKey cache_key = base_cache_key.WithOffset(*blob_offset);
+        const Slice cache_slice = cache_key.AsSlice();
+        // Insert the uncompressed value (original 'value', not 'write_value').
+        Status cs = blob_cache.InsertSaved(cache_slice, value, nullptr,
+                                           Cache::Priority::BOTTOM,
+                                           CacheTier::kVolatileTier);
+        if (cs.ok()) {
+          RecordTick(statistics_, BLOB_DB_CACHE_ADD);
+          RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE, value.size());
+        } else {
+          RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
+        }
+      }
+    }
 
     partition->blob_count++;
     const uint64_t record_size =
