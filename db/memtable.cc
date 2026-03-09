@@ -1585,11 +1585,11 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   if (use_batch_optimization) {
     // Phase 1: Handle range tombstones and set up Savers for batched lookup
-    std::array<Saver, MultiGetContext::MAX_BATCH_SIZE> savers;
-    std::array<const char*, MultiGetContext::MAX_BATCH_SIZE> memtable_keys;
-    std::array<void*, MultiGetContext::MAX_BATCH_SIZE> callback_args;
-    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> found_final_values;
-    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> merge_in_progresses;
+    std::array<Saver, MultiGetContext::MAX_BATCH_SIZE> savers{};
+    std::array<const char*, MultiGetContext::MAX_BATCH_SIZE> memtable_keys{};
+    std::array<void*, MultiGetContext::MAX_BATCH_SIZE> callback_args{};
+    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> found_final_values{};
+    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> merge_in_progresses{};
     size_t num_keys = 0;
 
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
