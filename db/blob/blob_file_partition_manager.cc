@@ -15,6 +15,7 @@
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "monitoring/statistics_impl.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
@@ -38,7 +39,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     FileChecksumGenFactory* file_checksum_gen_factory,
     const FileTypeSet& checksum_handoff_file_types,
     BlobFileCompletionCallback* blob_callback, const std::string& db_id,
-    const std::string& db_session_id)
+    const std::string& db_session_id, Logger* info_log)
     : num_partitions_(num_partitions),
       strategy_(strategy ? std::move(strategy)
                          : std::make_shared<RoundRobinPartitionStrategy>()),
@@ -67,6 +68,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       blob_callback_(blob_callback),
       db_id_(db_id),
       db_session_id_(db_session_id),
+      info_log_(info_log),
       bg_cv_(&bg_mutex_),
       bg_drain_cv_(&bg_mutex_) {
   assert(num_partitions_ > 0);
@@ -162,6 +164,10 @@ Status BlobFilePartitionManager::OpenNewBlobFile(
   partition->compression = compression;
   partition->next_write_offset = BlobLogHeader::kSize;
 
+  ROCKS_LOG_INFO(info_log_,
+                 "[BlobDirectWrite] Opened blob file %" PRIu64 " (%s)",
+                 blob_file_number, blob_file_path.c_str());
+
   if (blob_callback_) {
     blob_callback_->OnBlobFileCreationStarted(
         blob_file_path, /*column_family_name=*/"", /*job_id=*/0,
@@ -245,6 +251,12 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   partition->completed_files.emplace_back(
       partition->file_number, partition->blob_count,
       partition->total_blob_bytes, checksum_method, checksum_value);
+
+  ROCKS_LOG_INFO(info_log_,
+                 "[BlobDirectWrite] Closed blob file %" PRIu64 ": %" PRIu64
+                 " blobs, %" PRIu64 " bytes",
+                 partition->file_number, partition->blob_count,
+                 partition->total_blob_bytes);
 
   if (blob_callback_) {
     const std::string file_path =
@@ -368,6 +380,12 @@ Status BlobFilePartitionManager::SealDeferredFile(
         deferred->file_number, deferred->blob_count, deferred->total_blob_bytes,
         checksum_method, checksum_value);
   }
+
+  ROCKS_LOG_INFO(info_log_,
+                 "[BlobDirectWrite] Sealed blob file %" PRIu64 ": %" PRIu64
+                 " blobs, %" PRIu64 " bytes",
+                 deferred->file_number, deferred->blob_count,
+                 deferred->total_blob_bytes);
 
   if (blob_callback_) {
     const std::string file_path = BlobFileName(db_path_, deferred->file_number);

@@ -2804,7 +2804,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               impl->immutable_db_options_.listeners,
               impl->immutable_db_options_.file_checksum_gen_factory.get(),
               impl->immutable_db_options_.checksum_handoff_file_types,
-              &impl->blob_callback_, impl->db_id_, impl->db_session_id_);
+              &impl->blob_callback_, impl->db_id_, impl->db_session_id_,
+              impl->immutable_db_options_.info_log.get());
       // Cache blob direct write settings per CF to avoid SuperVersion
       // lookup on every Put.
       for (size_t i = 0; i < column_families.size(); i++) {

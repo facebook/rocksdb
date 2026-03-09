@@ -37,6 +37,7 @@ class BlobLogWriter;
 class Compressor;
 class Decompressor;
 class IOTracer;
+class Logger;
 class SystemClock;
 class WritableFileWriter;
 struct FileOptions;
@@ -84,7 +85,8 @@ class BlobFilePartitionManager {
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
       const FileTypeSet& checksum_handoff_file_types = {},
       BlobFileCompletionCallback* blob_callback = nullptr,
-      const std::string& db_id = "", const std::string& db_session_id = "");
+      const std::string& db_id = "", const std::string& db_session_id = "",
+      Logger* info_log = nullptr);
 
   ~BlobFilePartitionManager();
 
@@ -268,6 +270,7 @@ class BlobFilePartitionManager {
   BlobFileCompletionCallback* blob_callback_;
   std::string db_id_;
   std::string db_session_id_;
+  Logger* info_log_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
   mutable port::Mutex settings_mutex_;
