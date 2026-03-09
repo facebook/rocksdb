@@ -44,7 +44,7 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
       uint64_t blob_size = 0;
       Status blob_s = blob_partition_manager_->WriteBlob(
           o, cf_id, settings.compression_type, key, val, &blob_file_number,
-          &blob_offset, &blob_size);
+          &blob_offset, &blob_size, &settings);
       if (!blob_s.ok()) {
         return blob_s;
       }

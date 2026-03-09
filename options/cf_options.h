@@ -88,6 +88,8 @@ struct ImmutableCFOptions {
 
   uint64_t blob_direct_write_buffer_size;
 
+  uint64_t blob_direct_write_flush_interval_ms;
+
   bool blob_direct_write_use_direct_io;
 
   bool persist_user_defined_timestamps;

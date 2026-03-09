@@ -10,6 +10,7 @@
 #include <functional>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -96,11 +97,13 @@ class BlobFilePartitionManager {
   // into the WriteBatch buffer. Caller MUST call AdoptBatchBuffer() after
   // TransformBatch completes to transfer buffer ownership.
   // Thread-safe: multiple writers can call this concurrently.
+  // If caller already has the settings, pass them to avoid a redundant lookup.
   Status WriteBlob(const WriteOptions& write_options,
                    uint32_t column_family_id, CompressionType compression,
                    const Slice& key, const Slice& value,
                    uint64_t* blob_file_number, uint64_t* blob_offset,
-                   uint64_t* blob_size);
+                   uint64_t* blob_size,
+                   const BlobDirectWriteSettings* settings = nullptr);
 
 
   // Set rep_owner on all pending records that have an empty rep_owner.
@@ -126,26 +129,35 @@ class BlobFilePartitionManager {
   // Returns true if deferred flush mode is active.
   bool IsDeferredFlushMode() const { return buffer_size_ > 0; }
 
+  using SettingsMap = std::unordered_map<uint32_t, BlobDirectWriteSettings>;
+
   // Get cached blob direct write settings for a column family.
-  // Avoids SuperVersion lookup on every Put.
+  // Lock-free read via RCU: reads an immutable snapshot of the settings map.
   BlobDirectWriteSettings GetCachedSettings(uint32_t cf_id) const {
-    settings_mutex_.Lock();
-    auto it = cached_settings_.find(cf_id);
-    BlobDirectWriteSettings result;
-    if (it != cached_settings_.end()) {
-      result = it->second;
+    auto snapshot = std::atomic_load_explicit(&cached_settings_,
+                                              std::memory_order_acquire);
+    if (snapshot) {
+      auto it = snapshot->find(cf_id);
+      if (it != snapshot->end()) {
+        return it->second;
+      }
     }
-    settings_mutex_.Unlock();
-    return result;
+    return BlobDirectWriteSettings{};
   }
 
   // Update cached settings for a column family.
-  // Called during DB open and SetOptions.
+  // Called during DB open and SetOptions (rare). Creates a new immutable
+  // snapshot via copy-on-write so that readers are never blocked.
   void UpdateCachedSettings(uint32_t cf_id,
                             const BlobDirectWriteSettings& settings) {
-    settings_mutex_.Lock();
-    cached_settings_[cf_id] = settings;
-    settings_mutex_.Unlock();
+    std::lock_guard<std::mutex> lock(settings_write_mutex_);
+    auto old = std::atomic_load_explicit(&cached_settings_,
+                                         std::memory_order_acquire);
+    auto new_map = old ? std::make_shared<SettingsMap>(*old)
+                       : std::make_shared<SettingsMap>();
+    (*new_map)[cf_id] = settings;
+    std::atomic_store_explicit(&cached_settings_, std::move(new_map),
+                               std::memory_order_release);
   }
 
   // Dump per-operation timing breakdown to stderr (for benchmarking).
@@ -160,6 +172,23 @@ class BlobFilePartitionManager {
     uint64_t file_number;
     uint64_t blob_offset;
   };
+
+  // Key for the global pending blob index (O(1) lookup by file+offset).
+  struct PendingBlobKey {
+    uint64_t file_number;
+    uint64_t blob_offset;
+    bool operator==(const PendingBlobKey& o) const {
+      return file_number == o.file_number && blob_offset == o.blob_offset;
+    }
+  };
+  struct PendingBlobKeyHash {
+    size_t operator()(const PendingBlobKey& k) const {
+      return std::hash<uint64_t>()(k.file_number) * 0x9e3779b97f4a7c15ULL +
+             std::hash<uint64_t>()(k.blob_offset);
+    }
+  };
+
+  void RemoveFromPendingIndex(const std::vector<PendingRecord>& records);
 
   // State captured under the mutex for deferred sealing outside the mutex.
   struct DeferredSeal {
@@ -188,9 +217,6 @@ class BlobFilePartitionManager {
     uint32_t column_family_id = 0;
     CompressionType compression = kNoCompression;
     uint64_t unflushed_bytes = 0;
-
-    // Per-partition compressor working area for thread safety.
-    Compressor::ManagedWorkingArea compressor_wa;
 
     // Deferred flush state
     std::vector<PendingRecord> pending_records;
@@ -275,8 +301,17 @@ class BlobFilePartitionManager {
   Logger* info_log_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
-  mutable port::Mutex settings_mutex_;
-  std::unordered_map<uint32_t, BlobDirectWriteSettings> cached_settings_;
+  // RCU-based settings cache: readers use atomic_load (lock-free),
+  // writers use settings_write_mutex_ + copy-on-write + atomic_store.
+  std::shared_ptr<SettingsMap> cached_settings_;
+  mutable std::mutex settings_write_mutex_;
+
+  // Global pending blob index for O(1) lookup by (file_number, blob_offset).
+  // Maps to compressed value strings. Updated alongside pending_records and
+  // in_flight_records; entries are removed after records are flushed to disk.
+  mutable port::Mutex pending_index_mutex_;
+  std::unordered_map<PendingBlobKey, std::string, PendingBlobKeyHash>
+      pending_index_;
 
   port::Mutex completed_files_mutex_;
 

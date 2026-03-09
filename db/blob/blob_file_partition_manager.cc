@@ -84,11 +84,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
 
   partitions_.reserve(num_partitions_);
   for (uint32_t i = 0; i < num_partitions_; ++i) {
-    auto p = std::make_unique<Partition>();
-    if (compressor_) {
-      p->compressor_wa = compressor_->ObtainWorkingArea();
-    }
-    partitions_.emplace_back(std::move(p));
+    partitions_.emplace_back(std::make_unique<Partition>());
   }
 
   // Start background I/O thread pool for deferred seal and flush operations.
@@ -203,7 +199,11 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
       if (!s.ok()) {
         return s;
       }
-      assert(actual_blob_offset == record.blob_offset);
+      if (actual_blob_offset != record.blob_offset) {
+        return Status::Corruption(
+            "BlobDirectWrite: pre-calculated blob offset does not match "
+            "actual offset");
+      }
 
       const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
                                     record.key.size() + record.value.size();
@@ -224,6 +224,8 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
     if (!s.ok()) {
       return s;
     }
+
+    RemoveFromPendingIndex(records);
   }
 
   // Flush any legacy buffered data before writing footer.
@@ -320,15 +322,8 @@ Status BlobFilePartitionManager::SealDeferredFile(
   assert(deferred);
   assert(deferred->writer);
 
-  // Keep deferred records visible to GetPendingBlobValue during flush.
-  // Append to (not overwrite) in_flight_records in case a concurrent
-  // FlushPendingRecords also has records in flight.
-  {
-    MutexLock lock(&partition->mutex);
-    partition->in_flight_records.insert(
-        partition->in_flight_records.end(),
-        deferred->records.begin(), deferred->records.end());
-  }
+  // Deferred records are already in in_flight_records (inserted by
+  // PrepareFileRollover under the mutex). No insertion needed here.
 
   // Flush pending records to the old writer (outside the mutex).
   BlobLogWriter* writer = deferred->writer.get();
@@ -342,7 +337,11 @@ Status BlobFilePartitionManager::SealDeferredFile(
     if (!s.ok()) {
       return s;
     }
-    assert(actual_blob_offset == record.blob_offset);
+    if (actual_blob_offset != record.blob_offset) {
+      return Status::Corruption(
+          "BlobDirectWrite: pre-calculated blob offset does not match "
+          "actual offset");
+    }
 
     const uint64_t record_bytes =
         BlobLogRecord::kHeaderSize + record.key.size() + record.value.size();
@@ -382,10 +381,25 @@ Status BlobFilePartitionManager::SealDeferredFile(
     return s;
   }
 
-  // Record completion and clear in_flight_records.
+  // Record completion and remove only this seal's records from
+  // in_flight_records. A concurrent FlushPendingRecords may have its own
+  // records there; blanket clear() would lose them.
   {
     MutexLock lock(&partition->mutex);
-    partition->in_flight_records.clear();
+    auto& ifr = partition->in_flight_records;
+    ifr.erase(
+        std::remove_if(
+            ifr.begin(), ifr.end(),
+            [&](const PendingRecord& r) {
+              for (const auto& sealed : deferred->records) {
+                if (r.file_number == sealed.file_number &&
+                    r.blob_offset == sealed.blob_offset) {
+                  return true;
+                }
+              }
+              return false;
+            }),
+        ifr.end());
     partition->completed_files.emplace_back(
         deferred->file_number, deferred->blob_count, deferred->total_blob_bytes,
         checksum_method, checksum_value);
@@ -405,6 +419,8 @@ Status BlobFilePartitionManager::SealDeferredFile(
         checksum_value, checksum_method, deferred->blob_count,
         deferred->total_blob_bytes);
   }
+
+  RemoveFromPendingIndex(deferred->records);
 
   deferred->writer.reset();
   return Status::OK();
@@ -569,10 +585,20 @@ Status BlobFilePartitionManager::WriteBlobDeferred(
       BlobLogRecord::kHeaderSize + key.size() + value.size();
   partition->next_write_offset += record_size;
 
-  // Move pre-copied strings into pending record (no memcpy under mutex).
+  const uint64_t fn = partition->file_number;
+
+  // Copy compressed value for the global pending index before moving.
+  std::string index_value = value_copy_;
+
   partition->pending_records.push_back(
-      {std::move(key_copy_), std::move(value_copy_), partition->file_number, *blob_offset});
+      {std::move(key_copy_), std::move(value_copy_), fn, *blob_offset});
   partition->pending_bytes.fetch_add(record_size, std::memory_order_relaxed);
+
+  // Add to global pending index for O(1) read path lookup.
+  {
+    MutexLock lock(&pending_index_mutex_);
+    pending_index_[{fn, *blob_offset}] = std::move(index_value);
+  }
 
   return Status::OK();
 }
@@ -594,49 +620,50 @@ Status BlobFilePartitionManager::WriteBlobSync(
 }
 
 
+void BlobFilePartitionManager::RemoveFromPendingIndex(
+    const std::vector<PendingRecord>& records) {
+  MutexLock lock(&pending_index_mutex_);
+  for (const auto& r : records) {
+    pending_index_.erase({r.file_number, r.blob_offset});
+  }
+}
+
 bool BlobFilePartitionManager::GetPendingBlobValue(
     uint64_t file_number, uint64_t offset, std::string* value) const {
-  auto decompress_record = [&](const PendingRecord& record) -> bool {
-    if (decompressor_) {
-      Decompressor::Args args;
-      args.compression_type = blob_compression_type_;
-      args.compressed_data = Slice(record.value);
-      Status s = decompressor_->ExtractUncompressedSize(args);
-      if (!s.ok()) {
-        return false;
-      }
-      value->resize(args.uncompressed_size);
-      s = decompressor_->DecompressBlock(args,
-                                         const_cast<char*>(value->data()));
-      return s.ok();
+  // O(1) lookup in global pending index instead of scanning all partitions.
+  std::string compressed_value;
+  {
+    MutexLock lock(&pending_index_mutex_);
+    auto it = pending_index_.find({file_number, offset});
+    if (it == pending_index_.end()) {
+      return false;
     }
-    *value = record.value;
-    return true;
-  };
-
-  for (auto& partition : partitions_) {
-    MutexLock lock(&partition->mutex);
-    // Check pending records (not yet picked up by BG thread).
-    for (const auto& record : partition->pending_records) {
-      if (record.file_number == file_number && record.blob_offset == offset) {
-        return decompress_record(record);
-      }
-    }
-    // Check in-flight records (being flushed by BG thread or captured by
-    // PrepareFileRollover for deferred seal).
-    for (const auto& record : partition->in_flight_records) {
-      if (record.file_number == file_number && record.blob_offset == offset) {
-        return decompress_record(record);
-      }
-    }
+    compressed_value = it->second;
   }
-  return false;
+
+  if (decompressor_) {
+    Decompressor::Args args;
+    args.compression_type = blob_compression_type_;
+    args.compressed_data = Slice(compressed_value);
+    Status s = decompressor_->ExtractUncompressedSize(args);
+    if (!s.ok()) {
+      return false;
+    }
+    value->resize(args.uncompressed_size);
+    s = decompressor_->DecompressBlock(args,
+                                       const_cast<char*>(value->data()));
+    return s.ok();
+  }
+
+  *value = std::move(compressed_value);
+  return true;
 }
 
 Status BlobFilePartitionManager::WriteBlob(
     const WriteOptions& /*write_options*/, uint32_t column_family_id,
     CompressionType compression, const Slice& key, const Slice& value,
-    uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size) {
+    uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size,
+    const BlobDirectWriteSettings* caller_settings) {
   assert(blob_file_number);
   assert(blob_offset);
   assert(blob_size);
@@ -668,11 +695,28 @@ Status BlobFilePartitionManager::WriteBlob(
 
   bool need_flush = false;
   DeferredSeal deferred_seal;
-  // Pre-copy key and value OUTSIDE the mutex to minimize critical section.
+
+  // Compress OUTSIDE the mutex using a per-call working area.
+  // This avoids serializing all writers per-partition at compression throughput.
+  GrowableBuffer compressed_buf;
+  Slice write_value = value;
+  if (compressor_) {
+    auto wa = compressor_->ObtainWorkingArea();
+    StopWatch stop_watch(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
+    Status s = LegacyForceBuiltinCompression(*compressor_, &wa, value,
+                                             &compressed_buf);
+    if (!s.ok()) {
+      return s;
+    }
+    write_value = Slice(compressed_buf);
+  }
+
+  // Pre-copy key and (compressed) value OUTSIDE the mutex for deferred mode.
+  // Only one copy of the final value, not the pre-compression original.
   std::string key_copy, value_copy;
   if (buffer_size_ > 0) {
     key_copy.assign(key.data(), key.size());
-    value_copy.assign(value.data(), value.size());
+    value_copy.assign(write_value.data(), write_value.size());
   }
 
   {
@@ -693,24 +737,6 @@ Status BlobFilePartitionManager::WriteBlob(
       }
     }
 
-    // Compress the value if compression is enabled.
-    // Done inside the mutex because the compressor working area is
-    // per-partition.
-    GrowableBuffer compressed_buf;
-    Slice write_value = value;
-    if (compressor_) {
-      StopWatch stop_watch(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-      Status s = LegacyForceBuiltinCompression(
-          *compressor_, &partition->compressor_wa, value, &compressed_buf);
-      if (!s.ok()) {
-        return s;
-      }
-      write_value = Slice(compressed_buf);
-      if (buffer_size_ > 0) {
-        value_copy.assign(write_value.data(), write_value.size());
-      }
-    }
-
     Status s;
     if (buffer_size_ > 0) {
       s = WriteBlobDeferred(partition, key, write_value, blob_offset,
@@ -724,29 +750,6 @@ Status BlobFilePartitionManager::WriteBlob(
 
     *blob_file_number = partition->file_number;
     *blob_size = write_value.size();
-
-    // Prepopulate blob cache with uncompressed value if enabled.
-    {
-      const auto settings = GetCachedSettings(column_family_id);
-      if (settings.blob_cache &&
-          settings.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly) {
-        BlobSource::SharedCacheInterface blob_cache{settings.blob_cache};
-        const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
-                                                *blob_file_number);
-        const CacheKey cache_key = base_cache_key.WithOffset(*blob_offset);
-        const Slice cache_slice = cache_key.AsSlice();
-        // Insert the uncompressed value (original 'value', not 'write_value').
-        Status cs = blob_cache.InsertSaved(cache_slice, value, nullptr,
-                                           Cache::Priority::BOTTOM,
-                                           CacheTier::kVolatileTier);
-        if (cs.ok()) {
-          RecordTick(statistics_, BLOB_DB_CACHE_ADD);
-          RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE, value.size());
-        } else {
-          RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
-        }
-      }
-    }
 
     partition->blob_count++;
     const uint64_t record_size =
@@ -771,6 +774,33 @@ Status BlobFilePartitionManager::WriteBlob(
       need_flush = true;
     }
   }  // mutex released
+
+  // Prepopulate blob cache with uncompressed value (outside mutex).
+  {
+    BlobDirectWriteSettings local_settings;
+    if (!caller_settings) {
+      local_settings = GetCachedSettings(column_family_id);
+      caller_settings = &local_settings;
+    }
+    if (caller_settings->blob_cache &&
+        caller_settings->prepopulate_blob_cache ==
+            PrepopulateBlobCache::kFlushOnly) {
+      BlobSource::SharedCacheInterface blob_cache{caller_settings->blob_cache};
+      const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
+                                              *blob_file_number);
+      const CacheKey cache_key = base_cache_key.WithOffset(*blob_offset);
+      const Slice cache_slice = cache_key.AsSlice();
+      Status cs = blob_cache.InsertSaved(cache_slice, value, nullptr,
+                                         Cache::Priority::BOTTOM,
+                                         CacheTier::kVolatileTier);
+      if (cs.ok()) {
+        RecordTick(statistics_, BLOB_DB_CACHE_ADD);
+        RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE, value.size());
+      } else {
+        RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
+      }
+    }
+  }
 
   // Submit seal to background thread (non-blocking).
   if (deferred_seal.writer) {
@@ -814,6 +844,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
 
   if (!writer) {
     // Clear in_flight since we're not actually flushing.
+    RemoveFromPendingIndex(records);
     MutexLock lock(&partition->mutex);
     partition->in_flight_records.clear();
     return Status::OK();
@@ -831,7 +862,13 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
       partition->pending_cv.SignalAll();
       return s;
     }
-    assert(actual_blob_offset == record.blob_offset);
+    if (actual_blob_offset != record.blob_offset) {
+      MutexLock lock(&partition->mutex);
+      partition->pending_cv.SignalAll();
+      return Status::Corruption(
+          "BlobDirectWrite: pre-calculated blob offset does not match "
+          "actual offset");
+    }
 
     const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
                                   record.key.size() + record.value.size();
@@ -853,10 +890,10 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     }
   }
 
-  // Data is on disk now — remove only the records we flushed from
-  // in_flight_records. Other records (from PrepareFileRollover) may
-  // still be there waiting for SealDeferredFile to complete.
-  // Signal backpressure waiters under the mutex to avoid missed wakeups.
+  // Data is on disk now — remove flushed records from the global pending index
+  // and from in_flight_records. Other records (from PrepareFileRollover) may
+  // still be in in_flight_records waiting for SealDeferredFile to complete.
+  RemoveFromPendingIndex(records);
   {
     MutexLock lock(&partition->mutex);
     auto& ifr = partition->in_flight_records;
@@ -939,7 +976,11 @@ Status BlobFilePartitionManager::SealAllPartitions(
       if (!s.ok()) {
         return s;
       }
-      assert(actual_blob_offset == record.blob_offset);
+      if (actual_blob_offset != record.blob_offset) {
+        return Status::Corruption(
+            "BlobDirectWrite: pre-calculated blob offset does not match "
+            "actual offset");
+      }
 
       const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
                                     record.key.size() + record.value.size();
@@ -979,6 +1020,8 @@ Status BlobFilePartitionManager::SealAllPartitions(
       return s;
     }
 
+    RemoveFromPendingIndex(seal.records);
+
     additions->emplace_back(seal.file_number, seal.blob_count,
                             seal.total_blob_bytes, checksum_method,
                             checksum_value);
@@ -1014,10 +1057,13 @@ Status BlobFilePartitionManager::FlushAllOpenFiles(
     const WriteOptions& write_options) {
   if (buffer_size_ > 0) {
     for (auto& partition : partitions_) {
-      Status s = FlushPendingRecords(partition.get());
-      if (!s.ok()) {
-        return s;
-      }
+      SubmitFlush(partition.get());
+    }
+    DrainBackgroundWork();
+
+    MutexLock lock(&bg_mutex_);
+    if (!bg_status_.ok()) {
+      return bg_status_;
     }
   }
 
@@ -1042,10 +1088,13 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
     const WriteOptions& write_options) {
   if (buffer_size_ > 0) {
     for (auto& partition : partitions_) {
-      Status s = FlushPendingRecords(partition.get());
-      if (!s.ok()) {
-        return s;
-      }
+      SubmitFlush(partition.get());
+    }
+    DrainBackgroundWork();
+
+    MutexLock lock(&bg_mutex_);
+    if (!bg_status_.ok()) {
+      return bg_status_;
     }
   }
 

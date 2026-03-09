@@ -226,10 +226,7 @@ TEST_F(DBBlobDirectWriteTest, IteratorReverseScan) {
   verify_reverse_scan();
 }
 
-// TODO: Enable this test once the MultiGet read path for blob direct write
-// is fixed. Currently the MultiGet path has issues resolving blob indices
-// for write-path blobs.
-TEST_F(DBBlobDirectWriteTest, DISABLED_MultiGetWithBlobDirectWrite) {
+TEST_F(DBBlobDirectWriteTest, MultiGetWithBlobDirectWrite) {
   Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -242,6 +239,30 @@ TEST_F(DBBlobDirectWriteTest, DISABLED_MultiGetWithBlobDirectWrite) {
   ASSERT_OK(Flush());
 
   std::vector<Slice> keys = {Slice("key1"), Slice("key2"), Slice("key3"),
+                             Slice("missing")};
+  std::vector<std::string> values(4);
+  std::vector<Status> statuses =
+      dbfull()->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], large1);
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], large2);
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], large3);
+  ASSERT_TRUE(statuses[3].IsNotFound());
+}
+
+TEST_F(DBBlobDirectWriteTest, MultiGetFromMemtable) {
+  Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  std::string large1(100, 'X'), large2(100, 'Y'), large3(100, 'Z');
+  ASSERT_OK(Put("mkey1", large1));
+  ASSERT_OK(Put("mkey2", large2));
+  ASSERT_OK(Put("mkey3", large3));
+
+  // Read from memtable without flushing.
+  std::vector<Slice> keys = {Slice("mkey1"), Slice("mkey2"), Slice("mkey3"),
                              Slice("missing")};
   std::vector<std::string> values(4);
   std::vector<Status> statuses =

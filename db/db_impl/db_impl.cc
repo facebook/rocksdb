@@ -3554,6 +3554,36 @@ Status DBImpl::MultiGetImpl(
       } else {
         lookup_current = false;
       }
+
+      // Resolve write-path blob indices found in memtable/imm before
+      // Version::MultiGet, which handles SST blob indices separately.
+      if (blob_partition_manager_) {
+        size_t batch_start = start_key + num_keys - keys_left - batch_size;
+        for (size_t bi = batch_start; bi < batch_start + batch_size; ++bi) {
+          KeyContext* kctx = (*sorted_keys)[bi];
+          if (kctx->s->ok() && kctx->is_blob_index && kctx->value) {
+            BlobIndex blob_idx;
+            Status resolve_s =
+                blob_idx.DecodeFrom(*(kctx->value->GetSelf()));
+            if (resolve_s.ok()) {
+              PinnableSlice blob_value;
+              BlobFileCache* blob_cache =
+                  super_version->cfd->blob_file_cache();
+              resolve_s = ResolveBlobIndexForWritePath(
+                  read_options, *kctx->key, blob_idx, super_version->current,
+                  blob_cache, blob_partition_manager_.get(), &blob_value);
+              if (resolve_s.ok()) {
+                kctx->value->Reset();
+                kctx->value->PinSelf(blob_value);
+              }
+            }
+            if (!resolve_s.ok()) {
+              *(kctx->s) = resolve_s;
+            }
+            kctx->is_blob_index = false;
+          }
+        }
+      }
     }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
@@ -3581,12 +3611,6 @@ Status DBImpl::MultiGetImpl(
     KeyContext* key = (*sorted_keys)[i];
     assert(key);
     assert(key->s);
-
-    // TODO(blob_direct_write): Add blob index resolution for memtable reads
-    // in MultiGet. Currently, write-path blob indices from memtable are not
-    // resolved in MultiGet. This requires tracking whether each key came from
-    // memtable vs SST to avoid double-resolving SST blob indices.
-    (void)blob_partition_manager_;
 
     if (key->s->ok()) {
       const auto& merge_threshold = read_options.merge_operand_count_threshold;

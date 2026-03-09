@@ -67,7 +67,7 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
   WriteOptions wo;
   Status s = partition_manager_->WriteBlob(
       wo, column_family_id, settings.compression_type, key, value,
-      &blob_file_number, &blob_offset, &blob_size);
+      &blob_file_number, &blob_offset, &blob_size, &settings);
   if (!s.ok()) {
     return s;
   }
