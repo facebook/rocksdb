@@ -2834,7 +2834,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchLookupSnapshot) {
   db_->ReleaseSnapshot(snap);
 
   // MultiGet without snapshot should see new values
-  for (auto& v : values) v.Reset();
+  for (auto& v : values) {
+    v.Reset();
+  }
   db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
                 values.data(), statuses.data(), true);
 

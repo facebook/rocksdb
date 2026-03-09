@@ -493,6 +493,7 @@ TEST_F(InlineSkipTest, MultiGetRandomized) {
   // Generate sorted query keys
   const size_t num_queries = 100;
   std::vector<Key> query_keys;
+  query_keys.reserve(num_queries);
   for (size_t i = 0; i < num_queries; i++) {
     query_keys.push_back(rnd.Next() % R);
   }
