@@ -704,6 +704,77 @@ TEST_F(DBBlobDirectWriteTest, CompressionReducesFileSize) {
   ASSERT_LT(compressed_size, uncompressed_size);
 }
 
+TEST_F(DBBlobDirectWriteTest, PipelinedWriteBasic) {
+  Options options = GetBlobDirectWriteOptions();
+  options.enable_pipelined_write = true;
+  DestroyAndReopen(options);
+
+  const int num_keys = 20;
+  WriteLargeValues(num_keys);
+
+  // Verify reads before flush
+  VerifyLargeValues(num_keys);
+
+  // Verify reads after flush
+  ASSERT_OK(Flush());
+  VerifyLargeValues(num_keys);
+
+  // Verify after reopen
+  Reopen(options);
+  VerifyLargeValues(num_keys);
+}
+
+TEST_F(DBBlobDirectWriteTest, PipelinedWriteWithBatchWrite) {
+  Options options = GetBlobDirectWriteOptions();
+  options.enable_pipelined_write = true;
+  DestroyAndReopen(options);
+
+  // Use WriteBatch (not DBImpl::Put fast path) to exercise TransformBatch
+  // in the pipelined write path.
+  WriteBatch batch;
+  for (int i = 0; i < 10; i++) {
+    std::string key = "pw_batch_key" + std::to_string(i);
+    std::string value(100, 'a' + (i % 26));
+    ASSERT_OK(batch.Put(key, value));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  // Verify all values
+  for (int i = 0; i < 10; i++) {
+    std::string key = "pw_batch_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 10; i++) {
+    std::string key = "pw_batch_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
+TEST_F(DBBlobDirectWriteTest, UnorderedWriteBasic) {
+  Options options = GetBlobDirectWriteOptions();
+  options.unordered_write = true;
+  options.allow_concurrent_memtable_write = true;
+  DestroyAndReopen(options);
+
+  const int num_keys = 20;
+  WriteLargeValues(num_keys);
+
+  // Verify reads before flush
+  VerifyLargeValues(num_keys);
+
+  // Verify reads after flush
+  ASSERT_OK(Flush());
+  VerifyLargeValues(num_keys);
+
+  // Verify after reopen
+  Reopen(options);
+  VerifyLargeValues(num_keys);
+}
+
 TEST_F(DBBlobDirectWriteTest, CompressionWithRotation) {
   Options options = GetBlobDirectWriteOptions();
   options.blob_compression_type = kSnappyCompression;

@@ -553,6 +553,43 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assign_order, kDontPublishLastSeq, disable_memtable);
   }
 
+  // Blob direct write: transform batch by writing large values to blob files
+  // and replacing them with BlobIndex entries. This must happen before
+  // entering any write path (unordered, pipelined, or standard) so that
+  // the WAL and memtable see BlobIndex entries instead of full blob values.
+  // Skip if the batch was already transformed (e.g., from DBImpl::Put fast
+  // path which builds a BlobIndex-only batch directly).
+  WriteBatch transformed_batch;
+  if (my_batch != nullptr && blob_partition_manager_ != nullptr &&
+      my_batch->HasPut()) {
+    auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
+      return blob_partition_manager_->GetCachedSettings(cf_id);
+    };
+
+    bool transformed = false;
+    Status blob_s = BlobWriteBatchTransformer::TransformBatch(
+        write_options, my_batch, &transformed_batch,
+        blob_partition_manager_.get(), settings_provider, &transformed);
+    if (!blob_s.ok()) {
+      return blob_s;
+    }
+    if (transformed) {
+      if (!blob_partition_manager_->IsDeferredFlushMode()) {
+        blob_s = blob_partition_manager_->FlushAllOpenFiles(write_options);
+        if (!blob_s.ok()) {
+          return blob_s;
+        }
+      }
+      my_batch = &transformed_batch;
+      if (write_options.sync) {
+        blob_s = blob_partition_manager_->SyncAllOpenFiles(write_options);
+        if (!blob_s.ok()) {
+          return blob_s;
+        }
+      }
+    }
+  }
+
   if (immutable_db_options_.unordered_write) {
     const size_t sub_batch_cnt = batch_cnt != 0
                                      ? batch_cnt
@@ -586,43 +623,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-
-  // Blob direct write: transform batch by writing large values to blob files
-  // and replacing them with BlobIndex entries, before entering the write group.
-  // Skip if the batch was already transformed (e.g., from DBImpl::Put fast path
-  // which builds a BlobIndex-only batch directly).
-  WriteBatch transformed_batch;
-  if (my_batch != nullptr && blob_partition_manager_ != nullptr &&
-      my_batch->HasPut()) {
-    // Use cached settings from BlobFilePartitionManager (no SuperVersion lookup).
-    auto settings_provider =
-        [this](uint32_t cf_id) -> BlobDirectWriteSettings {
-      return blob_partition_manager_->GetCachedSettings(cf_id);
-    };
-
-    bool transformed = false;
-    Status blob_s = BlobWriteBatchTransformer::TransformBatch(
-        write_options, my_batch, &transformed_batch,
-        blob_partition_manager_.get(), settings_provider, &transformed);
-    if (!blob_s.ok()) {
-      return blob_s;
-    }
-    if (transformed) {
-      if (!blob_partition_manager_->IsDeferredFlushMode()) {
-        blob_s = blob_partition_manager_->FlushAllOpenFiles(write_options);
-        if (!blob_s.ok()) {
-          return blob_s;
-        }
-      }
-      my_batch = &transformed_batch;
-      if (write_options.sync) {
-        blob_s = blob_partition_manager_->SyncAllOpenFiles(write_options);
-        if (!blob_s.ok()) {
-          return blob_s;
-        }
-      }
-    }
-  }
 
 
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
