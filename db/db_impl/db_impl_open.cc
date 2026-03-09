@@ -1621,13 +1621,18 @@ Status DBImpl::MaybeWriteLevel0TableForRecovery(
   assert(flushed);
 
   Status status;
-  if (has_valid_writes && !read_only) {
+  if (has_valid_writes) {
     // we can do this because this is called before client has access to the
     // DB and there is only a single thread operating on DB
     ColumnFamilyData* cfd;
 
     while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
       cfd->UnrefAndTryDelete();
+      if (read_only) {
+        // Don't write L0 files in read-only mode, just drain the scheduler
+        // to avoid assertion failure on duplicate ScheduleWork() calls.
+        continue;
+      }
       // If this asserts, it means that InsertInto failed in
       // filtering updates to already-flushed column families
       assert(cfd->GetLogNumber() <= wal_number);
