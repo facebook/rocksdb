@@ -24,6 +24,8 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -33,6 +35,7 @@ namespace ROCKSDB_NAMESPACE {
 class BlobLogWriter;
 class Compressor;
 class Decompressor;
+class IOTracer;
 class SystemClock;
 class WritableFileWriter;
 struct FileOptions;
@@ -74,7 +77,11 @@ class BlobFilePartitionManager {
       const FileOptions& file_options, const std::string& db_path,
       uint64_t blob_file_size, bool use_fsync,
       CompressionType blob_compression_type = kNoCompression,
-      uint64_t buffer_size = 0, bool use_direct_io = false);
+      uint64_t buffer_size = 0, bool use_direct_io = false,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
+      const FileTypeSet& checksum_handoff_file_types = {});
 
   ~BlobFilePartitionManager();
 
@@ -250,6 +257,11 @@ class BlobFilePartitionManager {
   std::shared_ptr<Compressor> compressor_;      // null for kNoCompression
   std::shared_ptr<Decompressor> decompressor_;  // for GetPendingBlobValue reads
   CompressionType blob_compression_type_;
+
+  std::shared_ptr<IOTracer> io_tracer_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
+  FileChecksumGenFactory* file_checksum_gen_factory_;
+  FileTypeSet checksum_handoff_file_types_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
   mutable port::Mutex settings_mutex_;

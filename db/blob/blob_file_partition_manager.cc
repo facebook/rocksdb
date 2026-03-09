@@ -29,7 +29,10 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
     const std::string& db_path, uint64_t blob_file_size, bool use_fsync,
     CompressionType blob_compression_type, uint64_t buffer_size,
-    bool use_direct_io)
+    bool use_direct_io, const std::shared_ptr<IOTracer>& io_tracer,
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    FileChecksumGenFactory* file_checksum_gen_factory,
+    const FileTypeSet& checksum_handoff_file_types)
     : num_partitions_(num_partitions),
       strategy_(strategy ? std::move(strategy)
                          : std::make_shared<RoundRobinPartitionStrategy>()),
@@ -51,6 +54,10 @@ BlobFilePartitionManager::BlobFilePartitionManager(
                     blob_compression_type)
               : nullptr),
       blob_compression_type_(blob_compression_type),
+      io_tracer_(io_tracer),
+      listeners_(listeners),
+      file_checksum_gen_factory_(file_checksum_gen_factory),
+      checksum_handoff_file_types_(checksum_handoff_file_types),
       bg_cv_(&bg_mutex_),
       bg_drain_cv_(&bg_mutex_) {
   assert(num_partitions_ > 0);
@@ -112,10 +119,13 @@ Status BlobFilePartitionManager::OpenNewBlobFile(
     return s;
   }
 
+  const bool perform_data_verification =
+      checksum_handoff_file_types_.Contains(FileType::kBlobFile);
+
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_path, file_options_, clock_,
-      nullptr /* io_tracer */, statistics_,
-      Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS));
+      std::move(file), blob_file_path, file_options_, clock_, io_tracer_,
+      statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, listeners_,
+      file_checksum_gen_factory_, perform_data_verification));
 
   const bool writer_do_flush = (buffer_size_ == 0);
 

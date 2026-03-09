@@ -2800,7 +2800,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               impl->file_options_, dbname,
               column_families[0].options.blob_file_size,
               impl->immutable_db_options_.use_fsync, blob_compression,
-              buffer_size, use_direct_io);
+              buffer_size, use_direct_io, impl->io_tracer_,
+              impl->immutable_db_options_.listeners,
+              impl->immutable_db_options_.file_checksum_gen_factory.get(),
+              impl->immutable_db_options_.checksum_handoff_file_types);
       // Cache blob direct write settings per CF to avoid SuperVersion
       // lookup on every Put.
       for (size_t i = 0; i < column_families.size(); i++) {
