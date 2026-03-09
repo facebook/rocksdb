@@ -1074,16 +1074,4 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
 
 void BlobFilePartitionManager::DumpTimingStats() const {}
 
-std::unordered_set<uint64_t>
-BlobFilePartitionManager::GetUnsealedBlobFileNumbers() const {
-  std::unordered_set<uint64_t> result;
-  for (auto& partition : partitions_) {
-    MutexLock lock(&partition->mutex);
-    if (partition->writer && partition->file_number != 0) {
-      result.insert(partition->file_number);
-    }
-  }
-  return result;
-}
-
 }  // namespace ROCKSDB_NAMESPACE

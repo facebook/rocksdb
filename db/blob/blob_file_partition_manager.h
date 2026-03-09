@@ -13,7 +13,6 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
@@ -123,11 +122,6 @@ class BlobFilePartitionManager {
 
   // Flush buffered data in all open blob files to OS.
   Status FlushAllOpenFiles(const WriteOptions& write_options);
-
-  // Returns the set of blob file numbers currently open (unsealed) by the
-  // partition manager. Used by compaction to skip GC on files still being
-  // written to.
-  std::unordered_set<uint64_t> GetUnsealedBlobFileNumbers() const;
 
   // Returns true if deferred flush mode is active.
   bool IsDeferredFlushMode() const { return buffer_size_ > 0; }
