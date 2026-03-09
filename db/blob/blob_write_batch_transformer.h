@@ -40,9 +40,9 @@ using BlobDirectWriteSettingsProvider =
 class BlobWriteBatchTransformer : public WriteBatch::Handler {
  public:
   BlobWriteBatchTransformer(
-      BlobFilePartitionManager* partition_manager,
-      WriteBatch* output_batch,
-      const BlobDirectWriteSettingsProvider& settings_provider);
+      BlobFilePartitionManager* partition_manager, WriteBatch* output_batch,
+      const BlobDirectWriteSettingsProvider& settings_provider,
+      const WriteOptions& write_options);
 
   // Transform a WriteBatch. If no values qualify for blob separation,
   // output_batch will be empty and the caller should use the original batch.
@@ -95,6 +95,7 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
   BlobFilePartitionManager* partition_manager_;
   WriteBatch* output_batch_;
   BlobDirectWriteSettingsProvider settings_provider_;
+  const WriteOptions& write_options_;
   bool has_transformed_ = false;
   std::string blob_index_buf_;
   // Per-batch settings cache: avoids re-acquiring settings for each entry

@@ -34,7 +34,7 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   // and build a WriteBatch with only the ~30 byte BlobIndex entry.
   // This avoids serializing the full value into WriteBatch rep_ (saves a 4KB
   // memcpy) and skips TransformBatch in WriteImpl (saves iteration overhead).
-  if (blob_partition_manager_ != nullptr) {
+  if (blob_partition_manager_ != nullptr && !o.disableWAL) {
     const uint32_t cf_id = GetColumnFamilyID(column_family);
     const auto settings = blob_partition_manager_->GetCachedSettings(cf_id);
     if (settings.enable_blob_direct_write &&
@@ -553,15 +553,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assign_order, kDontPublishLastSeq, disable_memtable);
   }
 
-  // Blob direct write requires WAL to be enabled for crash recovery.
-  // Without WAL, BlobIndex entries in memtable are lost on crash, leaving
-  // orphaned blob files that waste disk space permanently.
-  if (blob_partition_manager_ != nullptr && write_options.disableWAL) {
-    return Status::NotSupported(
-        "Blob direct write requires WAL to be enabled. "
-        "Set WriteOptions::disableWAL = false.");
-  }
-
   // Blob direct write: transform batch by writing large values to blob files
   // and replacing them with BlobIndex entries. This must happen before
   // entering any write path (unordered, pipelined, or standard) so that
@@ -570,7 +561,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // path which builds a BlobIndex-only batch directly).
   WriteBatch transformed_batch;
   if (my_batch != nullptr && blob_partition_manager_ != nullptr &&
-      my_batch->HasPut()) {
+      my_batch->HasPut() && !write_options.disableWAL) {
     auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
       return blob_partition_manager_->GetCachedSettings(cf_id);
     };

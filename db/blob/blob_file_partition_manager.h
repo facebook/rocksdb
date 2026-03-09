@@ -191,7 +191,7 @@ class BlobFilePartitionManager {
   // key/value Slices point into rep_owner's buffer (zero-copy from WriteBatch).
   struct PendingRecord {
     std::string key;
-    std::string value;
+    std::shared_ptr<std::string> value;
     uint64_t file_number;
     uint64_t blob_offset;
   };
@@ -334,7 +334,8 @@ class BlobFilePartitionManager {
   // Maps to compressed value strings. Updated alongside pending_records and
   // in_flight_records; entries are removed after records are flushed to disk.
   mutable port::Mutex pending_index_mutex_;
-  std::unordered_map<PendingBlobKey, std::string, PendingBlobKeyHash>
+  std::unordered_map<PendingBlobKey, std::shared_ptr<std::string>,
+                     PendingBlobKeyHash>
       pending_index_;
 
   port::Mutex completed_files_mutex_;
@@ -344,7 +345,11 @@ class BlobFilePartitionManager {
   port::CondVar bg_drain_cv_;  // Signaled when all queues become empty.
   std::vector<std::thread> bg_threads_;
   bool bg_stop_{false};
-  Status bg_status_;  // First error from background thread.
+  bool bg_seal_in_progress_{false};  // Prevents BG threads from picking up new
+                                     // work during SealAllPartitions.
+  port::CondVar bg_seal_done_cv_;    // Signaled when seal completes.
+  Status bg_status_;                 // First error from background thread.
+  std::atomic<bool> bg_has_error_{false};  // Lock-free check for bg_status_.
 
   // Tracks whether any blobs have been written since the last
   // SealAllPartitions call. Enables fast-path skip in SealAllPartitions

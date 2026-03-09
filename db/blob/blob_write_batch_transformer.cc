@@ -12,22 +12,21 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobWriteBatchTransformer::BlobWriteBatchTransformer(
-    BlobFilePartitionManager* partition_manager,
-    WriteBatch* output_batch,
-    const BlobDirectWriteSettingsProvider& settings_provider)
+    BlobFilePartitionManager* partition_manager, WriteBatch* output_batch,
+    const BlobDirectWriteSettingsProvider& settings_provider,
+    const WriteOptions& write_options)
     : partition_manager_(partition_manager),
       output_batch_(output_batch),
-      settings_provider_(settings_provider) {
+      settings_provider_(settings_provider),
+      write_options_(write_options) {
   assert(partition_manager_);
   assert(output_batch_);
   assert(settings_provider_);
 }
 
 Status BlobWriteBatchTransformer::TransformBatch(
-    const WriteOptions& /*write_options*/,
-    WriteBatch* input_batch,
-    WriteBatch* output_batch,
-    BlobFilePartitionManager* partition_manager,
+    const WriteOptions& write_options, WriteBatch* input_batch,
+    WriteBatch* output_batch, BlobFilePartitionManager* partition_manager,
     const BlobDirectWriteSettingsProvider& settings_provider,
     bool* transformed) {
   assert(input_batch);
@@ -38,7 +37,7 @@ Status BlobWriteBatchTransformer::TransformBatch(
   *transformed = false;
 
   BlobWriteBatchTransformer transformer(partition_manager, output_batch,
-                                        settings_provider);
+                                        settings_provider, write_options);
 
   Status s = input_batch->Iterate(&transformer);
   if (!s.ok()) {
@@ -69,9 +68,8 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
   uint64_t blob_offset = 0;
   uint64_t blob_size = 0;
 
-  WriteOptions wo;
   Status s = partition_manager_->WriteBlob(
-      wo, column_family_id, settings.compression_type, key, value,
+      write_options_, column_family_id, settings.compression_type, key, value,
       &blob_file_number, &blob_offset, &blob_size, &settings);
   if (!s.ok()) {
     return s;

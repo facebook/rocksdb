@@ -11,6 +11,8 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1132,17 +1134,32 @@ TEST_F(DBBlobDirectWriteTest, SyncWrite) {
   ASSERT_EQ(Get("sync_key2"), large_value);
 }
 
-// Test that disableWAL is rejected when blob direct write is enabled.
-TEST_F(DBBlobDirectWriteTest, DisableWALRejected) {
+// Test that disableWAL is rejected only when blob values are actually
+// extracted (not for inline values or non-blob CFs).
+TEST_F(DBBlobDirectWriteTest, DisableWALSkipsTransformation) {
   Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
   WriteOptions wo;
   wo.disableWAL = true;
 
+  // Put with disableWAL: the fast path skips blob direct write entirely,
+  // so the value stays inline in the memtable.
   std::string large_value(200, 'W');
-  Status s = db_->Put(wo, "wal_key", large_value);
-  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_OK(db_->Put(wo, "wal_key_inline", large_value));
+  ASSERT_EQ(Get("wal_key_inline"), large_value);
+
+  // WriteBatch with disableWAL: transformation is skipped entirely,
+  // so blob-qualifying values stay inline. No orphaned blob data.
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("wal_batch_key", large_value));
+  ASSERT_OK(db_->Write(wo, &batch));
+  ASSERT_EQ(Get("wal_batch_key"), large_value);
+
+  // Small values (below min_blob_size) should succeed with disableWAL.
+  std::string small_value("tiny");
+  ASSERT_OK(db_->Put(wo, "wal_small_key", small_value));
+  ASSERT_EQ(Get("wal_small_key"), small_value);
 }
 
 // Test dynamically enabling/disabling blob direct write via SetOptions.
@@ -1209,6 +1226,127 @@ TEST_F(DBBlobDirectWriteTest, DeleteAndReput) {
   // After compaction, the tombstone and old blob_v1 should be cleaned up.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(Get("reput_key"), blob_v2);
+}
+
+// Transaction/2PC interaction tests (H6 coverage).
+TEST_F(DBBlobDirectWriteTest, TransactionDBBasicPutGet) {
+  Options options = GetBlobDirectWriteOptions();
+  options.disable_auto_compactions = true;
+  TransactionDBOptions txn_db_options;
+
+  Close();
+  DestroyDB(dbname_, options);
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+
+  WriteOptions wo;
+  std::string blob_v1(100, 'x');
+  std::string blob_v2(200, 'y');
+
+  ASSERT_OK(txn_db->Put(wo, "txn_key1", blob_v1));
+  std::string value;
+  ASSERT_OK(txn_db->Get(ReadOptions(), "txn_key1", &value));
+  ASSERT_EQ(value, blob_v1);
+
+  Transaction* txn = txn_db->BeginTransaction(wo);
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->Put("txn_key2", blob_v2));
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(txn_db->Get(ReadOptions(), "txn_key2", &value));
+  ASSERT_EQ(value, blob_v2);
+
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+  ASSERT_OK(txn_db->Get(ReadOptions(), "txn_key1", &value));
+  ASSERT_EQ(value, blob_v1);
+  ASSERT_OK(txn_db->Get(ReadOptions(), "txn_key2", &value));
+  ASSERT_EQ(value, blob_v2);
+
+  delete txn_db;
+}
+
+TEST_F(DBBlobDirectWriteTest, TransactionConflictDetection) {
+  Options options = GetBlobDirectWriteOptions();
+  TransactionDBOptions txn_db_options;
+
+  Close();
+  DestroyDB(dbname_, options);
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname_, &txn_db));
+
+  WriteOptions wo;
+  std::string blob_v(100, 'a');
+  ASSERT_OK(txn_db->Put(wo, "conflict_key", blob_v));
+
+  Transaction* txn1 = txn_db->BeginTransaction(wo);
+  ASSERT_OK(txn1->GetForUpdate(ReadOptions(), "conflict_key", &blob_v));
+
+  TransactionOptions txn_opts;
+  txn_opts.lock_timeout = 0;
+  Transaction* txn2 = txn_db->BeginTransaction(wo, txn_opts);
+  std::string v2;
+  Status lock_s = txn2->GetForUpdate(ReadOptions(), "conflict_key", &v2);
+  ASSERT_TRUE(lock_s.IsTimedOut());
+
+  ASSERT_OK(txn1->Put("conflict_key", std::string(100, 'b')));
+  ASSERT_OK(txn1->Commit());
+
+  std::string value;
+  ASSERT_OK(txn_db->Get(ReadOptions(), "conflict_key", &value));
+  ASSERT_EQ(value, std::string(100, 'b'));
+
+  delete txn1;
+  delete txn2;
+  delete txn_db;
+}
+
+TEST_F(DBBlobDirectWriteTest, TwoPhaseCommit) {
+  Options options = GetBlobDirectWriteOptions();
+  options.disable_auto_compactions = true;
+  TransactionDBOptions txn_db_options;
+  txn_db_options.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+
+  Close();
+  DestroyDB(dbname_, options);
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname_, &txn_db));
+
+  WriteOptions wo;
+  Transaction* txn = txn_db->BeginTransaction(wo);
+  ASSERT_NE(txn, nullptr);
+  txn->SetName("blob_txn_1");
+
+  std::string blob_v1(100, 'p');
+  std::string blob_v2(150, 'q');
+  ASSERT_OK(txn->Put("2pc_key1", blob_v1));
+  ASSERT_OK(txn->Put("2pc_key2", blob_v2));
+
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  std::string value;
+  ASSERT_OK(txn_db->Get(ReadOptions(), "2pc_key1", &value));
+  ASSERT_EQ(value, blob_v1);
+  ASSERT_OK(txn_db->Get(ReadOptions(), "2pc_key2", &value));
+  ASSERT_EQ(value, blob_v2);
+
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+  delete txn_db;
+  txn_db = nullptr;
+
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname_, &txn_db));
+  ASSERT_OK(txn_db->Get(ReadOptions(), "2pc_key1", &value));
+  ASSERT_EQ(value, blob_v1);
+  ASSERT_OK(txn_db->Get(ReadOptions(), "2pc_key2", &value));
+  ASSERT_EQ(value, blob_v2);
+
+  delete txn_db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
