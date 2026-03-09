@@ -209,6 +209,9 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
                                          std::memory_order_relaxed);
     }
 
+    // Signal backpressure waiters — mutex is already held by caller.
+    partition->pending_cv.SignalAll();
+
     // Flush to OS.
     IOOptions io_opts;
     WriteOptions wo;
@@ -343,6 +346,11 @@ Status BlobFilePartitionManager::SealDeferredFile(
         BlobLogRecord::kHeaderSize + record.key.size() + record.value.size();
     partition->pending_bytes.fetch_sub(record_bytes,
                                        std::memory_order_relaxed);
+  }
+
+  // Signal backpressure waiters under the mutex after all records are flushed.
+  {
+    MutexLock lock(&partition->mutex);
     partition->pending_cv.SignalAll();
   }
 
@@ -614,14 +622,19 @@ Status BlobFilePartitionManager::WriteBlob(
 
   // Backpressure: stall if pending bytes exceed buffer_size.
   // Submit flush to background thread and wait, never flush inline.
+  // Use a timed wait to avoid permanent hangs from missed signals or
+  // consumed flushes, and re-submit flush each iteration.
   if (buffer_size_ > 0) {
-    if (partition->pending_bytes.load(std::memory_order_relaxed) >=
-        buffer_size_) {
+    while (partition->pending_bytes.load(std::memory_order_relaxed) >=
+           buffer_size_) {
       SubmitFlush(partition);
       MutexLock lock(&partition->mutex);
-      while (partition->pending_bytes.load(std::memory_order_relaxed) >=
-             buffer_size_) {
-        partition->pending_cv.Wait();
+      if (partition->pending_bytes.load(std::memory_order_relaxed) >=
+          buffer_size_) {
+        // Timed wait: re-check and re-submit every 1ms to handle cases
+        // where the previous flush was consumed but pending_bytes is still
+        // above threshold due to concurrent writers.
+        partition->pending_cv.TimedWait(clock_->NowMicros() + 1000);
       }
     }
   }
@@ -787,6 +800,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     Status s = writer->AddRecord(wo, Slice(record.key), Slice(record.value), &key_offset,
                                  &actual_blob_offset);
     if (!s.ok()) {
+      MutexLock lock(&partition->mutex);
       partition->pending_cv.SignalAll();
       return s;
     }
@@ -797,7 +811,6 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
 
     partition->pending_bytes.fetch_sub(record_bytes,
                                       std::memory_order_relaxed);
-    partition->pending_cv.SignalAll();
   }
 
   // Flush to OS (single write() syscall for entire batch).
@@ -816,6 +829,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   // Data is on disk now — remove only the records we flushed from
   // in_flight_records. Other records (from PrepareFileRollover) may
   // still be there waiting for SealDeferredFile to complete.
+  // Signal backpressure waiters under the mutex to avoid missed wakeups.
   {
     MutexLock lock(&partition->mutex);
     auto& ifr = partition->in_flight_records;
@@ -829,6 +843,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
           }
           return false;
         }), ifr.end());
+    partition->pending_cv.SignalAll();
   }
 
   return Status::OK();
@@ -903,6 +918,12 @@ Status BlobFilePartitionManager::SealAllPartitions(
                                     record.key.size() + record.value.size();
       partition->pending_bytes.fetch_sub(record_bytes,
                                          std::memory_order_relaxed);
+    }
+
+    // Signal backpressure waiters under the mutex.
+    {
+      MutexLock lock(&partition->mutex);
+      partition->pending_cv.SignalAll();
     }
 
     // Flush to OS.

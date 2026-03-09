@@ -20,6 +20,7 @@ LIB_SOURCES =                                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_cache.cc                                    \
+  db/blob/blob_file_completion_callback.cc                      \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_file_partition_manager.cc                        \
