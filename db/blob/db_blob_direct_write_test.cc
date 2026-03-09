@@ -477,6 +477,58 @@ TEST_F(DBBlobDirectWriteTest, ConcurrentWriters) {
   }
 }
 
+// High-concurrency test that exercises the backpressure path.
+// Uses many threads with a small buffer to force pending_bytes to exceed
+// buffer_size frequently, triggering SubmitFlush + timed wait.
+// This catches deadlocks where:
+// - SubmitFlush is only called once before the wait loop
+// - Signals are sent without holding the mutex (missed wakeups)
+TEST_F(DBBlobDirectWriteTest, BackpressureHighConcurrency) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  // Small buffer (64KB) with 4KB values = ~16 records before backpressure.
+  // This forces frequent backpressure stalls with many concurrent writers.
+  options.blob_direct_write_buffer_size = 65536;
+  options.blob_file_size = 1024 * 1024;
+  DestroyAndReopen(options);
+
+  const int num_threads = 16;
+  const int keys_per_thread = 500;
+  const int value_size = 4096;
+  std::vector<std::thread> threads;
+
+  for (int t = 0; t < num_threads; t++) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < keys_per_thread; i++) {
+        std::string key = "bp_t" + std::to_string(t) + "_k" + std::to_string(i);
+        std::string value(value_size, 'a' + (t % 26));
+        ASSERT_OK(Put(key, value));
+      }
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  // Verify a sample of keys from each thread
+  for (int t = 0; t < num_threads; t++) {
+    for (int i = 0; i < keys_per_thread; i += 50) {
+      std::string key = "bp_t" + std::to_string(t) + "_k" + std::to_string(i);
+      std::string expected(value_size, 'a' + (t % 26));
+      ASSERT_EQ(Get(key), expected);
+    }
+  }
+
+  // Verify after flush
+  ASSERT_OK(Flush());
+  for (int t = 0; t < num_threads; t++) {
+    std::string key = "bp_t" + std::to_string(t) + "_k0";
+    std::string expected(value_size, 'a' + (t % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
 TEST_F(DBBlobDirectWriteTest, OptionsValidation) {
   // enable_blob_direct_write=true with enable_blob_files=false should
   // be silently corrected by option sanitization
