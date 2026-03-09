@@ -16,9 +16,10 @@
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
-#include "db/blob/blob_write_batch_transformer.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_write_batch_transformer.h"
 #include "port/port.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
@@ -30,6 +31,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobLogWriter;
+class Compressor;
+class Decompressor;
 class SystemClock;
 class WritableFileWriter;
 struct FileOptions;
@@ -69,8 +72,9 @@ class BlobFilePartitionManager {
       FileNumberAllocator file_number_allocator, FileSystem* fs,
       SystemClock* clock, Statistics* statistics,
       const FileOptions& file_options, const std::string& db_path,
-      uint64_t blob_file_size, bool use_fsync, uint64_t buffer_size = 0,
-      bool use_direct_io = false);
+      uint64_t blob_file_size, bool use_fsync,
+      CompressionType blob_compression_type = kNoCompression,
+      uint64_t buffer_size = 0, bool use_direct_io = false);
 
   ~BlobFilePartitionManager();
 
@@ -172,6 +176,9 @@ class BlobFilePartitionManager {
     CompressionType compression = kNoCompression;
     uint64_t unflushed_bytes = 0;
 
+    // Per-partition compressor working area for thread safety.
+    Compressor::ManagedWorkingArea compressor_wa;
+
     // Deferred flush state
     std::vector<PendingRecord> pending_records;
     // Records currently being flushed to disk by the BG thread.
@@ -240,6 +247,9 @@ class BlobFilePartitionManager {
   uint64_t buffer_size_;
   uint64_t high_water_mark_;
 
+  std::shared_ptr<Compressor> compressor_;      // null for kNoCompression
+  std::shared_ptr<Decompressor> decompressor_;  // for GetPendingBlobValue reads
+  CompressionType blob_compression_type_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
   mutable port::Mutex settings_mutex_;

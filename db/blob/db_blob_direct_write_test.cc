@@ -598,6 +598,142 @@ TEST_F(DBBlobDirectWriteTest, RecoveryWithRotationNoFlush) {
   }
 }
 
+TEST_F(DBBlobDirectWriteTest, CompressionBasic) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_compression_type = kSnappyCompression;
+  options.blob_direct_write_partitions = 1;
+  DestroyAndReopen(options);
+
+  // Write compressible data (repeated chars compress well with snappy)
+  const int num_keys = 20;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "comp_key" + std::to_string(i);
+    std::string value(200, 'a' + (i % 3));  // Highly compressible
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Verify reads before flush (reads from pending records, decompresses)
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "comp_key" + std::to_string(i);
+    std::string expected(200, 'a' + (i % 3));
+    ASSERT_EQ(Get(key), expected);
+  }
+
+  // Flush and verify reads from disk (BlobFileReader handles decompression)
+  ASSERT_OK(Flush());
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "comp_key" + std::to_string(i);
+    std::string expected(200, 'a' + (i % 3));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
+TEST_F(DBBlobDirectWriteTest, CompressionWithReopen) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_compression_type = kSnappyCompression;
+  DestroyAndReopen(options);
+
+  const int num_keys = 30;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "creopen_key" + std::to_string(i);
+    std::string value(150, 'x' + (i % 3));
+    ASSERT_OK(Put(key, value));
+  }
+
+  ASSERT_OK(Flush());
+  Reopen(options);
+
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "creopen_key" + std::to_string(i);
+    std::string expected(150, 'x' + (i % 3));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
+TEST_F(DBBlobDirectWriteTest, CompressionReducesFileSize) {
+  // Write same data with and without compression, compare blob file sizes.
+  const int num_keys = 50;
+  const int value_size = 500;
+
+  auto get_blob_file_total_size = [&]() -> uint64_t {
+    uint64_t total = 0;
+    std::vector<std::string> files;
+    EXPECT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& f : files) {
+      if (f.find(".blob") != std::string::npos) {
+        uint64_t fsize = 0;
+        EXPECT_OK(env_->GetFileSize(dbname_ + "/" + f, &fsize));
+        total += fsize;
+      }
+    }
+    return total;
+  };
+
+  // First: no compression
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_compression_type = kNoCompression;
+  options.blob_direct_write_partitions = 1;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "size_key" + std::to_string(i);
+    // Highly compressible: all same character
+    std::string value(value_size, 'A');
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+
+  uint64_t uncompressed_size = get_blob_file_total_size();
+
+  // Second: with snappy compression
+  options.blob_compression_type = kSnappyCompression;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "size_key" + std::to_string(i);
+    std::string value(value_size, 'A');
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+
+  uint64_t compressed_size = get_blob_file_total_size();
+
+  // Compressed size should be significantly smaller for repeated-char data
+  ASSERT_GT(uncompressed_size, 0);
+  ASSERT_GT(compressed_size, 0);
+  ASSERT_LT(compressed_size, uncompressed_size);
+}
+
+TEST_F(DBBlobDirectWriteTest, CompressionWithRotation) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_compression_type = kSnappyCompression;
+  options.blob_file_size = 512;  // Small to force rotation
+  options.blob_direct_write_partitions = 1;
+  DestroyAndReopen(options);
+
+  const int num_keys = 30;
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "crot_key" + std::to_string(i);
+    std::string value(100, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Verify before flush
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "crot_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+
+  // Verify after flush
+  ASSERT_OK(Flush());
+  for (int i = 0; i < num_keys; i++) {
+    std::string key = "crot_key" + std::to_string(i);
+    std::string expected(100, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

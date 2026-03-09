@@ -678,6 +678,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "enable_blob_direct_write=true;"
       "blob_direct_write_partitions=4;"
       "blob_direct_write_buffer_size=131072;"
+      "blob_direct_write_use_direct_io=true;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
       "default_write_temperature=kCold;"

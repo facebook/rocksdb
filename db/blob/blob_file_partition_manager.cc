@@ -15,6 +15,7 @@
 #include "monitoring/statistics_impl.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
+#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,7 +28,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     FileNumberAllocator file_number_allocator, FileSystem* fs,
     SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
     const std::string& db_path, uint64_t blob_file_size, bool use_fsync,
-    uint64_t buffer_size, bool use_direct_io)
+    CompressionType blob_compression_type, uint64_t buffer_size,
+    bool use_direct_io)
     : num_partitions_(num_partitions),
       strategy_(strategy ? std::move(strategy)
                          : std::make_shared<RoundRobinPartitionStrategy>()),
@@ -41,6 +43,14 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       use_fsync_(use_fsync),
       buffer_size_(buffer_size),
       high_water_mark_(buffer_size_ > 0 ? buffer_size_ * 3 / 4 : 0),
+      compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
+          CompressionOptions{}, blob_compression_type)),
+      decompressor_(
+          compressor_
+              ? GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
+                    blob_compression_type)
+              : nullptr),
+      blob_compression_type_(blob_compression_type),
       bg_cv_(&bg_mutex_),
       bg_drain_cv_(&bg_mutex_) {
   assert(num_partitions_ > 0);
@@ -54,7 +64,11 @@ BlobFilePartitionManager::BlobFilePartitionManager(
 
   partitions_.reserve(num_partitions_);
   for (uint32_t i = 0; i < num_partitions_; ++i) {
-    partitions_.emplace_back(std::make_unique<Partition>());
+    auto p = std::make_unique<Partition>();
+    if (compressor_) {
+      p->compressor_wa = compressor_->ObtainWorkingArea();
+    }
+    partitions_.emplace_back(std::move(p));
   }
 
   // Start background I/O thread pool for deferred seal and flush operations.
@@ -487,21 +501,37 @@ Status BlobFilePartitionManager::WriteBlobSync(
 
 bool BlobFilePartitionManager::GetPendingBlobValue(
     uint64_t file_number, uint64_t offset, std::string* value) const {
+  auto decompress_record = [&](const PendingRecord& record) -> bool {
+    if (decompressor_) {
+      Decompressor::Args args;
+      args.compression_type = blob_compression_type_;
+      args.compressed_data = Slice(record.value);
+      Status s = decompressor_->ExtractUncompressedSize(args);
+      if (!s.ok()) {
+        return false;
+      }
+      value->resize(args.uncompressed_size);
+      s = decompressor_->DecompressBlock(args,
+                                         const_cast<char*>(value->data()));
+      return s.ok();
+    }
+    *value = record.value;
+    return true;
+  };
+
   for (auto& partition : partitions_) {
     MutexLock lock(&partition->mutex);
     // Check pending records (not yet picked up by BG thread).
     for (const auto& record : partition->pending_records) {
       if (record.file_number == file_number && record.blob_offset == offset) {
-        *value = record.value;
-        return true;
+        return decompress_record(record);
       }
     }
     // Check in-flight records (being flushed by BG thread or captured by
     // PrepareFileRollover for deferred seal).
     for (const auto& record : partition->in_flight_records) {
       if (record.file_number == file_number && record.blob_offset == offset) {
-        *value = record.value;
-        return true;
+        return decompress_record(record);
       }
     }
   }
@@ -563,23 +593,40 @@ Status BlobFilePartitionManager::WriteBlob(
       }
     }
 
+    // Compress the value if compression is enabled.
+    // Done inside the mutex because the compressor working area is
+    // per-partition.
+    GrowableBuffer compressed_buf;
+    Slice write_value = value;
+    if (compressor_) {
+      Status s = LegacyForceBuiltinCompression(
+          *compressor_, &partition->compressor_wa, value, &compressed_buf);
+      if (!s.ok()) {
+        return s;
+      }
+      write_value = Slice(compressed_buf);
+      if (buffer_size_ > 0) {
+        value_copy.assign(write_value.data(), write_value.size());
+      }
+    }
+
     Status s;
     if (buffer_size_ > 0) {
-      s = WriteBlobDeferred(partition, key, value, blob_offset,
+      s = WriteBlobDeferred(partition, key, write_value, blob_offset,
                             std::move(key_copy), std::move(value_copy));
     } else {
-      s = WriteBlobSync(partition, key, value, blob_offset);
+      s = WriteBlobSync(partition, key, write_value, blob_offset);
     }
     if (!s.ok()) {
       return s;
     }
 
     *blob_file_number = partition->file_number;
-    *blob_size = value.size();
+    *blob_size = write_value.size();
 
     partition->blob_count++;
     const uint64_t record_size =
-        BlobLogRecord::kHeaderSize + key.size() + value.size();
+        BlobLogRecord::kHeaderSize + key.size() + write_value.size();
     partition->total_blob_bytes += record_size;
     partition->file_size = partition->total_blob_bytes + BlobLogHeader::kSize;
 

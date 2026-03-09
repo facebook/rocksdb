@@ -351,6 +351,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;
   cf_opts->blob_direct_write_buffer_size =
       ioptions.blob_direct_write_buffer_size;
+  cf_opts->blob_direct_write_use_direct_io =
+      ioptions.blob_direct_write_use_direct_io;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;

@@ -936,6 +936,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, blob_direct_write_buffer_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"blob_direct_write_use_direct_io",
+         {offsetof(struct ImmutableCFOptions,
+                   blob_direct_write_use_direct_io),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -1078,6 +1083,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
           cf_options.blob_direct_write_partition_strategy),
       blob_direct_write_partitions(cf_options.blob_direct_write_partitions),
       blob_direct_write_buffer_size(cf_options.blob_direct_write_buffer_size),
+      blob_direct_write_use_direct_io(
+          cf_options.blob_direct_write_use_direct_io),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
       cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind) {}
