@@ -11671,6 +11671,70 @@ TEST_F(DBCompactionTest, PeriodicTask) {
   ASSERT_EQ(listener->num_periodic_compactions, 1);
   Close();
 }
+
+// Regression test for a bug in SetupOtherFilesWithRoundRobinExpansion where
+// duplicate files are added to the compaction input, corrupting
+// ExpandInputsToCleanCut and violating the clean-cut invariant. The bug
+// requires: (1) kRoundRobin compaction priority, (2) files at a non-L0 level
+// with shared user key boundaries (adjacent files whose boundary keys share
+// the same user key), and (3) ExpandInputsToCleanCut expanding the initially
+// picked file to include multiple adjacent files in PickFileToCompact.
+TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.compaction_pri = kRoundRobin;
+  options.level_compaction_dynamic_level_bytes = false;
+  options.max_bytes_for_level_base = 100;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  std::vector<const Snapshot*> snapshots;
+  for (int v = 0; v < 5; v++) {
+    for (int k = 0; k < 3; k++) {
+      ASSERT_OK(Put("key" + std::to_string(k), "v" + std::to_string(v)));
+    }
+    snapshots.push_back(db_->GetSnapshot());
+    ASSERT_OK(Flush());
+  }
+
+  // Force L0->L1 compaction output to split every 3 keys. With 3 keys x 5
+  // versions (15 KVs) sorted by (user_key asc, seq desc), splitting every 3
+  // creates 5 files where adjacent files share boundaries across different
+  // user keys (e.g., File0 ends with key0, File1 starts with key0 and ends
+  // with key1, etc.). This chain of 4+ shared boundaries across 3 different
+  // user keys is needed so that ExpandInputsToCleanCut expands the picked
+  // file to multiple files, and the duplicate in the round-robin loop causes
+  // GetRange to return a truncated range that drops files from the set.
+  std::atomic<int> key_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionOutputs::ShouldStopBefore::manual_decision", [&](void* arg) {
+        auto* p = static_cast<std::pair<bool*, const Slice>*>(arg);
+        int n = key_count.fetch_add(1);
+        if (n > 0 && n % 3 == 0) {
+          *(p->first) = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.levels[1].files.size(), 5U);
+
+  for (auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
+
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  for (int k = 0; k < 3; k++) {
+    ASSERT_EQ(Get("key" + std::to_string(k)), "v4");
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
