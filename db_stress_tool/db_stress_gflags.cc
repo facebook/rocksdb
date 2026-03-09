@@ -529,6 +529,20 @@ DEFINE_uint64(
     "[Integrated BlobDB] Periodic flush interval in milliseconds for blob "
     "direct write buffers. 0 disables periodic flushing.");
 
+DEFINE_uint64(
+    blob_direct_write_buffer_size,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_buffer_size,
+    "[Integrated BlobDB] Write buffer size per partition for blob direct "
+    "write. 0 disables buffering (sync flush after every record).");
+
+DEFINE_bool(
+    blob_direct_write_use_direct_io,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_use_direct_io,
+    "[Integrated BlobDB] Use O_DIRECT (direct I/O) for blob direct write "
+    "files, bypassing the OS page cache.");
+
 DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
 
 DEFINE_bool(

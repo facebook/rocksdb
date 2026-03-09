@@ -698,6 +698,8 @@ blob_params = {
     "enable_blob_direct_write": lambda: random.randint(0, 1),
     "blob_direct_write_partitions": lambda: random.choice([1, 2, 4]),
     "blob_direct_write_flush_interval_ms": lambda: random.choice([0, 50, 100, 500]),
+    "blob_direct_write_buffer_size": lambda: random.choice([0, 65536, 262144, 1048576, 4194304]),
+    "blob_direct_write_use_direct_io": lambda: random.randint(0, 1),
     # TODO Fix races when both Remote Compaction + BlobDB enabled
     "remote_compaction_worker_threads": 0,
 }
