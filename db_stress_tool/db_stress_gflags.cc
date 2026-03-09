@@ -522,6 +522,13 @@ DEFINE_uint32(
         .blob_direct_write_partitions,
     "[Integrated BlobDB] Number of blob file partitions for direct write.");
 
+DEFINE_uint64(
+    blob_direct_write_flush_interval_ms,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_flush_interval_ms,
+    "[Integrated BlobDB] Periodic flush interval in milliseconds for blob "
+    "direct write buffers. 0 disables periodic flushing.");
+
 DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
 
 DEFINE_bool(

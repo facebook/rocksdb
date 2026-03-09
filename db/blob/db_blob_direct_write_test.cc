@@ -957,6 +957,41 @@ TEST_F(DBBlobDirectWriteTest, CompressionWithRotation) {
   }
 }
 
+TEST_F(DBBlobDirectWriteTest, PeriodicFlush) {
+  // Verify that periodic flush drains pending records even without
+  // hitting the high-water mark.
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_direct_write_partitions = 1;
+  options.blob_direct_write_buffer_size = 1 * 1024 * 1024;  // 1MB
+  options.blob_direct_write_flush_interval_ms = 50;         // 50ms
+  DestroyAndReopen(options);
+
+  // Write a single key (well below high-water mark)
+  std::string large_value(200, 'v');
+  ASSERT_OK(Put("periodic_key", large_value));
+
+  // Wait for 2x the flush interval to ensure periodic flush fires
+  Env::Default()->SleepForMicroseconds(150 * 1000);  // 150ms
+
+  // Verify the value is readable (flushed to disk by periodic timer)
+  ASSERT_EQ(Get("periodic_key"), large_value);
+
+  // Write more data and verify it also gets flushed
+  for (int i = 0; i < 5; i++) {
+    std::string key = "periodic_key_" + std::to_string(i);
+    std::string value(200 + i, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  Env::Default()->SleepForMicroseconds(150 * 1000);  // 150ms
+
+  for (int i = 0; i < 5; i++) {
+    std::string key = "periodic_key_" + std::to_string(i);
+    std::string expected(200 + i, 'a' + (i % 26));
+    ASSERT_EQ(Get(key), expected);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

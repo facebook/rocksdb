@@ -80,6 +80,7 @@ class BlobFilePartitionManager {
       uint64_t blob_file_size, bool use_fsync,
       CompressionType blob_compression_type = kNoCompression,
       uint64_t buffer_size = 0, bool use_direct_io = false,
+      uint64_t flush_interval_ms = 0,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
@@ -258,6 +259,7 @@ class BlobFilePartitionManager {
   bool use_fsync_;
   uint64_t buffer_size_;
   uint64_t high_water_mark_;
+  uint64_t flush_interval_us_;  // Periodic flush interval in microseconds.
 
   std::shared_ptr<Compressor> compressor_;      // null for kNoCompression
   std::shared_ptr<Decompressor> decompressor_;  // for GetPendingBlobValue reads

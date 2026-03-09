@@ -697,6 +697,7 @@ blob_params = {
     # Enable blob direct write with a 50% chance when blob files are enabled
     "enable_blob_direct_write": lambda: random.randint(0, 1),
     "blob_direct_write_partitions": lambda: random.choice([1, 2, 4]),
+    "blob_direct_write_flush_interval_ms": lambda: random.choice([0, 50, 100, 500]),
     # TODO Fix races when both Remote Compaction + BlobDB enabled
     "remote_compaction_worker_threads": 0,
 }

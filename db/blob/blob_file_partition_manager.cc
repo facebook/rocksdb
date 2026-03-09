@@ -34,7 +34,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
     const std::string& db_path, uint64_t blob_file_size, bool use_fsync,
     CompressionType blob_compression_type, uint64_t buffer_size,
-    bool use_direct_io, const std::shared_ptr<IOTracer>& io_tracer,
+    bool use_direct_io, uint64_t flush_interval_ms,
+    const std::shared_ptr<IOTracer>& io_tracer,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
     const FileTypeSet& checksum_handoff_file_types,
@@ -53,6 +54,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       use_fsync_(use_fsync),
       buffer_size_(buffer_size),
       high_water_mark_(buffer_size_ > 0 ? buffer_size_ * 3 / 4 : 0),
+      flush_interval_us_(flush_interval_ms * 1000),
       compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
           CompressionOptions{}, blob_compression_type)),
       decompressor_(
@@ -479,7 +481,32 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
         if (partition) {
           break;
         }
-        bg_cv_.Wait();
+        if (flush_interval_us_ > 0) {
+          bg_cv_.TimedWait(clock_->NowMicros() + flush_interval_us_);
+        } else {
+          bg_cv_.Wait();
+        }
+
+        // If timed wait expired with no queued work, scan for pending records.
+        if (!partition && flush_interval_us_ > 0) {
+          for (auto& p : partitions_) {
+            if (p->pending_bytes.load(std::memory_order_relaxed) > 0 &&
+                !p->bg_in_flight) {
+              bool has_flush = false;
+              for (const auto& item : p->bg_queue) {
+                if (item.type == BGWorkItem::kFlush) {
+                  has_flush = true;
+                  break;
+                }
+              }
+              if (!has_flush) {
+                BGWorkItem item;
+                item.type = BGWorkItem::kFlush;
+                p->bg_queue.emplace_back(std::move(item));
+              }
+            }
+          }
+        }
       }
 
       items = std::move(partition->bg_queue);

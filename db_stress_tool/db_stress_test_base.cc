@@ -4551,6 +4551,8 @@ void InitializeOptionsFromFlags(
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
   options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
   options.blob_direct_write_partitions = FLAGS_blob_direct_write_partitions;
+  options.blob_direct_write_flush_interval_ms =
+      FLAGS_blob_direct_write_flush_interval_ms;
 
   if (FLAGS_use_blob_cache) {
     if (FLAGS_use_shared_block_and_blob_cache) {

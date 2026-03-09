@@ -1209,6 +1209,18 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool blob_direct_write_use_direct_io = false;
 
+  // Periodic flush interval (in milliseconds) for blob direct write buffers.
+  // When set to a positive value, background threads will flush pending
+  // blob records to disk at least every this many milliseconds, even if
+  // the buffer hasn't reached the high-water mark.
+  // Set to 0 to disable periodic flushing (only flush on high-water mark,
+  // backpressure, or file rotation).
+  // Only used when enable_blob_direct_write = true and
+  // blob_direct_write_buffer_size > 0.
+  //
+  // Default: 0 (disabled)
+  uint64_t blob_direct_write_flush_interval_ms = 0;
+
   // Custom partition strategy for blob direct writes. Controls which
   // partition a blob is assigned to based on key and value content.
   // If nullptr, uses the default round-robin strategy.
