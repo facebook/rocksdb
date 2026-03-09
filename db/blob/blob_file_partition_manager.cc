@@ -17,6 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
 #include "util/compression.h"
+#include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -635,6 +636,7 @@ Status BlobFilePartitionManager::WriteBlob(
     GrowableBuffer compressed_buf;
     Slice write_value = value;
     if (compressor_) {
+      StopWatch stop_watch(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
       Status s = LegacyForceBuiltinCompression(
           *compressor_, &partition->compressor_wa, value, &compressed_buf);
       if (!s.ok()) {

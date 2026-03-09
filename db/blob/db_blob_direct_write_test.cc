@@ -775,6 +775,27 @@ TEST_F(DBBlobDirectWriteTest, UnorderedWriteBasic) {
   VerifyLargeValues(num_keys);
 }
 
+TEST_F(DBBlobDirectWriteTest, CompressionTimingMetric) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_compression_type = kSnappyCompression;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  HistogramData before_data;
+  options.statistics->histogramData(BLOB_DB_COMPRESSION_MICROS, &before_data);
+
+  // Write compressible data
+  for (int i = 0; i < 10; i++) {
+    std::string key = "comp_time_key" + std::to_string(i);
+    std::string value(200, 'a' + (i % 3));
+    ASSERT_OK(Put(key, value));
+  }
+
+  HistogramData after_data;
+  options.statistics->histogramData(BLOB_DB_COMPRESSION_MICROS, &after_data);
+  ASSERT_GT(after_data.count, before_data.count);
+}
+
 TEST_F(DBBlobDirectWriteTest, EventListenerNotifications) {
   // Verify that EventListener receives blob file creation/completion events.
   class BlobFileListener : public EventListener {
