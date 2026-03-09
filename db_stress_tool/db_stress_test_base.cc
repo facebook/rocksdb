@@ -4549,6 +4549,8 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+  options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+  options.blob_direct_write_partitions = FLAGS_blob_direct_write_partitions;
 
   if (FLAGS_use_blob_cache) {
     if (FLAGS_use_shared_block_and_blob_cache) {
