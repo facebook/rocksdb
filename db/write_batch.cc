@@ -1125,6 +1125,13 @@ Status WriteBatchInternal::PutEntityRaw(WriteBatch* b,
                                         uint32_t column_family_id,
                                         const Slice& key, const Slice& entity) {
   assert(b);
+
+  // Minimum valid serialized wide-column entity is 4 bytes (column count as
+  // Fixed32). Reject obviously malformed entities.
+  if (entity.size() < sizeof(uint32_t)) {
+    return Status::Corruption("PutEntityRaw: entity too small to be valid");
+  }
+
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
     b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));

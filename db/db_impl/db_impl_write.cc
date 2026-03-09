@@ -553,6 +553,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assign_order, kDontPublishLastSeq, disable_memtable);
   }
 
+  // Blob direct write requires WAL to be enabled for crash recovery.
+  // Without WAL, BlobIndex entries in memtable are lost on crash, leaving
+  // orphaned blob files that waste disk space permanently.
+  if (blob_partition_manager_ != nullptr && write_options.disableWAL) {
+    return Status::NotSupported(
+        "Blob direct write requires WAL to be enabled. "
+        "Set WriteOptions::disableWAL = false.");
+  }
+
   // Blob direct write: transform batch by writing large values to blob files
   // and replacing them with BlobIndex entries. This must happen before
   // entering any write path (unordered, pipelined, or standard) so that

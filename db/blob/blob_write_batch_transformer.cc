@@ -53,7 +53,12 @@ Status BlobWriteBatchTransformer::TransformBatch(
 Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
                                         const Slice& key,
                                         const Slice& value) {
-  const BlobDirectWriteSettings settings = settings_provider_(column_family_id);
+  // Use cached settings for the same CF to avoid per-entry lookup overhead.
+  if (column_family_id != cached_cf_id_) {
+    cached_settings_ = settings_provider_(column_family_id);
+    cached_cf_id_ = column_family_id;
+  }
+  const auto& settings = cached_settings_;
 
   if (!settings.enable_blob_direct_write ||
       value.size() < settings.min_blob_size) {

@@ -170,10 +170,16 @@ void ArenaWrappedDBIter::DoRefresh(const Snapshot* snapshot,
   if (read_callback_) {
     read_callback_->Refresh(read_seq);
   }
+  // Obtain blob_partition_manager from DBImpl so refreshed iterators can
+  // still resolve unflushed write-path blob values.
+  BlobFilePartitionManager* blob_partition_mgr = nullptr;
+  if (db_impl) {
+    blob_partition_mgr = db_impl->blob_partition_manager();
+  }
   Init(env, read_options_, cfd->ioptions(), sv->mutable_cf_options, sv->current,
        read_seq, sv->version_number, read_callback_, cfh_, expose_blob_index_,
        allow_refresh_, allow_mark_memtable_for_flush_ ? sv->mem : nullptr,
-       cfd->blob_file_cache(), nullptr /* blob_partition_mgr */);
+       cfd->blob_file_cache(), blob_partition_mgr);
 
   InternalIterator* internal_iter = db_impl->NewInternalIterator(
       read_options_, cfd, sv, &arena_, read_seq,

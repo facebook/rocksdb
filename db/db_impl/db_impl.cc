@@ -2518,7 +2518,7 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
     std::string pending_value;
     if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
                                            blob_idx.offset(), &pending_value)) {
-      blob_value->PinSelf(pending_value);
+      blob_value->PinSelf(std::move(pending_value));
       return Status::OK();
     }
   }
@@ -2568,7 +2568,7 @@ static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
     std::string pending_value;
     if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
                                            blob_idx.offset(), &pending_value)) {
-      blob_value->PinSelf(pending_value);
+      blob_value->PinSelf(std::move(pending_value));
       return Status::OK();
     }
   }
@@ -2742,21 +2742,18 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           BlobIndex blob_idx;
           s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
           if (s.ok()) {
-            PinnableSlice blob_value;
+            // Resolve directly into get_impl_options.value to avoid an
+            // intermediate PinnableSlice copy.
+            get_impl_options.value->Reset();
             BlobFileCache* blob_cache =
                 blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
                                               get_impl_options.column_family)
                                               ->cfd()
                                               ->blob_file_cache()
                                         : nullptr;
-            s = ResolveBlobIndexForWritePath(read_options, key, blob_idx,
-                                             sv->current, blob_cache,
-                                             blob_partition_manager_.get(),
-                                             &blob_value);
-            if (s.ok()) {
-              get_impl_options.value->Reset();
-              get_impl_options.value->PinSelf(blob_value);
-            }
+            s = ResolveBlobIndexForWritePath(
+                read_options, key, blob_idx, sv->current, blob_cache,
+                blob_partition_manager_.get(), get_impl_options.value);
           }
           is_blob_index = false;
         }
@@ -2782,20 +2779,16 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           BlobIndex blob_idx;
           s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
           if (s.ok()) {
-            PinnableSlice blob_value;
+            get_impl_options.value->Reset();
             BlobFileCache* blob_cache =
                 blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
                                               get_impl_options.column_family)
                                               ->cfd()
                                               ->blob_file_cache()
                                         : nullptr;
-            s = ResolveBlobIndexForWritePath(read_options, key, blob_idx,
-                                             sv->current, blob_cache,
-                                             blob_partition_manager_.get(), &blob_value);
-            if (s.ok()) {
-              get_impl_options.value->Reset();
-              get_impl_options.value->PinSelf(blob_value);
-            }
+            s = ResolveBlobIndexForWritePath(
+                read_options, key, blob_idx, sv->current, blob_cache,
+                blob_partition_manager_.get(), get_impl_options.value);
           }
           is_blob_index = false;
         }

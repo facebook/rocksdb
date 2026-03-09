@@ -1183,6 +1183,15 @@ DEFINE_bool(blob_direct_write_use_direct_io,
             "[Integrated BlobDB] Use O_DIRECT for blob direct write files. "
             "Bypasses the OS page cache for blob file writes.");
 
+DEFINE_uint64(
+    blob_direct_write_flush_interval_ms,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_flush_interval_ms,
+    "[Integrated BlobDB] Periodic flush interval in milliseconds for "
+    "blob direct write partitions. When set > 0, the background thread "
+    "periodically flushes buffered blob records even if the buffer is not "
+    "full. Set to 0 to disable periodic flushing.");
+
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
             "Open a RocksDB secondary instance. A primary instance can be "
@@ -5012,6 +5021,8 @@ class Benchmark {
     options.blob_direct_write_buffer_size = FLAGS_blob_direct_write_buffer_size;
     options.blob_direct_write_use_direct_io =
         FLAGS_blob_direct_write_use_direct_io;
+    options.blob_direct_write_flush_interval_ms =
+        FLAGS_blob_direct_write_flush_interval_ms;
 
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");

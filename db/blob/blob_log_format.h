@@ -151,8 +151,11 @@ struct BlobLogRecord {
 // value_offset + value_size would exceed UINT64_MAX.
 inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
                               uint64_t value_size, uint64_t file_size) {
-  if (value_offset <
-      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size) {
+  // Overflow-safe: check value_offset < header + record_header + key_size.
+  // Use subtraction to avoid potential overflow when key_size is very large.
+  constexpr uint64_t kMinPrefix =
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize;
+  if (value_offset < kMinPrefix || value_offset - kMinPrefix < key_size) {
     return false;
   }
 
@@ -172,8 +175,10 @@ inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
 // value_offset + value_size would exceed UINT64_MAX.
 inline bool IsValidBlobOffsetNoFooter(uint64_t value_offset, uint64_t key_size,
                                       uint64_t value_size, uint64_t file_size) {
-  if (value_offset <
-      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size) {
+  // Overflow-safe: check value_offset < header + record_header + key_size.
+  constexpr uint64_t kMinPrefix =
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize;
+  if (value_offset < kMinPrefix || value_offset - kMinPrefix < key_size) {
     return false;
   }
 

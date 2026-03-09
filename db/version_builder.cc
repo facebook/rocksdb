@@ -777,6 +777,11 @@ class VersionBuilder::Rep {
     // oldest_blob_file_number). This handles the case where SSTs were created
     // before the blob file was registered (e.g., blob direct write recovery:
     // SSTs with BlobIndex entries exist but blob files weren't in MANIFEST).
+    //
+    // PERFORMANCE NOTE: This scan is O(num_levels * num_ssts) per blob file
+    // addition. During recovery with many SSTs, this could be expensive.
+    // If blob files were registered in MANIFEST at creation time (with a
+    // "pending" state), this retroactive linking would be unnecessary.
     assert(base_vstorage_);
     auto& mutable_meta = mutable_blob_file_metas_.at(blob_file_number);
     for (int level = 0; level < num_levels_; level++) {
@@ -1330,7 +1335,14 @@ class VersionBuilder::Rep {
     uint64_t oldest_blob_file_with_linked_ssts = GetMinOldestBlobFileNumber();
 
     // If there are no blob files with linked SSTs, meaning that there are no
-    // valid blob files
+    // valid blob files.
+    //
+    // BLOB DIRECT WRITE SPECIAL CASE: This bypass changes the semantics of
+    // the early-return optimization. Previously, if no blob files had linked
+    // SSTs, we could skip processing entirely. Now we must check for newly
+    // added blob files (from orphan recovery) that may not have SST links
+    // yet. This is a consequence of not registering blob files in MANIFEST
+    // at creation time.
     if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
       // Check if there are newly added blob files not yet in the base version.
       // This can happen with blob direct write during recovery: blob files

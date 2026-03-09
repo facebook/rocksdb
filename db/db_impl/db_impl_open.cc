@@ -2660,9 +2660,17 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       auto list_s = impl->immutable_db_options_.fs->GetChildren(
           dbname, IOOptions(), &filenames, nullptr);
       if (list_s.ok()) {
-        std::vector<BlobFileAddition> orphaned;
-        auto* cfd = static_cast<ColumnFamilyHandleImpl*>((*handles)[0])->cfd();
-        auto* current = cfd->current();
+        // Build a map of CF ID → (CFD, VersionEdit) for multi-CF support.
+        // Each orphan blob file is registered under its own column family
+        // by reading the blob file header to determine the CF ID.
+        std::unordered_map<uint32_t, ColumnFamilyData*> cf_map;
+        for (size_t hi = 0; hi < handles->size(); ++hi) {
+          auto* h = static_cast<ColumnFamilyHandleImpl*>((*handles)[hi]);
+          cf_map[h->cfd()->GetID()] = h->cfd();
+        }
+
+        // Group orphan additions by column family.
+        std::unordered_map<uint32_t, std::vector<BlobFileAddition>> cf_orphans;
 
         for (const auto& fname : filenames) {
           uint64_t file_number;
@@ -2671,8 +2679,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               file_type != kBlobFile) {
             continue;
           }
-          bool registered = (current->storage_info()->GetBlobFileMetaData(
-                                 file_number) != nullptr);
+          // Check all CFs to see if this blob file is already registered.
+          bool registered = false;
+          for (const auto& [cf_id, cfd_ptr] : cf_map) {
+            if (cfd_ptr->current()->storage_info()->GetBlobFileMetaData(
+                    file_number) != nullptr) {
+              registered = true;
+              break;
+            }
+          }
           if (registered) {
             continue;
           }
@@ -2683,20 +2698,72 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           if (!fs_s.ok() || file_size < BlobLogHeader::kSize) {
             continue;
           }
+
+          // Read blob file header to determine the correct column family.
+          uint32_t target_cf_id = 0;
+          {
+            std::unique_ptr<FSSequentialFile> file;
+            fs_s = impl->immutable_db_options_.fs->NewSequentialFile(
+                blob_path, FileOptions(), &file, nullptr);
+            if (fs_s.ok()) {
+              std::string header_buf(BlobLogHeader::kSize, '\0');
+              Slice header_slice;
+              fs_s = file->Read(BlobLogHeader::kSize, IOOptions(),
+                                &header_slice, &header_buf[0], nullptr);
+              if (fs_s.ok() && header_slice.size() == BlobLogHeader::kSize) {
+                BlobLogHeader header;
+                Status hs = header.DecodeFrom(header_slice);
+                if (hs.ok()) {
+                  target_cf_id = header.column_family_id;
+                }
+              }
+            }
+          }
+
+          // Fall back to CF 0 if the target CF doesn't exist.
+          if (cf_map.find(target_cf_id) == cf_map.end()) {
+            target_cf_id = 0;
+          }
+
+          // Estimate blob_count and total_blob_bytes.
+          // Read the last BlobLogFooter::kSize bytes to check for a footer.
           uint64_t total_blob_bytes = file_size - BlobLogHeader::kSize;
+          bool has_footer = false;
           if (file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize) {
+            std::unique_ptr<FSRandomAccessFile> rfile;
+            fs_s = impl->immutable_db_options_.fs->NewRandomAccessFile(
+                blob_path, FileOptions(), &rfile, nullptr);
+            if (fs_s.ok()) {
+              std::string footer_buf(BlobLogFooter::kSize, '\0');
+              Slice footer_slice;
+              fs_s = rfile->Read(file_size - BlobLogFooter::kSize,
+                                 BlobLogFooter::kSize, IOOptions(),
+                                 &footer_slice, &footer_buf[0], nullptr);
+              if (fs_s.ok() && footer_slice.size() == BlobLogFooter::kSize) {
+                BlobLogFooter footer;
+                has_footer = footer.DecodeFrom(footer_slice).ok();
+              }
+            }
+          }
+          if (has_footer) {
             total_blob_bytes -= BlobLogFooter::kSize;
           }
-          uint64_t blob_count = std::max(
-              total_blob_bytes / (BlobLogRecord::kHeaderSize + 100),
-              (uint64_t)1);
-          orphaned.emplace_back(file_number, blob_count, total_blob_bytes,
-                                std::string(), std::string());
+          uint64_t blob_count =
+              std::max(total_blob_bytes / (BlobLogRecord::kHeaderSize + 100),
+                       static_cast<uint64_t>(1));
+          cf_orphans[target_cf_id].emplace_back(file_number, blob_count,
+                                                total_blob_bytes, std::string(),
+                                                std::string());
         }
 
-        if (!orphaned.empty()) {
+        // Apply orphan registrations per column family.
+        for (auto& [cf_id, orphans] : cf_orphans) {
+          if (orphans.empty()) {
+            continue;
+          }
+          auto* cfd = cf_map[cf_id];
           VersionEdit edit;
-          for (auto& addition : orphaned) {
+          for (auto& addition : orphans) {
             edit.AddBlobFile(std::move(addition));
           }
           s = impl->versions_->LogAndApply(cfd, read_options, write_options,
@@ -2705,13 +2772,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           if (s.ok()) {
             ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
                            "Recovered %zu orphaned blob files from "
-                           "blob direct write",
-                           orphaned.size());
-            // Reinstall SuperVersion so the newly registered blob files
-            // are visible to reads.
+                           "blob direct write for CF %" PRIu32,
+                           orphans.size(), cf_id);
             SuperVersionContext sv_context(/* create_superversion */ true);
             impl->InstallSuperVersionForConfigChange(cfd, &sv_context);
             sv_context.Clean();
+          }
+          if (!s.ok()) {
+            break;
           }
         }
       }

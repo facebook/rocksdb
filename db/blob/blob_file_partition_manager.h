@@ -60,6 +60,21 @@ class RoundRobinPartitionStrategy : public BlobFilePartitionStrategy {
 
 // Manages partitioned blob files for the write-path blob direct write feature.
 //
+// ARCHITECTURE NOTE: This manager is instantiated once per DB and shared
+// across all column families. Per-CF partition managers would be more
+// consistent with RocksDB's per-CF blob file model and would eliminate
+// settings aggregation issues, CF-switching file churn, and the need for
+// CF-aware orphan recovery. Consider migrating to per-CF managers in a
+// future iteration.
+//
+// FILE NUMBER ALLOCATION: File numbers are allocated during Put() via
+// VersionSet::NewFileNumber(), potentially many versions before the blob
+// file is registered in the MANIFEST. After crashes, orphan recovery in
+// db_impl_open.cc reconciles unregistered blob files. This creates file
+// number gaps and relies entirely on orphan recovery for crash consistency.
+// Consider registering blob files in the MANIFEST at creation time with
+// a "pending" state to eliminate the need for orphan recovery.
+//
 // Supports a zero-copy deferred flush model (when buffer_size > 0):
 // - WriteBlob() pre-calculates offsets and stores Slice references pointing
 //   directly into the caller's WriteBatch buffer (no memcpy)
@@ -68,6 +83,13 @@ class RoundRobinPartitionStrategy : public BlobFilePartitionStrategy {
 // - FlushPendingRecords() writes to disk in batch and releases buffer refs
 // - Backpressure via atomic pending_bytes with stall watermark
 // - Read path checks pending records for unflushed data
+//
+// The deferred flush model (~500+ lines) provides significant syscall
+// reduction for small values (e.g., 250x for 4KB values) but adds
+// complexity: BG thread pool, pending/in-flight record tracking, 4-tier
+// read fallback, and backpressure logic. For large values (64KB+), the
+// per-record syscall overhead is proportionally small. The sync-only path
+// (buffer_size=0) is approximately 15 lines.
 class BlobFilePartitionManager {
  public:
   using FileNumberAllocator = std::function<uint64_t()>;
@@ -114,6 +136,7 @@ class BlobFilePartitionManager {
                            std::string* value) const;
 
   // Seal all open partitions. Flushes pending records first.
+  // Returns OK immediately if no blobs have been written since the last seal.
   Status SealAllPartitions(const WriteOptions& write_options,
                            std::vector<BlobFileAddition>* additions);
 
@@ -231,6 +254,7 @@ class BlobFilePartitionManager {
     // Per-partition background work queue (protected by bg_mutex_).
     std::deque<BGWorkItem> bg_queue;
     bool bg_in_flight = false;  // A thread is currently processing this partition.
+    std::atomic<bool> flush_queued{false};  // Avoids bg_mutex_ for dedup.
 
     Partition();
     ~Partition();
@@ -321,6 +345,11 @@ class BlobFilePartitionManager {
   std::vector<std::thread> bg_threads_;
   bool bg_stop_{false};
   Status bg_status_;  // First error from background thread.
+
+  // Tracks whether any blobs have been written since the last
+  // SealAllPartitions call. Enables fast-path skip in SealAllPartitions
+  // when no blob writes occurred (common when flush fires for non-blob CFs).
+  std::atomic<uint64_t> blobs_written_since_seal_{0};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -933,6 +933,10 @@ class DBImpl : public DB {
     return immutable_db_options_;
   }
 
+  BlobFilePartitionManager* blob_partition_manager() const {
+    return blob_partition_manager_.get();
+  }
+
   // Cancel all background jobs, including flush, compaction, background
   // purging, stats dumping threads, etc. If `wait` = true, wait for the
   // running jobs to abort or finish before returning. Otherwise, only

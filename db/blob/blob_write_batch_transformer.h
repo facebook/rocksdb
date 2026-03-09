@@ -97,6 +97,10 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
   BlobDirectWriteSettingsProvider settings_provider_;
   bool has_transformed_ = false;
   std::string blob_index_buf_;
+  // Per-batch settings cache: avoids re-acquiring settings for each entry
+  // when a batch has many entries for the same column family.
+  uint32_t cached_cf_id_ = UINT32_MAX;
+  BlobDirectWriteSettings cached_settings_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
