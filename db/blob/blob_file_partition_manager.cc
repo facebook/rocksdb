@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+#include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_writer.h"
 #include "file/filename.h"
@@ -32,7 +33,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     bool use_direct_io, const std::shared_ptr<IOTracer>& io_tracer,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
-    const FileTypeSet& checksum_handoff_file_types)
+    const FileTypeSet& checksum_handoff_file_types,
+    BlobFileCompletionCallback* blob_callback)
     : num_partitions_(num_partitions),
       strategy_(strategy ? std::move(strategy)
                          : std::make_shared<RoundRobinPartitionStrategy>()),
@@ -58,6 +60,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       listeners_(listeners),
       file_checksum_gen_factory_(file_checksum_gen_factory),
       checksum_handoff_file_types_(checksum_handoff_file_types),
+      blob_callback_(blob_callback),
       bg_cv_(&bg_mutex_),
       bg_drain_cv_(&bg_mutex_) {
   assert(num_partitions_ > 0);
@@ -153,6 +156,12 @@ Status BlobFilePartitionManager::OpenNewBlobFile(
   partition->compression = compression;
   partition->next_write_offset = BlobLogHeader::kSize;
 
+  if (blob_callback_) {
+    blob_callback_->OnBlobFileCreationStarted(
+        blob_file_path, /*column_family_name=*/"", /*job_id=*/0,
+        BlobFileCreationReason::kFlush);
+  }
+
   return Status::OK();
 }
 
@@ -229,8 +238,17 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
 
   partition->completed_files.emplace_back(
       partition->file_number, partition->blob_count,
-      partition->total_blob_bytes, std::move(checksum_method),
-      std::move(checksum_value));
+      partition->total_blob_bytes, checksum_method, checksum_value);
+
+  if (blob_callback_) {
+    const std::string file_path =
+        BlobFileName(db_path_, partition->file_number);
+    blob_callback_->OnBlobFileCompleted(
+        file_path, /*column_family_name=*/"", /*job_id=*/0,
+        partition->file_number, BlobFileCreationReason::kFlush, s,
+        checksum_value, checksum_method, partition->blob_count,
+        partition->total_blob_bytes);
+  }
 
   partition->writer.reset();
   partition->file_number = 0;
@@ -341,9 +359,17 @@ Status BlobFilePartitionManager::SealDeferredFile(
     MutexLock lock(&partition->mutex);
     partition->in_flight_records.clear();
     partition->completed_files.emplace_back(
-        deferred->file_number, deferred->blob_count,
-        deferred->total_blob_bytes, std::move(checksum_method),
-        std::move(checksum_value));
+        deferred->file_number, deferred->blob_count, deferred->total_blob_bytes,
+        checksum_method, checksum_value);
+  }
+
+  if (blob_callback_) {
+    const std::string file_path = BlobFileName(db_path_, deferred->file_number);
+    blob_callback_->OnBlobFileCompleted(
+        file_path, /*column_family_name=*/"", /*job_id=*/0,
+        deferred->file_number, BlobFileCreationReason::kFlush, s,
+        checksum_value, checksum_method, deferred->blob_count,
+        deferred->total_blob_bytes);
   }
 
   deferred->writer.reset();
@@ -858,8 +884,17 @@ Status BlobFilePartitionManager::SealAllPartitions(
     }
 
     additions->emplace_back(seal.file_number, seal.blob_count,
-                            seal.total_blob_bytes, std::move(checksum_method),
-                            std::move(checksum_value));
+                            seal.total_blob_bytes, checksum_method,
+                            checksum_value);
+
+    if (blob_callback_) {
+      const std::string file_path = BlobFileName(db_path_, seal.file_number);
+      blob_callback_->OnBlobFileCompleted(
+          file_path, /*column_family_name=*/"", /*job_id=*/0, seal.file_number,
+          BlobFileCreationReason::kFlush, s, checksum_value, checksum_method,
+          seal.blob_count, seal.total_blob_bytes);
+    }
+
     seal.writer.reset();
   }
 

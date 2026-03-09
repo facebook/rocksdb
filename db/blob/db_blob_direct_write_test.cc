@@ -775,6 +775,44 @@ TEST_F(DBBlobDirectWriteTest, UnorderedWriteBasic) {
   VerifyLargeValues(num_keys);
 }
 
+TEST_F(DBBlobDirectWriteTest, EventListenerNotifications) {
+  // Verify that EventListener receives blob file creation/completion events.
+  class BlobFileListener : public EventListener {
+   public:
+    std::atomic<int> creation_started{0};
+    std::atomic<int> creation_completed{0};
+
+    void OnBlobFileCreationStarted(
+        const BlobFileCreationBriefInfo& /*info*/) override {
+      creation_started.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void OnBlobFileCreated(const BlobFileCreationInfo& /*info*/) override {
+      creation_completed.fetch_add(1, std::memory_order_relaxed);
+    }
+  };
+
+  auto listener = std::make_shared<BlobFileListener>();
+  Options options = GetBlobDirectWriteOptions();
+  options.listeners.push_back(listener);
+  options.blob_file_size = 512;  // Small to force rotation
+  options.blob_direct_write_partitions = 1;
+  DestroyAndReopen(options);
+
+  // Write enough to trigger at least one rotation
+  for (int i = 0; i < 20; i++) {
+    std::string key = "evt_key" + std::to_string(i);
+    std::string value(100, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  // Flush to seal remaining files
+  ASSERT_OK(Flush());
+
+  ASSERT_GT(listener->creation_started.load(), 0);
+  ASSERT_GT(listener->creation_completed.load(), 0);
+}
+
 TEST_F(DBBlobDirectWriteTest, CompressionWithRotation) {
   Options options = GetBlobDirectWriteOptions();
   options.blob_compression_type = kSnappyCompression;

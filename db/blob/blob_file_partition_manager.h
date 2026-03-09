@@ -32,6 +32,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFileCompletionCallback;
 class BlobLogWriter;
 class Compressor;
 class Decompressor;
@@ -81,7 +82,8 @@ class BlobFilePartitionManager {
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
-      const FileTypeSet& checksum_handoff_file_types = {});
+      const FileTypeSet& checksum_handoff_file_types = {},
+      BlobFileCompletionCallback* blob_callback = nullptr);
 
   ~BlobFilePartitionManager();
 
@@ -262,6 +264,7 @@ class BlobFilePartitionManager {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   FileChecksumGenFactory* file_checksum_gen_factory_;
   FileTypeSet checksum_handoff_file_types_;
+  BlobFileCompletionCallback* blob_callback_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
   mutable port::Mutex settings_mutex_;
