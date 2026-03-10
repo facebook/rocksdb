@@ -231,7 +231,9 @@ static std::unordered_map<std::string,
     block_base_table_prepopulate_block_cache_string_map = {
         {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
         {"kFlushOnly",
-         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly},
+        {"kFlushAndCompaction",
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction}};
 
 static struct BlockBasedTableTypeInfo {
   std::unordered_map<std::string, OptionTypeInfo> info;

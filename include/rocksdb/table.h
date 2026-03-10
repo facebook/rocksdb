@@ -739,17 +739,34 @@ struct BlockBasedTableOptions {
 
   // If enabled, prepopulate warm/hot blocks (data, uncompressed dict, index and
   // filter blocks) which are already in memory into block cache at the time of
-  // flush. On a flush, the block that is in memory (in memtables) get flushed
-  // to the device. If using Direct IO, additional IO is incurred to read this
-  // data back into memory again, which is avoided by enabling this option. This
+  // flush or compaction.
+  //
+  // On a flush, the data block that is in memory (in memtables) gets flushed to
+  // the device. If using Direct IO, additional IO is incurred to read this data
+  // back into memory again, which is avoided by enabling this option. This
   // further helps if the workload exhibits high temporal locality, where most
   // of the reads go to recently written data. This also helps in case of
   // Distributed FileSystem.
+  //
+  // On a compaction, output SST files are written to disk but not placed in the
+  // block cache by default. With tiered or remote storage (e.g., HDFS, S3),
+  // reading recently compacted data back incurs high latency.
+  // Enabling compaction warming avoids these cold reads. However, unlike flush
+  // output, it is hard to distinguish hot from cold blocks in compaction
+  // output, so warming all of it risks polluting the cache. To mitigate this,
+  // compaction-warmed blocks are inserted at BOTTOM priority (vs LOW for flush)
+  // so they are evicted first under cache pressure. Even so,
+  // kFlushAndCompaction is recommended only when most or all of the database is
+  // expected to reside in cache. For workloads where only a fraction of the
+  // data is hot, kFlushOnly is the safer choice.
   enum class PrepopulateBlockCache : char {
     // Disable prepopulate block cache.
     kDisable,
     // Prepopulate blocks during flush only.
     kFlushOnly,
+    // Prepopulate blocks during flush and compaction. Flush-warmed blocks are
+    // inserted at LOW priority, compaction-warmed blocks at BOTTOM priority.
+    kFlushAndCompaction,
   };
 
   PrepopulateBlockCache prepopulate_block_cache =

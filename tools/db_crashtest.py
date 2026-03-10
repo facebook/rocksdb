@@ -327,7 +327,7 @@ default_params = {
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in": lambda: random.choice([0, 0, 32]),
     "compressed_secondary_cache_size": lambda: random.choice([8388608, 16777216]),
-    "prepopulate_block_cache": lambda: random.choice([0, 1]),
+    "prepopulate_block_cache": lambda: random.choice([0, 1, 2]),
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
