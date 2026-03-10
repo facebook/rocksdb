@@ -745,8 +745,9 @@ DEFINE_bool(separate_key_value_in_data_block,
             "If true, data blocks store keys and values separately.");
 
 DEFINE_int64(prepopulate_block_cache, 0,
-             "Pre-populate hot/warm blocks in block cache. 0 to disable and 1 "
-             "to insert during flush");
+             "Pre-populate hot/warm blocks in block cache. 0 to disable, 1 "
+             "to insert during flush, and 2 to insert during flush and "
+             "compaction");
 
 DEFINE_uint32(uncache_aggressiveness,
               ROCKSDB_NAMESPACE::ColumnFamilyOptions().uncache_aggressiveness,
@@ -4695,6 +4696,10 @@ class Benchmark {
         case 1:
           prepopulate_block_cache =
               BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+          break;
+        case 2:
+          prepopulate_block_cache = BlockBasedTableOptions::
+              PrepopulateBlockCache::kFlushAndCompaction;
           break;
         default:
           fprintf(stderr, "Unknown prepopulate block cache mode\n");
