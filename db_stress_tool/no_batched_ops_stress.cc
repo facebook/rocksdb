@@ -1908,7 +1908,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
              initial_wal_write_may_succeed);
 
-    if (IsExpectedTxnLockTimeout(s)) {
+    if (IsExpectedTxnError(s)) {
       pending_expected_value.Rollback();
       return Status::OK();
     }
@@ -2013,7 +2013,7 @@ class NonBatchedOpsStressTest : public StressTest {
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
-      if (IsExpectedTxnLockTimeout(s)) {
+      if (IsExpectedTxnError(s)) {
         pending_expected_value.Rollback();
         return Status::OK();
       }
@@ -2085,7 +2085,7 @@ class NonBatchedOpsStressTest : public StressTest {
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
-      if (IsExpectedTxnLockTimeout(s)) {
+      if (IsExpectedTxnError(s)) {
         pending_expected_value.Rollback();
         return Status::OK();
       }
@@ -3225,7 +3225,7 @@ class NonBatchedOpsStressTest : public StressTest {
           assert(false);
       }
 
-      if (IsExpectedTxnLockTimeout(s)) {
+      if (IsExpectedTxnError(s)) {
         return;
       }
 
