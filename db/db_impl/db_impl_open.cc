@@ -2646,16 +2646,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   // in the MANIFEST (e.g., DB crashed before memtable flush sealed them).
   // Must run BEFORE DeleteObsoleteFiles so orphaned blob files are in the
   // live set and don't get purged. The mutex is held here.
+  //
+  // Always run regardless of current enable_blob_direct_write setting:
+  // the DB may have been previously opened with the feature enabled,
+  // and sealed-but-unregistered blob files must be recovered to prevent
+  // data loss when WAL replay creates BlobIndex entries pointing to them.
   if (s.ok()) {
-    bool has_blob_direct_write = false;
-    for (const auto& cf : column_families) {
-      if (cf.options.enable_blob_files &&
-          cf.options.enable_blob_direct_write) {
-        has_blob_direct_write = true;
-        break;
-      }
-    }
-    if (has_blob_direct_write) {
+    {
       std::vector<std::string> filenames;
       auto list_s = impl->immutable_db_options_.fs->GetChildren(
           dbname, IOOptions(), &filenames, nullptr);
@@ -2725,10 +2722,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             target_cf_id = 0;
           }
 
-          // Estimate blob_count and total_blob_bytes.
-          // Read the last BlobLogFooter::kSize bytes to check for a footer.
+          // Read footer (if present) to get accurate blob_count and adjust
+          // total_blob_bytes.
           uint64_t total_blob_bytes = file_size - BlobLogHeader::kSize;
           bool has_footer = false;
+          uint64_t footer_blob_count = 0;
           if (file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize) {
             std::unique_ptr<FSRandomAccessFile> rfile;
             fs_s = impl->immutable_db_options_.fs->NewRandomAccessFile(
@@ -2742,15 +2740,23 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               if (fs_s.ok() && footer_slice.size() == BlobLogFooter::kSize) {
                 BlobLogFooter footer;
                 has_footer = footer.DecodeFrom(footer_slice).ok();
+                if (has_footer) {
+                  footer_blob_count = footer.blob_count;
+                }
               }
             }
           }
           if (has_footer) {
             total_blob_bytes -= BlobLogFooter::kSize;
           }
-          uint64_t blob_count =
-              std::max(total_blob_bytes / (BlobLogRecord::kHeaderSize + 100),
-                       static_cast<uint64_t>(1));
+          uint64_t blob_count;
+          if (has_footer && footer_blob_count > 0) {
+            blob_count = footer_blob_count;
+          } else {
+            blob_count =
+                std::max(total_blob_bytes / (BlobLogRecord::kHeaderSize + 100),
+                         static_cast<uint64_t>(1));
+          }
           cf_orphans[target_cf_id].emplace_back(file_number, blob_count,
                                                 total_blob_bytes, std::string(),
                                                 std::string());
@@ -2764,6 +2770,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           auto* cfd = cf_map[cf_id];
           VersionEdit edit;
           for (auto& addition : orphans) {
+            impl->versions_->MarkFileNumberUsed(addition.GetBlobFileNumber());
             edit.AddBlobFile(std::move(addition));
           }
           s = impl->versions_->LogAndApply(cfd, read_options, write_options,
@@ -2844,6 +2851,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     uint64_t flush_interval_ms = 0;
     CompressionType blob_compression = kNoCompression;
     std::shared_ptr<BlobFilePartitionStrategy> strategy;
+    CompressionType first_compression = kNoCompression;
+    bool first_compression_set = false;
     for (const auto& cf : column_families) {
       if (cf.options.enable_blob_files && cf.options.enable_blob_direct_write) {
         need_partition_manager = true;
@@ -2857,6 +2866,21 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         flush_interval_ms = std::max(
             flush_interval_ms, cf.options.blob_direct_write_flush_interval_ms);
         if (cf.options.blob_compression_type != kNoCompression) {
+          if (!first_compression_set) {
+            first_compression = cf.options.blob_compression_type;
+            first_compression_set = true;
+          } else if (cf.options.blob_compression_type != first_compression) {
+            ROCKS_LOG_WARN(
+                impl->immutable_db_options_.info_log,
+                "Column families with enable_blob_direct_write have "
+                "conflicting blob_compression_type settings (%s vs %s). "
+                "The shared partition manager will use %s for all CFs.",
+                CompressionTypeToString(first_compression).c_str(),
+                CompressionTypeToString(cf.options.blob_compression_type)
+                    .c_str(),
+                CompressionTypeToString(cf.options.blob_compression_type)
+                    .c_str());
+          }
           blob_compression = cf.options.blob_compression_type;
         }
         if (cf.options.blob_direct_write_partition_strategy) {
@@ -2887,7 +2911,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             cf_opts.enable_blob_direct_write && cf_opts.enable_blob_files;
         settings.min_blob_size = cf_opts.min_blob_size;
         settings.compression_type = cf_opts.blob_compression_type;
-        settings.blob_cache = cf_opts.blob_cache;
+        settings.blob_cache = cf_opts.blob_cache.get();
         settings.prepopulate_blob_cache = cf_opts.prepopulate_blob_cache;
         uint32_t cf_id = (i < handles->size()) ? (*handles)[i]->GetID() : 0;
         impl->blob_partition_manager_->UpdateCachedSettings(cf_id, settings);

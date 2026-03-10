@@ -160,13 +160,13 @@ class BlobFilePartitionManager {
   using SettingsMap = std::unordered_map<uint32_t, BlobDirectWriteSettings>;
 
   // Get cached blob direct write settings for a column family.
-  // Lock-free read via RCU: reads an immutable snapshot of the settings map.
+  // Lock-free read: loads a raw pointer to an immutable map snapshot.
+  // Zero atomic ref-count operations (just one pointer load).
   BlobDirectWriteSettings GetCachedSettings(uint32_t cf_id) const {
-    auto snapshot = std::atomic_load_explicit(&cached_settings_,
-                                              std::memory_order_acquire);
-    if (snapshot) {
-      auto it = snapshot->find(cf_id);
-      if (it != snapshot->end()) {
+    const SettingsMap* map = cached_settings_.load(std::memory_order_acquire);
+    if (map) {
+      auto it = map->find(cf_id);
+      if (it != map->end()) {
         return it->second;
       }
     }
@@ -174,18 +174,20 @@ class BlobFilePartitionManager {
   }
 
   // Update cached settings for a column family.
-  // Called during DB open and SetOptions (rare). Creates a new immutable
-  // snapshot via copy-on-write so that readers are never blocked.
+  // Called only during DB open (single-threaded, no concurrent readers).
+  // Creates a new immutable snapshot via copy-on-write; old snapshots are
+  // retired and freed at destruction.
   void UpdateCachedSettings(uint32_t cf_id,
                             const BlobDirectWriteSettings& settings) {
     std::lock_guard<std::mutex> lock(settings_write_mutex_);
-    auto old = std::atomic_load_explicit(&cached_settings_,
-                                         std::memory_order_acquire);
-    auto new_map = old ? std::make_shared<SettingsMap>(*old)
-                       : std::make_shared<SettingsMap>();
+    const SettingsMap* old_map =
+        cached_settings_.load(std::memory_order_relaxed);
+    auto* new_map = old_map ? new SettingsMap(*old_map) : new SettingsMap();
     (*new_map)[cf_id] = settings;
-    std::atomic_store_explicit(&cached_settings_, std::move(new_map),
-                               std::memory_order_release);
+    cached_settings_.store(new_map, std::memory_order_release);
+    if (old_map) {
+      retired_settings_.push_back(old_map);
+    }
   }
 
   // Resolve a blob index from the write path using 4-tier fallback:
@@ -358,10 +360,12 @@ class BlobFilePartitionManager {
   Logger* info_log_;
 
   std::vector<std::unique_ptr<Partition>> partitions_;
-  // RCU-based settings cache: readers use atomic_load (lock-free),
-  // writers use settings_write_mutex_ + copy-on-write + atomic_store.
-  std::shared_ptr<SettingsMap> cached_settings_;
+  // RCU-based settings cache: readers load the raw pointer (zero overhead),
+  // writers use settings_write_mutex_ + copy-on-write + atomic store.
+  // Old snapshots are retired into retired_settings_ and freed at destruction.
+  std::atomic<const SettingsMap*> cached_settings_{nullptr};
   mutable std::mutex settings_write_mutex_;
+  std::vector<const SettingsMap*> retired_settings_;
 
   // Maps active blob file numbers to their owning partition index.
   // Used by GetPendingBlobValue to direct lookups to the correct

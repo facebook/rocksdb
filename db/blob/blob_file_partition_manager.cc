@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "cache/cache_key.h"
+#include "cache/typed_cache.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_file_reader.h"
@@ -111,6 +112,11 @@ BlobFilePartitionManager::~BlobFilePartitionManager() {
     }
   }
   DumpTimingStats();
+  // Free the current and all retired settings maps.
+  delete cached_settings_.load(std::memory_order_relaxed);
+  for (auto* m : retired_settings_) {
+    delete m;
+  }
 }
 
 Status BlobFilePartitionManager::OpenNewBlobFile(
@@ -820,6 +826,12 @@ Status BlobFilePartitionManager::WriteBlob(
   if (buffer_size_ > 0) {
     while (partition->pending_bytes.load(std::memory_order_relaxed) >=
            buffer_size_) {
+      if (bg_has_error_.load(std::memory_order_relaxed)) {
+        MutexLock lock(&bg_mutex_);
+        if (!bg_status_.ok()) {
+          return bg_status_;
+        }
+      }
       SubmitFlush(partition);
       MutexLock lock(&partition->mutex);
       if (partition->pending_bytes.load(std::memory_order_relaxed) >=
@@ -924,7 +936,8 @@ Status BlobFilePartitionManager::WriteBlob(
     if (caller_settings->blob_cache &&
         caller_settings->prepopulate_blob_cache ==
             PrepopulateBlobCache::kFlushOnly) {
-      BlobSource::SharedCacheInterface blob_cache{caller_settings->blob_cache};
+      FullTypedCacheInterface<BlobContents, BlobContentsCreator> blob_cache{
+          caller_settings->blob_cache};
       const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
                                               *blob_file_number);
       const CacheKey cache_key = base_cache_key.WithOffset(*blob_offset);
@@ -1028,13 +1041,16 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     partition->pending_bytes.fetch_sub(rec_bytes, std::memory_order_relaxed);
   }
 
-  // Only remove successfully written records from pending index. Unwritten
-  // records remain visible for reads; cleaned up on destruction.
-  if (records_written > 0) {
-    std::vector<PendingRecord> written(
-        records.begin(),
-        records.begin() + static_cast<std::ptrdiff_t>(records_written));
-    RemoveFromPendingIndex(partition, written);
+  // Only remove records from pending index after both AddRecord and Flush
+  // succeed. If Flush fails, records may not be on disk yet — keeping them
+  // in pending_index allows Tier 1 reads to still find the data in memory.
+  if (flush_status.ok() && records_written > 0) {
+    RemoveFromPendingIndex(partition, records);
+  } else if (flush_status.ok() && records_written == 0) {
+    // No records written, nothing to remove.
+  } else if (!flush_status.ok() && records_written > 0) {
+    // Flush failed — keep records in pending_index for read visibility.
+    // The bg_has_error_ flag will prevent new writes.
   }
   {
     MutexLock lock(&partition->mutex);

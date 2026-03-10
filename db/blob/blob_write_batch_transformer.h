@@ -27,7 +27,9 @@ struct BlobDirectWriteSettings {
   bool enable_blob_direct_write = false;
   uint64_t min_blob_size = 0;
   CompressionType compression_type = kNoCompression;
-  std::shared_ptr<Cache> blob_cache;
+  // Raw pointer — the Cache is owned by ColumnFamilyOptions and outlives all
+  // settings snapshots. Using raw avoids 2 atomic ref-count ops per Put().
+  Cache* blob_cache = nullptr;
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 };
 
