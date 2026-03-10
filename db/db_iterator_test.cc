@@ -5392,6 +5392,225 @@ TEST_P(DBMultiScanIteratorTest, WastedBlocksTracking) {
   // Note: The test verifies the tracking mechanism works.
   // The actual count depends on prefetch heuristics which may vary.
 }
+
+TEST_F(DBIteratorTest, ReadPathRangeTombstoneBasicInsertion) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Insert keys a through h
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Put("e", "ve"));
+  ASSERT_OK(Put("f", "vf"));
+  ASSERT_OK(Put("g", "vg"));
+  ASSERT_OK(Put("h", "vh"));
+  ASSERT_OK(Flush());
+
+  // Delete contiguous keys b through f (5 deletions, exceeds threshold of 4)
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Delete("e"));
+  ASSERT_OK(Delete("f"));
+  ASSERT_OK(Flush());
+
+  // Iterate forward — this should detect 5 contiguous tombstones and insert
+  // a range tombstone
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    iter->SeekToFirst();
+    // Should see: a, g, h (b-f are deleted)
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", iter->key().ToString());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("g", iter->key().ToString());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("h", iter->key().ToString());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Verify the ticker was incremented
+  ASSERT_GE(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      1);
+
+  // Now write a new key within the deleted range — it should still be visible
+  // because its seqno is higher than the range tombstone's seqno
+  ASSERT_OK(Put("b", "b_new"));
+  ASSERT_EQ(Get("b"), "b_new");
+}
+
+TEST_F(DBIteratorTest, ReadPathRangeTombstoneNonContiguous) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Create keys with interleaved live keys breaking contiguity
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Put("e", "ve"));
+  ASSERT_OK(Put("f", "vf"));
+  ASSERT_OK(Put("g", "vg"));
+  ASSERT_OK(Put("h", "vh"));
+  ASSERT_OK(Flush());
+
+  // Delete with a live key in the middle: b, c (del), d (live), e, f (del)
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+  // d stays alive
+  ASSERT_OK(Delete("e"));
+  ASSERT_OK(Delete("f"));
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // No range tombstone should be inserted because contiguous runs are only 2
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+}
+
+// Range tombstone is inserted into the mutable memtable during iteration.
+// After the memtable is flushed, the range tombstone should be persisted in the
+// SST and benefit subsequent iterators.
+TEST_F(DBIteratorTest, ReadPathRangeTombstoneSurvivesFlush) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // L0: keys a-h
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Put("e", "ve"));
+  ASSERT_OK(Put("f", "vf"));
+  ASSERT_OK(Put("g", "vg"));
+  ASSERT_OK(Put("h", "vh"));
+  ASSERT_OK(Flush());
+
+  // L0: point tombstones for b-f
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Delete("e"));
+  ASSERT_OK(Delete("f"));
+  ASSERT_OK(Flush());
+
+  // First iteration: triggers range tombstone insertion into mutable memtable
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    ASSERT_OK(iter->status());
+  }
+  ASSERT_GE(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      1);
+
+  // Flush the mutable memtable that now contains the range tombstone
+  ASSERT_OK(Flush());
+
+  // Compact everything so there's only one level with the range tombstone
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Second iteration should still see the correct results
+  // (a, g, h visible; b-f deleted)
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", iter->key().ToString());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("g", iter->key().ToString());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("h", iter->key().ToString());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+}
+
+TEST_F(DBIteratorTest, ReadPathRangeTombstoneMemtableSwitch) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // SST: keys a-h
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Put("e", "ve"));
+  ASSERT_OK(Put("f", "vf"));
+  ASSERT_OK(Put("g", "vg"));
+  ASSERT_OK(Put("h", "vh"));
+  ASSERT_OK(Flush());
+
+  // Memtable: point tombstones for b-f (kept in memtable, not flushed)
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Delete("e"));
+  ASSERT_OK(Delete("f"));
+
+  // Simulate memtable switch
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBIter::MaybeInsertRangeTombstone:BeforeAddLogicallyRedundant",
+      [&](void* /*arg*/) {
+        auto* cfh =
+            static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+        cfh->cfd()->mem()->MarkImmutable();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify the tossed counter was incremented (insertion was rejected)
+  uint64_t tossed =
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_TOSSED);
+  ASSERT_GE(tossed, 1);
+
+  // Verify data correctness is preserved
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
+  ASSERT_EQ(Get("g"), "vg");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

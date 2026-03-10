@@ -315,6 +315,18 @@ class ReadOnlyMemTable {
 
   virtual uint64_t ApproximateOldestKeyTime() const = 0;
 
+  // Inserts a range tombstone [start_key, end_key) that is logically redundant
+  // — it is derived from existing point tombstones observed during iteration
+  // and does not delete any data that isn't already deleted. This is a
+  // best-effort optimization. It allows future reads to skip iterating over
+  // continous single deletion tombstones.
+  //
+  // Returns true if the range tombstone was inserted, false if skipped
+  // (e.g., because the memtable has been switched to immutable).
+  virtual bool AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
+                                                   const Slice& start_key,
+                                                   const Slice& end_key) = 0;
+
   // Returns whether a fragmented range tombstone list is already constructed
   // for this memtable. It should be constructed right before a memtable is
   // added to an immutable memtable list. Note that if a memtable does not have
@@ -773,6 +785,8 @@ class MemTable final : public ReadOnlyMemTable {
   uint64_t GetMinLogContainingPrepSection() override;
 
   void MarkImmutable() override {
+    std::lock_guard<std::mutex> lk(immutable_mutex_);
+    is_immutable_.StoreRelaxed(true);
     table_->MarkReadOnly();
     mem_tracker_.DoneAllocating();
   }
@@ -818,6 +832,10 @@ class MemTable final : public ReadOnlyMemTable {
   // SwitchMemtable() may fail.
   void ConstructFragmentedRangeTombstones();
 
+  bool AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
+                                           const Slice& start_key,
+                                           const Slice& end_key) override;
+
   bool IsFragmentedRangeTombstonesConstructed() const override {
     return fragmented_range_tombstone_list_.get() != nullptr ||
            is_range_del_table_empty_.LoadRelaxed();
@@ -856,6 +874,11 @@ class MemTable final : public ReadOnlyMemTable {
   // number), the relaxed memory read would get a sufficiently updated value
   // because of the ordering provided by LastPublishedSequence().
   RelaxedAtomic<bool> is_range_del_table_empty_;
+
+  // Set to true by MarkImmutable(). Used as a "fast-path" to avoid acquiring
+  // immutable_mutex_.
+  RelaxedAtomic<bool> is_immutable_{false};
+  std::mutex immutable_mutex_;
 
   // Total data size of all data inserted
   RelaxedAtomic<uint64_t> data_size_;

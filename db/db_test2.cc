@@ -7638,6 +7638,108 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   }
 }
 
+// Parameterized by (allow_concurrent_memtable_write,
+// min_tombstones_for_range_conversion).
+class DBTestConcurrentRangeTombstoneConversions
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<bool, uint32_t>> {
+ public:
+  DBTestConcurrentRangeTombstoneConversions()
+      : DBTestBase("db_test_concurrent_memtable_ops", /*env_do_fsync=*/true) {}
+};
+
+TEST_P(DBTestConcurrentRangeTombstoneConversions,
+       MixedWritesWithConcurrentReaders) {
+  auto [allow_concurrent, range_conversion_threshold] = GetParam();
+
+  Options options = CurrentOptions();
+  options.allow_concurrent_memtable_write = allow_concurrent;
+  options.min_tombstones_for_range_conversion = range_conversion_threshold;
+  options.statistics = CreateDBStatistics();
+  // Larger memtable to avoid flushes during the test.
+  options.write_buffer_size = 64 << 20;
+  DestroyAndReopen(options);
+
+  // Seed 100 keys.
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), "seed_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Thread 1: Put 10 keys then SingleDelete them.
+  port::Thread writer_thread([&] {
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(Put(Key(i), "new_" + std::to_string(i)));
+      ASSERT_OK(db_->SingleDelete(WriteOptions(), Key(i)));
+    }
+  });
+
+  // Thread 2: Delete keys 20-29 (10 contiguous point tombstones).
+  port::Thread deleter_thread([&] {
+    for (int i = 20; i < 30; i++) {
+      ASSERT_OK(Delete(Key(i)));
+    }
+  });
+
+  // Thread 3: DeleteRange 3 ranges.
+  port::Thread range_deleter_thread([&] {
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(40), Key(50)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(60), Key(70)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(80), Key(90)));
+  });
+
+  // Wait for deletions to land before reading.
+  deleter_thread.join();
+
+  // 4 read threads all scan keys 20-30 to hit the contiguous point tombstones.
+  std::vector<port::Thread> reader_threads;
+  reader_threads.reserve(4);
+  for (int t = 0; t < 4; t++) {
+    reader_threads.emplace_back([&] {
+      ReadOptions ro;
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+      iter->Seek(Key(20));
+      while (iter->Valid() && iter->key().compare(Key(30)) < 0) {
+        iter->Next();
+      }
+      ASSERT_OK(iter->status());
+    });
+  }
+
+  for (auto& t : reader_threads) {
+    t.join();
+  }
+  writer_thread.join();
+  range_deleter_thread.join();
+
+  if (range_conversion_threshold > 0) {
+    uint64_t inserted =
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED);
+    uint64_t tossed =
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_TOSSED);
+    ASSERT_GT(inserted + tossed, 0);
+  }
+
+  // Verify DB is still consistent.
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    ASSERT_OK(iter->status());
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBTestConcurrentRangeTombstoneConversions,
+    DBTestConcurrentRangeTombstoneConversions,
+    ::testing::Combine(
+        /*allow_concurrent_memtable_write=*/::testing::Bool(),
+        /*min_tombstones_for_range_conversion=*/::testing::Values(0, 4)));
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

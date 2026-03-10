@@ -1279,6 +1279,19 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
+  // During forward iteration, when this many or more strictly contiguous
+  // point tombstones (kTypeDeletion, kTypeDeletionWithTimestamp,
+  // kTypeSingleDeletion) are encountered with no live keys between them,
+  // a range tombstone [first_tombstone_key, next_live_key) is inserted into
+  // the current mutable memtable. This is a logically redundant entry that does
+  // not change any data, but optimizes future iterators by potentially skipping
+  // a large number of tombstone scans.
+  //
+  // Set to 0 to disable.
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t min_tombstones_for_range_conversion = 0;
+
   // If either DBOptions::allow_ingest_behind or this option is set to true,
   // this column family will prepare for ingesting files to the last level
   // (IngestExternalFiles() with ingest_behind=true). Users should set only
