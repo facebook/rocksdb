@@ -1136,6 +1136,49 @@ TEST_F(PerfContextTest, WriteMemtableTimePerfLevel) {
   ASSERT_EQ(perf_context.write_memtable_time, 0);
 }
 
+TEST_F(PerfContextTest, WriteTimePerfLevel) {
+  ASSERT_OK(DestroyDB(kDbName, Options()));
+  auto db = OpenDb();
+  PerfContext* perf_ctx = get_perf_context();
+
+  // At kEnableTimeForWrite: write-path timers should be collected
+  SetPerfLevel(PerfLevel::kEnableTimeForWrite);
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "val1"));
+  ASSERT_GT(perf_ctx->write_wal_time, 0);
+  ASSERT_GT(perf_ctx->write_pre_and_post_process_time, 0);
+  // write_memtable_time is enabled at kEnableWait (below kEnableTimeForWrite)
+  ASSERT_GT(perf_ctx->write_memtable_time, 0);
+
+  // Read-path timers should still be zero at this level
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "val2"));
+  std::string val;
+  ASSERT_OK(db->Get(ReadOptions(), "key2", &val));
+  ASSERT_EQ(perf_ctx->get_from_memtable_time, 0);
+  ASSERT_EQ(perf_ctx->get_snapshot_time, 0);
+
+  // At kEnableWait: write_wal_time should NOT be collected
+  SetPerfLevel(PerfLevel::kEnableWait);
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "key3", "val3"));
+  ASSERT_EQ(perf_ctx->write_wal_time, 0);
+  ASSERT_EQ(perf_ctx->write_pre_and_post_process_time, 0);
+  ASSERT_EQ(perf_ctx->write_scheduling_flushes_compactions_time, 0);
+  // But wait-level write timers should still work
+  ASSERT_GT(perf_ctx->write_memtable_time, 0);
+
+  // At kEnableTimeExceptForMutex: both write and read timers collected
+  SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "key4", "val4"));
+  ASSERT_GT(perf_ctx->write_wal_time, 0);
+  ASSERT_GT(perf_ctx->write_pre_and_post_process_time, 0);
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key4", &value));
+  ASSERT_GT(perf_ctx->get_from_memtable_time, 0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

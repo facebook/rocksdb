@@ -37,17 +37,24 @@ enum PerfLevel : unsigned char {
   // external resources such as mutexes and IO.
   // These metrics usually have this pattern: "_[wait|delay]_*_[time|nanos]".
   kEnableWait = 3,
+  // Starts enabling time metrics for write operations that are not
+  // wait-related, such as WAL write time and scheduling time. Combined with
+  // kEnableWait, this level enables all write-path time metrics without the
+  // overhead of read-path timers.
+  // These metrics' names start with "write_" and have keywords "time" or
+  // "nanos".
+  kEnableTimeForWrite = 4,
   // Starts enabling metrics that measure the end to end time of an operation.
   // These metrics' names have keywords "time" or "nanos". Check other time
   // measuring metrics with similar but more specific naming conventions.
-  kEnableTimeExceptForMutex = 4,
+  kEnableTimeExceptForMutex = 5,
   // Starts enabling metrics that measure the cpu time of an operation. These
   // metrics' name usually this pattern "_cpu_*_[time|nanos]".
-  kEnableTimeAndCPUTimeExceptForMutex = 5,
+  kEnableTimeAndCPUTimeExceptForMutex = 6,
   // Starts enabling metrics that measure time for mutex. These metrics' name
   // usually have this pattern: "_[mutex|condition]_*_[time|nanos]".
-  kEnableTime = 6,
-  kOutOfBounds = 7  // N.B. Must always be the last value!
+  kEnableTime = 7,
+  kOutOfBounds = 8  // N.B. Must always be the last value!
 };
 
 // set the perf stats level for current thread

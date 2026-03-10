@@ -542,7 +542,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                               wal_used, log_ref, disable_memtable, seq_used);
   }
 
-  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,
                         pre_release_callback, post_memtable_callback,
@@ -763,7 +763,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (status.ok() && !write_options.disableWAL) {
         assert(wal_context.wal_file_number_size);
         wal_context.prev_size = wal_context.writer->file()->GetFileSize();
-        PERF_TIMER_GUARD(write_wal_time);
+        PERF_TIMER_FOR_WRITE_GUARD(write_wal_time);
         io_s = WriteGroupToWAL(write_group, wal_context.writer, wal_used,
                                wal_context.need_wal_sync,
                                wal_context.need_wal_dir_sync, last_sequence + 1,
@@ -771,7 +771,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
-        PERF_TIMER_GUARD(write_wal_time);
+        PERF_TIMER_FOR_WRITE_GUARD(write_wal_time);
         // LastAllocatedSequence is increased inside WriteToWAL under
         // wal_write_mutex_ to ensure ordered events in WAL
         io_s = ConcurrentWriteGroupToWAL(write_group, wal_used, &last_sequence,
@@ -973,7 +973,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   UserWriteCallback* user_write_cb,
                                   uint64_t* wal_used, uint64_t log_ref,
                                   bool disable_memtable, uint64_t* seq_used) {
-  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   WriteContext write_context;
@@ -1052,7 +1052,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
 
     if (w.status.ok() && !write_options.disableWAL) {
-      PERF_TIMER_GUARD(write_wal_time);
+      PERF_TIMER_FOR_WRITE_GUARD(write_wal_time);
       stats->AddDBStats(InternalStats::kIntStatsWriteDoneBySelf, 1);
       RecordTick(stats_, WRITE_DONE_BY_SELF, 1);
       if (wal_write_group.size > 1) {
@@ -1170,7 +1170,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteCallback* callback, uint64_t log_ref,
                                       SequenceNumber seq,
                                       const size_t sub_batch_cnt) {
-  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   WriteThread::Writer w(write_options, my_batch, callback,
@@ -1229,7 +1229,7 @@ Status DBImpl::WriteImplWALOnly(
     const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
     PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
     const PublishLastSeq publish_last_seq, const bool disable_memtable) {
-  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, sub_batch_cnt,
                         pre_release_callback);
@@ -1339,7 +1339,7 @@ Status DBImpl::WriteImplWALOnly(
 
   PERF_TIMER_STOP(write_pre_and_post_process_time);
 
-  PERF_TIMER_GUARD(write_wal_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_wal_time);
   // LastAllocatedSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
   size_t seq_inc = 0 /* total_count */;
@@ -1500,7 +1500,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     status = error_handler_.GetBGError();
   }
 
-  PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_scheduling_flushes_compactions_time);
 
   if (UNLIKELY(status.ok() &&
                wals_total_size_.LoadRelaxed() > GetMaxTotalWalSize())) {
@@ -1540,7 +1540,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   PERF_TIMER_STOP(write_scheduling_flushes_compactions_time);
-  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  PERF_TIMER_FOR_WRITE_GUARD(write_pre_and_post_process_time);
 
   if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
                                write_controller_.NeedsDelay()))) {

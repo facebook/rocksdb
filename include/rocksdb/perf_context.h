@@ -193,6 +193,9 @@ struct PerfContextBase {
   // are enabled.
   //
   // total nanos spent on writing to WAL
+  // This metric, along with write_scheduling_flushes_compactions_time and
+  // write_pre_and_post_process_time, gets collected starting from
+  // PerfLevel::kEnableTimeForWrite
   uint64_t write_wal_time;
   // total nanos spent on writing to mem tables
   // This metric gets collected starting from PerfLevel::kEnableWait
@@ -201,8 +204,10 @@ struct PerfContextBase {
   uint64_t write_delay_time;
   // total nanos spent on switching memtable/wal and scheduling
   // flushes/compactions.
+  // This metric gets collected starting from PerfLevel::kEnableTimeForWrite
   uint64_t write_scheduling_flushes_compactions_time;
   // total nanos spent on writing a record, excluding the above four things
+  // This metric gets collected starting from PerfLevel::kEnableTimeForWrite
   uint64_t write_pre_and_post_process_time;
 
   // time spent waiting for other threads of the batch group

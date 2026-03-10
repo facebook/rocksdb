@@ -6262,16 +6262,20 @@ class PerfLevelTypeJni {
         return 0x1;
       case ROCKSDB_NAMESPACE::PerfLevel::kEnableCount:
         return 0x2;
-      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex:
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableWait:
         return 0x3;
-      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex:
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeForWrite:
         return 0x4;
-      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTime:
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex:
         return 0x5;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex:
+        return 0x6;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTime:
+        return 0x7;
       case ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds:
-        return 0x6;
+        return 0x8;
       default:
-        return 0x6;
+        return 0x8;
     }
   }
 
@@ -6284,13 +6288,17 @@ class PerfLevelTypeJni {
       case 0x2:
         return ROCKSDB_NAMESPACE::PerfLevel::kEnableCount;
       case 0x3:
-        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex;
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableWait;
       case 0x4:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeForWrite;
+      case 0x5:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex;
+      case 0x6:
         return ROCKSDB_NAMESPACE::PerfLevel::
             kEnableTimeAndCPUTimeExceptForMutex;
-      case 0x5:
+      case 0x7:
         return ROCKSDB_NAMESPACE::PerfLevel::kEnableTime;
-      case 0x6:
+      case 0x8:
         return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
       default:
         return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;

@@ -1,0 +1,1 @@
+Added `PerfLevel::kEnableTimeForWrite` (value 4). `PerfLevel` values above `kEnableWait` are shifted by 1: `kEnableTimeExceptForMutex` is now 5, `kEnableTimeAndCPUTimeExceptForMutex` is now 6, `kEnableTime` is now 7. Also fixed Java `PerfLevel` enum to include the previously missing `ENABLE_WAIT` level.
