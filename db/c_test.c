@@ -4880,6 +4880,21 @@ int main(int argc, char** argv) {
     rocksdb_sst_file_manager_destroy(sst_file_manager);
   }
 
+  StartPhase("create_column_family_error_returns_null");
+  {
+    // Creating a column family with a name that already exists should fail
+    // and return NULL. Without the fix, the handle is leaked and a non-NULL
+    // pointer with an indeterminate rep field is returned.
+    char* cf_err = NULL;
+    rocksdb_column_family_handle_t* cf_handle =
+        rocksdb_create_column_family(db, options, "default", &cf_err);
+    // Should have an error since "default" already exists
+    CheckCondition(cf_err != NULL);
+    // The handle should be NULL on error (this is the bug fix)
+    CheckCondition(cf_handle == NULL);
+    free(cf_err);
+  }
+
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
 
