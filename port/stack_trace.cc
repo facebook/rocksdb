@@ -406,11 +406,36 @@ static void AtExit() {
   g_at_exit_called.store(true, std::memory_order_release);
 }
 
-// Lightweight handler for graceful termination signals (SIGTERM, SIGINT,
-// SIGHUP). Prints the crash callback (e.g., ring buffer) but skips the
+// Async-signal-safe alternative to strsignal(), which is not guaranteed
+// to be async-signal-safe by POSIX.
+static const char* SignalName(int sig) {
+  switch (sig) {
+    case SIGABRT:
+      return "SIGABRT";
+    case SIGBUS:
+      return "SIGBUS";
+    case SIGFPE:
+      return "SIGFPE";
+    case SIGILL:
+      return "SIGILL";
+    case SIGINT:
+      return "SIGINT";
+    case SIGQUIT:
+      return "SIGQUIT";
+    case SIGSEGV:
+      return "SIGSEGV";
+    case SIGTERM:
+      return "SIGTERM";
+    default:
+      return "unknown";
+  }
+}
+
+// Lightweight handler for graceful termination signals (SIGTERM, SIGINT).
+// Prints the crash callback (e.g., ring buffer) but skips the
 // expensive GDB/LLDB stack trace, since these are intentional terminations.
 static void TerminationHandler(int sig) {
-  fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
+  fprintf(stderr, "Received signal %d (%s)\n", sig, SignalName(sig));
   auto callback = g_crash_callback.load(std::memory_order_acquire);
   if (callback) {
     callback();

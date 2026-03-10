@@ -47,7 +47,7 @@ class InjectedErrorLog {
     char context[kMaxMessageLen];
   };
 
-  InjectedErrorLog() : head_(0) { memset(entries_, 0, sizeof(entries_)); }
+  InjectedErrorLog() : head_(0), entries_{} {}
 
   void Record(const char* fmt, ...)
 #if defined(__GNUC__) || defined(__clang__)
@@ -84,14 +84,19 @@ class InjectedErrorLog {
   }
 
   // Print all recorded entries to stderr. Safe to call from a signal handler
-  // (uses only fprintf and write).
+  // (uses only fprintf to stderr).
+  //
+  // Note: entries may be read while being written by another thread.
+  // This is a benign race -- at worst, one entry may appear garbled.
+  // We accept this trade-off to keep PrintAll() free of locks and safe
+  // for use in signal handlers.
   void PrintAll() const {
-    fprintf(stdout,
+    fprintf(stderr,
             "\n=== Recently Injected Fault Injection Errors "
             "(most recent last) ===\n");
     size_t total = head_.load(std::memory_order_relaxed);
     if (total == 0) {
-      fprintf(stdout, "(none)\n");
+      fprintf(stderr, "(none)\n");
       return;
     }
     size_t count = std::min(total, kMaxEntries);
@@ -102,11 +107,11 @@ class InjectedErrorLog {
       if (e.timestamp_us == 0) continue;
       uint64_t secs = e.timestamp_us / 1000000;
       uint64_t usecs = e.timestamp_us % 1000000;
-      fprintf(stdout, "[%llu.%06llu] thread=%llu: %s\n",
+      fprintf(stderr, "[%llu.%06llu] thread=%llu: %s\n",
               (unsigned long long)secs, (unsigned long long)usecs,
               (unsigned long long)e.thread_id, e.context);
     }
-    fprintf(stdout, "=== End of injected error log (%zu entries) ===\n", count);
+    fprintf(stderr, "=== End of injected error log (%zu entries) ===\n", count);
   }
 
  private:

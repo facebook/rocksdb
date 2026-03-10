@@ -179,9 +179,10 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
       FaultInjectionTestFS::ErrorOperation::kAppend);
   if (!s.ok()) {
     fs_->GetInjectedErrorLog().Record(
-        "Append(\"%.128s\", size=%zu, head=[%s])", state_.filename_.c_str(),
-        data.size(),
-        InjectedErrorLog::HexHead(data.data(), data.size()).c_str());
+        "Append(\"%.128s\", size=%zu, head=[%s]) -> %s",
+        state_.filename_.c_str(), data.size(),
+        InjectedErrorLog::HexHead(data.data(), data.size()).c_str(),
+        s.ToString().c_str());
     return s;
   }
 
