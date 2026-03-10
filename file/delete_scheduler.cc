@@ -351,7 +351,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
           auto iter = pending_files_in_buckets_.find(bucket.value());
           assert(iter != pending_files_in_buckets_.end());
           if (iter != pending_files_in_buckets_.end()) {
-            pending_files_in_bucket = iter->second--;
+            pending_files_in_bucket = --iter->second;
           }
         }
       }
