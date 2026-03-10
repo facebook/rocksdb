@@ -955,6 +955,16 @@ public enum TickerType {
      */
     MULTISCAN_SEEK_ERRORS((byte) -0x68),
 
+    /**
+     * # of blobs written via blob direct write path.
+     */
+    BLOB_DB_DIRECT_WRITE_COUNT((byte) -0x69),
+
+    /**
+     * # of bytes written via blob direct write path.
+     */
+    BLOB_DB_DIRECT_WRITE_BYTES((byte) -0x6A),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

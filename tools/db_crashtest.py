@@ -1306,6 +1306,13 @@ def finalize_and_sanitize(src_params):
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
 
+    # Blob direct write requires blob files to be enabled. Disable direct
+    # write options when blob files are off to avoid wasting test cycles on
+    # no-op configurations.
+    if dest_params.get("enable_blob_files", 0) == 0:
+        dest_params["enable_blob_direct_write"] = 0
+        dest_params["blob_direct_write_use_direct_io"] = 0
+
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open
     if dest_params.get("skip_stats_update_on_db_open", 0) == 0:

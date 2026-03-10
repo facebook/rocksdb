@@ -40,7 +40,8 @@ BlobFileCache::BlobFileCache(Cache* cache,
 
 Status BlobFileCache::GetBlobFileReader(
     const ReadOptions& read_options, uint64_t blob_file_number,
-    CacheHandleGuard<BlobFileReader>* blob_file_reader) {
+    CacheHandleGuard<BlobFileReader>* blob_file_reader,
+    bool allow_footer_skip_retry) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
 
@@ -78,19 +79,13 @@ Status BlobFileCache::GetBlobFileReader(
     Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
-    if (!s.ok() && s.IsCorruption()) {
-      // Blob files created by direct write may not have a footer yet (still
-      // being written to, or DB crashed before the file was sealed during
-      // flush).  Retry without footer validation.  Individual blob records
-      // still have CRC checks (when verify_checksums=true), so real data
-      // corruption will still be caught during reads.
-      //
-      // NOTE: This cannot distinguish "missing footer because unsealed" from
-      // "corrupted footer on a sealed file".  Both produce Corruption status
-      // from footer validation.  With verify_checksums=false, a genuinely
-      // corrupted file could be opened without detection.  We accept this
-      // risk because (a) verify_checksums defaults to true, (b) the header
-      // is still validated, and (c) I/O errors are not retried.
+    if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
+      // Blob files created by direct write may not have a footer yet
+      // (still being written to, or DB crashed before the file was
+      // sealed during flush). Retry without footer validation.
+      // Individual blob records still have CRC checks (when
+      // verify_checksums=true), so real data corruption will still be
+      // caught during reads. I/O errors are not retried.
       reader.reset();
       s = BlobFileReader::Create(
           *immutable_options_, read_options, *file_options_, column_family_id_,

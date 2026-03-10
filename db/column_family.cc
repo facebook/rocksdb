@@ -504,6 +504,13 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   if (result.blob_direct_write_partitions == 0) {
     result.blob_direct_write_partitions = 1;
   }
+  if (result.blob_direct_write_partitions > 64) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "blob_direct_write_partitions capped to 64 (was %" PRIu32
+                   ")",
+                   result.blob_direct_write_partitions);
+    result.blob_direct_write_partitions = 64;
+  }
 
   return result;
 }

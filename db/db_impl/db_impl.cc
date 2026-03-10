@@ -2503,77 +2503,13 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
              merge_context.GetOperands().size();
 }
 
-// Resolve a blob index for a write-path blob (stored in memtable via blob
-// direct write). First tries Version::GetBlob(), then falls back to
-// BlobFileCache if the blob file is not yet registered in the version.
-static Status ResolveBlobIndexForWritePath(const ReadOptions& read_options,
-                                           const Slice& user_key,
-                                           const BlobIndex& blob_idx,
-                                           Version* current,
-                                           BlobFileCache* blob_file_cache,
-                                           BlobFilePartitionManager* partition_mgr,
-                                           PinnableSlice* blob_value) {
-  // Check unflushed pending records first (deferred flush mode).
-  if (partition_mgr) {
-    std::string pending_value;
-    if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
-                                           blob_idx.offset(), &pending_value)) {
-      blob_value->PinSelf(std::move(pending_value));
-      return Status::OK();
-    }
-  }
-
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-  constexpr uint64_t* bytes_read = nullptr;
-  Status s = current->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
-                              blob_value, bytes_read);
-  if (s.IsCorruption() && blob_file_cache) {
-    // Blob file not yet registered in version (write-path blob).
-    // Read directly via BlobFileCache, bypassing version metadata.
-    CacheHandleGuard<BlobFileReader> reader;
-    s = blob_file_cache->GetBlobFileReader(read_options, blob_idx.file_number(),
-                                           &reader);
-    if (s.ok()) {
-      std::unique_ptr<BlobContents> blob_contents;
-      s = reader.GetValue()->GetBlob(read_options, user_key, blob_idx.offset(),
-                                     blob_idx.size(), blob_idx.compression(),
-                                     prefetch_buffer, nullptr, &blob_contents,
-                                     bytes_read);
-      if (s.ok()) {
-        blob_value->PinSelf(blob_contents->data());
-      } else if (s.IsCorruption()) {
-        // Cached reader may have stale file_size_.
-        reader.Reset();
-        blob_file_cache->Evict(blob_idx.file_number());
-
-        s = blob_file_cache->GetBlobFileReader(
-            read_options, blob_idx.file_number(), &reader);
-        if (s.ok()) {
-          s = reader.GetValue()->GetBlob(
-              read_options, user_key, blob_idx.offset(), blob_idx.size(),
-              blob_idx.compression(), prefetch_buffer, nullptr, &blob_contents,
-              bytes_read);
-          if (s.ok()) {
-            blob_value->PinSelf(blob_contents->data());
-          }
-        }
-      }
-    }
-  }
-
-  // If the blob file read failed (e.g., file still being written to by BG
-  // flush thread), retry GetPendingBlobValue. The BG thread may have picked
-  // up the records between our first check and the file read attempt.
-  if (!s.ok() && s.IsCorruption() && partition_mgr) {
-    std::string pending_value;
-    if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
-                                           blob_idx.offset(), &pending_value)) {
-      blob_value->PinSelf(std::move(pending_value));
-      return Status::OK();
-    }
-  }
-
-  return s;
+static Status ResolveBlobIndexForWritePath(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobIndex& blob_idx, Version* current, BlobFileCache* blob_file_cache,
+    BlobFilePartitionManager* partition_mgr, PinnableSlice* blob_value) {
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options, user_key, blob_idx, current, blob_file_cache, partition_mgr,
+      blob_value);
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,

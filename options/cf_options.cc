@@ -645,7 +645,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"enable_blob_direct_write",
          {offsetof(struct MutableCFOptions, enable_blob_direct_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kNone}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,

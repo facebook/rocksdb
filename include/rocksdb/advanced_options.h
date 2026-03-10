@@ -34,15 +34,6 @@ struct Options;
 //
 // PERFORMANCE: Called on every Put() for values >= min_blob_size on the
 // write hot path. Implementations should be lightweight (< 100ns).
-//
-// TODO: Consider moving this to its own header (e.g.,
-// include/rocksdb/blob_file_partition_strategy.h) for consistency with
-// other user-implementable interfaces like SstPartitionerFactory and
-// CompactionFilter which each have their own header.
-//
-// TODO: Consider using a context struct parameter for SelectPartition()
-// to allow adding future context (e.g., timestamp, blob size, partition
-// load) without breaking the API.
 class BlobFilePartitionStrategy {
  public:
   virtual ~BlobFilePartitionStrategy() = default;
@@ -1188,10 +1179,10 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: false
   //
-  // NOTE: Only takes effect at DB::Open() time. Changing this option via
-  // SetOptions() will update the stored value but will NOT activate or
-  // deactivate the blob direct write path at runtime. The database must
-  // be reopened for changes to take effect.
+  // Not dynamically changeable through SetOptions(). Requires DB reopen
+  // to enable or disable. The structural options below (partitions,
+  // buffer_size, etc.) are also immutable and only take effect at
+  // DB::Open() time.
   bool enable_blob_direct_write = false;
 
   // Number of blob file partitions for concurrent write-path blob writes.

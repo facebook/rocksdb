@@ -33,16 +33,21 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFileCache;
 class BlobFileCompletionCallback;
+class BlobIndex;
 class BlobLogWriter;
 class Compressor;
 class Decompressor;
 class IOTracer;
 class Logger;
+class PinnableSlice;
 class SystemClock;
+class Version;
 class WritableFileWriter;
 struct FileOptions;
 struct ImmutableDBOptions;
+struct ReadOptions;
 
 // Default round-robin partition strategy.
 class RoundRobinPartitionStrategy : public BlobFilePartitionStrategy {
@@ -183,6 +188,19 @@ class BlobFilePartitionManager {
                                std::memory_order_release);
   }
 
+  // Resolve a blob index from the write path using 4-tier fallback:
+  //   1. Pending records (unflushed deferred data in partition manager)
+  //   2. Version::GetBlob (standard path for registered blob files)
+  //   3. BlobFileCache (direct read for unregistered files, with
+  //      evict-and-retry for stale cached readers)
+  //   4. Retry pending records (safety net for BG flush race)
+  // The BlobIndex must be pre-decoded by the caller.
+  static Status ResolveBlobDirectWriteIndex(
+      const ReadOptions& read_options, const Slice& user_key,
+      const BlobIndex& blob_idx, const Version* version,
+      BlobFileCache* blob_file_cache, BlobFilePartitionManager* partition_mgr,
+      PinnableSlice* blob_value);
+
   // Dump per-operation timing breakdown to stderr (for benchmarking).
   void DumpTimingStats() const;
 
@@ -211,7 +229,10 @@ class BlobFilePartitionManager {
     }
   };
 
-  void RemoveFromPendingIndex(const std::vector<PendingRecord>& records);
+  struct PendingBlobValueEntry {
+    std::shared_ptr<std::string> data;
+    CompressionType compression;
+  };
 
   // State captured under the mutex for deferred sealing outside the mutex.
   struct DeferredSeal {
@@ -243,22 +264,35 @@ class BlobFilePartitionManager {
 
     // Deferred flush state
     std::vector<PendingRecord> pending_records;
-    // Records currently being flushed to disk by the BG thread.
-    // Readable by GetPendingBlobValue to avoid read-after-write visibility gap.
-    std::vector<PendingRecord> in_flight_records;
     std::atomic<uint64_t> pending_bytes{0};
     uint64_t next_write_offset = 0;
+
+    // Per-partition pending blob index for O(1) read-path lookup by
+    // (file_number, blob_offset). Protected by this partition's mutex,
+    // eliminating the global serialization point that a shared index would
+    // create across all partitions.
+    std::unordered_map<PendingBlobKey, PendingBlobValueEntry,
+                       PendingBlobKeyHash>
+        pending_index;
 
     std::vector<BlobFileAddition> completed_files;
 
     // Per-partition background work queue (protected by bg_mutex_).
     std::deque<BGWorkItem> bg_queue;
-    bool bg_in_flight = false;  // A thread is currently processing this partition.
-    std::atomic<bool> flush_queued{false};  // Avoids bg_mutex_ for dedup.
+    bool bg_in_flight = false;
+    std::atomic<bool> flush_queued{false};
 
     Partition();
     ~Partition();
   };
+
+  void RemoveFromPendingIndex(Partition* partition,
+                              const std::vector<PendingRecord>& records);
+  void RemoveFromPendingIndexLocked(Partition* partition,
+                                    const std::vector<PendingRecord>& records);
+
+  void AddFilePartitionMapping(uint64_t file_number, uint32_t partition_idx);
+  void RemoveFilePartitionMapping(uint64_t file_number);
 
   Status OpenNewBlobFile(Partition* partition, uint32_t column_family_id,
                          CompressionType compression);
@@ -311,8 +345,7 @@ class BlobFilePartitionManager {
   uint64_t high_water_mark_;
   uint64_t flush_interval_us_;  // Periodic flush interval in microseconds.
 
-  std::shared_ptr<Compressor> compressor_;      // null for kNoCompression
-  std::shared_ptr<Decompressor> decompressor_;  // for GetPendingBlobValue reads
+  std::shared_ptr<Compressor> compressor_;  // null for kNoCompression
   CompressionType blob_compression_type_;
 
   std::shared_ptr<IOTracer> io_tracer_;
@@ -330,19 +363,24 @@ class BlobFilePartitionManager {
   std::shared_ptr<SettingsMap> cached_settings_;
   mutable std::mutex settings_write_mutex_;
 
-  // Global pending blob index for O(1) lookup by (file_number, blob_offset).
-  // Maps to compressed value strings. Updated alongside pending_records and
-  // in_flight_records; entries are removed after records are flushed to disk.
-  mutable port::Mutex pending_index_mutex_;
-  std::unordered_map<PendingBlobKey, std::shared_ptr<std::string>,
-                     PendingBlobKeyHash>
-      pending_index_;
+  // Maps active blob file numbers to their owning partition index.
+  // Used by GetPendingBlobValue to direct lookups to the correct
+  // partition's pending_index without scanning all partitions.
+  // Write-light (only on file open/close), read-moderate (each
+  // GetPendingBlobValue). RCU-based: readers use atomic_load (lock-free),
+  // writers use file_partition_write_mutex_ + copy-on-write + atomic_store.
+  using FilePartitionMap = std::unordered_map<uint64_t, uint32_t>;
+  std::shared_ptr<FilePartitionMap> file_to_partition_;
+  mutable std::mutex file_partition_write_mutex_;
 
   port::Mutex completed_files_mutex_;
 
   port::Mutex bg_mutex_;
   port::CondVar bg_cv_;
-  port::CondVar bg_drain_cv_;  // Signaled when all queues become empty.
+  port::CondVar bg_drain_cv_;
+  // Ready queue for O(1) work dispatch: partitions with pending BG work
+  // are enqueued here instead of requiring a linear scan of all partitions.
+  std::deque<Partition*> ready_queue_;
   std::vector<std::thread> bg_threads_;
   bool bg_stop_{false};
   bool bg_seal_in_progress_{false};  // Prevents BG threads from picking up new

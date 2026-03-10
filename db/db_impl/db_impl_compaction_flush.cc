@@ -291,9 +291,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     // edit, so they're registered in the same version as the flush SST.
     if (blob_partition_manager_) {
       std::vector<BlobFileAddition> write_path_additions;
-      blob_partition_manager_->SealAllPartitions(
+      s = blob_partition_manager_->SealAllPartitions(
           WriteOptions(Env::IOActivity::kFlush), &write_path_additions);
-      if (!write_path_additions.empty()) {
+      if (s.ok() && !write_path_additions.empty()) {
         flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
       }
     }

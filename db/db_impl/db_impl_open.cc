@@ -2839,6 +2839,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     bool need_partition_manager = false;
     uint32_t max_partitions = 1;
     uint64_t buffer_size = 0;
+    uint64_t blob_file_size = 0;
     bool use_direct_io = false;
     uint64_t flush_interval_ms = 0;
     CompressionType blob_compression = kNoCompression;
@@ -2850,6 +2851,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             std::max(max_partitions, cf.options.blob_direct_write_partitions);
         buffer_size =
             std::max(buffer_size, cf.options.blob_direct_write_buffer_size);
+        blob_file_size = std::max(blob_file_size, cf.options.blob_file_size);
         use_direct_io =
             use_direct_io || cf.options.blob_direct_write_use_direct_io;
         flush_interval_ms = std::max(
@@ -2868,8 +2870,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               max_partitions, strategy,
               [vs = impl->versions_.get()]() { return vs->NewFileNumber(); },
               impl->fs_.get(), impl->immutable_db_options_.clock, impl->stats_,
-              impl->file_options_, dbname,
-              column_families[0].options.blob_file_size,
+              impl->file_options_, dbname, blob_file_size,
               impl->immutable_db_options_.use_fsync, blob_compression,
               buffer_size, use_direct_io, flush_interval_ms, impl->io_tracer_,
               impl->immutable_db_options_.listeners,

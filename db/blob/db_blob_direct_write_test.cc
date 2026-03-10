@@ -531,11 +531,18 @@ TEST_F(DBBlobDirectWriteTest, ConcurrentWriters) {
 TEST_F(DBBlobDirectWriteTest, BackpressureHighConcurrency) {
   Options options = GetBlobDirectWriteOptions();
   options.blob_direct_write_partitions = 4;
-  // Small buffer (64KB) with 4KB values = ~16 records before backpressure.
-  // This forces frequent backpressure stalls with many concurrent writers.
   options.blob_direct_write_buffer_size = 65536;
   options.blob_file_size = 1024 * 1024;
   DestroyAndReopen(options);
+
+  // Track that backpressure actually fires via sync point.
+  std::atomic<int> backpressure_count{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlobFilePartitionManager::WriteBlob:BackpressureStall",
+      [&](void* /*arg*/) {
+        backpressure_count.fetch_add(1, std::memory_order_relaxed);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   const int num_threads = 16;
   const int keys_per_thread = 500;
@@ -556,7 +563,13 @@ TEST_F(DBBlobDirectWriteTest, BackpressureHighConcurrency) {
     t.join();
   }
 
-  // Verify a sample of keys from each thread
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // With 16 threads x 500 keys x 4KB values = 32MB through a 64KB buffer,
+  // backpressure must have triggered.
+  ASSERT_GT(backpressure_count.load(), 0);
+
   for (int t = 0; t < num_threads; t++) {
     for (int i = 0; i < keys_per_thread; i += 50) {
       std::string key = "bp_t" + std::to_string(t) + "_k" + std::to_string(i);
@@ -565,7 +578,6 @@ TEST_F(DBBlobDirectWriteTest, BackpressureHighConcurrency) {
     }
   }
 
-  // Verify after flush
   ASSERT_OK(Flush());
   for (int t = 0; t < num_threads; t++) {
     std::string key = "bp_t" + std::to_string(t) + "_k0";
@@ -959,31 +971,49 @@ TEST_F(DBBlobDirectWriteTest, CompressionWithRotation) {
 }
 
 TEST_F(DBBlobDirectWriteTest, PeriodicFlush) {
-  // Verify that periodic flush drains pending records even without
-  // hitting the high-water mark.
   Options options = GetBlobDirectWriteOptions();
   options.blob_direct_write_partitions = 1;
   options.blob_direct_write_buffer_size = 1 * 1024 * 1024;  // 1MB
   options.blob_direct_write_flush_interval_ms = 50;         // 50ms
   DestroyAndReopen(options);
 
-  // Write a single key (well below high-water mark)
+  port::Mutex flush_mu;
+  port::CondVar flush_cv(&flush_mu);
+  std::atomic<int> periodic_flush_count{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlobFilePartitionManager::BackgroundIOLoop:PeriodicFlush",
+      [&](void* /*arg*/) {
+        periodic_flush_count.fetch_add(1, std::memory_order_relaxed);
+        MutexLock lock(&flush_mu);
+        flush_cv.SignalAll();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write data well below the high-water mark so only the periodic timer
+  // triggers a flush (not backpressure).
   std::string large_value(200, 'v');
   ASSERT_OK(Put("periodic_key", large_value));
 
-  // The periodic flush runs on a background timer. Since we can't use sync
-  // points with the internal BG thread, we poll until the value is readable
-  // from disk (confirming the periodic flush fired). Timeout ensures the
-  // test doesn't hang if the periodic flush is broken.
   ASSERT_EQ(Get("periodic_key"), large_value);
 
-  // Write more data and verify reads succeed (periodic flush will eventually
-  // drain the buffer, but reads work regardless via the pending index).
   for (int i = 0; i < 5; i++) {
     std::string key = "periodic_key_" + std::to_string(i);
     std::string value(200 + i, 'a' + (i % 26));
     ASSERT_OK(Put(key, value));
   }
+
+  // Wait for the periodic flush via condvar signaled by SyncPoint callback.
+  {
+    MutexLock lock(&flush_mu);
+    if (periodic_flush_count.load(std::memory_order_relaxed) == 0) {
+      flush_cv.TimedWait(Env::Default()->NowMicros() + 5 * 1000 * 1000);
+    }
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GT(periodic_flush_count.load(), 0);
 
   for (int i = 0; i < 5; i++) {
     std::string key = "periodic_key_" + std::to_string(i);
@@ -1003,11 +1033,12 @@ TEST_F(DBBlobDirectWriteTest, ConcurrentReadersAndWriters) {
   const int initial_keys = 50;
   WriteLargeValues(initial_keys, 100, "init_");
 
+  const int target_writes = 200;
   std::atomic<bool> stop{false};
   std::atomic<int> write_errors{0};
   std::atomic<int> read_errors{0};
+  std::atomic<int> total_writes{0};
 
-  // Writer threads continuously add new keys.
   const int num_writers = 4;
   std::vector<std::thread> writers;
   for (int t = 0; t < num_writers; t++) {
@@ -1019,13 +1050,14 @@ TEST_F(DBBlobDirectWriteTest, ConcurrentReadersAndWriters) {
         Status s = Put(key, value);
         if (!s.ok()) {
           write_errors.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          total_writes.fetch_add(1, std::memory_order_relaxed);
         }
         i++;
       }
     });
   }
 
-  // Reader threads continuously Get existing keys and verify correctness.
   const int num_readers = 4;
   std::vector<std::thread> readers;
   for (int t = 0; t < num_readers; t++) {
@@ -1042,20 +1074,12 @@ TEST_F(DBBlobDirectWriteTest, ConcurrentReadersAndWriters) {
     });
   }
 
-  // Let threads run until writers produce enough data to exercise the
-  // multi-tier read fallback (at least 200 keys per writer thread).
-  while (true) {
-    Env::Default()->SleepForMicroseconds(10 * 1000);  // 10ms
-    if (write_errors.load(std::memory_order_relaxed) > 0 ||
-        read_errors.load(std::memory_order_relaxed) > 0) {
-      break;
-    }
-    // Check if writers have produced enough data.
-    std::string check_key = "w0_200";
-    std::string result = Get(check_key);
-    if (result != "NOT_FOUND") {
-      break;
-    }
+  // Wait for writers to reach target (no sleep polling — spin on atomics).
+  while (total_writes.load(std::memory_order_relaxed) <
+             num_writers * target_writes &&
+         write_errors.load(std::memory_order_relaxed) == 0 &&
+         read_errors.load(std::memory_order_relaxed) == 0) {
+    std::this_thread::yield();
   }
   stop.store(true, std::memory_order_relaxed);
 
@@ -1162,42 +1186,29 @@ TEST_F(DBBlobDirectWriteTest, DisableWALSkipsTransformation) {
   ASSERT_EQ(Get("wal_small_key"), small_value);
 }
 
-// Test dynamically enabling/disabling blob direct write via SetOptions.
+// enable_blob_direct_write is immutable and cannot be changed via SetOptions.
 TEST_F(DBBlobDirectWriteTest, DynamicSetOptions) {
   Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
-  // Write with blob direct write enabled.
   std::string large_v1(200, '1');
   ASSERT_OK(Put("dyn_key1", large_v1));
   ASSERT_EQ(Get("dyn_key1"), large_v1);
 
-  // Disable blob direct write via SetOptions.
-  ASSERT_OK(dbfull()->SetOptions({{"enable_blob_direct_write", "false"}}));
+  // SetOptions should reject changes to enable_blob_direct_write.
+  ASSERT_NOK(dbfull()->SetOptions({{"enable_blob_direct_write", "false"}}));
+  ASSERT_NOK(dbfull()->SetOptions({{"enable_blob_direct_write", "true"}}));
 
-  // Writes should now go inline (no blob separation).
+  // Writes still work after the rejected SetOptions.
   std::string large_v2(200, '2');
   ASSERT_OK(Put("dyn_key2", large_v2));
-  ASSERT_EQ(Get("dyn_key2"), large_v2);
-
-  // Re-enable blob direct write.
-  ASSERT_OK(dbfull()->SetOptions({{"enable_blob_direct_write", "true"}}));
-
-  std::string large_v3(200, '3');
-  ASSERT_OK(Put("dyn_key3", large_v3));
-  ASSERT_EQ(Get("dyn_key3"), large_v3);
-
-  // All three keys should be readable.
   ASSERT_EQ(Get("dyn_key1"), large_v1);
   ASSERT_EQ(Get("dyn_key2"), large_v2);
-  ASSERT_EQ(Get("dyn_key3"), large_v3);
 
-  // Verify after flush and reopen.
   ASSERT_OK(Flush());
   Reopen(options);
   ASSERT_EQ(Get("dyn_key1"), large_v1);
   ASSERT_EQ(Get("dyn_key2"), large_v2);
-  ASSERT_EQ(Get("dyn_key3"), large_v3);
 }
 
 // Test Delete followed by re-Put with the same key (tombstone interaction).
@@ -1347,6 +1358,60 @@ TEST_F(DBBlobDirectWriteTest, TwoPhaseCommit) {
   ASSERT_EQ(value, blob_v2);
 
   delete txn_db;
+}
+
+// Multi-CF test: different blob settings per CF, cross-CF WriteBatch.
+TEST_F(DBBlobDirectWriteTest, MultiColumnFamilyBasic) {
+  Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  // Create a second CF with a larger min_blob_size so small values stay inline.
+  ColumnFamilyOptions cf_opts(options);
+  cf_opts.enable_blob_files = true;
+  cf_opts.enable_blob_direct_write = true;
+  cf_opts.min_blob_size = 500;
+  ColumnFamilyHandle* cf_handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(cf_opts, "data_cf", &cf_handle));
+
+  // Write to default CF (min_blob_size=10): goes to blob file.
+  std::string blob_value(100, 'B');
+  ASSERT_OK(db_->Put(WriteOptions(), "default_key", blob_value));
+  ASSERT_EQ(Get("default_key"), blob_value);
+
+  // Write to data_cf with value below its min_blob_size: stays inline.
+  std::string inline_value(200, 'I');
+  ASSERT_OK(db_->Put(WriteOptions(), cf_handle, "data_key1", inline_value));
+  std::string result;
+  ASSERT_OK(db_->Get(ReadOptions(), cf_handle, "data_key1", &result));
+  ASSERT_EQ(result, inline_value);
+
+  // Write to data_cf with value above its min_blob_size: goes to blob file.
+  std::string large_value(600, 'L');
+  ASSERT_OK(db_->Put(WriteOptions(), cf_handle, "data_key2", large_value));
+  ASSERT_OK(db_->Get(ReadOptions(), cf_handle, "data_key2", &result));
+  ASSERT_EQ(result, large_value);
+
+  // Cross-CF WriteBatch.
+  WriteBatch batch;
+  std::string batch_val1(50, 'X');
+  std::string batch_val2(700, 'Y');
+  ASSERT_OK(batch.Put("batch_default", batch_val1));
+  ASSERT_OK(batch.Put(cf_handle, "batch_data", batch_val2));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_EQ(Get("batch_default"), batch_val1);
+  ASSERT_OK(db_->Get(ReadOptions(), cf_handle, "batch_data", &result));
+  ASSERT_EQ(result, batch_val2);
+
+  // Flush both CFs and verify data survives.
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf_handle));
+
+  ASSERT_EQ(Get("default_key"), blob_value);
+  ASSERT_OK(db_->Get(ReadOptions(), cf_handle, "data_key2", &result));
+  ASSERT_EQ(result, large_value);
+
+  db_->DestroyColumnFamilyHandle(cf_handle);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -242,85 +242,23 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.verify_checksums = verify_checksums_;
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
+
+  if (blob_partition_mgr_ || blob_file_cache_) {
+    // Write-path blob: decode once and use the shared 4-tier resolution.
+    BlobIndex blob_idx;
+    Status decode_s = blob_idx.DecodeFrom(blob_index);
+    if (!decode_s.ok()) {
+      return decode_s;
+    }
+    return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+        read_options, user_key, blob_idx, version_, blob_file_cache_,
+        blob_partition_mgr_, &blob_value_);
+  }
+
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
-
-  // Check unflushed pending records first (deferred flush mode).
-  if (blob_partition_mgr_) {
-    BlobIndex blob_idx;
-    Status decode_s = blob_idx.DecodeFrom(blob_index);
-    if (decode_s.ok()) {
-      std::string pending_value;
-      if (blob_partition_mgr_->GetPendingBlobValue(
-              blob_idx.file_number(), blob_idx.offset(), &pending_value)) {
-        blob_value_.PinSelf(pending_value);
-        return Status::OK();
-      }
-    }
-  }
-
-  Status s = version_->GetBlob(read_options, user_key, blob_index,
-                               prefetch_buffer, &blob_value_, bytes_read);
-
-  if (s.IsCorruption() && blob_file_cache_) {
-    // Blob file not yet registered in version (write-path blob).
-    // Fall back to reading directly via BlobFileCache.
-    BlobIndex blob_idx;
-    Status decode_s = blob_idx.DecodeFrom(blob_index);
-    if (decode_s.ok()) {
-      CacheHandleGuard<BlobFileReader> file_reader;
-      s = blob_file_cache_->GetBlobFileReader(read_options,
-                                              blob_idx.file_number(),
-                                              &file_reader);
-      if (s.ok()) {
-        std::unique_ptr<BlobContents> blob_contents;
-        uint64_t blob_bytes_read = 0;
-        s = file_reader.GetValue()->GetBlob(
-            read_options, user_key, blob_idx.offset(), blob_idx.size(),
-            blob_idx.compression(), prefetch_buffer, nullptr, &blob_contents,
-            &blob_bytes_read);
-        if (s.ok()) {
-          blob_value_.PinSelf(blob_contents->data());
-          return Status::OK();
-        }
-        if (s.IsCorruption()) {
-          // Cached reader may have stale file_size_. Evict and retry.
-          file_reader.Reset();
-          blob_file_cache_->Evict(blob_idx.file_number());
-
-          s = blob_file_cache_->GetBlobFileReader(
-              read_options, blob_idx.file_number(), &file_reader);
-          if (s.ok()) {
-            s = file_reader.GetValue()->GetBlob(
-                read_options, user_key, blob_idx.offset(), blob_idx.size(),
-                blob_idx.compression(), prefetch_buffer, nullptr,
-                &blob_contents, &blob_bytes_read);
-            if (s.ok()) {
-              blob_value_.PinSelf(blob_contents->data());
-              return Status::OK();
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // If reads still failed, the BG thread may have picked up the records
-  // between our first pending check and the file read. Retry pending lookup.
-  if (!s.ok() && s.IsCorruption() && blob_partition_mgr_) {
-    BlobIndex blob_idx;
-    Status decode_s = blob_idx.DecodeFrom(blob_index);
-    if (decode_s.ok()) {
-      std::string pending_value;
-      if (blob_partition_mgr_->GetPendingBlobValue(
-              blob_idx.file_number(), blob_idx.offset(), &pending_value)) {
-        blob_value_.PinSelf(pending_value);
-        return Status::OK();
-      }
-    }
-  }
-
-  return s;
+  return version_->GetBlob(read_options, user_key, blob_index, prefetch_buffer,
+                           &blob_value_, bytes_read);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
