@@ -287,12 +287,9 @@ ARMCRC_SOURCE=1
 endif
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8.2-a+sve -xc /dev/null 2>&1))
-ifneq ($(PLATFORM),OS_MACOSX)
-  HAVE_ARMV8_SVE=1
+ifeq ($(HAVE_ARMV8_SVE),1)
   CXXFLAGS += -DHAVE_ARMV8_SVE
   CFLAGS   += -DHAVE_ARMV8_SVE
-endif
 endif
 
 export JAVAC_ARGS
