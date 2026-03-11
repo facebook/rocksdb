@@ -20,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdarg>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -177,6 +178,82 @@ class InjectedErrorLog {
 class TestFSWritableFile;
 class FaultInjectionTestFS;
 
+// Deferred detail builders for injected error logging.
+// These return lambdas that are only evaluated when a fault is actually
+// injected, avoiding string formatting overhead on the common (no-fault) path.
+// Captured references are safe because the lambda is called synchronously
+// within MaybeInjectThreadLocalError before the caller returns.
+namespace fault_injection_detail {
+
+inline std::function<std::string()> NoDetail() { return {}; }
+
+inline std::function<std::string()> TwoFiles(const std::string& /*f1*/,
+                                             const std::string& f2) {
+  return [&f2]() -> std::string {
+    char buf[160];
+    snprintf(buf, sizeof(buf), "\"%.128s\"", f2.c_str());
+    return std::string(buf);
+  };
+}
+
+inline std::function<std::string()> SizeAndHead(const Slice& data) {
+  return [data]() -> std::string {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "size=%zu, head=[%s]", data.size(),
+             InjectedErrorLog::HexHead(data.data(), data.size()).c_str());
+    return std::string(buf);
+  };
+}
+
+inline std::function<std::string()> OffsetSizeAndHead(uint64_t offset,
+                                                      const Slice& data) {
+  return [offset, data]() -> std::string {
+    char buf[160];
+    snprintf(buf, sizeof(buf), "offset=%llu, size=%zu, head=[%s]",
+             (unsigned long long)offset, data.size(),
+             InjectedErrorLog::HexHead(data.data(), data.size()).c_str());
+    return std::string(buf);
+  };
+}
+
+inline std::function<std::string()> OffsetAndSize(uint64_t offset, size_t n) {
+  return [offset, n]() -> std::string {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "offset=%llu, size=%zu",
+             (unsigned long long)offset, n);
+    return std::string(buf);
+  };
+}
+
+inline std::function<std::string()> Size(uint64_t size) {
+  return [size]() -> std::string {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "size=%llu", (unsigned long long)size);
+    return std::string(buf);
+  };
+}
+
+inline std::function<std::string()> Count(size_t count) {
+  return [count]() -> std::string {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "num_reqs=%zu", count);
+    return std::string(buf);
+  };
+}
+
+inline std::function<std::string()> ReqOffsetAndSize(size_t req_idx,
+                                                     uint64_t offset,
+                                                     size_t n) {
+  return [req_idx, offset, n]() -> std::string {
+    char buf[96];
+    snprintf(buf, sizeof(buf), "req[%zu], offset=%llu, size=%zu", req_idx,
+             (unsigned long long)offset, n);
+    return std::string(buf);
+  };
+}
+
+}  // namespace fault_injection_detail
+
 enum class FaultInjectionIOType {
   kRead = 0,
   kWrite,
@@ -306,6 +383,7 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   IOStatus GetFileSize(uint64_t* file_size) override;
 
  private:
+  std::string fname_;
   std::unique_ptr<FSRandomAccessFile> target_;
   FaultInjectionTestFS* fs_;
   const bool is_sst_;
@@ -477,7 +555,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       *disk_free = 0;
     } else {
       io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead,
-                                         options);
+                                         options, "GetFreeSpace", path);
       if (io_s.ok()) {
         io_s = target()->GetFreeSpace(path, options, disk_free, dbg);
       }
@@ -690,7 +768,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   IOStatus MaybeInjectThreadLocalError(
       FaultInjectionIOType type, const IOOptions& io_options,
-      const std::string& file_name = "", ErrorOperation op = kUnknown,
+      const char* op_name, const std::string& file_name,
+      std::function<std::string()> detail_fn = {}, ErrorOperation op = kUnknown,
       Slice* slice = nullptr, bool direct_io = false, char* scratch = nullptr,
       bool need_count_increase = false, bool* fault_injected = nullptr);
 
@@ -845,11 +924,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // its always an IOError.
   // fault_injected returns whether a fault is injected. It is needed
   // because some fault is inected with IOStatus to be OK.
-  IOStatus MaybeInjectThreadLocalReadError(const IOOptions& io_options,
-                                           ErrorOperation op, Slice* slice,
-                                           bool direct_io, char* scratch,
-                                           bool need_count_increase,
-                                           bool* fault_injected);
+  IOStatus MaybeInjectThreadLocalReadError(
+      const IOOptions& io_options, const char* op_name,
+      const std::string& file_name, std::function<std::string()> detail_fn,
+      ErrorOperation op, Slice* slice, bool direct_io, char* scratch,
+      bool need_count_increase, bool* fault_injected);
 
   bool ShouldExcludeFromWriteFaultInjection(const std::string& file_name) {
     MutexLock l(&mutex_);
