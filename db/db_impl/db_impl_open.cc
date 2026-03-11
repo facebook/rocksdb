@@ -1493,8 +1493,8 @@ Status DBImpl::ProcessLogRecord(
   }
 
   assert(process_status.ok());
-  process_status = InsertLogRecordToMemtable(batch_to_use, wal_number,
-                                             next_sequence, &has_valid_writes);
+  process_status = InsertLogRecordToMemtable(
+      batch_to_use, wal_number, next_sequence, &has_valid_writes, read_only);
   MaybeIgnoreError(&process_status);
   // We are treating this as a failure while reading since we read valid
   // blocks that do not form coherent data
@@ -1572,7 +1572,8 @@ void DBImpl::MaybeReviseStopReplayForCorruption(
 Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
                                          uint64_t wal_number,
                                          SequenceNumber* next_sequence,
-                                         bool* has_valid_writes) {
+                                         bool* has_valid_writes,
+                                         bool read_only) {
   // If column family was not found, it might mean that the WAL write
   // batch references to the column family that was dropped after the
   // insert. We don't want to fail the whole write batch in that case --
@@ -1585,6 +1586,34 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
       &trim_history_scheduler_, true, wal_number, this,
       false /* concurrent_memtable_writes */, next_sequence, has_valid_writes,
       seq_per_batch_, batch_per_txn_);
+
+  // Check WriteBufferManager global limit during recovery.
+  // When multiple RocksDB instances share a WriteBufferManager, a recovering
+  // instance could exceed the global memory limit. Schedule flushes when needed
+  // to prevent OOM during WAL recovery.
+  //
+  // Skip scheduling in read-only mode since flushes cannot be performed and
+  // the scheduler would never be drained, causing assertion failures on
+  // duplicate ScheduleWork() calls.
+  //
+  // TODO: Currently we schedule all CFs with non-empty memtables for flush
+  // (similar to the atomic_flush=false path in the normal write flow). This
+  // may produce more, smaller L0 files in some CFs. A future improvement
+  // could flush only the oldest CF or pick CFs more selectively to reduce
+  // unnecessary L0 file creation.
+  if (status.ok() && *has_valid_writes && !read_only &&
+      immutable_db_options_.enforce_write_buffer_manager_during_recovery &&
+      write_buffer_manager_ != nullptr &&
+      write_buffer_manager_->ShouldFlush()) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->mem() != nullptr && cfd->mem()->GetFirstSequenceNumber() != 0 &&
+          !cfd->mem()->HasFlushScheduled()) {
+        cfd->mem()->MarkFlushScheduled();
+        flush_scheduler_.ScheduleWork(cfd);
+      }
+    }
+  }
+
   return status;
 }
 

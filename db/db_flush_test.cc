@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
@@ -1893,6 +1894,85 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   Close();
 }
 
+// Reproduction for MemPurge memtable ID ordering bug.
+// When MemPurge runs, it releases db_mutex_. During that window, new
+// memtables can be switched to the immutable list with higher IDs. When
+// MemPurge re-acquires the mutex and adds its output memtable using the
+// stale ID from mems_.back(), the ordering assertion fires.
+TEST_F(DBFlushTest, MemPurgeIdOrdering) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 1 << 20;  // 1MB
+  // Allow enough immutable memtables so writes don't stall while the
+  // flush thread is paused in the sync point.
+  options.max_write_buffer_number = 8;
+  // Always attempt MemPurge on flush.
+  options.experimental_mempurge_threshold = 1.0;
+  ASSERT_OK(TryReopen(options));
+
+  // Coordinate via LoadDependency:
+  //   1. Flush thread hits BeforeReacquireMutex -> foreground unblocks
+  //   2. Foreground writes data, triggers memtable switch
+  //   3. Foreground hits SwitchDone -> flush thread unblocks at
+  //   AfterWaitForTest
+  //   4. Flush thread re-acquires mutex, tries AddMemTable with stale ID
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"FlushJob::MemPurge:BeforeReacquireMutex",
+        "DBFlushTest::MemPurgeIdOrdering:StartWriting"},
+       {"DBFlushTest::MemPurgeIdOrdering:SwitchDone",
+        "FlushJob::MemPurge:AfterWaitForTest"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int kValueSize = 10240;  // 10KB values like MemPurgeBasic
+  const int kNumKeys = 30;
+  Random rnd(301);
+
+  // Fill the memtable with overwrites of the same keys so MemPurge
+  // can compact them down (high garbage ratio). Each round is ~300KB,
+  // need ~3 rounds to approach the 1MB write_buffer_size.
+  for (int round = 0; round < 3; round++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(kValueSize)));
+    }
+  }
+
+  // One more round should trigger a flush with MemPurge in the background.
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(kValueSize)));
+  }
+
+  // Block until MemPurge reaches the sync point (db_mutex_ released).
+  TEST_SYNC_POINT("DBFlushTest::MemPurgeIdOrdering:StartWriting");
+
+  // Now MemPurge is paused with db_mutex_ released. Write enough data
+  // to fill another memtable and trigger a switch. This creates an
+  // immutable memtable with a higher ID than the one being mempurged.
+  for (int i = 0; i < kNumKeys * 4; i++) {
+    ASSERT_OK(Put("newkey" + std::to_string(i), rnd.RandomString(kValueSize)));
+  }
+
+  // Let MemPurge continue -- it will re-acquire the mutex and try to
+  // add the output memtable with the stale ID.
+  TEST_SYNC_POINT("DBFlushTest::MemPurgeIdOrdering:SwitchDone");
+
+  // Allow background work to finish.
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // If the bug is present, the assertion in AddMemTable fires before
+  // we reach here.
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_NE(Get("key" + std::to_string(i)), "NOT_FOUND");
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Close();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
@@ -3720,6 +3800,55 @@ INSTANTIATE_TEST_CASE_P(
                      // larger than the max allowed padding size
                      testing::Values(4, kLowSpaceOverheadRatio)));
 
+// Test that when the table builder's io_status becomes bad during flush
+// (simulating write fault injection), BuildTable properly propagates the
+// builder's IO error instead of producing a misleading Corruption from the
+// num_entries mismatch check.
+TEST_F(DBFlushTest, BuilderWriteFaultPropagationDuringFlush) {
+  Options options = CurrentOptions();
+  options.flush_verify_memtable_count = true;
+  options.table_factory.reset(
+      NewBlockBasedTableFactory(BlockBasedTableOptions()));
+
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i),
+                  std::string(100, 'v') + std::to_string(i)));
+  }
+
+  // Skip all Add() calls to simulate entries not being committed (builder
+  // stays empty), as happens when fault injection causes early returns.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add::skip",
+      [&](void* skip) { *(bool*)skip = true; });
+
+  // Inject an IOError into the builder's status before the empty check.
+  // This simulates the scenario where write fault injection puts the builder
+  // in an error state, causing all Add() calls to return early (ok() is false)
+  // and leaving the builder empty.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeCheckEmpty", [&](void* arg) {
+        auto* builder = static_cast<BlockBasedTableBuilder*>(
+            static_cast<TableBuilder*>(arg));
+        builder->TEST_InjectIOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // With the fix, the builder's IOError is propagated instead of the
+  // misleading Corruption from the key count mismatch check.
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsIOError())
+      << "Expected IOError from builder error propagation, got: "
+      << s.ToString();
+
+  Close();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

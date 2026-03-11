@@ -225,15 +225,20 @@ struct FileDescriptor {
 };
 
 struct FileSampledStats {
-  FileSampledStats() : num_reads_sampled(0) {}
+  FileSampledStats()
+      : num_reads_sampled(0), num_collapsible_entry_reads_sampled(0) {}
   FileSampledStats(const FileSampledStats& other) { *this = other; }
   FileSampledStats& operator=(const FileSampledStats& other) {
     num_reads_sampled = other.num_reads_sampled.load();
+    num_collapsible_entry_reads_sampled =
+        other.num_collapsible_entry_reads_sampled.load();
     return *this;
   }
 
   // number of user reads to this file.
   mutable std::atomic<uint64_t> num_reads_sampled;
+  // number of reads of type kNotFound, kMerge, kTypeSingleDeletion
+  mutable std::atomic<uint64_t> num_collapsible_entry_reads_sampled;
 };
 
 struct FileMetaData {

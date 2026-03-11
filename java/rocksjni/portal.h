@@ -5964,6 +5964,8 @@ class HistogramTypeJni {
         return 0x40;
       case ROCKSDB_NAMESPACE::Histograms::MULTISCAN_BLOCKS_PER_PREPARE:
         return 0x41;
+      case ROCKSDB_NAMESPACE::Histograms::BLOCK_KEY_DISTRIBUTION_CV:
+        return 0x42;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6115,6 +6117,8 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::MULTISCAN_PREPARE_MICROS;
       case 0x41:
         return ROCKSDB_NAMESPACE::Histograms::MULTISCAN_BLOCKS_PER_PREPARE;
+      case 0x42:
+        return ROCKSDB_NAMESPACE::Histograms::BLOCK_KEY_DISTRIBUTION_CV;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -7030,6 +7034,8 @@ class IndexSearchTypeJni {
       case ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
           kInterpolation:
         return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::kAuto:
+        return 0x2;
       default:
         return 0x7F;  // undefined
     }
@@ -7046,6 +7052,9 @@ class IndexSearchTypeJni {
       case 0x1:
         return ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
             kInterpolation;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
+            kAuto;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::BlockBasedTableOptions::BlockSearchType::
@@ -9238,7 +9247,7 @@ class BlockBasedTableOptionsJni
     }
 
     jmethodID method_id_init = env->GetMethodID(
-        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZZJJBBBJD)V");
+        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZDZZJJBBBJD)V");
     if (method_id_init == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -9282,6 +9291,7 @@ class BlockBasedTableOptionsJni
         table_factory_options->read_amp_bytes_per_bit,
         table_factory_options->format_version,
         table_factory_options->separate_key_value_in_data_block,
+        table_factory_options->uniform_cv_threshold,
         table_factory_options->enable_index_compression,
         table_factory_options->block_align,
         static_cast<jlong>(table_factory_options->super_block_alignment_size),

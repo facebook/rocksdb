@@ -779,6 +779,35 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 #endif  // BBTB_PC_WATCHDOG
 };
 
+struct WarmCacheConfig {
+  const bool enabled;
+  const Cache::Priority priority;
+
+  static WarmCacheConfig Compute(
+      BlockBasedTableOptions::PrepopulateBlockCache mode,
+      TableFileCreationReason reason) {
+    bool enabled = false;
+    Cache::Priority priority = Cache::Priority::LOW;
+    switch (mode) {
+      case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
+        enabled = (reason == TableFileCreationReason::kFlush);
+        break;
+      case BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction:
+        enabled = (reason == TableFileCreationReason::kFlush ||
+                   reason == TableFileCreationReason::kCompaction);
+        if (reason == TableFileCreationReason::kCompaction) {
+          priority = Cache::Priority::BOTTOM;
+        }
+        break;
+      case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
+        break;
+      default:
+        assert(false);
+    }
+    return {enabled, priority};
+  }
+};
+
 struct BlockBasedTableBuilder::Rep {
   const ImmutableOptions ioptions;
   // BEGIN from MutableCFOptions
@@ -819,7 +848,6 @@ struct BlockBasedTableBuilder::Rep {
   PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_ikey;  // Internal key or empty (unset)
-  bool warm_cache = false;
   bool uses_explicit_compression_manager = false;
 
   uint64_t sample_for_compression;
@@ -921,6 +949,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
   RelaxedAtomic<uint64_t> worker_cpu_micros{0};
+  const WarmCacheConfig warm_cache_config;
   BlockCreateContext create_context;
 
   // The size of the "tail" part of a SST file. "Tail" refers to
@@ -1039,7 +1068,8 @@ struct BlockBasedTableBuilder::Rep {
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio, ts_sz,
                    persist_user_defined_timestamps, false /* is_user_key */,
-                   table_options.separate_key_value_in_data_block),
+                   table_options.separate_key_value_in_data_block,
+                   tbo.ioptions.stats),
         range_del_block(
             1 /* block_restart_interval */, true /* use_delta_encoding */,
             false /* use_value_delta_encoding */,
@@ -1065,6 +1095,8 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
+        warm_cache_config(WarmCacheConfig::Compute(
+            table_options.prepopulate_block_cache, reason)),
         create_context(&table_options, &ioptions, ioptions.stats,
                        /*decompressor=*/nullptr,
                        tbo.moptions.block_protection_bytes_per_key,
@@ -1199,19 +1231,6 @@ struct BlockBasedTableBuilder::Rep {
       // the table properties with placeholder info
     }
 
-    switch (table_options.prepopulate_block_cache) {
-      case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
-        warm_cache = (reason == TableFileCreationReason::kFlush);
-        break;
-      case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
-        warm_cache = false;
-        break;
-      default:
-        // missing case
-        assert(false);
-        warm_cache = false;
-    }
-
     const auto compress_dict_build_buffer_charged =
         table_options.cache_usage_options.options_overrides
             .at(CacheEntryRole::kCompressionDictionaryBuildingBuffer)
@@ -1233,13 +1252,15 @@ struct BlockBasedTableBuilder::Rep {
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps);
+          table_options, ts_sz, persist_user_defined_timestamps,
+          ioptions.stats);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps));
+          table_options, ts_sz, persist_user_defined_timestamps,
+          ioptions.stats));
     }
 
     // If user_defined_index_factory is provided, wrap the index builder with
@@ -2138,7 +2159,7 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     }
   }
 
-  if (r->warm_cache) {
+  if (r->warm_cache_config.enabled) {
     io_s = status_to_io_status(
         InsertBlockInCacheHelper(*uncompressed_block_data, handle, block_type));
     if (UNLIKELY(!io_s.ok())) {
@@ -2268,8 +2289,8 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     // (de)compression dictionary, which will clone and save a dict-based
     // decompressor from the corresponding non-dict decompressor.
     s = WarmInCache(block_cache, key.AsSlice(), block_contents,
-                    &rep_->create_context, helper, Cache::Priority::LOW,
-                    &charge);
+                    &rep_->create_context, helper,
+                    rep_->warm_cache_config.priority, &charge);
     if (LIKELY(s.ok())) {
       BlockBasedTable::UpdateCacheInsertionMetrics(
           block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
@@ -2855,6 +2876,12 @@ void BlockBasedTableBuilder::Abandon() {
   rep_->state = Rep::State::kClosed;
   rep_->GetIOStatus().PermitUncheckedError();
 }
+
+#ifndef NDEBUG
+void BlockBasedTableBuilder::TEST_InjectIOError() {
+  rep_->SetIOStatus(IOStatus::IOError("Injected IOError for testing"));
+}
+#endif  // !NDEBUG
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {
   return rep_->props.num_entries;

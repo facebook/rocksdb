@@ -264,6 +264,9 @@ struct BlockBasedTableOptions {
   IndexType index_type = kBinarySearch;
 
   // The search algorithm used when seeking to entries in the index block.
+  //
+  // Note: This option is only used at read time and is compatible with any type
+  // of block.
   enum BlockSearchType : char {
     // Standard binary search
     kBinary = 0x00,
@@ -274,6 +277,16 @@ struct BlockBasedTableOptions {
     // succesor can skew the end key and make interpolation search significantly
     // less performant.
     kInterpolation = 0x01,
+    // See `uniform_cv_threshold`. On the write path if `uniform_cv_threshold`
+    // >= 0, then it is possible for a block to be marked as "is_uniform=true"
+    // in the block footer via bit flag. On files from older versions or
+    // produced via `uniform_cv_threshold` < 0, blocks are always marked as
+    // "is_uniform=false".
+    //
+    // When kAuto is used, the search algorithm will use interpolation search if
+    // "is_uniform" flag is set in the block footer, otherwise it will use
+    // binary search.
+    kAuto = 0x02,
   };
 
   BlockSearchType index_block_search_type = kBinary;
@@ -620,6 +633,22 @@ struct BlockBasedTableOptions {
   // Default: false
   bool separate_key_value_in_data_block = false;
 
+  // Coefficient of variation (CV) threshold used to determine if keys in an
+  // index block are uniformly distributed. Lower CV means more "uniform", and
+  // the more likely interpolation search will outperform binary search.
+  //
+  // On the write path, if the CV of key gaps in an index
+  // block is less than this threshold, the "is_uniform" hint is set in that
+  // block's footer. To disable (i.e. always have "is_uniform=false"), set value
+  // to -1.
+  //
+  // On the read path, if `BlockSearchType::kAuto` is set, then it will use the
+  // is_uniform hint to select an appropriate search algorithm for the block.
+  //
+  // NOTE: Currently only supports index blocks. May update to include data
+  // blocks in the future.
+  double uniform_cv_threshold = -1;
+
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
   // and read back
@@ -710,17 +739,34 @@ struct BlockBasedTableOptions {
 
   // If enabled, prepopulate warm/hot blocks (data, uncompressed dict, index and
   // filter blocks) which are already in memory into block cache at the time of
-  // flush. On a flush, the block that is in memory (in memtables) get flushed
-  // to the device. If using Direct IO, additional IO is incurred to read this
-  // data back into memory again, which is avoided by enabling this option. This
+  // flush or compaction.
+  //
+  // On a flush, the data block that is in memory (in memtables) gets flushed to
+  // the device. If using Direct IO, additional IO is incurred to read this data
+  // back into memory again, which is avoided by enabling this option. This
   // further helps if the workload exhibits high temporal locality, where most
   // of the reads go to recently written data. This also helps in case of
   // Distributed FileSystem.
+  //
+  // On a compaction, output SST files are written to disk but not placed in the
+  // block cache by default. With tiered or remote storage (e.g., HDFS, S3),
+  // reading recently compacted data back incurs high latency.
+  // Enabling compaction warming avoids these cold reads. However, unlike flush
+  // output, it is hard to distinguish hot from cold blocks in compaction
+  // output, so warming all of it risks polluting the cache. To mitigate this,
+  // compaction-warmed blocks are inserted at BOTTOM priority (vs LOW for flush)
+  // so they are evicted first under cache pressure. Even so,
+  // kFlushAndCompaction is recommended only when most or all of the database is
+  // expected to reside in cache. For workloads where only a fraction of the
+  // data is hot, kFlushOnly is the safer choice.
   enum class PrepopulateBlockCache : char {
     // Disable prepopulate block cache.
     kDisable,
     // Prepopulate blocks during flush only.
     kFlushOnly,
+    // Prepopulate blocks during flush and compaction. Flush-warmed blocks are
+    // inserted at LOW priority, compaction-warmed blocks at BOTTOM priority.
+    kFlushAndCompaction,
   };
 
   PrepopulateBlockCache prepopulate_block_cache =

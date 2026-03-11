@@ -280,6 +280,14 @@ int db_stress_tool(int argc, char** argv) {
               "which is unsafe with mmap'd reads.\n");
       exit(1);
     }
+    if (FLAGS_enable_blob_files ||
+        FLAGS_allow_setting_blob_options_dynamically) {
+      fprintf(stderr,
+              "Error: use_trie_index is incompatible with BlobDB. "
+              "BlobDB writes kTypeBlobIndex entries in SSTs which are "
+              "non-Put types, not supported by user-defined index.\n");
+      exit(1);
+    }
   }
 
   if (FLAGS_read_only) {

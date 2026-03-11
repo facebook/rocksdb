@@ -2164,7 +2164,7 @@ class DBImpl : public DB {
   Status InsertLogRecordToMemtable(WriteBatch* batch_to_use,
                                    uint64_t wal_number,
                                    SequenceNumber* next_sequence,
-                                   bool* has_valid_writes);
+                                   bool* has_valid_writes, bool read_only);
 
   Status MaybeWriteLevel0TableForRecovery(
       bool has_valid_writes, bool read_only, uint64_t wal_number, int job_id,

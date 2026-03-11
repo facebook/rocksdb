@@ -622,6 +622,11 @@ DEFINE_int32(index_block_search_type,
              "Search algorithm for index blocks (see `enum BlockSearchType` in "
              "table.h)");
 
+DEFINE_double(uniform_cv_threshold,
+              ROCKSDB_NAMESPACE::BlockBasedTableOptions().uniform_cv_threshold,
+              "CV threshold for marking index blocks as uniform. Set to -1 to "
+              "disable. (see `uniform_cv_threshold` in table.h)");
+
 DEFINE_bool(
     use_trie_index, false,
     "Use trie-based user defined index (UDI) for SST files. "
@@ -1072,6 +1077,11 @@ DEFINE_bool(write_identity_file,
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
+
+DEFINE_bool(
+    enforce_write_buffer_manager_during_recovery,
+    ROCKSDB_NAMESPACE::Options().enforce_write_buffer_manager_during_recovery,
+    "Enforce write buffer manager memory limit during WAL recovery");
 
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,

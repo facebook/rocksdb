@@ -77,6 +77,7 @@ struct ImmutableDBOptions {
   WalFilter* wal_filter;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
+  bool enforce_write_buffer_manager_during_recovery;
   bool allow_ingest_behind;
   bool two_write_queues;
   bool manual_wal_flush;

@@ -117,6 +117,11 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   uint64_t GetWorkerCPUMicros() const override;
 
+#ifndef NDEBUG
+  // Test-only: inject an IOError into the builder's status.
+  void TEST_InjectIOError();
+#endif  // !NDEBUG
+
  private:
   bool ok() const;
 

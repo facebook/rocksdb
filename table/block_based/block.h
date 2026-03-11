@@ -172,6 +172,7 @@ class Block {
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const { return num_restarts_; }
   bool own_bytes() const { return contents_.own_bytes(); }
+  bool IsUniform() const { return is_uniform_; }
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
 
@@ -297,6 +298,7 @@ class Block {
   //   otherwise 0. Used by GetCorruptionStatus() to re-decode footer.
   uint32_t restart_offset_;
   uint32_t num_restarts_;
+  bool is_uniform_{false};
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   char* kv_checksum_{nullptr};
   uint32_t checksum_size_{0};

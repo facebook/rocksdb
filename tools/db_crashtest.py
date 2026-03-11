@@ -175,7 +175,8 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
-    "index_block_search_type": lambda: random.choice([0, 1]),
+    "index_block_search_type": lambda: random.choice([0, 1, 2]),
+    "uniform_cv_threshold": lambda: random.choice([-1, 0.2, 1000]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
@@ -296,6 +297,7 @@ default_params = {
     "avoid_flush_during_recovery": lambda: random.choice(
         [1 if t == 0 else 0 for t in range(0, 8)]
     ),
+    "enforce_write_buffer_manager_during_recovery": random.randint(0, 1),
     "max_write_batch_group_size_bytes": lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
@@ -326,7 +328,7 @@ default_params = {
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in": lambda: random.choice([0, 0, 32]),
     "compressed_secondary_cache_size": lambda: random.choice([8388608, 16777216]),
-    "prepopulate_block_cache": lambda: random.choice([0, 1]),
+    "prepopulate_block_cache": lambda: random.choice([0, 1, 2]),
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
@@ -903,6 +905,8 @@ def finalize_and_sanitize(src_params):
         # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
         # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
         dest_params["use_txn"] = 0
+        dest_params["use_optimistic_txn"] = 0
+        dest_params["test_multi_ops_txns"] = 0
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
@@ -915,11 +919,20 @@ def finalize_and_sanitize(src_params):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
-        # Trie UDI has a known issue with prefix scanning where certain prefix
-        # patterns cause "SeekToFirst not supported" errors. Disable prefix
-        # scanning and redistribute its percentage to reads.
+        # Trie UDI does not support SeekToFirst/SeekToLast. Prefix scanning
+        # calls SeekToFirst internally, so disable it. Additionally,
+        # LevelIterator::SkipEmptyFileForward() calls SeekToFirst() when
+        # Next() crosses file boundaries, so general iteration (iterpercent)
+        # also fails with trie UDI. Redistribute both to reads.
         dest_params["readpercent"] += dest_params.get("prefixpercent", 0)
         dest_params["prefixpercent"] = 0
+        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
+        dest_params["iterpercent"] = 0
+        # BlobDB writes kTypeBlobIndex entries in SSTs instead of kTypeValue,
+        # which violates UDI's Put-only restriction. Also disable dynamic
+        # blob options to prevent SetOptions from re-enabling blob files.
+        dest_params["enable_blob_files"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.

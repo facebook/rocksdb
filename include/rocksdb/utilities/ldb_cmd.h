@@ -57,6 +57,7 @@ class LDBCommand {
   static const std::string ARG_COMPRESSION_TYPE;
   static const std::string ARG_COMPRESSION_MAX_DICT_BYTES;
   static const std::string ARG_BLOCK_SIZE;
+  static const std::string ARG_UNIFORM_CV_THRESHOLD;
   static const std::string ARG_AUTO_COMPACTION;
   static const std::string ARG_DB_WRITE_BUFFER_SIZE;
   static const std::string ARG_WRITE_BUFFER_SIZE;
