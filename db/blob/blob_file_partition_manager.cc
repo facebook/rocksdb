@@ -754,25 +754,27 @@ bool BlobFilePartitionManager::GetPendingBlobValue(
   }
 
   Partition* partition = partitions_[part_idx].get();
-  PendingBlobValueEntry entry;
+  std::string raw_value;
+  CompressionType compression;
   {
     MutexLock lock(&partition->mutex);
     auto it = partition->pending_index.find({file_number, offset});
     if (it == partition->pending_index.end()) {
       return false;
     }
-    entry = it->second;
+    raw_value = *it->second.data;
+    compression = it->second.compression;
   }
 
-  if (entry.compression != kNoCompression) {
+  if (compression != kNoCompression) {
     auto decomp = GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
-        entry.compression);
+        compression);
     if (!decomp) {
       return false;
     }
     Decompressor::Args args;
-    args.compression_type = entry.compression;
-    args.compressed_data = Slice(*entry.data);
+    args.compression_type = compression;
+    args.compressed_data = Slice(raw_value);
     Status s = decomp->ExtractUncompressedSize(args);
     if (!s.ok()) {
       return false;
@@ -782,7 +784,7 @@ bool BlobFilePartitionManager::GetPendingBlobValue(
     return s.ok();
   }
 
-  *value = *entry.data;
+  *value = std::move(raw_value);
   return true;
 }
 
@@ -1345,6 +1347,17 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
     }
   }
   return Status::OK();
+}
+
+void BlobFilePartitionManager::GetActiveBlobFileNumbers(
+    std::unordered_set<uint64_t>* file_numbers) const {
+  assert(file_numbers);
+  for (const auto& partition : partitions_) {
+    MutexLock lock(&partition->mutex);
+    if (partition->file_number != 0) {
+      file_numbers->insert(partition->file_number);
+    }
+  }
 }
 
 void BlobFilePartitionManager::DumpTimingStats() const {}

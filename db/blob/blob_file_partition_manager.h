@@ -14,6 +14,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
@@ -52,13 +53,13 @@ class RoundRobinPartitionStrategy : public BlobFilePartitionStrategy {
  public:
   uint32_t SelectPartition(uint32_t num_partitions,
                            uint32_t /*column_family_id*/, const Slice& /*key*/,
-                           const Slice& /*value*/) override {
+                           const Slice& /*value*/) const override {
     return static_cast<uint32_t>(
         next_index_.fetch_add(1, std::memory_order_relaxed) % num_partitions);
   }
 
  private:
-  std::atomic<uint64_t> next_index_{0};
+  mutable std::atomic<uint64_t> next_index_{0};
 };
 
 // Manages partitioned blob files for the write-path blob direct write feature.

@@ -297,10 +297,12 @@ Status DBImpl::FlushMemTableToOutputFile(
         flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
       }
     }
-    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
-                      &switched_to_mempurge, &skip_set_bg_error,
-                      &error_handler_);
-    need_cancel = false;
+    if (s.ok()) {
+      s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
+                        &switched_to_mempurge, &skip_set_bg_error,
+                        &error_handler_);
+      need_cancel = false;
+    }
   }
 
   if (!s.ok() && need_cancel) {

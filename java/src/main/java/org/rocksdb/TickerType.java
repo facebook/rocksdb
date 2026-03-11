@@ -955,6 +955,11 @@ public enum TickerType {
      */
     MULTISCAN_SEEK_ERRORS((byte) -0x68),
 
+    // TODO: Java bindings for blob direct write options
+    // (enable_blob_direct_write, blob_direct_write_partitions, etc.)
+    // are not yet implemented. Add option mappings in
+    // ColumnFamilyOptions.java and MutableColumnFamilyOptions.java.
+
     /**
      * # of blobs written via blob direct write path.
      */

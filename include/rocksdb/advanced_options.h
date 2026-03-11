@@ -41,11 +41,11 @@ class BlobFilePartitionStrategy {
   // Select a partition index for the given key and value.
   // Returns a value in [0, num_partitions). Out-of-range values are
   // rejected with Status::InvalidArgument in release builds.
-  // Non-const to allow implementations that maintain state (e.g.,
-  // round-robin counters).
+  // Const: implementations needing internal state (e.g., round-robin
+  // counters) should use mutable or std::atomic members.
   virtual uint32_t SelectPartition(uint32_t num_partitions,
                                    uint32_t column_family_id, const Slice& key,
-                                   const Slice& value) = 0;
+                                   const Slice& value) const = 0;
 };
 
 enum CompactionStyle : char {
@@ -1183,6 +1183,11 @@ struct AdvancedColumnFamilyOptions {
   // to enable or disable. The structural options below (partitions,
   // buffer_size, etc.) are also immutable and only take effect at
   // DB::Open() time.
+  //
+  // NOTE: The partition manager is shared across all column families.
+  // When multiple CFs enable this feature with different settings,
+  // structural parameters (partitions, buffer_size, blob_file_size,
+  // etc.) are aggregated using max() across all CFs.
   bool enable_blob_direct_write = false;
 
   // Number of blob file partitions for concurrent write-path blob writes.
@@ -1201,6 +1206,11 @@ struct AdvancedColumnFamilyOptions {
   // buffer is full, amortizing I/O syscall overhead across multiple blobs.
   // Set to 0 to disable buffering (flush after every record).
   // Only used when enable_blob_direct_write = true.
+  //
+  // CRASH SAFETY: When buffer_size > 0 and sync=false, buffered blob
+  // records may be lost on crash even if the WAL survives. WAL replay
+  // will produce BlobIndex entries pointing to unwritten blob data.
+  // Use sync=true or buffer_size=0 to avoid this window.
   //
   // Default: 4194304 (4MB)
   uint64_t blob_direct_write_buffer_size = 4 * 1024 * 1024;

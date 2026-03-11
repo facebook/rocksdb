@@ -1132,6 +1132,8 @@ Status WriteBatchInternal::PutEntityRaw(WriteBatch* b,
     return Status::Corruption("PutEntityRaw: entity too small to be valid");
   }
 
+  LocalSavePoint save(b);
+
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
     b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
@@ -1144,7 +1146,15 @@ Status WriteBatchInternal::PutEntityRaw(WriteBatch* b,
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_PUT_ENTITY,
                           std::memory_order_relaxed);
-  return Status::OK();
+
+  if (b->prot_info_ != nullptr) {
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVO(key, entity, kTypeWideColumnEntity)
+            .ProtectC(column_family_id));
+  }
+
+  return save.commit();
 }
 
 Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
