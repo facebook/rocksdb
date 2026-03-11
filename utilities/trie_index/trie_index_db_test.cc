@@ -31,6 +31,7 @@
 #include "rocksdb/write_batch.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/compression.h"
 #include "utilities/merge_operators.h"
 #include "utilities/trie_index/trie_index_factory.h"
 
@@ -2256,7 +2257,8 @@ TEST_F(TrieIndexDBTest, CompactRangeSubset) {
   // Compact only the middle range [key_f, key_p).
   std::string begin = "key_f";
   std::string end = "key_p";
-  Slice begin_s(begin), end_s(end);
+  Slice begin_s(begin);
+  Slice end_s(end);
   CompactRangeOptions cro;
   ASSERT_OK(db_->CompactRange(cro, &begin_s, &end_s));
 
@@ -2373,6 +2375,10 @@ TEST_F(TrieIndexDBTest, EmptyValuePuts) {
 // Zlib compression: data blocks are compressed, UDI block is not.
 // Verifies that reads through the trie index work with compressed data.
 TEST_F(TrieIndexDBTest, CompressionZlib) {
+  if (!Zlib_Supported()) {
+    ROCKSDB_GTEST_SKIP("Zlib not linked");
+    return;
+  }
   options_.compression = kZlibCompression;
   ASSERT_OK(OpenDB(/*block_size=*/128));
 
@@ -2559,7 +2565,8 @@ TEST_F(TrieIndexDBTest, ManySmallSSTs) {
 
   // 50 flushes, 2 keys each → 50 SSTs.
   for (int f = 0; f < 50; f++) {
-    char k1[16], k2[16];
+    char k1[16];
+    char k2[16];
     snprintf(k1, sizeof(k1), "key_%04d", f * 2);
     snprintf(k2, sizeof(k2), "key_%04d", f * 2 + 1);
     ASSERT_OK(db_->Put(WriteOptions(), k1, "v" + std::to_string(f * 2)));
