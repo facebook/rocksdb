@@ -1860,7 +1860,7 @@ write_committed_transaction_ts_test: $(OBJ_DIR)/utilities/transactions/write_com
 write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-write_prepared_transaction_test_seqno: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test_seqno.o $(TEST_LIBRARY) $(LIBRARY)
+write_prepared_transaction_seqno_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_seqno_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unprepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)

@@ -5736,14 +5736,14 @@ cpp_unittest_wrapper(name="write_controller_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="write_prepared_transaction_test",
-            srcs=["utilities/transactions/write_prepared_transaction_test.cc"],
+cpp_unittest_wrapper(name="write_prepared_transaction_seqno_test",
+            srcs=["utilities/transactions/write_prepared_transaction_seqno_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="write_prepared_transaction_test_seqno",
-            srcs=["utilities/transactions/write_prepared_transaction_test_seqno.cc"],
+cpp_unittest_wrapper(name="write_prepared_transaction_test",
+            srcs=["utilities/transactions/write_prepared_transaction_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
