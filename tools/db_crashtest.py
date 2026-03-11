@@ -253,7 +253,7 @@ default_params = {
     "bloom_before_level": lambda: random.choice(
         [random.randint(-1, 2), random.randint(-1, 10), 0x7FFFFFFF - 1, 0x7FFFFFFF]
     ),
-    "value_size_mult": 32,
+    "value_size_mult": 31,
     "verification_only": 0,
     "verify_checksum": 1,
     "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
@@ -322,6 +322,8 @@ default_params = {
     "get_property_one_in": lambda: random.choice([100000, 1000000]),
     "get_properties_of_all_tables_one_in": lambda: random.choice([100000, 1000000]),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "verify_user_value_checksum_on_flush": lambda: random.choice([0, 0, 0, 1]),
+    "verify_user_value_checksum_on_compaction": lambda: random.choice([0, 0, 0, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]
     ),
@@ -1521,6 +1523,16 @@ def blackbox_crash_main(args, unknown_args):
     dbname = get_dbname("blackbox")
     exit_time = time.time() + cmd_params["duration"]
 
+    # User value checksum flags must be consistent across iterations because
+    # enabling checksum on a DB whose values were written without checksums
+    # causes false-positive corruption during compaction output verification.
+    for flag in (
+        "verify_user_value_checksum_on_flush",
+        "verify_user_value_checksum_on_compaction",
+    ):
+        if flag in cmd_params and callable(cmd_params[flag]):
+            cmd_params[flag] = cmd_params[flag]()
+
     print(
         "Running blackbox-crash-test with \n"
         + "interval_between_crash="
@@ -1583,6 +1595,16 @@ def blackbox_crash_main(args, unknown_args):
 def whitebox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
     dbname = get_dbname("whitebox")
+
+    # User value checksum flags must be consistent across iterations because
+    # enabling checksum on a DB whose values were written without checksums
+    # causes false-positive corruption during compaction output verification.
+    for flag in (
+        "verify_user_value_checksum_on_flush",
+        "verify_user_value_checksum_on_compaction",
+    ):
+        if flag in cmd_params and callable(cmd_params[flag]):
+            cmd_params[flag] = cmd_params[flag]()
 
     cur_time = time.time()
     exit_time = cur_time + cmd_params["duration"]

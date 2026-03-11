@@ -6,8 +6,11 @@
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/user_value_checksum.h"
 #include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
+#include "util/coding.h"
+#include "util/crc32c.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -110,6 +113,7 @@ class MyTestCompactionService : public CompactionService {
     options_override.prefix_extractor = options_.prefix_extractor;
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
+    options_override.user_value_checksum = options_.user_value_checksum;
     options_override.statistics = statistics_;
     options_override.info_log = options_.info_log;
     if (!listeners_.empty()) {
@@ -2864,6 +2868,136 @@ TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithTimedPut) {
 
   VerifyResumeBytes();
 }
+// UserValueChecksum implementation for compaction service test.
+// Value format: [user_data][4-byte CRC32c checksum]
+class CompactionServiceTestChecksum : public UserValueChecksum {
+ public:
+  const char* Name() const override { return "CompactionServiceTestChecksum"; }
+
+  Status Validate(const Slice& /*key*/, const Slice& value,
+                  ChecksumValueType /*value_type*/) const override {
+    if (value.size() < sizeof(uint32_t)) {
+      return Status::Corruption("Value too small for checksum");
+    }
+    size_t data_sz = value.size() - sizeof(uint32_t);
+    uint32_t stored = DecodeFixed32(value.data() + data_sz);
+    uint32_t computed = crc32c::Value(value.data(), data_sz);
+    if (stored != computed) {
+      return Status::Corruption("CRC32c checksum mismatch");
+    }
+    return Status::OK();
+  }
+
+  static std::string MakeValue(const std::string& data) {
+    std::string result = data;
+    uint32_t crc = crc32c::Value(data.data(), data.size());
+    PutFixed32(&result, crc);
+    return result;
+  }
+
+  static std::string MakeCorruptValue(const std::string& data) {
+    std::string result = data;
+    PutFixed32(&result, 0xDEADBEEF);  // bad checksum
+    return result;
+  }
+};
+
+TEST_F(CompactionServiceTest, UserValueChecksum) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  auto checksum = std::make_shared<CompactionServiceTestChecksum>();
+  options.user_value_checksum = checksum;
+  options.verify_user_value_checksum_on_compaction = true;
+  ReopenWithCompactionService(&options);
+
+  // Write checksummed values and flush to create L0 files
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), CompactionServiceTestChecksum::MakeValue(
+                              "value" + std::to_string(i))));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), CompactionServiceTestChecksum::MakeValue(
+                              "value_new" + std::to_string(i))));
+  }
+  ASSERT_OK(Flush());
+
+  // Trigger remote compaction
+  auto my_cs = GetCompactionService();
+  uint64_t comp_num = my_cs->GetCompactionNum();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  // Verify the compaction succeeded (checksums validated on remote side)
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+
+  // Verify that user value checksum validation actually ran on the remote
+  // compactor by checking the statistics counters.
+  ASSERT_GE(GetCompactorStatistics()->getTickerCount(
+                USER_VALUE_CHECKSUM_COMPUTE_COUNT),
+            20);
+  ASSERT_EQ(GetCompactorStatistics()->getTickerCount(
+                USER_VALUE_CHECKSUM_MISMATCH_COUNT),
+            0);
+
+  // Verify that the primary host did NOT redundantly re-validate user value
+  // checksums — the remote worker already did it.
+  ASSERT_EQ(
+      GetPrimaryStatistics()->getTickerCount(USER_VALUE_CHECKSUM_COMPUTE_COUNT),
+      0);
+
+  // Verify data is intact
+  for (int i = 0; i < 20; i++) {
+    auto val = Get(Key(i));
+    ASSERT_EQ(val, CompactionServiceTestChecksum::MakeValue("value_new" +
+                                                            std::to_string(i)));
+  }
+}
+
+TEST_F(CompactionServiceTest, UserValueChecksumCorruption) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  auto checksum = std::make_shared<CompactionServiceTestChecksum>();
+  options.user_value_checksum = checksum;
+  options.verify_user_value_checksum_on_compaction = true;
+  // Disable flush verification so corrupt values survive to L0 files
+  options.verify_user_value_checksum_on_flush = false;
+  ReopenWithCompactionService(&options);
+
+  // Write two overlapping L0 files with corrupt checksums.
+  // Overlapping keys across flushes prevent trivial move.
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), CompactionServiceTestChecksum::MakeCorruptValue(
+                              "value" + std::to_string(i))));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), CompactionServiceTestChecksum::MakeCorruptValue(
+                              "value_new" + std::to_string(i))));
+  }
+  ASSERT_OK(Flush());
+
+  // Trigger remote compaction — should fail due to corrupt checksums
+  auto my_cs = GetCompactionService();
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_NOK(s);
+
+  // Verify the remote compactor detected corruption
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_TRUE(result.status.IsCorruption()) << result.status.ToString();
+
+  // Verify mismatch counter was incremented on the compactor
+  ASSERT_GT(GetCompactorStatistics()->getTickerCount(
+                USER_VALUE_CHECKSUM_MISMATCH_COUNT),
+            0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

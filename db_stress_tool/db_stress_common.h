@@ -52,6 +52,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/user_value_checksum.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
@@ -333,6 +334,8 @@ DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_bool(verify_user_value_checksum_on_flush);
+DECLARE_bool(verify_user_value_checksum_on_compaction);
 DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint32(memtable_protection_bytes_per_key);
 DECLARE_uint32(block_protection_bytes_per_key);
@@ -457,6 +460,7 @@ DECLARE_double(compaction_on_deletion_ratio);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
+// Max value buffer size (including optional trailing 4-byte CRC32c checksum).
 constexpr int kValueMaxLen = 100;
 constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 
@@ -796,6 +800,51 @@ std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
 
 size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 uint32_t GetValueBase(Slice s);
+
+// UserValueChecksum implementation for stress testing. Validates a trailing
+// 4-byte CRC32c checksum that is appended by GenerateValue() when
+// verify_user_value_checksum_on_flush or
+// verify_user_value_checksum_on_compaction is true.
+class StressTestUserValueChecksum : public UserValueChecksum {
+ public:
+  const char* Name() const override { return "StressTestUserValueChecksum"; }
+
+  Status Validate(const Slice& /*key*/, const Slice& value,
+                  ChecksumValueType /*value_type*/) const override {
+    return ValidateCrc32c(value);
+  }
+
+  Status ValidateWideColumns(const Slice& /*key*/,
+                             const WideColumns& columns) const override {
+    // Validate the default column, which contains the full value with
+    // trailing CRC32c checksum (same format as plain Put values).
+    for (const auto& col : columns) {
+      if (col.name() == kDefaultWideColumnName) {
+        Slice value = col.value();
+        if (value.empty()) {
+          return Status::OK();
+        }
+        return ValidateCrc32c(value);
+      }
+    }
+    // No default column — skip validation
+    return Status::OK();
+  }
+
+ private:
+  static Status ValidateCrc32c(const Slice& value) {
+    if (value.size() < sizeof(uint32_t)) {
+      return Status::Corruption("Value too small for CRC32c checksum");
+    }
+    size_t data_sz = value.size() - sizeof(uint32_t);
+    uint32_t stored = DecodeFixed32(value.data() + data_sz);
+    uint32_t computed = crc32c::Value(value.data(), data_sz);
+    if (stored != computed) {
+      return Status::Corruption("CRC32c checksum mismatch");
+    }
+    return Status::OK();
+  }
+};
 
 WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
 WideColumns GenerateExpectedWideColumns(uint32_t value_base,

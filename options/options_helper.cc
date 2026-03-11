@@ -297,6 +297,10 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->max_sequential_skip_in_iterations =
       moptions.max_sequential_skip_in_iterations;
   cf_opts->paranoid_file_checks = moptions.paranoid_file_checks;
+  cf_opts->verify_user_value_checksum_on_flush =
+      moptions.verify_user_value_checksum_on_flush;
+  cf_opts->verify_user_value_checksum_on_compaction =
+      moptions.verify_user_value_checksum_on_compaction;
   cf_opts->report_bg_io_stats = moptions.report_bg_io_stats;
   cf_opts->compression = moptions.compression;
   cf_opts->compression_opts = moptions.compression_opts;

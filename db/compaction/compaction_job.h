@@ -238,6 +238,10 @@ class CompactionJob {
 
   CompactionJobStats* job_stats_;
 
+  const FileOptions& file_options_for_read() const {
+    return file_options_for_read_;
+  }
+
  private:
   friend class CompactionJobTestBase;
 
@@ -728,6 +732,12 @@ class CompactionServiceCompactionJob : private CompactionJob {
  private:
   // Get table file name in output_path
   std::string GetTableFileName(uint64_t file_number) override;
+  // Verify user value checksums on output files in output_path_.
+  // Unlike VerifyOutputFiles() which uses the table cache (resolving paths
+  // via cf_paths), this method opens files directly from output_path_ which
+  // is necessary for remote compaction where output files are in a separate
+  // directory from the DB.
+  Status VerifyUserValueChecksumsOnOutputFiles();
   // Specific the compaction output path, otherwise it uses default DB path
   const std::string output_path_;
 

@@ -29,6 +29,7 @@
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/user_value_checksum.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "util/compression.h"
@@ -87,6 +88,10 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       strict_max_successive_merges(options.strict_max_successive_merges),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
+      verify_user_value_checksum_on_flush(
+          options.verify_user_value_checksum_on_flush),
+      verify_user_value_checksum_on_compaction(
+          options.verify_user_value_checksum_on_compaction),
       force_consistency_checks(options.force_consistency_checks),
       report_bg_io_stats(options.report_bg_io_stats),
       disallow_memtable_writes(options.disallow_memtable_writes),
@@ -404,6 +409,14 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    optimize_filters_for_hits);
   ROCKS_LOG_HEADER(log, "               Options.paranoid_file_checks: %d",
                    paranoid_file_checks);
+  ROCKS_LOG_HEADER(log, "  Options.verify_user_value_checksum_on_flush: %d",
+                   verify_user_value_checksum_on_flush);
+  ROCKS_LOG_HEADER(log,
+                   "  Options.verify_user_value_checksum_on_compaction: %d",
+                   verify_user_value_checksum_on_compaction);
+  ROCKS_LOG_HEADER(
+      log, "               Options.user_value_checksum: %s",
+      user_value_checksum ? user_value_checksum->Name() : "nullptr");
   ROCKS_LOG_HEADER(log, "               Options.force_consistency_checks: %d",
                    force_consistency_checks);
   ROCKS_LOG_HEADER(log, "               Options.report_bg_io_stats: %d",

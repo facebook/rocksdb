@@ -1,0 +1,1 @@
+Added `UserValueChecksum` interface that allows applications to provide end-to-end value integrity checks. User-embedded checksums are validated during flush and compaction output verification by reading back the SST file after it is written. Controlled by `verify_user_value_checksum_on_flush` and `verify_user_value_checksum_on_compaction` options.

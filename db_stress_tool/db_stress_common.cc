@@ -275,6 +275,7 @@ static CompactionServiceOptionsOverride CreateOverrideOptions(
       .compaction_filter_factory = options.compaction_filter_factory,
       .prefix_extractor = options.prefix_extractor,
       .sst_partitioner_factory = options.sst_partitioner_factory,
+      .user_value_checksum = options.user_value_checksum,
       .listeners = options.listeners,
       .statistics = options.statistics,
       .table_properties_collector_factories =
@@ -582,6 +583,15 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   PutUnaligned(reinterpret_cast<uint32_t*>(v), rand);
   for (size_t i = sizeof(uint32_t); i < value_sz; i++) {
     v[i] = (char)(rand ^ i);
+  }
+  if (FLAGS_verify_user_value_checksum_on_flush ||
+      FLAGS_verify_user_value_checksum_on_compaction) {
+    // Append a trailing 4-byte CRC32c checksum for user value checksum
+    // validation. The checksum covers the original value bytes.
+    uint32_t crc = crc32c::Value(v, value_sz);
+    assert(value_sz + sizeof(uint32_t) <= max_sz);
+    EncodeFixed32(v + value_sz, crc);
+    value_sz += sizeof(uint32_t);
   }
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
