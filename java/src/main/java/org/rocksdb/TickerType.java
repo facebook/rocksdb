@@ -965,6 +965,11 @@ public enum TickerType {
      */
     BLOB_DB_DIRECT_WRITE_BYTES((byte) -0x6A),
 
+    /**
+     * # of times a writer stalled due to blob direct write backpressure.
+     */
+    BLOB_DB_DIRECT_WRITE_STALL_COUNT((byte) -0x6B),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

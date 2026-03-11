@@ -345,6 +345,11 @@ struct MutableCFOptions {
   uint64_t blob_compaction_readahead_size;
   int blob_file_starting_level;
   PrepopulateBlobCache prepopulate_blob_cache;
+  // Placed in MutableCFOptions for serialization/deserialization
+  // compatibility (same pattern as other blob options), but NOT dynamically
+  // changeable via SetOptions() (registered without kMutable flag).
+  // Requires DB reopen to change. The structural options (partitions,
+  // buffer_size, etc.) are in ImmutableCFOptions.
   bool enable_blob_direct_write;
 
   // Misc options

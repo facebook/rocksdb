@@ -243,22 +243,26 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
 
-  if (blob_partition_mgr_ || blob_file_cache_) {
-    // Write-path blob: decode once and use the shared 4-tier resolution.
-    BlobIndex blob_idx;
-    Status decode_s = blob_idx.DecodeFrom(blob_index);
-    if (!decode_s.ok()) {
-      return decode_s;
-    }
-    return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-        read_options, user_key, blob_idx, version_, blob_file_cache_,
-        blob_partition_mgr_, &blob_value_);
-  }
-
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
-  return version_->GetBlob(read_options, user_key, blob_index, prefetch_buffer,
-                           &blob_value_, bytes_read);
+
+  // Try the standard Version path first — this handles sealed blob files
+  // registered in the MANIFEST with no extra overhead. Only fall back to
+  // the 4-tier resolution (pending records, unsealed files) on failure.
+  Status s = version_->GetBlob(read_options, user_key, blob_index,
+                               prefetch_buffer, &blob_value_, bytes_read);
+  if (s.ok() || !(blob_partition_mgr_ || blob_file_cache_)) {
+    return s;
+  }
+
+  BlobIndex blob_idx;
+  s = blob_idx.DecodeFrom(blob_index);
+  if (!s.ok()) {
+    return s;
+  }
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options, user_key, blob_idx, version_, blob_file_cache_,
+      blob_partition_mgr_, &blob_value_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,

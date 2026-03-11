@@ -511,6 +511,14 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
                    result.blob_direct_write_partitions);
     result.blob_direct_write_partitions = 64;
   }
+  constexpr uint64_t kMaxBufferSize = 256ULL * 1024 * 1024;  // 256MB
+  if (result.blob_direct_write_buffer_size > kMaxBufferSize) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "blob_direct_write_buffer_size capped to 256MB (was %" PRIu64
+                   ")",
+                   result.blob_direct_write_buffer_size);
+    result.blob_direct_write_buffer_size = kMaxBufferSize;
+  }
 
   return result;
 }

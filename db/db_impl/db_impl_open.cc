@@ -2697,7 +2697,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           }
 
           // Read blob file header to determine the correct column family.
+          // Skip files with corrupt or unreadable headers — they are likely
+          // incomplete files from a crash during creation.
           uint32_t target_cf_id = 0;
+          bool header_valid = false;
           {
             std::unique_ptr<FSSequentialFile> file;
             fs_s = impl->immutable_db_options_.fs->NewSequentialFile(
@@ -2712,14 +2715,27 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                 Status hs = header.DecodeFrom(header_slice);
                 if (hs.ok()) {
                   target_cf_id = header.column_family_id;
+                  header_valid = true;
                 }
               }
             }
           }
+          if (!header_valid) {
+            ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
+                           "Skipping orphan blob file %" PRIu64
+                           " with corrupt/unreadable header",
+                           file_number);
+            continue;
+          }
 
-          // Fall back to CF 0 if the target CF doesn't exist.
+          // Skip files belonging to dropped column families — their data
+          // is no longer accessible and the file can be safely deleted.
           if (cf_map.find(target_cf_id) == cf_map.end()) {
-            target_cf_id = 0;
+            ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                           "Skipping orphan blob file %" PRIu64
+                           " for dropped CF %" PRIu32,
+                           file_number, target_cf_id);
+            continue;
           }
 
           // Read footer (if present) to get accurate blob_count and adjust
@@ -2748,13 +2764,24 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           }
           if (has_footer) {
             total_blob_bytes -= BlobLogFooter::kSize;
+          } else {
+            // For unsealed files, SharedBlobFileMetaData::GetBlobFileSize()
+            // always adds BlobLogFooter::kSize. Subtract it here so the
+            // computed size matches the actual file size on disk.
+            if (total_blob_bytes >= BlobLogFooter::kSize) {
+              total_blob_bytes -= BlobLogFooter::kSize;
+            }
           }
           uint64_t blob_count;
           if (has_footer && footer_blob_count > 0) {
             blob_count = footer_blob_count;
           } else {
+            // Conservative overestimate: divide by minimum record size
+            // (header only, no key/value). This guarantees the estimate is
+            // always >= the actual count, preventing consistency check
+            // failures when compaction GC counts exceed total_blob_count.
             blob_count =
-                std::max(total_blob_bytes / (BlobLogRecord::kHeaderSize + 100),
+                std::max(total_blob_bytes / BlobLogRecord::kHeaderSize,
                          static_cast<uint64_t>(1));
           }
           cf_orphans[target_cf_id].emplace_back(file_number, blob_count,
@@ -2842,6 +2869,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   // Initialize blob partition manager if any CF has blob direct write enabled.
+  // NOTE: The partition manager is shared across all column families. When
+  // multiple CFs enable blob direct write, structural settings (partitions,
+  // buffer_size, blob_file_size, etc.) are aggregated using max() across CFs.
+  // This means the largest value from any CF applies to all CFs. Per-CF
+  // partition managers would avoid this limitation but increase resource usage.
   if (s.ok()) {
     bool need_partition_manager = false;
     uint32_t max_partitions = 1;

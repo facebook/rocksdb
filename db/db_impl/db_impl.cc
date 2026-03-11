@@ -592,8 +592,17 @@ Status DBImpl::CloseHelper() {
   if (blob_partition_manager_) {
     WriteOptions wo;
     std::vector<BlobFileAddition> additions;
-    blob_partition_manager_->SealAllPartitions(wo, &additions)
-        .PermitUncheckedError();
+    Status seal_s = blob_partition_manager_->SealAllPartitions(wo, &additions);
+    if (!seal_s.ok()) {
+      ROCKS_LOG_ERROR(
+          immutable_db_options_.info_log,
+          "Failed to seal blob partitions during shutdown: %s. "
+          "Unsealed blob files will be recovered on next DB::Open.",
+          seal_s.ToString().c_str());
+      if (ret.ok()) {
+        ret = seal_s;
+      }
+    }
     // Save sealed blob file numbers so FindObsoleteFiles skips them
     // during shutdown cleanup.
     for (const auto& addition : additions) {
@@ -2678,8 +2687,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           BlobIndex blob_idx;
           s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
           if (s.ok()) {
-            // Resolve directly into get_impl_options.value to avoid an
-            // intermediate PinnableSlice copy.
             get_impl_options.value->Reset();
             BlobFileCache* blob_cache =
                 blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
@@ -2692,9 +2699,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                 blob_partition_manager_.get(), get_impl_options.value);
           }
           is_blob_index = false;
-        }
-
-        if (get_impl_options.value) {
+        } else if (get_impl_options.value) {
           get_impl_options.value->PinSelf();
         }
 
@@ -2727,9 +2732,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                 blob_partition_manager_.get(), get_impl_options.value);
           }
           is_blob_index = false;
-        }
-
-        if (get_impl_options.value) {
+        } else if (get_impl_options.value) {
           get_impl_options.value->PinSelf();
         }
 

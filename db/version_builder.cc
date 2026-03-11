@@ -281,6 +281,13 @@ class VersionBuilder::Rep {
   // version edits.
   std::map<uint64_t, MutableBlobFileMetaData> mutable_blob_file_metas_;
 
+  // Lazily-built reverse index: blob_file_number → SST numbers that
+  // reference it (via oldest_blob_file_number). Built once during the
+  // first ApplyBlobFileAddition to avoid O(levels * SSTs) per addition.
+  std::unordered_map<uint64_t, std::vector<uint64_t>>
+      sst_blob_reverse_index_;
+  bool sst_blob_reverse_index_built_ = false;
+
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
 
   ColumnFamilyData* cfd_;
@@ -774,21 +781,26 @@ class VersionBuilder::Rep {
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
 
     // Link existing SSTs that reference this blob file (via
-    // oldest_blob_file_number). This handles the case where SSTs were created
-    // before the blob file was registered (e.g., blob direct write recovery:
-    // SSTs with BlobIndex entries exist but blob files weren't in MANIFEST).
-    //
-    // PERFORMANCE NOTE: This scan is O(num_levels * num_ssts) per blob file
-    // addition. During recovery with many SSTs, this could be expensive.
-    // If blob files were registered in MANIFEST at creation time (with a
-    // "pending" state), this retroactive linking would be unnecessary.
+    // oldest_blob_file_number). Uses a lazily-built reverse index
+    // (blob_file_number → SST numbers) to avoid O(levels * SSTs) per
+    // blob file addition. The index is built once on first use.
     assert(base_vstorage_);
-    auto& mutable_meta = mutable_blob_file_metas_.at(blob_file_number);
-    for (int level = 0; level < num_levels_; level++) {
-      for (const auto* f : base_vstorage_->LevelFiles(level)) {
-        if (f->oldest_blob_file_number == blob_file_number) {
-          mutable_meta.LinkSst(f->fd.GetNumber());
+    if (!sst_blob_reverse_index_built_) {
+      for (int level = 0; level < num_levels_; level++) {
+        for (const auto* f : base_vstorage_->LevelFiles(level)) {
+          if (f->oldest_blob_file_number != kInvalidBlobFileNumber) {
+            sst_blob_reverse_index_[f->oldest_blob_file_number].push_back(
+                f->fd.GetNumber());
+          }
         }
+      }
+      sst_blob_reverse_index_built_ = true;
+    }
+    auto& mutable_meta = mutable_blob_file_metas_.at(blob_file_number);
+    auto rit = sst_blob_reverse_index_.find(blob_file_number);
+    if (rit != sst_blob_reverse_index_.end()) {
+      for (uint64_t sst_number : rit->second) {
+        mutable_meta.LinkSst(sst_number);
       }
     }
     // Also check SSTs added in the same batch of edits.

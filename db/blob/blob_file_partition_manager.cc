@@ -60,8 +60,6 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       buffer_size_(buffer_size),
       high_water_mark_(buffer_size_ > 0 ? buffer_size_ * 3 / 4 : 0),
       flush_interval_us_(flush_interval_ms * 1000),
-      compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
-          CompressionOptions{}, blob_compression_type)),
       blob_compression_type_(blob_compression_type),
       io_tracer_(io_tracer),
       listeners_(listeners),
@@ -202,7 +200,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   // The mutex is held during I/O, but this only blocks one partition and
   // file close is infrequent (once per blob_file_size bytes).
   if (buffer_size_ > 0 && !partition->pending_records.empty()) {
-    std::vector<PendingRecord> records =
+    std::deque<PendingRecord> records =
         std::move(partition->pending_records);
     partition->pending_records.clear();
     BlobLogWriter* writer = partition->writer.get();
@@ -214,7 +212,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
       uint64_t actual_blob_offset = 0;
       WriteOptions wo;
       flush_err = writer->AddRecord(wo, Slice(record.key),
-                                    Slice(*record.value), &key_offset,
+                                    Slice(record.value), &key_offset,
                                     &actual_blob_offset);
       if (!flush_err.ok()) {
         break;
@@ -227,7 +225,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
       }
 
       const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
-                                    record.key.size() + record.value->size();
+                                    record.key.size() + record.value.size();
       partition->pending_bytes.fetch_sub(record_bytes,
                                          std::memory_order_relaxed);
       ++records_written;
@@ -238,7 +236,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
     for (size_t i = records_written; i < records.size(); ++i) {
       const auto& rec = records[i];
       const uint64_t rec_bytes =
-          BlobLogRecord::kHeaderSize + rec.key.size() + rec.value->size();
+          BlobLogRecord::kHeaderSize + rec.key.size() + rec.value.size();
       partition->pending_bytes.fetch_sub(rec_bytes,
                                          std::memory_order_relaxed);
     }
@@ -378,7 +376,7 @@ Status BlobFilePartitionManager::SealDeferredFile(
     uint64_t key_offset = 0;
     uint64_t actual_blob_offset = 0;
     WriteOptions wo;
-    write_err = writer->AddRecord(wo, Slice(record.key), Slice(*record.value),
+    write_err = writer->AddRecord(wo, Slice(record.key), Slice(record.value),
                                   &key_offset, &actual_blob_offset);
     if (!write_err.ok()) {
       break;
@@ -391,7 +389,7 @@ Status BlobFilePartitionManager::SealDeferredFile(
     }
 
     const uint64_t record_bytes =
-        BlobLogRecord::kHeaderSize + record.key.size() + record.value->size();
+        BlobLogRecord::kHeaderSize + record.key.size() + record.value.size();
     partition->pending_bytes.fetch_sub(record_bytes,
                                        std::memory_order_relaxed);
     ++records_written;
@@ -402,7 +400,7 @@ Status BlobFilePartitionManager::SealDeferredFile(
   for (size_t i = records_written; i < deferred->records.size(); ++i) {
     const auto& rec = deferred->records[i];
     const uint64_t rec_bytes =
-        BlobLogRecord::kHeaderSize + rec.key.size() + rec.value->size();
+        BlobLogRecord::kHeaderSize + rec.key.size() + rec.value.size();
     partition->pending_bytes.fetch_sub(rec_bytes, std::memory_order_relaxed);
   }
 
@@ -413,7 +411,7 @@ Status BlobFilePartitionManager::SealDeferredFile(
 
   if (!write_err.ok()) {
     if (records_written > 0) {
-      std::vector<PendingRecord> written(
+      std::deque<PendingRecord> written(
           deferred->records.begin(),
           deferred->records.begin() +
               static_cast<std::ptrdiff_t>(records_written));
@@ -670,16 +668,16 @@ Status BlobFilePartitionManager::WriteBlobDeferred(
 
   const uint64_t fn = partition->file_number;
 
-  auto value_ptr = std::make_shared<std::string>(std::move(value_copy_));
   partition->pending_records.push_back(
-      {std::move(key_copy_), value_ptr, fn, *blob_offset});
+      {std::move(key_copy_), std::move(value_copy_), fn, *blob_offset});
   partition->pending_bytes.fetch_add(record_size, std::memory_order_relaxed);
 
   // Add to per-partition pending index for O(1) read path lookup.
-  // Shares ownership with pending_records — no value copy.
+  // Points into the deque element — stable because std::deque::push_back
+  // does not invalidate references to existing elements.
   // Partition mutex is already held by caller (WriteBlob).
-  partition->pending_index[{fn, *blob_offset}] = {value_ptr,
-                                                  partition->compression};
+  partition->pending_index[{fn, *blob_offset}] = {
+      &partition->pending_records.back().value, partition->compression};
 
   return Status::OK();
 }
@@ -701,14 +699,14 @@ Status BlobFilePartitionManager::WriteBlobSync(
 }
 
 void BlobFilePartitionManager::RemoveFromPendingIndexLocked(
-    Partition* partition, const std::vector<PendingRecord>& records) {
+    Partition* partition, const std::deque<PendingRecord>& records) {
   for (const auto& r : records) {
     partition->pending_index.erase({r.file_number, r.blob_offset});
   }
 }
 
 void BlobFilePartitionManager::RemoveFromPendingIndex(
-    Partition* partition, const std::vector<PendingRecord>& records) {
+    Partition* partition, const std::deque<PendingRecord>& records) {
   MutexLock lock(&partition->mutex);
   RemoveFromPendingIndexLocked(partition, records);
 }
@@ -836,6 +834,7 @@ Status BlobFilePartitionManager::WriteBlob(
       MutexLock lock(&partition->mutex);
       if (partition->pending_bytes.load(std::memory_order_relaxed) >=
           buffer_size_) {
+        RecordTick(statistics_, BLOB_DB_DIRECT_WRITE_STALL_COUNT);
         TEST_SYNC_POINT(
             "BlobFilePartitionManager::WriteBlob:BackpressureStall");
         partition->pending_cv.TimedWait(clock_->NowMicros() + 1000);
@@ -846,19 +845,24 @@ Status BlobFilePartitionManager::WriteBlob(
   bool need_flush = false;
   DeferredSeal deferred_seal;
 
-  // Compress OUTSIDE the mutex using a per-call working area.
-  // This avoids serializing all writers per-partition at compression throughput.
+  // Compress OUTSIDE the mutex using a per-call compressor matching the CF's
+  // compression type. Each CF may have a different compression type, so we
+  // must not use a single global compressor.
   GrowableBuffer compressed_buf;
   Slice write_value = value;
-  if (compressor_) {
-    auto wa = compressor_->ObtainWorkingArea();
-    StopWatch stop_watch(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-    Status s = LegacyForceBuiltinCompression(*compressor_, &wa, value,
-                                             &compressed_buf);
-    if (!s.ok()) {
-      return s;
+  if (compression != kNoCompression) {
+    auto compressor = GetBuiltinV2CompressionManager()->GetCompressor(
+        CompressionOptions{}, compression);
+    if (compressor) {
+      auto wa = compressor->ObtainWorkingArea();
+      StopWatch stop_watch(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
+      Status s =
+          LegacyForceBuiltinCompression(*compressor, &wa, value, &compressed_buf);
+      if (!s.ok()) {
+        return s;
+      }
+      write_value = Slice(compressed_buf);
     }
-    write_value = Slice(compressed_buf);
   }
 
   // Pre-copy key and (compressed) value OUTSIDE the mutex for deferred mode.
@@ -977,7 +981,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   //    processes it (sequentially, after this flush completes).
   // 2. No other code path calls FlushPendingRecords (backpressure submits to
   //    BG thread and waits).
-  std::vector<PendingRecord> records;
+  std::deque<PendingRecord> records;
   BlobLogWriter* writer = nullptr;
   {
     MutexLock lock(&partition->mutex);
@@ -1003,7 +1007,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     uint64_t key_offset = 0;
     uint64_t actual_blob_offset = 0;
 
-    flush_status = writer->AddRecord(wo, Slice(record.key), Slice(*record.value),
+    flush_status = writer->AddRecord(wo, Slice(record.key), Slice(record.value),
                                      &key_offset, &actual_blob_offset);
     if (!flush_status.ok()) {
       break;
@@ -1016,7 +1020,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
     }
 
     const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
-                                  record.key.size() + record.value->size();
+                                  record.key.size() + record.value.size();
 
     partition->pending_bytes.fetch_sub(record_bytes,
                                       std::memory_order_relaxed);
@@ -1037,7 +1041,7 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   for (size_t i = records_written; i < records.size(); ++i) {
     const auto& rec = records[i];
     const uint64_t rec_bytes =
-        BlobLogRecord::kHeaderSize + rec.key.size() + rec.value->size();
+        BlobLogRecord::kHeaderSize + rec.key.size() + rec.value.size();
     partition->pending_bytes.fetch_sub(rec_bytes, std::memory_order_relaxed);
   }
 
@@ -1071,7 +1075,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
 
   // Fast path: skip if no blobs have been written since the last seal.
   // Also collect any completed file additions from background seals.
-  if (blobs_written_since_seal_.load(std::memory_order_relaxed) == 0) {
+  // Use exchange(0) instead of load()+store(0) to avoid losing increments
+  // from writers that race between Phase 1 capture and the reset.
+  if (blobs_written_since_seal_.exchange(0, std::memory_order_relaxed) == 0) {
     TakeCompletedBlobFileAdditions(additions);
     return Status::OK();
   }
@@ -1162,7 +1168,7 @@ Status BlobFilePartitionManager::SealAllPartitions(
     for (auto& record : seal.records) {
       uint64_t key_offset = 0;
       uint64_t actual_blob_offset = 0;
-      s = writer->AddRecord(wo, Slice(record.key), Slice(*record.value),
+      s = writer->AddRecord(wo, Slice(record.key), Slice(record.value),
                             &key_offset, &actual_blob_offset);
       if (!s.ok()) {
         break;
@@ -1175,7 +1181,7 @@ Status BlobFilePartitionManager::SealAllPartitions(
       }
 
       const uint64_t record_bytes = BlobLogRecord::kHeaderSize +
-                                    record.key.size() + record.value->size();
+                                    record.key.size() + record.value.size();
       partition->pending_bytes.fetch_sub(record_bytes,
                                          std::memory_order_relaxed);
       ++records_written;
@@ -1185,7 +1191,7 @@ Status BlobFilePartitionManager::SealAllPartitions(
     for (size_t i = records_written; i < seal.records.size(); ++i) {
       const auto& rec = seal.records[i];
       const uint64_t rec_bytes =
-          BlobLogRecord::kHeaderSize + rec.key.size() + rec.value->size();
+          BlobLogRecord::kHeaderSize + rec.key.size() + rec.value.size();
       partition->pending_bytes.fetch_sub(rec_bytes,
                                          std::memory_order_relaxed);
     }
@@ -1233,7 +1239,7 @@ Status BlobFilePartitionManager::SealAllPartitions(
     // index. Unwritten records remain visible to reads; cleaned up on
     // destruction.
     if (records_written > 0) {
-      std::vector<PendingRecord> written_records(
+      std::deque<PendingRecord> written_records(
           seal.records.begin(),
           seal.records.begin() +
               static_cast<std::ptrdiff_t>(records_written));
@@ -1248,8 +1254,6 @@ Status BlobFilePartitionManager::SealAllPartitions(
       first_error = s;
     }
   }
-
-  blobs_written_since_seal_.store(0, std::memory_order_relaxed);
 
   // Release the seal-in-progress flag so BG threads can resume.
   if (buffer_size_ > 0) {
@@ -1403,8 +1407,10 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
   }
 
   // Tier 4: Retry pending records. The BG thread may have picked up
-  // the records between our tier-1 check and the file read.
-  if (!s.ok() && s.IsCorruption() && partition_mgr) {
+  // the records between our tier-1 check and the file read. Retry on
+  // any error (not just Corruption) to handle transient IOError, NotFound,
+  // etc. when the data still exists in memory.
+  if (!s.ok() && partition_mgr) {
     std::string pending_value;
     if (partition_mgr->GetPendingBlobValue(blob_idx.file_number(),
                                            blob_idx.offset(), &pending_value)) {

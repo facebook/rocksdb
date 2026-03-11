@@ -20,7 +20,6 @@
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_write_batch_transformer.h"
 #include "port/port.h"
-#include "rocksdb/advanced_compression.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
@@ -37,7 +36,6 @@ class BlobFileCache;
 class BlobFileCompletionCallback;
 class BlobIndex;
 class BlobLogWriter;
-class Compressor;
 class Decompressor;
 class IOTracer;
 class Logger;
@@ -157,6 +155,12 @@ class BlobFilePartitionManager {
   // Returns true if deferred flush mode is active.
   bool IsDeferredFlushMode() const { return buffer_size_ > 0; }
 
+  // Collect blob file numbers currently open for writing. Used by
+  // FindObsoleteFiles to prevent DeleteObsoleteFiles from deleting
+  // active blob files that haven't been registered in the MANIFEST yet.
+  void GetActiveBlobFileNumbers(
+      std::unordered_set<uint64_t>* file_numbers) const;
+
   using SettingsMap = std::unordered_map<uint32_t, BlobDirectWriteSettings>;
 
   // Get cached blob direct write settings for a column family.
@@ -177,6 +181,10 @@ class BlobFilePartitionManager {
   // Called only during DB open (single-threaded, no concurrent readers).
   // Creates a new immutable snapshot via copy-on-write; old snapshots are
   // retired and freed at destruction.
+  // NOTE: Dynamic option changes via SetOptions() are NOT reflected here.
+  // If enable_blob_direct_write, min_blob_size, or compression settings
+  // change at runtime, the cached settings become stale. This is acceptable
+  // because enable_blob_direct_write requires DB reopen to change.
   void UpdateCachedSettings(uint32_t cf_id,
                             const BlobDirectWriteSettings& settings) {
     std::lock_guard<std::mutex> lock(settings_write_mutex_);
@@ -208,15 +216,17 @@ class BlobFilePartitionManager {
 
  private:
   // A pending blob record waiting to be flushed to disk.
-  // key/value Slices point into rep_owner's buffer (zero-copy from WriteBatch).
+  // Owns the key and value data. Use std::list so that pointers into
+  // elements remain stable across insertions (pending_index stores raw
+  // pointers into these records).
   struct PendingRecord {
     std::string key;
-    std::shared_ptr<std::string> value;
+    std::string value;
     uint64_t file_number;
     uint64_t blob_offset;
   };
 
-  // Key for the global pending blob index (O(1) lookup by file+offset).
+  // Key for the per-partition pending blob index (O(1) lookup by file+offset).
   struct PendingBlobKey {
     uint64_t file_number;
     uint64_t blob_offset;
@@ -232,14 +242,14 @@ class BlobFilePartitionManager {
   };
 
   struct PendingBlobValueEntry {
-    std::shared_ptr<std::string> data;
+    const std::string* data;  // Non-owning pointer into PendingRecord::value
     CompressionType compression;
   };
 
   // State captured under the mutex for deferred sealing outside the mutex.
   struct DeferredSeal {
     std::unique_ptr<BlobLogWriter> writer;
-    std::vector<PendingRecord> records;
+    std::deque<PendingRecord> records;
     uint64_t file_number = 0;
     uint64_t blob_count = 0;
     uint64_t total_blob_bytes = 0;
@@ -264,8 +274,10 @@ class BlobFilePartitionManager {
     CompressionType compression = kNoCompression;
     uint64_t unflushed_bytes = 0;
 
-    // Deferred flush state
-    std::vector<PendingRecord> pending_records;
+    // Deferred flush state. Uses std::deque so that push_back does not
+    // invalidate pointers to existing elements (pending_index stores raw
+    // pointers into PendingRecord::value).
+    std::deque<PendingRecord> pending_records;
     std::atomic<uint64_t> pending_bytes{0};
     uint64_t next_write_offset = 0;
 
@@ -289,9 +301,9 @@ class BlobFilePartitionManager {
   };
 
   void RemoveFromPendingIndex(Partition* partition,
-                              const std::vector<PendingRecord>& records);
+                              const std::deque<PendingRecord>& records);
   void RemoveFromPendingIndexLocked(Partition* partition,
-                                    const std::vector<PendingRecord>& records);
+                                    const std::deque<PendingRecord>& records);
 
   void AddFilePartitionMapping(uint64_t file_number, uint32_t partition_idx);
   void RemoveFilePartitionMapping(uint64_t file_number);
@@ -347,7 +359,6 @@ class BlobFilePartitionManager {
   uint64_t high_water_mark_;
   uint64_t flush_interval_us_;  // Periodic flush interval in microseconds.
 
-  std::shared_ptr<Compressor> compressor_;  // null for kNoCompression
   CompressionType blob_compression_type_;
 
   std::shared_ptr<IOTracer> io_tracer_;
