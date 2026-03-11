@@ -1560,6 +1560,19 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
       }
     }
 
+    // Detect corruption in the upper 32 bits of value.size(). A single bit
+    // flip in Slice::size_ (e.g., from a hardware error) can inflate the size
+    // beyond uint32_t range. BlockBuilder encodes value length as varint32
+    // (truncating via static_cast<uint32_t>) but appends using the full 64-bit
+    // size, silently writing gigabytes of heap garbage into the block.
+    if (UNLIKELY(value.size() !=
+                 static_cast<size_t>(static_cast<uint32_t>(value.size())))) {
+      r->SetStatus(Status::Corruption(
+          "Value size " + std::to_string(value.size()) +
+          " exceeds uint32_t range, likely memory corruption"));
+      return;
+    }
+
     r->data_block.AddWithLastKey(ikey, value, r->last_ikey);
     r->last_ikey.assign(ikey.data(), ikey.size());
     assert(!r->last_ikey.empty());

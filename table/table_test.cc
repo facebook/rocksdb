@@ -9755,6 +9755,55 @@ INSTANTIATE_TEST_CASE_P(
     testing::Combine(testing::Values(BytewiseComparator(),
                                      ReverseBytewiseComparator()),
                      testing::Bool(), testing::Bool()));
+
+// Verify that BlockBasedTableBuilder::Add detects when value.size() has upper
+// 32 bits set (e.g., from a hardware bit flip) and sets Status::Corruption
+// instead of silently writing corrupted data.
+TEST_F(PlainTableTest, ValueSliceSizeCorruptionDetection) {
+  Options options;
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "" /* don't care */, FileOptions()));
+
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
+                          &internal_tbl_prop_coll_factories, kNoCompression,
+                          CompressionOptions(), kUnknownColumnFamily,
+                          "" /* column_family_name */, -1 /* level */,
+                          kUnknownNewestKeyTime),
+      file_writer.get()));
+
+  // Add a valid entry first.
+  InternalKey ik1("key1", 1, kTypeValue);
+  std::string val1(100, 'v');
+  builder->Add(ik1.Encode(), val1);
+  ASSERT_OK(builder->status());
+
+  // Simulate a bit-32 flip in the value Slice's size_ field.  The Slice points
+  // to a valid 100-byte buffer, but size_ is corrupted to
+  // 100 | (1 << 32) = 4294967396.
+  InternalKey ik2("key2", 1, kTypeValue);
+  std::string val2(100, 'w');
+  Slice corrupted_value(val2);
+  corrupted_value.size_ |= (size_t{1} << 32);
+
+  builder->Add(ik2.Encode(), corrupted_value);
+  ASSERT_TRUE(builder->status().IsCorruption());
+  ASSERT_NE(std::string::npos,
+            builder->status().ToString().find("exceeds uint32_t range"));
+
+  builder->Abandon();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
