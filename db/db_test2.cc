@@ -7694,16 +7694,28 @@ TEST_P(DBTestConcurrentRangeTombstoneConversions,
   // Wait for deletions to land before reading.
   deleter_thread.join();
 
-  // 4 read threads all scan keys 20-30 to hit the contiguous point tombstones.
+  // 4 forward + 4 reverse read threads scan keys 20-30 to hit the contiguous
+  // point tombstones.
   std::vector<port::Thread> reader_threads;
-  reader_threads.reserve(4);
+  reader_threads.reserve(8);
   for (int t = 0; t < 4; t++) {
+    // Forward readers
     reader_threads.emplace_back([&] {
       ReadOptions ro;
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
       iter->Seek(Key(20));
       while (iter->Valid() && iter->key().compare(Key(30)) < 0) {
         iter->Next();
+      }
+      ASSERT_OK(iter->status());
+    });
+    // Reverse readers
+    reader_threads.emplace_back([&] {
+      ReadOptions ro;
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+      iter->SeekForPrev(Key(30));
+      while (iter->Valid() && iter->key().compare(Key(20)) >= 0) {
+        iter->Prev();
       }
       ASSERT_OK(iter->status());
     });
@@ -7723,13 +7735,42 @@ TEST_P(DBTestConcurrentRangeTombstoneConversions,
     ASSERT_GT(inserted + tossed, 0);
   }
 
-  // Verify DB is still consistent.
+  // Build expected keys: 10-19, 30-39, 50-59, 70-79, 90-99 are alive.
+  // Keys 0-9 removed by Put+SingleDelete which also covers the SST entry.
+  // Keys 20-29 deleted, 40-49/60-69/80-89 range-deleted.
+  std::vector<std::string> expected_keys;
+  for (int i = 0; i < 100; i++) {
+    if ((i >= 0 && i < 10) || (i >= 20 && i < 30) || (i >= 40 && i < 50) ||
+        (i >= 60 && i < 70) || (i >= 80 && i < 90)) {
+      continue;
+    }
+    expected_keys.push_back(Key(i));
+  }
+
+  // Verify forward iteration matches expected keys and values.
   {
     ReadOptions ro;
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    int idx = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next(), idx++) {
+      ASSERT_LT(idx, static_cast<int>(expected_keys.size()));
+      ASSERT_EQ(iter->key().ToString(), expected_keys[idx]);
     }
     ASSERT_OK(iter->status());
+    ASSERT_EQ(idx, static_cast<int>(expected_keys.size()));
+  }
+
+  // Verify reverse iteration matches expected keys in reverse order.
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int idx = static_cast<int>(expected_keys.size()) - 1;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev(), idx--) {
+      ASSERT_GE(idx, 0);
+      ASSERT_EQ(iter->key().ToString(), expected_keys[idx]);
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(idx, -1);
   }
 }
 

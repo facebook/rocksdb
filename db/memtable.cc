@@ -870,8 +870,14 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
     return false;
   }
 
+#ifndef NDEBUG
+  std::pair<Slice, Slice> range{start_key, end_key};
+  TEST_SYNC_POINT_CALLBACK(
+      "MemTable::AddLogicallyRedundantRangeTombstone:AddRange", &range);
+#endif  // !NDEBUG
+
   // Prevents racing with MarkImmutable()
-  std::lock_guard<std::mutex> lk(immutable_mutex_);
+  ReadLock rl(&immutable_mutex_);
   if (is_immutable_.LoadRelaxed()) {
     return false;
   }

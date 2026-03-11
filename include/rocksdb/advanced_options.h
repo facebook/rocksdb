@@ -1279,8 +1279,8 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
-  // During forward iteration, when this many or more strictly contiguous
-  // point tombstones (kTypeDeletion, kTypeDeletionWithTimestamp,
+  // During forward or reverse iteration, when this many or more strictly
+  // contiguous point tombstones (kTypeDeletion, kTypeDeletionWithTimestamp,
   // kTypeSingleDeletion) are encountered with no live keys between them,
   // a range tombstone [first_tombstone_key, next_live_key) is inserted into
   // the current mutable memtable. This is a logically redundant entry that does

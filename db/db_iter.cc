@@ -187,6 +187,7 @@ void DBIter::Next() {
   bool ok = true;
   if (direction_ == kReverse) {
     is_key_seqnum_zero_ = false;
+    ResetContiguousTombstoneTracking();
     if (!ReverseToForward()) {
       ok = false;
     }
@@ -638,8 +639,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     }
   } while (iter_.Valid());
 
-  // End of iteration — discard any accumulated tombstones since there is no
-  // next key to use as the exclusive end bound for a range tombstone.
+  // If we accumulated tombstones and have an upper bound, use it as the
+  // exclusive end key for the range tombstone.
+  if (contiguous_tombstone_count_ > 0 && iterate_upper_bound_ != nullptr) {
+    MaybeInsertRangeTombstone(*iterate_upper_bound_);
+  }
   ResetContiguousTombstoneTracking();
 
   valid_ = false;
@@ -779,11 +783,16 @@ void DBIter::Prev() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
-  ResetContiguousTombstoneTracking();
   bool ok = true;
   if (direction_ == kForward) {
+    ResetContiguousTombstoneTracking();
     if (!ReverseToBackward()) {
       ok = false;
+    }
+    // Transitioning to reverse: current key is the end bound
+    if (ok && min_tombstones_for_range_conversion_ > 0) {
+      range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                     !saved_key_.IsKeyPinned());
     }
   }
   if (ok) {
@@ -887,6 +896,12 @@ bool DBIter::ReverseToBackward() {
 }
 
 void DBIter::PrevInternal(const Slice* prefix) {
+  // Capture saved_key_ (previous live key) into range_tomb_end_key_ before
+  // saved_key_ is overwritten below.
+  if (min_tombstones_for_range_conversion_ > 0) {
+    range_tomb_end_key_.MoveFrom(saved_key_);
+  }
+
   while (iter_.Valid()) {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
@@ -921,6 +936,22 @@ void DBIter::PrevInternal(const Slice* prefix) {
       return;
     }
 
+    // Track contiguous tombstones for reverse range tombstone conversion.
+    if (min_tombstones_for_range_conversion_ > 0 &&
+        range_tomb_end_key_.GetUserKey().size() > 0) {
+      if (!valid_) {
+        // Key was deleted — track it as part of contiguous run.
+        range_tomb_first_key_.SetUserKey(
+            saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
+                                         !iter_.iter()->IsKeyPinned());
+        contiguous_tombstone_count_++;
+      } else if (contiguous_tombstone_count_ > 0) {
+        // Live key found after a run of tombstones — insert if threshold met
+        MaybeInsertRangeTombstone(range_tomb_end_key_.GetUserKey());
+        ResetContiguousTombstoneTracking();
+      }
+    }
+
     // Whether or not we found a value for current key, we need iter_ to end up
     // on a smaller key.
     if (!FindUserKeyBeforeSavedKey()) {
@@ -935,6 +966,12 @@ void DBIter::PrevInternal(const Slice* prefix) {
     if (TooManyInternalKeysSkipped(false)) {
       return;
     }
+  }
+
+  if (contiguous_tombstone_count_ > 0 &&
+      range_tomb_end_key_.GetUserKey().size() > 0) {
+    MaybeInsertRangeTombstone(range_tomb_end_key_.GetUserKey());
+    ResetContiguousTombstoneTracking();
   }
 
   // We haven't found any key - iterator is not valid
@@ -1524,9 +1561,6 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   assert(active_mem_->GetEarliestSequenceNumber() <= sequence_ ||
          active_mem_->GetEarliestSequenceNumber() == kMaxSequenceNumber);
 
-  TEST_SYNC_POINT(
-      "DBIter::MaybeInsertRangeTombstone:BeforeAddLogicallyRedundant");
-
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
           sequence_, range_tomb_first_key_.GetUserKey(), end_key)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
@@ -1757,6 +1791,8 @@ void DBIter::Seek(const Slice& target) {
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ResetContiguousTombstoneTracking();
+  ResetRangeTombEndKey();
+
   MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
@@ -1835,6 +1871,8 @@ void DBIter::SeekForPrev(const Slice& target) {
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ResetContiguousTombstoneTracking();
+  ResetRangeTombEndKey();
+
   MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
@@ -1868,6 +1906,11 @@ void DBIter::SeekForPrev(const Slice& target) {
   } else {
     PrevInternal(nullptr);
   }
+  // Set end key for first Prev() call's tombstone tracking
+  if (valid_ && min_tombstones_for_range_conversion_ > 0) {
+    range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                   !saved_key_.IsKeyPinned());
+  }
 
   // Report stats and perf context.
   if (statistics_ != nullptr && valid_) {
@@ -1898,6 +1941,8 @@ void DBIter::SeekToFirst() {
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ResetContiguousTombstoneTracking();
+  ResetRangeTombEndKey();
+
   MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
@@ -1963,6 +2008,8 @@ void DBIter::SeekToLast() {
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ResetContiguousTombstoneTracking();
+  ResetRangeTombEndKey();
+
   MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
@@ -1972,6 +2019,11 @@ void DBIter::SeekToLast() {
     iter_.SeekToLast();
   }
   PrevInternal(nullptr);
+  // Set end key for first Prev() call's tombstone tracking
+  if (valid_ && min_tombstones_for_range_conversion_ > 0) {
+    range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                   !saved_key_.IsKeyPinned());
+  }
   if (statistics_ != nullptr) {
     RecordTick(statistics_, NUMBER_DB_SEEK);
     if (valid_) {

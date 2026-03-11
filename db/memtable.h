@@ -26,6 +26,7 @@
 #include "memory/concurrent_arena.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
@@ -34,6 +35,7 @@
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 #include "util/hash_containers.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -785,7 +787,7 @@ class MemTable final : public ReadOnlyMemTable {
   uint64_t GetMinLogContainingPrepSection() override;
 
   void MarkImmutable() override {
-    std::lock_guard<std::mutex> lk(immutable_mutex_);
+    WriteLock wl(&immutable_mutex_);
     is_immutable_.StoreRelaxed(true);
     table_->MarkReadOnly();
     mem_tracker_.DoneAllocating();
@@ -878,7 +880,7 @@ class MemTable final : public ReadOnlyMemTable {
   // Set to true by MarkImmutable(). Used as a "fast-path" to avoid acquiring
   // immutable_mutex_.
   RelaxedAtomic<bool> is_immutable_{false};
-  std::mutex immutable_mutex_;
+  port::RWMutex immutable_mutex_;
 
   // Total data size of all data inserted
   RelaxedAtomic<uint64_t> data_size_;

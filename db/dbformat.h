@@ -830,6 +830,58 @@ class IterKey {
 
   bool IsUserKey() const { return is_user_key_; }
 
+  // Transfers ownership of other's key buffer into this IterKey.
+  // After the call, other is left in a valid-but-cleared state (size 0,
+  // using inline buffer). This avoids copying when the source will be
+  // overwritten immediately anyway.
+  void MoveFrom(IterKey& other) {
+    // Free our existing heap buffer if any.
+    ResetBuffer();
+    ResetSecondaryBuffer();
+
+    bool other_key_in_buf = (other.key_ == other.buf_);
+    bool other_key_in_sec = (other.key_ == other.secondary_buf_);
+
+    // --- Transfer primary buffer ---
+    if (other.buf_ != other.space_) {
+      // other is on heap: steal the pointer
+      buf_ = other.buf_;
+      buf_size_ = other.buf_size_;
+    } else {
+      // other is inline: copy into our inline space
+      memcpy(space_, other.space_, other.key_size_);
+      buf_ = space_;
+      buf_size_ = kInlineBufferSize;
+    }
+
+    // --- Transfer secondary buffer ---
+    if (other.secondary_buf_ != other.space_for_secondary_buf_) {
+      secondary_buf_ = other.secondary_buf_;
+      secondary_buf_size_ = other.secondary_buf_size_;
+    } else {
+      memcpy(space_for_secondary_buf_, other.space_for_secondary_buf_,
+             other.secondary_buf_size_);
+      secondary_buf_ = space_for_secondary_buf_;
+      secondary_buf_size_ = kInlineBufferSize;
+    }
+
+    // --- Redirect key_ ---
+    if (other_key_in_buf) {
+      key_ = buf_;
+    } else if (other_key_in_sec) {
+      key_ = secondary_buf_;
+    } else {
+      // Pinned to external memory — keep the same pointer
+      key_ = other.key_;
+    }
+
+    key_size_ = other.key_size_;
+    is_user_key_ = other.is_user_key_;
+    key_slices_ = other.key_slices_;
+
+    other.Clear();
+  }
+
  private:
   char* buf_;
   const char* key_;

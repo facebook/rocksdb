@@ -178,6 +178,47 @@ TEST_F(FormatTest, IterKeyOperation) {
                         "abcdefghijklmnopqrstuvwxyz"));
 }
 
+TEST_F(FormatTest, IterKeyMoveFrom) {
+  // Inline: key fits in space_[]
+  {
+    IterKey dst, src;
+    src.SetInternalKey("short_key");
+    dst.MoveFrom(src);
+    ASSERT_EQ(dst.GetKey().ToString(), "short_key");
+    ASSERT_FALSE(dst.IsUserKey());
+    ASSERT_EQ(src.GetUserKey().size(), 0);
+    // src reusable after move
+    src.SetUserKey("reused");
+    ASSERT_EQ(src.GetUserKey().ToString(), "reused");
+  }
+
+  // Heap: key exceeds kInlineBufferSize (39 bytes)
+  {
+    IterKey dst, src;
+    std::string long_key(50, 'A');
+    src.SetUserKey(long_key);
+    dst.MoveFrom(src);
+    ASSERT_EQ(dst.GetUserKey().ToString(), long_key);
+    ASSERT_EQ(src.GetUserKey().size(), 0);
+  }
+
+  // Secondary buffer: TrimAppendWithTimestamp alternates key_ to secondary_buf_
+  {
+    IterKey dst, src;
+    src.SetUserKey("abc");
+    // After SetUserKey, key_ == buf_. TrimAppendWithTimestamp switches key_
+    // to secondary_buf_.
+    size_t ts_sz = sizeof(uint64_t);
+    src.TrimAppendWithTimestamp(1, "de", 2, ts_sz);
+    std::string expected = std::string("ade") + std::string(ts_sz, '\0');
+    ASSERT_EQ(src.GetUserKey().ToString(), expected);
+
+    dst.MoveFrom(src);
+    ASSERT_EQ(dst.GetUserKey().ToString(), expected);
+    ASSERT_EQ(src.GetUserKey().size(), 0);
+  }
+}
+
 TEST_F(FormatTest, IterKeyWithTimestampOperation) {
   IterKey k;
   k.SetUserKey("");
