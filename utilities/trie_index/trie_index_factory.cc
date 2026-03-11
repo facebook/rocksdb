@@ -78,16 +78,21 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     }
   } else {
     // Last block: use the last key itself as the separator, NOT a shortened
-    // successor. The standard index builder (ShortenedIndexBuilder) only
-    // calls FindShortInternalKeySuccessor when shortening_mode ==
+    // successor. This matches the standard ShortenedIndexBuilder behavior
+    // (see index_builder.h GetSeparatorWithSeq lines 278-286): it only calls
+    // FindShortInternalKeySuccessor when shortening_mode is
     // kShortenSeparatorsAndSuccessor, which is not the default. With the
-    // default kShortenSeparators, it uses last_key_in_current_block as-is.
+    // default kShortenSeparators, the last block's separator is simply
+    // last_key_in_current_block.
     //
-    // The trie must match this behavior. If the trie used a shortened
-    // successor (e.g., ":" from "9\xff\xff..."), it would claim a wider key
-    // range than the standard index. A seek for a key between the last key
-    // and the shortened successor would find a block via the trie but not
-    // via the standard index, causing incorrect iterator behavior.
+    // Why this matters: FindShortSuccessor can widen the key range. For
+    // example, if the actual last key is "9\xff\xff", FindShortSuccessor
+    // produces ":" (0x3A). The trie would then claim to cover keys up to
+    // ":", but the data block only contains keys up to "9\xff\xff". A seek
+    // targeting a key in that gap (e.g., "9\xff\xff\x01") would find a
+    // block via the trie that contains no matching data, causing iterator
+    // desynchronization — the trie index returns a valid block while the
+    // standard index correctly reports no match.
     separator = last_key_in_current_block;
 
     // Edge case: if this last block's separator matches the previous entry's

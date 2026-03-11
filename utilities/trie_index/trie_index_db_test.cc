@@ -25,6 +25,9 @@
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -225,6 +228,20 @@ class TrieIndexDBTest : public testing::Test {
       ASSERT_EQ(iter->key().ToString(), expected_key);
       ASSERT_EQ(iter->value().ToString(), expected_value);
     }
+  }
+
+  // Opens without UDI factory (standard index only). Used to test graceful
+  // degradation when reopening a DB that has UDI SSTs.
+  Status OpenDBWithoutUDI(int block_size = 0) {
+    options_.create_if_missing = true;
+    BlockBasedTableOptions table_options;
+    // Deliberately no user_defined_index_factory.
+    if (block_size > 0) {
+      table_options.block_size = block_size;
+    }
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    last_options_ = options_;
+    return DB::Open(options_, dbname_, &db_);
   }
 
   std::shared_ptr<TrieIndexFactory> trie_factory_;
@@ -1931,6 +1948,846 @@ TEST_F(TrieIndexDBTest, LastBlockSeparatorWithDeletes) {
     iter->Next();
     ASSERT_TRUE(!iter->Valid());
     ASSERT_OK(iter->status());
+  }
+}
+
+// Single-entry SST: the trie has exactly one leaf. Validates that Seek,
+// SeekToFirst, Next, and Get all work with a one-block, one-key SST.
+TEST_F(TrieIndexDBTest, SingleEntrySST) {
+  ASSERT_OK(OpenDB());
+  ASSERT_OK(db_->Put(WriteOptions(), "only_key", "only_val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Point lookup.
+  VerifyGetBothIndexes("only_key", "only_val");
+
+  // Forward scan: exactly one result.
+  VerifyForwardScanBothIndexes(std::vector<std::pair<std::string, std::string>>{
+      {"only_key", "only_val"}});
+
+  // Seek to the exact key.
+  VerifySeekBothIndexes("only_key", "only_key", "only_val");
+
+  // Seek before the key — should land on it.
+  VerifySeekBothIndexes("a", "only_key", "only_val");
+
+  // Seek past the key — should be invalid.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie index" : "standard index");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->Seek("z");
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+}
+
+// Deletion-only SST: flush a Put, then flush a Delete for that key so the
+// second SST contains only a tombstone. After compaction, the key is gone.
+TEST_F(TrieIndexDBTest, DeletionOnlySST) {
+  ASSERT_OK(OpenDB());
+
+  // Flush 1: a real Put.
+  ASSERT_OK(db_->Put(WriteOptions(), "del_target", "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Flush 2: only a Delete — this creates an SST whose only entry is a
+  // tombstone (the trie still builds an index for the block containing it).
+  ASSERT_OK(db_->Delete(WriteOptions(), "del_target"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // The tombstone hides the Put.
+  VerifyGetNotFoundBothIndexes("del_target");
+
+  // Forward scan: nothing visible.
+  VerifyForwardScanBothIndexes(std::vector<std::string>{});
+
+  // Compact to merge: key is fully removed.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyGetNotFoundBothIndexes("del_target");
+  VerifyForwardScanBothIndexes(std::vector<std::string>{});
+}
+
+// All-same-key SST: multiple versions of the same user key (via snapshots)
+// land in the same SST, possibly spanning multiple blocks. Validates that
+// the trie's same-key-run handling (seqno-based separators) works at the
+// DB level through both indexes.
+TEST_F(TrieIndexDBTest, AllSameKeySST) {
+  options_.disable_auto_compactions = true;
+  // Small block size to force multiple blocks for the same user key.
+  ASSERT_OK(OpenDB(/*block_size=*/32));
+
+  // Write several versions of the same key with snapshots to prevent GC.
+  std::vector<const Snapshot*> snaps;
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(db_->Put(WriteOptions(), "same_key", "val_" + std::to_string(i)));
+    snaps.push_back(db_->GetSnapshot());
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Latest value is visible.
+  VerifyGetBothIndexes("same_key", "val_9");
+
+  // Forward scan: only the latest version is visible (without snapshot).
+  VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{{"same_key", "val_9"}});
+
+  // Each snapshot should see the correct version.
+  for (int i = 0; i < 10; i++) {
+    SCOPED_TRACE("snapshot " + std::to_string(i));
+    std::string expected = "val_" + std::to_string(i);
+    VerifyGetBothIndexes(snaps[i], "same_key", expected);
+
+    // Forward scan with snapshot.
+    VerifyForwardScanBothIndexes(snaps[i], {{"same_key", expected}});
+  }
+
+  // Seek with earliest snapshot — should find the earliest version.
+  VerifySeekBothIndexes(snaps[0], "same_key", "same_key", "val_0");
+
+  for (auto* snap : snaps) {
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+// Operations on a completely empty DB: nothing should crash, and after
+// creating + deleting all data, the DB should correctly return nothing.
+TEST_F(TrieIndexDBTest, EmptyDBOperations) {
+  ASSERT_OK(OpenDB());
+
+  // Get / Seek / SeekToFirst on empty memtable (no SSTs yet).
+  VerifyGetNotFoundBothIndexes("anything");
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    iter->Seek("anything");
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Create an SST, delete its only key, compact → DB has no live data but
+  // the trie code path was exercised during flush.
+  ASSERT_OK(db_->Put(WriteOptions(), "temp", "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Delete(WriteOptions(), "temp"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  VerifyGetNotFoundBothIndexes("temp");
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+}
+
+// Focused seek-pattern tests: before all data, between blocks, exact match,
+// after all data, and empty-key seek.
+TEST_F(TrieIndexDBTest, SeekEdgeCases) {
+  ASSERT_OK(OpenDB(/*block_size=*/64));
+
+  // Write keys with deliberate gaps.
+  for (const auto& k : {"bbb", "ddd", "fff", "hhh"}) {
+    ASSERT_OK(db_->Put(WriteOptions(), k, std::string("v_") + k));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    // Before first key.
+    iter->Seek("aaa");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "bbb");
+
+    // Exact first key.
+    iter->Seek("bbb");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "bbb");
+
+    // Between keys.
+    iter->Seek("ccc");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "ddd");
+
+    // Between keys (eee → fff).
+    iter->Seek("eee");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "fff");
+
+    // Exact last key.
+    iter->Seek("hhh");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "hhh");
+
+    // After last key.
+    iter->Seek("zzz");
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    // Empty key (smallest possible key for BytewiseComparator).
+    iter->Seek("");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "bbb");
+  }
+}
+
+// PutEntity + GetEntity through the trie index read path.
+TEST_F(TrieIndexDBTest, GetEntityWithTrieUDI) {
+  ASSERT_OK(OpenDB());
+
+  // PutEntity with wide columns.
+  WideColumns columns{
+      {kDefaultWideColumnName, "default_val"},
+      {"col_a", "val_a"},
+      {"col_b", "val_b"},
+  };
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "entity_key", columns));
+  // Also a regular Put to verify GetEntity reads it as a single default column.
+  ASSERT_OK(db_->Put(WriteOptions(), "regular_key", "regular_val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+
+    // GetEntity on a PutEntity key.
+    PinnableWideColumns result;
+    ASSERT_OK(
+        db_->GetEntity(ro, db_->DefaultColumnFamily(), "entity_key", &result));
+    ASSERT_EQ(result.columns().size(), 3u);
+    ASSERT_EQ(result.columns()[0].name(), kDefaultWideColumnName);
+    ASSERT_EQ(result.columns()[0].value(), "default_val");
+    ASSERT_EQ(result.columns()[1].name(), "col_a");
+    ASSERT_EQ(result.columns()[1].value(), "val_a");
+    ASSERT_EQ(result.columns()[2].name(), "col_b");
+    ASSERT_EQ(result.columns()[2].value(), "val_b");
+
+    // GetEntity on a regular Put key returns single default column.
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(ro, db_->DefaultColumnFamily(), "regular_key",
+                             &result2));
+    ASSERT_EQ(result2.columns().size(), 1u);
+    ASSERT_EQ(result2.columns()[0].name(), kDefaultWideColumnName);
+    ASSERT_EQ(result2.columns()[0].value(), "regular_val");
+
+    // GetEntity on nonexistent key.
+    PinnableWideColumns result3;
+    ASSERT_TRUE(
+        db_->GetEntity(ro, db_->DefaultColumnFamily(), "no_such_key", &result3)
+            .IsNotFound());
+  }
+}
+
+// Multiple overlapping L0 SSTs: the level iterator must coordinate trie
+// iterators across multiple SST files with overlapping key ranges.
+TEST_F(TrieIndexDBTest, OverlappingL0SSTs) {
+  options_.disable_auto_compactions = true;
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  // SST1: keys 00..49.
+  for (int i = 0; i < 50; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%03d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "sst1_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // SST2: keys 25..74 (overlapping with SST1).
+  for (int i = 25; i < 75; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%03d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "sst2_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // SST3: keys 50..99 (overlapping with SST2).
+  for (int i = 50; i < 100; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%03d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "sst3_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Verify: latest writer wins for overlapping keys.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    auto kvs = ScanAllKeyValues(ro);
+    ASSERT_EQ(kvs.size(), 100u);
+    for (int i = 0; i < 100; i++) {
+      char key[16];
+      snprintf(key, sizeof(key), "key_%03d", i);
+      ASSERT_EQ(kvs[i].first, key);
+      if (i < 25) {
+        ASSERT_EQ(kvs[i].second, "sst1_" + std::to_string(i));
+      } else if (i < 50) {
+        ASSERT_EQ(kvs[i].second, "sst2_" + std::to_string(i));
+      } else {
+        ASSERT_EQ(kvs[i].second, "sst3_" + std::to_string(i));
+      }
+    }
+  }
+
+  // Compact all L0 → L1, re-verify.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    ASSERT_EQ(ScanAllKeyValues(ro).size(), 100u);
+  }
+}
+
+// CompactRange with a sub-range: only part of the key space is compacted.
+TEST_F(TrieIndexDBTest, CompactRangeSubset) {
+  options_.disable_auto_compactions = true;
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  for (int i = 0; i < 26; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%c", 'a' + i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "val_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Compact only the middle range [key_f, key_p).
+  std::string begin = "key_f";
+  std::string end = "key_p";
+  Slice begin_s(begin), end_s(end);
+  CompactRangeOptions cro;
+  ASSERT_OK(db_->CompactRange(cro, &begin_s, &end_s));
+
+  // All 26 keys should still be readable.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    ASSERT_EQ(ScanAllKeys(ro).size(), 26u);
+  }
+  VerifyGetBothIndexes("key_a", "val_0");
+  VerifyGetBothIndexes("key_z", "val_25");
+}
+
+// Write keys, delete all of them, compact. The DB should be empty.
+TEST_F(TrieIndexDBTest, AllKeysDeletedCompaction) {
+  ASSERT_OK(OpenDB());
+
+  for (int i = 0; i < 20; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%02d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "val"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Delete all keys.
+  for (int i = 0; i < 20; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%02d", i);
+    ASSERT_OK(db_->Delete(WriteOptions(), key));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Before compaction: tombstones hide all keys.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    ASSERT_EQ(ScanAllKeys(ro).size(), 0u);
+  }
+
+  // After compaction: all tombstones and data are gone.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    ASSERT_EQ(ScanAllKeys(ro).size(), 0u);
+  }
+}
+
+// Keys with special byte values: 0x00, 0xFF, embedded nulls, very short keys.
+// These exercise trie byte-traversal edge cases.
+TEST_F(TrieIndexDBTest, BinaryKeyEdgeCases) {
+  ASSERT_OK(OpenDB(/*block_size=*/64));
+
+  // All keys in sorted order (BytewiseComparator).
+  std::vector<std::pair<std::string, std::string>> kvs = {
+      {std::string("\x00", 1), "val_null"},
+      {std::string("\x00\x00\x00", 3), "val_triple_null"},
+      {std::string("\x01", 1), "val_0x01"},
+      {"a", "val_a"},
+      {std::string("a\x00"
+                   "b",
+                   3),
+       "val_a_null_b"},
+      {"mid", "val_mid"},
+      {std::string("\xfe", 1), "val_0xfe"},
+      {std::string("\xff", 1), "val_0xff"},
+      {std::string("\xff\xff\xff", 3), "val_triple_ff"},
+  };
+
+  for (const auto& kv : kvs) {
+    ASSERT_OK(db_->Put(WriteOptions(), kv.first, kv.second));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Forward scan: all keys in order through both indexes.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    auto actual = ScanAllKeyValues(ro);
+    ASSERT_EQ(actual.size(), kvs.size());
+    for (size_t i = 0; i < kvs.size(); i++) {
+      SCOPED_TRACE("key index " + std::to_string(i));
+      ASSERT_EQ(actual[i].first, kvs[i].first);
+      ASSERT_EQ(actual[i].second, kvs[i].second);
+    }
+  }
+
+  // Point lookups for boundary keys.
+  VerifyGetBothIndexes(std::string("\x00", 1), "val_null");
+  VerifyGetBothIndexes(std::string("\xff\xff\xff", 3), "val_triple_ff");
+  VerifyGetBothIndexes(std::string("a\x00"
+                                   "b",
+                                   3),
+                       "val_a_null_b");
+
+  // Seek to embedded-null key.
+  VerifySeekBothIndexes(std::string("\x00", 1), std::string("\x00", 1),
+                        "val_null");
+}
+
+// Puts with empty string values.
+TEST_F(TrieIndexDBTest, EmptyValuePuts) {
+  ASSERT_OK(OpenDB());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", ""));
+  ASSERT_OK(db_->Put(WriteOptions(), "key2", "non_empty"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key3", ""));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  VerifyGetBothIndexes("key1", "");
+  VerifyGetBothIndexes("key2", "non_empty");
+  VerifyGetBothIndexes("key3", "");
+
+  VerifyForwardScanBothIndexes(std::vector<std::pair<std::string, std::string>>{
+      {"key1", ""}, {"key2", "non_empty"}, {"key3", ""}});
+}
+
+// Zlib compression: data blocks are compressed, UDI block is not.
+// Verifies that reads through the trie index work with compressed data.
+TEST_F(TrieIndexDBTest, CompressionZlib) {
+  options_.compression = kZlibCompression;
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  for (int i = 0; i < 100; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%04d", i);
+    // Compressible value (repeated pattern).
+    ASSERT_OK(db_->Put(WriteOptions(), key, std::string(200, 'A' + (i % 26))));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Forward scan.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    ASSERT_EQ(ScanAllKeys(ro).size(), 100u);
+  }
+
+  // Spot-check a few keys.
+  for (int i : {0, 49, 99}) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%04d", i);
+    VerifyGetBothIndexes(key, std::string(200, 'A' + (i % 26)));
+  }
+}
+
+// Iterator stability: an iterator pinned to a snapshot should not see data
+// written after the iterator was created, even after flush.
+TEST_F(TrieIndexDBTest, IteratorStabilityDuringFlush) {
+  ASSERT_OK(OpenDB());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key2", "v2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Open iterator (implicitly pins a snapshot).
+  auto ro = TrieIndexReadOptions();
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "key1");
+
+  // Write + flush new data while iterator is open.
+  ASSERT_OK(db_->Put(WriteOptions(), "key3", "v3"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Existing iterator should NOT see key3.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "key2");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // New iterator should see all three keys.
+  std::unique_ptr<Iterator> iter2(db_->NewIterator(ro));
+  iter2->SeekToFirst();
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ(iter2->key().ToString(), "key1");
+  iter2->Next();
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ(iter2->key().ToString(), "key2");
+  iter2->Next();
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ(iter2->key().ToString(), "key3");
+}
+
+// iterate_upper_bound without prefix scan: the iterator should stop at the
+// upper bound.
+TEST_F(TrieIndexDBTest, IteratorUpperBound) {
+  ASSERT_OK(OpenDB(/*block_size=*/64));
+
+  for (const auto& k : {"aa", "bb", "cc", "dd", "ee", "ff"}) {
+    ASSERT_OK(db_->Put(WriteOptions(), k, std::string("v_") + k));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  for (const auto& base_ro :
+       {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+
+    // Upper bound = "dd" → should see aa, bb, cc only.
+    std::string ub_str = "dd";
+    Slice ub(ub_str);
+    ReadOptions ro = base_ro;
+    ro.iterate_upper_bound = &ub;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    std::vector<std::string> keys;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      keys.push_back(iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys, (std::vector<std::string>{"aa", "bb", "cc"}));
+
+    // Upper bound = "aa" → should see nothing.
+    std::string ub2_str = "aa";
+    Slice ub2(ub2_str);
+    ReadOptions ro2 = base_ro;
+    ro2.iterate_upper_bound = &ub2;
+    std::unique_ptr<Iterator> iter2(db_->NewIterator(ro2));
+    iter2->SeekToFirst();
+    ASSERT_FALSE(iter2->Valid());
+    ASSERT_OK(iter2->status());
+
+    // Upper bound after all data → should see everything.
+    std::string ub3_str = "zz";
+    Slice ub3(ub3_str);
+    ReadOptions ro3 = base_ro;
+    ro3.iterate_upper_bound = &ub3;
+    std::unique_ptr<Iterator> iter3(db_->NewIterator(ro3));
+    std::vector<std::string> all_keys;
+    for (iter3->SeekToFirst(); iter3->Valid(); iter3->Next()) {
+      all_keys.push_back(iter3->key().ToString());
+    }
+    ASSERT_OK(iter3->status());
+    ASSERT_EQ(all_keys.size(), 6u);
+  }
+}
+
+// Combined snapshot + upper_bound: iterator sees the snapshot's view of data,
+// bounded by iterate_upper_bound.
+TEST_F(TrieIndexDBTest, IteratorSnapshotAndUpperBound) {
+  ASSERT_OK(OpenDB());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key_a", "old_a"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_b", "old_b"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_c", "old_c"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_d", "old_d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  const Snapshot* snap = db_->GetSnapshot();
+
+  // Overwrite some keys after the snapshot.
+  ASSERT_OK(db_->Put(WriteOptions(), "key_a", "new_a"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_c", "new_c"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_e", "new_e"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  for (const auto& base_ro :
+       {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+
+    std::string ub_str = "key_d";
+    Slice ub(ub_str);
+    ReadOptions ro = base_ro;
+    ro.snapshot = snap;
+    ro.iterate_upper_bound = &ub;
+
+    auto kvs = ScanAllKeyValues(ro);
+    // Snapshot view: old values. Upper bound excludes key_d and key_e.
+    ASSERT_EQ(kvs.size(), 3u);
+    ASSERT_EQ(kvs[0],
+              std::make_pair(std::string("key_a"), std::string("old_a")));
+    ASSERT_EQ(kvs[1],
+              std::make_pair(std::string("key_b"), std::string("old_b")));
+    ASSERT_EQ(kvs[2],
+              std::make_pair(std::string("key_c"), std::string("old_c")));
+  }
+  db_->ReleaseSnapshot(snap);
+}
+
+// VerifyChecksum goes through SeekToFirst+Next on the index iterator.
+TEST_F(TrieIndexDBTest, VerifyChecksumWithTrieUDI) {
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  for (int i = 0; i < 50; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%03d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "value_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // VerifyChecksum with default ReadOptions (standard index).
+  ASSERT_OK(db_->VerifyChecksum());
+
+  // VerifyChecksum with trie ReadOptions.
+  ASSERT_OK(db_->VerifyChecksum(TrieIndexReadOptions()));
+}
+
+// Many small SSTs from frequent flushes: exercises trie iteration across
+// many L0 files without compaction.
+TEST_F(TrieIndexDBTest, ManySmallSSTs) {
+  options_.disable_auto_compactions = true;
+  ASSERT_OK(OpenDB());
+
+  // 50 flushes, 2 keys each → 50 SSTs.
+  for (int f = 0; f < 50; f++) {
+    char k1[16], k2[16];
+    snprintf(k1, sizeof(k1), "key_%04d", f * 2);
+    snprintf(k2, sizeof(k2), "key_%04d", f * 2 + 1);
+    ASSERT_OK(db_->Put(WriteOptions(), k1, "v" + std::to_string(f * 2)));
+    ASSERT_OK(db_->Put(WriteOptions(), k2, "v" + std::to_string(f * 2 + 1)));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+
+  // Verify all 100 keys are readable.
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    auto keys = ScanAllKeys(ro);
+    ASSERT_EQ(keys.size(), 100u);
+  }
+
+  // Spot-check first and last.
+  VerifyGetBothIndexes("key_0000", "v0");
+  VerifyGetBothIndexes("key_0099", "v99");
+
+  // Compact everything into one SST, re-verify.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
+    ASSERT_EQ(ScanAllKeys(ro).size(), 100u);
+  }
+}
+
+// Merge values accumulate across multiple compaction rounds.
+TEST_F(TrieIndexDBTest, MergeAcrossMultipleCompactions) {
+  options_.merge_operator = MergeOperators::CreateStringAppendOperator();
+  ASSERT_OK(OpenDB());
+
+  // Round 1: Put base value.
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "base"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyGetBothIndexes("key", "base");
+
+  // Round 2: Merge "m1".
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "m1"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyGetBothIndexes("key", "base,m1");
+
+  // Round 3: Merge "m2".
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "m2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyGetBothIndexes("key", "base,m1,m2");
+
+  // Forward scan also returns the accumulated value.
+  VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{{"key", "base,m1,m2"}});
+}
+
+// Graceful degradation: reopen a DB that was written with UDI, but without
+// the UDI factory configured. Reads should fall back to the standard index.
+TEST_F(TrieIndexDBTest, ReopenWithoutTrieUDI) {
+  ASSERT_OK(OpenDB());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key_a", "val_a"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_b", "val_b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Close());
+  db_.reset();
+
+  // Reopen WITHOUT UDI. The SST has a UDI meta block, but it's ignored.
+  ASSERT_OK(OpenDBWithoutUDI());
+
+  // Reads via standard index should work (UDI meta block is just ignored).
+  std::string val;
+  ASSERT_OK(db_->Get(ReadOptions(), "key_a", &val));
+  ASSERT_EQ(val, "val_a");
+  ASSERT_OK(db_->Get(ReadOptions(), "key_b", &val));
+  ASSERT_EQ(val, "val_b");
+
+  // Forward scan.
+  auto keys = ScanAllKeys(ReadOptions());
+  ASSERT_EQ(keys.size(), 2u);
+  ASSERT_EQ(keys[0], "key_a");
+  ASSERT_EQ(keys[1], "key_b");
+}
+
+// Mixed SSTs: some written with UDI, some without. Both should be readable
+// through both index paths.
+TEST_F(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
+  options_.disable_auto_compactions = true;
+
+  // Phase 1: Write with UDI → SST1 has UDI + standard index.
+  ASSERT_OK(OpenDB());
+  ASSERT_OK(db_->Put(WriteOptions(), "key_01", "udi_val1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_02", "udi_val2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Close());
+  db_.reset();
+
+  // Phase 2: Reopen WITHOUT UDI, write more → SST2 has only standard index.
+  ASSERT_OK(OpenDBWithoutUDI());
+  ASSERT_OK(db_->Put(WriteOptions(), "key_03", "noudi_val3"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key_04", "noudi_val4"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Close());
+  db_.reset();
+
+  // Phase 3: Reopen WITH UDI again. SST1 uses trie, SST2 falls back to
+  // standard index (UDI block missing → logged warning, graceful fallback).
+  options_.disable_auto_compactions = true;
+  ASSERT_OK(OpenDB());
+
+  // All 4 keys should be readable through both index paths.
+  VerifyGetBothIndexes("key_01", "udi_val1");
+  VerifyGetBothIndexes("key_02", "udi_val2");
+  VerifyGetBothIndexes("key_03", "noudi_val3");
+  VerifyGetBothIndexes("key_04", "noudi_val4");
+
+  VerifyForwardScanBothIndexes({"key_01", "key_02", "key_03", "key_04"});
+
+  // Compact: merges UDI + non-UDI SSTs → new SST has UDI.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyForwardScanBothIndexes({"key_01", "key_02", "key_03", "key_04"});
+}
+
+// TransactionDB commit: Put + Delete inside a transaction, then commit.
+TEST_F(TrieIndexDBTest, TransactionCommit) {
+  options_.create_if_missing = true;
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(
+      TransactionDB::Open(options_, TransactionDBOptions(), dbname_, &txn_db));
+  db_.reset(txn_db);
+
+  // Pre-populate a key.
+  ASSERT_OK(txn_db->Put(WriteOptions(), "pre_key", "pre_val"));
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+
+  // Begin transaction: Put + Delete + Commit.
+  std::unique_ptr<Transaction> txn(
+      txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn->Put("txn_key1", "txn_val1"));
+  ASSERT_OK(txn->Delete("pre_key"));
+  ASSERT_OK(txn->Commit());
+
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+
+  // Verify through both indexes.
+  VerifyGetBothIndexes("txn_key1", "txn_val1");
+  VerifyGetNotFoundBothIndexes("pre_key");
+}
+
+// TransactionDB rollback: writes should be discarded. Rollback writes DELETE
+// entries to WAL, which was previously restricted for UDI.
+TEST_F(TrieIndexDBTest, TransactionRollback) {
+  options_.create_if_missing = true;
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(
+      TransactionDB::Open(options_, TransactionDBOptions(), dbname_, &txn_db));
+  db_.reset(txn_db);
+
+  // Pre-populate data and flush.
+  ASSERT_OK(txn_db->Put(WriteOptions(), "keep_key", "keep_val"));
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+
+  // Begin transaction, write, then ROLLBACK.
+  std::unique_ptr<Transaction> txn(
+      txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn->Put("rollback_key", "rollback_val"));
+  ASSERT_OK(txn->Delete("keep_key"));
+  ASSERT_OK(txn->Rollback());
+
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+
+  // Original data should be unchanged. Rolled-back writes should not appear.
+  VerifyGetBothIndexes("keep_key", "keep_val");
+  VerifyGetNotFoundBothIndexes("rollback_key");
+
+  // Forward scan: only the original key.
+  VerifyForwardScanBothIndexes(std::vector<std::pair<std::string, std::string>>{
+      {"keep_key", "keep_val"}});
+}
+
+// total_order_seek with prefix_extractor: a common stress-test configuration.
+// With total_order_seek=true, SeekToFirst and full forward scan should work
+// correctly even when a prefix extractor is configured.
+TEST_F(TrieIndexDBTest, TotalOrderSeekWithPrefixExtractor) {
+  options_.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  // Keys with different prefixes.
+  ASSERT_OK(db_->Put(WriteOptions(), "aaa_1", "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "aaa_2", "v2"));
+  ASSERT_OK(db_->Put(WriteOptions(), "bbb_1", "v3"));
+  ASSERT_OK(db_->Put(WriteOptions(), "ccc_1", "v4"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // With total_order_seek=true, scan all keys across prefixes.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    base_ro.total_order_seek = true;
+    auto keys = ScanAllKeys(base_ro);
+    ASSERT_EQ(keys.size(), 4u);
+    ASSERT_EQ(keys[0], "aaa_1");
+    ASSERT_EQ(keys[1], "aaa_2");
+    ASSERT_EQ(keys[2], "bbb_1");
+    ASSERT_EQ(keys[3], "ccc_1");
+
+    // Seek across prefix boundary.
+    std::unique_ptr<Iterator> iter(db_->NewIterator(base_ro));
+    iter->Seek("aab");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "bbb_1");
+  }
+
+  // auto_prefix_mode: let RocksDB decide per-seek.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    base_ro.auto_prefix_mode = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(base_ro));
+    iter->Seek("bbb_1");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "bbb_1");
   }
 }
 

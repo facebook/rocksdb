@@ -237,7 +237,7 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
       }
     } else {
       valid_ = false;
@@ -265,12 +265,7 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        // Use seq=0 for the internal key because this is a separator key
-        // (upper bound on block contents), not a real data key. seq=0 makes
-        // the key compare as "greater" in internal key order (since lower
-        // seqno = greater internal key for the same user key), which is the
-        // correct behavior for a separator used as an index entry.
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
       }
     } else {
       valid_ = false;
@@ -282,7 +277,7 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
       }
     } else {
       valid_ = false;
@@ -294,7 +289,7 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
         result->key = key();
       }
       result->bound_check_result = result_.bound_check_result;
@@ -337,6 +332,17 @@ class UserDefinedIndexIteratorWrapper
   }
 
  private:
+  // Convert the UDI result's user key into an internal key for the index
+  // iterator contract. UDI separators are user keys, but
+  // InternalIteratorBase<IndexValue> must expose internal keys (user key +
+  // 8-byte trailer). We use seq=0 / kTypeValue so that the resulting
+  // internal key compares as "greater than or equal to" any real data key
+  // with the same user key (lower seqno = later in internal key order),
+  // which is the correct upper-bound semantics for an index separator.
+  void SetInternalKeyFromUDIResult() {
+    ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+  }
+
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;
   InternalKey ikey_;
