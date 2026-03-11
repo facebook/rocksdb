@@ -539,6 +539,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
+      {offsetof(struct ColumnFamilyOptions, user_value_checksum),
+       sizeof(std::shared_ptr<UserValueChecksum>)},
       {offsetof(struct ColumnFamilyOptions, compaction_filter),
        sizeof(const CompactionFilter*)},
       {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
@@ -585,6 +587,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->num_levels = 42;  // Initialize options for MutableCF
   options->compaction_filter = nullptr;
+  options->user_value_checksum = nullptr;
   options->sst_partitioner_factory = nullptr;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -647,6 +650,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_insert_with_hint_prefix_extractor=rocksdb.CappedPrefix.13;"
       "check_flush_compaction_key_order=false;"
       "paranoid_file_checks=true;"
+      "verify_user_value_checksum_on_flush=true;"
+      "verify_user_value_checksum_on_compaction=true;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
       "experimental_mempurge_threshold=0.0001;"

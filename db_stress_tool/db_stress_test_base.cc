@@ -4639,6 +4639,15 @@ void InitializeOptionsFromFlags(
 
   options.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options.paranoid_file_checks = FLAGS_paranoid_file_checks;
+  if (FLAGS_verify_user_value_checksum_on_flush ||
+      FLAGS_verify_user_value_checksum_on_compaction) {
+    options.user_value_checksum =
+        std::make_shared<StressTestUserValueChecksum>();
+  }
+  options.verify_user_value_checksum_on_flush =
+      FLAGS_verify_user_value_checksum_on_flush;
+  options.verify_user_value_checksum_on_compaction =
+      FLAGS_verify_user_value_checksum_on_compaction;
 
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);

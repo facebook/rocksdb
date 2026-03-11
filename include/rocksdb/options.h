@@ -58,6 +58,7 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 class UserDefinedIndexFactory;
+class UserValueChecksum;
 class IODispatcher;
 
 struct Options;
@@ -130,6 +131,22 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // opening the DB in this case.
   // Default: nullptr
   std::shared_ptr<MergeOperator> merge_operator = nullptr;
+
+  // User-defined value checksum validator. When set, allows RocksDB to
+  // validate user-embedded checksums in values during compaction and flush.
+  // The validation is performed by reading back the SST file after it is
+  // written and synced to disk, providing end-to-end integrity protection.
+  //
+  // The checksum must be embedded in the value by the application before
+  // writing to RocksDB. The Validate() method is called for each value
+  // during the read-back verification phase.
+  //
+  // If a MergeOperator is also configured, the merge operator must produce
+  // values with valid checksums. A compatibility test is run at DB::Open
+  // time; if it fails, validation is disabled with a warning.
+  //
+  // Default: nullptr (disabled)
+  std::shared_ptr<UserValueChecksum> user_value_checksum = nullptr;
 
   // A single CompactionFilter instance to call into during compaction.
   // Allows an application to modify/delete a key-value during background
@@ -2889,6 +2906,7 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
+  std::shared_ptr<UserValueChecksum> user_value_checksum = nullptr;
 
   // Only subsets of events are triggered in remote compaction worker, like:
   // `OnTableFileCreated`, `OnTableFileCreationStarted`,

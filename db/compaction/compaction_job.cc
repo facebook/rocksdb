@@ -31,6 +31,7 @@
 #include "db/log_writer.h"
 #include "db/merge_helper.h"
 #include "db/range_del_aggregator.h"
+#include "db/user_value_checksum_helper.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
@@ -937,6 +938,18 @@ Status CompactionJob::VerifyOutputFiles() {
              !!(verify_output_flags &
                 VerifyOutputFlags::kEnableForLocalCompaction));
 
+        const auto& ioptions = compact_->compaction->immutable_options();
+        const auto& user_value_checksum = ioptions.user_value_checksum;
+        // Skip user value checksum on the primary for remote compactions
+        // because the remote worker already verified checksums via
+        // CompactionServiceCompactionJob::VerifyUserValueChecksumsOnOutputFiles.
+        const bool should_verify_user_checksum =
+            user_value_checksum &&
+            !subcompaction_state.compaction_job_stats.is_remote_compaction &&
+            compact_->compaction->mutable_cf_options()
+                .verify_user_value_checksum_on_compaction;
+
+        // Block checksum verification (non-iterating check).
         if (should_verify) {
           const bool should_verify_block_checksum =
               !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
@@ -948,30 +961,15 @@ Status CompactionJob::VerifyOutputFiles() {
               db_options_.file_checksum_gen_factory != nullptr &&
               output_file.meta.file_checksum != kUnknownFileChecksum;
           if (should_verify_block_checksum) {
+            const bool need_iteration =
+                should_verify_iteration || should_verify_user_checksum;
             assert(table_reader_ptr != nullptr);
-            // If verifying iteration as well, verify meta blocks here only to
-            // avoid redundant checks on data blocks
+            // If iterating data blocks anyway (for output validation or
+            // user-value checksum), verify only meta blocks here to avoid
+            // redundant reads of data blocks.
             s = table_reader_ptr->VerifyChecksum(
                 verification_read_options, TableReaderCaller::kCompaction,
-                /*meta_blocks_only=*/should_verify_iteration);
-          }
-          if (s.ok() && should_verify_iteration) {
-            OutputValidator validator(cfd->internal_comparator(),
-                                      /*_enable_hash=*/true);
-            for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-              s = validator.Add(iter->key(), iter->value());
-              if (!s.ok()) {
-                break;
-              }
-            }
-            if (s.ok()) {
-              s = iter->status();
-            }
-            if (s.ok() && !validator.CompareValidator(output_file.validator)) {
-              s = Status::Corruption(
-                  "Key-value checksum of compaction output doesn't match what "
-                  "was computed when written");
-            }
+                /*meta_blocks_only=*/need_iteration);
           }
           if (s.ok() && should_verify_file_checksum) {
             std::string file_checksum;
@@ -991,6 +989,22 @@ Status CompactionJob::VerifyOutputFiles() {
                   "File checksum mismatch for compaction output file " + fname);
             }
           }
+        }
+
+        // Unified iteration loop for output validation and/or user checksum.
+        const bool should_verify_iteration =
+            should_verify &&
+            !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+        const bool need_iteration =
+            should_verify_iteration || should_verify_user_checksum;
+        if (s.ok() && need_iteration) {
+          OutputValidator validator(cfd->internal_comparator(),
+                                    /*_enable_hash=*/should_verify_iteration);
+          s = IterateAndValidateOutput(
+              iter, should_verify_iteration ? &validator : nullptr,
+              should_verify_iteration ? &output_file.validator : nullptr,
+              should_verify_user_checksum ? user_value_checksum.get() : nullptr,
+              stats_, "compaction output verification");
         }
       }
 

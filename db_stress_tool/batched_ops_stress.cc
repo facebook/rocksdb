@@ -18,6 +18,49 @@ class BatchedOpsStressTest : public StressTest {
 
   bool IsStateTracked() const override { return false; }
 
+ private:
+  static bool UserValueChecksumEnabled() {
+    return FLAGS_verify_user_value_checksum_on_flush ||
+           FLAGS_verify_user_value_checksum_on_compaction;
+  }
+
+  // Append a suffix character to a value while maintaining CRC32c integrity.
+  // When checksum is enabled, strips the trailing CRC32c from value_body,
+  // appends the suffix, and recomputes CRC32c.
+  // Result format: [data][suffix][CRC32c] (checksum enabled)
+  //                [data][CRC32c][suffix]  (checksum disabled, original
+  //                behavior)
+  static std::string BuildValueWithSuffix(const std::string& value_body,
+                                          const std::string& suffix) {
+    if (UserValueChecksumEnabled() && value_body.size() >= sizeof(uint32_t)) {
+      std::string result(value_body, 0, value_body.size() - sizeof(uint32_t));
+      result += suffix;
+      uint32_t crc = crc32c::Value(result.data(), result.size());
+      PutFixed32(&result, crc);
+      return result;
+    }
+    return value_body + suffix;
+  }
+
+  // Return the position of the suffix character within a value.
+  // With checksum: [data][suffix][CRC32c] → offset = size - 5
+  // Without:       [data][suffix]         → offset = size - 1
+  static size_t SuffixOffset(size_t value_size) {
+    if (UserValueChecksumEnabled()) {
+      assert(value_size > sizeof(uint32_t));
+      return value_size - sizeof(uint32_t) - 1;
+    }
+    return value_size - 1;
+  }
+
+  // Number of trailing bytes to ignore when comparing values across the
+  // 10 batched copies (the suffix char differs, and with checksum the
+  // CRC32c also differs because it covers the suffix).
+  static size_t SuffixAndChecksumSize() {
+    return UserValueChecksumEnabled() ? sizeof(uint32_t) + 1 : 1;
+  }
+
+ public:
   // Given a key K and value V, this puts ("0"+K, V+"0"), ("1"+K, V+"1"), ...,
   // ("9"+K, V+"9") in DB atomically i.e in a single batch.
   // Also refer BatchedOpsStressTest::TestGet
@@ -51,7 +94,7 @@ class BatchedOpsStressTest : public StressTest {
       // at the beginning of the value for all types of stress tests (e.g.
       // batched, non-batched, CF consistency).
       const std::string k = num + key_body;
-      const std::string v = value_body + num;
+      const std::string v = BuildValueWithSuffix(value_body, num);
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
         if (FLAGS_use_attribute_group) {
@@ -178,14 +221,14 @@ class BatchedOpsStressTest : public StressTest {
         assert(!values[i].empty());
 
         const char expected = keys[i].front();
-        const char actual = values[i].back();
+        const char actual = values[i][SuffixOffset(values[i].size())];
 
         if (expected != actual) {
           fprintf(stderr, "get error expected = %c actual = %c\n", expected,
                   actual);
         }
 
-        values[i].pop_back();  // get rid of the differing character
+        values[i].resize(SuffixOffset(values[i].size()));  // strip suffix + CRC
 
         thread->stats.AddGets(1, 1);
       }
@@ -251,14 +294,14 @@ class BatchedOpsStressTest : public StressTest {
           assert(!values[i].empty());
 
           const char expected = keys[i][0];
-          const char actual = values[i][values[i].size() - 1];
+          const char actual = values[i][SuffixOffset(values[i].size())];
 
           if (expected != actual) {
             fprintf(stderr, "multiget error expected = %c actual = %c\n",
                     expected, actual);
           }
 
-          values[i].remove_suffix(1);  // get rid of the differing character
+          values[i].remove_suffix(SuffixAndChecksumSize());
 
           thread->stats.AddGets(1, 1);
         }
@@ -362,7 +405,7 @@ class BatchedOpsStressTest : public StressTest {
         for (const auto& column : columns) {
           const Slice& value = column.value();
 
-          if (value.empty() || value[value.size() - 1] != expected) {
+          if (value.empty() || value[SuffixOffset(value.size())] != expected) {
             fprintf(stderr,
                     "%s: incorrect column value for key "
                     "%s, entity %s, column value %s, expected %c\n",
@@ -462,7 +505,8 @@ class BatchedOpsStressTest : public StressTest {
             for (const auto& column : columns) {
               const Slice& value = column.value();
 
-              if (value.empty() || value[value.size() - 1] != expected) {
+              if (value.empty() ||
+                  value[SuffixOffset(value.size())] != expected) {
                 fprintf(stderr,
                         "MultiGetEntity (AttributeGroup) error: incorrect "
                         "column value for key "
@@ -525,7 +569,8 @@ class BatchedOpsStressTest : public StressTest {
             for (const auto& column : columns) {
               const Slice& value = column.value();
 
-              if (value.empty() || value[value.size() - 1] != expected) {
+              if (value.empty() ||
+                  value[SuffixOffset(value.size())] != expected) {
                 fprintf(stderr,
                         "MultiGetEntity error: incorrect column value for key "
                         "%s, entity %s, column value %s, expected %c\n",
@@ -635,14 +680,14 @@ class BatchedOpsStressTest : public StressTest {
         assert(!values[i].empty());
 
         const char expected = prefixes[i].front();
-        const char actual = values[i].back();
+        const char actual = values[i][SuffixOffset(values[i].size())];
 
         if (expected != actual) {
           fprintf(stderr, "prefix scan error expected = %c actual = %c\n",
                   expected, actual);
         }
 
-        values[i].pop_back();  // get rid of the differing character
+        values[i].resize(SuffixOffset(values[i].size()));  // strip suffix + CRC
 
         // make sure all values are equivalent
         if (values[i] != values[0]) {
@@ -690,7 +735,8 @@ class BatchedOpsStressTest : public StressTest {
 
   void ContinuouslyVerifyDb(ThreadState* /* thread */) const override {}
 
-  // Compare columns ignoring the last character of column values
+  // Compare columns ignoring the trailing suffix character (and optional
+  // CRC32c checksum that also differs because it covers the suffix).
   bool CompareColumns(const WideColumns& lhs, const WideColumns& rhs) {
     if (lhs.size() != rhs.size()) {
       return false;
@@ -705,8 +751,10 @@ class BatchedOpsStressTest : public StressTest {
         return false;
       }
 
-      if (lhs[i].value().difference_offset(rhs[i].value()) <
-          lhs[i].value().size() - 1) {
+      size_t ignore = SuffixAndChecksumSize();
+      size_t cmp_len =
+          lhs[i].value().size() > ignore ? lhs[i].value().size() - ignore : 0;
+      if (lhs[i].value().difference_offset(rhs[i].value()) < cmp_len) {
         return false;
       }
     }

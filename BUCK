@@ -179,6 +179,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "options/options.cc",
         "options/options_helper.cc",
         "options/options_parser.cc",
+        "options/user_value_checksum.cc",
         "port/mmap.cc",
         "port/port_posix.cc",
         "port/stack_trace.cc",
@@ -5016,6 +5017,12 @@ cpp_unittest_wrapper(name="db_test2",
 
 cpp_unittest_wrapper(name="db_universal_compaction_test",
             srcs=["db/db_universal_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_user_value_checksum_test",
+            srcs=["db/db_user_value_checksum_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

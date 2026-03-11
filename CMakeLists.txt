@@ -852,6 +852,7 @@ set(SOURCES
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
+        options/user_value_checksum.cc
         port/mmap.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
@@ -1410,6 +1411,7 @@ if(WITH_TESTS)
         db/db_encryption_test.cc
         db/db_etc3_test.cc
         db/db_flush_test.cc
+        db/db_user_value_checksum_test.cc
         db/db_inplace_update_test.cc
         db/db_io_failure_test.cc
         db/db_iter_test.cc
