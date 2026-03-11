@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 11.0.4 (TODO: date)
+## 11.0.4 (03/11/2026)
 ### Public API Changes
 * Re-remove deprecated DB::Open raw pointer variants in db.h
 
