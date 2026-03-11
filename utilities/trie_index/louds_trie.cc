@@ -51,10 +51,12 @@ void LoudsTrieBuilder::AddKeyWithSeqno(const Slice& key,
 
 void LoudsTrieBuilder::AddOverflowBlock(const TrieBlockHandle& handle,
                                         uint64_t seqno) {
-  // Overflow blocks always represent actual key versions within a same-key
-  // run, so seqno must be > 0. Seqno 0 is reserved as the sentinel meaning
-  // "never advance past this leaf" in the reader's post-seek correction.
-  assert(seqno != 0);
+  // Seqno may be 0 when bottommost compaction zeroes all sequence numbers.
+  // In that case, every block in the same-key run has seqno=0. The reader's
+  // post-seek correction handles this correctly: the primary leaf's seqno=0
+  // triggers the "never advance" guard (leaf_seqno != 0 check), so the seek
+  // returns the primary block. Next() iterates overflow blocks by index, not
+  // seqno, so all blocks are still visited in order.
   overflow_handles_.push_back(handle);
   overflow_seqnos_.push_back(seqno);
 }

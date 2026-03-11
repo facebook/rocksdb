@@ -181,8 +181,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
                                     seqno, block_count);
 
       // Add overflow blocks (2nd, 3rd, ... in the run).
-      // Overflow blocks only exist within same-key runs, which always
-      // receive real seqnos from AddIndexEntry, never kMaxSequenceNumber.
+      // Overflow blocks only exist within same-key runs, so their seqnos
+      // come from last_key_seq in AddIndexEntry (never kMaxSequenceNumber).
+      // The seqno may be 0 when bottommost compaction zeroes all sequence
+      // numbers — this is valid; see AddOverflowBlock comment.
       for (size_t j = run_start + 1; j < run_end; j++) {
         assert(buffered_entries_[j].seqno != kMaxSequenceNumber);
         trie_builder_.AddOverflowBlock(buffered_entries_[j].handle,

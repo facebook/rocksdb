@@ -3661,6 +3661,153 @@ TEST_F(TrieIndexFactoryTest, MultipleSameUserKeyBoundaries) {
   ASSERT_EQ(iter->value().offset, 3000u);
 }
 
+TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
+  // During bottommost compaction, RocksDB zeroes sequence numbers for keys
+  // that no longer need version discrimination. When the same user key spans
+  // multiple data blocks and all versions have seqno=0, the overflow entries
+  // in the same-key run also have seqno=0. This is valid — the reader's
+  // post-seek correction handles it correctly:
+  //   - Primary leaf seqno=0 triggers the "never advance" guard
+  //   - Next() iterates overflow blocks by index, not seqno
+  //
+  // Block 0: "key"|seq=0  (primary)
+  // Block 1: "key"|seq=0  (overflow)
+  // Block 2: "key"|seq=0  (overflow)
+  // Block 3: "zzz"|seq=0  (different user key)
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {0, 0});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {0, 0});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
+    std::string scratch;
+    Slice next("zzz");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {0, 0});
+  }
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{3000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("zzz"), nullptr, handle, &scratch, {0, 0});
+  }
+
+  // Finish must succeed (previously crashed with assert(seqno != 0)).
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+
+  // Seek "key"|kMaxSequenceNumber → Block 0 (primary, seqno=0 guard prevents
+  // advancement through overflow blocks).
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Seek "key"|seq=0 → Block 0 (primary, target_seq=0 >= leaf_seqno=0).
+  ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, {0}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Full forward scan: Block 0 → 1 → 2 → 3
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 2000u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 3000u);
+
+  // SeekToFirst → Block 0, then full scan.
+  ASSERT_OK(iter->SeekToFirstAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 1000u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 2000u);
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(iter->value().offset, 3000u);
+}
+
+TEST_F(TrieIndexFactoryTest, SameUserKeyLastBlockZeroSeqno) {
+  // Same user key spans blocks including the last block in the SST, with
+  // all seqnos zeroed (bottommost compaction). The last block's AddIndexEntry
+  // call has first_key_in_next_block=nullptr and first_key_seq=0.
+  //
+  // Block 0: "key"|seq=0  (primary)
+  // Block 1: "key"|seq=0  (overflow, this is also the LAST block)
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  {
+    UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
+    std::string scratch;
+    Slice next("key");
+    builder->AddIndexEntry(Slice("key"), &next, handle, &scratch, {0, 0});
+  }
+  {
+    // Last block: first_key_in_next_block=nullptr.
+    UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
+    std::string scratch;
+    builder->AddIndexEntry(Slice("key"), nullptr, handle, &scratch, {0, 0});
+  }
+
+  // Finish must succeed.
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+
+  // Seek → Block 0 (primary).
+  ASSERT_OK(
+      iter->SeekAndGetResult(Slice("key"), &result, {kMaxSequenceNumber}));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 0u);
+
+  // Next → Block 1 (overflow).
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(iter->value().offset, 1000u);
+
+  // Next → exhausted.
+  ASSERT_OK(iter->NextAndGetResult(&result));
+  ASSERT_NE(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
 TEST_F(TrieIndexFactoryTest, SeqnoEncodingRoundTripSerialization) {
   // Verify that the seqno encoding flag survives serialization/deserialization.
   // Build a trie with a same-user-key boundary (triggers seqno encoding),
