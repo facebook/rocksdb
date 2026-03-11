@@ -211,6 +211,7 @@ class TrieIndexDBTest : public testing::Test {
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(iter->key().ToString(), expected_key);
       ASSERT_EQ(iter->value().ToString(), expected_value);
+      ASSERT_OK(iter->status());
     }
   }
 
@@ -228,6 +229,7 @@ class TrieIndexDBTest : public testing::Test {
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(iter->key().ToString(), expected_key);
       ASSERT_EQ(iter->value().ToString(), expected_value);
+      ASSERT_OK(iter->status());
     }
   }
 
@@ -637,6 +639,7 @@ TEST_F(TrieIndexDBTest, ReverseIteration) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "key_04");
     ASSERT_EQ(iter->value().ToString(), "v4");
+    ASSERT_OK(iter->status());
   }
 
   // SeekForPrev to a deleted key — should land on the largest visible key
@@ -647,6 +650,7 @@ TEST_F(TrieIndexDBTest, ReverseIteration) {
     iter->SeekForPrev("key_03");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "key_02");
+    ASSERT_OK(iter->status());
   }
 
   // SeekForPrev to a key between existing keys.
@@ -656,6 +660,7 @@ TEST_F(TrieIndexDBTest, ReverseIteration) {
     iter->SeekForPrev("key_04_5");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "key_04");
+    ASSERT_OK(iter->status());
   }
 
   // SeekForPrev before all keys — should be invalid.
@@ -987,6 +992,7 @@ TEST_F(TrieIndexDBTest, LargeMixedOperationsAcrossBlocks) {
       ASSERT_TRUE(iter->Valid()) << "Seek failed for " << expected_visible[i];
       ASSERT_EQ(iter->key().ToString(), expected_visible[i]);
     }
+    ASSERT_OK(iter->status());
   }
 }
 
@@ -1496,6 +1502,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScan) {
     }
 
     // All iterators should be done.
+    ASSERT_OK(iters[0]->status());
     for (int d = 1; d < kNumPrefixes; ++d) {
       ASSERT_TRUE(!iters[d]->Valid() ||
                   !iters[d]->key().starts_with(prefix_slices[d]))
@@ -1600,6 +1607,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanAfterReopen) {
     }
   }
 
+  ASSERT_OK(iters[0]->status());
   for (int d = 1; d < kNumPrefixes; ++d) {
     ASSERT_TRUE(!iters[d]->Valid() ||
                 !iters[d]->key().starts_with(prefix_slices[d]))
@@ -1699,6 +1707,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanWithOverwrites) {
       }
     }
 
+    ASSERT_OK(iters[0]->status());
     for (int d = 1; d < kNumPrefixes; ++d) {
       ASSERT_TRUE(!iters[d]->Valid() ||
                   !iters[d]->key().starts_with(prefix_slices[d]))
@@ -1820,6 +1829,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanStressLike) {
         }
       }
 
+      ASSERT_OK(iters[0]->status());
       for (int d = 1; d < kNumPrefixes; ++d) {
         ASSERT_TRUE(!iters[d]->Valid() ||
                     !iters[d]->key().starts_with(prefix_slices[d]))
@@ -2443,6 +2453,7 @@ TEST_F(TrieIndexDBTest, IteratorStabilityDuringFlush) {
   iter2->Next();
   ASSERT_TRUE(iter2->Valid());
   ASSERT_EQ(iter2->key().ToString(), "key3");
+  ASSERT_OK(iter2->status());
 }
 
 // iterate_upper_bound without prefix scan: the iterator should stop at the
@@ -2785,6 +2796,7 @@ TEST_F(TrieIndexDBTest, TotalOrderSeekWithPrefixExtractor) {
     iter->Seek("aab");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "bbb_1");
+    ASSERT_OK(iter->status());
   }
 
   // auto_prefix_mode: let RocksDB decide per-seek.
@@ -2795,6 +2807,7 @@ TEST_F(TrieIndexDBTest, TotalOrderSeekWithPrefixExtractor) {
     iter->Seek("bbb_1");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "bbb_1");
+    ASSERT_OK(iter->status());
   }
 }
 
