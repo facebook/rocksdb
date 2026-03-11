@@ -278,6 +278,7 @@ default_params = {
     "max_manifest_file_size": lambda: random.choice(
         [t * 2048 if t < 5 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
+    "verify_manifest_content_on_close": lambda: random.randint(0, 1),
     "max_manifest_space_amp_pct": lambda: random.choice([0, 10, 100, 1000]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),

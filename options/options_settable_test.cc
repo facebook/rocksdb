@@ -484,6 +484,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "background_close_inactive_wals=true;"
       "write_dbid_to_manifest=true;"
       "write_identity_file=true;"
+      "verify_manifest_content_on_close=false;"
       "prefix_seek_opt_in_only=true;",
       new_options));
 

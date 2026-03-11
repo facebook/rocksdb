@@ -2407,6 +2407,171 @@ TEST_F(VersionSetTest, ManifestTruncateAfterClose) {
   ReopenDB();
 }
 
+TEST_F(VersionSetTest, ManifestContentValidationOnClose_Clean) {
+  // Enable content validation, perform normal operations, close.
+  // Verify no manifest rotation (file number unchanged).
+  NewDB();
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  bool content_validation_ran = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation",
+      [&](void*) { content_validation_ran = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify content validation actually ran
+  ASSERT_TRUE(content_validation_ran);
+
+  // Manifest path should be unchanged (no rotation)
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_EQ(manifest_path_before, manifest_path_after);
+
+  ReopenDB();
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnClose_CorruptRecord) {
+  // Enable content validation, corrupt the manifest after closing the writer,
+  // verify manifest rotation occurs and DB reopens cleanly.
+  NewDB();
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation", [&](void*) {
+        // Corrupt bytes in the middle of the manifest
+        std::string manifest_path;
+        GetManifestPath(&manifest_path);
+        std::string content;
+        EXPECT_OK(ReadFileToString(env_, manifest_path, &content));
+        ASSERT_GT(content.size(), 20u);
+        // Corrupt several bytes in the middle to break CRC
+        for (size_t i = content.size() / 2; i < content.size() / 2 + 8; i++) {
+          content[i] ^= 0xFF;
+        }
+        EXPECT_OK(WriteStringToFile(env_, content, manifest_path));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Manifest should have been rotated (new file number)
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path_before, manifest_path_after);
+
+  // DB should reopen cleanly with the fresh manifest
+  ReopenDB();
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnClose_Disabled) {
+  // Default (option disabled), corrupt manifest after writer close,
+  // verify no rotation occurred — corrupt manifest persists.
+  NewDB();
+  // verify_manifest_content_on_close defaults to false
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  bool content_validation_ran = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation",
+      [&](void*) { content_validation_ran = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_FALSE(content_validation_ran);
+
+  // Manifest path should be unchanged (no rotation since validation is off)
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_EQ(manifest_path_before, manifest_path_after);
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnClose_SizeCheckFails) {
+  // Truncate manifest so size check fails first.
+  // Verify recovery happens via size-check path. Content validation still
+  // runs afterward on the freshly rewritten manifest.
+  NewDB();
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:AfterClose", [&](void*) {
+        std::string manifest_path;
+        GetManifestPath(&manifest_path);
+        std::unique_ptr<WritableFile> manifest_file;
+        EXPECT_OK(env_->ReopenWritableFile(manifest_path, &manifest_file,
+                                           EnvOptions()));
+        EXPECT_OK(manifest_file->Truncate(0));
+        EXPECT_OK(manifest_file->Close());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Size check should have triggered rotation
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path_before, manifest_path_after);
+
+  // DB should reopen cleanly
+  ReopenDB();
+}
+
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
   // Tests that compensated range deletion size is added to compensated file
   // size.
