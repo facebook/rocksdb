@@ -406,39 +406,13 @@ static void AtExit() {
   g_at_exit_called.store(true, std::memory_order_release);
 }
 
-// Async-signal-safe alternative to strsignal(), which is not guaranteed
-// to be async-signal-safe by POSIX.
-static const char* SignalName(int sig) {
-  switch (sig) {
-    case SIGABRT:
-      return "SIGABRT";
-    case SIGBUS:
-      return "SIGBUS";
-    case SIGFPE:
-      return "SIGFPE";
-    case SIGILL:
-      return "SIGILL";
-    case SIGINT:
-      return "SIGINT";
-    case SIGQUIT:
-      return "SIGQUIT";
-    case SIGSEGV:
-      return "SIGSEGV";
-    case SIGTERM:
-      return "SIGTERM";
-    default:
-      return "unknown";
-  }
-}
-
 // Lightweight handler for graceful termination signals (SIGTERM, SIGINT).
 // Prints the crash callback (e.g., ring buffer) but skips the
 // expensive GDB/LLDB stack trace, since these are intentional terminations.
-// Async-signal-safe: uses only write() and snprintf(), no fprintf().
 static void TerminationHandler(int sig) {
   char buf[64];
   int len = snprintf(buf, sizeof(buf), "Received signal %d (%s)\n", sig,
-                     SignalName(sig));
+                     strsignal(sig));
   if (len > 0) {
     auto unused __attribute__((unused)) = write(STDOUT_FILENO, buf, len);
   }
