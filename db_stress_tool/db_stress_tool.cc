@@ -303,6 +303,25 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_db = default_db_path;
   }
 
+  // Now that FLAGS_db is resolved, set the fault injection log file path
+  // so that PrintAll() writes to a file instead of stderr (signal-safe).
+  // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
+  // DB reopen (which cleans untracked files) and gets included in the
+  // sandcastle db.tar.gz artifact for post-failure analysis.
+  if (fault_fs_guard) {
+    std::string log_dir;
+    const char* test_tmpdir = getenv("TEST_TMPDIR");
+    if (test_tmpdir && test_tmpdir[0] != '\0') {
+      log_dir = test_tmpdir;
+    } else {
+      log_dir = "/tmp";
+    }
+    std::string log_path = log_dir + "/fault_injection_" +
+                           std::to_string(getpid()) + "_" +
+                           std::to_string(time(nullptr)) + ".log";
+    fault_fs_guard->SetInjectedErrorLogPath(log_path);
+  }
+
   if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
       FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;

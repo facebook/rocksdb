@@ -25,6 +25,17 @@
 #include <string>
 #include <thread>
 
+#ifndef OS_WIN
+#include <fcntl.h>
+#include <limits.h>
+#include <unistd.h>
+#endif
+
+// PATH_MAX may not be defined on all platforms
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #include "file/filename.h"
 #include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
@@ -47,7 +58,17 @@ class InjectedErrorLog {
     char context[kMaxMessageLen];
   };
 
-  InjectedErrorLog() : head_(0), entries_{} {}
+  InjectedErrorLog() : head_(0), entries_{} { log_path_[0] = '\0'; }
+
+  // Set the file path for PrintAll() output. Must be called before any
+  // signal handler invocation (not async-signal-safe itself due to string
+  // copy, but called once at setup time). If not set, PrintAll() falls
+  // back to writing to stderr.
+  void SetLogFilePath(const std::string& path) {
+    size_t len = std::min(path.size(), sizeof(log_path_) - 1);
+    memcpy(log_path_, path.data(), len);
+    log_path_[len] = '\0';
+  }
 
   void Record(const char* fmt, ...)
 #if defined(__GNUC__) || defined(__clang__)
@@ -83,20 +104,45 @@ class InjectedErrorLog {
     return result;
   }
 
-  // Print all recorded entries to stderr. Safe to call from a signal handler
-  // (uses only fprintf to stderr).
+  // Print all recorded entries to a log file (or stderr as fallback).
+  // Async-signal-safe: uses only open/write/close/snprintf (no fprintf,
+  // no malloc). Safe to call from a signal handler.
   //
   // Note: entries may be read while being written by another thread.
   // This is a benign race -- at worst, one entry may appear garbled.
   // We accept this trade-off to keep PrintAll() free of locks and safe
   // for use in signal handlers.
   void PrintAll() const {
-    fprintf(stderr,
-            "\n=== Recently Injected Fault Injection Errors "
-            "(most recent last) ===\n");
+#ifndef OS_WIN
+    int fd = -1;
+    if (log_path_[0] != '\0') {
+      fd = open(log_path_, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    }
+    // Fall back to stdout if open failed or no path was set.
+    // We avoid stderr because db_crashtest.py treats any stderr output
+    // as a test failure.
+    if (fd < 0) {
+      fd = STDOUT_FILENO;
+    }
+
+    auto write_str = [fd](const char* buf, int len) {
+      if (len > 0) {
+        // Ignore return value in signal handler -- nothing we can do
+        auto unused __attribute__((unused)) = write(fd, buf, len);
+      }
+    };
+
+    char buf[512];
+    int len = snprintf(buf, sizeof(buf),
+                       "\n=== Recently Injected Fault Injection Errors "
+                       "(most recent last) ===\n");
+    write_str(buf, len);
+
     size_t total = head_.load(std::memory_order_relaxed);
     if (total == 0) {
-      fprintf(stderr, "(none)\n");
+      len = snprintf(buf, sizeof(buf), "(none)\n");
+      write_str(buf, len);
+      if (fd != STDOUT_FILENO) close(fd);
       return;
     }
     size_t count = std::min(total, kMaxEntries);
@@ -107,16 +153,25 @@ class InjectedErrorLog {
       if (e.timestamp_us == 0) continue;
       uint64_t secs = e.timestamp_us / 1000000;
       uint64_t usecs = e.timestamp_us % 1000000;
-      fprintf(stderr, "[%llu.%06llu] thread=%llu: %s\n",
-              (unsigned long long)secs, (unsigned long long)usecs,
-              (unsigned long long)e.thread_id, e.context);
+      len = snprintf(buf, sizeof(buf), "[%llu.%06llu] thread=%llu: %s\n",
+                     (unsigned long long)secs, (unsigned long long)usecs,
+                     (unsigned long long)e.thread_id, e.context);
+      write_str(buf, len);
     }
-    fprintf(stderr, "=== End of injected error log (%zu entries) ===\n", count);
+    len = snprintf(buf, sizeof(buf),
+                   "=== End of injected error log (%zu entries) ===\n", count);
+    write_str(buf, len);
+    if (fd != STDOUT_FILENO) close(fd);
+#else
+    // On Windows, crash callbacks via signal handlers are not used,
+    // so PrintAll() is a no-op.
+#endif
   }
 
  private:
   std::atomic<size_t> head_;
   Entry entries_[kMaxEntries];
+  char log_path_[PATH_MAX];
 };
 
 class TestFSWritableFile;
@@ -709,6 +764,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // Print recently injected errors to stderr. Call this on test failure
   // to see what errors were injected leading up to the failure.
   void PrintRecentInjectedErrors() const { injected_error_log_.PrintAll(); }
+
+  // Set the file path where PrintAll() will write its output.
+  // Must be called before any signal handler invocation.
+  void SetInjectedErrorLogPath(const std::string& path) {
+    injected_error_log_.SetLogFilePath(path);
+  }
 
   inline static const std::string kInjected = "injected";
 

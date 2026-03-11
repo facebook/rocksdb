@@ -434,8 +434,14 @@ static const char* SignalName(int sig) {
 // Lightweight handler for graceful termination signals (SIGTERM, SIGINT).
 // Prints the crash callback (e.g., ring buffer) but skips the
 // expensive GDB/LLDB stack trace, since these are intentional terminations.
+// Async-signal-safe: uses only write() and snprintf(), no fprintf().
 static void TerminationHandler(int sig) {
-  fprintf(stderr, "Received signal %d (%s)\n", sig, SignalName(sig));
+  char buf[64];
+  int len = snprintf(buf, sizeof(buf), "Received signal %d (%s)\n", sig,
+                     SignalName(sig));
+  if (len > 0) {
+    auto unused __attribute__((unused)) = write(STDOUT_FILENO, buf, len);
+  }
   auto callback = g_crash_callback.load(std::memory_order_acquire);
   if (callback) {
     callback();
