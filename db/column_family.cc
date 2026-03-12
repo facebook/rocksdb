@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdint>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -623,6 +624,8 @@ ColumnFamilyData::ColumnFamilyData(
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
+      local_sv_inuse_(new ThreadLocalPtr()),
+      local_sv_depth_(new ThreadLocalPtr()),
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
@@ -798,6 +801,8 @@ bool ColumnFamilyData::UnrefAndTryDelete() {
     super_version_ = nullptr;
 
     // Release SuperVersion references kept in ThreadLocalPtr.
+    local_sv_inuse_.reset();
+    local_sv_depth_.reset();
     local_sv_.reset();
 
     if (sv->Unref()) {
@@ -1350,13 +1355,22 @@ Compaction* ColumnFamilyData::CompactRange(
   return result;
 }
 
+namespace {
+inline void* EncodeThreadLocalSuperVersionDepth(uintptr_t depth) {
+  return reinterpret_cast<void*>(depth);
+}
+
+inline uintptr_t DecodeThreadLocalSuperVersionDepth(void* depth) {
+  return reinterpret_cast<uintptr_t>(depth);
+}
+}  // namespace
+
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(DBImpl* db) {
   SuperVersion* sv = GetThreadLocalSuperVersion(db);
   sv->Ref();
   if (!ReturnThreadLocalSuperVersion(sv)) {
-    // This Unref() corresponds to the Ref() in GetThreadLocalSuperVersion()
-    // when the thread-local pointer was populated. So, the Ref() earlier in
-    // this function still prevents the returned SuperVersion* from being
+    // This Unref() corresponds to the Ref() in GetThreadLocalSuperVersion().
+    // The Ref() above still prevents the returned SuperVersion* from being
     // deleted out from under the caller.
     sv->Unref();
   }
@@ -1381,34 +1395,66 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(DBImpl* db) {
   // (2) the Swap above (always) installs kSVInUse, ThreadLocal storage
   // should only keep kSVInUse before ReturnThreadLocalSuperVersion call
   // (if no Scrape happens).
-  assert(ptr != SuperVersion::kSVInUse);
-  SuperVersion* sv = static_cast<SuperVersion*>(ptr);
-  if (sv == SuperVersion::kSVObsolete) {
-    RecordTick(ioptions_.stats, NUMBER_SUPERVERSION_ACQUIRES);
-    db->mutex()->Lock();
-    sv = super_version_->Ref();
-    db->mutex()->Unlock();
+  SuperVersion* sv = nullptr;
+  if (ptr == SuperVersion::kSVInUse) {
+    sv = static_cast<SuperVersion*>(local_sv_inuse_->Get());
+    assert(sv != nullptr);
+    sv->Ref();
+  } else {
+    sv = static_cast<SuperVersion*>(ptr);
+    if (sv == SuperVersion::kSVObsolete) {
+      RecordTick(ioptions_.stats, NUMBER_SUPERVERSION_ACQUIRES);
+      db->mutex()->Lock();
+      sv = super_version_->Ref();
+      db->mutex()->Unlock();
+    }
+    local_sv_inuse_->Reset(static_cast<void*>(sv));
   }
   assert(sv != nullptr);
+  uintptr_t depth =
+      DecodeThreadLocalSuperVersionDepth(local_sv_depth_->Get());
+  local_sv_depth_->Reset(EncodeThreadLocalSuperVersionDepth(depth + 1));
   return sv;
 }
 
 bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   assert(sv != nullptr);
+  uintptr_t depth =
+      DecodeThreadLocalSuperVersionDepth(local_sv_depth_->Get());
+  assert(depth > 0);
+  if (depth > 1) {
+    // Nested acquisition should not touch thread-local main slot.
+    ExitThreadLocalSuperVersion();
+    return false;
+  }
+
   // Put the SuperVersion back
   void* expected = SuperVersion::kSVInUse;
+  bool success = false;
   if (local_sv_->CompareAndSwap(static_cast<void*>(sv), expected)) {
     // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
     // storage has not been altered and no Scrape has happened. The
     // SuperVersion is still current.
-    return true;
+    success = true;
   } else {
     // ThreadLocal scrape happened in the process of this GetImpl call (after
     // thread local Swap() at the beginning and before CompareAndSwap()).
     // This means the SuperVersion it holds is obsolete.
     assert(expected == SuperVersion::kSVObsolete);
   }
-  return false;
+  ExitThreadLocalSuperVersion();
+  return success;
+}
+
+void ColumnFamilyData::ExitThreadLocalSuperVersion() {
+  uintptr_t depth =
+      DecodeThreadLocalSuperVersionDepth(local_sv_depth_->Get());
+  assert(depth > 0);
+  depth--;
+  local_sv_depth_->Reset(EncodeThreadLocalSuperVersionDepth(depth));
+  if (depth == 0) {
+    local_sv_inuse_->Reset(nullptr);
+  }
 }
 
 void ColumnFamilyData::InstallSuperVersion(
