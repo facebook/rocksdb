@@ -1536,6 +1536,10 @@ DEFINE_uint32(uncache_aggressiveness,
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
 
+DEFINE_uint32(verify_output_flags, 0,
+              "Sets CF option verify_output_flags as a uint32_t bitmask. "
+              "See VerifyOutputFlags enum for bit definitions.");
+
 DEFINE_bool(paranoid_memory_checks,
             ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
