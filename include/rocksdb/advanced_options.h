@@ -213,8 +213,7 @@ enum class VerifyOutputFlags : uint32_t {
                                   // by comparing the one inserted into a
                                   // file, and what is read back.
 
-  // TODO - Implement
-  // kVerifyFileChecksum = 1 << 2,   // Verify file-level checksum
+  kVerifyFileChecksum = 1 << 2,  // Verify file-level checksum
 
   // Second set of bits: when to enable verification
   kEnableForLocalCompaction = 1 << 10,   // Enable for local compaction

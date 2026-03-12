@@ -2,6 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import argparse
+import glob
 import math
 import os
 import random
@@ -428,6 +429,13 @@ default_params = {
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
+    # verify_output_flags is a bitmask: bits 0-2 are verification types
+    # (block checksum, iteration, file checksum), bits 10-11 are when to
+    # enable (local compaction, remote compaction). 0x407 = all types +
+    # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
+    "verify_output_flags": lambda: random.choice(
+        [0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]
+    ),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
@@ -1419,11 +1427,16 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
         hit_timeout = True
         if timeout_pstack:
             os.system("pstack %d" % pid)
-        child.kill()
-        print("KILLED %d\n" % child.pid)
-        outs, errs = child.communicate()
+        child.terminate()  # SIGTERM — triggers TerminationHandler
+        try:
+            outs, errs = child.communicate(timeout=3)
+            print("TERMINATED %d\n" % child.pid)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            print("KILLED %d (SIGTERM did not work)\n" % child.pid)
+            outs, errs = child.communicate()
 
-    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
+    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8"), pid
 
 
 def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):
@@ -1454,6 +1467,54 @@ def cleanup_after_success(dbname):
         sys.exit(2)
 
 
+def print_and_cleanup_fault_injection_log(pid):
+    # Fault injection logs are stored in TEST_TMPDIR (or /tmp) to survive
+    # DB reopen cleanup, and to be included in sandcastle's db.tar.gz artifact.
+    # Filter by pid to only print the log from the current run.
+    max_tail_entries = 32
+    log_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
+    pattern = os.path.join(log_dir, "fault_injection_%d_*.log" % pid)
+    for log in glob.glob(pattern):
+        print("=== Fault injection log: %s ===" % log)
+        try:
+            with open(log) as f:
+                lines = f.readlines()
+            # Log format: header line(s), entry lines, footer line.
+            # The footer starts with "=== End of".
+            # Print header and footer always, truncate entries in the middle.
+            header = []
+            footer = []
+            entries = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("=== End of"):
+                    footer.append(line)
+                elif stripped.startswith("===") or stripped == "(none)":
+                    header.append(line)
+                else:
+                    entries.append(line)
+            total_entries = len(entries)
+            print("".join(header), end="")
+            if total_entries <= max_tail_entries:
+                print("".join(entries), end="")
+                print("".join(footer), end="")
+            else:
+                skipped = total_entries - max_tail_entries
+                print(
+                    "... (%d entries omitted, showing last %d. "
+                    "Full log: %s)\n" % (skipped, max_tail_entries, log),
+                    end="",
+                )
+                print("".join(entries[-max_tail_entries:]), end="")
+                print(
+                    "=== Showed %d of %d injected error entries ===\n"
+                    % (max_tail_entries, total_entries),
+                    end="",
+                )
+        except OSError:
+            pass
+
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -1477,7 +1538,9 @@ def blackbox_crash_main(args, unknown_args):
             dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
         )
 
-        hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params["interval"])
+        hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
+
+        print_and_cleanup_fault_injection_log(pid)
 
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run only)
@@ -1503,9 +1566,11 @@ def blackbox_crash_main(args, unknown_args):
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )
-    hit_timeout, retcode, outs, errs = execute_cmd(
+    hit_timeout, retcode, outs, errs, pid = execute_cmd(
         cmd, cmd_params["verify_timeout"], True
     )
+
+    print_and_cleanup_fault_injection_log(pid)
 
     # For the final run
     print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
@@ -1647,7 +1712,7 @@ def whitebox_crash_main(args, unknown_args):
         # for job scheduling or execution.
         # TODO detect a hanging condition. The job might run too long as RocksDB
         # hits a hanging bug.
-        hit_timeout, retncode, stdoutdata, stderrdata = execute_cmd(
+        hit_timeout, retncode, stdoutdata, stderrdata, pid = execute_cmd(
             cmd, exit_time - time.time() + 900
         )
 

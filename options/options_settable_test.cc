@@ -695,7 +695,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_avg_op_scan_flush_trigger=12;"
       "min_tombstones_for_range_conversion=8;"
       "cf_allow_ingest_behind=1;"
-      "verify_output_flags=2049;",
+      "verify_output_flags=2053;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
