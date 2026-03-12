@@ -5501,7 +5501,7 @@ TEST_F(ReadPathRangeTombstoneTest, BasicInsertion) {
 
     // Two RTs inserted with correct non-overlapping bounds:
     // Forward:  [b, g) then [i, n)
-    // Reverse:  [i, n) then [b, g)  (MoveFrom refreshes end key each call)
+    // Reverse:  [i, n) then [b, g)
     ASSERT_EQ(inserted_ranges_.size(), 2);
     if (forward) {
       AssertRange(0, "b", "g");

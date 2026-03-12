@@ -899,7 +899,7 @@ void DBIter::PrevInternal(const Slice* prefix) {
   // Capture saved_key_ (previous live key) into range_tomb_end_key_ before
   // saved_key_ is overwritten below.
   if (min_tombstones_for_range_conversion_ > 0) {
-    range_tomb_end_key_.MoveFrom(saved_key_);
+    range_tomb_end_key_.Swap(saved_key_);
   }
 
   while (iter_.Valid()) {

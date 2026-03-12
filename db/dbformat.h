@@ -830,56 +830,82 @@ class IterKey {
 
   bool IsUserKey() const { return is_user_key_; }
 
-  // Transfers ownership of other's key buffer into this IterKey.
-  // After the call, other is left in a valid-but-cleared state (size 0,
-  // using inline buffer). This avoids copying when the source will be
-  // overwritten immediately anyway.
-  void MoveFrom(IterKey& other) {
-    // Free our existing heap buffer if any.
-    ResetBuffer();
-    ResetSecondaryBuffer();
-
+  void Swap(IterKey& other) {
+    // Record pointer relationships before any mutation.
+    bool this_key_in_buf = (key_ == buf_);
+    bool this_key_in_sec = (key_ == secondary_buf_);
     bool other_key_in_buf = (other.key_ == other.buf_);
     bool other_key_in_sec = (other.key_ == other.secondary_buf_);
+    const char* orig_this_key = key_;
+    const char* orig_other_key = other.key_;
 
-    // --- Transfer primary buffer ---
-    if (other.buf_ != other.space_) {
-      // other is on heap: steal the pointer
+    // --- Swap primary buffer ---
+    bool this_buf_inline = (buf_ == space_);
+    bool other_buf_inline = (other.buf_ == other.space_);
+    if (this_buf_inline && other_buf_inline) {
+      char temp[kInlineBufferSize];
+      size_t max_sz = std::max(key_size_, other.key_size_);
+      memcpy(temp, space_, max_sz);
+      memcpy(space_, other.space_, max_sz);
+      memcpy(other.space_, temp, max_sz);
+    } else if (this_buf_inline) {
+      memcpy(other.space_, space_, key_size_);
       buf_ = other.buf_;
-      buf_size_ = other.buf_size_;
-    } else {
-      // other is inline: copy into our inline space
+      other.buf_ = other.space_;
+    } else if (other_buf_inline) {
       memcpy(space_, other.space_, other.key_size_);
+      other.buf_ = buf_;
       buf_ = space_;
-      buf_size_ = kInlineBufferSize;
+    } else {
+      std::swap(buf_, other.buf_);
     }
 
-    // --- Transfer secondary buffer ---
-    if (other.secondary_buf_ != other.space_for_secondary_buf_) {
+    // --- Swap secondary buffer ---
+    bool this_sec_inline = (secondary_buf_ == space_for_secondary_buf_);
+    bool other_sec_inline =
+        (other.secondary_buf_ == other.space_for_secondary_buf_);
+    if (this_sec_inline && other_sec_inline) {
+      char temp[kInlineBufferSize];
+      memcpy(temp, space_for_secondary_buf_, kInlineBufferSize);
+      memcpy(space_for_secondary_buf_, other.space_for_secondary_buf_,
+             kInlineBufferSize);
+      memcpy(other.space_for_secondary_buf_, temp, kInlineBufferSize);
+    } else if (this_sec_inline) {
+      memcpy(other.space_for_secondary_buf_, space_for_secondary_buf_,
+             secondary_buf_size_);
       secondary_buf_ = other.secondary_buf_;
-      secondary_buf_size_ = other.secondary_buf_size_;
-    } else {
+      other.secondary_buf_ = other.space_for_secondary_buf_;
+    } else if (other_sec_inline) {
       memcpy(space_for_secondary_buf_, other.space_for_secondary_buf_,
              other.secondary_buf_size_);
+      other.secondary_buf_ = secondary_buf_;
       secondary_buf_ = space_for_secondary_buf_;
-      secondary_buf_size_ = kInlineBufferSize;
+    } else {
+      std::swap(secondary_buf_, other.secondary_buf_);
     }
 
-    // --- Redirect key_ ---
+    // --- Redirect key_ pointers ---
     if (other_key_in_buf) {
       key_ = buf_;
     } else if (other_key_in_sec) {
       key_ = secondary_buf_;
     } else {
-      // Pinned to external memory — keep the same pointer
-      key_ = other.key_;
+      key_ = orig_other_key;
     }
 
-    key_size_ = other.key_size_;
-    is_user_key_ = other.is_user_key_;
-    key_slices_ = other.key_slices_;
+    if (this_key_in_buf) {
+      other.key_ = other.buf_;
+    } else if (this_key_in_sec) {
+      other.key_ = other.secondary_buf_;
+    } else {
+      other.key_ = orig_this_key;
+    }
 
-    other.Clear();
+    std::swap(key_size_, other.key_size_);
+    std::swap(buf_size_, other.buf_size_);
+    std::swap(secondary_buf_size_, other.secondary_buf_size_);
+    std::swap(is_user_key_, other.is_user_key_);
+    std::swap(key_slices_, other.key_slices_);
   }
 
  private:
