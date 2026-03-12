@@ -18,6 +18,7 @@ void PrintAndFreeStack(void* /*callstack*/, int /*num_frames*/) {}
 void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
   return nullptr;
 }
+void RegisterCrashCallback(CrashCallback /*callback*/) {}
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -320,6 +321,7 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
 static std::atomic<uint64_t> g_thread_handling_stack_trace{0};
 static int g_recursion_count = 0;
 static std::atomic<bool> g_at_exit_called{false};
+static std::atomic<CrashCallback> g_crash_callback{nullptr};
 
 static void StackTraceHandler(int sig) {
   fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
@@ -360,6 +362,12 @@ static void StackTraceHandler(int sig) {
       fprintf(stderr, "In a race with process already exiting...\n");
     }
 
+    // Invoke registered crash callback before printing stack trace
+    auto callback = g_crash_callback.load(std::memory_order_acquire);
+    if (callback) {
+      callback();
+    }
+
     // skip the top three signal handler related frames
     PrintStack(3);
 
@@ -398,13 +406,41 @@ static void AtExit() {
   g_at_exit_called.store(true, std::memory_order_release);
 }
 
+// Lightweight handler for graceful termination signals (SIGTERM, SIGINT).
+// Prints the crash callback (e.g., ring buffer) but skips the
+// expensive GDB/LLDB stack trace, since these are intentional terminations.
+static void TerminationHandler(int sig) {
+  char buf[64];
+  int len = snprintf(buf, sizeof(buf), "Received signal %d (%s)\n", sig,
+                     strsignal(sig));
+  if (len > 0) {
+    auto unused __attribute__((unused)) = write(STDOUT_FILENO, buf, len);
+  }
+  auto callback = g_crash_callback.load(std::memory_order_acquire);
+  if (callback) {
+    callback();
+  }
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
+void RegisterCrashCallback(CrashCallback callback) {
+  g_crash_callback.store(callback, std::memory_order_release);
+}
+
 void InstallStackTraceHandler() {
   // just use the plain old signal as it's simple and sufficient
   // for this use case
+  // Crash signals — invoke full stack trace + ring buffer
   signal(SIGILL, StackTraceHandler);
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
+  signal(SIGFPE, StackTraceHandler);
+  signal(SIGQUIT, StackTraceHandler);
+  // Termination signals — print ring buffer only, no stack trace
+  signal(SIGTERM, TerminationHandler);
+  signal(SIGINT, TerminationHandler);
   atexit(AtExit);
   // Allow ouside debugger to attach, even with Yama security restrictions.
   // This is needed even outside of PrintStack() so that external mechanisms
