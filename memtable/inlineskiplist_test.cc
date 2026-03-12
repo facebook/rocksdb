@@ -884,6 +884,118 @@ TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
   RunConcurrentInsert(3, true);
 }
 
+// Test concurrent MultiGet reads with ongoing writes. Exercises the skip list
+// height growth handling in FindGreaterOrEqualWithFinger, where the finger's
+// cached height may be stale due to concurrent inserts growing the list.
+struct MultiGetReaderState {
+  InlineSkipList<TestComparator>* list;
+  std::atomic<bool>* quit_flag;
+  int seed;
+  std::atomic<int>* error_count;
+  std::atomic<int>* batches_done;
+};
+
+static const Key kNotFound = std::numeric_limits<Key>::max();
+
+static void ConcurrentMultiGetReader(void* arg) {
+  auto* state = static_cast<MultiGetReaderState*>(arg);
+  Random rnd(state->seed);
+  const int kBatchSize = 16;
+
+  auto callback = [](void* cb_arg, const char* entry) -> bool {
+    auto* result = static_cast<Key*>(cb_arg);
+    *result = Decode(entry);
+    return false;  // point lookup: stop after first entry
+  };
+
+  while (!state->quit_flag->load(std::memory_order_acquire)) {
+    // Generate sorted random query keys, starting from 1 to avoid key 0
+    std::vector<Key> query_keys(kBatchSize);
+    for (int j = 0; j < kBatchSize; j++) {
+      query_keys[j] = 1 + (rnd.Next() % 20000);
+    }
+    std::sort(query_keys.begin(), query_keys.end());
+
+    // Encode keys (each points into query_keys vector, valid for this scope)
+    std::vector<const char*> key_ptrs(kBatchSize);
+    std::vector<Key> results(kBatchSize, kNotFound);
+    std::vector<void*> cb_args(kBatchSize);
+    for (int j = 0; j < kBatchSize; j++) {
+      key_ptrs[j] = Encode(&query_keys[j]);
+      cb_args[j] = &results[j];
+    }
+
+    Status s = state->list->MultiGet(kBatchSize, key_ptrs.data(),
+                                     cb_args.data(), callback);
+    if (!s.ok()) {
+      state->error_count->fetch_add(1, std::memory_order_relaxed);
+      break;
+    }
+
+    // Verify: each found result must be >= its query key. In a concurrent
+    // setting, results are NOT required to be non-decreasing across keys
+    // because each lookup sees a different point-in-time snapshot.
+    for (int j = 0; j < kBatchSize; j++) {
+      if (results[j] != kNotFound && results[j] < query_keys[j]) {
+        state->error_count->fetch_add(1, std::memory_order_relaxed);
+        break;
+      }
+    }
+
+    state->batches_done->fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+TEST_F(InlineSkipTest, ConcurrentMultiGet) {
+  uint32_t seed =
+      static_cast<uint32_t>(Env::Default()->NowMicros() & 0xFFFFFFFF);
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+
+  ConcurrentArena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  std::atomic<bool> quit_flag{false};
+  std::atomic<int> error_count{0};
+  std::atomic<int> batches_done{0};
+
+  // Start multiple reader threads doing concurrent MultiGet
+  const int kNumReaders = 4;
+  std::vector<MultiGetReaderState> reader_states(kNumReaders);
+  Env::Default()->SetBackgroundThreads(kNumReaders);
+  for (int r = 0; r < kNumReaders; r++) {
+    reader_states[r].list = &list;
+    reader_states[r].quit_flag = &quit_flag;
+    reader_states[r].seed = seed + r + 1;
+    reader_states[r].error_count = &error_count;
+    reader_states[r].batches_done = &batches_done;
+    Env::Default()->Schedule(ConcurrentMultiGetReader, &reader_states[r]);
+  }
+
+  // Writer: insert keys concurrently, which may grow the skip list height.
+  // Use InsertConcurrently which is safe with concurrent readers.
+  Random rnd(seed);
+  const int kNumWrites = 10000;
+  for (int i = 0; i < kNumWrites; i++) {
+    Key key = 1 + (rnd.Next() % 20000);
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.InsertConcurrently(buf);
+  }
+
+  // Let readers run a bit after all writes are done
+  Env::Default()->SleepForMicroseconds(100000);  // 100ms
+
+  quit_flag.store(true, std::memory_order_release);
+
+  // Wait for readers to finish
+  Env::Default()->WaitForJoin();
+
+  ASSERT_EQ(error_count.load(), 0)
+      << "Concurrent MultiGet detected inconsistent results";
+  ASSERT_GT(batches_done.load(), 0) << "No MultiGet batches completed";
+}
+
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 }  // namespace ROCKSDB_NAMESPACE
 
