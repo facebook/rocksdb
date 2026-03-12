@@ -16,7 +16,7 @@ class MyTestCompactionService : public CompactionService {
  public:
   MyTestCompactionService(
       std::string db_path, Options& options,
-      std::shared_ptr<Statistics>& statistics,
+      std::shared_ptr<Statistics> statistics,
       std::vector<std::shared_ptr<EventListener>> listeners,
       std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
           table_properties_collector_factories)
@@ -2864,6 +2864,86 @@ TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithTimedPut) {
 
   VerifyResumeBytes();
 }
+
+TEST_F(CompactionServiceTest, AtomicFlushRemoteCompactionMissingFile) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.atomic_flush = true;
+  options.create_missing_column_families = true;
+  options.env = env_;
+  options.max_manifest_file_size = 1;
+  options.num_levels = 2;
+  options.max_background_jobs = 4;
+
+  auto my_cs = std::make_shared<MyTestCompactionService>(
+      dbname_, options, nullptr, remote_listeners,
+      remote_table_properties_collector_factories);
+  options.compaction_service = my_cs;
+
+  Close();
+  ASSERT_OK(DestroyDB(dbname_, options));
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back("cf_1", options);
+
+  ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles_, &db_));
+
+  // Atomic flush writes version edits for CF0 and CF1 as one atomic group
+  ASSERT_OK(Put(0, Key(1), "value1"));
+  ASSERT_OK(Put(1, Key(1), "value1"));
+  ASSERT_OK(db_->Flush(FlushOptions(), handles_));
+  ASSERT_EQ("1", FilesPerLevel(0));
+  ASSERT_EQ("1", FilesPerLevel(1));
+
+  // Add more L0 files so CompactRange has something to compact
+  ASSERT_OK(Put(0, Key(1), "value2"));
+  ASSERT_OK(Flush(0));
+  ASSERT_EQ("2", FilesPerLevel(0));
+  ASSERT_OK(Put(1, Key(1), "value2"));
+  ASSERT_OK(Flush(1));
+  ASSERT_EQ("2", FilesPerLevel(1));
+
+  auto pressure_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  // Remote compaction on CF1 opens a secondary DB that reads the manifest.
+  // Sync point pauses secondary after it opens the manifest file but before
+  // reading records. The callback compacts CF0 locally, which deletes CF0's
+  // atomic-flushed SST and rotates the manifest. When the secondary resumes
+  // reading the manifest it already opened, CF0's file is gone, so the
+  // atomic group from the flush is incomplete in the secondary.
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::Recover:AfterMaybeSwitchManifest",
+      [&](void* /*arg*/) {
+        my_cs->OverrideStartStatus(CompactionServiceJobStatus::kUseLocal);
+        ASSERT_OK(db_->CompactRange(cro, handles_[0], nullptr, nullptr));
+        my_cs->ResetOverride();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Before fix: fails with "Cannot find matched SST files"
+  // After fix: compaction succeeds
+  ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+
+  // Verify both compactions actually ran (2 L0 files → 1 L1 file each)
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_EQ("0,1", FilesPerLevel(1));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (auto* h : handles_) {
+    if (h != db_->DefaultColumnFamily()) {
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(h));
+    }
+  }
+  handles_.clear();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
