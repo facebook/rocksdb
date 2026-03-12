@@ -14,11 +14,13 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/mock_time_env.h"
@@ -11735,6 +11737,59 @@ TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
     ASSERT_EQ(Get("key" + std::to_string(k)), "v4");
   }
 }
+
+TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.verify_output_flags = VerifyOutputFlags::kVerifyFileChecksum |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
+  DestroyAndReopen(options);
+
+  // Create 2 L0 files to trigger compaction
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 5; i < 15; i++) {
+    ASSERT_OK(Put(Key(i), "value2_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Corrupt output files right before verification
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run:BeforeVerify", [&](void* /*arg*/) {
+        // Find and corrupt the newest SST file (compaction output)
+        std::vector<std::string> filenames;
+        ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+        uint64_t max_number = 0;
+        std::string target_fname;
+        for (const auto& f : filenames) {
+          uint64_t number;
+          FileType type;
+          if (ParseFileName(f, &number, &type) && type == kTableFile &&
+              number > max_number) {
+            max_number = number;
+            target_fname = dbname_ + "/" + f;
+          }
+        }
+        ASSERT_FALSE(target_fname.empty());
+        ASSERT_OK(test::CorruptFile(env_, target_fname, 0, 1,
+                                    false /* verifyChecksum */));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(
+      std::strstr(s.getState(), "File checksum mismatch for compaction output"))
+      << s.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

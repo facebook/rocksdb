@@ -429,6 +429,13 @@ default_params = {
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
+    # verify_output_flags is a bitmask: bits 0-2 are verification types
+    # (block checksum, iteration, file checksum), bits 10-11 are when to
+    # enable (local compaction, remote compaction). 0x407 = all types +
+    # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
+    "verify_output_flags": lambda: random.choice(
+        [0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]
+    ),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
