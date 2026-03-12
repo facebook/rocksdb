@@ -1135,38 +1135,41 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
     SCOPED_TRACE(name);
     std::sort(keys.begin(), keys.end());
     keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
-    VerifyTrieIteration(keys);
+    ASSERT_NO_FATAL_FAILURE(VerifyTrieIteration(keys));
   };
 
   // Minimal multi-key trie.
-  run("TwoKeys", {"aa", "ab"});
+  ASSERT_NO_FATAL_FAILURE(run("TwoKeys", {"aa", "ab"}));
 
   // All keys share a long prefix, differ only in last byte.
   {
     std::string prefix(50, 'x');
     std::vector<std::string> keys;
     for (char c = 'a'; c <= 'z'; c++) keys.push_back(prefix + c);
-    run("IdenticalPrefixDifferentLastByte", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(
+        run("IdenticalPrefixDifferentLastByte", std::move(keys)));
   }
 
   // Keys containing non-ASCII bytes (0x00, 0xFF, etc).
-  run("BinaryKeys", {std::string("\x00\x00", 2), std::string("\x00\x01", 2),
+  ASSERT_NO_FATAL_FAILURE(run(
+      "BinaryKeys", {std::string("\x00\x00", 2), std::string("\x00\x01", 2),
                      std::string("\x00\xFF", 2), std::string("\x01\x00", 2),
-                     std::string("\xFF\x00", 2), std::string("\xFF\xFF", 2)});
+                     std::string("\xFF\x00", 2), std::string("\xFF\xFF", 2)}));
 
   // One key for every possible single byte value (0x00-0xFF).
   {
     std::vector<std::string> keys;
     keys.reserve(256);
     for (int b = 0; b < 256; b++) keys.emplace_back(1, static_cast<char>(b));
-    run("SingleByteAllValues", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("SingleByteAllValues", std::move(keys)));
   }
 
   // Single path through the trie (linear chain), depth = 100.
-  run("DeepChain", {std::string(100, 'a')});
+  ASSERT_NO_FATAL_FAILURE(run("DeepChain", {std::string(100, 'a')}));
 
   // Mix of prefix keys and non-prefix keys in the same subtree.
-  run("AlternatingPrefixAndNonPrefix", {"a", "ab", "abc", "b", "c"});
+  ASSERT_NO_FATAL_FAILURE(
+      run("AlternatingPrefixAndNonPrefix", {"a", "ab", "abc", "b", "c"}));
 
   // Prefix key at the dense/sparse boundary.
   {
@@ -1174,62 +1177,71 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
     for (char c = 'a'; c <= 'z'; c++) keys.emplace_back(1, c);
     keys.emplace_back("aa");
     keys.emplace_back("aab");
-    run("PrefixKeyAtDenseSparseEdge", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("PrefixKeyAtDenseSparseEdge", std::move(keys)));
   }
 
   // Key reconstruction variants.
-  run("KeyReconstructionBasic", {"abc", "abd", "abe", "xyz"});
-  run("KeyReconstructionSingleByte", {"a", "b", "c", "d", "e"});
+  ASSERT_NO_FATAL_FAILURE(
+      run("KeyReconstructionBasic", {"abc", "abd", "abe", "xyz"}));
+  ASSERT_NO_FATAL_FAILURE(
+      run("KeyReconstructionSingleByte", {"a", "b", "c", "d", "e"}));
 
   {
     std::vector<std::string> keys;
     std::string prefix = "common_prefix_that_is_quite_long_";
     for (int i = 0; i < 26; i++)
       keys.push_back(prefix + static_cast<char>('a' + i));
-    run("KeyReconstructionLongSharedPrefix", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(
+        run("KeyReconstructionLongSharedPrefix", std::move(keys)));
   }
 
-  run("KeyReconstructionVaryingLengths",
-      {"a", "ab", "abc", "abcd", "abcde", "b", "bc", "bcd"});
-  run("TwoByteKeys", {"aa", "ab", "ba", "bb", "ca"});
+  ASSERT_NO_FATAL_FAILURE(
+      run("KeyReconstructionVaryingLengths",
+          {"a", "ab", "abc", "abcd", "abcde", "b", "bc", "bcd"}));
+  ASSERT_NO_FATAL_FAILURE(run("TwoByteKeys", {"aa", "ab", "ba", "bb", "ca"}));
 
   {
     std::vector<std::string> keys;
     for (int c = 'a'; c <= 'z'; c++)
       keys.push_back(std::string(1, static_cast<char>(c)) + "suffix");
-    run("HighFanoutRoot", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("HighFanoutRoot", std::move(keys)));
   }
 
-  run("DeepTrie", {"abcdefghijklmnop", "abcdefghijklmnoq", "abcdefghijklmnor"});
+  ASSERT_NO_FATAL_FAILURE(
+      run("DeepTrie",
+          {"abcdefghijklmnop", "abcdefghijklmnoq", "abcdefghijklmnor"}));
 
   // Prefix key variants.
-  run("PrefixKeysSimple", {"a", "ab", "b"});
-  run("PrefixKeysChain", {"a", "ab", "abc", "abcd"});
-  run("PrefixKeysMultipleBranches", {"a", "aa", "ab", "ac"});
-  run("PrefixKeysAtDifferentLevels", {"a", "aa", "aab", "b", "ba"});
+  ASSERT_NO_FATAL_FAILURE(run("PrefixKeysSimple", {"a", "ab", "b"}));
+  ASSERT_NO_FATAL_FAILURE(run("PrefixKeysChain", {"a", "ab", "abc", "abcd"}));
+  ASSERT_NO_FATAL_FAILURE(
+      run("PrefixKeysMultipleBranches", {"a", "aa", "ab", "ac"}));
+  ASSERT_NO_FATAL_FAILURE(
+      run("PrefixKeysAtDifferentLevels", {"a", "aa", "aab", "b", "ba"}));
 
   {
     std::vector<std::string> keys;
     for (int i = 0; i < 30; i++) keys.push_back("p_" + std::to_string(i));
-    run("PrefixKeysDiverging", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("PrefixKeysDiverging", std::move(keys)));
   }
 
-  run("PrefixKeyRootOnly", {"a", "ab", "ac", "b"});
-  run("MultiplePrefixKeySameNode", {"x", "xa", "xab", "xb"});
+  ASSERT_NO_FATAL_FAILURE(run("PrefixKeyRootOnly", {"a", "ab", "ac", "b"}));
+  ASSERT_NO_FATAL_FAILURE(
+      run("MultiplePrefixKeySameNode", {"x", "xa", "xab", "xb"}));
 
   {
     std::vector<std::string> keys;
     for (int len = 1; len <= 20; len++) keys.emplace_back(len, 'a');
-    run("ManyPrefixKeys", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("ManyPrefixKeys", std::move(keys)));
   }
 
   // Dense/sparse boundary variants.
-  run("AllSparse", {"a", "b"});
+  ASSERT_NO_FATAL_FAILURE(run("AllSparse", {"a", "b"}));
 
   {
     std::vector<std::string> keys;
     for (char c = 'a'; c <= 'z'; c++) keys.emplace_back(1, c);
-    run("AllDense", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("AllDense", std::move(keys)));
   }
 
   {
@@ -1238,7 +1250,7 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
       keys.push_back(std::string(1, c) + "1");
       keys.push_back(std::string(1, c) + "2");
     }
-    run("DenseSparseTransition", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("DenseSparseTransition", std::move(keys)));
   }
 
   // Larger key sets (former deterministic stress tests).
@@ -1249,7 +1261,7 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
       snprintf(buf, sizeof(buf), "key_%06d", i);
       keys.emplace_back(buf);
     }
-    run("ThousandFormattedKeys", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("ThousandFormattedKeys", std::move(keys)));
   }
 
   {
@@ -1262,7 +1274,7 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
         keys.emplace_back(buf);
       }
     }
-    run("DiversePrefixPatterns", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("DiversePrefixPatterns", std::move(keys)));
   }
 
   {
@@ -1277,13 +1289,13 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
       snprintf(buf, sizeof(buf), "this_is_a_very_long_key_%06d", i);
       keys.emplace_back(buf);
     }
-    run("MixedLengths", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("MixedLengths", std::move(keys)));
   }
 
   {
     std::vector<std::string> keys;
     for (int i = 0; i < 200; i++) keys.push_back("item_" + std::to_string(i));
-    run("PrefixKeyStressPatterns", std::move(keys));
+    ASSERT_NO_FATAL_FAILURE(run("PrefixKeyStressPatterns", std::move(keys)));
   }
 }
 
@@ -1309,7 +1321,7 @@ TEST_F(LoudsTrieTest, RandomizedStress) {
     std::sort(keys.begin(), keys.end());
     keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
     if (keys.empty()) continue;
-    VerifyTrieIteration(keys);
+    ASSERT_NO_FATAL_FAILURE(VerifyTrieIteration(keys));
   }
 }
 
@@ -1540,7 +1552,7 @@ TEST_F(LoudsTrieTest, IteratorSeekBetweenKeys) {
 TEST_F(LoudsTrieTest, IteratorNext) {
   std::vector<std::string> keys = {"a", "b", "c", "d", "e"};
   auto bt = BuildTrieFromKeys(keys);
-  VerifyFullScan(bt, keys);
+  ASSERT_NO_FATAL_FAILURE(VerifyFullScan(bt, keys));
 }
 
 TEST_F(LoudsTrieTest, IteratorSeekPastEnd) {
@@ -1788,7 +1800,7 @@ TEST_F(LoudsTrieTest, SerializeDeserializeRoundTrip) {
   std::sort(keys.begin(), keys.end());
   auto bt = BuildTrieFromKeys(keys);
   ASSERT_EQ(bt.trie.NumKeys(), keys.size());
-  VerifyFullScan(bt, keys);
+  ASSERT_NO_FATAL_FAILURE(VerifyFullScan(bt, keys));
 }
 
 TEST_F(LoudsTrieTest, SerializeDeserializeRoundTripMisalignedData) {
@@ -1846,7 +1858,7 @@ TEST_F(LoudsTrieTest, StressTest10KKeys) {
   }
 
   // Full forward scan.
-  VerifyFullScan(bt, keys);
+  ASSERT_NO_FATAL_FAILURE(VerifyFullScan(bt, keys));
 }
 
 TEST_F(LoudsTrieTest, MoveAssignment) {
@@ -3004,7 +3016,8 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyBoundaryTriggersSeqnoEncoding) {
   IterateResult result;
 
   // Seek for "foo" with seq=100 (highest seqno — should find Block 0).
-  AssertSeekOffset(ctx.iter.get(), Slice("foo"), 100, 0);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("foo"), 100, 0));
 
   // Seek for "foo" with seq=75 (between 100 and 50). In RocksDB's internal
   // key ordering, higher seqno = "smaller" key. So:
@@ -3014,22 +3027,28 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyBoundaryTriggersSeqnoEncoding) {
   // This matches the internal binary search index behavior exactly:
   // the index directs us to the NEXT block, and the data block iterator
   // within that block will find the first key >= target.
-  AssertSeekOffset(ctx.iter.get(), Slice("foo"), 75, 1000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("foo"), 75, 1000));
 
   // Seek for "foo" with seq=50 (exact seqno of Block 1's first key —
   // should find Block 1).
-  AssertSeekOffset(ctx.iter.get(), Slice("foo"), 50, 1000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("foo"), 50, 1000));
 
   // Seek for "foo" with seq=1 (lower than any foo seqno — should find
   // Block 1, because in descending seqno order seq=1 comes after seq=50).
-  AssertSeekOffset(ctx.iter.get(), Slice("foo"), 1, 1000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("foo"), 1, 1000));
 
   // Seek for "goo" with kMaxSequenceNumber — should find Block 2.
-  AssertSeekOffset(ctx.iter.get(), Slice("goo"), kMaxSequenceNumber, 2000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("goo"), kMaxSequenceNumber, 2000));
 
   // Next from Block 0 should advance to Block 1, then Block 2.
-  AssertSeekOffset(ctx.iter.get(), Slice("foo"), 100, 0);
-  AssertFullForwardScan(ctx.iter.get(), Slice("foo"), {0, 1000, 2000});
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("foo"), 100, 0));
+  ASSERT_NO_FATAL_FAILURE(
+      AssertFullForwardScan(ctx.iter.get(), Slice("foo"), {0, 1000, 2000}));
 }
 
 TEST_F(TrieIndexFactoryTest, DistinctUserKeysNoSeqnoOverhead) {
@@ -3042,10 +3061,12 @@ TEST_F(TrieIndexFactoryTest, DistinctUserKeysNoSeqnoOverhead) {
   });
 
   // Seeking with kMaxSequenceNumber should work identically to no-seqno case.
-  AssertSeekOffset(ctx.iter.get(), Slice("apple"), kMaxSequenceNumber, 0);
-  AssertSeekOffset(ctx.iter.get(), Slice("cherry"), kMaxSequenceNumber, 1000);
-  AssertSeekOffset(ctx.iter.get(), Slice("elderberry"), kMaxSequenceNumber,
-                   2000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("apple"), kMaxSequenceNumber, 0));
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("cherry"),
+                                           kMaxSequenceNumber, 1000));
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("elderberry"),
+                                           kMaxSequenceNumber, 2000));
 }
 
 TEST_F(TrieIndexFactoryTest, MultipleSameUserKeyBoundaries) {
@@ -3063,35 +3084,43 @@ TEST_F(TrieIndexFactoryTest, MultipleSameUserKeyBoundaries) {
   });
 
   // Seek "key"|seq=300 → Block 0
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 300, 0);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 300, 0));
 
   // Seek "key"|seq=250 → Block 1. In internal key order, higher seqno is
   // "smaller", so "key"|300 < "key"|250. Block 0's separator "key"+enc(300)
   // is less than the target → skip. Block 1's separator "key"+enc(200)
   // is >= target because enc(200) > enc(250) (lower seqno → larger encoded
   // bytes). So the first separator >= target is Block 1.
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 250, 1000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 250, 1000));
 
   // Seek "key"|seq=200 → Block 1
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 200, 1000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 200, 1000));
 
   // Seek "key"|seq=150 → Block 2. "key"+enc(300) < target (skip Block 0),
   // "key"+enc(200) < target (skip Block 1, because enc(200) < enc(150):
   // 200 > 150 → higher seqno → smaller encoding). The next separator is
   // Block 2's separator which is >= target → Block 2.
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 150, 2000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 150, 2000));
 
   // Seek "key"|seq=100 → Block 2
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 100, 2000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 100, 2000));
 
   // Seek "key"|seq=1 → Block 2 (below all key seqnos)
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 1, 2000);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 1, 2000));
 
   // Seek "other"|kMaxSequenceNumber → Block 3
-  AssertSeekOffset(ctx.iter.get(), Slice("other"), kMaxSequenceNumber, 3000);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("other"),
+                                           kMaxSequenceNumber, 3000));
 
   // Full forward scan: Block 0 → 1 → 2 → 3
-  AssertFullForwardScan(ctx.iter.get(), Slice("key"), {0, 1000, 2000, 3000});
+  ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(ctx.iter.get(), Slice("key"),
+                                                {0, 1000, 2000, 3000}));
 }
 
 TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
@@ -3111,13 +3140,15 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
 
   // Seek "key"|kMaxSequenceNumber → Block 0 (primary, seqno=0 guard prevents
   // advancement through overflow blocks).
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0));
 
   // Seek "key"|seq=0 → Block 0 (primary, target_seq=0 >= leaf_seqno=0).
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 0, 0);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("key"), 0, 0));
 
   // Full forward scan: Block 0 → 1 → 2 → 3
-  AssertFullForwardScan(ctx.iter.get(), Slice("key"), {0, 1000, 2000, 3000});
+  ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(ctx.iter.get(), Slice("key"),
+                                                {0, 1000, 2000, 3000}));
 
   // SeekToFirst → Block 0, then full scan.
   IterateResult result;
@@ -3142,7 +3173,8 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyLastBlockZeroSeqno) {
   });
 
   // Seek → Block 0 (primary).
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0));
 
   // Next → Block 1 (overflow).
   IterateResult result;
@@ -3165,10 +3197,10 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingRoundTripSerialization) {
   });
 
   // Seek "x"|seq=10 → Block 0
-  AssertSeekOffset(ctx.iter.get(), Slice("x"), 10, 0);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("x"), 10, 0));
 
   // Seek "x"|seq=5 → Block 1
-  AssertSeekOffset(ctx.iter.get(), Slice("x"), 5, 500);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("x"), 5, 500));
 }
 
 TEST_F(TrieIndexFactoryTest, SeqnoEncodingWithBoundsChecking) {
@@ -3545,9 +3577,11 @@ TEST_F(TrieIndexFactoryTest, SeekNonExistentKeyWithSeqnoEncoding) {
   auto* iter = ctx.iter.get();
 
   // Seek "aaa" (before all keys) → lands on "mmm" leaf, Block 0.
-  AssertSeekOffset(iter, Slice("aaa"), kMaxSequenceNumber, 0u);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(iter, Slice("aaa"), kMaxSequenceNumber, 0u));
   // Seek "nnn" (between "n" and "zzz") → lands on "zzz" leaf, Block 2.
-  AssertSeekOffset(iter, Slice("nnn"), kMaxSequenceNumber, 2000u);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(iter, Slice("nnn"), kMaxSequenceNumber, 2000u));
 
   // Seek "|" (past all keys, "|" > "zzz") → kUnknown.
   IterateResult result;
@@ -3574,14 +3608,14 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingPastEndAndNextPastEnd) {
 
   // Seek "key"|5 → seqno=10 on primary, 5<10 → overflow seqno=5, 5>=5 →
   // overflow block 1.
-  AssertSeekOffset(iter, Slice("key"), 5, 500u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("key"), 5, 500u));
 
   // Next from last block in run → past end.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 
   // Full forward scan: block 0 → block 1 → past end.
-  AssertFullForwardScan(iter, Slice("key"), {0, 500});
+  ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(iter, Slice("key"), {0, 500}));
 }
 
 TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
@@ -3720,7 +3754,8 @@ TEST_F(TrieIndexFactoryTest, SeekWithMaxSeqOnSameKeyBlocks) {
       {"key", "key", 2000, 1000, 200, 100},
       {"key", "", 3000, 1000, 100, 0},
   });
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0u);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0u));
 }
 
 TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
@@ -3734,7 +3769,8 @@ TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
       {"key", "zzz", 2000, 1000, 100, 1},
       {"zzz", "", 3000, 1000, 1, 0},
   });
-  AssertSeekOffset(ctx.iter.get(), Slice("key"), 0, 2000u);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("key"), 0, 2000u));
 }
 
 TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
@@ -3850,10 +3886,10 @@ TEST_F(TrieIndexFactoryTest, SingleBlockWithSeqnoActive) {
   auto* iter = ctx.iter.get();
 
   // Seek "x"|10 ��� leaf_seqno=10, 10>=10 → Block 0.
-  AssertSeekOffset(iter, Slice("x"), 10, 0u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("x"), 10, 0u));
   // Seek "x"|7 → 7<10 → advance through overflow. overflow seqno=5, 7>=5 →
   // overflow block 1.
-  AssertSeekOffset(iter, Slice("x"), 7, 500u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("x"), 7, 500u));
   // Seek "x"|3 → 3<10 → advance. overflow seqno=5, 3<5 → not found. Advance
   // past run. No more leaves → invalid. This matches the standard index
   // behavior: seeking for internal key "x"|3 is past the standard index's
@@ -3881,11 +3917,12 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
   auto* iter = ctx.iter.get();
 
   // Position in overflow: 150 < all run seqnos → advance to "l" (block 2).
-  AssertSeekOffset(iter, Slice("key"), 150, 2000u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("key"), 150, 2000u));
   // Re-seek to "key"|300 → should reset to Block 0.
-  AssertSeekOffset(iter, Slice("key"), 300, 0u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("key"), 300, 0u));
   // Re-seek to "zzz" → "zzz" leaf (block 3), overflow state should be clean.
-  AssertSeekOffset(iter, Slice("zzz"), kMaxSequenceNumber, 3000u);
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(iter, Slice("zzz"), kMaxSequenceNumber, 3000u));
 
   // Next should go past end.
   IterateResult result;
@@ -3906,9 +3943,9 @@ TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithSameKeyBoundary) {
   auto* iter = ctx.iter.get();
 
   // Seek "\xff\xff"|200 → Block 0.
-  AssertSeekOffset(iter, Slice(ff), 200, 0u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice(ff), 200, 0u));
   // Seek "\xff\xff"|100 → advance to overflow Block 1.
-  AssertSeekOffset(iter, Slice(ff), 100, 500u);
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice(ff), 100, 500u));
 
   // Seek "\xff\xff"|50 → past entire run → exhausted → kUnknown.
   IterateResult result;
@@ -3916,7 +3953,7 @@ TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithSameKeyBoundary) {
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 
   // Forward scan.
-  AssertFullForwardScan(iter, Slice(ff), {0, 500});
+  ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(iter, Slice(ff), {0, 500}));
 }
 
 TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithoutPrecedingSameKey) {
@@ -3927,7 +3964,8 @@ TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithoutPrecedingSameKey) {
       {"aaa", ff, 0, 500, 100, 50},
       {ff, "", 500, 500, 50, 0},
   });
-  AssertFullForwardScan(ctx.iter.get(), Slice("aaa"), {0, 500});
+  ASSERT_NO_FATAL_FAILURE(
+      AssertFullForwardScan(ctx.iter.get(), Slice("aaa"), {0, 500}));
 }
 
 TEST_F(TrieIndexFactoryTest, SeqnoEncodingRandomized) {
@@ -4022,8 +4060,8 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingRandomized) {
         expected_offsets.push_back(bi.offset);
       }
       // Find the smallest key to start the scan.
-      AssertFullForwardScan(iter, Slice(block_infos[0].user_key),
-                            expected_offsets);
+      ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(
+          iter, Slice(block_infos[0].user_key), expected_offsets));
     }
 
     // Verification 2: seek with kMaxSequenceNumber for each distinct user key
@@ -4032,8 +4070,9 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingRandomized) {
       std::string prev_key;
       for (size_t i = 0; i < block_infos.size(); i++) {
         if (block_infos[i].user_key != prev_key) {
-          AssertSeekOffset(iter, Slice(block_infos[i].user_key),
-                           kMaxSequenceNumber, block_infos[i].offset);
+          ASSERT_NO_FATAL_FAILURE(
+              AssertSeekOffset(iter, Slice(block_infos[i].user_key),
+                               kMaxSequenceNumber, block_infos[i].offset));
           prev_key = block_infos[i].user_key;
         }
       }

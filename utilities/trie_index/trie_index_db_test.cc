@@ -394,17 +394,17 @@ TEST_F(TrieIndexDBTest, FlushWithAllOperationTypes) {
   {
     std::vector<std::string> expected = {"key_01_put", "key_02_merge",
                                          "key_05_entity", "key_06_put"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 
   // Point lookups via both indexes.
-  VerifyGetBothIndexes("key_01_put", "val_put");
-  VerifyGetBothIndexes("key_02_merge", "val_merge");
-  VerifyGetNotFoundBothIndexes("key_03_del");
-  VerifyGetNotFoundBothIndexes("key_04_sdel");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01_put", "val_put"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02_merge", "val_merge"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_03_del"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_04_sdel"));
   // PutEntity: Get() returns the value of the default column ("").
-  VerifyGetBothIndexes("key_05_entity", "default_val");
-  VerifyGetBothIndexes("key_06_put", "val_put2");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_05_entity", "default_val"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_06_put", "val_put2"));
 }
 
 TEST_F(TrieIndexDBTest, TimedPutFlush) {
@@ -440,9 +440,9 @@ TEST_F(TrieIndexDBTest, TimedPutFlush) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Point lookups via both indexes — the packed seqno must be transparent.
-  VerifyGetBothIndexes("key_01_put", "val_put");
-  VerifyGetBothIndexes("key_02_timed", "val_timed");
-  VerifyGetBothIndexes("key_03_merge", "val_merge");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01_put", "val_put"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02_timed", "val_timed"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_03_merge", "val_merge"));
 
   // Forward scan via both indexes — all three keys visible in order.
   {
@@ -450,7 +450,7 @@ TEST_F(TrieIndexDBTest, TimedPutFlush) {
         {"key_01_put", "val_put"},
         {"key_02_timed", "val_timed"},
         {"key_03_merge", "val_merge"}};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 }
 
@@ -490,21 +490,21 @@ TEST_F(TrieIndexDBTest, CompactionWithMixedOpsAndSnapshots) {
   {
     std::vector<std::pair<std::string, std::string>> expected = {
         {"key_aa", "v2"}, {"key_cc", "m1,m2"}};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
-  VerifyGetBothIndexes("key_aa", "v2");
-  VerifyGetNotFoundBothIndexes("key_bb");
-  VerifyGetBothIndexes("key_cc", "m1,m2");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_aa", "v2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_bb"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_cc", "m1,m2"));
 
   // Snapshot view: key_aa=v1, key_bb=v1, key_cc="m1".
   {
     std::vector<std::pair<std::string, std::string>> expected = {
         {"key_aa", "v1"}, {"key_bb", "v1"}, {"key_cc", "m1"}};
-    VerifyForwardScanBothIndexes(snap, expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(snap, expected));
   }
-  VerifyGetBothIndexes(snap, "key_aa", "v1");
-  VerifyGetBothIndexes(snap, "key_bb", "v1");
-  VerifyGetBothIndexes(snap, "key_cc", "m1");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_aa", "v1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_bb", "v1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_cc", "m1"));
 
   db_->ReleaseSnapshot(snap);
 }
@@ -544,25 +544,27 @@ TEST_F(TrieIndexDBTest, CompactionWithAllOperationTypes) {
 
   // Current view via both indexes: key_01=v2, key_02="m1,m2", key_03 SD'd,
   // key_04=e2, key_05 deleted.
-  VerifyGetBothIndexes("key_01_put", "v2");
-  VerifyGetBothIndexes("key_02_merge", "m1,m2");
-  VerifyGetNotFoundBothIndexes("key_03_sd_target");
-  VerifyGetBothIndexes("key_04_entity", "e2");
-  VerifyGetNotFoundBothIndexes("key_05_del_target");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01_put", "v2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02_merge", "m1,m2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_03_sd_target"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_04_entity", "e2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_05_del_target"));
 
   // Current view scan via both indexes: only key_01, key_02, key_04 visible.
   {
     std::vector<std::string> expected = {"key_01_put", "key_02_merge",
                                          "key_04_entity"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 
   // Snapshot view via both indexes: all original flush 1 values visible.
-  VerifyGetBothIndexes(snap, "key_01_put", "v1");
-  VerifyGetBothIndexes(snap, "key_02_merge", "m1");
-  VerifyGetBothIndexes(snap, "key_03_sd_target", "sd_val");
-  VerifyGetBothIndexes(snap, "key_04_entity", "e1");
-  VerifyGetBothIndexes(snap, "key_05_del_target", "del_val");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_01_put", "v1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_02_merge", "m1"));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes(snap, "key_03_sd_target", "sd_val"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_04_entity", "e1"));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes(snap, "key_05_del_target", "del_val"));
 
   {
     std::vector<std::pair<std::string, std::string>> expected = {
@@ -571,7 +573,7 @@ TEST_F(TrieIndexDBTest, CompactionWithAllOperationTypes) {
         {"key_03_sd_target", "sd_val"},
         {"key_04_entity", "e1"},
         {"key_05_del_target", "del_val"}};
-    VerifyForwardScanBothIndexes(snap, expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(snap, expected));
   }
 
   db_->ReleaseSnapshot(snap);
@@ -609,22 +611,23 @@ TEST_F(TrieIndexDBTest, TimedPutCompaction) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // Current view via both indexes: both keys have the newer value.
-  VerifyGetBothIndexes("key_01_timed", "put_v2");
-  VerifyGetBothIndexes("key_02_put", "put_v2");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01_timed", "put_v2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02_put", "put_v2"));
   {
     std::vector<std::pair<std::string, std::string>> expected = {
         {"key_01_timed", "put_v2"}, {"key_02_put", "put_v2"}};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 
   // Snapshot view via both indexes: key_01 has the original TimedPut value
   // (packed seqno must be transparent), key_02 has its original value.
-  VerifyGetBothIndexes(snap, "key_01_timed", "timed_v1");
-  VerifyGetBothIndexes(snap, "key_02_put", "put_v1");
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes(snap, "key_01_timed", "timed_v1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "key_02_put", "put_v1"));
   {
     std::vector<std::pair<std::string, std::string>> expected = {
         {"key_01_timed", "timed_v1"}, {"key_02_put", "put_v1"}};
-    VerifyForwardScanBothIndexes(snap, expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(snap, expected));
   }
 
   db_->ReleaseSnapshot(snap);
@@ -648,19 +651,19 @@ TEST_F(TrieIndexDBTest, CrossFlushSingleDelete) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Before compaction: key_bb is already hidden by the merging iterator.
-  VerifyGetNotFoundBothIndexes("key_bb");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_bb"));
 
   // After compaction: SingleDelete + Put fully cancel out, key_bb is gone.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  VerifyGetNotFoundBothIndexes("key_bb");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_bb"));
 
   // Remaining keys unaffected via both indexes.
-  VerifyGetBothIndexes("key_aa", "val_aa");
-  VerifyGetBothIndexes("key_cc", "val_cc");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_aa", "val_aa"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_cc", "val_cc"));
 
   {
     std::vector<std::string> expected = {"key_aa", "key_cc"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 }
 
@@ -697,20 +700,20 @@ TEST_F(TrieIndexDBTest, ReverseIteration) {
         {"key_04", "v4"},
         {"key_05", "e5"},
         {"key_06", "v6"}};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 
   // Point lookups via both indexes.
-  VerifyGetBothIndexes("key_01", "v1");
-  VerifyGetBothIndexes("key_02", "m1");
-  VerifyGetNotFoundBothIndexes("key_03");
-  VerifyGetBothIndexes("key_04", "v4");
-  VerifyGetBothIndexes("key_05", "e5");
-  VerifyGetBothIndexes("key_06", "v6");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01", "v1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02", "m1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_03"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_04", "v4"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_05", "e5"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_06", "v6"));
 
   // Seek via both indexes.
-  VerifySeekBothIndexes("key_04", "key_04", "v4");
-  VerifySeekBothIndexes("key_05", "key_05", "e5");
+  ASSERT_NO_FATAL_FAILURE(VerifySeekBothIndexes("key_04", "key_04", "v4"));
+  ASSERT_NO_FATAL_FAILURE(VerifySeekBothIndexes("key_05", "key_05", "e5"));
 
   // Reverse operations below use the standard index only.
 
@@ -827,16 +830,16 @@ TEST_F(TrieIndexDBTest, DeleteRangeWithTrieUDI) {
   {
     std::vector<std::string> expected = {"key_01", "key_02", "key_03",
                                          "key_08", "key_09", "key_10"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 
   // Point lookups via both indexes for deleted keys.
-  VerifyGetNotFoundBothIndexes("key_04");
-  VerifyGetNotFoundBothIndexes("key_07");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_04"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_07"));
 
   // Point lookups via both indexes for surviving keys at boundaries.
-  VerifyGetBothIndexes("key_03", "val_03");
-  VerifyGetBothIndexes("key_08", "val_08");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_03", "val_03"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_08", "val_08"));
 
   // Reverse scan (standard index only) should also respect the range deletion.
   {
@@ -886,18 +889,18 @@ TEST_F(TrieIndexDBTest, ReopenWithMixedOperationTypes) {
   ASSERT_OK(OpenDB());
 
   // Point lookups on cold data via both indexes.
-  VerifyGetBothIndexes("key_01", "val_put");
-  VerifyGetBothIndexes("key_02", "val_merge");
-  VerifyGetNotFoundBothIndexes("key_03");
-  VerifyGetNotFoundBothIndexes("key_04");
-  VerifyGetBothIndexes("key_05", "entity_val");
-  VerifyGetBothIndexes("key_06", "val_put2");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01", "val_put"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02", "val_merge"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_03"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_04"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_05", "entity_val"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_06", "val_put2"));
 
   // Forward scan via both indexes.
   {
     std::vector<std::string> expected = {"key_01", "key_02", "key_05",
                                          "key_06"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 
   // Reverse scan on cold data (standard index only).
@@ -957,19 +960,19 @@ TEST_F(TrieIndexDBTest, IngestExternalFileWithTrieUDI) {
   ASSERT_OK(db_->IngestExternalFile({sst_path}, ingest_opts));
 
   // Point lookups via both indexes — combined DB + ingested data.
-  VerifyGetBothIndexes("key_01", "db_val1");
-  VerifyGetBothIndexes("key_02", "ingest_val2");
-  VerifyGetBothIndexes("key_03", "ingest_merge3");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01", "db_val1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02", "ingest_val2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_03", "ingest_merge3"));
   // key_04: ingested Delete tombstone, no prior value — NotFound.
-  VerifyGetNotFoundBothIndexes("key_04");
-  VerifyGetBothIndexes("key_05", "db_val5");
-  VerifyGetBothIndexes("key_06", "ingest_val6");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_04"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_05", "db_val5"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_06", "ingest_val6"));
 
   // Forward scan via both indexes.
   {
     std::vector<std::string> expected = {"key_01", "key_02", "key_03", "key_05",
                                          "key_06"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 }
 
@@ -1007,17 +1010,18 @@ TEST_F(TrieIndexDBTest, WriteBatchWithMixedOperations) {
   // Point lookups via both indexes. Expected visible keys: key_01 (Put),
   // key_03 (Merge), key_05 (PutEntity). key_02 deleted, key_04
   // Put+SingleDelete cancel.
-  VerifyGetBothIndexes("key_01_put", "batch_put");
-  VerifyGetNotFoundBothIndexes("key_02_del");
-  VerifyGetBothIndexes("key_03_merge", "batch_m");
-  VerifyGetNotFoundBothIndexes("key_04_sd");
-  VerifyGetBothIndexes("key_05_entity", "batch_entity");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01_put", "batch_put"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_02_del"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_03_merge", "batch_m"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("key_04_sd"));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes("key_05_entity", "batch_entity"));
 
   // Forward scan via both indexes.
   {
     std::vector<std::string> expected = {"key_01_put", "key_03_merge",
                                          "key_05_entity"};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 }
 
@@ -1079,7 +1083,7 @@ TEST_F(TrieIndexDBTest, LargeMixedOperationsAcrossBlocks) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Forward scan via both indexes — verify exactly the expected visible keys.
-  VerifyForwardScanBothIndexes(expected_visible);
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected_visible));
 
   // Spot-check: Seek to every 10th visible key via both indexes.
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
@@ -1129,12 +1133,13 @@ TEST_F(TrieIndexDBTest, SameUserKeyAcrossBlockBoundaries) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Current view: latest version visible.
-  VerifyGetBothIndexes(key, "ver_" + std::to_string(kNumVersions - 1));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes(key, "ver_" + std::to_string(kNumVersions - 1)));
 
   // Each snapshot should see the version written at or before its creation.
   for (int i = 0; i < kNumVersions; i++) {
     std::string expected_val = "ver_" + std::to_string(i);
-    VerifyGetBothIndexes(snaps[i], key, expected_val);
+    ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snaps[i], key, expected_val));
   }
 
   // Forward scan with each snapshot should return exactly one key with the
@@ -1143,7 +1148,7 @@ TEST_F(TrieIndexDBTest, SameUserKeyAcrossBlockBoundaries) {
     std::string expected_val = "ver_" + std::to_string(i);
     std::vector<std::pair<std::string, std::string>> expected = {
         {key, expected_val}};
-    VerifyForwardScanBothIndexes(snaps[i], expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(snaps[i], expected));
   }
 
   // Seek to the key through the trie index with each snapshot — the trie's
@@ -1152,7 +1157,8 @@ TEST_F(TrieIndexDBTest, SameUserKeyAcrossBlockBoundaries) {
   for (int i = 0; i < kNumVersions; i++) {
     std::string expected_val = "ver_" + std::to_string(i);
     SCOPED_TRACE("snap=" + std::to_string(i));
-    VerifySeekBothIndexes(snaps[i], key, key, expected_val);
+    ASSERT_NO_FATAL_FAILURE(
+        VerifySeekBothIndexes(snaps[i], key, key, expected_val));
   }
 
   for (auto* snap : snaps) {
@@ -1181,22 +1187,23 @@ TEST_F(TrieIndexDBTest, SameUserKeyPutThenDeleteAcrossBlocks) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Current view: del_key is deleted.
-  VerifyGetNotFoundBothIndexes("del_key");
-  VerifyGetBothIndexes("aaa_before", "before_val");
-  VerifyGetBothIndexes("zzz_after", "after_val");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("del_key"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("aaa_before", "before_val"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("zzz_after", "after_val"));
 
   // Snapshot view: del_key is visible with the Put value.
-  VerifyGetBothIndexes(snap, "del_key", "put_value");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "del_key", "put_value"));
 
   // Seek to del_key with snapshot through both indexes.
-  VerifySeekBothIndexes(snap, "del_key", "del_key", "put_value");
+  ASSERT_NO_FATAL_FAILURE(
+      VerifySeekBothIndexes(snap, "del_key", "del_key", "put_value"));
 
   // Compact to merge the Put + Delete. Snapshot prevents GC of the Put.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // After compaction, same behavior.
-  VerifyGetNotFoundBothIndexes("del_key");
-  VerifyGetBothIndexes(snap, "del_key", "put_value");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("del_key"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snap, "del_key", "put_value"));
 
   db_->ReleaseSnapshot(snap);
 }
@@ -1230,8 +1237,9 @@ TEST_F(TrieIndexDBTest, SameUserKeyManyVersionsSeekCorrectness) {
     for (const auto& k : keys) {
       std::string expected_val = k + "_v" + std::to_string(v);
       SCOPED_TRACE("key=" + k + " v=" + std::to_string(v));
-      VerifyGetBothIndexes(snaps[v], k, expected_val);
-      VerifySeekBothIndexes(snaps[v], k, k, expected_val);
+      ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snaps[v], k, expected_val));
+      ASSERT_NO_FATAL_FAILURE(
+          VerifySeekBothIndexes(snaps[v], k, k, expected_val));
     }
   }
 
@@ -1242,7 +1250,7 @@ TEST_F(TrieIndexDBTest, SameUserKeyManyVersionsSeekCorrectness) {
   for (int v = 0; v < kVersionsPerKey; v++) {
     for (const auto& k : keys) {
       std::string expected_val = k + "_v" + std::to_string(v);
-      VerifyGetBothIndexes(snaps[v], k, expected_val);
+      ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(snaps[v], k, expected_val));
     }
   }
 
@@ -1330,10 +1338,10 @@ TEST_F(TrieIndexDBTest, WALReplayRecovery) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Verify data through both indexes.
-  VerifyGetBothIndexes("wal_key_01", "wal_val_01");
-  VerifyGetBothIndexes("wal_key_02", "wal_merge");
-  VerifyGetNotFoundBothIndexes("wal_key_03");
-  VerifyGetBothIndexes("wal_key_04", "wal_val_04");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("wal_key_01", "wal_val_01"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("wal_key_02", "wal_merge"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("wal_key_03"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("wal_key_04", "wal_val_04"));
 
   // Forward scan.
   {
@@ -1341,7 +1349,7 @@ TEST_F(TrieIndexDBTest, WALReplayRecovery) {
         {"wal_key_01", "wal_val_01"},
         {"wal_key_02", "wal_merge"},
         {"wal_key_04", "wal_val_04"}};
-    VerifyForwardScanBothIndexes(expected);
+    ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(expected));
   }
 }
 
@@ -1816,17 +1824,19 @@ TEST_F(TrieIndexDBTest, SingleEntrySST) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Point lookup.
-  VerifyGetBothIndexes("only_key", "only_val");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("only_key", "only_val"));
 
   // Forward scan: exactly one result.
-  VerifyForwardScanBothIndexes(std::vector<std::pair<std::string, std::string>>{
-      {"only_key", "only_val"}});
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{
+          {"only_key", "only_val"}}));
 
   // Seek to the exact key.
-  VerifySeekBothIndexes("only_key", "only_key", "only_val");
+  ASSERT_NO_FATAL_FAILURE(
+      VerifySeekBothIndexes("only_key", "only_key", "only_val"));
 
   // Seek before the key — should land on it.
-  VerifySeekBothIndexes("a", "only_key", "only_val");
+  ASSERT_NO_FATAL_FAILURE(VerifySeekBothIndexes("a", "only_key", "only_val"));
 
   // Seek past the key — should be invalid.
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
@@ -1853,15 +1863,17 @@ TEST_F(TrieIndexDBTest, DeletionOnlySST) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // The tombstone hides the Put.
-  VerifyGetNotFoundBothIndexes("del_target");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("del_target"));
 
   // Forward scan: nothing visible.
-  VerifyForwardScanBothIndexes(std::vector<std::string>{});
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyForwardScanBothIndexes(std::vector<std::string>{}));
 
   // Compact to merge: key is fully removed.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  VerifyGetNotFoundBothIndexes("del_target");
-  VerifyForwardScanBothIndexes(std::vector<std::string>{});
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("del_target"));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyForwardScanBothIndexes(std::vector<std::string>{}));
 }
 
 // All-same-key SST: multiple versions of the same user key (via snapshots)
@@ -1882,24 +1894,27 @@ TEST_F(TrieIndexDBTest, AllSameKeySST) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Latest value is visible.
-  VerifyGetBothIndexes("same_key", "val_9");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("same_key", "val_9"));
 
   // Forward scan: only the latest version is visible (without snapshot).
-  VerifyForwardScanBothIndexes(
-      std::vector<std::pair<std::string, std::string>>{{"same_key", "val_9"}});
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{{"same_key", "val_9"}}));
 
   // Each snapshot should see the correct version.
   for (int i = 0; i < 10; i++) {
     SCOPED_TRACE("snapshot " + std::to_string(i));
     std::string expected = "val_" + std::to_string(i);
-    VerifyGetBothIndexes(snaps[i], "same_key", expected);
+    ASSERT_NO_FATAL_FAILURE(
+        VerifyGetBothIndexes(snaps[i], "same_key", expected));
 
     // Forward scan with snapshot.
-    VerifyForwardScanBothIndexes(snaps[i], {{"same_key", expected}});
+    ASSERT_NO_FATAL_FAILURE(
+        VerifyForwardScanBothIndexes(snaps[i], {{"same_key", expected}}));
   }
 
   // Seek with earliest snapshot — should find the earliest version.
-  VerifySeekBothIndexes(snaps[0], "same_key", "same_key", "val_0");
+  ASSERT_NO_FATAL_FAILURE(
+      VerifySeekBothIndexes(snaps[0], "same_key", "same_key", "val_0"));
 
   for (auto* snap : snaps) {
     db_->ReleaseSnapshot(snap);
@@ -1912,7 +1927,7 @@ TEST_F(TrieIndexDBTest, EmptyDBOperations) {
   ASSERT_OK(OpenDB());
 
   // Get / Seek / SeekToFirst on empty memtable (no SSTs yet).
-  VerifyGetNotFoundBothIndexes("anything");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("anything"));
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
     SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
@@ -1932,7 +1947,7 @@ TEST_F(TrieIndexDBTest, EmptyDBOperations) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  VerifyGetNotFoundBothIndexes("temp");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("temp"));
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
     SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
@@ -2123,8 +2138,8 @@ TEST_F(TrieIndexDBTest, CompactRangeSubset) {
     SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
     ASSERT_EQ(ScanAllKeys(ro).size(), 26u);
   }
-  VerifyGetBothIndexes("key_a", "val_0");
-  VerifyGetBothIndexes("key_z", "val_25");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_a", "val_0"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_z", "val_25"));
 }
 
 // Write keys, delete all of them, compact. The DB should be empty.
@@ -2199,16 +2214,18 @@ TEST_F(TrieIndexDBTest, BinaryKeyEdgeCases) {
   }
 
   // Point lookups for boundary keys.
-  VerifyGetBothIndexes(std::string("\x00", 1), "val_null");
-  VerifyGetBothIndexes(std::string("\xff\xff\xff", 3), "val_triple_ff");
-  VerifyGetBothIndexes(std::string("a\x00"
-                                   "b",
-                                   3),
-                       "val_a_null_b");
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes(std::string("\x00", 1), "val_null"));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyGetBothIndexes(std::string("\xff\xff\xff", 3), "val_triple_ff"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes(std::string("a\x00"
+                                                           "b",
+                                                           3),
+                                               "val_a_null_b"));
 
   // Seek to embedded-null key.
-  VerifySeekBothIndexes(std::string("\x00", 1), std::string("\x00", 1),
-                        "val_null");
+  ASSERT_NO_FATAL_FAILURE(VerifySeekBothIndexes(
+      std::string("\x00", 1), std::string("\x00", 1), "val_null"));
 }
 
 // Puts with empty string values.
@@ -2220,12 +2237,13 @@ TEST_F(TrieIndexDBTest, EmptyValuePuts) {
   ASSERT_OK(db_->Put(WriteOptions(), "key3", ""));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  VerifyGetBothIndexes("key1", "");
-  VerifyGetBothIndexes("key2", "non_empty");
-  VerifyGetBothIndexes("key3", "");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key1", ""));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key2", "non_empty"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key3", ""));
 
-  VerifyForwardScanBothIndexes(std::vector<std::pair<std::string, std::string>>{
-      {"key1", ""}, {"key2", "non_empty"}, {"key3", ""}});
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{
+          {"key1", ""}, {"key2", "non_empty"}, {"key3", ""}}));
 }
 
 // Zlib compression: data blocks are compressed, UDI block is not.
@@ -2256,7 +2274,8 @@ TEST_F(TrieIndexDBTest, CompressionZlib) {
   for (int i : {0, 49, 99}) {
     char key[16];
     snprintf(key, sizeof(key), "key_%04d", i);
-    VerifyGetBothIndexes(key, std::string(200, 'A' + (i % 26)));
+    ASSERT_NO_FATAL_FAILURE(
+        VerifyGetBothIndexes(key, std::string(200, 'A' + (i % 26))));
   }
 }
 
@@ -2439,8 +2458,8 @@ TEST_F(TrieIndexDBTest, ManySmallSSTs) {
   }
 
   // Spot-check first and last.
-  VerifyGetBothIndexes("key_0000", "v0");
-  VerifyGetBothIndexes("key_0099", "v99");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_0000", "v0"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_0099", "v99"));
 
   // Compact everything into one SST, re-verify.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -2459,23 +2478,23 @@ TEST_F(TrieIndexDBTest, MergeAcrossMultipleCompactions) {
   ASSERT_OK(db_->Put(WriteOptions(), "key", "base"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  VerifyGetBothIndexes("key", "base");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key", "base"));
 
   // Round 2: Merge "m1".
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "m1"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  VerifyGetBothIndexes("key", "base,m1");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key", "base,m1"));
 
   // Round 3: Merge "m2".
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "m2"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  VerifyGetBothIndexes("key", "base,m1,m2");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key", "base,m1,m2"));
 
   // Forward scan also returns the accumulated value.
-  VerifyForwardScanBothIndexes(
-      std::vector<std::pair<std::string, std::string>>{{"key", "base,m1,m2"}});
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{{"key", "base,m1,m2"}}));
 }
 
 // Graceful degradation: reopen a DB that was written with UDI, but without
@@ -2533,16 +2552,18 @@ TEST_F(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   ASSERT_OK(OpenDB());
 
   // All 4 keys should be readable through both index paths.
-  VerifyGetBothIndexes("key_01", "udi_val1");
-  VerifyGetBothIndexes("key_02", "udi_val2");
-  VerifyGetBothIndexes("key_03", "noudi_val3");
-  VerifyGetBothIndexes("key_04", "noudi_val4");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_01", "udi_val1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_02", "udi_val2"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_03", "noudi_val3"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("key_04", "noudi_val4"));
 
-  VerifyForwardScanBothIndexes({"key_01", "key_02", "key_03", "key_04"});
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyForwardScanBothIndexes({"key_01", "key_02", "key_03", "key_04"}));
 
   // Compact: merges UDI + non-UDI SSTs → new SST has UDI.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  VerifyForwardScanBothIndexes({"key_01", "key_02", "key_03", "key_04"});
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyForwardScanBothIndexes({"key_01", "key_02", "key_03", "key_04"}));
 }
 
 // TransactionDB commit: Put + Delete inside a transaction, then commit.
@@ -2572,8 +2593,8 @@ TEST_F(TrieIndexDBTest, TransactionCommit) {
   ASSERT_OK(txn_db->Flush(FlushOptions()));
 
   // Verify through both indexes.
-  VerifyGetBothIndexes("txn_key1", "txn_val1");
-  VerifyGetNotFoundBothIndexes("pre_key");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("txn_key1", "txn_val1"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("pre_key"));
 }
 
 // TransactionDB rollback: writes should be discarded. Rollback writes DELETE
@@ -2604,12 +2625,13 @@ TEST_F(TrieIndexDBTest, TransactionRollback) {
   ASSERT_OK(txn_db->Flush(FlushOptions()));
 
   // Original data should be unchanged. Rolled-back writes should not appear.
-  VerifyGetBothIndexes("keep_key", "keep_val");
-  VerifyGetNotFoundBothIndexes("rollback_key");
+  ASSERT_NO_FATAL_FAILURE(VerifyGetBothIndexes("keep_key", "keep_val"));
+  ASSERT_NO_FATAL_FAILURE(VerifyGetNotFoundBothIndexes("rollback_key"));
 
   // Forward scan: only the original key.
-  VerifyForwardScanBothIndexes(std::vector<std::pair<std::string, std::string>>{
-      {"keep_key", "keep_val"}});
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(
+      std::vector<std::pair<std::string, std::string>>{
+          {"keep_key", "keep_val"}}));
 }
 
 // total_order_seek with prefix_extractor: a common stress-test configuration.
@@ -2708,7 +2730,7 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  verify_scan_consistency();
+  ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
 
   // Phase 2: Write overlapping data + DeleteRanges across multiple rounds.
   // Each round creates L0 SSTs with a mix of Puts and DeleteRanges,
@@ -2737,7 +2759,7 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
     }
 
     ASSERT_OK(db_->Flush(FlushOptions()));
-    verify_scan_consistency();
+    ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
 
     // On odd rounds, do a partial compaction to push some data down,
     // creating a multi-level structure where range tombstones at L0
@@ -2749,7 +2771,7 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
       std::string end_key = format_key(compact_end);
       Slice s(start_key), e(end_key);
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &s, &e));
-      verify_scan_consistency();
+      ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
     }
   }
 
@@ -2766,10 +2788,10 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Current state should reflect the deletion.
-  verify_scan_consistency();
+  ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
 
   // Snapshot state should be unchanged.
-  VerifyForwardScanBothIndexes(snap, snap_kvs);
+  ASSERT_NO_FATAL_FAILURE(VerifyForwardScanBothIndexes(snap, snap_kvs));
 
   db_->ReleaseSnapshot(snap);
 
@@ -2780,11 +2802,11 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
                        "reinserted_" + rnd.RandomString(10)));
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  verify_scan_consistency();
+  ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
 
   // Phase 5: Full compaction — all range tombstones should be resolved.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  verify_scan_consistency();
+  ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
 
   // Phase 6: Point lookups for a sample of keys — both indexes must agree.
   for (int i = 0; i < kMaxKey; i += 7) {
