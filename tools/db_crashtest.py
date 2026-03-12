@@ -1313,6 +1313,11 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_direct_write"] = 0
         dest_params["blob_direct_write_use_direct_io"] = 0
 
+    # The blob log writer does not ensure sector-aligned writes, so
+    # O_DIRECT returns EINVAL on Linux. Disable until alignment is added.
+    if dest_params.get("enable_blob_direct_write", 0) == 1:
+        dest_params["blob_direct_write_use_direct_io"] = 0
+
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open
     if dest_params.get("skip_stats_update_on_db_open", 0) == 0:

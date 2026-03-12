@@ -131,13 +131,11 @@ class BlobFilePartitionManager {
                    uint64_t* blob_size,
                    const BlobDirectWriteSettings* settings = nullptr);
 
-
-  // Set rep_owner on all pending records that have an empty rep_owner.
-  // Called after TransformBatch + std::move to transfer buffer ownership.
   // Look up an unflushed blob value by file number and offset.
-  // Returns true if found (copies into *value), false if not pending.
-  bool GetPendingBlobValue(uint64_t file_number, uint64_t offset,
-                           std::string* value) const;
+  // Returns OK if found (value populated), NotFound if not pending,
+  // or an error Status on decompression failure.
+  Status GetPendingBlobValue(uint64_t file_number, uint64_t offset,
+                             std::string* value) const;
 
   // Seal all open partitions. Flushes pending records first.
   // Returns OK immediately if no blobs have been written since the last seal.
@@ -336,6 +334,13 @@ class BlobFilePartitionManager {
 
   // Drain all pending background work. Called before SealAllPartitions.
   void DrainBackgroundWork();
+
+  // Flush deferred records to a BlobLogWriter. Returns the number of
+  // successfully written records via *records_written and decrements
+  // pending_bytes for all records (written or not).
+  Status FlushRecordsToDisk(BlobLogWriter* writer, Partition* partition,
+                            std::deque<PendingRecord>& records,
+                            size_t* records_written);
 
   // Synchronous write path (when buffer_size_ == 0).
   Status WriteBlobSync(Partition* partition, const Slice& key,

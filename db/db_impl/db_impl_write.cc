@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <optional>
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
@@ -559,16 +560,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // the WAL and memtable see BlobIndex entries instead of full blob values.
   // Skip if the batch was already transformed (e.g., from DBImpl::Put fast
   // path which builds a BlobIndex-only batch directly).
-  WriteBatch transformed_batch;
+  std::optional<WriteBatch> transformed_batch_storage;
   if (my_batch != nullptr && blob_partition_manager_ != nullptr &&
       my_batch->HasPut() && !write_options.disableWAL) {
     auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
       return blob_partition_manager_->GetCachedSettings(cf_id);
     };
 
+    transformed_batch_storage.emplace();
     bool transformed = false;
     Status blob_s = BlobWriteBatchTransformer::TransformBatch(
-        write_options, my_batch, &transformed_batch,
+        write_options, my_batch, &*transformed_batch_storage,
         blob_partition_manager_.get(), settings_provider, &transformed);
     if (!blob_s.ok()) {
       return blob_s;
@@ -580,7 +582,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           return blob_s;
         }
       }
-      my_batch = &transformed_batch;
+      my_batch = &*transformed_batch_storage;
       if (write_options.sync) {
         blob_s = blob_partition_manager_->SyncAllOpenFiles(write_options);
         if (!blob_s.ok()) {

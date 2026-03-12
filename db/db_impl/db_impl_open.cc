@@ -2776,13 +2776,41 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           if (has_footer && footer_blob_count > 0) {
             blob_count = footer_blob_count;
           } else {
-            // Conservative overestimate: divide by minimum record size
-            // (header only, no key/value). This guarantees the estimate is
-            // always >= the actual count, preventing consistency check
-            // failures when compaction GC counts exceed total_blob_count.
-            blob_count =
-                std::max(total_blob_bytes / BlobLogRecord::kHeaderSize,
-                         static_cast<uint64_t>(1));
+            // Scan the file to count actual records. Each record has a
+            // kHeaderSize header containing key_size and value_size,
+            // followed by key and value data. This avoids the gross
+            // overestimation of dividing by minimum record size, which
+            // would permanently prevent GC of recovered files.
+            blob_count = 0;
+            std::unique_ptr<FSRandomAccessFile> scan_file;
+            auto scan_s = impl->immutable_db_options_.fs->NewRandomAccessFile(
+                blob_path, FileOptions(), &scan_file, nullptr);
+            if (scan_s.ok()) {
+              uint64_t scan_offset = BlobLogHeader::kSize;
+              const uint64_t data_end =
+                  has_footer ? (file_size - BlobLogFooter::kSize) : file_size;
+              std::string hdr_buf(BlobLogRecord::kHeaderSize, '\0');
+              while (scan_offset + BlobLogRecord::kHeaderSize <= data_end) {
+                Slice hdr_slice;
+                scan_s = scan_file->Read(
+                    scan_offset, BlobLogRecord::kHeaderSize, IOOptions(),
+                    &hdr_slice, &hdr_buf[0], nullptr);
+                if (!scan_s.ok() ||
+                    hdr_slice.size() < BlobLogRecord::kHeaderSize) {
+                  break;
+                }
+                BlobLogRecord record;
+                if (!record.DecodeHeaderFrom(hdr_slice).ok()) {
+                  break;
+                }
+                scan_offset += BlobLogRecord::kHeaderSize + record.key_size +
+                               record.value_size;
+                blob_count++;
+              }
+            }
+            if (blob_count == 0) {
+              blob_count = 1;
+            }
           }
           cf_orphans[target_cf_id].emplace_back(file_number, blob_count,
                                                 total_blob_bytes, std::string(),

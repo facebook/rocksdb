@@ -468,6 +468,17 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    memtable_max_range_deletions);
   ROCKS_LOG_HEADER(log, "                 Options.cf_allow_ingest_behind: %s",
                    cf_allow_ingest_behind ? "true" : "false");
+  ROCKS_LOG_HEADER(log,
+                   "         Options.blob_direct_write_partitions: %" PRIu32,
+                   blob_direct_write_partitions);
+  ROCKS_LOG_HEADER(log,
+                   "        Options.blob_direct_write_buffer_size: %" PRIu64,
+                   blob_direct_write_buffer_size);
+  ROCKS_LOG_HEADER(log,
+                   "  Options.blob_direct_write_flush_interval_ms: %" PRIu64,
+                   blob_direct_write_flush_interval_ms);
+  ROCKS_LOG_HEADER(log, "      Options.blob_direct_write_use_direct_io: %s",
+                   blob_direct_write_use_direct_io ? "true" : "false");
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

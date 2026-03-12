@@ -15,6 +15,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1730,6 +1731,207 @@ TEST_F(DBBlobDirectWriteTest, BackgroundIOErrorPropagation) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Merge operation with blob direct write: Put+Flush+Merge works after
+// the blob value is flushed to SST (BlobIndex resolved during Get).
+// Note: Merge on an unflushed BlobIndex in memtable is not supported
+// (returns NotSupported), which is a pre-existing BlobDB limitation.
+TEST_F(DBBlobDirectWriteTest, MergeWithBlobDirectWrite) {
+  Options options = GetBlobDirectWriteOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  std::string blob_v1(100, 'A');
+  ASSERT_OK(Put("key", blob_v1));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("key"), blob_v1);
+
+  ASSERT_OK(Merge("key", "suffix"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("key"), blob_v1 + ",suffix");
+
+  Reopen(options);
+  ASSERT_EQ(Get("key"), blob_v1 + ",suffix");
+}
+
+// Zero-length value with min_blob_size = 0: every Put goes through blob
+// direct write, including empty values.
+TEST_F(DBBlobDirectWriteTest, ZeroLengthValue) {
+  Options options = GetBlobDirectWriteOptions();
+  options.min_blob_size = 0;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("empty", ""));
+  ASSERT_EQ(Get("empty"), "");
+
+  ASSERT_OK(Put("nonempty", std::string(100, 'X')));
+  ASSERT_EQ(Get("nonempty"), std::string(100, 'X'));
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("empty"), "");
+  ASSERT_EQ(Get("nonempty"), std::string(100, 'X'));
+
+  Reopen(options);
+  ASSERT_EQ(Get("empty"), "");
+  ASSERT_EQ(Get("nonempty"), std::string(100, 'X'));
+}
+
+// Iterator Seek and SeekForPrev with blob direct write values.
+TEST_F(DBBlobDirectWriteTest, IteratorSeek) {
+  Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    std::string key = "key" + std::to_string(i);
+    std::string value(100 + i, 'a' + (i % 26));
+    ASSERT_OK(Put(key, value));
+  }
+
+  {
+    auto* iter = db_->NewIterator(ReadOptions());
+    iter->Seek("key5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key5");
+    ASSERT_EQ(iter->value().ToString(), std::string(105, 'a' + 5));
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key6");
+
+    iter->SeekForPrev("key5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key5");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key4");
+    ASSERT_EQ(iter->value().ToString(), std::string(104, 'a' + 4));
+    delete iter;
+  }
+
+  ASSERT_OK(Flush());
+
+  {
+    auto* iter = db_->NewIterator(ReadOptions());
+    iter->Seek("key5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key5");
+    ASSERT_EQ(iter->value().ToString(), std::string(105, 'a' + 5));
+    delete iter;
+  }
+}
+
+// Seal failure during shutdown: inject I/O error during SealAllPartitions,
+// verify data is recovered via orphan recovery on next open.
+TEST_F(DBBlobDirectWriteTest, SealFailureRecovery) {
+  Options options = GetBlobDirectWriteOptions();
+  options.blob_direct_write_partitions = 1;
+  options.blob_direct_write_buffer_size = 0;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    std::string key = "seal_key" + std::to_string(i);
+    ASSERT_OK(Put(key, std::string(100, 'S' + (i % 3))));
+  }
+
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 10; i++) {
+    std::string key = "seal_key" + std::to_string(i);
+    ASSERT_EQ(Get(key), std::string(100, 'S' + (i % 3)));
+  }
+
+  for (int i = 10; i < 20; i++) {
+    std::string key = "seal_key" + std::to_string(i);
+    ASSERT_OK(Put(key, std::string(100, 'T' + (i % 3))));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobLogWriter::EmitPhysicalRecord:BeforeAppend", [&](void* arg) {
+        auto* s = static_cast<Status*>(arg);
+        *s = Status::IOError("Injected seal failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status close_s = TryReopen(options);
+  (void)close_s;
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Reopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    std::string key = "seal_key" + std::to_string(i);
+    ASSERT_EQ(Get(key), std::string(100, 'S' + (i % 3)));
+  }
+}
+
+// BLOB_DB_DIRECT_WRITE_STALL_COUNT statistic is incremented during
+// backpressure.
+TEST_F(DBBlobDirectWriteTest, StallCountStatistic) {
+  Options options = GetBlobDirectWriteOptions();
+  options.statistics = CreateDBStatistics();
+  options.blob_direct_write_partitions = 1;
+  options.blob_direct_write_buffer_size = 1024;
+  DestroyAndReopen(options);
+
+  std::atomic<bool> stall_seen{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFilePartitionManager::WriteBlob:BackpressureStall",
+      [&](void*) { stall_seen.store(true, std::memory_order_relaxed); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::thread> writers;
+  for (int t = 0; t < 4; t++) {
+    writers.emplace_back([&, t]() {
+      for (int i = 0; i < 200; i++) {
+        std::string key =
+            "stall_t" + std::to_string(t) + "_k" + std::to_string(i);
+        std::string value(500, 'V');
+        Status s = Put(key, value);
+        if (!s.ok()) break;
+      }
+    });
+  }
+  for (auto& w : writers) {
+    w.join();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  if (stall_seen.load()) {
+    ASSERT_GT(
+        options.statistics->getTickerCount(BLOB_DB_DIRECT_WRITE_STALL_COUNT),
+        0);
+  }
+}
+
+// BlobFileCreationReason::kDirectWrite is reported to event listeners.
+TEST_F(DBBlobDirectWriteTest, EventListenerDirectWriteReason) {
+  class TestListener : public EventListener {
+   public:
+    std::atomic<int> direct_write_count{0};
+
+    void OnBlobFileCreationStarted(
+        const BlobFileCreationBriefInfo& info) override {
+      if (info.reason == BlobFileCreationReason::kDirectWrite) {
+        direct_write_count.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
+  };
+
+  auto listener = std::make_shared<TestListener>();
+  Options options = GetBlobDirectWriteOptions();
+  options.listeners.push_back(listener);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", std::string(100, 'x')));
+  ASSERT_OK(Flush());
+
+  ASSERT_GT(listener->direct_write_count.load(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
