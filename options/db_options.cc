@@ -1117,9 +1117,8 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
       manifest_preallocation_size);
-  ROCKS_LOG_HEADER(
-      log, "      Options.verify_manifest_content_on_close: %d",
-      verify_manifest_content_on_close);
+  ROCKS_LOG_HEADER(log, "      Options.verify_manifest_content_on_close: %d",
+                   verify_manifest_content_on_close);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
 }

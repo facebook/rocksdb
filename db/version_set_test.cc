@@ -2407,7 +2407,7 @@ TEST_F(VersionSetTest, ManifestTruncateAfterClose) {
   ReopenDB();
 }
 
-TEST_F(VersionSetTest, ManifestContentValidationOnClose_Clean) {
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseClean) {
   // Enable content validation, perform normal operations, close.
   // Verify no manifest rotation (file number unchanged).
   NewDB();
@@ -2447,7 +2447,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_Clean) {
   ReopenDB();
 }
 
-TEST_F(VersionSetTest, ManifestContentValidationOnClose_CorruptRecord) {
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptRecord) {
   // Enable content validation, corrupt the manifest after closing the writer,
   // verify manifest rotation occurs and DB reopens cleanly.
   NewDB();
@@ -2472,7 +2472,9 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_CorruptRecord) {
         std::string content;
         Status s = ReadFileToString(env_, manifest_path, &content);
         EXPECT_OK(s);
-        if (!s.ok()) return;
+        if (!s.ok()) {
+          return;
+        }
         ASSERT_GT(content.size(), 20u);
         // Corrupt several bytes in the middle to break CRC
         for (size_t i = content.size() / 2; i < content.size() / 2 + 8; i++) {
@@ -2497,7 +2499,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_CorruptRecord) {
   ReopenDB();
 }
 
-TEST_F(VersionSetTest, ManifestContentValidationOnClose_Disabled) {
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseDisabled) {
   // Default (option disabled), corrupt manifest after writer close,
   // verify no rotation occurred — corrupt manifest persists.
   NewDB();
@@ -2531,7 +2533,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_Disabled) {
   ASSERT_EQ(manifest_path_before, manifest_path_after);
 }
 
-TEST_F(VersionSetTest, ManifestContentValidationOnClose_SizeCheckFails) {
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseSizeCheckFails) {
   // Truncate manifest so size check fails first.
   // Verify recovery happens via size-check path. Content validation still
   // runs afterward on the freshly rewritten manifest.
@@ -2557,10 +2559,14 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_SizeCheckFails) {
         Status s = env_->ReopenWritableFile(manifest_path, &manifest_file,
                                             EnvOptions());
         EXPECT_OK(s);
-        if (!s.ok()) return;
+        if (!s.ok()) {
+          return;
+        }
         s = manifest_file->Truncate(0);
         EXPECT_OK(s);
-        if (!s.ok()) return;
+        if (!s.ok()) {
+          return;
+        }
         s = manifest_file->Close();
         EXPECT_OK(s);
       });

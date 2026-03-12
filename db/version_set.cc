@@ -5615,14 +5615,14 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
         DescriptorFileName(dbname_, manifest_file_number_);
     std::unique_ptr<FSSequentialFile> manifest_file;
     IOStatus content_io_s = fs_->NewSequentialFile(
-        content_manifest_name,
-        fs_->OptimizeForManifestRead(file_options_), &manifest_file, nullptr);
+        content_manifest_name, fs_->OptimizeForManifestRead(file_options_),
+        &manifest_file, nullptr);
     if (content_io_s.ok()) {
       std::unique_ptr<SequentialFileReader> manifest_file_reader(
           new SequentialFileReader(std::move(manifest_file),
-                                  content_manifest_name,
-                                  db_options_->log_readahead_size, io_tracer_,
-                                  db_options_->listeners));
+                                   content_manifest_name,
+                                   db_options_->log_readahead_size, io_tracer_,
+                                   db_options_->listeners));
       LogReporter reporter;
       Status log_read_status;
       reporter.status = &log_read_status;
@@ -5644,8 +5644,8 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
         content_corrupt = true;
       }
       if (content_corrupt) {
-        IOStatus corrupt_io_s = IOStatus::Corruption(
-            "MANIFEST content validation failed");
+        IOStatus corrupt_io_s =
+            IOStatus::Corruption("MANIFEST content validation failed");
         IOErrorInfo io_error_info(corrupt_io_s, FileOperationType::kVerify,
                                   content_manifest_name, /*length=*/0,
                                   /*offset=*/0);
