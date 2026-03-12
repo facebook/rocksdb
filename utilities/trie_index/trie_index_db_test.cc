@@ -32,11 +32,24 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/compression.h"
+#include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
+
+// Encodes an integer as an 8-byte big-endian key body, matching the pattern
+// used by db_stress's test_batches_snapshots mode.
+static std::string MakeKeyBody(int k) {
+  std::string key_body(8, '\0');
+  uint64_t val = static_cast<uint64_t>(k);
+  for (int i = 7; i >= 0; --i) {
+    key_body[i] = static_cast<char>(val & 0xff);
+    val >>= 8;
+  }
+  return key_body;
+}
 
 class TrieIndexDBTest : public testing::Test {
  protected:
@@ -245,6 +258,91 @@ class TrieIndexDBTest : public testing::Test {
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     last_options_ = options_;
     return DB::Open(options_, dbname_, &db_);
+  }
+
+  // Verify prefix-scan lockstep across `num_prefixes` iterators.
+  //
+  // Creates one iterator per prefix digit (0..num_prefixes-1), seeks each to
+  // its prefix, then walks all in lockstep asserting key bodies match. When
+  // `use_upper_bounds` is true, even-numbered iterators get an upper bound
+  // set to the next prefix. When `verify_values` is true, value bodies are
+  // also cross-checked.
+  //
+  // Returns the number of keys walked (per-prefix).
+  uint64_t VerifyPrefixScanLockstep(const ReadOptions& base_ro,
+                                    int num_prefixes, bool use_upper_bounds,
+                                    bool verify_values,
+                                    const std::string& trace_context = "") {
+    std::vector<std::unique_ptr<Iterator>> iters(num_prefixes);
+    std::vector<std::string> prefixes(num_prefixes);
+    std::vector<Slice> prefix_slices(num_prefixes);
+    std::vector<ReadOptions> ro_copies(num_prefixes);
+    std::vector<std::string> upper_bounds(num_prefixes);
+    std::vector<Slice> ub_slices(num_prefixes);
+
+    for (int d = 0; d < num_prefixes; ++d) {
+      prefixes[d] = std::to_string(d);
+      prefix_slices[d] = Slice(prefixes[d]);
+      ro_copies[d] = base_ro;
+      if (use_upper_bounds && d % 2 == 0) {
+        upper_bounds[d] = prefixes[d];
+        upper_bounds[d].back()++;
+        ub_slices[d] = upper_bounds[d];
+        ro_copies[d].iterate_upper_bound = &ub_slices[d];
+      }
+      iters[d].reset(db_->NewIterator(ro_copies[d]));
+      iters[d]->Seek(prefix_slices[d]);
+    }
+
+    uint64_t count = 0;
+    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
+      count++;
+      std::vector<std::string> keys(num_prefixes);
+      std::vector<std::string> values(num_prefixes);
+      for (int d = 0; d < num_prefixes; ++d) {
+        EXPECT_TRUE(iters[d]->Valid())
+            << trace_context << " iter " << d << " invalid at step " << count;
+        EXPECT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
+            << trace_context << " iter " << d << " out of prefix at step "
+            << count;
+        if (!iters[d]->Valid()) return count;
+        keys[d] = iters[d]->key().ToString();
+        values[d] = iters[d]->value().ToString();
+      }
+
+      std::string key0_body = keys[0].substr(1);
+      for (int d = 1; d < num_prefixes; ++d) {
+        EXPECT_EQ(key0_body, keys[d].substr(1))
+            << trace_context << " key body mismatch at step " << count
+            << " iter " << d;
+      }
+
+      if (verify_values) {
+        std::string val0 = values[0];
+        if (!val0.empty()) val0.pop_back();
+        for (int d = 1; d < num_prefixes; ++d) {
+          std::string vald = values[d];
+          if (!vald.empty()) vald.pop_back();
+          EXPECT_EQ(val0, vald) << trace_context << " value mismatch at step "
+                                << count << " iter " << d;
+        }
+      }
+
+      for (int d = 0; d < num_prefixes; ++d) {
+        iters[d]->Next();
+      }
+    }
+
+    EXPECT_OK(iters[0]->status());
+    for (int d = 1; d < num_prefixes; ++d) {
+      EXPECT_TRUE(!iters[d]->Valid() ||
+                  !iters[d]->key().starts_with(prefix_slices[d]))
+          << trace_context << " iter " << d
+          << " still has keys after iter 0 finished";
+      EXPECT_OK(iters[d]->status());
+    }
+
+    return count;
   }
 
   std::shared_ptr<TrieIndexFactory> trie_factory_;
@@ -1403,16 +1501,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScan) {
   // Phase 1: Write batches.
   for (int b = 0; b < kNumBatches; ++b) {
     WriteBatch batch;
-    // key_body is an 8-byte big-endian encoding of b (similar to
-    // AppendIntToString in db_stress_common.h).
-    std::string key_body(8, '\0');
-    uint64_t val = static_cast<uint64_t>(b);
-    for (int i = 7; i >= 0; --i) {
-      key_body[i] = static_cast<char>(val & 0xff);
-      val >>= 8;
-    }
-
-    // value_body: random bytes so that values differ across batches.
+    std::string key_body = MakeKeyBody(b);
     std::string value_body = rnd.RandomString(20);
 
     for (int d = kNumPrefixes - 1; d >= 0; --d) {
@@ -1435,82 +1524,9 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScan) {
     const Snapshot* snap = db_->GetSnapshot();
     base_ro.snapshot = snap;
 
-    // Create 10 iterators, one per prefix digit.
-    std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
-    std::array<std::string, kNumPrefixes> prefixes;
-    std::array<Slice, kNumPrefixes> prefix_slices;
-    std::array<ReadOptions, kNumPrefixes> ro_copies;
-    std::array<std::string, kNumPrefixes> upper_bounds;
-    std::array<Slice, kNumPrefixes> ub_slices;
-
-    for (int d = 0; d < kNumPrefixes; ++d) {
-      prefixes[d] = std::to_string(d);
-      prefix_slices[d] = Slice(prefixes[d]);
-      ro_copies[d] = base_ro;
-      // Set upper bound on even-numbered iterators to exercise the
-      // upper-bound code path.
-      if (d % 2 == 0) {
-        upper_bounds[d] = prefixes[d];
-        // Increment last byte to get next prefix.
-        upper_bounds[d].back()++;
-        ub_slices[d] = upper_bounds[d];
-        ro_copies[d].iterate_upper_bound = &ub_slices[d];
-      }
-      iters[d].reset(db_->NewIterator(ro_copies[d]));
-      iters[d]->Seek(prefix_slices[d]);
-    }
-
-    // Phase 3: Walk all iterators in lockstep.
-    uint64_t count = 0;
-    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
-      count++;
-
-      // Snapshot all keys and values BEFORE advancing any iterator.
-      std::array<std::string, kNumPrefixes> keys;
-      std::array<std::string, kNumPrefixes> values;
-      for (int d = 0; d < kNumPrefixes; ++d) {
-        ASSERT_TRUE(iters[d]->Valid())
-            << "iter " << d << " invalid at step " << count
-            << ", iter0 key=" << iters[0]->key().ToString(true);
-        ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
-            << "iter " << d << " key " << iters[d]->key().ToString(true)
-            << " doesn't start with prefix " << prefix_slices[d].ToString(true)
-            << " at step " << count;
-        keys[d] = iters[d]->key().ToString();
-        values[d] = iters[d]->value().ToString();
-      }
-
-      // Verify all key bodies and values match.
-      std::string key0_body = keys[0].substr(1);
-      std::string val0 = values[0];
-      val0.pop_back();
-      for (int d = 1; d < kNumPrefixes; ++d) {
-        std::string keyd_body = keys[d].substr(1);
-        ASSERT_EQ(key0_body, keyd_body)
-            << "key body mismatch at step " << count << " iter " << d;
-
-        std::string vald = values[d];
-        vald.pop_back();
-        ASSERT_EQ(val0, vald)
-            << "value mismatch at step " << count << " iter " << d;
-      }
-
-      // Advance all iterators.
-      for (int d = 0; d < kNumPrefixes; ++d) {
-        iters[d]->Next();
-      }
-    }
-
-    // All iterators should be done.
-    ASSERT_OK(iters[0]->status());
-    for (int d = 1; d < kNumPrefixes; ++d) {
-      ASSERT_TRUE(!iters[d]->Valid() ||
-                  !iters[d]->key().starts_with(prefix_slices[d]))
-          << "iter " << d << " still has keys after iter 0 finished, key="
-          << iters[d]->key().ToString(true);
-      ASSERT_OK(iters[d]->status());
-    }
-
+    uint64_t count = VerifyPrefixScanLockstep(base_ro, kNumPrefixes,
+                                              /*use_upper_bounds=*/true,
+                                              /*verify_values=*/true);
     ASSERT_EQ(count, static_cast<uint64_t>(kNumBatches))
         << "expected " << kNumBatches << " entries per prefix";
 
@@ -1529,12 +1545,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanAfterReopen) {
 
   for (int b = 0; b < kNumBatches; ++b) {
     WriteBatch batch;
-    std::string key_body(8, '\0');
-    uint64_t val = static_cast<uint64_t>(b);
-    for (int i = 7; i >= 0; --i) {
-      key_body[i] = static_cast<char>(val & 0xff);
-      val >>= 8;
-    }
+    std::string key_body = MakeKeyBody(b);
     std::string value_body = rnd.RandomString(20);
 
     for (int d = kNumPrefixes - 1; d >= 0; --d) {
@@ -1564,57 +1575,9 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanAfterReopen) {
   const Snapshot* snap = db_->GetSnapshot();
   base_ro.snapshot = snap;
 
-  std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
-  std::array<std::string, kNumPrefixes> prefixes;
-  std::array<Slice, kNumPrefixes> prefix_slices;
-  std::array<ReadOptions, kNumPrefixes> ro_copies;
-  std::array<std::string, kNumPrefixes> upper_bounds;
-  std::array<Slice, kNumPrefixes> ub_slices;
-
-  for (int d = 0; d < kNumPrefixes; ++d) {
-    prefixes[d] = std::to_string(d);
-    prefix_slices[d] = Slice(prefixes[d]);
-    ro_copies[d] = base_ro;
-    if (d % 2 == 0) {
-      upper_bounds[d] = prefixes[d];
-      upper_bounds[d].back()++;
-      ub_slices[d] = upper_bounds[d];
-      ro_copies[d].iterate_upper_bound = &ub_slices[d];
-    }
-    iters[d].reset(db_->NewIterator(ro_copies[d]));
-    iters[d]->Seek(prefix_slices[d]);
-  }
-
-  uint64_t count = 0;
-  while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
-    count++;
-    for (int d = 0; d < kNumPrefixes; ++d) {
-      ASSERT_TRUE(iters[d]->Valid())
-          << "iter " << d << " invalid at step " << count;
-      ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
-          << "iter " << d << " out of prefix at step " << count;
-    }
-
-    std::string key0_body = iters[0]->key().ToString().substr(1);
-    for (int d = 1; d < kNumPrefixes; ++d) {
-      std::string keyd_body = iters[d]->key().ToString().substr(1);
-      ASSERT_EQ(key0_body, keyd_body)
-          << "key body mismatch at step " << count << " iter " << d;
-    }
-
-    for (int d = 0; d < kNumPrefixes; ++d) {
-      iters[d]->Next();
-    }
-  }
-
-  ASSERT_OK(iters[0]->status());
-  for (int d = 1; d < kNumPrefixes; ++d) {
-    ASSERT_TRUE(!iters[d]->Valid() ||
-                !iters[d]->key().starts_with(prefix_slices[d]))
-        << "iter " << d << " still has keys after iter 0 finished";
-    ASSERT_OK(iters[d]->status());
-  }
-
+  uint64_t count =
+      VerifyPrefixScanLockstep(base_ro, kNumPrefixes, /*use_upper_bounds=*/true,
+                               /*verify_values=*/false);
   ASSERT_EQ(count, static_cast<uint64_t>(kNumBatches));
   db_->ReleaseSnapshot(snap);
 }
@@ -1633,12 +1596,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanWithOverwrites) {
   for (int round = 0; round < kNumOverwrites; ++round) {
     for (int k = 0; k < kNumKeys; ++k) {
       WriteBatch batch;
-      std::string key_body(8, '\0');
-      uint64_t val = static_cast<uint64_t>(k);
-      for (int i = 7; i >= 0; --i) {
-        key_body[i] = static_cast<char>(val & 0xff);
-        val >>= 8;
-      }
+      std::string key_body = MakeKeyBody(k);
       std::string value_body = rnd.RandomString(20);
 
       for (int d = kNumPrefixes - 1; d >= 0; --d) {
@@ -1662,59 +1620,9 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanWithOverwrites) {
     const Snapshot* snap = db_->GetSnapshot();
     base_ro.snapshot = snap;
 
-    std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
-    std::array<std::string, kNumPrefixes> prefixes;
-    std::array<Slice, kNumPrefixes> prefix_slices;
-
-    for (int d = 0; d < kNumPrefixes; ++d) {
-      prefixes[d] = std::to_string(d);
-      prefix_slices[d] = Slice(prefixes[d]);
-      iters[d].reset(db_->NewIterator(base_ro));
-      iters[d]->Seek(prefix_slices[d]);
-    }
-    uint64_t count = 0;
-    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
-      count++;
-
-      // Snapshot all keys and values BEFORE advancing.
-      std::array<std::string, kNumPrefixes> cur_keys;
-      std::array<std::string, kNumPrefixes> cur_values;
-      for (int d = 0; d < kNumPrefixes; ++d) {
-        ASSERT_TRUE(iters[d]->Valid())
-            << "iter " << d << " invalid at step " << count;
-        ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
-            << "iter " << d << " out of prefix at step " << count;
-        cur_keys[d] = iters[d]->key().ToString();
-        cur_values[d] = iters[d]->value().ToString();
-      }
-
-      std::string key0_body = cur_keys[0].substr(1);
-      std::string val0 = cur_values[0];
-      val0.pop_back();
-      for (int d = 1; d < kNumPrefixes; ++d) {
-        std::string keyd_body = cur_keys[d].substr(1);
-        ASSERT_EQ(key0_body, keyd_body)
-            << "key body mismatch at step " << count << " iter " << d;
-
-        std::string vald = cur_values[d];
-        vald.pop_back();
-        ASSERT_EQ(val0, vald)
-            << "value mismatch at step " << count << " iter " << d;
-      }
-
-      for (int d = 0; d < kNumPrefixes; ++d) {
-        iters[d]->Next();
-      }
-    }
-
-    ASSERT_OK(iters[0]->status());
-    for (int d = 1; d < kNumPrefixes; ++d) {
-      ASSERT_TRUE(!iters[d]->Valid() ||
-                  !iters[d]->key().starts_with(prefix_slices[d]))
-          << "iter " << d << " still has keys after iter 0 finished";
-      ASSERT_OK(iters[d]->status());
-    }
-
+    uint64_t count = VerifyPrefixScanLockstep(base_ro, kNumPrefixes,
+                                              /*use_upper_bounds=*/false,
+                                              /*verify_values=*/true);
     ASSERT_EQ(count, static_cast<uint64_t>(kNumKeys));
     db_->ReleaseSnapshot(snap);
   }
@@ -1731,23 +1639,13 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanStressLike) {
   const int kNumRounds = 20;
   Random rnd(7777);
 
-  auto make_key_body = [](int k) {
-    std::string key_body(8, '\0');
-    uint64_t val = static_cast<uint64_t>(k);
-    for (int i = 7; i >= 0; --i) {
-      key_body[i] = static_cast<char>(val & 0xff);
-      val >>= 8;
-    }
-    return key_body;
-  };
-
   for (int round = 0; round < kNumRounds; ++round) {
     // Write a batch of random keys
     int num_writes = 100 + rnd.Uniform(200);
     for (int w = 0; w < num_writes; ++w) {
       int k = rnd.Uniform(kMaxKey);
       WriteBatch batch;
-      std::string key_body = make_key_body(k);
+      std::string key_body = MakeKeyBody(k);
       std::string value_body = rnd.RandomString(rnd.Uniform(60) + 4);
       for (int d = kNumPrefixes - 1; d >= 0; --d) {
         std::string key = std::to_string(d) + key_body;
@@ -1762,7 +1660,7 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanStressLike) {
     for (int w = 0; w < num_deletes; ++w) {
       int k = rnd.Uniform(kMaxKey);
       WriteBatch batch;
-      std::string key_body = make_key_body(k);
+      std::string key_body = MakeKeyBody(k);
       for (int d = kNumPrefixes - 1; d >= 0; --d) {
         std::string key = std::to_string(d) + key_body;
         ASSERT_OK(batch.Delete(key));
@@ -1781,62 +1679,10 @@ TEST_F(TrieIndexDBTest, BatchedPrefixScanStressLike) {
       const Snapshot* snap = db_->GetSnapshot();
       base_ro.snapshot = snap;
 
-      // Pick a random key to start scanning from
-      int start_key = rnd.Uniform(kMaxKey);
-      std::string key_body = make_key_body(start_key);
-
-      std::array<std::unique_ptr<Iterator>, kNumPrefixes> iters;
-      std::array<std::string, kNumPrefixes> prefixes;
-      std::array<Slice, kNumPrefixes> prefix_slices;
-
-      for (int d = 0; d < kNumPrefixes; ++d) {
-        prefixes[d] = std::to_string(d) + key_body;
-        prefix_slices[d] = Slice(prefixes[d].data(), 1);
-        iters[d].reset(db_->NewIterator(base_ro));
-        iters[d]->Seek(prefix_slices[d]);
-      }
-
-      uint64_t count = 0;
-      while (iters[0]->Valid() &&
-             iters[0]->key().starts_with(prefix_slices[0])) {
-        count++;
-        for (int d = 0; d < kNumPrefixes; ++d) {
-          ASSERT_TRUE(iters[d]->Valid())
-              << "round=" << round << " step=" << count << " iter=" << d;
-          ASSERT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
-              << "round=" << round << " step=" << count << " iter=" << d;
-        }
-
-        std::string key0_body = iters[0]->key().ToString().substr(1);
-        std::string val0 = iters[0]->value().ToString();
-        if (!val0.empty()) {
-          val0.pop_back();
-        }
-        for (int d = 1; d < kNumPrefixes; ++d) {
-          std::string keyd_body = iters[d]->key().ToString().substr(1);
-          ASSERT_EQ(key0_body, keyd_body) << "key body mismatch round=" << round
-                                          << " step=" << count << " iter=" << d;
-          std::string vald = iters[d]->value().ToString();
-          if (!vald.empty()) {
-            vald.pop_back();
-          }
-          ASSERT_EQ(val0, vald) << "value mismatch round=" << round
-                                << " step=" << count << " iter=" << d;
-        }
-
-        for (int d = 0; d < kNumPrefixes; ++d) {
-          iters[d]->Next();
-        }
-      }
-
-      ASSERT_OK(iters[0]->status());
-      for (int d = 1; d < kNumPrefixes; ++d) {
-        ASSERT_TRUE(!iters[d]->Valid() ||
-                    !iters[d]->key().starts_with(prefix_slices[d]))
-            << "iter " << d << " still has keys after iter 0 finished"
-            << " round=" << round;
-        ASSERT_OK(iters[d]->status());
-      }
+      VerifyPrefixScanLockstep(base_ro, kNumPrefixes,
+                               /*use_upper_bounds=*/false,
+                               /*verify_values=*/true,
+                               "round=" + std::to_string(round));
 
       db_->ReleaseSnapshot(snap);
     }
@@ -2808,6 +2654,148 @@ TEST_F(TrieIndexDBTest, TotalOrderSeekWithPrefixExtractor) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "bbb_1");
     ASSERT_OK(iter->status());
+  }
+}
+
+// ============================================================================
+// Multi-level SST + DeleteRange randomized test
+//
+// Historically bug-prone area: range tombstones interact with data across
+// LSM levels (L0, L1, L2+), and the trie index must correctly handle
+// seek/scan when blocks are partially or entirely covered by range deletions
+// at different levels.
+//
+// Strategy:
+// 1. Populate bottommost level with baseline data (flush + compact)
+// 2. Write overlapping data and DeleteRanges to L0 (multiple rounds)
+// 3. Partial compactions to create data at intermediate levels
+// 4. Verify reads match between standard and trie index after each mutation
+// 5. Snapshot before large DeleteRange, verify snapshot preserves state
+// 6. Re-insert into deleted ranges, compact, and re-verify
+// ============================================================================
+TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
+  uint32_t seed = static_cast<uint32_t>(
+      std::chrono::system_clock::now().time_since_epoch().count());
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  Random rnd(seed);
+
+  options_.disable_auto_compactions = true;
+  // Small block size forces many data blocks (and thus many trie entries).
+  ASSERT_OK(OpenDB(/*block_size=*/256));
+
+  const int kMaxKey = 500;
+
+  auto format_key = [](int k) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "key_%05d", k);
+    return std::string(buf);
+  };
+
+  // Core correctness check: forward scan via both indexes must match.
+  auto verify_scan_consistency = [&]() {
+    auto standard_kvs = ScanAllKeyValues(StandardIndexReadOptions());
+    auto trie_kvs = ScanAllKeyValues(TrieIndexReadOptions());
+    ASSERT_EQ(standard_kvs, trie_kvs)
+        << "Scan mismatch: standard=" << standard_kvs.size()
+        << " trie=" << trie_kvs.size();
+  };
+
+  // Phase 1: Populate bottommost level with baseline data.
+  for (int i = 0; i < 200; i++) {
+    int k = rnd.Uniform(kMaxKey);
+    ASSERT_OK(db_->Put(WriteOptions(), format_key(k),
+                       "base_" + rnd.RandomString(20)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  verify_scan_consistency();
+
+  // Phase 2: Write overlapping data + DeleteRanges across multiple rounds.
+  // Each round creates L0 SSTs with a mix of Puts and DeleteRanges,
+  // with occasional partial compactions to push data to intermediate levels.
+  for (int round = 0; round < 5; round++) {
+    SCOPED_TRACE("round=" + std::to_string(round));
+
+    // Write some new/updated keys.
+    int num_writes = 30 + rnd.Uniform(70);
+    for (int i = 0; i < num_writes; i++) {
+      int k = rnd.Uniform(kMaxKey);
+      ASSERT_OK(
+          db_->Put(WriteOptions(), format_key(k),
+                   "r" + std::to_string(round) + "_" + rnd.RandomString(15)));
+    }
+
+    // Issue 1-3 random DeleteRanges per round.
+    int num_ranges = 1 + rnd.Uniform(3);
+    for (int r = 0; r < num_ranges; r++) {
+      int range_start = rnd.Uniform(kMaxKey - 10);
+      int range_end = range_start + 5 + rnd.Uniform(50);
+      if (range_end > kMaxKey) range_end = kMaxKey;
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 format_key(range_start),
+                                 format_key(range_end)));
+    }
+
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    verify_scan_consistency();
+
+    // On odd rounds, do a partial compaction to push some data down,
+    // creating a multi-level structure where range tombstones at L0
+    // must shadow data at L1/L2.
+    if (round % 2 == 1) {
+      int compact_start = rnd.Uniform(kMaxKey / 2);
+      int compact_end = compact_start + kMaxKey / 4;
+      std::string start_key = format_key(compact_start);
+      std::string end_key = format_key(compact_end);
+      Slice s(start_key), e(end_key);
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &s, &e));
+      verify_scan_consistency();
+    }
+  }
+
+  // Phase 3: Snapshot, then delete a large range. The snapshot must
+  // preserve the pre-deletion state while current reads see the deletion.
+  const Snapshot* snap = db_->GetSnapshot();
+  auto snap_kvs = ScanAllKeyValues(StandardIndexReadOptions());
+
+  int big_start = rnd.Uniform(kMaxKey / 4);
+  int big_end = big_start + kMaxKey / 3;
+  if (big_end > kMaxKey) big_end = kMaxKey;
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             format_key(big_start), format_key(big_end)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Current state should reflect the deletion.
+  verify_scan_consistency();
+
+  // Snapshot state should be unchanged.
+  VerifyForwardScanBothIndexes(snap, snap_kvs);
+
+  db_->ReleaseSnapshot(snap);
+
+  // Phase 4: Re-insert keys into the deleted range, creating a pattern
+  // where range tombstones and live data coexist at different levels.
+  for (int i = big_start; i < big_end && i < kMaxKey; i += 3) {
+    ASSERT_OK(db_->Put(WriteOptions(), format_key(i),
+                       "reinserted_" + rnd.RandomString(10)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  verify_scan_consistency();
+
+  // Phase 5: Full compaction — all range tombstones should be resolved.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  verify_scan_consistency();
+
+  // Phase 6: Point lookups for a sample of keys — both indexes must agree.
+  for (int i = 0; i < kMaxKey; i += 7) {
+    std::string key = format_key(i);
+    std::string std_val, trie_val;
+    Status s1 = db_->Get(StandardIndexReadOptions(), key, &std_val);
+    Status s2 = db_->Get(TrieIndexReadOptions(), key, &trie_val);
+    ASSERT_EQ(s1.code(), s2.code()) << "Status mismatch for " << key;
+    if (s1.ok()) {
+      ASSERT_EQ(std_val, trie_val) << "Value mismatch for " << key;
+    }
   }
 }
 
