@@ -2470,13 +2470,16 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_CorruptRecord) {
         std::string manifest_path;
         GetManifestPath(&manifest_path);
         std::string content;
-        EXPECT_OK(ReadFileToString(env_, manifest_path, &content));
+        Status s = ReadFileToString(env_, manifest_path, &content);
+        EXPECT_OK(s);
+        if (!s.ok()) return;
         ASSERT_GT(content.size(), 20u);
         // Corrupt several bytes in the middle to break CRC
         for (size_t i = content.size() / 2; i < content.size() / 2 + 8; i++) {
           content[i] ^= 0xFF;
         }
-        EXPECT_OK(WriteStringToFile(env_, content, manifest_path));
+        s = WriteStringToFile(env_, content, manifest_path);
+        EXPECT_OK(s);
       });
   SyncPoint::GetInstance()->EnableProcessing();
   CloseDB();
@@ -2551,10 +2554,15 @@ TEST_F(VersionSetTest, ManifestContentValidationOnClose_SizeCheckFails) {
         std::string manifest_path;
         GetManifestPath(&manifest_path);
         std::unique_ptr<WritableFile> manifest_file;
-        EXPECT_OK(env_->ReopenWritableFile(manifest_path, &manifest_file,
-                                           EnvOptions()));
-        EXPECT_OK(manifest_file->Truncate(0));
-        EXPECT_OK(manifest_file->Close());
+        Status s = env_->ReopenWritableFile(manifest_path, &manifest_file,
+                                            EnvOptions());
+        EXPECT_OK(s);
+        if (!s.ok()) return;
+        s = manifest_file->Truncate(0);
+        EXPECT_OK(s);
+        if (!s.ok()) return;
+        s = manifest_file->Close();
+        EXPECT_OK(s);
       });
   SyncPoint::GetInstance()->EnableProcessing();
   CloseDB();
