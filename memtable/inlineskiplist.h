@@ -1330,10 +1330,23 @@ Status InlineSkipList<Comparator>::MultiGet(
     for (; node != nullptr && callback_func(callback_args[i], node->Key());) {
       Node* prev_node = node;
       node = node->Next(0);
-      if (detect_key_out_of_order && prev_node != head_ && node != nullptr &&
-          compare_(prev_node->Key(), node->Key()) >= 0) {
-        return Corruption(prev_node, node, allow_data_in_errors);
+      if (node != nullptr) {
+        if (key_validation_callback != nullptr) {
+          Status vs =
+              key_validation_callback(node->Key(), allow_data_in_errors);
+          if (!vs.ok()) {
+            return vs;
+          }
+        }
+        if (detect_key_out_of_order && prev_node != head_ &&
+            compare_(prev_node->Key(), node->Key()) >= 0) {
+          return Corruption(prev_node, node, allow_data_in_errors);
+        }
       }
+      // Update finger to track walk-forward position so the next key's
+      // search starts from here rather than from the stale search result.
+      finger.prev_[0] = prev_node;
+      finger.next_[0] = node;
     }
   }
   return Status::OK();
