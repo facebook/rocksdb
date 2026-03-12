@@ -588,7 +588,7 @@ enum Tickers : uint32_t {
   READ_PATH_RANGE_TOMBSTONES_INSERTED,
   // # of range tombstones not inserted because the memtable was already
   // switched to immutable
-  READ_PATH_RANGE_TOMBSTONES_TOSSED,
+  READ_PATH_RANGE_TOMBSTONES_DISCARDED,
 
   TICKER_ENUM_MAX
 };

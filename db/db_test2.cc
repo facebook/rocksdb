@@ -7730,9 +7730,9 @@ TEST_P(DBTestConcurrentRangeTombstoneConversions,
   if (range_conversion_threshold > 0) {
     uint64_t inserted =
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED);
-    uint64_t tossed =
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_TOSSED);
-    ASSERT_GT(inserted + tossed, 0);
+    uint64_t discarded = options.statistics->getTickerCount(
+        READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+    ASSERT_GT(inserted + discarded, 0);
   }
 
   // Build expected keys: 10-19, 30-39, 50-59, 70-79, 90-99 are alive.

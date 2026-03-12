@@ -1565,7 +1565,7 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
           sequence_, range_tomb_first_key_.GetUserKey(), end_key)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
   } else {
-    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_TOSSED);
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
   }
 }
 

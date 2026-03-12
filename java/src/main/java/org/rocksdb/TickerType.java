@@ -965,7 +965,7 @@ public enum TickerType {
      * # of range tombstones not inserted because the memtable was already
      * switched to immutable
      */
-    READ_PATH_RANGE_TOMBSTONES_TOSSED((byte) -0x6A),
+    READ_PATH_RANGE_TOMBSTONES_DISCARDED((byte) -0x6A),
 
     TICKER_ENUM_MAX((byte) -0x54);
 

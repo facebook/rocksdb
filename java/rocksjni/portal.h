@@ -5309,7 +5309,7 @@ class TickerTypeJni {
         return -0x68;
       case ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_INSERTED:
         return -0x69;
-      case ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_TOSSED:
+      case ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_DISCARDED:
         return -0x6A;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
@@ -5811,7 +5811,7 @@ class TickerTypeJni {
       case -0x69:
         return ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_INSERTED;
       case -0x6A:
-        return ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_TOSSED;
+        return ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_DISCARDED;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

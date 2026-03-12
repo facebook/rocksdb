@@ -5640,12 +5640,12 @@ TEST_F(ReadPathRangeTombstoneTest, MemtableSwitch) {
       ASSERT_OK(iter->status());
     }
 
-    // Verify the range was attempted with correct bounds but tossed.
+    // Verify the range was attempted with correct bounds but discarded.
     ASSERT_EQ(inserted_ranges_.size(), 1);
     AssertRange(0, "b", "g");
-    ASSERT_EQ(
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_TOSSED),
-        1);
+    ASSERT_EQ(options.statistics->getTickerCount(
+                  READ_PATH_RANGE_TOMBSTONES_DISCARDED),
+              1);
 
     // Verify data correctness is preserved
     ASSERT_EQ(Get("a"), "va");
@@ -5821,9 +5821,9 @@ TEST_F(ReadPathRangeTombstoneTest, DirectionChange) {
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
         2);
-    ASSERT_EQ(
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_TOSSED),
-        1);
+    ASSERT_EQ(options.statistics->getTickerCount(
+                  READ_PATH_RANGE_TOMBSTONES_DISCARDED),
+              1);
   }
 }
 
