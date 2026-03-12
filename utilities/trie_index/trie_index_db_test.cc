@@ -305,7 +305,9 @@ class TrieIndexDBTest : public testing::Test {
         EXPECT_TRUE(iters[d]->key().starts_with(prefix_slices[d]))
             << trace_context << " iter " << d << " out of prefix at step "
             << count;
-        if (!iters[d]->Valid()) return count;
+        if (!iters[d]->Valid()) {
+          return count;
+        }
         keys[d] = iters[d]->key().ToString();
         values[d] = iters[d]->value().ToString();
       }
@@ -319,10 +321,14 @@ class TrieIndexDBTest : public testing::Test {
 
       if (verify_values) {
         std::string val0 = values[0];
-        if (!val0.empty()) val0.pop_back();
+        if (!val0.empty()) {
+          val0.pop_back();
+        }
         for (int d = 1; d < num_prefixes; ++d) {
           std::string vald = values[d];
-          if (!vald.empty()) vald.pop_back();
+          if (!vald.empty()) {
+            vald.pop_back();
+          }
           EXPECT_EQ(val0, vald) << trace_context << " value mismatch at step "
                                 << count << " iter " << d;
         }
@@ -2752,7 +2758,9 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
     for (int r = 0; r < num_ranges; r++) {
       int range_start = rnd.Uniform(kMaxKey - 10);
       int range_end = range_start + 5 + rnd.Uniform(50);
-      if (range_end > kMaxKey) range_end = kMaxKey;
+      if (range_end > kMaxKey) {
+        range_end = kMaxKey;
+      }
       ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                  format_key(range_start),
                                  format_key(range_end)));
@@ -2769,7 +2777,8 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
       int compact_end = compact_start + kMaxKey / 4;
       std::string start_key = format_key(compact_start);
       std::string end_key = format_key(compact_end);
-      Slice s(start_key), e(end_key);
+      Slice s(start_key);
+      Slice e(end_key);
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &s, &e));
       ASSERT_NO_FATAL_FAILURE(verify_scan_consistency());
     }
@@ -2782,7 +2791,9 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
 
   int big_start = rnd.Uniform(kMaxKey / 4);
   int big_end = big_start + kMaxKey / 3;
-  if (big_end > kMaxKey) big_end = kMaxKey;
+  if (big_end > kMaxKey) {
+    big_end = kMaxKey;
+  }
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              format_key(big_start), format_key(big_end)));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -2811,7 +2822,8 @@ TEST_F(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   // Phase 6: Point lookups for a sample of keys — both indexes must agree.
   for (int i = 0; i < kMaxKey; i += 7) {
     std::string key = format_key(i);
-    std::string std_val, trie_val;
+    std::string std_val;
+    std::string trie_val;
     Status s1 = db_->Get(StandardIndexReadOptions(), key, &std_val);
     Status s2 = db_->Get(TrieIndexReadOptions(), key, &trie_val);
     ASSERT_EQ(s1.code(), s2.code()) << "Status mismatch for " << key;

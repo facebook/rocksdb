@@ -816,7 +816,9 @@ TEST_F(EliasFanoTest, BuildAccessVariants) {
   }
   // Dense consecutive: 0, 1, 2, ..., 99.
   std::vector<uint64_t> consecutive(100);
-  for (size_t i = 0; i < 100; i++) consecutive[i] = i;
+  for (size_t i = 0; i < 100; i++) {
+    consecutive[i] = i;
+  }
   // Word-boundary crossing: low_bits ~17, small offsets per element.
   std::vector<uint64_t> word_boundary(100);
   for (size_t i = 0; i < 100; i++) {
@@ -1043,6 +1045,7 @@ class LoudsTrieTest : public testing::Test {
     std::unique_ptr<LoudsTrieIterator> iter;
 
     BuiltTrie() = default;
+    ~BuiltTrie() = default;
     BuiltTrie(BuiltTrie&& other) noexcept
         : builder(std::move(other.builder)), trie(std::move(other.trie)) {
       if (other.iter) {
@@ -1161,7 +1164,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
   {
     std::string prefix(50, 'x');
     std::vector<std::string> keys;
-    for (char c = 'a'; c <= 'z'; c++) keys.push_back(prefix + c);
+    keys.reserve(26);
+    for (char c = 'a'; c <= 'z'; c++) {
+      keys.push_back(prefix + c);
+    }
     ASSERT_NO_FATAL_FAILURE(
         run("IdenticalPrefixDifferentLastByte", std::move(keys)));
   }
@@ -1176,7 +1182,9 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
   {
     std::vector<std::string> keys;
     keys.reserve(256);
-    for (int b = 0; b < 256; b++) keys.emplace_back(1, static_cast<char>(b));
+    for (int b = 0; b < 256; b++) {
+      keys.emplace_back(1, static_cast<char>(b));
+    }
     ASSERT_NO_FATAL_FAILURE(run("SingleByteAllValues", std::move(keys)));
   }
 
@@ -1190,7 +1198,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
   // Prefix key at the dense/sparse boundary.
   {
     std::vector<std::string> keys;
-    for (char c = 'a'; c <= 'z'; c++) keys.emplace_back(1, c);
+    keys.reserve(28);
+    for (char c = 'a'; c <= 'z'; c++) {
+      keys.emplace_back(1, c);
+    }
     keys.emplace_back("aa");
     keys.emplace_back("aab");
     ASSERT_NO_FATAL_FAILURE(run("PrefixKeyAtDenseSparseEdge", std::move(keys)));
@@ -1205,8 +1216,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
   {
     std::vector<std::string> keys;
     std::string prefix = "common_prefix_that_is_quite_long_";
-    for (int i = 0; i < 26; i++)
+    keys.reserve(26);
+    for (int i = 0; i < 26; i++) {
       keys.push_back(prefix + static_cast<char>('a' + i));
+    }
     ASSERT_NO_FATAL_FAILURE(
         run("KeyReconstructionLongSharedPrefix", std::move(keys)));
   }
@@ -1218,8 +1231,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
 
   {
     std::vector<std::string> keys;
-    for (int c = 'a'; c <= 'z'; c++)
+    keys.reserve(26);
+    for (int c = 'a'; c <= 'z'; c++) {
       keys.push_back(std::string(1, static_cast<char>(c)) + "suffix");
+    }
     ASSERT_NO_FATAL_FAILURE(run("HighFanoutRoot", std::move(keys)));
   }
 
@@ -1237,7 +1252,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
 
   {
     std::vector<std::string> keys;
-    for (int i = 0; i < 30; i++) keys.push_back("p_" + std::to_string(i));
+    keys.reserve(30);
+    for (int i = 0; i < 30; i++) {
+      keys.push_back("p_" + std::to_string(i));
+    }
     ASSERT_NO_FATAL_FAILURE(run("PrefixKeysDiverging", std::move(keys)));
   }
 
@@ -1247,7 +1265,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
 
   {
     std::vector<std::string> keys;
-    for (int len = 1; len <= 20; len++) keys.emplace_back(len, 'a');
+    keys.reserve(20);
+    for (int len = 1; len <= 20; len++) {
+      keys.emplace_back(len, 'a');
+    }
     ASSERT_NO_FATAL_FAILURE(run("ManyPrefixKeys", std::move(keys)));
   }
 
@@ -1256,7 +1277,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
 
   {
     std::vector<std::string> keys;
-    for (char c = 'a'; c <= 'z'; c++) keys.emplace_back(1, c);
+    keys.reserve(26);
+    for (char c = 'a'; c <= 'z'; c++) {
+      keys.emplace_back(1, c);
+    }
     ASSERT_NO_FATAL_FAILURE(run("AllDense", std::move(keys)));
   }
 
@@ -1295,8 +1319,11 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
 
   {
     std::vector<std::string> keys;
+    keys.reserve(176);
     char buf[64];
-    for (char c = 'a'; c <= 'z'; c++) keys.emplace_back(1, c);
+    for (char c = 'a'; c <= 'z'; c++) {
+      keys.emplace_back(1, c);
+    }
     for (int i = 0; i < 100; i++) {
       snprintf(buf, sizeof(buf), "medium_%04d", i);
       keys.emplace_back(buf);
@@ -1310,7 +1337,10 @@ TEST_F(LoudsTrieTest, TrieTopologyVariants) {
 
   {
     std::vector<std::string> keys;
-    for (int i = 0; i < 200; i++) keys.push_back("item_" + std::to_string(i));
+    keys.reserve(200);
+    for (int i = 0; i < 200; i++) {
+      keys.push_back("item_" + std::to_string(i));
+    }
     ASSERT_NO_FATAL_FAILURE(run("PrefixKeyStressPatterns", std::move(keys)));
   }
 }
@@ -1336,7 +1366,9 @@ TEST_F(LoudsTrieTest, RandomizedStress) {
     }
     std::sort(keys.begin(), keys.end());
     keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
-    if (keys.empty()) continue;
+    if (keys.empty()) {
+      continue;
+    }
     ASSERT_NO_FATAL_FAILURE(VerifyTrieIteration(keys));
   }
 }
