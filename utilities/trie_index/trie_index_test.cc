@@ -1032,10 +1032,26 @@ class LoudsTrieTest : public testing::Test {
  protected:
   // Owns builder (and its serialized data), trie, and iterator.  The handle
   // for key[i] is {i * 100, 50} by convention.
+  //
+  // Custom move constructor is required because `iter` holds a raw pointer to
+  // `trie`.  A default move would transfer the unique_ptr but leave it
+  // pointing at the moved-from trie (dangling).  We re-create the iterator
+  // against the new trie location instead.
   struct BuiltTrie {
     LoudsTrieBuilder builder;
     LoudsTrie trie;
     std::unique_ptr<LoudsTrieIterator> iter;
+
+    BuiltTrie() = default;
+    BuiltTrie(BuiltTrie&& other) noexcept
+        : builder(std::move(other.builder)), trie(std::move(other.trie)) {
+      if (other.iter) {
+        iter = std::make_unique<LoudsTrieIterator>(&trie);
+      }
+    }
+    BuiltTrie& operator=(BuiltTrie&&) = delete;
+    BuiltTrie(const BuiltTrie&) = delete;
+    BuiltTrie& operator=(const BuiltTrie&) = delete;
   };
 
   // Build a trie from pre-sorted keys using the standard {i*100, 50} handles.
