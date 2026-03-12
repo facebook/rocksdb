@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -40,8 +45,7 @@ Status BlobFileCompletionCallback::OnBlobFileCompleted(
   // Notify the listeners.
   EventHelpers::LogAndNotifyBlobFileCreationFinished(
       event_logger_, listeners_, dbname_, column_family_name, file_name, job_id,
-      file_number, creation_reason,
-      (!report_status.ok() ? report_status : s),
+      file_number, creation_reason, (!report_status.ok() ? report_status : s),
       (checksum_value.empty() ? kUnknownFileChecksum : checksum_value),
       (checksum_method.empty() ? kUnknownFileChecksumFuncName
                                : checksum_method),

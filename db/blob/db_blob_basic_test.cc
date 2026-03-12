@@ -1017,7 +1017,7 @@ TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobsFromMultipleFiles) {
   }
 }
 
-TEST_P(DBBlobBasicTestWithDirectWrite, GetBlob_CorruptIndex) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GetBlobCorruptIndex) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -1048,7 +1048,7 @@ TEST_P(DBBlobBasicTestWithDirectWrite, GetBlob_CorruptIndex) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlob_CorruptIndex) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobCorruptIndex) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -1108,7 +1108,7 @@ TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlob_CorruptIndex) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlob_ExceedSoftLimit) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobExceedSoftLimit) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -1693,7 +1693,7 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
-TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetFindTable_IOError) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetFindTableIOError) {
   // Repro test for a specific bug where `MultiGet()` would fail to open a table
   // in `FindTable()` and then proceed to return raw blob handles for the other
   // keys.

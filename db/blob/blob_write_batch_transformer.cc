@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -50,8 +55,7 @@ Status BlobWriteBatchTransformer::TransformBatch(
 }
 
 Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
-                                        const Slice& key,
-                                        const Slice& value) {
+                                        const Slice& key, const Slice& value) {
   // Use cached settings for the same CF to avoid per-entry lookup overhead.
   if (column_family_id != cached_cf_id_) {
     cached_settings_ = settings_provider_(column_family_id);
@@ -79,8 +83,8 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
                         blob_size, settings.compression_type);
 
   has_transformed_ = true;
-  return WriteBatchInternal::PutBlobIndex(output_batch_, column_family_id,
-                                               key, blob_index_buf_);
+  return WriteBatchInternal::PutBlobIndex(output_batch_, column_family_id, key,
+                                          blob_index_buf_);
 }
 
 Status BlobWriteBatchTransformer::TimedPutCF(uint32_t column_family_id,
@@ -89,7 +93,7 @@ Status BlobWriteBatchTransformer::TimedPutCF(uint32_t column_family_id,
                                              uint64_t write_time) {
   // TimedPut: pass through without blob separation for now.
   return WriteBatchInternal::TimedPut(output_batch_, column_family_id, key,
-                                     value, write_time);
+                                      value, write_time);
 }
 
 Status BlobWriteBatchTransformer::PutEntityCF(uint32_t column_family_id,
@@ -106,7 +110,7 @@ Status BlobWriteBatchTransformer::DeleteCF(uint32_t column_family_id,
 }
 
 Status BlobWriteBatchTransformer::SingleDeleteCF(uint32_t column_family_id,
-                                                  const Slice& key) {
+                                                 const Slice& key) {
   return WriteBatchInternal::SingleDelete(output_batch_, column_family_id, key);
 }
 
@@ -128,7 +132,7 @@ Status BlobWriteBatchTransformer::PutBlobIndexCF(uint32_t column_family_id,
                                                  const Slice& value) {
   // Already a blob index — pass through unchanged.
   return WriteBatchInternal::PutBlobIndex(output_batch_, column_family_id, key,
-                                         value);
+                                          value);
 }
 
 void BlobWriteBatchTransformer::LogData(const Slice& blob) {
@@ -149,7 +153,7 @@ Status BlobWriteBatchTransformer::MarkCommit(const Slice& xid) {
 }
 
 Status BlobWriteBatchTransformer::MarkCommitWithTimestamp(const Slice& xid,
-                                                         const Slice& ts) {
+                                                          const Slice& ts) {
   return WriteBatchInternal::MarkCommitWithTimestamp(output_batch_, xid, ts);
 }
 

@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -51,10 +56,8 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
   // If any values are separated, output_batch contains the full transformed
   // batch.
   static Status TransformBatch(
-      const WriteOptions& write_options,
-      WriteBatch* input_batch,
-      WriteBatch* output_batch,
-      BlobFilePartitionManager* partition_manager,
+      const WriteOptions& write_options, WriteBatch* input_batch,
+      WriteBatch* output_batch, BlobFilePartitionManager* partition_manager,
       const BlobDirectWriteSettingsProvider& settings_provider,
       bool* transformed);
 
@@ -86,8 +89,7 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
   Status MarkBeginPrepare(bool unprepared = false) override;
   Status MarkEndPrepare(const Slice& xid) override;
   Status MarkCommit(const Slice& xid) override;
-  Status MarkCommitWithTimestamp(const Slice& xid,
-                                const Slice& ts) override;
+  Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override;
   Status MarkRollback(const Slice& xid) override;
   Status MarkNoop(bool empty_batch) override;
 

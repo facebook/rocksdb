@@ -66,18 +66,16 @@ class DBIter final : public Iterator {
   // according to options mutable_cf_options.memtable_op_scan_flush_trigger
   // and mutable_cf_options.memtable_avg_op_scan_flush_trigger.
   // @param arena_mode If true, the DBIter will be allocated from the arena.
-  static DBIter* NewIter(Env* env, const ReadOptions& read_options,
-                         const ImmutableOptions& ioptions,
-                         const MutableCFOptions& mutable_cf_options,
-                         const Comparator* user_key_comparator,
-                         InternalIterator* internal_iter,
-                         const Version* version, const SequenceNumber& sequence,
-                         ReadCallback* read_callback,
-                         ReadOnlyMemTable* active_mem,
-                         ColumnFamilyHandleImpl* cfh = nullptr,
-                         bool expose_blob_index = false, Arena* arena = nullptr,
-                         BlobFileCache* blob_file_cache = nullptr,
-                         BlobFilePartitionManager* blob_partition_mgr = nullptr) {
+  static DBIter* NewIter(
+      Env* env, const ReadOptions& read_options,
+      const ImmutableOptions& ioptions,
+      const MutableCFOptions& mutable_cf_options,
+      const Comparator* user_key_comparator, InternalIterator* internal_iter,
+      const Version* version, const SequenceNumber& sequence,
+      ReadCallback* read_callback, ReadOnlyMemTable* active_mem,
+      ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false,
+      Arena* arena = nullptr, BlobFileCache* blob_file_cache = nullptr,
+      BlobFilePartitionManager* blob_partition_mgr = nullptr) {
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
     DBIter* db_iter = new (mem) DBIter(
@@ -253,8 +251,7 @@ class DBIter final : public Iterator {
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, ReadCallback* read_callback,
          ColumnFamilyHandleImpl* cfh, bool expose_blob_index,
-         ReadOnlyMemTable* active_mem,
-         BlobFileCache* blob_file_cache = nullptr,
+         ReadOnlyMemTable* active_mem, BlobFileCache* blob_file_cache = nullptr,
          BlobFilePartitionManager* blob_partition_mgr = nullptr);
 
   class BlobReader {

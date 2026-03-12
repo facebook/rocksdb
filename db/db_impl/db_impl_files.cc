@@ -548,7 +548,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // the MANIFEST yet and will be sealed during the next flush.
   std::unordered_set<uint64_t> active_blob_file_numbers;
   if (blob_partition_manager_) {
-    blob_partition_manager_->GetActiveBlobFileNumbers(&active_blob_file_numbers);
+    blob_partition_manager_->GetActiveBlobFileNumbers(
+        &active_blob_file_numbers);
   }
 
   bool own_files = OwnTablesAndLogs();

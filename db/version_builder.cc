@@ -284,8 +284,7 @@ class VersionBuilder::Rep {
   // Lazily-built reverse index: blob_file_number → SST numbers that
   // reference it (via oldest_blob_file_number). Built once during the
   // first ApplyBlobFileAddition to avoid O(levels * SSTs) per addition.
-  std::unordered_map<uint64_t, std::vector<uint64_t>>
-      sst_blob_reverse_index_;
+  std::unordered_map<uint64_t, std::vector<uint64_t>> sst_blob_reverse_index_;
   bool sst_blob_reverse_index_built_ = false;
 
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;

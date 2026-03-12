@@ -942,8 +942,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"blob_direct_write_use_direct_io",
-         {offsetof(struct ImmutableCFOptions,
-                   blob_direct_write_use_direct_io),
+         {offsetof(struct ImmutableCFOptions, blob_direct_write_use_direct_io),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
 };

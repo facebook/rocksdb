@@ -57,8 +57,8 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
 
       WriteBatch batch(key.size() + blob_index_buf.size() + 24, 0,
                        o.protection_bytes_per_key, 0);
-      blob_s = WriteBatchInternal::PutBlobIndex(&batch, cf_id, key,
-                                                blob_index_buf);
+      blob_s =
+          WriteBatchInternal::PutBlobIndex(&batch, cf_id, key, blob_index_buf);
       if (!blob_s.ok()) {
         return blob_s;
       }
@@ -625,7 +625,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-
 
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,

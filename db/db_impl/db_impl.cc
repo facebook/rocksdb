@@ -594,11 +594,10 @@ Status DBImpl::CloseHelper() {
     std::vector<BlobFileAddition> additions;
     Status seal_s = blob_partition_manager_->SealAllPartitions(wo, &additions);
     if (!seal_s.ok()) {
-      ROCKS_LOG_ERROR(
-          immutable_db_options_.info_log,
-          "Failed to seal blob partitions during shutdown: %s. "
-          "Unsealed blob files will be recovered on next DB::Open.",
-          seal_s.ToString().c_str());
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "Failed to seal blob partitions during shutdown: %s. "
+                      "Unsealed blob files will be recovered on next DB::Open.",
+                      seal_s.ToString().c_str());
       if (ret.ok()) {
         ret = seal_s;
       }
@@ -3495,12 +3494,10 @@ Status DBImpl::MultiGetImpl(
           KeyContext* kctx = (*sorted_keys)[bi];
           if (kctx->s->ok() && kctx->is_blob_index && kctx->value) {
             BlobIndex blob_idx;
-            Status resolve_s =
-                blob_idx.DecodeFrom(*(kctx->value->GetSelf()));
+            Status resolve_s = blob_idx.DecodeFrom(*(kctx->value->GetSelf()));
             if (resolve_s.ok()) {
               PinnableSlice blob_value;
-              BlobFileCache* blob_cache =
-                  super_version->cfd->blob_file_cache();
+              BlobFileCache* blob_cache = super_version->cfd->blob_file_cache();
               resolve_s = ResolveBlobIndexForWritePath(
                   read_options, *kctx->key, blob_idx, super_version->current,
                   blob_cache, blob_partition_manager_.get(), &blob_value);

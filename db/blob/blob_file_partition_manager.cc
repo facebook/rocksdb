@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -91,8 +96,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
   if (buffer_size_ > 0) {
     const uint32_t num_bg_threads = num_partitions_;
     for (uint32_t i = 0; i < num_bg_threads; ++i) {
-      bg_threads_.emplace_back(
-          &BlobFilePartitionManager::BackgroundIOLoop, this);
+      bg_threads_.emplace_back(&BlobFilePartitionManager::BackgroundIOLoop,
+                               this);
     }
   }
 }
@@ -117,9 +122,9 @@ BlobFilePartitionManager::~BlobFilePartitionManager() {
   }
 }
 
-Status BlobFilePartitionManager::OpenNewBlobFile(
-    Partition* partition, uint32_t column_family_id,
-    CompressionType compression) {
+Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
+                                                 uint32_t column_family_id,
+                                                 CompressionType compression) {
   assert(partition);
   assert(!partition->writer);
 
@@ -127,7 +132,7 @@ Status BlobFilePartitionManager::OpenNewBlobFile(
   const std::string blob_file_path = BlobFileName(db_path_, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
-  const Status s = NewWritableFile(fs_, blob_file_path, &file, file_options_);
+  Status s = NewWritableFile(fs_, blob_file_path, &file, file_options_);
   if (!s.ok()) {
     return s;
   }
@@ -152,7 +157,7 @@ Status BlobFilePartitionManager::OpenNewBlobFile(
                        expiration_range);
 
   WriteOptions wo;
-  const Status ws = blob_log_writer->WriteHeader(wo, header);
+  Status ws = blob_log_writer->WriteHeader(wo, header);
   if (!ws.ok()) {
     return ws;
   }
@@ -200,8 +205,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   // The mutex is held during I/O, but this only blocks one partition and
   // file close is infrequent (once per blob_file_size bytes).
   if (buffer_size_ > 0 && !partition->pending_records.empty()) {
-    std::deque<PendingRecord> records =
-        std::move(partition->pending_records);
+    std::deque<PendingRecord> records = std::move(partition->pending_records);
     partition->pending_records.clear();
     BlobLogWriter* writer = partition->writer.get();
 
@@ -322,8 +326,8 @@ Status BlobFilePartitionManager::PrepareFileRollover(
   return OpenNewBlobFile(partition, column_family_id, compression);
 }
 
-Status BlobFilePartitionManager::SealDeferredFile(
-    Partition* partition, DeferredSeal* deferred) {
+Status BlobFilePartitionManager::SealDeferredFile(Partition* partition,
+                                                  DeferredSeal* deferred) {
   assert(deferred);
   assert(deferred->writer);
 
@@ -369,8 +373,8 @@ Status BlobFilePartitionManager::SealDeferredFile(
   std::string checksum_method;
   std::string checksum_value;
   WriteOptions wo;
-  Status s = writer->AppendFooter(wo, footer, &checksum_method,
-                                  &checksum_value);
+  Status s =
+      writer->AppendFooter(wo, footer, &checksum_method, &checksum_value);
   if (!s.ok()) {
     RemoveFromPendingIndex(partition, deferred->records);
     deferred->writer.reset();
@@ -426,7 +430,7 @@ void BlobFilePartitionManager::SubmitFlush(Partition* partition) {
   }
   MutexLock lock(&bg_mutex_);
   BGWorkItem item;
-  item.type = BGWorkItem::kFlush;
+  item.type = BGWorkItem::kBGFlush;
   bool was_empty = partition->bg_queue.empty();
   partition->bg_queue.emplace_back(std::move(item));
   if (was_empty && !partition->bg_in_flight) {
@@ -513,7 +517,7 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
                 !p->bg_in_flight) {
               bool has_flush = false;
               for (const auto& item : p->bg_queue) {
-                if (item.type == BGWorkItem::kFlush) {
+                if (item.type == BGWorkItem::kBGFlush) {
                   has_flush = true;
                   break;
                 }
@@ -523,7 +527,7 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
                     "BlobFilePartitionManager::BackgroundIOLoop:"
                     "PeriodicFlush");
                 BGWorkItem item;
-                item.type = BGWorkItem::kFlush;
+                item.type = BGWorkItem::kBGFlush;
                 p->bg_queue.emplace_back(std::move(item));
                 ready_queue_.push_back(p.get());
               }
@@ -541,7 +545,7 @@ void BlobFilePartitionManager::BackgroundIOLoop() {
       Status s;
       if (item.type == BGWorkItem::kSeal) {
         s = SealDeferredFile(partition, &item.seal);
-      } else if (item.type == BGWorkItem::kFlush) {
+      } else if (item.type == BGWorkItem::kBGFlush) {
         partition->flush_queued.store(false, std::memory_order_release);
         s = FlushPendingRecords(partition);
       }
@@ -648,9 +652,10 @@ Status BlobFilePartitionManager::WriteBlobDeferred(
   return Status::OK();
 }
 
-Status BlobFilePartitionManager::WriteBlobSync(
-    Partition* partition, const Slice& key, const Slice& value,
-    uint64_t* blob_offset) {
+Status BlobFilePartitionManager::WriteBlobSync(Partition* partition,
+                                               const Slice& key,
+                                               const Slice& value,
+                                               uint64_t* blob_offset) {
   assert(partition);
 
   uint64_t key_offset = 0;
@@ -679,27 +684,14 @@ void BlobFilePartitionManager::RemoveFromPendingIndex(
 
 void BlobFilePartitionManager::AddFilePartitionMapping(uint64_t file_number,
                                                        uint32_t partition_idx) {
-  std::lock_guard<std::mutex> lock(file_partition_write_mutex_);
-  auto old =
-      std::atomic_load_explicit(&file_to_partition_, std::memory_order_acquire);
-  auto new_map = old ? std::make_shared<FilePartitionMap>(*old)
-                     : std::make_shared<FilePartitionMap>();
-  (*new_map)[file_number] = partition_idx;
-  std::atomic_store_explicit(&file_to_partition_, std::move(new_map),
-                             std::memory_order_release);
+  std::unique_lock<std::shared_mutex> lock(file_partition_mutex_);
+  file_to_partition_[file_number] = partition_idx;
 }
 
 void BlobFilePartitionManager::RemoveFilePartitionMapping(
     uint64_t file_number) {
-  std::lock_guard<std::mutex> lock(file_partition_write_mutex_);
-  auto old =
-      std::atomic_load_explicit(&file_to_partition_, std::memory_order_acquire);
-  if (old && old->count(file_number)) {
-    auto new_map = std::make_shared<FilePartitionMap>(*old);
-    new_map->erase(file_number);
-    std::atomic_store_explicit(&file_to_partition_, std::move(new_map),
-                               std::memory_order_release);
-  }
+  std::unique_lock<std::shared_mutex> lock(file_partition_mutex_);
+  file_to_partition_.erase(file_number);
 }
 
 Status BlobFilePartitionManager::GetPendingBlobValue(uint64_t file_number,
@@ -707,13 +699,9 @@ Status BlobFilePartitionManager::GetPendingBlobValue(uint64_t file_number,
                                                      std::string* value) const {
   uint32_t part_idx;
   {
-    auto snapshot = std::atomic_load_explicit(&file_to_partition_,
-                                              std::memory_order_acquire);
-    if (!snapshot) {
-      return Status::NotFound();
-    }
-    auto fit = snapshot->find(file_number);
-    if (fit == snapshot->end()) {
+    std::shared_lock<std::shared_mutex> lock(file_partition_mutex_);
+    auto fit = file_to_partition_.find(file_number);
+    if (fit == file_to_partition_.end()) {
       return Status::NotFound();
     }
     part_idx = fit->second;
@@ -827,8 +815,8 @@ Status BlobFilePartitionManager::WriteBlob(
     if (compressor) {
       auto wa = compressor->ObtainWorkingArea();
       StopWatch stop_watch(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-      Status s =
-          LegacyForceBuiltinCompression(*compressor, &wa, value, &compressed_buf);
+      Status s = LegacyForceBuiltinCompression(*compressor, &wa, value,
+                                               &compressed_buf);
       if (!s.ok()) {
         return s;
       }
@@ -838,7 +826,8 @@ Status BlobFilePartitionManager::WriteBlob(
 
   // Pre-copy key and (compressed) value OUTSIDE the mutex for deferred mode.
   // Only one copy of the final value, not the pre-compression original.
-  std::string key_copy, value_copy;
+  std::string key_copy;
+  std::string value_copy;
   if (buffer_size_ > 0) {
     key_copy.assign(key.data(), key.size());
     value_copy.assign(write_value.data(), write_value.size());
@@ -847,8 +836,7 @@ Status BlobFilePartitionManager::WriteBlob(
   {
     MutexLock lock(&partition->mutex);
 
-    if (!partition->writer ||
-        partition->column_family_id != column_family_id ||
+    if (!partition->writer || partition->column_family_id != column_family_id ||
         partition->compression != compression) {
       if (partition->writer) {
         Status s = CloseBlobFile(partition);
@@ -948,8 +936,8 @@ Status BlobFilePartitionManager::FlushPendingRecords(Partition* partition) {
   // Only called from the single background I/O thread. Safe to release the
   // mutex during I/O because:
   // 1. PrepareFileRollover may move partition->writer to a DeferredSeal in the
-  //    BG queue, but the DeferredSeal keeps the writer alive until the BG thread
-  //    processes it (sequentially, after this flush completes).
+  //    BG queue, but the DeferredSeal keeps the writer alive until the BG
+  //    thread processes it (sequentially, after this flush completes).
   // 2. No other code path calls FlushPendingRecords (backpressure submits to
   //    BG thread and waits).
   std::deque<PendingRecord> records;
@@ -1263,7 +1251,7 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     Status pending_s = partition_mgr->GetPendingBlobValue(
         blob_idx.file_number(), blob_idx.offset(), &pending_value);
     if (pending_s.ok()) {
-      blob_value->PinSelf(std::move(pending_value));
+      blob_value->PinSelf(pending_value);
       return Status::OK();
     }
     if (!pending_s.IsNotFound()) {
@@ -1322,7 +1310,7 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     Status pending_s = partition_mgr->GetPendingBlobValue(
         blob_idx.file_number(), blob_idx.offset(), &pending_value);
     if (pending_s.ok()) {
-      blob_value->PinSelf(std::move(pending_value));
+      blob_value->PinSelf(pending_value);
       return Status::OK();
     }
     if (!pending_s.IsNotFound()) {

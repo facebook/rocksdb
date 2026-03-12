@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -11,6 +16,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -124,11 +130,10 @@ class BlobFilePartitionManager {
   // TransformBatch completes to transfer buffer ownership.
   // Thread-safe: multiple writers can call this concurrently.
   // If caller already has the settings, pass them to avoid a redundant lookup.
-  Status WriteBlob(const WriteOptions& write_options,
-                   uint32_t column_family_id, CompressionType compression,
-                   const Slice& key, const Slice& value,
-                   uint64_t* blob_file_number, uint64_t* blob_offset,
-                   uint64_t* blob_size,
+  Status WriteBlob(const WriteOptions& write_options, uint32_t column_family_id,
+                   CompressionType compression, const Slice& key,
+                   const Slice& value, uint64_t* blob_file_number,
+                   uint64_t* blob_offset, uint64_t* blob_size,
                    const BlobDirectWriteSettings* settings = nullptr);
 
   // Look up an unflushed blob value by file number and offset.
@@ -142,8 +147,7 @@ class BlobFilePartitionManager {
   Status SealAllPartitions(const WriteOptions& write_options,
                            std::vector<BlobFileAddition>* additions);
 
-  void TakeCompletedBlobFileAdditions(
-      std::vector<BlobFileAddition>* additions);
+  void TakeCompletedBlobFileAdditions(std::vector<BlobFileAddition>* additions);
 
   // Sync all open blob files. Flushes pending records first.
   Status SyncAllOpenFiles(const WriteOptions& write_options);
@@ -256,7 +260,7 @@ class BlobFilePartitionManager {
 
   // Background I/O thread pool for seal and flush operations.
   struct BGWorkItem {
-    enum Type { kSeal, kFlush };
+    enum Type { kSeal, kBGFlush };
     Type type;
     DeferredSeal seal;  // Only used for kSeal.
   };
@@ -388,11 +392,11 @@ class BlobFilePartitionManager {
   // Used by GetPendingBlobValue to direct lookups to the correct
   // partition's pending_index without scanning all partitions.
   // Write-light (only on file open/close), read-moderate (each
-  // GetPendingBlobValue). RCU-based: readers use atomic_load (lock-free),
-  // writers use file_partition_write_mutex_ + copy-on-write + atomic_store.
+  // GetPendingBlobValue). Protected by a shared_mutex (readers take shared
+  // lock, writers take exclusive lock).
   using FilePartitionMap = std::unordered_map<uint64_t, uint32_t>;
-  std::shared_ptr<FilePartitionMap> file_to_partition_;
-  mutable std::mutex file_partition_write_mutex_;
+  FilePartitionMap file_to_partition_;
+  mutable std::shared_mutex file_partition_mutex_;
 
   port::Mutex completed_files_mutex_;
 
