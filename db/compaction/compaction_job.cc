@@ -2494,8 +2494,16 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       return s;
     }
 
+    // Enable hash computation if paranoid_file_checks is on or if
+    // verify_output_flags includes kVerifyIteration, so that
+    // VerifyOutputFiles() can compare the hash of the written data
+    // against a re-read of the output file.
+    bool enable_output_hash =
+        paranoid_file_checks_ ||
+        !!(sub_compact->compaction->mutable_cf_options().verify_output_flags &
+           VerifyOutputFlags::kVerifyIteration);
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      paranoid_file_checks_);
+                      enable_output_hash);
   }
 
   writable_file->SetIOPriority(GetRateLimiterPriority());
@@ -2931,9 +2939,13 @@ void CompactionJob::RestoreCompactionOutputs(
   for (size_t i = 0; i < output_files.size(); i++) {
     FileMetaData file_copy = output_files[i];
 
+    bool enable_output_hash =
+        paranoid_file_checks_ ||
+        !!(compact_->compaction->mutable_cf_options().verify_output_flags &
+           VerifyOutputFlags::kVerifyIteration);
     outputs_to_restore->AddOutput(std::move(file_copy),
                                   cfd->internal_comparator(),
-                                  paranoid_file_checks_, true /* finished */);
+                                  enable_output_hash, true /* finished */);
 
     outputs_to_restore->UpdateTableProperties(
         *output_files_table_properties[i]);
