@@ -11790,6 +11790,82 @@ TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// Regression test: verify_output_flags with kVerifyIteration should work
+// correctly even when paranoid_file_checks is false. Before the fix, the
+// OutputValidator hash was only computed during writing when
+// paranoid_file_checks was true, but the verification always computed the
+// hash, leading to a false positive "Key-value checksum of compaction output
+// doesn't match" error.
+TEST_F(DBCompactionTest, VerifyIterationWithoutParanoidFileChecks) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.paranoid_file_checks = false;
+  options.verify_output_flags = VerifyOutputFlags::kVerifyIteration |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
+  DestroyAndReopen(options);
+
+  // Create 2 L0 files to trigger compaction
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 5; i < 15; i++) {
+    ASSERT_OK(Put(Key(i), "value2_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Compaction should succeed without false corruption errors
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify data is intact
+  for (int i = 0; i < 15; i++) {
+    std::string expected;
+    if (i >= 5) {
+      expected = "value2_" + std::to_string(i);
+    } else {
+      expected = "value" + std::to_string(i);
+    }
+    ASSERT_EQ(Get(Key(i)), expected);
+  }
+}
+
+// Also test all verification types combined without paranoid_file_checks
+TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.paranoid_file_checks = false;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.verify_output_flags = VerifyOutputFlags::kVerifyBlockChecksum |
+                                VerifyOutputFlags::kVerifyIteration |
+                                VerifyOutputFlags::kVerifyFileChecksum |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 5; i < 15; i++) {
+    ASSERT_OK(Put(Key(i), "value2_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Compaction should succeed with all verification types enabled
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  for (int i = 0; i < 15; i++) {
+    std::string expected;
+    if (i >= 5) {
+      expected = "value2_" + std::to_string(i);
+    } else {
+      expected = "value" + std::to_string(i);
+    }
+    ASSERT_EQ(Get(Key(i)), expected);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
