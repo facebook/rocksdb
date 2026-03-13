@@ -1744,6 +1744,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class DBImplSecondary;
   friend class ErrorHandler;
   friend class InternalStats;
   friend class PessimisticTransaction;
