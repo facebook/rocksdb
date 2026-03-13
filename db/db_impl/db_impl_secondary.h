@@ -384,6 +384,19 @@ class DBImplSecondary : public DBImpl {
   uint64_t CalculateResumedCompactionBytes(
       const CompactionProgress& compaction_progress) const;
 
+  // When true, WAL replay is skipped during Recover(). Used internally by
+  // OpenAndCompact() which only needs LSM state from MANIFEST.
+  bool skip_wal_recovery_ = false;
+
+  // Internal helper for opening a secondary instance, with an option to skip
+  // WAL recovery. Used by DB::OpenAsSecondary() and DB::OpenAndCompact().
+  static Status OpenAsSecondaryImpl(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
+      bool skip_wal_recovery);
+
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
