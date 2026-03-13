@@ -11,7 +11,9 @@
 
 #include <limits>
 #include <string>
+#include <vector>
 
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -85,7 +87,10 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expose_blob_index_(expose_blob_index),
       allow_unprepared_value_(read_options.allow_unprepared_value),
       is_blob_(false),
-      arena_mode_(arena_mode) {
+      arena_mode_(arena_mode),
+      entity_blob_resolver_(version, read_options.read_tier,
+                            read_options.verify_checksums,
+                            read_options.fill_cache, read_options.io_activity) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
@@ -289,13 +294,82 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   assert(value_.empty());
   assert(wide_columns_.empty());
 
-  const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
+  // Fast path: if no blob columns, use the simpler Deserialize
+  bool has_blob_columns = false;
+  {
+    const Status s_hbc =
+        WideColumnSerialization::HasBlobColumns(slice, has_blob_columns);
+    if (!s_hbc.ok()) {
+      status_ = s_hbc;
+      valid_ = false;
+      return false;
+    }
+  }
+  if (!has_blob_columns) {
+    const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
 
-  if (!s.ok()) {
-    status_ = s;
-    valid_ = false;
-    wide_columns_.clear();
-    return false;
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      wide_columns_.clear();
+      return false;
+    }
+
+    if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+      value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+    }
+
+    return true;
+  }
+
+  // Entity has blob columns.
+  // First, copy the serialized data to saved_value_ so that column name/value
+  // Slices remain valid after the internal iterator moves.
+  saved_value_.assign(slice.data(), slice.size());
+
+  // Deserialize columns and blob column info from the saved copy
+  lazy_entity_columns_.clear();
+  lazy_blob_columns_.clear();
+
+  {
+    Slice input_copy(saved_value_);
+    const Status s = WideColumnSerialization::DeserializeV2(
+        input_copy, lazy_entity_columns_, lazy_blob_columns_);
+
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      return false;
+    }
+  }
+
+  // Eager path: use the resolver to fetch all blob values immediately.
+  // The resolver's resolved_cache_ (PinnableSlice) keeps resolved blob data
+  // alive until the next Reset() call, so wide_columns_ Slices can safely
+  // point into it. Inline column Slices point into saved_value_.
+  entity_blob_resolver_.Reset(saved_key_.GetUserKey(), &lazy_entity_columns_,
+                              &lazy_blob_columns_);
+
+  wide_columns_.reserve(lazy_entity_columns_.size());
+  for (const auto& col : lazy_entity_columns_) {
+    wide_columns_.emplace_back(col.name(), col.value());
+  }
+
+  // Resolve all blob columns eagerly
+  for (const auto& bc : lazy_blob_columns_) {
+    const size_t col_idx = bc.first;
+    assert(col_idx < wide_columns_.size());
+
+    Slice resolved_value;
+    const Status s =
+        entity_blob_resolver_.ResolveColumn(col_idx, &resolved_value);
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      wide_columns_.clear();
+      return false;
+    }
+    wide_columns_[col_idx].value() = resolved_value;
   }
 
   if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
@@ -1407,6 +1481,10 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
                                           const Slice& user_key) {
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
   // since a failure must be propagated regardless of its value.
+  // TODO: If the entity has blob columns (V2 format), we need to resolve them
+  // before merging, since TimedFullMerge only supports V1 format. Support for
+  // merge with V2 entities in the iterator path will be added in a later
+  // commit.
   ValueType result_type;
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kWideBaseValue, entity,

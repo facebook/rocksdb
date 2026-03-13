@@ -244,6 +244,23 @@ The following patterns emerged as frequent sources of review feedback:
     `TEST_F` fixture wrappers. In wrappers, always fully qualify the
     target method to avoid infinite recursion.
 
+### Source code guidelines
+* **Dedup aggressively.** After writing code, review for duplicated logic
+    across functions and overloads. Extract shared patterns into private
+    helper methods. Use templates with lambdas to unify overloads that
+    differ only in how they access data (e.g., `string` vs `Slice`).
+* **Minimize public API surface.** Methods only used internally or in
+    tests should be private. Prefer fewer public methods with clear
+    responsibilities.
+* **Prefer references over pointers** for non-nullable parameters in
+    private/internal APIs. Use pointers only when null is a valid input.
+* **Extract validation helpers.** When the same check appears in multiple
+    functions (e.g., size limits, ordering constraints), extract it into
+    a named static method to ensure consistency and reduce clutter.
+* **Name variables accurately.** A `Slice` referencing existing memory
+    is not a "copy" — name it `input_ref` or similar. Names should
+    reflect what the variable represents, not how it was created.
+
 ### Adding new public API
     Refer to claude_md/add_public_api.md
 
