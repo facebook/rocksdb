@@ -558,6 +558,15 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
       }
 
+      // An invisible key breaks any contiguous tombstone run because it may
+      // become visible later (e.g., a prepared-but-uncommitted write in
+      // WritePrepared/WriteUnprepared transactions). A range tombstone that
+      // spans over such a key would incorrectly delete it upon commit.
+      if (contiguous_tombstone_count_ > 0) {
+        MaybeInsertRangeTombstone(ikey_.user_key);
+        ResetContiguousTombstoneTracking();
+      }
+
       // This key was inserted after our snapshot was taken or skipped by
       // timestamp range. If this happens too many times in a row for the same
       // user key, we want to seek to the target sequence number.
