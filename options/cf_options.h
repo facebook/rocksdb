@@ -81,6 +81,8 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<Cache> blob_cache;
 
+  std::shared_ptr<UserValueChecksum> user_value_checksum;
+
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
@@ -161,6 +163,10 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
+        verify_user_value_checksum_on_flush(
+            options.verify_user_value_checksum_on_flush),
+        verify_user_value_checksum_on_compaction(
+            options.verify_user_value_checksum_on_compaction),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
         bottommost_compression(options.bottommost_compression),
@@ -230,6 +236,8 @@ struct MutableCFOptions {
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
+        verify_user_value_checksum_on_flush(false),
+        verify_user_value_checksum_on_compaction(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
@@ -336,6 +344,8 @@ struct MutableCFOptions {
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;
+  bool verify_user_value_checksum_on_flush;
+  bool verify_user_value_checksum_on_compaction;
   bool report_bg_io_stats;
   CompressionType compression;
   CompressionType bottommost_compression;

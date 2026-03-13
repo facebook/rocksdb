@@ -583,6 +583,13 @@ enum Tickers : uint32_t {
   // # of prefetch requests that were blocked waiting for memory
   PREFETCH_MEMORY_REQUESTS_BLOCKED,
 
+  // Number of user value checksum validations performed during flush and
+  // compaction output verification.
+  USER_VALUE_CHECKSUM_COMPUTE_COUNT,
+  // Number of user value checksum mismatches detected during flush and
+  // compaction output verification.
+  USER_VALUE_CHECKSUM_MISMATCH_COUNT,
+
   TICKER_ENUM_MAX
 };
 

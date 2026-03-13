@@ -27,6 +27,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "rocksdb/user_value_checksum.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
@@ -402,6 +403,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"paranoid_file_checks",
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"verify_user_value_checksum_on_flush",
+         {offsetof(struct MutableCFOptions,
+                   verify_user_value_checksum_on_flush),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"verify_user_value_checksum_on_compaction",
+         {offsetof(struct MutableCFOptions,
+                   verify_user_value_checksum_on_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"verify_output_flags",
@@ -919,6 +930,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, cf_allow_ingest_behind),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"user_value_checksum",
+         OptionTypeInfo::AsCustomSharedPtr<UserValueChecksum>(
+             offsetof(struct ImmutableCFOptions, user_value_checksum),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kAllowNull)},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -1057,6 +1073,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       blob_cache(cf_options.blob_cache),
+      user_value_checksum(cf_options.user_value_checksum),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
       cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind) {}
@@ -1224,6 +1241,10 @@ void MutableCFOptions::Dump(Logger* log) const {
                  max_sequential_skip_in_iterations);
   ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
                  paranoid_file_checks);
+  ROCKS_LOG_INFO(log, "  verify_user_value_checksum_on_flush: %d",
+                 verify_user_value_checksum_on_flush);
+  ROCKS_LOG_INFO(log, "  verify_user_value_checksum_on_compaction: %d",
+                 verify_user_value_checksum_on_compaction);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",
                  report_bg_io_stats);
   ROCKS_LOG_INFO(log, "                              compression: %d",

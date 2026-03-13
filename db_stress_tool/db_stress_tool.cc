@@ -202,9 +202,22 @@ int db_stress_tool(int argc, char** argv) {
   } else if (FLAGS_active_width == 0) {
     FLAGS_active_width = FLAGS_max_key;
   }
-  if (FLAGS_value_size_mult * kRandomValueMaxFactor > kValueMaxLen) {
-    fprintf(stderr, "Error: value_size_mult can be at most %d\n",
-            kValueMaxLen / kRandomValueMaxFactor);
+  const bool user_value_checksum_enabled =
+      FLAGS_verify_user_value_checksum_on_flush ||
+      FLAGS_verify_user_value_checksum_on_compaction;
+  int effective_max_value_len = kValueMaxLen;
+  if (user_value_checksum_enabled) {
+    // Reserve space for the trailing 4-byte CRC32c checksum that
+    // GenerateValue() appends.
+    effective_max_value_len -= static_cast<int>(sizeof(uint32_t));
+  }
+  if (FLAGS_value_size_mult * kRandomValueMaxFactor >=
+      effective_max_value_len) {
+    fprintf(stderr, "Error: value_size_mult can be at most %d%s\n",
+            effective_max_value_len / kRandomValueMaxFactor,
+            user_value_checksum_enabled
+                ? " (reduced due to user value checksum overhead)"
+                : "");
     exit(1);
   }
   if (FLAGS_use_merge && FLAGS_nooverwritepercent == 100) {
