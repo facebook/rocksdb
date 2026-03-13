@@ -2207,6 +2207,10 @@ Status DBImpl::RunManualCompaction(
   // However, only one of them will actually schedule compaction, while
   // others will wait on a condition variable until it completes.
 
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] Running manual compaction from level %d to level %d",
+                 cfd->GetName().c_str(), input_level, output_level);
+
   AddManualCompaction(&manual);
   TEST_SYNC_POINT_CALLBACK("DBImpl::RunManualCompaction:NotScheduled", &mutex_);
   if (exclusive) {
@@ -2228,6 +2232,10 @@ Status DBImpl::RunManualCompaction(
         manual.done = true;
         manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "[%s] Compaction from level %d to level %d paused or cancelled",
+            cfd->GetName().c_str(), input_level, output_level);
         break;
       }
       TEST_SYNC_POINT("DBImpl::RunManualCompaction:WaitScheduled");
@@ -2242,9 +2250,6 @@ Status DBImpl::RunManualCompaction(
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
-
-  ROCKS_LOG_BUFFER(&log_buffer, "[%s] Manual compaction starting",
-                   cfd->GetName().c_str());
 
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
@@ -2314,6 +2319,9 @@ Status DBImpl::RunManualCompaction(
       }
       ca->prepicked_compaction->need_repick = false;
       manual.incomplete = false;
+      ROCKS_LOG_BUFFER(&log_buffer,
+                       "[%s] Scheduling compaction from level %d to level %d",
+                       cfd->GetName().c_str(), input_level, output_level);
       if (compaction->bottommost_level() &&
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
         bg_bottom_compaction_scheduled_++;
@@ -2348,6 +2356,10 @@ Status DBImpl::RunManualCompaction(
       } else if (manual_compaction_paused_ > 0 || manual.canceled == true) {
         // Stop waiting since it was canceled. Pretend the error came from
         // compaction so the below cleanup/error handling code can process it.
+        ROCKS_LOG_BUFFER(
+            &log_buffer,
+            "[%s] Compaction from level %d to level %d paused or cancelled",
+            cfd->GetName().c_str(), input_level, output_level);
         manual.done = true;
         manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
