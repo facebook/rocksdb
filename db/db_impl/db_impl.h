@@ -3078,7 +3078,7 @@ class DBImpl : public DB {
   // stores the number of flushes are currently running
   int num_running_flushes_ = 0;
 
-  // number of background obsolete file purge jobs, submitted to the HIGH pool
+  // number of background obsolete file purge jobs, submitted to the LOW pool
   int bg_purge_scheduled_ = 0;
 
   enum class AsyncFileOpenState : uint8_t {
