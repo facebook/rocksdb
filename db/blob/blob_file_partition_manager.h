@@ -149,6 +149,11 @@ class BlobFilePartitionManager {
 
   void TakeCompletedBlobFileAdditions(std::vector<BlobFileAddition>* additions);
 
+  // Return sealed blob file additions that were not consumed (e.g., because
+  // the flush was switched to mempurge). The additions are pushed back into
+  // partition 0's completed_files so they will be picked up by the next flush.
+  void ReturnUnconsumedAdditions(std::vector<BlobFileAddition>&& additions);
+
   // Sync all open blob files. Flushes pending records first.
   Status SyncAllOpenFiles(const WriteOptions& write_options);
 
@@ -184,10 +189,14 @@ class BlobFilePartitionManager {
   // Called only during DB open (single-threaded, no concurrent readers).
   // Creates a new immutable snapshot via copy-on-write; old snapshots are
   // retired and freed at destruction.
-  // NOTE: Dynamic option changes via SetOptions() are NOT reflected here.
-  // If enable_blob_direct_write, min_blob_size, or compression settings
-  // change at runtime, the cached settings become stale. This is acceptable
-  // because enable_blob_direct_write requires DB reopen to change.
+  //
+  // WARNING: Dynamic option changes via SetOptions() are NOT reflected here.
+  // Affected options: enable_blob_direct_write, min_blob_size,
+  // blob_compression_type, blob_cache, prepopulate_blob_cache.
+  // If any of these change at runtime, the cached settings become stale,
+  // potentially causing blobs to be written with wrong compression or
+  // min_blob_size thresholds. Do not use SetOptions() to change these
+  // while blob direct write is enabled; restart the DB instead.
   void UpdateCachedSettings(uint32_t cf_id,
                             const BlobDirectWriteSettings& settings) {
     std::lock_guard<std::mutex> lock(settings_write_mutex_);
@@ -275,8 +284,6 @@ class BlobFilePartitionManager {
     uint64_t total_blob_bytes = 0;
     uint32_t column_family_id = 0;
     CompressionType compression = kNoCompression;
-    uint64_t unflushed_bytes = 0;
-
     // Deferred flush state. Uses std::deque so that push_back does not
     // invalidate pointers to existing elements (pending_index stores raw
     // pointers into PendingRecord::value).
@@ -310,6 +317,7 @@ class BlobFilePartitionManager {
 
   void AddFilePartitionMapping(uint64_t file_number, uint32_t partition_idx);
   void RemoveFilePartitionMapping(uint64_t file_number);
+  void ResetPartitionState(Partition* partition, uint64_t file_number);
 
   Status OpenNewBlobFile(Partition* partition, uint32_t column_family_id,
                          CompressionType compression);

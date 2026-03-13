@@ -2973,7 +2973,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         settings.compression_type = cf_opts.blob_compression_type;
         settings.blob_cache = cf_opts.blob_cache.get();
         settings.prepopulate_blob_cache = cf_opts.prepopulate_blob_cache;
-        uint32_t cf_id = (i < handles->size()) ? (*handles)[i]->GetID() : 0;
+        assert(i < handles->size());
+        uint32_t cf_id = (*handles)[i]->GetID();
         impl->blob_partition_manager_->UpdateCachedSettings(cf_id, settings);
       }
     }

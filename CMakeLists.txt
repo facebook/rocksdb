@@ -1370,6 +1370,7 @@ if(WITH_TESTS)
         db/blob/blob_source_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
+        db/blob/db_blob_direct_write_test.cc
         db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc

@@ -114,6 +114,15 @@ BlobFilePartitionManager::~BlobFilePartitionManager() {
       t.join();
     }
   }
+#ifndef NDEBUG
+  if (!bg_has_error_.load(std::memory_order_relaxed)) {
+    for (const auto& partition : partitions_) {
+      assert(!partition->writer &&
+             "All partitions must be sealed before destroying "
+             "BlobFilePartitionManager");
+    }
+  }
+#endif
   DumpTimingStats();
   // Free the current and all retired settings maps.
   delete cached_settings_.load(std::memory_order_relaxed);
@@ -195,9 +204,22 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   return Status::OK();
 }
 
+void BlobFilePartitionManager::ResetPartitionState(Partition* partition,
+                                                   uint64_t file_number) {
+  partition->writer.reset();
+  partition->file_number = 0;
+  partition->file_size = 0;
+  partition->blob_count = 0;
+  partition->total_blob_bytes = 0;
+  partition->next_write_offset = 0;
+  RemoveFilePartitionMapping(file_number);
+}
+
 Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   assert(partition);
   assert(partition->writer);
+
+  const uint64_t file_number_to_close = partition->file_number;
 
   // Flush pending deferred records before closing.
   // Done inline while holding the mutex to prevent other threads from adding
@@ -217,12 +239,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
     RemoveFromPendingIndexLocked(partition, records);
 
     if (!flush_err.ok()) {
-      partition->writer.reset();
-      partition->file_number = 0;
-      partition->file_size = 0;
-      partition->blob_count = 0;
-      partition->total_blob_bytes = 0;
-      partition->next_write_offset = 0;
+      ResetPartitionState(partition, file_number_to_close);
       return flush_err;
     }
 
@@ -233,22 +250,9 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
       s = writer->file()->Flush(io_opts);
     }
     if (!s.ok()) {
+      ResetPartitionState(partition, file_number_to_close);
       return s;
     }
-  }
-
-  // Flush any legacy buffered data before writing footer.
-  if (buffer_size_ > 0 && partition->unflushed_bytes > 0) {
-    IOOptions io_opts;
-    WriteOptions wo;
-    Status s = WritableFileWriter::PrepareIOOptions(wo, io_opts);
-    if (s.ok()) {
-      s = partition->writer->file()->Flush(io_opts);
-    }
-    if (!s.ok()) {
-      return s;
-    }
-    partition->unflushed_bytes = 0;
   }
 
   BlobLogFooter footer;
@@ -261,6 +265,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
   Status s = partition->writer->AppendFooter(wo, footer, &checksum_method,
                                              &checksum_value);
   if (!s.ok()) {
+    ResetPartitionState(partition, file_number_to_close);
     return s;
   }
 
@@ -284,16 +289,7 @@ Status BlobFilePartitionManager::CloseBlobFile(Partition* partition) {
         partition->total_blob_bytes);
   }
 
-  const uint64_t closed_file_number = partition->file_number;
-
-  partition->writer.reset();
-  partition->file_number = 0;
-  partition->file_size = 0;
-  partition->blob_count = 0;
-  partition->total_blob_bytes = 0;
-  partition->next_write_offset = 0;
-
-  RemoveFilePartitionMapping(closed_file_number);
+  ResetPartitionState(partition, file_number_to_close);
 
   return Status::OK();
 }
@@ -886,7 +882,7 @@ Status BlobFilePartitionManager::WriteBlob(
   }  // mutex released
 
   RecordTick(statistics_, BLOB_DB_DIRECT_WRITE_COUNT);
-  RecordTick(statistics_, BLOB_DB_DIRECT_WRITE_BYTES, value.size());
+  RecordTick(statistics_, BLOB_DB_DIRECT_WRITE_BYTES, write_value.size());
   blobs_written_since_seal_.fetch_add(1, std::memory_order_release);
 
   // Prepopulate blob cache with uncompressed value (outside mutex).
@@ -1125,9 +1121,7 @@ Status BlobFilePartitionManager::SealAllPartitions(
     if (!seal.records.empty()) {
       RemoveFromPendingIndex(partition, seal.records);
     }
-    if (s.ok()) {
-      RemoveFilePartitionMapping(seal.file_number);
-    }
+    RemoveFilePartitionMapping(seal.file_number);
     seal.writer.reset();
 
     if (!s.ok() && first_error.ok()) {
@@ -1159,8 +1153,17 @@ void BlobFilePartitionManager::TakeCompletedBlobFileAdditions(
   }
 }
 
+void BlobFilePartitionManager::ReturnUnconsumedAdditions(
+    std::vector<BlobFileAddition>&& additions) {
+  if (additions.empty()) return;
+  MutexLock lock(&partitions_[0]->mutex);
+  for (auto& a : additions) {
+    partitions_[0]->completed_files.emplace_back(std::move(a));
+  }
+}
+
 Status BlobFilePartitionManager::FlushAllOpenFiles(
-    const WriteOptions& write_options) {
+    const WriteOptions& /*write_options*/) {
   if (buffer_size_ > 0) {
     for (auto& partition : partitions_) {
       SubmitFlush(partition.get());
@@ -1173,20 +1176,6 @@ Status BlobFilePartitionManager::FlushAllOpenFiles(
     }
   }
 
-  for (auto& partition : partitions_) {
-    MutexLock lock(&partition->mutex);
-    if (partition->writer && partition->unflushed_bytes > 0) {
-      IOOptions io_opts;
-      Status s = WritableFileWriter::PrepareIOOptions(write_options, io_opts);
-      if (s.ok()) {
-        s = partition->writer->file()->Flush(io_opts);
-      }
-      if (!s.ok()) {
-        return s;
-      }
-      partition->unflushed_bytes = 0;
-    }
-  }
   return Status::OK();
 }
 
@@ -1207,17 +1196,6 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
   for (auto& partition : partitions_) {
     MutexLock lock(&partition->mutex);
     if (partition->writer) {
-      if (partition->unflushed_bytes > 0) {
-        IOOptions io_opts;
-        Status s = WritableFileWriter::PrepareIOOptions(write_options, io_opts);
-        if (s.ok()) {
-          s = partition->writer->file()->Flush(io_opts);
-        }
-        if (!s.ok()) {
-          return s;
-        }
-        partition->unflushed_bytes = 0;
-      }
       Status s = partition->writer->Sync(write_options);
       if (!s.ok()) {
         return s;
@@ -1230,11 +1208,12 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
 void BlobFilePartitionManager::GetActiveBlobFileNumbers(
     std::unordered_set<uint64_t>* file_numbers) const {
   assert(file_numbers);
-  for (const auto& partition : partitions_) {
-    MutexLock lock(&partition->mutex);
-    if (partition->file_number != 0) {
-      file_numbers->insert(partition->file_number);
-    }
+  // Use file_to_partition_ which tracks ALL active files: currently open
+  // files AND files in DeferredSeal BG queue (added at OpenNewBlobFile,
+  // removed after seal completes via RemoveFilePartitionMapping).
+  std::shared_lock<std::shared_mutex> lock(file_partition_mutex_);
+  for (const auto& [file_number, _] : file_to_partition_) {
+    file_numbers->insert(file_number);
   }
 }
 
