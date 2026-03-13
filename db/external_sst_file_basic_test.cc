@@ -3067,6 +3067,21 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
         ASSERT_EQ(Get(1, "g"), "8");
       }
     }
+
+    {
+      // Also test default CF with disallow_memtable_writes
+      ASSERT_EQ(disallow_memtable, options.disallow_memtable_writes);
+      DestroyAndReopen(options);
+      ASSERT_OK(db_->IngestExternalFile({file_path}, {}));
+      ASSERT_EQ(Get("f"), "6");
+      if (disallow_memtable) {
+        EXPECT_EQ(Put("f", "7").code(), Status::Code::kInvalidArgument);
+        EXPECT_EQ(Get("f"), "6");
+      } else {
+        EXPECT_OK(Put("f", "7"));
+        EXPECT_EQ(Get("f"), "7");
+      }
+    }
   }
 }
 
