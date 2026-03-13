@@ -634,6 +634,54 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
   ASSERT_EQ(2, handler.num_seen);
 }
 
+// The test requires more than 8GB memory to run it. Not all platforms can run
+// it, so disable it.
+TEST_F(WriteBatchTest, DISABLED_LargeKeyRejected) {
+  // Key size limit: internal key (user key + 8 bytes) must fit in uint32_t.
+  // So max user key size is uint32_t::max() - 8.
+  constexpr size_t kMaxKeySize =
+      size_t{std::numeric_limits<uint32_t>::max()} - 8;
+
+  WriteBatch batch;
+
+  // A key at the limit should be accepted
+  {
+    std::string key(kMaxKeySize, 'K');
+    ASSERT_OK(batch.Put(key, "val"));
+  }
+  batch.Clear();
+  // A key one byte over the limit should be rejected
+  {
+    std::string key(kMaxKeySize + 1, 'K');
+    ASSERT_TRUE(batch.Put(key, "val").IsInvalidArgument());
+    ASSERT_TRUE(batch.Merge(key, "val").IsInvalidArgument());
+    ASSERT_TRUE(batch.Delete(key).IsInvalidArgument());
+    ASSERT_TRUE(batch.SingleDelete(key).IsInvalidArgument());
+    ASSERT_TRUE(batch.DeleteRange(key, key).IsInvalidArgument());
+  }
+}
+
+// The test requires more than 8GB memory to run it. Not all platforms can run
+// it, so disable it.
+TEST_F(WriteBatchTest, DISABLED_LargeValueRejected) {
+  constexpr size_t kMaxValueSize = size_t{std::numeric_limits<uint32_t>::max()};
+
+  WriteBatch batch;
+
+  // A value at the limit should be accepted
+  {
+    std::string value(kMaxValueSize, 'V');
+    ASSERT_OK(batch.Put("key", value));
+  }
+  batch.Clear();
+  // A value one byte over the limit should be rejected
+  {
+    std::string value(kMaxValueSize + 1, 'V');
+    ASSERT_TRUE(batch.Put("key", value).IsInvalidArgument());
+    ASSERT_TRUE(batch.Merge("key", value).IsInvalidArgument());
+  }
+}
+
 TEST_F(WriteBatchTest, Continue) {
   WriteBatch batch;
 

@@ -444,6 +444,14 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     value_ = compaction_filter_value_;
   }
 
+  if (UNLIKELY(compaction_filter_value_.size() >
+               std::numeric_limits<uint32_t>::max())) {
+    status_ = Status::Corruption(
+        "CompactionFilter result value size exceeds 4GB limit");
+    validity_info_.Invalidate();
+    return false;
+  }
+
   return true;
 }
 
