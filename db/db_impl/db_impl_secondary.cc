@@ -90,6 +90,7 @@ Status DBImplSecondary::FindAndRecoverLogFiles(
     JobContext* job_context) {
   assert(nullptr != cfds_changed);
   assert(nullptr != job_context);
+  TEST_SYNC_POINT("DBImplSecondary::FindAndRecoverLogFiles:Begin");
   Status s;
   std::vector<uint64_t> logs;
   s = FindNewLogNumbers(&logs);
@@ -1557,9 +1558,9 @@ Status DB::OpenAndCompact(
   //    needs LSM state from MANIFEST, not memtable data from WAL replay)
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
-  s = DBImplSecondary::OpenAsSecondaryImpl(
-      db_options, name, output_directory, column_families, &handles, &db,
-      /*skip_wal_recovery=*/true);
+  s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
+                                           column_families, &handles, &db,
+                                           /*skip_wal_recovery=*/true);
   if (!s.ok()) {
     return s;
   }
