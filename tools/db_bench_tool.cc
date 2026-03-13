@@ -1156,6 +1156,43 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
+DEFINE_bool(
+    enable_blob_direct_write,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_direct_write,
+    "[Integrated BlobDB] Enable blob direct write: write blob values directly "
+    "to blob files during the write path, bypassing WAL and memtable for blob "
+    "data.");
+
+DEFINE_uint32(
+    blob_direct_write_partitions,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_partitions,
+    "[Integrated BlobDB] Number of blob file partitions for concurrent "
+    "write-path blob writes. Each partition has its own file and mutex.");
+
+DEFINE_uint64(
+    blob_direct_write_buffer_size,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_buffer_size,
+    "[Integrated BlobDB] Write buffer size per blob direct write partition. "
+    "Blob records are buffered and flushed when the buffer is full. "
+    "Set to 0 to disable buffering.");
+
+DEFINE_bool(blob_direct_write_use_direct_io,
+            ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                .blob_direct_write_use_direct_io,
+            "[Integrated BlobDB] Use O_DIRECT for blob direct write files. "
+            "Bypasses the OS page cache for blob file writes.");
+
+DEFINE_uint64(
+    blob_direct_write_flush_interval_ms,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_flush_interval_ms,
+    "[Integrated BlobDB] Periodic flush interval in milliseconds for "
+    "blob direct write partitions. When set > 0, the background thread "
+    "periodically flushes buffered blob records even if the buffer is not "
+    "full. Set to 0 to disable periodic flushing.");
+
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
             "Open a RocksDB secondary instance. A primary instance can be "
@@ -4984,6 +5021,13 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+    options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+    options.blob_direct_write_partitions = FLAGS_blob_direct_write_partitions;
+    options.blob_direct_write_buffer_size = FLAGS_blob_direct_write_buffer_size;
+    options.blob_direct_write_use_direct_io =
+        FLAGS_blob_direct_write_use_direct_io;
+    options.blob_direct_write_flush_interval_ms =
+        FLAGS_blob_direct_write_flush_interval_ms;
 
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");

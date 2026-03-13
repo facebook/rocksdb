@@ -702,6 +702,12 @@ blob_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
+    # Enable blob direct write with a 50% chance when blob files are enabled
+    "enable_blob_direct_write": lambda: random.randint(0, 1),
+    "blob_direct_write_partitions": lambda: random.choice([1, 2, 4]),
+    "blob_direct_write_flush_interval_ms": lambda: random.choice([0, 50, 100, 500]),
+    "blob_direct_write_buffer_size": lambda: random.choice([0, 65536, 262144, 1048576, 4194304]),
+    "blob_direct_write_use_direct_io": lambda: random.randint(0, 1),
     # TODO Fix races when both Remote Compaction + BlobDB enabled
     "remote_compaction_worker_threads": 0,
 }
@@ -1309,6 +1315,18 @@ def finalize_and_sanitize(src_params):
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
+
+    # Blob direct write requires blob files to be enabled. Disable direct
+    # write options when blob files are off to avoid wasting test cycles on
+    # no-op configurations.
+    if dest_params.get("enable_blob_files", 0) == 0:
+        dest_params["enable_blob_direct_write"] = 0
+        dest_params["blob_direct_write_use_direct_io"] = 0
+
+    # The blob log writer does not ensure sector-aligned writes, so
+    # O_DIRECT returns EINVAL on Linux. Disable until alignment is added.
+    if dest_params.get("enable_blob_direct_write", 0) == 1:
+        dest_params["blob_direct_write_use_direct_io"] = 0
 
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open

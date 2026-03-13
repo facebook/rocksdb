@@ -81,6 +81,17 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<Cache> blob_cache;
 
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy;
+
+  uint32_t blob_direct_write_partitions;
+
+  uint64_t blob_direct_write_buffer_size;
+
+  uint64_t blob_direct_write_flush_interval_ms;
+
+  bool blob_direct_write_use_direct_io;
+
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
@@ -158,6 +169,7 @@ struct MutableCFOptions {
         blob_compaction_readahead_size(options.blob_compaction_readahead_size),
         blob_file_starting_level(options.blob_file_starting_level),
         prepopulate_blob_cache(options.prepopulate_blob_cache),
+        enable_blob_direct_write(options.enable_blob_direct_write),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
@@ -228,6 +240,7 @@ struct MutableCFOptions {
         blob_compaction_readahead_size(0),
         blob_file_starting_level(0),
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
+        enable_blob_direct_write(false),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
@@ -332,6 +345,12 @@ struct MutableCFOptions {
   uint64_t blob_compaction_readahead_size;
   int blob_file_starting_level;
   PrepopulateBlobCache prepopulate_blob_cache;
+  // Placed in MutableCFOptions for serialization/deserialization
+  // compatibility (same pattern as other blob options), but NOT dynamically
+  // changeable via SetOptions() (registered without kMutable flag).
+  // Requires DB reopen to change. The structural options (partitions,
+  // buffer_size, etc.) are in ImmutableCFOptions.
+  bool enable_blob_direct_write;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

@@ -281,6 +281,12 @@ class VersionBuilder::Rep {
   // version edits.
   std::map<uint64_t, MutableBlobFileMetaData> mutable_blob_file_metas_;
 
+  // Lazily-built reverse index: blob_file_number → SST numbers that
+  // reference it (via oldest_blob_file_number). Built once during the
+  // first ApplyBlobFileAddition to avoid O(levels * SSTs) per addition.
+  std::unordered_map<uint64_t, std::vector<uint64_t>> sst_blob_reverse_index_;
+  bool sst_blob_reverse_index_built_ = false;
+
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
 
   ColumnFamilyData* cfd_;
@@ -772,6 +778,38 @@ class VersionBuilder::Rep {
 
     mutable_blob_file_metas_.emplace(
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
+
+    // Link existing SSTs that reference this blob file (via
+    // oldest_blob_file_number). Uses a lazily-built reverse index
+    // (blob_file_number → SST numbers) to avoid O(levels * SSTs) per
+    // blob file addition. The index is built once on first use.
+    assert(base_vstorage_);
+    if (!sst_blob_reverse_index_built_) {
+      for (int level = 0; level < num_levels_; level++) {
+        for (const auto* f : base_vstorage_->LevelFiles(level)) {
+          if (f->oldest_blob_file_number != kInvalidBlobFileNumber) {
+            sst_blob_reverse_index_[f->oldest_blob_file_number].push_back(
+                f->fd.GetNumber());
+          }
+        }
+      }
+      sst_blob_reverse_index_built_ = true;
+    }
+    auto& mutable_meta = mutable_blob_file_metas_.at(blob_file_number);
+    auto rit = sst_blob_reverse_index_.find(blob_file_number);
+    if (rit != sst_blob_reverse_index_.end()) {
+      for (uint64_t sst_number : rit->second) {
+        mutable_meta.LinkSst(sst_number);
+      }
+    }
+    // Also check SSTs added in the same batch of edits.
+    for (int level = 0; level < num_levels_; level++) {
+      for (const auto& added : levels_[level].added_files) {
+        if (added.second->oldest_blob_file_number == blob_file_number) {
+          mutable_meta.LinkSst(added.second->fd.GetNumber());
+        }
+      }
+    }
 
     Status s;
     if (track_found_and_missing_files_) {
@@ -1305,13 +1343,33 @@ class VersionBuilder::Rep {
     vstorage->ReserveBlob(base_vstorage_->GetBlobFiles().size() +
                           mutable_blob_file_metas_.size());
 
-    const uint64_t oldest_blob_file_with_linked_ssts =
-        GetMinOldestBlobFileNumber();
+    uint64_t oldest_blob_file_with_linked_ssts = GetMinOldestBlobFileNumber();
 
     // If there are no blob files with linked SSTs, meaning that there are no
-    // valid blob files
+    // valid blob files.
+    //
+    // BLOB DIRECT WRITE SPECIAL CASE: This bypass changes the semantics of
+    // the early-return optimization. Previously, if no blob files had linked
+    // SSTs, we could skip processing entirely. Now we must check for newly
+    // added blob files (from orphan recovery) that may not have SST links
+    // yet. This is a consequence of not registering blob files in MANIFEST
+    // at creation time.
     if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
-      return;
+      // Check if there are newly added blob files not yet in the base version.
+      // This can happen with blob direct write during recovery: blob files
+      // exist on disk but no SSTs reference them yet (memtable hasn't been
+      // flushed). Process all entries starting from file number 0.
+      bool has_new_blob_files = false;
+      for (const auto& entry : mutable_blob_file_metas_) {
+        if (!base_vstorage_->GetBlobFileMetaData(entry.first)) {
+          has_new_blob_files = true;
+          break;
+        }
+      }
+      if (!has_new_blob_files) {
+        return;
+      }
+      oldest_blob_file_with_linked_ssts = 0;
     }
 
     auto process_base =

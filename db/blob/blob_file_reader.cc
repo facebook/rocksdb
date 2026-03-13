@@ -31,6 +31,17 @@ Status BlobFileReader::Create(
     HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
     const std::shared_ptr<IOTracer>& io_tracer,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
+  return Create(immutable_options, read_options, file_options, column_family_id,
+                blob_file_read_hist, blob_file_number, io_tracer,
+                /*skip_footer_validation=*/false, blob_file_reader);
+}
+
+Status BlobFileReader::Create(
+    const ImmutableOptions& immutable_options, const ReadOptions& read_options,
+    const FileOptions& file_options, uint32_t column_family_id,
+    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+    const std::shared_ptr<IOTracer>& io_tracer, bool skip_footer_validation,
+    std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
 
@@ -38,9 +49,9 @@ Status BlobFileReader::Create(
   std::unique_ptr<RandomAccessFileReader> file_reader;
 
   {
-    const Status s =
-        OpenFile(immutable_options, file_options, blob_file_read_hist,
-                 blob_file_number, io_tracer, &file_size, &file_reader);
+    const Status s = OpenFile(immutable_options, file_options,
+                              blob_file_read_hist, blob_file_number, io_tracer,
+                              &file_size, &file_reader, skip_footer_validation);
     if (!s.ok()) {
       return s;
     }
@@ -61,7 +72,7 @@ Status BlobFileReader::Create(
     }
   }
 
-  {
+  if (!skip_footer_validation) {
     const Status s =
         ReadFooter(file_reader.get(), read_options, file_size, statistics);
     if (!s.ok()) {
@@ -76,9 +87,10 @@ Status BlobFileReader::Create(
         compression_type);
   }
 
-  blob_file_reader->reset(new BlobFileReader(
-      std::move(file_reader), file_size, compression_type,
-      std::move(decompressor), immutable_options.clock, statistics));
+  blob_file_reader->reset(
+      new BlobFileReader(std::move(file_reader), file_size, compression_type,
+                         std::move(decompressor), immutable_options.clock,
+                         statistics, !skip_footer_validation));
 
   return Status::OK();
 }
@@ -87,7 +99,8 @@ Status BlobFileReader::OpenFile(
     const ImmutableOptions& immutable_options, const FileOptions& file_opts,
     HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
     const std::shared_ptr<IOTracer>& io_tracer, uint64_t* file_size,
-    std::unique_ptr<RandomAccessFileReader>* file_reader) {
+    std::unique_ptr<RandomAccessFileReader>* file_reader,
+    bool skip_footer_size_check) {
   assert(file_size);
   assert(file_reader);
 
@@ -112,7 +125,11 @@ Status BlobFileReader::OpenFile(
     }
   }
 
-  if (*file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+  if (!skip_footer_size_check &&
+      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
+  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
     return Status::Corruption("Malformed blob file");
   }
 
@@ -291,13 +308,14 @@ BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
     CompressionType compression_type,
     std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
-    Statistics* statistics)
+    Statistics* statistics, bool has_footer)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
       compression_type_(compression_type),
       decompressor_(std::move(decompressor)),
       clock_(clock),
-      statistics_(statistics) {
+      statistics_(statistics),
+      has_footer_(has_footer) {
   assert(file_reader_);
 }
 
@@ -312,7 +330,9 @@ Status BlobFileReader::GetBlob(
 
   const uint64_t key_size = user_key.size();
 
-  if (!IsValidBlobOffset(offset, key_size, value_size, file_size_)) {
+  if (has_footer_ ? !IsValidBlobOffset(offset, key_size, value_size, file_size_)
+                  : !IsValidBlobOffsetNoFooter(offset, key_size, value_size,
+                                               file_size_)) {
     return Status::Corruption("Invalid blob offset");
   }
 
@@ -428,7 +448,10 @@ void BlobFileReader::MultiGetBlob(
     const uint64_t offset = req->offset;
     const uint64_t value_size = req->len;
 
-    if (!IsValidBlobOffset(offset, key_size, value_size, file_size_)) {
+    if (has_footer_
+            ? !IsValidBlobOffset(offset, key_size, value_size, file_size_)
+            : !IsValidBlobOffsetNoFooter(offset, key_size, value_size,
+                                         file_size_)) {
       *req->status = Status::Corruption("Invalid blob offset");
       continue;
     }

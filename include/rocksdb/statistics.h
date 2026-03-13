@@ -583,6 +583,13 @@ enum Tickers : uint32_t {
   // # of prefetch requests that were blocked waiting for memory
   PREFETCH_MEMORY_REQUESTS_BLOCKED,
 
+  // # of blobs written via blob direct write path.
+  BLOB_DB_DIRECT_WRITE_COUNT,
+  // # of bytes written via blob direct write path.
+  BLOB_DB_DIRECT_WRITE_BYTES,
+  // # of times a writer stalled due to blob direct write backpressure.
+  BLOB_DB_DIRECT_WRITE_STALL_COUNT,
+
   TICKER_ENUM_MAX
 };
 

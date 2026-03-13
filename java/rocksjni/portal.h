@@ -5307,6 +5307,12 @@ class TickerTypeJni {
         return -0x67;
       case ROCKSDB_NAMESPACE::Tickers::MULTISCAN_SEEK_ERRORS:
         return -0x68;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_DIRECT_WRITE_COUNT:
+        return -0x69;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_DIRECT_WRITE_BYTES:
+        return -0x6A;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_DIRECT_WRITE_STALL_COUNT:
+        return -0x6B;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5804,6 +5810,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_COALESCED_NONADJACENT;
       case -0x68:
         return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_SEEK_ERRORS;
+      case -0x69:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_DIRECT_WRITE_COUNT;
+      case -0x6A:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_DIRECT_WRITE_BYTES;
+      case -0x6B:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_DIRECT_WRITE_STALL_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

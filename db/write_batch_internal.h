@@ -94,6 +94,10 @@ class WriteBatchInternal {
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
                           const Slice& key, const WideColumns& columns);
 
+  // PutEntity with pre-serialized entity (for pass-through in transformers).
+  static Status PutEntityRaw(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key, const Slice& entity);
+
   static Status Delete(WriteBatch* batch, uint32_t column_family_id,
                        const SliceParts& key);
 
@@ -162,6 +166,7 @@ class WriteBatchInternal {
   static size_t GetFirstOffset(WriteBatch* batch);
 
   static Slice Contents(const WriteBatch* batch) { return Slice(batch->rep_); }
+  static std::string& Rep(WriteBatch* batch) { return batch->rep_; }
 
   static size_t ByteSize(const WriteBatch* batch) { return batch->rep_.size(); }
 

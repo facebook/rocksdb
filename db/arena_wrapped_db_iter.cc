@@ -9,6 +9,8 @@
 
 #include "db/arena_wrapped_db_iter.h"
 
+#include "db/blob/blob_file_cache.h"
+#include "db/column_family.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -44,7 +46,9 @@ void ArenaWrappedDBIter::Init(
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t version_number,
     ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-    bool expose_blob_index, bool allow_refresh, ReadOnlyMemTable* active_mem) {
+    bool expose_blob_index, bool allow_refresh, ReadOnlyMemTable* active_mem,
+    BlobFileCache* blob_file_cache,
+    BlobFilePartitionManager* blob_partition_mgr) {
   read_options_ = read_options;
   if (!CheckFSFeatureSupport(env->GetFileSystem().get(),
                              FSSupportedOps::kAsyncIO)) {
@@ -52,10 +56,11 @@ void ArenaWrappedDBIter::Init(
   }
   read_options_.total_order_seek |= ioptions.prefix_seek_opt_in_only;
 
-  db_iter_ = DBIter::NewIter(
-      env, read_options_, ioptions, mutable_cf_options,
-      ioptions.user_comparator, /*internal_iter=*/nullptr, version, sequence,
-      read_callback, active_mem, cfh, expose_blob_index, &arena_);
+  db_iter_ = DBIter::NewIter(env, read_options_, ioptions, mutable_cf_options,
+                             ioptions.user_comparator,
+                             /*internal_iter=*/nullptr, version, sequence,
+                             read_callback, active_mem, cfh, expose_blob_index,
+                             &arena_, blob_file_cache, blob_partition_mgr);
 
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
@@ -164,9 +169,16 @@ void ArenaWrappedDBIter::DoRefresh(const Snapshot* snapshot,
   if (read_callback_) {
     read_callback_->Refresh(read_seq);
   }
+  // Obtain blob_partition_manager from DBImpl so refreshed iterators can
+  // still resolve unflushed write-path blob values.
+  BlobFilePartitionManager* blob_partition_mgr = nullptr;
+  if (db_impl) {
+    blob_partition_mgr = db_impl->blob_partition_manager();
+  }
   Init(env, read_options_, cfd->ioptions(), sv->mutable_cf_options, sv->current,
        read_seq, sv->version_number, read_callback_, cfh_, expose_blob_index_,
-       allow_refresh_, allow_mark_memtable_for_flush_ ? sv->mem : nullptr);
+       allow_refresh_, allow_mark_memtable_for_flush_ ? sv->mem : nullptr,
+       cfd->blob_file_cache(), blob_partition_mgr);
 
   InternalIterator* internal_iter = db_impl->NewInternalIterator(
       read_options_, cfd, sv, &arena_, read_seq,
@@ -254,13 +266,15 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
     SuperVersion* sv, const SequenceNumber& sequence,
     ReadCallback* read_callback, DBImpl* db_impl, bool expose_blob_index,
-    bool allow_refresh, bool allow_mark_memtable_for_flush) {
+    bool allow_refresh, bool allow_mark_memtable_for_flush,
+    BlobFilePartitionManager* blob_partition_mgr) {
   ArenaWrappedDBIter* db_iter = new ArenaWrappedDBIter();
   db_iter->Init(env, read_options, cfh->cfd()->ioptions(),
                 sv->mutable_cf_options, sv->current, sequence,
                 sv->version_number, read_callback, cfh, expose_blob_index,
                 allow_refresh,
-                allow_mark_memtable_for_flush ? sv->mem : nullptr);
+                allow_mark_memtable_for_flush ? sv->mem : nullptr,
+                cfh->cfd()->blob_file_cache(), blob_partition_mgr);
   if (cfh != nullptr && allow_refresh) {
     db_iter->StoreRefreshInfo(cfh, read_callback, expose_blob_index);
   }

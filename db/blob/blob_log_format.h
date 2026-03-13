@@ -147,14 +147,44 @@ struct BlobLogRecord {
 };
 
 // Checks whether a blob offset is potentially valid or not.
+// Uses overflow-safe comparisons to avoid undefined behavior when
+// value_offset + value_size would exceed UINT64_MAX.
 inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
                               uint64_t value_size, uint64_t file_size) {
-  if (value_offset <
-      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size) {
+  // Overflow-safe: check value_offset < header + record_header + key_size.
+  // Use subtraction to avoid potential overflow when key_size is very large.
+  constexpr uint64_t kMinPrefix =
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize;
+  if (value_offset < kMinPrefix || value_offset - kMinPrefix < key_size) {
     return false;
   }
 
-  if (value_offset + value_size + BlobLogFooter::kSize > file_size) {
+  // Check: value_offset + value_size + BlobLogFooter::kSize > file_size
+  // Safe form to avoid overflow:
+  if (file_size < BlobLogFooter::kSize ||
+      value_size > file_size - BlobLogFooter::kSize ||
+      value_offset > file_size - BlobLogFooter::kSize - value_size) {
+    return false;
+  }
+
+  return true;
+}
+
+// Variant for un-sealed blob files that don't have a footer.
+// Uses overflow-safe comparisons to avoid undefined behavior when
+// value_offset + value_size would exceed UINT64_MAX.
+inline bool IsValidBlobOffsetNoFooter(uint64_t value_offset, uint64_t key_size,
+                                      uint64_t value_size, uint64_t file_size) {
+  // Overflow-safe: check value_offset < header + record_header + key_size.
+  constexpr uint64_t kMinPrefix =
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize;
+  if (value_offset < kMinPrefix || value_offset - kMinPrefix < key_size) {
+    return false;
+  }
+
+  // Check: value_offset + value_size > file_size
+  // Safe form to avoid overflow:
+  if (value_size > file_size || value_offset > file_size - value_size) {
     return false;
   }
 

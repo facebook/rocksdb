@@ -32,9 +32,16 @@ class BlobFileCache {
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
 
+  // When allow_footer_skip_retry is true and the initial open fails with
+  // Corruption (typically from footer validation), retries with
+  // skip_footer_validation=true.  Only pass true for write-path blobs that
+  // may not yet have a footer (unsealed direct-write files).  For sealed
+  // files in the Version, pass false so genuine footer corruption is not
+  // masked.
   Status GetBlobFileReader(const ReadOptions& read_options,
                            uint64_t blob_file_number,
-                           CacheHandleGuard<BlobFileReader>* blob_file_reader);
+                           CacheHandleGuard<BlobFileReader>* blob_file_reader,
+                           bool allow_footer_skip_retry = false);
 
   // Called when a blob file is obsolete to ensure it is removed from the cache
   // to avoid effectively leaking the open file and assicated memory

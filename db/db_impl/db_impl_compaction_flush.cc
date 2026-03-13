@@ -9,6 +9,7 @@
 #include <cinttypes>
 #include <deque>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -286,10 +287,29 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
-    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
-                      &switched_to_mempurge, &skip_set_bg_error,
-                      &error_handler_);
-    need_cancel = false;
+    // Seal write-path blob files and inject their additions into the flush
+    // edit, so they're registered in the same version as the flush SST.
+    std::vector<BlobFileAddition> write_path_additions;
+    if (blob_partition_manager_) {
+      s = blob_partition_manager_->SealAllPartitions(
+          WriteOptions(Env::IOActivity::kFlush), &write_path_additions);
+      if (s.ok() && !write_path_additions.empty()) {
+        flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
+      }
+    }
+    if (s.ok()) {
+      s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
+                        &switched_to_mempurge, &skip_set_bg_error,
+                        &error_handler_);
+      need_cancel = false;
+    }
+    // If mempurge discarded the flush, return sealed blob file additions
+    // to the partition manager so they're picked up by the next flush.
+    if (switched_to_mempurge && blob_partition_manager_ &&
+        !write_path_additions.empty()) {
+      blob_partition_manager_->ReturnUnconsumedAdditions(
+          std::move(write_path_additions));
+    }
   }
 
   if (!s.ok() && need_cancel) {
@@ -555,6 +575,19 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (int i = 0; i != num_cfs; ++i) {
       jobs[i]->PickMemTable();
       pick_status[i] = true;
+    }
+  }
+
+  if (s.ok()) {
+    // Seal write-path blob files and inject additions into the first
+    // flush job's version edit.
+    if (blob_partition_manager_) {
+      std::vector<BlobFileAddition> write_path_additions;
+      s = blob_partition_manager_->SealAllPartitions(write_options,
+                                                     &write_path_additions);
+      if (s.ok() && !write_path_additions.empty()) {
+        jobs[0]->AddExternalBlobFileAdditions(std::move(write_path_additions));
+      }
     }
   }
 

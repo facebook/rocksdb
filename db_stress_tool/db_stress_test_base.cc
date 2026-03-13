@@ -4551,6 +4551,13 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+  options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+  options.blob_direct_write_partitions = FLAGS_blob_direct_write_partitions;
+  options.blob_direct_write_flush_interval_ms =
+      FLAGS_blob_direct_write_flush_interval_ms;
+  options.blob_direct_write_buffer_size = FLAGS_blob_direct_write_buffer_size;
+  options.blob_direct_write_use_direct_io =
+      FLAGS_blob_direct_write_use_direct_io;
 
   if (FLAGS_use_blob_cache) {
     if (FLAGS_use_shared_block_and_blob_cache) {

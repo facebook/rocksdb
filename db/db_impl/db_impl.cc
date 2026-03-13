@@ -28,6 +28,11 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/attribute_group_iterator_impl.h"
+#include "db/blob/blob_contents.h"
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_index.h"
 #include "db/builder.h"
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
@@ -577,6 +582,34 @@ Status DBImpl::CloseHelper() {
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
+
+  // Seal any open blob partition files. The blob files were already
+  // sealed and written to disk by SealAllPartitions, but we need to
+  // keep them (not delete as orphans). Since we can't run LogAndApply
+  // during shutdown (background threads are stopped), we just destroy
+  // the partition manager. The sealed blob files will be discovered
+  // and registered by the orphan recovery code during next DB::Open.
+  if (blob_partition_manager_) {
+    WriteOptions wo;
+    std::vector<BlobFileAddition> additions;
+    Status seal_s = blob_partition_manager_->SealAllPartitions(wo, &additions);
+    if (!seal_s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "Failed to seal blob partitions during shutdown: %s. "
+                      "Unsealed blob files will be recovered on next DB::Open.",
+                      seal_s.ToString().c_str());
+      if (ret.ok()) {
+        ret = seal_s;
+      }
+    }
+    // Save sealed blob file numbers so FindObsoleteFiles skips them
+    // during shutdown cleanup.
+    for (const auto& addition : additions) {
+      sealed_blob_file_numbers_.insert(addition.GetBlobFileNumber());
+    }
+    blob_partition_manager_->DumpTimingStats();
+    blob_partition_manager_.reset();
+  }
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -2478,6 +2511,15 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
              merge_context.GetOperands().size();
 }
 
+static Status ResolveBlobIndexForWritePath(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobIndex& blob_idx, Version* current, BlobFileCache* blob_file_cache,
+    BlobFilePartitionManager* partition_mgr, PinnableSlice* blob_value) {
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options, user_key, blob_idx, current, blob_file_cache, partition_mgr,
+      blob_value);
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -2616,36 +2658,80 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool done = false;
   std::string* timestamp =
       ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
+
+  // When blob direct write is enabled, memtable may contain kTypeBlobIndex
+  // entries. We need to pass is_blob_index to handle them correctly.
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  if (!is_blob_ptr && blob_partition_manager_) {
+    is_blob_ptr = &is_blob_index;
+  }
+
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(
-              lkey,
-              get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
-              get_impl_options.columns, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
-              false /* immutable_memtable */, get_impl_options.callback,
-              get_impl_options.is_blob_index)) {
+      if (sv->mem->Get(lkey,
+                       get_impl_options.value
+                           ? get_impl_options.value->GetSelf()
+                           : nullptr,
+                       get_impl_options.columns, timestamp, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options,
+                       false /* immutable_memtable */,
+                       get_impl_options.callback, is_blob_ptr)) {
         done = true;
 
-        if (get_impl_options.value) {
+        // Resolve blob index from memtable if needed.
+        if (s.ok() && is_blob_index && is_blob_ptr == &is_blob_index &&
+            get_impl_options.value) {
+          BlobIndex blob_idx;
+          s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
+          if (s.ok()) {
+            get_impl_options.value->Reset();
+            BlobFileCache* blob_cache =
+                blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
+                                              get_impl_options.column_family)
+                                              ->cfd()
+                                              ->blob_file_cache()
+                                        : nullptr;
+            s = ResolveBlobIndexForWritePath(
+                read_options, key, blob_idx, sv->current, blob_cache,
+                blob_partition_manager_.get(), get_impl_options.value);
+          }
+          is_blob_index = false;
+        } else if (get_impl_options.value) {
           get_impl_options.value->PinSelf();
         }
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
-                              get_impl_options.columns, timestamp, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, get_impl_options.callback,
-                              get_impl_options.is_blob_index)) {
+                 sv->imm->Get(
+                     lkey,
+                     get_impl_options.value ? get_impl_options.value->GetSelf()
+                                            : nullptr,
+                     get_impl_options.columns, timestamp, &s, &merge_context,
+                     &max_covering_tombstone_seq, read_options,
+                     get_impl_options.callback, is_blob_ptr)) {
         done = true;
 
-        if (get_impl_options.value) {
+        // Resolve blob index from immutable memtable if needed.
+        if (s.ok() && is_blob_index && is_blob_ptr == &is_blob_index &&
+            get_impl_options.value) {
+          BlobIndex blob_idx;
+          s = blob_idx.DecodeFrom(*(get_impl_options.value->GetSelf()));
+          if (s.ok()) {
+            get_impl_options.value->Reset();
+            BlobFileCache* blob_cache =
+                blob_partition_manager_ ? static_cast<ColumnFamilyHandleImpl*>(
+                                              get_impl_options.column_family)
+                                              ->cfd()
+                                              ->blob_file_cache()
+                                        : nullptr;
+            s = ResolveBlobIndexForWritePath(
+                read_options, key, blob_idx, sv->current, blob_cache,
+                blob_partition_manager_.get(), get_impl_options.value);
+          }
+          is_blob_index = false;
+        } else if (get_impl_options.value) {
           get_impl_options.value->PinSelf();
         }
 
@@ -3399,6 +3485,34 @@ Status DBImpl::MultiGetImpl(
       } else {
         lookup_current = false;
       }
+
+      // Resolve write-path blob indices found in memtable/imm before
+      // Version::MultiGet, which handles SST blob indices separately.
+      if (blob_partition_manager_) {
+        size_t batch_start = start_key + num_keys - keys_left - batch_size;
+        for (size_t bi = batch_start; bi < batch_start + batch_size; ++bi) {
+          KeyContext* kctx = (*sorted_keys)[bi];
+          if (kctx->s->ok() && kctx->is_blob_index && kctx->value) {
+            BlobIndex blob_idx;
+            Status resolve_s = blob_idx.DecodeFrom(*(kctx->value->GetSelf()));
+            if (resolve_s.ok()) {
+              PinnableSlice blob_value;
+              BlobFileCache* blob_cache = super_version->cfd->blob_file_cache();
+              resolve_s = ResolveBlobIndexForWritePath(
+                  read_options, *kctx->key, blob_idx, super_version->current,
+                  blob_cache, blob_partition_manager_.get(), &blob_value);
+              if (resolve_s.ok()) {
+                kctx->value->Reset();
+                kctx->value->PinSelf(blob_value);
+              }
+            }
+            if (!resolve_s.ok()) {
+              *(kctx->s) = resolve_s;
+            }
+            kctx->is_blob_index = false;
+          }
+        }
+      }
     }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
@@ -4134,7 +4248,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // that they are likely to be in the same cache line and/or page.
   return NewArenaWrappedDbIterator(
       env_, read_options, cfh, sv, snapshot, read_callback, this,
-      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true);
+      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true,
+      blob_partition_manager_.get());
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(

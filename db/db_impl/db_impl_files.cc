@@ -10,6 +10,7 @@
 #include <set>
 #include <unordered_set>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
@@ -542,6 +543,15 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     s.PermitUncheckedError();
   }
 
+  // Collect blob file numbers currently open for writing by blob direct
+  // write. These must not be deleted — they haven't been registered in
+  // the MANIFEST yet and will be sealed during the next flush.
+  std::unordered_set<uint64_t> active_blob_file_numbers;
+  if (blob_partition_manager_) {
+    blob_partition_manager_->GetActiveBlobFileNumbers(
+        &active_blob_file_numbers);
+  }
+
   bool own_files = OwnTablesAndLogs();
   std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {
@@ -589,7 +599,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       case kBlobFile:
         keep = number >= state.min_pending_output ||
-               (blob_live_set.find(number) != blob_live_set.end());
+               (blob_live_set.find(number) != blob_live_set.end()) ||
+               (sealed_blob_file_numbers_.find(number) !=
+                sealed_blob_file_numbers_.end()) ||
+               (active_blob_file_numbers.find(number) !=
+                active_blob_file_numbers.end());
         if (!keep) {
           files_to_del.insert(number);
         }

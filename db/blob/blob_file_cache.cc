@@ -9,6 +9,8 @@
 #include <memory>
 
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_log_format.h"
+#include "file/filename.h"
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
@@ -38,7 +40,8 @@ BlobFileCache::BlobFileCache(Cache* cache,
 
 Status BlobFileCache::GetBlobFileReader(
     const ReadOptions& read_options, uint64_t blob_file_number,
-    CacheHandleGuard<BlobFileReader>* blob_file_reader) {
+    CacheHandleGuard<BlobFileReader>* blob_file_reader,
+    bool allow_footer_skip_retry) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
 
@@ -73,9 +76,22 @@ Status BlobFileCache::GetBlobFileReader(
 
   {
     assert(file_options_);
-    const Status s = BlobFileReader::Create(
+    Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
+    if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
+      // Blob files created by direct write may not have a footer yet
+      // (still being written to, or DB crashed before the file was
+      // sealed during flush). Retry without footer validation.
+      // Individual blob records still have CRC checks (when
+      // verify_checksums=true), so real data corruption will still be
+      // caught during reads. I/O errors are not retried.
+      reader.reset();
+      s = BlobFileReader::Create(
+          *immutable_options_, read_options, *file_options_, column_family_id_,
+          blob_file_read_hist_, blob_file_number, io_tracer_,
+          /*skip_footer_validation=*/true, &reader);
+    }
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;

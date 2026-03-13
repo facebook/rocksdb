@@ -18,6 +18,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -74,6 +75,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class BlobFilePartitionManager;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
@@ -931,6 +933,10 @@ class DBImpl : public DB {
     return immutable_db_options_;
   }
 
+  BlobFilePartitionManager* blob_partition_manager() const {
+    return blob_partition_manager_.get();
+  }
+
   // Cancel all background jobs, including flush, compaction, background
   // purging, stats dumping threads, etc. If `wait` = true, wait for the
   // running jobs to abort or finish before returning. Otherwise, only
@@ -1387,6 +1393,9 @@ class DBImpl : public DB {
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
   BlockCacheTracer block_cache_tracer_;
+
+  // Blob direct write partition manager. nullptr when disabled.
+  std::unique_ptr<BlobFilePartitionManager> blob_partition_manager_;
 
   // constant false canceled flag, used when the compaction is not manual
   const std::atomic<bool> kManualCompactionCanceledFalse_{false};
@@ -3015,6 +3024,12 @@ class DBImpl : public DB {
   // it up.
   // State is protected with db mutex.
   std::list<uint64_t> pending_outputs_;
+
+  // Blob file numbers sealed by blob direct write during shutdown.
+  // These files are not yet in the MANIFEST and must not be deleted
+  // during shutdown cleanup. They will be registered by orphan recovery
+  // during the next DB::Open (before DeleteObsoleteFiles).
+  std::unordered_set<uint64_t> sealed_blob_file_numbers_;
 
   // Similar to pending_outputs_, FindObsoleteFiles()/PurgeObsoleteFiles() never
   // deletes any OPTIONS file that has number bigger than any of the file number

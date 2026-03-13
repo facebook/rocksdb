@@ -38,6 +38,14 @@ class BlobFileReader {
                        const std::shared_ptr<IOTracer>& io_tracer,
                        std::unique_ptr<BlobFileReader>* reader);
 
+  // Create with option to skip footer validation (for un-sealed blob files).
+  static Status Create(
+      const ImmutableOptions& immutable_options,
+      const ReadOptions& read_options, const FileOptions& file_options,
+      uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
+      uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
+      bool skip_footer_validation, std::unique_ptr<BlobFileReader>* reader);
+
   BlobFileReader(const BlobFileReader&) = delete;
   BlobFileReader& operator=(const BlobFileReader&) = delete;
 
@@ -62,11 +70,13 @@ class BlobFileReader {
 
   uint64_t GetFileSize() const { return file_size_; }
 
+  bool HasFooter() const { return has_footer_; }
+
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
                  std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
-                 Statistics* statistics);
+                 Statistics* statistics, bool has_footer = true);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -74,7 +84,8 @@ class BlobFileReader {
                          uint64_t blob_file_number,
                          const std::shared_ptr<IOTracer>& io_tracer,
                          uint64_t* file_size,
-                         std::unique_ptr<RandomAccessFileReader>* file_reader);
+                         std::unique_ptr<RandomAccessFileReader>* file_reader,
+                         bool skip_footer_size_check = false);
 
   static Status ReadHeader(const RandomAccessFileReader* file_reader,
                            const ReadOptions& read_options,
@@ -110,6 +121,7 @@ class BlobFileReader {
   std::shared_ptr<Decompressor> decompressor_;
   SystemClock* clock_;
   Statistics* statistics_;
+  bool has_footer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
