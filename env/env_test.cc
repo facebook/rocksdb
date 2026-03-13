@@ -972,6 +972,8 @@ TEST_P(EnvPosixTestWithParam, ReserveThreads) {
 
 #if (defined OS_LINUX || defined OS_WIN)
 namespace {
+
+#ifndef OS_WIN
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
 
@@ -986,6 +988,7 @@ bool IsSingleVarint(const std::string& s) {
 bool IsUniqueIDValid(const std::string& s) {
   return !s.empty() && !IsSingleVarint(s);
 }
+#endif
 
 const size_t MAX_ID_SIZE = 100;
 char temp_id[MAX_ID_SIZE];
