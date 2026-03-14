@@ -1021,6 +1021,9 @@ DEFINE_uint64(max_manifest_file_size, 16384,
 DEFINE_int32(max_manifest_space_amp_pct, 500,
              "Max manifest space amp percentage for auto-tuning");
 
+DEFINE_bool(verify_manifest_content_on_close, false,
+            "If true, verify MANIFEST content (CRC + decode) on DB close");
+
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
 DEFINE_string(memtablerep, "skip_list", "");

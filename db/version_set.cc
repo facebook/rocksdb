@@ -5607,6 +5607,74 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
     s = LogAndApply(cfd, ReadOptions(), WriteOptions(), &edit, mu, db_dir);
   }
 
+  // Content validation: read back the manifest and verify CRC + decode
+  if (s.ok() && verify_manifest_content_on_close_) {
+    TEST_SYNC_POINT("VersionSet::Close:BeforeContentValidation");
+    // Re-read the manifest file name in case it was rotated by size check
+    std::string content_manifest_name =
+        DescriptorFileName(dbname_, manifest_file_number_);
+    std::unique_ptr<FSSequentialFile> manifest_file;
+    IOStatus content_io_s = fs_->NewSequentialFile(
+        content_manifest_name, fs_->OptimizeForManifestRead(file_options_),
+        &manifest_file, nullptr);
+    if (content_io_s.ok()) {
+      std::unique_ptr<SequentialFileReader> manifest_file_reader(
+          new SequentialFileReader(std::move(manifest_file),
+                                   content_manifest_name,
+                                   db_options_->log_readahead_size, io_tracer_,
+                                   db_options_->listeners));
+      LogReporter reporter;
+      Status log_read_status;
+      reporter.status = &log_read_status;
+      log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
+                         /*checksum=*/true, /*log_num=*/0);
+      Slice record;
+      std::string scratch;
+      bool content_corrupt = false;
+      while (reader.ReadRecord(&record, &scratch,
+                               WALRecoveryMode::kAbsoluteConsistency)) {
+        VersionEdit edit;
+        Status decode_s = edit.DecodeFrom(record);
+        if (!decode_s.ok()) {
+          content_corrupt = true;
+          break;
+        }
+      }
+      if (!content_corrupt && !log_read_status.ok()) {
+        content_corrupt = true;
+      }
+      if (content_corrupt) {
+        IOStatus corrupt_io_s =
+            IOStatus::Corruption("MANIFEST content validation failed");
+        IOErrorInfo io_error_info(corrupt_io_s, FileOperationType::kVerify,
+                                  content_manifest_name, /*length=*/0,
+                                  /*offset=*/0);
+        for (auto& listener : db_options_->listeners) {
+          listener->OnIOError(io_error_info);
+        }
+        corrupt_io_s.PermitUncheckedError();
+        io_error_info.io_status.PermitUncheckedError();
+        ROCKS_LOG_ERROR(db_options_->info_log,
+                        "MANIFEST content verification on Close failed, "
+                        "filename %s, rewriting manifest\n",
+                        content_manifest_name.c_str());
+        ColumnFamilyData* cfd = GetColumnFamilySet()->GetDefault();
+        VersionEdit recovery_edit;
+        assert(cfd);
+        s = LogAndApply(cfd, ReadOptions(), WriteOptions(), &recovery_edit, mu,
+                        db_dir);
+      }
+    } else {
+      // Cannot open manifest for reading — log warning but don't fail close
+      content_io_s.PermitUncheckedError();
+      ROCKS_LOG_WARN(db_options_->info_log,
+                     "MANIFEST content verification on Close: "
+                     "could not open %s for reading: %s\n",
+                     content_manifest_name.c_str(),
+                     content_io_s.ToString().c_str());
+    }
+  }
+
   closed_ = true;
   return s;
 }
@@ -5690,6 +5758,8 @@ void VersionSet::UpdatedMutableDbOptions(
   max_manifest_space_amp_pct_ = static_cast<unsigned>(
       std::max(updated_options.max_manifest_space_amp_pct, 0));
   manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
+  verify_manifest_content_on_close_ =
+      updated_options.verify_manifest_content_on_close;
   TuneMaxManifestFileSize();
 }
 
