@@ -1206,6 +1206,117 @@ int main(int argc, char** argv) {
   rocksdb_compact_range_opt(db, coptions, "a", 1, "z", 1);
   CheckGet(db, roptions, "foo", "hello");
 
+  StartPhase("compact_files");
+  {
+    // Use a dedicated fresh DB with level_compaction_dynamic_level_bytes=false
+    // so that base_level is always 1, making output_level=1 unconditionally
+    // valid and the post-compaction level assertion exact.
+    char compact_files_dbname[200];
+    snprintf(compact_files_dbname, sizeof(compact_files_dbname),
+             "%s/rocksdb_c_test-%d-compact_files", GetTempDir(),
+             ((int)geteuid()));
+
+    rocksdb_options_t* cf_opts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(cf_opts, 1);
+    rocksdb_options_set_level_compaction_dynamic_level_bytes(cf_opts, 0);
+
+    rocksdb_t* cf_db = rocksdb_open(cf_opts, compact_files_dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_readoptions_t* cf_ropts = rocksdb_readoptions_create();
+    rocksdb_writeoptions_t* cf_wopts = rocksdb_writeoptions_create();
+
+    // Exercise CompactionOptions setters/getters.
+    rocksdb_compaction_options_t* compact_opts =
+        rocksdb_compaction_options_create();
+    CheckCondition(
+        rocksdb_compaction_options_get_allow_trivial_move(compact_opts) == 0);
+    CheckCondition(
+        rocksdb_compaction_options_get_max_subcompactions(compact_opts) == 0);
+    rocksdb_compaction_options_set_allow_trivial_move(compact_opts, 1);
+    CheckCondition(
+        rocksdb_compaction_options_get_allow_trivial_move(compact_opts) == 1);
+    rocksdb_compaction_options_set_allow_trivial_move(compact_opts, 0);
+    rocksdb_compaction_options_set_max_subcompactions(compact_opts, 2);
+    CheckCondition(
+        rocksdb_compaction_options_get_max_subcompactions(compact_opts) == 2);
+    rocksdb_compaction_options_set_max_subcompactions(compact_opts, 0);
+
+    // Write a key and flush to produce a single L0 SST file.
+    rocksdb_put(cf_db, cf_wopts, "foo", 3, "bar", 3, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(cf_db, flush_opts, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_destroy(flush_opts);
+
+    // Find the L0 file name.  Keep lf alive through the compact_files call
+    // since the returned pointer is owned by lf.
+    const rocksdb_livefiles_t* lf = rocksdb_livefiles(cf_db);
+    CheckCondition(rocksdb_livefiles_count(lf) == 1);
+    CheckCondition(rocksdb_livefiles_level(lf, 0) == 0);
+    const char* input_files[1];
+    input_files[0] = rocksdb_livefiles_name(lf, 0);
+
+    // Compact the L0 file to L1.
+    rocksdb_compact_files(cf_db, compact_opts, input_files, 1,
+                          1 /* output_level */, -1 /* output_path_id */, &err);
+    CheckNoError(err);
+    rocksdb_livefiles_destroy(lf);
+
+    // Key must still be readable and the file must now be at L1.
+    CheckGet(cf_db, cf_ropts, "foo", "bar");
+    const rocksdb_livefiles_t* lf2 = rocksdb_livefiles(cf_db);
+    CheckCondition(rocksdb_livefiles_count(lf2) == 1);
+    CheckCondition(rocksdb_livefiles_level(lf2, 0) == 1);
+    rocksdb_livefiles_destroy(lf2);
+
+    // Test the _cf variant using the default column family handle.
+    rocksdb_put(cf_db, cf_wopts, "foo2", 4, "bar2", 4, &err);
+    CheckNoError(err);
+    flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(cf_db, flush_opts, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_destroy(flush_opts);
+
+    const rocksdb_livefiles_t* lf3 = rocksdb_livefiles(cf_db);
+    const char* l0_file2 = NULL;
+    for (int i = 0; i < rocksdb_livefiles_count(lf3); i++) {
+      if (rocksdb_livefiles_level(lf3, i) == 0) {
+        l0_file2 = rocksdb_livefiles_name(lf3, i);
+        break;
+      }
+    }
+    CheckCondition(l0_file2 != NULL);
+
+    rocksdb_column_family_handle_t* default_cf =
+        rocksdb_get_default_column_family_handle(cf_db);
+    const char* input_files2[1];
+    input_files2[0] = l0_file2;
+    rocksdb_compact_files_cf(cf_db, default_cf, compact_opts, input_files2, 1,
+                             1 /* output_level */, -1 /* output_path_id */,
+                             &err);
+    CheckNoError(err);
+    rocksdb_livefiles_destroy(lf3);
+
+    CheckGet(cf_db, cf_ropts, "foo2", "bar2");
+    const rocksdb_livefiles_t* lf4 = rocksdb_livefiles(cf_db);
+    for (int i = 0; i < rocksdb_livefiles_count(lf4); i++) {
+      CheckCondition(rocksdb_livefiles_level(lf4, i) == 1);
+    }
+    rocksdb_livefiles_destroy(lf4);
+
+    rocksdb_compaction_options_destroy(compact_opts);
+    rocksdb_readoptions_destroy(cf_ropts);
+    rocksdb_writeoptions_destroy(cf_wopts);
+    rocksdb_close(cf_db);
+    rocksdb_destroy_db(cf_opts, compact_files_dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(cf_opts);
+  }
+
   // Simple check cache usage
   StartPhase("cache_usage");
   {
