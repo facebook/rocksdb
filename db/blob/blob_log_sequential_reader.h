@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "db/blob/blob_log_format.h"
