@@ -3604,6 +3604,22 @@ int main(int argc, char** argv) {
     CheckCondition(
         1 == rocksdb_fifo_compaction_options_get_use_kv_ratio_compaction(fco));
 
+    rocksdb_options_set_fifo_compaction_options(options, fco);
+    {
+      rocksdb_fifo_compaction_options_t* fco2 =
+          rocksdb_options_get_fifo_compaction_options(options);
+      CheckCondition(
+          100000 ==
+          rocksdb_fifo_compaction_options_get_max_table_files_size(fco2));
+      CheckCondition(
+          200000 ==
+          rocksdb_fifo_compaction_options_get_max_data_files_size(fco2));
+      CheckCondition(
+          1 ==
+          rocksdb_fifo_compaction_options_get_use_kv_ratio_compaction(fco2));
+      rocksdb_fifo_compaction_options_destroy(fco2);
+    }
+
     rocksdb_fifo_compaction_options_destroy(fco);
   }
 
