@@ -728,6 +728,37 @@ TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
   delete txn;
 }
 
+TEST_P(WriteUnpreparedTransactionTest, GetIteratorReturnsErrorOnNullDbIter) {
+  // Test that GetIterator returns an error iterator instead of crashing
+  // when NewIterator returns nullptr. Without the fix, the nullptr is
+  // passed to NewIteratorWithBase(), causing a null pointer dereference.
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  ASSERT_NE(txn, nullptr);
+
+  // Use a SyncPoint to force NewIterator to return nullptr
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteUnpreparedTxn::GetIterator:AfterNewIterator",
+      [](void* arg) {
+        Iterator** iter_ptr = static_cast<Iterator**>(arg);
+        delete *iter_ptr;
+        *iter_ptr = nullptr;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Iterator* iter = txn->GetIterator(read_options);
+  // Should get an error iterator, not a crash
+  ASSERT_NE(iter, nullptr);
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  delete txn;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
