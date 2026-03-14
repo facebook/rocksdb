@@ -66,8 +66,10 @@ Status DBImplSecondary::Recover(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
 
-    std::unordered_set<ColumnFamilyData*> cfds_changed;
-    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+    if (!skip_wal_recovery_) {
+      std::unordered_set<ColumnFamilyData*> cfds_changed;
+      s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+    }
   }
 
   if (s.IsPathNotFound()) {
@@ -88,6 +90,7 @@ Status DBImplSecondary::FindAndRecoverLogFiles(
     JobContext* job_context) {
   assert(nullptr != cfds_changed);
   assert(nullptr != job_context);
+  TEST_SYNC_POINT("DBImplSecondary::FindAndRecoverLogFiles:Begin");
   Status s;
   std::vector<uint64_t> logs;
   s = FindNewLogNumbers(&logs);
@@ -740,6 +743,17 @@ Status DB::OpenAsSecondary(
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
+  return DBImplSecondary::OpenAsSecondaryImpl(
+      db_options, dbname, secondary_path, column_families, handles, dbptr,
+      /*skip_wal_recovery=*/false);
+}
+
+Status DBImplSecondary::OpenAsSecondaryImpl(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::string& secondary_path,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
+    bool skip_wal_recovery) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -782,6 +796,7 @@ Status DB::OpenAsSecondary(
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
+  impl->skip_wal_recovery_ = skip_wal_recovery;
 
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
@@ -1539,11 +1554,13 @@ Status DB::OpenAndCompact(
     }
   }
 
-  // 5. Open db As Secondary
+  // 5. Open db As Secondary (skip WAL recovery — remote compaction only
+  //    needs LSM state from MANIFEST, not memtable data from WAL replay)
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
-  s = DB::OpenAsSecondary(db_options, name, output_directory, column_families,
-                          &handles, &db);
+  s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
+                                           column_families, &handles, &db,
+                                           /*skip_wal_recovery=*/true);
   if (!s.ok()) {
     return s;
   }
