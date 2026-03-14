@@ -9,6 +9,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "db/merge_helper.h"
 #include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -887,6 +888,58 @@ TEST_F(MergeTest, FullMergeV3FallbackFailure) {
     ASSERT_EQ(merge_out.op_failure_scope,
               MergeOperator::OpFailureScope::kMustMerge);
   }
+}
+
+// The test requires more than 8GB memory to run it. Not all platforms can run
+// it, so disable it.
+TEST_F(MergeTest, DISABLED_LargeMergeResultRejected) {
+  // A merge operator that produces a result > 4GB by concatenating operands
+  class ConcatOperator : public MergeOperator {
+   public:
+    bool FullMergeV2(const MergeOperationInput& merge_in,
+                     MergeOperationOutput* merge_out) const override {
+      merge_out->new_value.clear();
+      if (merge_in.existing_value) {
+        merge_out->new_value.append(merge_in.existing_value->data(),
+                                    merge_in.existing_value->size());
+      }
+      for (const auto& op : merge_in.operand_list) {
+        merge_out->new_value.append(op.data(), op.size());
+      }
+      return true;
+    }
+    const char* Name() const override { return "ConcatOperator"; }
+  };
+
+  // Use TimedFullMerge directly - two operands that sum to > 4GB
+  constexpr size_t kHalfSize =
+      (size_t{std::numeric_limits<uint32_t>::max()} + 1) / 2;
+  std::string op1(kHalfSize, 'A');
+  std::string op2(kHalfSize, 'B');
+  std::vector<Slice> operands{op1, op2};
+  std::string result;
+  Slice result_operand;
+  ValueType result_type;
+
+  ConcatOperator concat_op;
+  Status s = MergeHelper::TimedFullMerge(
+      &concat_op, "key", MergeHelper::kNoBaseValue, operands, nullptr, nullptr,
+      SystemClock::Default().get(), false, nullptr, &result, &result_operand,
+      &result_type);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("4GB") != std::string::npos);
+
+  // Control: just under 4GB should be accepted
+  result.clear();
+  result.shrink_to_fit();
+  op2.resize(kHalfSize - 1);
+  operands = {op1, op2};
+  s = MergeHelper::TimedFullMerge(&concat_op, "key", MergeHelper::kNoBaseValue,
+                                  operands, nullptr, nullptr,
+                                  SystemClock::Default().get(), false, nullptr,
+                                  &result, &result_operand, &result_type);
+  ASSERT_OK(s);
+  ASSERT_EQ(result.size(), size_t{std::numeric_limits<uint32_t>::max()});
 }
 
 }  // namespace ROCKSDB_NAMESPACE
