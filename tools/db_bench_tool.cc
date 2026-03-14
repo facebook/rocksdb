@@ -1314,6 +1314,11 @@ DEFINE_uint32(memtable_op_scan_flush_trigger,
                   .memtable_op_scan_flush_trigger,
               "Setting for CF option memtable_op_scan_flush_trigger.");
 
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Setting for CF option min_tombstones_for_range_conversion.");
+
 DEFINE_bool(verify_compression, false,
             "See BlockBasedTableOptions::verify_compression");
 
@@ -5003,6 +5008,8 @@ class Benchmark {
         FLAGS_memtable_veirfy_per_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.min_tombstones_for_range_conversion =
+        FLAGS_min_tombstones_for_range_conversion;
     options.compaction_options_universal.reduce_file_locking =
         FLAGS_universal_reduce_file_locking;
   }

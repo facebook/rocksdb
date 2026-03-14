@@ -178,6 +178,63 @@ TEST_F(FormatTest, IterKeyOperation) {
                         "abcdefghijklmnopqrstuvwxyz"));
 }
 
+class IterKeySwapTest
+    : public testing::TestWithParam<
+          std::tuple<size_t,  // a_key_len: inline (<=39) vs heap (>39)
+                     bool,    // a_use_secondary: key_ in secondary_buf_
+                     size_t,  // b_key_len
+                     bool     // b_use_secondary
+                     >> {
+ protected:
+  // Populates an IterKey with a key of the given length. If use_secondary,
+  // moves key_ to the secondary buffer via TrimAppendWithTimestamp.
+  static std::string PopulateKey(IterKey& k, size_t key_len,
+                                 bool use_secondary) {
+    std::string base(key_len, 'x');
+    k.SetUserKey(base);
+    if (use_secondary) {
+      size_t ts_sz = sizeof(uint64_t);
+      // Keep 1 byte from the existing key, append the rest + timestamp.
+      std::string suffix = base.substr(1);
+      k.TrimAppendWithTimestamp(1, suffix.data(), suffix.size(), ts_sz);
+      return base + std::string(ts_sz, '\0');
+    }
+    return base;
+  }
+};
+
+TEST_P(IterKeySwapTest, SwapAndDestroy) {
+  auto [a_key_len, a_use_secondary, b_key_len, b_use_secondary] = GetParam();
+
+  std::string expected_a, expected_b;
+  IterKey a;
+  expected_a = PopulateKey(a, a_key_len, a_use_secondary);
+  ASSERT_EQ(a.GetUserKey().ToString(), expected_a);
+
+  {
+    IterKey b;
+    expected_b = PopulateKey(b, b_key_len, b_use_secondary);
+    ASSERT_EQ(b.GetUserKey().ToString(), expected_b);
+
+    a.Swap(b);
+
+    // After swap: a has b's old data, b has a's old data.
+    ASSERT_EQ(a.GetUserKey().ToString(), expected_b);
+    ASSERT_EQ(b.GetUserKey().ToString(), expected_a);
+  }  // b destroyed here — must not corrupt a's data
+
+  // a must still hold valid data after b's destruction.
+  ASSERT_EQ(a.GetUserKey().ToString(), expected_b);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    IterKeySwap, IterKeySwapTest,
+    ::testing::Combine(
+        /*a_key_len=*/::testing::Values(10, 50),  // inline vs heap
+        /*a_use_secondary=*/::testing::Bool(),
+        /*b_key_len=*/::testing::Values(10, 50),  // inline vs heap
+        /*b_use_secondary=*/::testing::Bool()));
+
 TEST_F(FormatTest, IterKeyWithTimestampOperation) {
   IterKey k;
   k.SetUserKey("");

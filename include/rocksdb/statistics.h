@@ -583,6 +583,13 @@ enum Tickers : uint32_t {
   // # of prefetch requests that were blocked waiting for memory
   PREFETCH_MEMORY_REQUESTS_BLOCKED,
 
+  // # of range tombstones inserted by read-path conversion from contiguous
+  // point tombstones
+  READ_PATH_RANGE_TOMBSTONES_INSERTED,
+  // # of range tombstones not inserted because the memtable was already
+  // switched to immutable
+  READ_PATH_RANGE_TOMBSTONES_DISCARDED,
+
   TICKER_ENUM_MAX
 };
 

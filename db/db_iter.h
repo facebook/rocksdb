@@ -410,6 +410,13 @@ class DBIter final : public Iterator {
     return true;
   }
 
+  // If enough contiguous tombstones have been tracked, insert a range
+  // tombstone [first_key, end_key) into the mutable memtable.
+  // end_key is the exclusive upper bound — typically the next live key.
+  void MaybeInsertRangeTombstone(const Slice& end_key);
+  void ResetContiguousTombstoneTracking() { contiguous_tombstone_count_ = 0; }
+  void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
+
   void MarkMemtableForFlushForAvgTrigger() {
     if (avg_op_scan_flush_trigger_ &&
         mem_hidden_op_scanned_since_seek_ >= memtable_op_scan_flush_trigger_ &&
@@ -505,6 +512,8 @@ class DBIter final : public Iterator {
   uint32_t avg_op_scan_flush_trigger_;
   uint32_t iter_step_since_seek_;
   uint32_t mem_hidden_op_scanned_since_seek_;
+  uint32_t min_tombstones_for_range_conversion_;
+  uint32_t contiguous_tombstone_count_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
@@ -525,5 +534,8 @@ class DBIter final : public Iterator {
   bool allow_unprepared_value_;
   bool is_blob_;
   bool arena_mode_;
+
+  IterKey range_tomb_first_key_;
+  IterKey range_tomb_end_key_;
 };
 }  // namespace ROCKSDB_NAMESPACE

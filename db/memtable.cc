@@ -93,6 +93,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, mutable_cf_options.prefix_extractor.get(),
           ioptions.logger, column_family_id)),
+      // range del table must support concurrent inserts
       range_del_table_(SkipListFactory().CreateMemTableRep(
           comparator_, &arena_, nullptr /* transform */, ioptions.logger,
           column_family_id)),
@@ -861,6 +862,37 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   }
 }
 
+bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
+                                                   const Slice& start_key,
+                                                   const Slice& end_key) {
+  // Fast path: skip if already immutable (no mutex needed).
+  if (is_immutable_.LoadRelaxed()) {
+    return false;
+  }
+
+#ifndef NDEBUG
+  std::pair<Slice, Slice> range{start_key, end_key};
+  TEST_SYNC_POINT_CALLBACK(
+      "MemTable::AddLogicallyRedundantRangeTombstone:AddRange", &range);
+#endif  // !NDEBUG
+
+  // Prevents racing with MarkImmutable()
+  ReadLock rl(&immutable_mutex_);
+  if (is_immutable_.LoadRelaxed()) {
+    return false;
+  }
+
+  MemTablePostProcessInfo post_process_info;
+  Status s = Add(seq, kTypeRangeDeletion, start_key, end_key,
+                 nullptr /* kv_prot_info */, true /* allow_concurrent */,
+                 &post_process_info);
+  if (s.ok()) {
+    BatchPostProcess(post_process_info);
+    return true;
+  }
+  return false;
+}
+
 port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[GetSliceRangedNPHash(key, locks_.size())];
 }
@@ -966,6 +998,11 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   char* buf = nullptr;
   std::unique_ptr<MemTableRep>& table =
       type == kTypeRangeDeletion ? range_del_table_ : table_;
+  // Range deletion table always uses SkipList, which supports concurrent
+  // inserts. Inserts must be made concurrent because
+  // AddLogicallyRedundantRangeTombstone can also insert range tombstones.
+  assert(type != kTypeRangeDeletion || allow_concurrent);
+
   KeyHandle handle = table->Allocate(encoded_len, &buf);
 
   char* p = EncodeVarint32(buf, internal_key_size);

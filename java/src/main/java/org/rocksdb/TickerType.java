@@ -955,6 +955,18 @@ public enum TickerType {
      */
     MULTISCAN_SEEK_ERRORS((byte) -0x68),
 
+    /**
+     * # of range tombstones inserted by read-path conversion from contiguous
+     * point tombstones
+     */
+    READ_PATH_RANGE_TOMBSTONES_INSERTED((byte) -0x69),
+
+    /**
+     * # of range tombstones not inserted because the memtable was already
+     * switched to immutable
+     */
+    READ_PATH_RANGE_TOMBSTONES_DISCARDED((byte) -0x6A),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

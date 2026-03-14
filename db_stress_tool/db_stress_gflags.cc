@@ -1590,6 +1590,11 @@ DEFINE_uint32(
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
     "Sets CF option memtable_avg_op_scan_flush_trigger.");
 
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::ColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Sets CF option min_tombstones_for_range_conversion.");
+
 DEFINE_bool(
     universal_reduce_file_locking,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions()
