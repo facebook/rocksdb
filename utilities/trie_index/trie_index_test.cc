@@ -4593,11 +4593,20 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingRandomized) {
         blocks.push_back({current_key, "", offset, 500, block_seq, 0});
       } else if (same_key_boundary) {
         // Same-user-key boundary: next block has same key, lower seqno.
-        SequenceNumber next_seq = seq - (1 + rnd.Uniform(100));
-        blocks.push_back(
-            {current_key, current_key, offset, 500, block_seq, next_seq});
-        seq = next_seq;
-      } else {
+        // Seqno 0 is reserved as sentinel in the trie, so ensure we never
+        // decrement below 1. If seq is too small, fall through to a
+        // different-key boundary instead.
+        SequenceNumber decrement = 1 + rnd.Uniform(100);
+        if (seq <= decrement) {
+          same_key_boundary = false;
+        } else {
+          SequenceNumber next_seq = seq - decrement;
+          blocks.push_back(
+              {current_key, current_key, offset, 500, block_seq, next_seq});
+          seq = next_seq;
+        }
+      }
+      if (!is_last && !same_key_boundary) {
         // Different-key boundary. Skip 2+ counter values to ensure
         // FindShortestSeparator produces a distinct separator.
         key_counter += 2 + rnd.Uniform(10);
