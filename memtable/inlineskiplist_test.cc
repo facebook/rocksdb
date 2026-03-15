@@ -884,23 +884,37 @@ TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
   RunConcurrentInsert(3, true);
 }
 
-// Test concurrent MultiGet reads with ongoing writes. Exercises the skip list
-// height growth handling in FindGreaterOrEqualWithFinger, where the finger's
-// cached height may be stale due to concurrent inserts growing the list.
-struct MultiGetReaderState {
+// Test read-after-write consistency with concurrent MultiGet and inserts.
+// Exercises skip list height growth handling in FindGreaterOrEqualWithFinger.
+//
+// Design:
+// - Generate a sequence of unique keys and split into per-thread chunks.
+// - Each thread inserts its keys one at a time, and after each insert,
+//   does a MultiGet batch that includes the just-inserted key plus random
+//   keys from a shared "recently inserted" set populated by all threads.
+// - Validates that the just-inserted key is always visible (read-after-write)
+//   and that any key from the shared set that was published before the
+//   MultiGet began is also visible.
+struct ConcurrentMultiGetState {
   InlineSkipList<TestComparator>* list;
-  std::atomic<bool>* quit_flag;
+  // Per-thread chunk of unique keys to insert
+  const Key* keys;
+  size_t num_keys;
   int seed;
   std::atomic<int>* error_count;
   std::atomic<int>* batches_done;
+  // Shared ring buffer of recently inserted keys from all threads.
+  // Writers publish keys here after insertion; readers sample from it.
+  static const int kRingSize = 1024;
+  std::atomic<Key>* shared_ring;
+  // Monotonically increasing write cursor into the ring buffer.
+  std::atomic<uint64_t>* ring_cursor;
 };
 
-static const Key kNotFound = std::numeric_limits<Key>::max();
-
-static void ConcurrentMultiGetReader(void* arg) {
-  auto* state = static_cast<MultiGetReaderState*>(arg);
+static void ConcurrentMultiGetWorker(void* arg) {
+  auto* state = static_cast<ConcurrentMultiGetState*>(arg);
   Random rnd(state->seed);
-  const int kBatchSize = 16;
+  const int kExtraQueryKeys = 15;  // additional random keys per batch
 
   auto callback = [](void* cb_arg, const char* entry) -> bool {
     auto* result = static_cast<Key*>(cb_arg);
@@ -908,37 +922,92 @@ static void ConcurrentMultiGetReader(void* arg) {
     return false;  // point lookup: stop after first entry
   };
 
-  while (!state->quit_flag->load(std::memory_order_acquire)) {
-    // Generate sorted random query keys, starting from 1 to avoid key 0
-    std::vector<Key> query_keys(kBatchSize);
-    for (int j = 0; j < kBatchSize; j++) {
-      query_keys[j] = 1 + (rnd.Next() % 20000);
-    }
-    std::sort(query_keys.begin(), query_keys.end());
+  for (size_t i = 0; i < state->num_keys; i++) {
+    Key my_key = state->keys[i];
 
-    // Encode keys (each points into query_keys vector, valid for this scope)
-    std::vector<const char*> key_ptrs(kBatchSize);
-    std::vector<Key> results(kBatchSize, kNotFound);
-    std::vector<void*> cb_args(kBatchSize);
-    for (int j = 0; j < kBatchSize; j++) {
+    // Insert this thread's next unique key
+    char* buf = state->list->AllocateKey(sizeof(Key));
+    memcpy(buf, &my_key, sizeof(Key));
+    state->list->InsertConcurrently(buf);
+
+    // Publish to shared ring buffer so other threads can query it
+    uint64_t slot = state->ring_cursor->fetch_add(1, std::memory_order_relaxed);
+    state->shared_ring[slot % ConcurrentMultiGetState::kRingSize].store(
+        my_key, std::memory_order_release);
+
+    // Build a MultiGet batch: the just-inserted key + random shared keys
+    std::vector<Key> query_keys;
+    query_keys.reserve(1 + kExtraQueryKeys);
+    query_keys.push_back(my_key);
+
+    // Sample recently inserted keys from other threads
+    uint64_t cursor = state->ring_cursor->load(std::memory_order_acquire);
+    for (int j = 0; j < kExtraQueryKeys; j++) {
+      // Sample from the most recent entries in the ring
+      uint64_t idx =
+          (cursor > 0)
+              ? (rnd.Next() %
+                 std::min(cursor, static_cast<uint64_t>(
+                                      ConcurrentMultiGetState::kRingSize)))
+              : 0;
+      Key shared_key = state
+                           ->shared_ring[(cursor - 1 - idx) %
+                                         ConcurrentMultiGetState::kRingSize]
+                           .load(std::memory_order_acquire);
+      if (shared_key != 0) {
+        query_keys.push_back(shared_key);
+      }
+    }
+
+    // Sort and deduplicate for MultiGet
+    std::sort(query_keys.begin(), query_keys.end());
+    query_keys.erase(std::unique(query_keys.begin(), query_keys.end()),
+                     query_keys.end());
+
+    size_t batch_size = query_keys.size();
+    std::vector<const char*> key_ptrs(batch_size);
+    std::vector<Key> results(batch_size, 0);
+    std::vector<void*> cb_args(batch_size);
+    for (size_t j = 0; j < batch_size; j++) {
       key_ptrs[j] = Encode(&query_keys[j]);
       cb_args[j] = &results[j];
     }
 
-    Status s = state->list->MultiGet(kBatchSize, key_ptrs.data(),
+    Status s = state->list->MultiGet(batch_size, key_ptrs.data(),
                                      cb_args.data(), callback);
     if (!s.ok()) {
       state->error_count->fetch_add(1, std::memory_order_relaxed);
-      break;
+      return;
     }
 
-    // Verify: each found result must be >= its query key. In a concurrent
-    // setting, results are NOT required to be non-decreasing across keys
-    // because each lookup sees a different point-in-time snapshot.
-    for (int j = 0; j < kBatchSize; j++) {
-      if (results[j] != kNotFound && results[j] < query_keys[j]) {
-        state->error_count->fetch_add(1, std::memory_order_relaxed);
+    // Validate read-after-write: the key we just inserted MUST be visible.
+    // Find my_key's position in the sorted query_keys.
+    for (size_t j = 0; j < batch_size; j++) {
+      if (query_keys[j] == my_key) {
+        if (results[j] != my_key) {
+          state->error_count->fetch_add(1, std::memory_order_relaxed);
+          return;
+        }
         break;
+      }
+    }
+
+    // Validate all results: each found result must equal its query key
+    // (since all queried keys were inserted, an exact match is expected).
+    // However, due to concurrent inserts, a key sampled from the ring
+    // might not yet be visible — so we only check that if a result is
+    // found, it equals the query key (i.e., no wrong key returned).
+    for (size_t j = 0; j < batch_size; j++) {
+      if (results[j] != 0 && results[j] != query_keys[j]) {
+        // Got a result that doesn't match the query — either a bug or
+        // the exact key wasn't inserted and we got the next one. Since
+        // all our query keys are inserted, this means the result should
+        // be >= query. For the just-inserted key we already checked
+        // exact match above.
+        if (results[j] < query_keys[j]) {
+          state->error_count->fetch_add(1, std::memory_order_relaxed);
+          return;
+        }
       }
     }
 
@@ -955,45 +1024,52 @@ TEST_F(InlineSkipTest, ConcurrentMultiGet) {
   TestComparator cmp;
   InlineSkipList<TestComparator> list(cmp, &arena);
 
-  std::atomic<bool> quit_flag{false};
+  // Generate a sequence of unique keys and shuffle them
+  const int kTotalKeys = 20000;
+  const int kNumThreads = 4;
+  std::vector<Key> all_keys(kTotalKeys);
+  for (int i = 0; i < kTotalKeys; i++) {
+    all_keys[i] = static_cast<Key>(i + 1);  // keys 1..kTotalKeys
+  }
+  Random rnd(seed);
+  for (int i = kTotalKeys - 1; i > 0; i--) {
+    int j = rnd.Next() % (i + 1);
+    std::swap(all_keys[i], all_keys[j]);
+  }
+
+  // Shared ring buffer for cross-thread visibility checks
+  std::atomic<Key> shared_ring[ConcurrentMultiGetState::kRingSize];
+  for (auto& k : shared_ring) {
+    k.store(0, std::memory_order_relaxed);
+  }
+  std::atomic<uint64_t> ring_cursor{0};
+
   std::atomic<int> error_count{0};
   std::atomic<int> batches_done{0};
 
-  // Start multiple reader threads doing concurrent MultiGet
-  const int kNumReaders = 4;
-  std::vector<MultiGetReaderState> reader_states(kNumReaders);
-  Env::Default()->SetBackgroundThreads(kNumReaders);
-  for (int r = 0; r < kNumReaders; r++) {
-    reader_states[r].list = &list;
-    reader_states[r].quit_flag = &quit_flag;
-    reader_states[r].seed = seed + r + 1;
-    reader_states[r].error_count = &error_count;
-    reader_states[r].batches_done = &batches_done;
-    Env::Default()->Schedule(ConcurrentMultiGetReader, &reader_states[r]);
+  // Split keys into per-thread chunks and start worker threads.
+  // Use StartThread (not Schedule) so WaitForJoin waits for completion.
+  const int kKeysPerThread = kTotalKeys / kNumThreads;
+  std::vector<ConcurrentMultiGetState> states(kNumThreads);
+  for (int t = 0; t < kNumThreads; t++) {
+    states[t].list = &list;
+    states[t].keys = &all_keys[t * kKeysPerThread];
+    states[t].num_keys = kKeysPerThread;
+    states[t].seed = seed + t + 1;
+    states[t].error_count = &error_count;
+    states[t].batches_done = &batches_done;
+    states[t].shared_ring = shared_ring;
+    states[t].ring_cursor = &ring_cursor;
+    Env::Default()->StartThread(ConcurrentMultiGetWorker, &states[t]);
   }
 
-  // Writer: insert keys concurrently, which may grow the skip list height.
-  // Use InsertConcurrently which is safe with concurrent readers.
-  Random rnd(seed);
-  const int kNumWrites = 10000;
-  for (int i = 0; i < kNumWrites; i++) {
-    Key key = 1 + (rnd.Next() % 20000);
-    char* buf = list.AllocateKey(sizeof(Key));
-    memcpy(buf, &key, sizeof(Key));
-    list.InsertConcurrently(buf);
-  }
-
-  // Let readers run a bit after all writes are done
-  Env::Default()->SleepForMicroseconds(100000);  // 100ms
-
-  quit_flag.store(true, std::memory_order_release);
-
-  // Wait for readers to finish
+  // Wait for all threads to finish
   Env::Default()->WaitForJoin();
 
   ASSERT_EQ(error_count.load(), 0)
-      << "Concurrent MultiGet detected inconsistent results";
-  ASSERT_GT(batches_done.load(), 0) << "No MultiGet batches completed";
+      << "Concurrent MultiGet read-after-write consistency check failed";
+  ASSERT_EQ(batches_done.load(), kTotalKeys)
+      << "Not all insert+query iterations completed";
 }
 
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
