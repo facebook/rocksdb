@@ -1536,6 +1536,10 @@ DEFINE_uint32(uncache_aggressiveness,
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
 
+DEFINE_uint32(verify_output_flags, 0,
+              "Sets CF option verify_output_flags as a uint32_t bitmask. "
+              "See VerifyOutputFlags enum for bit definitions.");
+
 DEFINE_bool(paranoid_memory_checks,
             ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
@@ -1544,6 +1548,10 @@ DEFINE_bool(
     memtable_veirfy_per_key_checksum_on_seek,
     ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
     "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+
+DEFINE_bool(memtable_batch_lookup_optimization,
+            ROCKSDB_NAMESPACE::Options().memtable_batch_lookup_optimization,
+            "Sets CF option memtable_batch_lookup_optimization.");
 
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "

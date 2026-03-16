@@ -213,8 +213,7 @@ enum class VerifyOutputFlags : uint32_t {
                                   // by comparing the one inserted into a
                                   // file, and what is read back.
 
-  // TODO - Implement
-  // kVerifyFileChecksum = 1 << 2,   // Verify file-level checksum
+  kVerifyFileChecksum = 1 << 2,  // Verify file-level checksum
 
   // Second set of bits: when to enable verification
   kEnableForLocalCompaction = 1 << 10,   // Enable for local compaction
@@ -1305,6 +1304,18 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   // Immutable.
   bool cf_allow_ingest_behind = false;
+
+  // If true, use batch lookup optimization for memtable MultiGet. For skip
+  // list memtables, after looking up each key, the search path is cached and
+  // reused for the next key, reducing per-key cost from O(log N) to O(log d)
+  // where d is the distance between consecutive keys.
+  //
+  // This optimization exploits the fact that MultiGet keys are sorted.
+  // Non-skip-list memtable implementations fall back to per-key lookups.
+  //
+  // Default: false
+  // Immutable.
+  bool memtable_batch_lookup_optimization = false;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

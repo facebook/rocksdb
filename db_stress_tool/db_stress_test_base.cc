@@ -4532,9 +4532,13 @@ void InitializeOptionsFromFlags(
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;
+  options.verify_output_flags =
+      static_cast<VerifyOutputFlags>(FLAGS_verify_output_flags);
   options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   options.memtable_veirfy_per_key_checksum_on_seek =
       FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+  options.memtable_batch_lookup_optimization =
+      FLAGS_memtable_batch_lookup_optimization;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;

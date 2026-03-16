@@ -1752,6 +1752,19 @@ TEST_F(OptionsTest, MutableCFOptions) {
       config_options, cf_opts, {{"paranoid_file_checks", "false"}}, &cf_opts));
   ASSERT_EQ(cf_opts.paranoid_file_checks, false);
 
+  // Test verify_output_flags with kVerifyFileChecksum (bit 2)
+  // 2052 = 4 (kVerifyFileChecksum) | 2048 (kEnableForRemoteCompaction)
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, cf_opts, "verify_output_flags=2052;", &cf_opts));
+  ASSERT_NE(
+      (cf_opts.verify_output_flags & VerifyOutputFlags::kVerifyFileChecksum),
+      VerifyOutputFlags::kVerifyNone);
+  ASSERT_NE((cf_opts.verify_output_flags &
+             VerifyOutputFlags::kEnableForRemoteCompaction),
+            VerifyOutputFlags::kVerifyNone);
+  ASSERT_EQ(
+      (cf_opts.verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum),
+      VerifyOutputFlags::kVerifyNone);
   // Should replace the factory with the new setting
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts,
