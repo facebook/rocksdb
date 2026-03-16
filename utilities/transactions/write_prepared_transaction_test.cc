@@ -4085,150 +4085,107 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
-// Invisible (prepared, uncommitted) tombstones should not trigger range
-// tombstone insertion. After commit, visible tombstones should.
-TEST_P(WritePreparedTransactionTest,
-       RangeTombstoneInsertionDisabledForWritePrepared) {
-  options.min_tombstones_for_range_conversion = 4;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  ASSERT_OK(ReOpenNoDelete());
+// Range tombstone insertion uses max_tombstone_seq to safely gate insertion:
+// only insert if max_tombstone_seq < min_uncommitted (all prepared entries
+// have seqno above the tombstone's seqno).
+TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
 
-  for (char c = 'a'; c <= 'j'; c++) {
-    ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
-  }
-  ASSERT_OK(db->Flush(FlushOptions()));
-
-  // Delete 5 contiguous keys (> threshold of 4), prepare but don't commit.
-  std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
-  ASSERT_NE(txn, nullptr);
-  ASSERT_OK(txn->SetName("txn1"));
-  for (char c = 'c'; c <= 'g'; c++) {
-    ASSERT_OK(txn->Delete(std::string(1, c)));
-  }
-  ASSERT_OK(txn->Prepare());
-
-  // Pre-commit DB iterator: invisible tombstones should not trigger insertion.
-  {
-    ReadOptions read_opts;
-    std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    // Write old keys that will be deleted — these get low sequence numbers.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
     }
-    ASSERT_OK(iter->status());
-  }
-  ASSERT_EQ(
-      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-      0);
+    ASSERT_OK(db->Flush(FlushOptions()));
 
-  // Pre-commit transaction iterator: the DBIter base sees the tombstones as
-  // invisible, so no range tombstone insertion should occur either.
-  {
-    std::unique_ptr<Iterator> iter(txn->GetIterator(ReadOptions()));
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    // Delete 5 contiguous keys (> threshold of 4) directly (not in txn).
+    // These tombstones get sequence numbers lower than any prepared entry.
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
     }
-    ASSERT_OK(iter->status());
-  }
-  ASSERT_EQ(
-      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-      0);
 
-  // Post-commit: now-visible tombstones should trigger insertion.
-  ASSERT_OK(txn->Commit());
-  {
-    ReadOptions read_opts;
-    std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
-    std::vector<std::string> found_keys;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      found_keys.push_back(iter->key().ToString());
+    // Begin a transaction and prepare it — the prepare_seq will be higher
+    // than the tombstone seqnos above.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+    ASSERT_OK(txn->Put("z", "txn_val"));
+    ASSERT_OK(txn->Prepare());
+
+    // Pre-commit: tombstones have max_seq < prepare_seq == min_uncommitted,
+    // so range tombstone IS safely inserted.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
     }
-    ASSERT_OK(iter->status());
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        1);
-    std::vector<std::string> expected = {"a", "b", "h", "i", "j"};
-    ASSERT_EQ(found_keys, expected);
+        1u);
+
+    ASSERT_OK(txn->Commit());
   }
 }
 
-// An invisible key between two runs of visible tombstones must split them
-// into separate range tombstones. Without the fix, a single range tombstone
-// [c, l) would span over the invisible key "g".
-TEST_P(WritePreparedTransactionTest, RangeTombstoneDoesNotSpanInvisibleKey) {
-  options.min_tombstones_for_range_conversion = 4;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  ASSERT_OK(ReOpenNoDelete());
+// When prepared entries have seqno <= max_tombstone_seq, range tombstone
+// insertion is blocked to prevent covering invisible prepared entries.
+TEST_P(WritePreparedTransactionTest,
+       RangeTombstoneInsertionBlockedByPreparedEntry) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
 
-  std::vector<std::pair<std::string, std::string>> inserted_ranges;
-  SyncPoint::GetInstance()->SetCallBack(
-      "MemTable::AddLogicallyRedundantRangeTombstone:AddRange", [&](void* arg) {
-        auto* range = static_cast<std::pair<Slice, Slice>*>(arg);
-        inserted_ranges.emplace_back(range->first.ToString(),
-                                     range->second.ToString());
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  // Keys a-f and h-l in L1. "g" is absent so the prepared Put is the only
-  // entry for it.
-  for (char c = 'a'; c <= 'l'; c++) {
-    if (c == 'g') {
-      continue;
+    // Write old keys.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
     }
-    ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
-  }
-  ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(db->Flush(FlushOptions()));
 
-  for (char c = 'c'; c <= 'f'; c++) {
-    ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
-  }
+    // Prepare a transaction first — the prepare_seq will be low.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+    ASSERT_OK(txn->Put("z", "txn_val"));
+    ASSERT_OK(txn->Prepare());
 
-  std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
-  ASSERT_NE(txn, nullptr);
-  ASSERT_OK(txn->SetName("txn_invisible_g"));
-  ASSERT_OK(txn->Put("g", "txn_val"));
-  ASSERT_OK(txn->Prepare());
-
-  for (char c = 'h'; c <= 'k'; c++) {
-    ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
-  }
-
-  // Non-txn iterator can still insert range tombstones
-  {
-    ReadOptions read_opts;
-    std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
-    std::vector<std::string> found_keys;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      found_keys.push_back(iter->key().ToString());
+    // Now delete 5 contiguous keys — these tombstones get seqnos AFTER
+    // the prepare_seq, so max_tombstone_seq >= min_uncommitted.
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
     }
-    ASSERT_OK(iter->status());
-    std::vector<std::string> expected = {"a", "b", "l"};
-    ASSERT_EQ(found_keys, expected);
-  }
 
-  ASSERT_EQ(inserted_ranges.size(), 2);
-  ASSERT_EQ(inserted_ranges[0].first, "c");
-  ASSERT_EQ(inserted_ranges[0].second, "g");
-  ASSERT_EQ(inserted_ranges[1].first, "h");
-  ASSERT_EQ(inserted_ranges[1].second, "l");
-  ASSERT_EQ(
-      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-      2);
-
-  // Txn iterator can still insert range tombstones
-  inserted_ranges.clear();
-  options.statistics->Reset();
-  {
-    std::unique_ptr<Iterator> iter(txn->GetIterator(ReadOptions()));
-    std::vector<std::string> found_keys;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      found_keys.push_back(iter->key().ToString());
+    // Pre-commit: tombstone max_seq >= prepare_seq == min_uncommitted,
+    // so range tombstone is NOT inserted.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
     }
-    ASSERT_OK(iter->status());
-    std::vector<std::string> expected = {"a", "b", "g", "l"};
-    ASSERT_EQ(found_keys, expected);
-  }
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        0u);
 
-  ASSERT_OK(txn->Rollback());
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
+    ASSERT_OK(txn->Rollback());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

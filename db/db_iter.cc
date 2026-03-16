@@ -89,7 +89,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expose_blob_index_(expose_blob_index),
       allow_unprepared_value_(read_options.allow_unprepared_value),
       is_blob_(false),
-      arena_mode_(arena_mode) {
+      arena_mode_(arena_mode),
+      range_tomb_max_seq_(0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
@@ -485,6 +486,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   range_tomb_first_key_.SetUserKey(
                       ikey_.user_key,
                       !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned());
+                  range_tomb_max_seq_ = ikey_.sequence;
+                } else {
+                  range_tomb_max_seq_ =
+                      std::max(range_tomb_max_seq_, ikey_.sequence);
                 }
                 contiguous_tombstone_count_++;
               }
@@ -556,15 +561,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     } else {
       if (more_recent) {
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
-      }
-
-      // An invisible key breaks any contiguous tombstone run because it may
-      // become visible later (e.g., a prepared-but-uncommitted write in
-      // WritePrepared/WriteUnprepared transactions). A range tombstone that
-      // spans over such a key would incorrectly delete it upon commit.
-      if (contiguous_tombstone_count_ > 0) {
-        MaybeInsertRangeTombstone(ikey_.user_key);
-        ResetContiguousTombstoneTracking();
       }
 
       // This key was inserted after our snapshot was taken or skipped by
@@ -953,6 +949,11 @@ void DBIter::PrevInternal(const Slice* prefix) {
         range_tomb_first_key_.SetUserKey(
             saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
                                          !iter_.iter()->IsKeyPinned());
+        if (contiguous_tombstone_count_ == 0) {
+          range_tomb_max_seq_ = ikey_.sequence;
+        } else {
+          range_tomb_max_seq_ = std::max(range_tomb_max_seq_, ikey_.sequence);
+        }
         contiguous_tombstone_count_++;
       } else if (contiguous_tombstone_count_ > 0) {
         // Live key found after a run of tombstones — insert if threshold met
@@ -1567,11 +1568,21 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
-  assert(active_mem_->GetEarliestSequenceNumber() <= sequence_ ||
+  assert(range_tomb_max_seq_ <= sequence_);
+  assert(active_mem_->GetEarliestSequenceNumber() <= range_tomb_max_seq_ ||
          active_mem_->GetEarliestSequenceNumber() == kMaxSequenceNumber);
 
+  // With read_callback_, only insert if all prepared entries have seqno
+  // above the range tombstone's max seqno. This prevents covering invisible
+  // prepared entries that could later commit.
+  if (read_callback_ != nullptr &&
+      range_tomb_max_seq_ >= read_callback_->min_uncommitted()) {
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+    return;
+  }
+
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
-          sequence_, range_tomb_first_key_.GetUserKey(), end_key)) {
+          range_tomb_max_seq_, range_tomb_first_key_.GetUserKey(), end_key)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
   } else {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);

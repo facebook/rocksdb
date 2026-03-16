@@ -414,7 +414,10 @@ class DBIter final : public Iterator {
   // tombstone [first_key, end_key) into the mutable memtable.
   // end_key is the exclusive upper bound — typically the next live key.
   void MaybeInsertRangeTombstone(const Slice& end_key);
-  void ResetContiguousTombstoneTracking() { contiguous_tombstone_count_ = 0; }
+  void ResetContiguousTombstoneTracking() {
+    contiguous_tombstone_count_ = 0;
+    range_tomb_max_seq_ = 0;
+  }
   void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
 
   void MarkMemtableForFlushForAvgTrigger() {
@@ -535,6 +538,7 @@ class DBIter final : public Iterator {
   bool is_blob_;
   bool arena_mode_;
 
+  SequenceNumber range_tomb_max_seq_;
   IterKey range_tomb_first_key_;
   IterKey range_tomb_end_key_;
 };
