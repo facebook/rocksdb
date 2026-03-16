@@ -627,11 +627,10 @@ DEFINE_double(uniform_cv_threshold,
               "CV threshold for marking index blocks as uniform. Set to -1 to "
               "disable. (see `uniform_cv_threshold` in table.h)");
 
-DEFINE_bool(
-    use_trie_index, false,
-    "Use trie-based user defined index (UDI) for SST files. "
-    "Only compatible with Put operations (no Merge/Delete/SingleDelete). "
-    "When enabled, incompatible flags are automatically adjusted.");
+DEFINE_bool(use_trie_index, false,
+            "Use trie-based user defined index (UDI) for SST files. "
+            "Compatible with all operation types (Put, Delete, Merge, etc.). "
+            "Backward scan is disabled when this is enabled.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests. "

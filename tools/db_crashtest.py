@@ -242,8 +242,8 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    # use_trie_index must be the same across invocations because it restricts
-    # operations (no deletes/merges) and existing SSTs may contain non-Put types
+    # use_trie_index must be the same across invocations so that all SSTs
+    # in a DB are opened with matching table options
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
@@ -903,44 +903,14 @@ def finalize_and_sanitize(src_params):
     else:
         dest_params["allow_resumption_one_in"] = 0
 
-    # Trie UDI only supports Put (kTypeValue). Disable incompatible operations.
+    # UDI now supports all operation types (Put, Delete, Merge, etc.).
+    # Only parallel compression and mmap_read remain incompatible.
     if dest_params.get("use_trie_index") == 1:
-        dest_params["use_merge"] = 0
-        dest_params["use_put_entity_one_in"] = 0
-        dest_params["use_timed_put_one_in"] = 0
-        dest_params["use_get_entity"] = 0
-        dest_params["use_multi_get_entity"] = 0
-        # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
-        # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
-        dest_params["use_txn"] = 0
-        dest_params["use_optimistic_txn"] = 0
-        dest_params["test_multi_ops_txns"] = 0
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
-        # Redistribute delete/delrange percents to write percent
-        dest_params["writepercent"] += dest_params["delpercent"]
-        dest_params["writepercent"] += dest_params["delrangepercent"]
-        dest_params["delpercent"] = 0
-        dest_params["delrangepercent"] = 0
-        # Ingestion with standalone range deletions is incompatible
-        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
-        # Trie UDI does not support SeekToFirst/SeekToLast. Prefix scanning
-        # calls SeekToFirst internally, so disable it. Additionally,
-        # LevelIterator::SkipEmptyFileForward() calls SeekToFirst() when
-        # Next() crosses file boundaries, so general iteration (iterpercent)
-        # also fails with trie UDI. Redistribute both to reads.
-        dest_params["readpercent"] += dest_params.get("prefixpercent", 0)
-        dest_params["prefixpercent"] = 0
-        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
-        dest_params["iterpercent"] = 0
-        # BlobDB writes kTypeBlobIndex entries in SSTs instead of kTypeValue,
-        # which violates UDI's Put-only restriction. Also disable dynamic
-        # blob options to prevent SetOptions from re-enabling blob files.
-        dest_params["enable_blob_files"] = 0
-        dest_params["allow_setting_blob_options_dynamically"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
