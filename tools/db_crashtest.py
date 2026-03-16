@@ -878,8 +878,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_files"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
-        # TODO Fix - Remote worker shouldn't recover from WAL
-        dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
