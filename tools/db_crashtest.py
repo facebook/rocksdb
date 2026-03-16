@@ -434,9 +434,7 @@ default_params = {
     # (block checksum, iteration, file checksum), bits 10-11 are when to
     # enable (local compaction, remote compaction). 0x407 = all types +
     # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
-    "verify_output_flags": lambda: random.choice(
-        [0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]
-    ),
+    "verify_output_flags": lambda: random.choice([0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
@@ -1184,12 +1182,6 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-
-            # WAL write fault injection can corrupt WAL data that the remote
-            # compaction worker would encounter. Disable remote compaction in
-            # this configuration.
-            dest_params["remote_compaction_worker_threads"] = 0
-            dest_params["allow_resumption_one_in"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
         if dest_params.get("block_align") == 1:
@@ -1409,7 +1401,13 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
             print("KILLED %d (SIGTERM did not work)\n" % child.pid)
             outs, errs = child.communicate()
 
-    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8"), pid
+    return (
+        hit_timeout,
+        child.returncode,
+        outs.decode("utf-8"),
+        errs.decode("utf-8"),
+        pid,
+    )
 
 
 def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):
