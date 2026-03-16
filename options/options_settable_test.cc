@@ -695,6 +695,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_avg_op_scan_flush_trigger=12;"
       "min_tombstones_for_range_conversion=8;"
       "cf_allow_ingest_behind=1;"
+      "memtable_batch_lookup_optimization=1;"
       "verify_output_flags=2053;",
       new_options));
 

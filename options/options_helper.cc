@@ -351,6 +351,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;
   cf_opts->cf_allow_ingest_behind = ioptions.cf_allow_ingest_behind;
+  cf_opts->memtable_batch_lookup_optimization =
+      ioptions.memtable_batch_lookup_optimization;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size

@@ -1940,7 +1940,10 @@ IOStatus PosixDirectory::FsyncWithDirOptions(
   assert(fd_ >= 0);  // Check use after close
   IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
-  if (is_btrfs_) {
+  bool test_is_btrfs = is_btrfs_;
+  TEST_SYNC_POINT_CALLBACK("PosixDirectory::FsyncWithDirOptions:ForceBtrfs",
+                           &test_is_btrfs);
+  if (test_is_btrfs) {
     // skip dir fsync for new file creation, which is not needed for btrfs
     if (dir_fsync_options.reason == DirFsyncOptions::kNewFileSynced) {
       return s;
@@ -1959,7 +1962,7 @@ IOStatus PosixDirectory::FsyncWithDirOptions(
       } else if (fsync(fd) < 0) {
         s = IOError("While fsync renaming file", new_name, errno);
       }
-      if (close(fd) < 0) {
+      if (fd >= 0 && close(fd) < 0) {
         s = IOError("While closing file after fsync", new_name, errno);
       }
       return s;
