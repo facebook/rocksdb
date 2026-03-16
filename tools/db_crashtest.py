@@ -1049,6 +1049,7 @@ def finalize_and_sanitize(src_params):
         dest_params["commit_bypass_memtable_one_in"] = 0
         # not compatible with Remote Compaction yet
         dest_params["remote_compaction_worker_threads"] = 0
+        dest_params["allow_resumption_one_in"] = 0
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -1184,8 +1185,11 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
 
-            # TODO Fix - Remote worker shouldn't recover from WAL
+            # WAL write fault injection can corrupt WAL data that the remote
+            # compaction worker would encounter. Disable remote compaction in
+            # this configuration.
             dest_params["remote_compaction_worker_threads"] = 0
+            dest_params["allow_resumption_one_in"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
         if dest_params.get("block_align") == 1:
