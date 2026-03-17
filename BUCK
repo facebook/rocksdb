@@ -5142,6 +5142,12 @@ cpp_unittest_wrapper(name="faiss_ivf_index_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="fault_injection_fs_test",
+            srcs=["utilities/fault_injection_fs_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="fault_injection_test",
             srcs=["db/fault_injection_test.cc"],
             deps=[":rocksdb_test_lib"],
