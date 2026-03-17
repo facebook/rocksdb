@@ -406,6 +406,12 @@ class Bitvector {
   // Used by the trie for finding the next sibling label in dense nodes.
   uint64_t NextSetBit(uint64_t pos) const;
 
+  // Find the last set bit strictly before position `pos`.
+  // Returns num_bits_ (sentinel) if no set bit exists before pos.
+  // Used by the trie for finding the previous sibling label in dense nodes
+  // during reverse iteration (Prev/SeekToLast).
+  uint64_t PrevSetBit(uint64_t pos) const;
+
   // Find the distance from `pos` to the next set bit (exclusive).
   // Returns the distance in bits. Used by sparse level to compute node size.
   // pos must point to a set bit.

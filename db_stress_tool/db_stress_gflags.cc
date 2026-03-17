@@ -629,12 +629,11 @@ DEFINE_double(uniform_cv_threshold,
 
 DEFINE_bool(use_trie_index, false,
             "Use trie-based user defined index (UDI) for SST files. "
-            "Compatible with all operation types (Put, Delete, Merge, etc.). "
-            "Backward scan is disabled when this is enabled.");
+            "Compatible with all operation types (Put, Delete, Merge, etc.) "
+            "and all iteration directions (forward and reverse).");
 
 DEFINE_bool(test_backward_scan, true,
-            "Test backward iteration (Prev, SeekForPrev) in stress tests. "
-            "Automatically set to false when use_trie_index is enabled.");
+            "Test backward iteration (Prev, SeekForPrev) in stress tests.");
 
 DEFINE_string(db, "", "Use the db with the following name.");
 

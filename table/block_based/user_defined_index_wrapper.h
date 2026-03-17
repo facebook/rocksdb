@@ -245,8 +245,15 @@ class UserDefinedIndexIteratorWrapper
   }
 
   void SeekToLast() override {
-    valid_ = false;
-    status_ = Status::NotSupported("SeekToLast not supported");
+    status_ = udi_iter_->SeekToLastAndGetResult(&result_);
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        SetInternalKeyFromUDIResult();
+      }
+    } else {
+      valid_ = false;
+    }
   }
 
   void Seek(const Slice& target) override {
@@ -301,13 +308,24 @@ class UserDefinedIndexIteratorWrapper
   }
 
   void SeekForPrev(const Slice& /*target*/) override {
+    // BlockBasedTableIterator never calls SeekForPrev on the index iterator.
+    // It uses Seek + FindKeyBackward(Prev) instead. The standard index's
+    // IndexBlockIter::SeekForPrevImpl is also assert(false). Keep this as
+    // NotSupported for safety.
     valid_ = false;
     status_ = Status::NotSupported("SeekForPrev not supported");
   }
 
   void Prev() override {
-    valid_ = false;
-    status_ = Status::NotSupported("Prev not supported");
+    status_ = udi_iter_->PrevAndGetResult(&result_);
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        SetInternalKeyFromUDIResult();
+      }
+    } else {
+      valid_ = false;
+    }
   }
 
   Slice key() const override { return Slice(*ikey_.const_rep()); }

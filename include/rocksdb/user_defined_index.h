@@ -155,6 +155,28 @@ class UserDefinedIndexIterator {
     return SeekAndGetResult(Slice(), result, SeekContext{});
   }
 
+  // Position the index iterator at the very last index entry. The result
+  // must be populated the same way as SeekAndGetResult.
+  //
+  // The default implementation returns NotSupported. Concrete UDI
+  // implementations must override this to support reverse iteration
+  // (SeekToLast, Prev), which is required for full iterator functionality.
+  virtual Status SeekToLastAndGetResult(IterateResult* result) {
+    (void)result;
+    return Status::NotSupported("SeekToLast not supported by this UDI");
+  }
+
+  // Move to the previous index entry. The result must be populated the
+  // same way as SeekAndGetResult.
+  //
+  // The default implementation returns NotSupported. Concrete UDI
+  // implementations must override this to support reverse iteration
+  // (SeekToLast, Prev), which is required for full iterator functionality.
+  virtual Status PrevAndGetResult(IterateResult* result) {
+    (void)result;
+    return Status::NotSupported("Prev not supported by this UDI");
+  }
+
   // Given the target key, position the index iterator at the index entry
   // for the data block that may contain the target.
   //

@@ -140,6 +140,14 @@ class TrieIndexIterator : public UserDefinedIndexIterator {
   // leftmost leaf without a full seek traversal.
   Status SeekToFirstAndGetResult(IterateResult* result) override;
 
+  // Position at the very last index entry. Descends directly to the
+  // rightmost leaf without a full seek traversal.
+  Status SeekToLastAndGetResult(IterateResult* result) override;
+
+  // Move to the previous index entry. When in an overflow run, decrements
+  // within the run before moving to the previous trie leaf.
+  Status PrevAndGetResult(IterateResult* result) override;
+
   // Seek to the first index entry >= target. When has_seqno_encoding_ is
   // true, the trie is searched with user_key only, then post-seek correction
   // uses target_seq from context to advance through overflow blocks as needed.

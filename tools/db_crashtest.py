@@ -903,7 +903,7 @@ def finalize_and_sanitize(src_params):
     else:
         dest_params["allow_resumption_one_in"] = 0
 
-    # UDI now supports all operation types (Put, Delete, Merge, etc.).
+    # UDI now supports all operation types and all iteration directions.
     # Only parallel compression and mmap_read remain incompatible.
     if dest_params.get("use_trie_index") == 1:
         # Trie UDI uses zero-copy pointers into block data, which is
