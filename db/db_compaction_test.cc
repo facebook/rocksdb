@@ -14,11 +14,13 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/mock_time_env.h"
@@ -11488,20 +11490,24 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   // Check that we are populating newest_key_time on flush
   std::vector<FileMetaData*> file_metadatas = GetLevelFileMetadatas(0);
   ASSERT_EQ(file_metadatas.size(), 4);
-  uint64_t first_newest_key_time =
-      file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time;
+  uint64_t first_newest_key_time = file_metadatas[0]
+                                       ->fd.pinned_reader.Get()
+                                       ->GetTableProperties()
+                                       ->newest_key_time;
   ASSERT_NE(first_newest_key_time, kUnknownNewestKeyTime);
   // Check that the newest_key_times are in expected ordering
   uint64_t prev_newest_key_time = first_newest_key_time;
   for (size_t idx = 1; idx < file_metadatas.size(); idx++) {
     uint64_t newest_key_time = file_metadatas[idx]
-                                   ->fd.table_reader->GetTableProperties()
+                                   ->fd.pinned_reader.Get()
+                                   ->GetTableProperties()
                                    ->newest_key_time;
 
     ASSERT_LT(newest_key_time, prev_newest_key_time);
     prev_newest_key_time = newest_key_time;
     ASSERT_EQ(newest_key_time, file_metadatas[idx]
-                                   ->fd.table_reader->GetTableProperties()
+                                   ->fd.pinned_reader.Get()
+                                   ->GetTableProperties()
                                    ->creation_time);
   }
   // The delta between the first and last newest_key_times is 15s
@@ -11516,14 +11522,18 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   file_metadatas = GetLevelFileMetadatas(0);
   ASSERT_EQ(file_metadatas.size(), 1);
-  ASSERT_EQ(
-      file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time,
-      first_newest_key_time);
+  ASSERT_EQ(file_metadatas[0]
+                ->fd.pinned_reader.Get()
+                ->GetTableProperties()
+                ->newest_key_time,
+            first_newest_key_time);
   // Contrast newest_key_time with creation_time, which records the oldest
   // ancestor time (15s older than newest_key_time)
-  ASSERT_EQ(
-      file_metadatas[0]->fd.table_reader->GetTableProperties()->creation_time,
-      last_newest_key_time);
+  ASSERT_EQ(file_metadatas[0]
+                ->fd.pinned_reader.Get()
+                ->GetTableProperties()
+                ->creation_time,
+            last_newest_key_time);
   ASSERT_EQ(file_metadatas[0]->oldest_ancester_time, last_newest_key_time);
 
   // Make sure TTL of 5s causes compaction
@@ -11724,6 +11734,198 @@ TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
 
   ASSERT_GE(read_triggered_compactions, 1);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// Regression test for a bug in SetupOtherFilesWithRoundRobinExpansion where
+// duplicate files are added to the compaction input, corrupting
+// ExpandInputsToCleanCut and violating the clean-cut invariant. The bug
+// requires: (1) kRoundRobin compaction priority, (2) files at a non-L0 level
+// with shared user key boundaries (adjacent files whose boundary keys share
+// the same user key), and (3) ExpandInputsToCleanCut expanding the initially
+// picked file to include multiple adjacent files in PickFileToCompact.
+TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.compaction_pri = kRoundRobin;
+  options.level_compaction_dynamic_level_bytes = false;
+  options.max_bytes_for_level_base = 100;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  std::vector<const Snapshot*> snapshots;
+  for (int v = 0; v < 5; v++) {
+    for (int k = 0; k < 3; k++) {
+      ASSERT_OK(Put("key" + std::to_string(k), "v" + std::to_string(v)));
+    }
+    snapshots.push_back(db_->GetSnapshot());
+    ASSERT_OK(Flush());
+  }
+
+  // Force L0->L1 compaction output to split every 3 keys. With 3 keys x 5
+  // versions (15 KVs) sorted by (user_key asc, seq desc), splitting every 3
+  // creates 5 files where adjacent files share boundaries across different
+  // user keys (e.g., File0 ends with key0, File1 starts with key0 and ends
+  // with key1, etc.). This chain of 4+ shared boundaries across 3 different
+  // user keys is needed so that ExpandInputsToCleanCut expands the picked
+  // file to multiple files, and the duplicate in the round-robin loop causes
+  // GetRange to return a truncated range that drops files from the set.
+  std::atomic<int> key_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionOutputs::ShouldStopBefore::manual_decision", [&](void* arg) {
+        auto* p = static_cast<std::pair<bool*, const Slice>*>(arg);
+        int n = key_count.fetch_add(1);
+        if (n > 0 && n % 3 == 0) {
+          *(p->first) = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.levels[1].files.size(), 5U);
+
+  for (auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
+
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  for (int k = 0; k < 3; k++) {
+    ASSERT_EQ(Get("key" + std::to_string(k)), "v4");
+  }
+}
+
+TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.verify_output_flags = VerifyOutputFlags::kVerifyFileChecksum |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
+  DestroyAndReopen(options);
+
+  // Create 2 L0 files to trigger compaction
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 5; i < 15; i++) {
+    ASSERT_OK(Put(Key(i), "value2_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Corrupt output files right before verification
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run:BeforeVerify", [&](void* /*arg*/) {
+        // Find and corrupt the newest SST file (compaction output)
+        std::vector<std::string> filenames;
+        ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+        uint64_t max_number = 0;
+        std::string target_fname;
+        for (const auto& f : filenames) {
+          uint64_t number;
+          FileType type;
+          if (ParseFileName(f, &number, &type) && type == kTableFile &&
+              number > max_number) {
+            max_number = number;
+            target_fname = dbname_ + "/" + f;
+          }
+        }
+        ASSERT_FALSE(target_fname.empty());
+        ASSERT_OK(test::CorruptFile(env_, target_fname, 0, 1,
+                                    false /* verifyChecksum */));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(
+      std::strstr(s.getState(), "File checksum mismatch for compaction output"))
+      << s.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Regression test: verify_output_flags with kVerifyIteration should work
+// correctly even when paranoid_file_checks is false. Before the fix, the
+// OutputValidator hash was only computed during writing when
+// paranoid_file_checks was true, but the verification always computed the
+// hash, leading to a false positive "Key-value checksum of compaction output
+// doesn't match" error.
+TEST_F(DBCompactionTest, VerifyIterationWithoutParanoidFileChecks) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.paranoid_file_checks = false;
+  options.verify_output_flags = VerifyOutputFlags::kVerifyIteration |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
+  DestroyAndReopen(options);
+
+  // Create 2 L0 files to trigger compaction
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 5; i < 15; i++) {
+    ASSERT_OK(Put(Key(i), "value2_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Compaction should succeed without false corruption errors
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify data is intact
+  for (int i = 0; i < 15; i++) {
+    std::string expected;
+    if (i >= 5) {
+      expected = "value2_" + std::to_string(i);
+    } else {
+      expected = "value" + std::to_string(i);
+    }
+    ASSERT_EQ(Get(Key(i)), expected);
+  }
+}
+
+// Also test all verification types combined without paranoid_file_checks
+TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.paranoid_file_checks = false;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.verify_output_flags = VerifyOutputFlags::kVerifyBlockChecksum |
+                                VerifyOutputFlags::kVerifyIteration |
+                                VerifyOutputFlags::kVerifyFileChecksum |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 5; i < 15; i++) {
+    ASSERT_OK(Put(Key(i), "value2_" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  // Compaction should succeed with all verification types enabled
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  for (int i = 0; i < 15; i++) {
+    std::string expected;
+    if (i >= 5) {
+      expected = "value2_" + std::to_string(i);
+    } else {
+      expected = "value" + std::to_string(i);
+    }
+    ASSERT_EQ(Get(Key(i)), expected);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

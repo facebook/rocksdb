@@ -1718,6 +1718,17 @@ class DBImpl : public DB {
   // recovery.
   Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
 
+  // Schedule background work to open and validate SST files asynchronously.
+  // Called when open_files_async is enabled.
+  void ScheduleAsyncFileOpening();
+
+  // Mark async file opening as not needed. Used by subclasses that load
+  // table files through a different mechanism (e.g., ReactiveVersionSet).
+  void MarkAsyncFileOpenNotNeeded();
+
+  // Background work function for async file opening.
+  static void BGWorkAsyncFileOpen(void* arg);
+
   void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
 
   // Return true to proceed with current WAL record whose content is stored in
@@ -1727,6 +1738,9 @@ class DBImpl : public DB {
                                           log::Reader::Reporter& reporter,
                                           Status& status, bool& stop_replay,
                                           WriteBatch& batch);
+
+  // Indicate DB was opened successfully
+  bool opened_successfully_ = false;
 
  private:
   friend class DB;
@@ -2150,7 +2164,7 @@ class DBImpl : public DB {
   Status InsertLogRecordToMemtable(WriteBatch* batch_to_use,
                                    uint64_t wal_number,
                                    SequenceNumber* next_sequence,
-                                   bool* has_valid_writes);
+                                   bool* has_valid_writes, bool read_only);
 
   Status MaybeWriteLevel0TableForRecovery(
       bool has_valid_writes, bool read_only, uint64_t wal_number, int job_id,
@@ -3067,6 +3081,16 @@ class DBImpl : public DB {
   // number of background obsolete file purge jobs, submitted to the HIGH pool
   int bg_purge_scheduled_ = 0;
 
+  enum class AsyncFileOpenState : uint8_t {
+    kNotScheduled = 0,  // Async file opening has not been scheduled.
+    kScheduled,         // Async file opening is in-flight in the HIGH pool.
+    kComplete,          // Async file opening has finished (or was not needed).
+  };
+
+  // Tracks whether background async file opening has been scheduled/completed.
+  AsyncFileOpenState bg_async_file_open_state_ =
+      AsyncFileOpenState::kNotScheduled;
+
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
   // shall we disable deletion of obsolete files
@@ -3121,9 +3145,6 @@ class DBImpl : public DB {
 
   // Guard against multiple concurrent refitting
   bool refitting_level_ = false;
-
-  // Indicate DB was opened successfully
-  bool opened_successfully_ = false;
 
   // The min threshold to triggere bottommost compaction for removing
   // garbages, among all column families.
@@ -3192,7 +3213,7 @@ class DBImpl : public DB {
   // installed to MANIFEST first.
   InstrumentedCondVar atomic_flush_install_cv_;
 
-  bool wal_in_db_path_;
+  bool wal_in_db_path_ = false;
   std::atomic<uint64_t> max_total_wal_size_;
 
   BlobFileCompletionCallback blob_callback_;

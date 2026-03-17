@@ -203,6 +203,9 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
+DEFINE_bool(open_files_async, ROCKSDB_NAMESPACE::Options().open_files_async,
+            "Options.open_files_async");
+
 DEFINE_uint64(compressed_secondary_cache_size, 0,
               "Number of bytes to use as a cache of compressed data."
               " 0 means use default settings.");
@@ -428,8 +431,9 @@ DEFINE_uint64(fifo_compaction_max_data_files_size_mb, 0,
 DEFINE_bool(fifo_compaction_use_kv_ratio_compaction, false,
             "If true, set "
             "`Options::compaction_options_fifo.use_kv_ratio_compaction = "
-            "true`. Requires fifo_allow_compaction and "
-            "fifo_compaction_max_data_files_size_mb > 0.");
+            "true`. Recommends fifo_allow_compaction and "
+            "fifo_compaction_max_data_files_size_mb > 0 (falls back to "
+            "cost-based intra-L0 compaction if not set).");
 
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
@@ -618,11 +622,15 @@ DEFINE_int32(index_block_search_type,
              "Search algorithm for index blocks (see `enum BlockSearchType` in "
              "table.h)");
 
-DEFINE_bool(
-    use_trie_index, false,
-    "Use trie-based user defined index (UDI) for SST files. "
-    "Only compatible with Put operations (no Merge/Delete/SingleDelete). "
-    "When enabled, incompatible flags are automatically adjusted.");
+DEFINE_double(uniform_cv_threshold,
+              ROCKSDB_NAMESPACE::BlockBasedTableOptions().uniform_cv_threshold,
+              "CV threshold for marking index blocks as uniform. Set to -1 to "
+              "disable. (see `uniform_cv_threshold` in table.h)");
+
+DEFINE_bool(use_trie_index, false,
+            "Use trie-based user defined index (UDI) for SST files. "
+            "Compatible with all operation types (Put, Delete, Merge, etc.). "
+            "Backward scan is disabled when this is enabled.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests. "
@@ -1068,6 +1076,11 @@ DEFINE_bool(write_identity_file,
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
+
+DEFINE_bool(
+    enforce_write_buffer_manager_during_recovery,
+    ROCKSDB_NAMESPACE::Options().enforce_write_buffer_manager_during_recovery,
+    "Enforce write buffer manager memory limit during WAL recovery");
 
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,
@@ -1527,6 +1540,10 @@ DEFINE_uint32(uncache_aggressiveness,
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
 
+DEFINE_uint32(verify_output_flags, 0,
+              "Sets CF option verify_output_flags as a uint32_t bitmask. "
+              "See VerifyOutputFlags enum for bit definitions.");
+
 DEFINE_bool(paranoid_memory_checks,
             ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
@@ -1535,6 +1552,10 @@ DEFINE_bool(
     memtable_veirfy_per_key_checksum_on_seek,
     ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
     "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+
+DEFINE_bool(memtable_batch_lookup_optimization,
+            ROCKSDB_NAMESPACE::Options().memtable_batch_lookup_optimization,
+            "Sets CF option memtable_batch_lookup_optimization.");
 
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "

@@ -36,7 +36,7 @@ namespace trie_index {
 // Implementation uses a two-level lookup table for rank (sampling every
 // kBitsPerRankSample bits) and select hints + linear scan for select. Both
 // rank and select operations are O(1). Select uses precomputed hint arrays
-// that narrow the search to 1-2 rank samples, then a word-level popcount
+// that narrow the search to O(1) rank samples, then a word-level popcount
 // scan within that interval.
 //
 // Memory layout (serialized):
@@ -63,7 +63,7 @@ namespace trie_index {
 // ============================================================================
 
 // Number of bits per rank lookup table entry. Must be a power of 2 and a
-// multiple of 64. 256 gives a good balance between LUT size overhead (~1.6%
+// multiple of 64. 256 gives a good balance between LUT size overhead (~12.5%
 // of bitvector size with uint32_t entries) and the number of popcounts needed
 // per rank query (at most 4 words). Benchmarking showed 256 is ~20% faster
 // than 512 for trie Seek due to fewer popcount iterations per Rank1 call.
@@ -97,7 +97,7 @@ inline uint64_t FindNthSetBitInWord(uint64_t word, uint64_t i) {
   return __builtin_ctzll(_pdep_u64(1ULL << i, word));
 }
 #else
-// Popcount-based binary search: O(log 64) = O(6) popcounts.
+// Popcount-based binary search: O(log 64) = 6 steps (5 popcounts + 1 bit test).
 // Matches the SuRF reference implementation's select64_popcount_search().
 inline uint64_t FindNthSetBitInWord(uint64_t word, uint64_t i) {
   // Binary search: narrow down which 32-bit half, then 16, 8, 4, 2, 1.
@@ -176,7 +176,9 @@ class BitvectorBuilder {
   // when possible, which is significantly faster than the bit-by-bit loop for
   // large counts (e.g., appending 256 zeros for an empty dense node).
   void AppendMultiple(bool bit, uint64_t count) {
-    if (count == 0) return;
+    if (count == 0) {
+      return;
+    }
 
     // Fill partial word at the end of the current buffer.
     uint64_t partial = num_bits_ % 64;
@@ -243,8 +245,8 @@ class BitvectorBuilder {
 //
 // Select acceleration: select hints store the rank LUT index where every
 // kOnesPerSelectHint-th 1-bit (or 0-bit) lives. This narrows the search
-// in FindNthOneBit/FindNthZeroBit to a linear scan of 1-2 rank samples, making
-// Select O(1). The hint arrays add ~0.4% space overhead per bitvector.
+// in FindNthOneBit/FindNthZeroBit to a linear scan of O(1) rank samples,
+// making Select O(1). The hint arrays add ~12.5% space overhead per bitvector.
 // ============================================================================
 class Bitvector {
  public:
@@ -267,6 +269,8 @@ class Bitvector {
   // std::string's move constructor preserves the buffer address for
   // SSO-exceeding strings. For the InitFromData case, the pointers reference
   // external memory and are unaffected by moving owned_data_ (which is empty).
+  ~Bitvector() = default;
+
   Bitvector(const Bitvector&) = delete;
   Bitvector& operator=(const Bitvector&) = delete;
   // Move constructor delegates to default ctor + move assignment to avoid
@@ -363,7 +367,8 @@ class Bitvector {
       return num_bits_;
     }
     // Use select hints to narrow the search range.
-    uint64_t lo, hi;
+    uint64_t lo;
+    uint64_t hi;
     if (num_select1_hints_ > 0) {
       uint64_t hint_idx = i / kOnesPerSelectHint;
       lo = select1_hints_[hint_idx];
@@ -474,7 +479,8 @@ class Bitvector {
 //   Given n values in [0, U], each value v is split into:
 //     - high part: v >> low_bits  (unary-coded in a bitvector)
 //     - low part:  v & ((1 << low_bits) - 1)  (packed in a bit array)
-//   where low_bits = floor(log2(U / n)) when n > 0, or 0 when n <= 1.
+//   where low_bits = floor(log2(U / n)) when n > 0 and U > n, or 0 when
+//   n == 0 or U <= n.
 //
 //   The high-bits bitvector has ones at position high[i] + i for each
 //   element i. The i-th value is recovered as:
@@ -500,10 +506,50 @@ class EliasFano {
         low_words_(nullptr),
         num_low_words_(0) {}
 
+  ~EliasFano() = default;
+
   EliasFano(const EliasFano&) = delete;
   EliasFano& operator=(const EliasFano&) = delete;
-  EliasFano(EliasFano&&) = default;
-  EliasFano& operator=(EliasFano&&) = default;
+
+  // Custom move operations to re-seat low_words_ after moving owned_low_data_.
+  // The default move would leave low_words_ pointing into the moved-from
+  // object's owned_low_data_ buffer. For SSO-sized strings (owned_low_data_
+  // with <= ~22 bytes, e.g. count_=1 low_bits_=8 → 8 bytes), std::string
+  // move copies the SSO buffer to a new address rather than transferring a
+  // heap pointer, leaving low_words_ dangling. For heap-allocated strings
+  // move transfers the pointer (address preserved), but we re-seat
+  // unconditionally for correctness since SSO thresholds are implementation-
+  // defined. This mirrors Bitvector's move pattern (RecomputePointers).
+  EliasFano(EliasFano&& other) noexcept : EliasFano() {
+    *this = std::move(other);
+  }
+  EliasFano& operator=(EliasFano&& other) noexcept {
+    if (this != &other) {
+      count_ = other.count_;
+      universe_ = other.universe_;
+      low_bits_ = other.low_bits_;
+      low_mask_ = other.low_mask_;
+      num_low_words_ = other.num_low_words_;
+      high_bv_ = std::move(other.high_bv_);
+      owned_low_data_ = std::move(other.owned_low_data_);
+      // Re-seat low_words_ into our owned buffer. When owned_low_data_ is
+      // non-empty, low_words_ must point into it (BuildFrom path). When
+      // empty, low_words_ points to external memory (InitFromData path)
+      // or is nullptr (empty sequence).
+      if (!owned_low_data_.empty()) {
+        low_words_ = reinterpret_cast<const uint64_t*>(owned_low_data_.data());
+      } else {
+        low_words_ = other.low_words_;
+      }
+      other.count_ = 0;
+      other.universe_ = 0;
+      other.low_bits_ = 0;
+      other.low_mask_ = 0;
+      other.low_words_ = nullptr;
+      other.num_low_words_ = 0;
+    }
+    return *this;
+  }
 
   // Build from a sorted sequence of uint64_t values.
   // Values must be monotonically non-decreasing.

@@ -33,6 +33,7 @@
 #include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
+#include "file/file_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -905,17 +906,17 @@ Status CompactionJob::VerifyOutputFiles() {
       // use_direct_io_for_flush_and_compaction is true, we will regard this
       // verification as user reads since the goal is to cache it here for
       // further user reads
-      ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
-      verify_table_read_options.verify_checksums = true;
-      verify_table_read_options.readahead_size =
+      ReadOptions verification_read_options(Env::IOActivity::kCompaction);
+      verification_read_options.verify_checksums = true;
+      verification_read_options.readahead_size =
           file_options_for_read_.compaction_readahead_size;
 
       std::unique_ptr<TableReader> table_reader_guard;
       TableReader* table_reader_ptr = table_reader_guard.get();
-      verify_table_read_options.rate_limiter_priority =
+      verification_read_options.rate_limiter_priority =
           GetRateLimiterPriority();
       InternalIterator* iter = cfd->table_cache()->NewIterator(
-          verify_table_read_options, file_options_, cfd->internal_comparator(),
+          verification_read_options, file_options_, cfd->internal_comparator(),
           output_file.meta,
           /*range_del_agg=*/nullptr, compact_->compaction->mutable_cf_options(),
           /*table_reader_ptr=*/&table_reader_ptr,
@@ -943,12 +944,17 @@ Status CompactionJob::VerifyOutputFiles() {
               !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
           const bool should_verify_iteration =
               !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+          const bool should_verify_file_checksum =
+              !!(verify_output_flags &
+                 VerifyOutputFlags::kVerifyFileChecksum) &&
+              db_options_.file_checksum_gen_factory != nullptr &&
+              output_file.meta.file_checksum != kUnknownFileChecksum;
           if (should_verify_block_checksum) {
             assert(table_reader_ptr != nullptr);
             // If verifying iteration as well, verify meta blocks here only to
             // avoid redundant checks on data blocks
             s = table_reader_ptr->VerifyChecksum(
-                verify_table_read_options, TableReaderCaller::kCompaction,
+                verification_read_options, TableReaderCaller::kCompaction,
                 /*meta_blocks_only=*/should_verify_iteration);
           }
           if (s.ok() && should_verify_iteration) {
@@ -967,6 +973,24 @@ Status CompactionJob::VerifyOutputFiles() {
               s = Status::Corruption(
                   "Key-value checksum of compaction output doesn't match what "
                   "was computed when written");
+            }
+          }
+          if (s.ok() && should_verify_file_checksum) {
+            std::string file_checksum;
+            std::string file_checksum_func_name;
+            std::string fname =
+                GetTableFileName(output_file.meta.fd.GetNumber());
+            s = GenerateOneFileChecksum(
+                fs_.get(), fname, db_options_.file_checksum_gen_factory.get(),
+                output_file.meta.file_checksum_func_name, &file_checksum,
+                &file_checksum_func_name,
+                verification_read_options.readahead_size,
+                db_options_.allow_mmap_reads, io_tracer_,
+                db_options_.rate_limiter.get(), verification_read_options,
+                stats_, db_options_.clock, file_options_for_read_);
+            if (s.ok() && file_checksum != output_file.meta.file_checksum) {
+              s = Status::Corruption(
+                  "File checksum mismatch for compaction output file " + fname);
             }
           }
         }
@@ -2472,8 +2496,16 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       return s;
     }
 
+    // Enable hash computation if paranoid_file_checks is on or if
+    // verify_output_flags includes kVerifyIteration, so that
+    // VerifyOutputFiles() can compare the hash of the written data
+    // against a re-read of the output file.
+    bool enable_output_hash =
+        paranoid_file_checks_ ||
+        !!(sub_compact->compaction->mutable_cf_options().verify_output_flags &
+           VerifyOutputFlags::kVerifyIteration);
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      paranoid_file_checks_);
+                      enable_output_hash);
   }
 
   writable_file->SetIOPriority(GetRateLimiterPriority());
@@ -2906,12 +2938,17 @@ void CompactionJob::RestoreCompactionOutputs(
 
   const auto& output_files = subcompaction_progress_per_level.GetOutputFiles();
 
+  const bool enable_output_hash =
+      paranoid_file_checks_ ||
+      !!(compact_->compaction->mutable_cf_options().verify_output_flags &
+         VerifyOutputFlags::kVerifyIteration);
+
   for (size_t i = 0; i < output_files.size(); i++) {
     FileMetaData file_copy = output_files[i];
 
     outputs_to_restore->AddOutput(std::move(file_copy),
                                   cfd->internal_comparator(),
-                                  paranoid_file_checks_, true /* finished */);
+                                  enable_output_hash, true /* finished */);
 
     outputs_to_restore->UpdateTableProperties(
         *output_files_table_properties[i]);

@@ -113,6 +113,7 @@ DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
+DECLARE_bool(open_files_async);
 DECLARE_uint64(compressed_secondary_cache_size);
 DECLARE_int32(compressed_secondary_cache_numshardbits);
 DECLARE_int32(secondary_cache_update_interval);
@@ -179,6 +180,7 @@ DECLARE_bool(use_sqfc_for_range_queries);
 DECLARE_int32(index_type);
 DECLARE_int32(data_block_index_type);
 DECLARE_int32(index_block_search_type);
+DECLARE_double(uniform_cv_threshold);
 DECLARE_bool(use_trie_index);
 DECLARE_bool(test_backward_scan);
 DECLARE_string(db);
@@ -272,6 +274,7 @@ DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
 DECLARE_bool(write_identity_file);
 DECLARE_bool(avoid_flush_during_recovery);
+DECLARE_bool(enforce_write_buffer_manager_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
@@ -285,8 +288,10 @@ DECLARE_bool(verification_only);
 DECLARE_string(last_level_temperature);
 DECLARE_string(default_write_temperature);
 DECLARE_string(default_temperature);
+DECLARE_uint32(verify_output_flags);
 DECLARE_bool(paranoid_memory_checks);
 DECLARE_bool(memtable_veirfy_per_key_checksum_on_seek);
+DECLARE_bool(memtable_batch_lookup_optimization);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)

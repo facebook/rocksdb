@@ -24,6 +24,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -92,6 +93,15 @@ int db_stress_tool(int argc, char** argv) {
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
+
+    // Register a crash callback so that recently injected errors are
+    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
+    // This helps diagnose stress test failures caused by fault injection.
+    port::RegisterCrashCallback([]() {
+      if (fault_fs_guard) {
+        fault_fs_guard->PrintRecentInjectedErrors();
+      }
+    });
   }
 
   auto db_stress_fs =
@@ -219,42 +229,20 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_atomic_flush = true;
   }
 
-  // Trie UDI only supports Seek + Next. Disable backward scan testing so
-  // that other features lacking backward scan support can reuse this flag.
+  // Trie UDI supports Seek, Next, and SeekToFirst, but not SeekToLast,
+  // SeekForPrev, or Prev. Disable backward scan testing.
   if (FLAGS_use_trie_index) {
     FLAGS_test_backward_scan = false;
   }
 
-  // Trie UDI only supports kTypeValue (Put) entries. Reject incompatible
-  // operations that would produce non-Put types during flush/compaction.
-  if (FLAGS_use_trie_index) {
-    if (FLAGS_delpercent > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with delpercent > 0\n");
-      exit(1);
-    }
-    if (FLAGS_delrangepercent > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "delrangepercent > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_merge) {
-      fprintf(stderr, "Error: use_trie_index is incompatible with use_merge\n");
-      exit(1);
-    }
-    if (FLAGS_use_put_entity_one_in > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "use_put_entity_one_in > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_timed_put_one_in > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "use_timed_put_one_in > 0\n");
-      exit(1);
-    }
+  // Trie UDI uses zero-copy pointers into block data, which is
+  // incompatible with mmap_read.
+  if (FLAGS_use_trie_index && FLAGS_mmap_read) {
+    fprintf(stderr,
+            "Error: use_trie_index is incompatible with mmap_read. "
+            "The trie index uses zero-copy pointers into block data "
+            "which is unsafe with mmap'd reads.\n");
+    exit(1);
   }
 
   if (FLAGS_read_only) {
@@ -276,6 +264,25 @@ int db_stress_tool(int argc, char** argv) {
     db_stress_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
+  }
+
+  // Now that FLAGS_db is resolved, set the fault injection log file path
+  // so that PrintAll() writes to a file instead of stderr (signal-safe).
+  // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
+  // DB reopen (which cleans untracked files) and gets included in the
+  // sandcastle db.tar.gz artifact for post-failure analysis.
+  if (fault_fs_guard) {
+    std::string log_dir;
+    const char* test_tmpdir = getenv("TEST_TMPDIR");
+    if (test_tmpdir && test_tmpdir[0] != '\0') {
+      log_dir = test_tmpdir;
+    } else {
+      log_dir = "/tmp";
+    }
+    std::string log_path = log_dir + "/fault_injection_" +
+                           std::to_string(getpid()) + "_" +
+                           std::to_string(time(nullptr)) + ".log";
+    fault_fs_guard->SetInjectedErrorLogPath(log_path);
   }
 
   if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&

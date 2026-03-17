@@ -466,6 +466,90 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
             options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
 }
 
+// Cache wrapper that tracks the priority of each Insert call.
+namespace {
+class PriorityTrackingCache : public CacheWrapper {
+ public:
+  explicit PriorityTrackingCache(std::shared_ptr<Cache> target)
+      : CacheWrapper(std::move(target)) {}
+
+  const char* Name() const override { return "PriorityTrackingCache"; }
+
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
+                Handle** handle = nullptr, Priority priority = Priority::LOW,
+                const Slice& compressed_value = Slice(),
+                CompressionType type = kNoCompression) override {
+    insert_priorities_.push_back(priority);
+    return CacheWrapper::Insert(key, value, helper, charge, handle, priority,
+                                compressed_value, type);
+  }
+
+  void ResetPriorities() { insert_priorities_.clear(); }
+
+  bool HasPriority(Priority p) const {
+    return std::find(insert_priorities_.begin(), insert_priorities_.end(), p) !=
+           insert_priorities_.end();
+  }
+
+ private:
+  std::vector<Priority> insert_priorities_;
+};
+}  // namespace
+
+TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringCompaction) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.disable_auto_compactions = true;
+
+  auto tracking_cache =
+      std::make_shared<PriorityTrackingCache>(NewLRUCache(1 << 25, 0, false));
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = tracking_cache;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.prepopulate_block_cache =
+      BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::string value(kValueSize, 'a');
+
+  // Flush warming: inserts should use LOW priority.
+  tracking_cache->ResetPriorities();
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  EXPECT_TRUE(tracking_cache->HasPriority(Cache::Priority::LOW));
+  EXPECT_FALSE(tracking_cache->HasPriority(Cache::Priority::BOTTOM));
+
+  // Write overlapping key to force a real merge compaction (not trivial move).
+  ASSERT_OK(Put("key", value + "2"));
+  ASSERT_OK(Flush());
+
+  auto data_add_before =
+      options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD);
+
+  // Compaction warming: data block inserts should use BOTTOM priority.
+  // Internal cache bookkeeping (e.g., cache entry stats) may insert at HIGH,
+  // so we check for BOTTOM presence and LOW absence.
+  tracking_cache->ResetPriorities();
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  EXPECT_GT(options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD),
+            data_add_before);
+  EXPECT_TRUE(tracking_cache->HasPriority(Cache::Priority::BOTTOM));
+  EXPECT_FALSE(tracking_cache->HasPriority(Cache::Priority::LOW));
+
+  // Compaction output is in cache — reads should have zero misses.
+  auto data_miss_before =
+      options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
+  ASSERT_EQ(value + "2", Get("key"));
+  EXPECT_EQ(data_miss_before,
+            options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
+}
+
 // This test cache data, index and filter blocks during flush.
 class DBBlockCacheTest1 : public DBTestBase,
                           public ::testing::WithParamInterface<uint32_t> {
@@ -619,6 +703,36 @@ TEST_F(DBBlockCacheTest, DynamicOptions) {
   ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
   ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
   ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  // Switch to kFlushAndCompaction
+  ++i;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"block_based_table_factory",
+        "{prepopulate_block_cache=kFlushAndCompaction;}"}}));
+
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  // Flush warming still works
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  // Switch back to kDisable
+  ++i;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"block_based_table_factory", "{prepopulate_block_cache=kDisable;}"}}));
+
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
 
   ++i;
   // NOT YET SUPPORTED

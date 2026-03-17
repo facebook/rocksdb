@@ -40,7 +40,7 @@
 //  - Dense leaf: rank1(d_labels, pos+1) - rank1(d_has_child, rank1(d_labels,
 //    pos+1)) + rank1(d_is_prefix_key, node_num+1) - 1
 //    where pos = node_num * 256 + label_byte
-//  - Sparse leaf: (label_pos - rank1(s_has_child, label_pos)) +
+//  - Sparse leaf: ((label_pos + 1) - rank1(s_has_child, label_pos + 1)) +
 //    rank1(s_is_prefix_key, node_num+1) + dense_leaf_count - 1
 
 #pragma once
@@ -99,7 +99,33 @@ class LoudsTrieBuilder {
 
   // Add a separator key and its associated data block handle.
   // Keys must be added in sorted (ascending) order.
+  // This is the basic form used when seqno encoding is not active.
   void AddKey(const Slice& key, const TrieBlockHandle& handle);
+
+  // Add a separator key with seqno side-table metadata. Used when
+  // has_seqno_encoding_ is true. The seqno is stored in a side-table
+  // alongside the trie (NOT encoded into the key). block_count is the
+  // number of consecutive data blocks that share this separator key
+  // (1 = no overflow, >1 = same-user-key run).
+  //
+  // IMPORTANT: When block_count > 1, the overflow blocks must be added
+  // via AddOverflowBlock() immediately after this call, before calling
+  // AddKey() for the next separator.
+  void AddKeyWithSeqno(const Slice& key, const TrieBlockHandle& handle,
+                       uint64_t seqno, uint32_t block_count);
+
+  // Add an overflow block for the most recently added key (same separator).
+  // Called block_count-1 times after AddKeyWithSeqno() with block_count > 1.
+  // Each overflow block has its own handle and seqno.
+  void AddOverflowBlock(const TrieBlockHandle& handle, uint64_t seqno);
+
+  // Set the seqno encoding flag. Must be called before Finish().
+  // When true, the serialized trie will include a seqno side-table after
+  // the handle arrays, enabling post-seek correction for same-user-key
+  // block boundaries.
+  void SetHasSeqnoEncoding(bool has_seqno_encoding) {
+    has_seqno_encoding_ = has_seqno_encoding;
+  }
 
   // Finalize the trie construction. After this call, GetSerializedData()
   // returns the serialized trie.
@@ -107,9 +133,6 @@ class LoudsTrieBuilder {
 
   // Get the serialized trie data. Valid only after Finish().
   Slice GetSerializedData() const { return Slice(serialized_data_); }
-
-  // Number of keys (leaves) in the trie.
-  uint64_t NumKeys() const { return static_cast<uint64_t>(keys_.size()); }
 
  private:
   // Determine the optimal cutoff level between dense and sparse encoding.
@@ -123,6 +146,22 @@ class LoudsTrieBuilder {
   std::vector<std::string> keys_;
   std::vector<TrieBlockHandle> handles_;
 
+  // ---- Seqno side-table data (populated by AddKeyWithSeqno/AddOverflowBlock)
+  // ----
+  //
+  // Per-key (one entry per call to AddKey/AddKeyWithSeqno):
+  //   seqnos_[i]: seqno for the i-th separator (0 = sentinel for non-boundary)
+  //   block_counts_[i]: how many consecutive blocks share this separator
+  //                     (1 = normal, >1 = same-user-key run with overflows)
+  //
+  // Per-overflow-block (one entry per call to AddOverflowBlock):
+  //   overflow_handles_[j]: handle for the j-th overflow block
+  //   overflow_seqnos_[j]: seqno for the j-th overflow block
+  std::vector<uint64_t> seqnos_;
+  std::vector<uint32_t> block_counts_;
+  std::vector<TrieBlockHandle> overflow_handles_;
+  std::vector<uint64_t> overflow_seqnos_;
+
   // ---- Trie structure (built during Finish()) ----
 
   // Cutoff level: levels [0, cutoff_level_) use dense, rest use sparse.
@@ -133,8 +172,8 @@ class LoudsTrieBuilder {
 
   // LOUDS-Dense bitvectors (all levels concatenated into single bitvectors):
   //   d_labels_: 256-bit bitmaps concatenated for all nodes across all dense
-  //     levels. Bit (node_cumulative_offset + label) is set if node has
-  //     child with that label.
+  //     levels. Bit (node_num * 256 + label) is set if node has child with
+  //     that label.
   //   d_has_child_: One bit per set bit in d_labels_. Set if the child
   //     is an internal node (has further children), clear if it's a leaf.
   //   d_is_prefix_key_: One bit per node across all dense levels. Set if
@@ -155,9 +194,8 @@ class LoudsTrieBuilder {
   BitvectorBuilder s_louds_;
   BitvectorBuilder s_is_prefix_key_;
 
-  // Total number of leaves in dense and sparse sections.
+  // Total number of leaves in the dense section.
   uint64_t dense_leaf_count_;
-  uint64_t sparse_leaf_count_;
 
   // Total number of nodes in all dense levels combined.
   uint64_t dense_node_count_;
@@ -165,6 +203,10 @@ class LoudsTrieBuilder {
   // Number of sparse root nodes: internal children at the last dense level
   // that cross into the sparse region. See LoudsTrie::dense_child_count_.
   uint64_t dense_child_count_;
+
+  // Whether separator keys include seqno encoding. Written to the serialized
+  // header so the reader can detect it.
+  bool has_seqno_encoding_;
 
   // ---- Serialized output ----
   std::string serialized_data_;
@@ -194,10 +236,16 @@ class LoudsTrie {
   // LoudsTrie contains Bitvector members (which hold raw pointers into
   // owned or external memory) and a raw pointer to sparse labels data.
   // Copying would create dangling pointers or aliased external references.
-  // Move relies on std::string move preserving the buffer address for
-  // strings exceeding the SSO threshold, which is always true for trie
-  // data (hundreds to thousands of bytes). All major implementations
-  // (libc++, libstdc++, MSVC STL) guarantee this for large strings.
+  //
+  // Move safety: when aligned_copy_ is non-empty, bitvectors and raw
+  // pointers reference its buffer. The C++ standard guarantees that
+  // std::string's noexcept move constructor transfers the heap buffer
+  // without reallocation (noexcept precludes allocation, and COW is
+  // forbidden since C++11). Trie data always exceeds the SSO threshold
+  // (hundreds to thousands of bytes), so aligned_copy_ is always
+  // heap-allocated, and move always preserves the buffer address.
+  ~LoudsTrie() = default;
+
   LoudsTrie(const LoudsTrie&) = delete;
   LoudsTrie& operator=(const LoudsTrie&) = delete;
   LoudsTrie(LoudsTrie&&) = default;
@@ -211,6 +259,12 @@ class LoudsTrie {
   uint64_t NumKeys() const { return num_keys_; }
   uint32_t CutoffLevel() const { return cutoff_level_; }
   uint32_t MaxDepth() const { return max_depth_; }
+
+  // Whether this trie was built with a seqno side-table (enabling post-seek
+  // correction for same-user-key block boundaries). When true, the serialized
+  // data includes per-leaf seqno and block count arrays, plus overflow block
+  // metadata for runs of blocks sharing the same separator key.
+  bool HasSeqnoEncoding() const { return has_seqno_encoding_; }
 
   // Get the block handle for the i-th leaf (0-indexed).
   TrieBlockHandle GetHandle(uint64_t leaf_index) const;
@@ -242,6 +296,10 @@ class LoudsTrie {
   // Maximum key depth.
   uint32_t max_depth_;
 
+  // True if the trie includes a seqno side-table for post-seek correction.
+  // Set from the flags field in the serialized header.
+  bool has_seqno_encoding_;
+
   // Dense leaf count (leaves in levels [0, cutoff_level_)).
   uint64_t dense_leaf_count_;
 
@@ -250,8 +308,9 @@ class LoudsTrie {
 
   // Number of sparse root nodes: internal children at the last dense level
   // (cutoff_level_ - 1) that cross into the sparse region. Used to offset
-  // sparse node numbering so that sparse nodes are numbered after all dense
-  // nodes. When cutoff_level_ == 0, this is set to 1 (the root itself).
+  // sparse node numbering so that children of sparse internal labels are
+  // numbered after these root sparse nodes. When cutoff_level_ == 0, this
+  // is set to 1 (the root itself).
   uint64_t dense_child_count_;
 
   // LOUDS-Dense bitvectors (all dense levels concatenated).
@@ -292,7 +351,7 @@ class LoudsTrie {
   //
   // Lookup during Seek:
   //   1. s_chain_bitmap_.GetBit(child_idx) — has chain?
-  //   2. chain_idx = s_chain_bitmap_.Rank1(child_idx) - 1
+  //   2. chain_idx = s_chain_bitmap_.Rank1(child_idx + 1) - 1
   //   3. s_chain_lens_[chain_idx], s_chain_suffix_offsets_[chain_idx], etc.
   //
   // Space overhead: 1 bit per internal label (bitmap) + 10 bytes per chain
@@ -317,6 +376,76 @@ class LoudsTrie {
   const uint32_t* handle_offsets_;
   const uint32_t* handle_sizes_;
 
+  // ---- Seqno side-table (deserialized when has_seqno_encoding_ is true) ----
+  //
+  // The side-table enables post-seek correction for same-user-key block
+  // boundaries. It stores per-leaf seqno and block count data in BFS leaf
+  // order, plus overflow block handles/seqnos for runs where the same
+  // separator maps to multiple blocks.
+  //
+  // leaf_seqnos_[i]: seqno for the i-th leaf (BFS order).
+  //   Value 0 = sentinel meaning "never advance past this leaf" (used for
+  //   non-boundary leaves and for leaves where seqno=0 covers everything).
+  //   For boundary leaves, stores the actual last_key_seq.
+  //
+  // leaf_block_counts_[i]: how many consecutive blocks share this separator.
+  //   1 = no overflow (the common case). >1 = same-user-key run.
+  //
+  // overflow_offsets_/overflow_sizes_/overflow_seqnos_: packed arrays for
+  //   the overflow blocks (total count = sum of (block_count-1) for all
+  //   leaves).
+  //
+  // overflow_base_[i]: prefix sum of (block_count-1) for leaves [0, i),
+  //   precomputed during InitFromData() for O(1) random access into the
+  //   overflow arrays. overflow_base_[i] is the starting index into the
+  //   overflow arrays for leaf i's overflow blocks.
+  const uint64_t* leaf_seqnos_;
+  const uint32_t* leaf_block_counts_;
+  const uint32_t* overflow_offsets_;
+  const uint32_t* overflow_sizes_;
+  const uint64_t* overflow_seqnos_;
+  uint32_t num_overflow_blocks_;
+  std::vector<uint32_t> overflow_base_;
+
+ public:
+  // ---- Seqno side-table accessors (used by TrieIndexIterator) ----
+
+  // Get the seqno for the i-th leaf (BFS order). Returns 0 (sentinel) for
+  // non-boundary leaves.
+  uint64_t GetLeafSeqno(uint64_t leaf_index) const {
+    assert(has_seqno_encoding_ && leaf_seqnos_ != nullptr);
+    assert(leaf_index < num_keys_);
+    return leaf_seqnos_[leaf_index];
+  }
+
+  // Get the block count for the i-th leaf. Returns 1 for normal leaves.
+  uint32_t GetLeafBlockCount(uint64_t leaf_index) const {
+    assert(has_seqno_encoding_ && leaf_block_counts_ != nullptr);
+    assert(leaf_index < num_keys_);
+    return leaf_block_counts_[leaf_index];
+  }
+
+  // Get the overflow base (starting index into overflow arrays) for leaf i.
+  uint32_t GetOverflowBase(uint64_t leaf_index) const {
+    assert(has_seqno_encoding_);
+    assert(leaf_index < overflow_base_.size());
+    return overflow_base_[leaf_index];
+  }
+
+  // Get the handle for the j-th overflow block.
+  TrieBlockHandle GetOverflowHandle(uint32_t overflow_index) const {
+    assert(overflow_index < num_overflow_blocks_);
+    return TrieBlockHandle{overflow_offsets_[overflow_index],
+                           overflow_sizes_[overflow_index]};
+  }
+
+  // Get the seqno for the j-th overflow block.
+  uint64_t GetOverflowSeqno(uint32_t overflow_index) const {
+    assert(overflow_index < num_overflow_blocks_);
+    return overflow_seqnos_[overflow_index];
+  }
+
+ private:
   // Aligned copy of the serialized trie data, used when the input data from
   // the block reader is not 8-byte aligned (e.g., mmap at an unaligned file
   // offset). All Bitvector and raw pointer members reference this buffer
@@ -342,6 +471,13 @@ class LoudsTrie {
 class LoudsTrieIterator {
  public:
   explicit LoudsTrieIterator(const LoudsTrie* trie);
+
+  // Position on the very first leaf (smallest key) by descending from the
+  // root to the leftmost leaf. More efficient than Seek(Slice()) because it
+  // skips SeekImpl's target-consumption loop and its redundant prefix key
+  // check at root (DescendToLeftmostLeaf handles prefix keys at every node).
+  // Returns true if positioned on a valid leaf.
+  bool SeekToFirst();
 
   // Seek to the first leaf whose key is >= `target`.
   // Returns true if positioned on a valid leaf.
@@ -386,7 +522,7 @@ class LoudsTrieIterator {
   struct LevelPos {
     // Position in the bitvector/label array at this level, with the
     // is_dense flag encoded in the high bit (bit 63).
-    // - Dense: bit position in d_labels_ (= cumulative_node_offset * 256 +
+    // - Dense: bit position in d_labels_ (= node_num * 256 +
     //   label_byte). The label byte is pos % 256.
     // - Sparse: index into s_labels_ array.
     uint64_t pos_and_flag;
@@ -410,23 +546,16 @@ class LoudsTrieIterator {
   bool DenseSeekLabel(uint64_t node_num, uint8_t target_byte,
                       uint64_t* out_pos);
 
-  // Compute the child node number for a dense internal child at `pos`.
-  // child_node_num = rank1(d_has_child_, rank1(d_labels_, pos+1) - 1 + 1)
-  // but simplified: rank1(d_has_child_, label_rank) where label_rank is the
-  // rank of the label among set bits.
-  uint64_t DenseChildNodeNum(uint64_t pos) const;
-
-  // Same as DenseChildNodeNum but takes a pre-computed label_rank to avoid
-  // redundant Rank1(d_labels_) calls in hot paths where label_rank was
-  // already computed for has_child checking.
+  // Compute the child node number for a dense internal child with the given
+  // label_rank. Takes a pre-computed label_rank to avoid redundant
+  // Rank1(d_labels_) calls in hot paths where label_rank was already computed
+  // for has_child checking.
   uint64_t DenseChildNodeNumFromRank(uint64_t label_rank) const;
 
   // Compute the leaf ordinal for a dense leaf at `pos`.
   // leaf_idx = rank1(d_labels_, pos+1) - rank1(d_has_child_,
   //   rank1(d_labels_, pos+1)) + rank1(d_is_prefix_key_, node_num+1) - 1
-  uint64_t DenseLeafIndex(uint64_t pos) const;
-
-  // Same as DenseLeafIndex but takes a pre-computed label_rank.
+  // Takes a pre-computed label_rank.
   uint64_t DenseLeafIndexFromRank(uint64_t pos, uint64_t label_rank) const;
 
   // Same as DenseLeafIndexFromRank but also takes a pre-computed
@@ -439,23 +568,19 @@ class LoudsTrieIterator {
   // A prefix key leaf comes before any child leaves of that node.
   uint64_t DensePrefixKeyLeafIndex(uint64_t node_num) const;
 
-  // Get the node number for a dense position.
-  // node_num = pos / 256
-  uint64_t DenseNodeNum(uint64_t pos) const { return pos / 256; }
-
   // --- Sparse level helpers ---
 
   // Seek within a sparse node starting at `node_start_pos` for label byte.
-  // Returns the position in s_labels_ if found, or the position of the next
-  // label >= target_byte. Sets `found_exact` accordingly.
-  // `node_end_pos` is one past the last label position of this node.
+  // Returns true if the exact label was found, false otherwise. Writes the
+  // position to `out_pos`. `node_end_pos` is one past the last label
+  // position of this node.
   bool SparseSeekLabel(uint64_t node_start_pos, uint64_t node_end_pos,
                        uint8_t target_byte, uint64_t* out_pos);
 
   // Compute the child node number for a sparse internal child at `pos`.
-  // child_node_num = rank1(s_has_child_, pos+1) - 1 + dense_child_count_
-  // (offset by dense_child_count because sparse nodes are numbered after
-  // all dense nodes).
+  // child_node_num = dense_child_count_ + rank1(s_has_child_, pos+1) - 1
+  // (offset by dense_child_count_ because children of sparse internal labels
+  // are numbered after the root sparse nodes).
   uint64_t SparseChildNodeNum(uint64_t pos) const;
 
   // Compute the leaf ordinal for a sparse leaf at `pos`.
@@ -491,7 +616,7 @@ class LoudsTrieIterator {
 
   // Advance to the next valid leaf by backtracking up the trie path
   // and finding the next sibling label, then descending to the leftmost
-  // leaf in that subtree. Used by Next().
+  // leaf in that subtree. Used by Next() and SeekImpl().
   // Returns true if a next leaf was found.
   bool Advance();
 
@@ -518,14 +643,27 @@ class LoudsTrieIterator {
   // hot loop, so the append operation must be as cheap as possible — a
   // single inlined store + increment with no function call overhead. The
   // buffer is heap-allocated once in the constructor to MaxDepth()+1 bytes.
+  //
+  // All append sites go through AppendKeySlot() which validates bounds in
+  // debug builds. In release builds it compiles to the same single store +
+  // increment with no overhead (the assert is elided).
   std::unique_ptr<char[]> key_buf_;
   uint32_t key_len_;
   uint32_t key_cap_;
 
+  // Returns a reference to the next key buffer slot, advancing key_len_.
+  // Validates in debug builds that the buffer has space. A corrupted trie
+  // with depth > max_depth_ would overflow key_buf_ without this check.
+  char& AppendKeySlot() {
+    assert(key_len_ < key_cap_ &&
+           "key_buf_ overflow: trie depth exceeds max_depth_");
+    return key_buf_[key_len_++];
+  }
+
   // Stack of positions from root to current leaf. path_[i] holds the
-  // position at depth i in the trie. The depth equals key_len_ when
-  // positioned on a child leaf, or key_len_ when positioned on a prefix
-  // key (in which case the last path_ entry's label is not appended to
+  // position at depth i in the trie. path_.size() equals key_len_ for
+  // both child leaves and prefix keys (in which case the last path_
+  // entry's label is not appended to
   // key_buf_ since the node itself is the key).
   //
   // For a prefix key, we mark it by setting is_at_prefix_key_ = true and

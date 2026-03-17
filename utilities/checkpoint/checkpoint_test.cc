@@ -434,6 +434,28 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
   }
 }
 
+TEST_F(CheckpointTest, ExportEmptyColumnFamily) {
+  // Verify that exporting a column family with no levels (empty CF) does not
+  // leak the allocated ExportImportFilesMetaData and correctly sets *metadata.
+  auto options = CurrentOptions();
+  options.create_if_missing = true;
+  CreateAndReopenWithCF({}, options);
+
+  // Do NOT put any data — the default CF has no levels.
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+
+  ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                           export_path_, &metadata_));
+  // metadata_ must be set even when the CF has no files.
+  ASSERT_NE(metadata_, nullptr);
+  ASSERT_EQ(metadata_->files.size(), 0);
+  ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
+
+  delete checkpoint;
+}
+
 TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   // Create a database
   auto options = CurrentOptions();

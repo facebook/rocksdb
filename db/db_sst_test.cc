@@ -1535,7 +1535,7 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
 
     for (const auto& level : files) {
       for (const auto& file : level) {
-        ASSERT_TRUE(file.table_reader_handle != nullptr);
+        ASSERT_TRUE(file.fd.pinned_reader.Get() != nullptr);
       }
     }
 

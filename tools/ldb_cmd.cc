@@ -88,6 +88,7 @@ const std::string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
 const std::string LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES =
     "compression_max_dict_bytes";
 const std::string LDBCommand::ARG_BLOCK_SIZE = "block_size";
+const std::string LDBCommand::ARG_UNIFORM_CV_THRESHOLD = "uniform_cv_threshold";
 const std::string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
 const std::string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const std::string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
@@ -717,6 +718,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_LEADER_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
+                                  ARG_UNIFORM_CV_THRESHOLD,
                                   ARG_AUTO_COMPACTION,
                                   ARG_COMPRESSION_TYPE,
                                   ARG_COMPRESSION_MAX_DICT_BYTES,
@@ -1027,6 +1029,13 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_BLOCK_SIZE + " must be > 0.");
     }
+  }
+
+  double uniform_cv_threshold;
+  if (ParseDoubleOption(option_map_, ARG_UNIFORM_CV_THRESHOLD,
+                        uniform_cv_threshold, exec_state_)) {
+    use_table_options = true;
+    table_options.uniform_cv_threshold = uniform_cv_threshold;
   }
 
   // Default comparator is BytewiseComparator, so only when it's not, it
@@ -2628,6 +2637,13 @@ void DBDumperCommand::DoDumpCommand() {
                     ucmp);
       fprintf(stdout, "%s\n", str.c_str());
     }
+  }
+
+  // Check for iterator errors that may have occurred during iteration
+  st = iter->status();
+  if (!st.ok()) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error: " + st.ToString());
   }
 
   if (num_buckets > 1 && is_db_ttl_) {

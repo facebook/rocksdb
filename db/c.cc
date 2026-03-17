@@ -1759,9 +1759,13 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family(
     rocksdb_t* db, const rocksdb_options_t* column_family_options,
     const char* column_family_name, char** errptr) {
   rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
-  SaveError(errptr, db->rep->CreateColumnFamily(
-                        ColumnFamilyOptions(column_family_options->rep),
-                        std::string(column_family_name), &(handle->rep)));
+  handle->rep = nullptr;
+  if (SaveError(errptr, db->rep->CreateColumnFamily(
+                            ColumnFamilyOptions(column_family_options->rep),
+                            std::string(column_family_name), &(handle->rep)))) {
+    delete handle;
+    return nullptr;
+  }
   handle->immortal = false;
   return handle;
 }
@@ -4349,6 +4353,15 @@ void rocksdb_options_set_paranoid_checks(rocksdb_options_t* opt,
 
 unsigned char rocksdb_options_get_paranoid_checks(rocksdb_options_t* opt) {
   return opt->rep.paranoid_checks;
+}
+
+void rocksdb_options_set_open_files_async(rocksdb_options_t* opt,
+                                          unsigned char v) {
+  opt->rep.open_files_async = v;
+}
+
+unsigned char rocksdb_options_get_open_files_async(rocksdb_options_t* opt) {
+  return opt->rep.open_files_async;
 }
 
 void rocksdb_options_set_db_paths(rocksdb_options_t* opt,
@@ -7525,9 +7538,13 @@ rocksdb_column_family_handle_t* rocksdb_transactiondb_create_column_family(
     const rocksdb_options_t* column_family_options,
     const char* column_family_name, char** errptr) {
   rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
-  SaveError(errptr, txn_db->rep->CreateColumnFamily(
-                        ColumnFamilyOptions(column_family_options->rep),
-                        std::string(column_family_name), &(handle->rep)));
+  handle->rep = nullptr;
+  if (SaveError(errptr, txn_db->rep->CreateColumnFamily(
+                            ColumnFamilyOptions(column_family_options->rep),
+                            std::string(column_family_name), &(handle->rep)))) {
+    delete handle;
+    return nullptr;
+  }
   handle->immortal = false;
   return handle;
 }

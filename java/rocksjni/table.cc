@@ -62,7 +62,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean juse_delta_encoding, jlong jfilter_policy_handle,
     jboolean jwhole_key_filtering, jboolean jverify_compression,
     jint jread_amp_bytes_per_bit, jint jformat_version,
-    jboolean jseparate_key_value_in_data_block,
+    jboolean jseparate_key_value_in_data_block, jdouble juniform_cv_threshold,
     jboolean jenable_index_compression, jboolean jblock_align,
     jlong jsuper_block_alignment_size,
     jlong jsuper_block_alignment_space_overhead_ratio, jbyte jindex_shortening,
@@ -138,6 +138,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.format_version = static_cast<uint32_t>(jformat_version);
   options.separate_key_value_in_data_block =
       static_cast<bool>(jseparate_key_value_in_data_block);
+  options.uniform_cv_threshold = static_cast<double>(juniform_cv_threshold);
   options.enable_index_compression =
       static_cast<bool>(jenable_index_compression);
   options.block_align = static_cast<bool>(jblock_align);

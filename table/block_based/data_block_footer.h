@@ -26,18 +26,16 @@ namespace ROCKSDB_NAMESPACE {
 //   - The low 28 bits store the number of restart points (num_restarts)
 //   - The high 4 bits are reserved for metadata/features:
 //     - Bit 31: Hash index present (kDataBlockBinaryAndHash)
-//     - Bit 29-30: Reserved for future features. IMPORTANT: cannot be used
-//     on data blocks without a format version bump.
+//     - Bit 30: IMPORTANT: Cannot be used without format version bump.
+//     - Bit 29: Uniform keys flag (for kAuto index block search)
 //     - Bit 28: Separated KV storage (keys and values stored in separate
 //       sections within the block)
 //
-// Note on bits 29-30: To support forward compatibility, we cannot use bits
-// 29-30 on data blocks. When older versions see this, they will assume an
-// extremely large # of restarts. For binary search blocks, this is detected,
-// but for binary search and hash block
-// (https://github.com/facebook/rocksdb/blob/10.11.fb/table/block_based/block.cc#L1093),
-// this can be silently ignored due to the fact we multiply num_restarts by 4,
-// which can cause overflow.
+// Note on forward compatibility: Bits 28-29 can be read by older versions of
+// RocksDB and interpreted as an extremely large, which will be caught as a
+// corruption. Bit 30 is special because num_restarts is multipled by 4, causing
+// overflow and the corruption check to be silently ignored
+// (https://github.com/facebook/rocksdb/blob/10.11.fb/table/block_based/block.cc#L1070-L1103)
 //
 // When separated KV is enabled, an additional uint32_t is prepended before the
 // packed footer, storing the offset to the values section within the block.
@@ -75,6 +73,7 @@ struct DataBlockFooter {
   uint32_t values_section_offset = 0;
 
   uint32_t num_restarts = 0;
+  bool is_uniform = false;
 
   DataBlockFooter() = default;
   DataBlockFooter(BlockBasedTableOptions::DataBlockIndexType _index_type,

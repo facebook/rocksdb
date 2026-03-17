@@ -146,13 +146,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
-          EpochNumberRequirement::kMustPresent)
-      : VersionEditHandler(read_only, column_families, version_set,
-                           track_found_and_missing_files,
-                           no_error_if_files_missing, io_tracer, read_options,
-                           /*skip_load_table_files=*/false,
-                           allow_incomplete_valid_version,
-                           epoch_number_requirement) {}
+          EpochNumberRequirement::kMustPresent,
+      bool skip_load_table_files = false)
+      : VersionEditHandler(
+            read_only, column_families, version_set,
+            track_found_and_missing_files, no_error_if_files_missing, io_tracer,
+            read_options, skip_load_table_files, allow_incomplete_valid_version,
+            epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 

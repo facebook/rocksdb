@@ -65,6 +65,7 @@ struct ImmutableMemTableOptions {
   bool allow_data_in_errors;
   bool paranoid_memory_checks;
   bool memtable_veirfy_per_key_checksum_on_seek;
+  bool memtable_batch_lookup_optimization;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -597,6 +598,11 @@ class MemTable final : public ReadOnlyMemTable {
     return flush_state_.compare_exchange_strong(before, FLUSH_SCHEDULED,
                                                 std::memory_order_relaxed,
                                                 std::memory_order_relaxed);
+  }
+
+  // Returns true if a flush has already been scheduled for this memtable
+  bool HasFlushScheduled() const {
+    return flush_state_.load(std::memory_order_relaxed) == FLUSH_SCHEDULED;
   }
 
   InternalIterator* NewIterator(

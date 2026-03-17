@@ -24,6 +24,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool open_files_async;
   bool flush_verify_memtable_count;
   bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;
@@ -76,6 +77,7 @@ struct ImmutableDBOptions {
   WalFilter* wal_filter;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
+  bool enforce_write_buffer_manager_during_recovery;
   bool allow_ingest_behind;
   bool two_write_queues;
   bool manual_wal_flush;

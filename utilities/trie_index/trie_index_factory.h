@@ -31,8 +31,10 @@
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/types.h"
 #include "rocksdb/user_defined_index.h"
 #include "utilities/trie_index/louds_trie.h"
 
@@ -55,13 +57,19 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
   explicit TrieIndexBuilder(const Comparator* comparator);
   ~TrieIndexBuilder() override = default;
 
-  // Called at each data block boundary. We compute the shortest separator
-  // between last_key_in_current_block and first_key_in_next_block, insert
-  // it into the trie, and return it.
+  // Called at each data block boundary. We compute a short separator
+  // between last_key_in_current_block and first_key_in_next_block, buffer
+  // it for deferred trie construction in Finish(), and return it.
+  //
+  // The sequence numbers from context are used to detect same-user-key
+  // block boundaries. When such a boundary is detected, the builder
+  // switches to encoding ALL separators with seqno side-table metadata,
+  // mirroring the internal index's must_use_separator_with_seq_ strategy.
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
-                      std::string* separator_scratch) override;
+                      std::string* separator_scratch,
+                      const IndexEntryContext& context) override;
 
   // Called for each key added to the SST. Currently a no-op — the trie is
   // built entirely from separator keys provided via AddIndexEntry().
@@ -75,6 +83,38 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
   const Comparator* comparator_;
   LoudsTrieBuilder trie_builder_;
   bool finished_;
+
+  // --- Sequence number handling for same-user-key boundaries ---
+  //
+  // When the same user key spans a data block boundary (e.g., "foo"|seq=100
+  // ends block N, "foo"|seq=50 starts block N+1), the trie's
+  // FindShortestSeparator("foo", "foo") returns "foo" — which cannot
+  // distinguish the two blocks. To handle this, we use the same all-or-nothing
+  // strategy as ShortenedIndexBuilder::must_use_separator_with_seq_:
+  //
+  // - Common case: all separators are user-key-only (zero overhead).
+  // - Rare case (any same-user-key boundary detected): ALL separators include
+  //   an 8-byte encoded seqno suffix. This decision is made at Finish() time.
+  //
+  // We buffer all separator entries during building, then at Finish() either
+  // feed them to the trie as-is (common case) or re-encode them with seqnos.
+  //
+  // True if any same-user-key block boundary was detected during building.
+  // Once set, never cleared (sticky flag, same as internal index).
+  bool must_use_separator_with_seq_;
+
+  // Buffered separator entries: (separator_key, seqno, handle).
+  // The separator_key is the user-key-only separator computed by
+  // FindShortestSeparator. The seqno is:
+  //   - For same-user-key boundaries: the actual seqno of last_key
+  //   - For different-user-key boundaries: kMaxSequenceNumber (mapped to 0
+  //     at Finish() time as a sentinel meaning "never advance")
+  struct BufferedEntry {
+    std::string separator_key;
+    SequenceNumber seqno{};
+    TrieBlockHandle handle;
+  };
+  std::vector<BufferedEntry> buffered_entries_;
 };
 
 // ============================================================================
@@ -86,21 +126,33 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
 // ============================================================================
 class TrieIndexIterator : public UserDefinedIndexIterator {
  public:
-  TrieIndexIterator(const LoudsTrie* trie, const Comparator* comparator);
+  // @param has_seqno_encoding: true if the trie was built with a seqno
+  //   side-table (enabling post-seek correction for same-user-key boundaries).
+  //   This flag is read from the trie's serialized header.
+  TrieIndexIterator(const LoudsTrie* trie, const Comparator* comparator,
+                    bool has_seqno_encoding);
   ~TrieIndexIterator() override = default;
 
   // Prepare for a batch of scans. Stores scan bounds for later use.
   void Prepare(const ScanOptions scan_opts[], size_t num_opts) override;
 
-  // Seek to the first index entry >= target. Checks bounds and sets
-  // result->bound_check_result accordingly.
-  Status SeekAndGetResult(const Slice& target, IterateResult* result) override;
+  // Position at the very first index entry. Descends directly to the
+  // leftmost leaf without a full seek traversal.
+  Status SeekToFirstAndGetResult(IterateResult* result) override;
 
-  // Advance to the next index entry. Checks bounds and sets
-  // result->bound_check_result accordingly.
+  // Seek to the first index entry >= target. When has_seqno_encoding_ is
+  // true, the trie is searched with user_key only, then post-seek correction
+  // uses target_seq from context to advance through overflow blocks as needed.
+  Status SeekAndGetResult(const Slice& target, IterateResult* result,
+                          const SeekContext& context) override;
+
+  // Advance to the next index entry. When in an overflow run, advances
+  // within the run before moving to the next trie leaf.
   Status NextAndGetResult(IterateResult* result) override;
 
-  // Return the BlockHandle of the current leaf.
+  // Return the BlockHandle of the current block. When positioned on an
+  // overflow block, returns the overflow block's handle instead of the
+  // trie leaf's handle.
   UserDefinedIndexBuilder::BlockHandle value() override;
 
  private:
@@ -114,16 +166,41 @@ class TrieIndexIterator : public UserDefinedIndexIterator {
 
   const Comparator* comparator_;
   LoudsTrieIterator iter_;
+  // Pointer to the trie for side-table access during overflow iteration.
+  const LoudsTrie* trie_;
   // Scratch space for the current separator key (reconstructed from trie).
   std::string current_key_scratch_;
   // Previous separator key, used as reference for Next() bounds checking.
+  // Always valid when NextAndGetResult is called, since Next requires a
+  // preceding Seek or Next which sets current_key_scratch_ (copied here).
   std::string prev_key_scratch_;
-  bool has_prev_key_;
 
   // Active scan options (from Prepare()).
   std::vector<ScanOptions> scan_opts_;
   size_t current_scan_idx_;
   bool prepared_;
+
+  // True if the trie was built with a seqno side-table. When true:
+  //   - SeekAndGetResult seeks with user key only, then does post-seek
+  //     correction using seqno comparison
+  //   - value() may return overflow block handles
+  //   - NextAndGetResult advances within overflow runs before trie leaves
+  bool has_seqno_encoding_;
+
+  // ---- Overflow run state ----
+  //
+  // When the trie iterator lands on a leaf that has block_count > 1 (a
+  // same-user-key run), these track the current position within the run:
+  //
+  // overflow_run_index_: 0 = primary block (trie leaf), 1+ = overflow block.
+  //   Used by value() to select the right handle.
+  // overflow_run_size_: total blocks for current leaf (from leaf_block_counts).
+  //   1 = no overflow (the common case).
+  // overflow_base_idx_: starting index into overflow arrays for this leaf
+  //   (from overflow_base_ prefix sum).
+  uint32_t overflow_run_index_;
+  uint32_t overflow_run_size_;
+  uint32_t overflow_base_idx_;
 };
 
 // ============================================================================

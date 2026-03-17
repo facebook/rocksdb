@@ -1011,6 +1011,92 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(BlobFileReaderTest, MultiGetBlobWithFailedValidation) {
+  // Test that MultiGetBlob correctly handles the case where some requests
+  // fail validation. The adjustments vector is only populated for requests
+  // that pass validation, so the indices must track correctly.
+  Options options;
+  options.env = mock_env_.get();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          mock_env_.get(),
+          "BlobFileReaderTest_MultiGetBlobWithFailedValidation"),
+      0);
+  options.enable_blob_files = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr size_t num_blobs = 3;
+  const std::vector<std::string> key_strs = {"key1", "key2", "key3"};
+  const std::vector<std::string> blob_strs = {"blob1", "blob2", "blob3"};
+
+  const std::vector<Slice> keys = {key_strs[0], key_strs[1], key_strs[2]};
+  const std::vector<Slice> blobs = {blob_strs[0], blob_strs[1], blob_strs[2]};
+
+  std::vector<uint64_t> blob_offsets(keys.size());
+  std::vector<uint64_t> blob_sizes(keys.size());
+
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, keys, blobs, kNoCompression,
+                blob_offsets, blob_sizes);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ReadOptions read_options;
+  ASSERT_OK(BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
+
+  // Enable checksum verification so adjustments are non-zero
+  read_options.verify_checksums = true;
+  constexpr MemoryAllocator* allocator = nullptr;
+
+  // Fail the first request by giving it an invalid offset (too small).
+  // This causes the first request to be skipped in the adjustments vector,
+  // so adjustments has only 2 entries (for blobs 1 and 2), while blob_reqs
+  // has 3 entries. Without the fix, adjustments[i] would use the wrong
+  // index for the remaining valid requests.
+  std::array<Status, num_blobs> statuses_buf;
+  std::array<BlobReadRequest, num_blobs> requests_buf;
+  autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+      blob_reqs;
+
+  // First request: invalid offset (too small, will fail validation)
+  requests_buf[0] = BlobReadRequest(keys[0], /*offset=*/0, blob_sizes[0],
+                                    kNoCompression, nullptr, &statuses_buf[0]);
+  // Second and third requests: valid
+  requests_buf[1] = BlobReadRequest(keys[1], blob_offsets[1], blob_sizes[1],
+                                    kNoCompression, nullptr, &statuses_buf[1]);
+  requests_buf[2] = BlobReadRequest(keys[2], blob_offsets[2], blob_sizes[2],
+                                    kNoCompression, nullptr, &statuses_buf[2]);
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
+  }
+
+  uint64_t bytes_read = 0;
+  reader->MultiGetBlob(read_options, allocator, blob_reqs, &bytes_read);
+
+  // First request should fail validation
+  ASSERT_TRUE(statuses_buf[0].IsCorruption());
+  ASSERT_EQ(blob_reqs[0].second, nullptr);
+
+  // Second and third requests should succeed with correct data
+  ASSERT_OK(statuses_buf[1]);
+  ASSERT_NE(blob_reqs[1].second, nullptr);
+  ASSERT_EQ(blob_reqs[1].second->data(), blobs[1]);
+
+  ASSERT_OK(statuses_buf[2]);
+  ASSERT_NE(blob_reqs[2].second, nullptr);
+  ASSERT_EQ(blob_reqs[2].second->data(), blobs[2]);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
