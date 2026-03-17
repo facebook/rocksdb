@@ -356,68 +356,6 @@ uint64_t Bitvector::FindNthZeroBit(uint64_t i) const {
   return num_bits_;
 }
 
-uint64_t Bitvector::NextSetBit(uint64_t pos) const {
-  if (pos >= num_bits_) {
-    return num_bits_;
-  }
-
-  uint64_t word_idx = pos / 64;
-  uint64_t bit_idx = pos % 64;
-
-  // Check remaining bits in the current word.
-  uint64_t word = words_[word_idx] >> bit_idx;
-  if (word != 0) {
-    uint64_t result = pos + Ctz(word);
-    return (result < num_bits_) ? result : num_bits_;
-  }
-
-  // Scan subsequent words.
-  for (uint64_t w = word_idx + 1; w < num_words_; w++) {
-    if (words_[w] != 0) {
-      uint64_t result = w * 64 + Ctz(words_[w]);
-      return (result < num_bits_) ? result : num_bits_;
-    }
-  }
-  return num_bits_;
-}
-
-uint64_t Bitvector::PrevSetBit(uint64_t pos) const {
-  if (pos == 0 || num_bits_ == 0) {
-    return num_bits_;
-  }
-
-  // Clamp to num_bits_ so callers don't need to bounds-check, mirroring
-  // NextSetBit's handling of pos >= num_bits_.
-  if (pos > num_bits_) {
-    pos = num_bits_;
-  }
-
-  // We want the last set bit strictly before pos, so work with pos-1.
-  pos--;
-
-  uint64_t word_idx = pos / 64;
-  uint64_t bit_idx = pos % 64;
-
-  // Mask the current word to bits [0, bit_idx] and find the highest set bit.
-  uint64_t mask =
-      (bit_idx == 63) ? ~uint64_t(0) : ((uint64_t(1) << (bit_idx + 1)) - 1);
-  uint64_t word = words_[word_idx] & mask;
-  if (word != 0) {
-    // FloorLog2 is portable (handles MSVC via _BitScanReverse64, GCC/Clang
-    // via __builtin_clzll) and returns the position of the highest set bit.
-    return word_idx * 64 + static_cast<uint64_t>(FloorLog2(word));
-  }
-
-  // Scan preceding words backwards.
-  for (int64_t w = static_cast<int64_t>(word_idx) - 1; w >= 0; w--) {
-    if (words_[w] != 0) {
-      return static_cast<uint64_t>(w) * 64 +
-             static_cast<uint64_t>(FloorLog2(words_[w]));
-    }
-  }
-  return num_bits_;
-}
-
 uint64_t Bitvector::DistanceToNextSetBit(uint64_t pos) const {
   assert(pos < num_bits_);
   assert(GetBit(pos));  // pos must be a set bit.

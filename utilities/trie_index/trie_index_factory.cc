@@ -255,8 +255,8 @@ Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
+  Slice trie_key = iter_.Key();
+  current_key_scratch_.assign(trie_key.data(), trie_key.size());
   result->key = Slice(current_key_scratch_);
 
   // Set up overflow state for the first leaf if seqno encoding is active.
@@ -285,8 +285,8 @@ Status TrieIndexIterator::SeekToLastAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
+  Slice trie_key = iter_.Key();
+  current_key_scratch_.assign(trie_key.data(), trie_key.size());
   result->key = Slice(current_key_scratch_);
 
   // Set up overflow state for the last leaf. For reverse iteration, position
@@ -306,18 +306,18 @@ Status TrieIndexIterator::SeekToLastAndGetResult(IterateResult* result) {
 }
 
 Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
-  // Save the current separator as "previous" before retreating.
-  prev_key_scratch_ = current_key_scratch_;
-
-  // If we're in an overflow run and haven't reached the primary block,
-  // decrement within the run (no trie traversal needed).
+  // Overflow fast path: key doesn't change, must copy prev.
   if (overflow_run_index_ > 0) {
+    prev_key_scratch_ = current_key_scratch_;
     overflow_run_index_--;
-    // The key doesn't change (same separator for all blocks in the run).
     result->key = Slice(current_key_scratch_);
     result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
     return Status::OK();
   }
+
+  // Non-overflow: current_key_scratch_ is about to be overwritten, so swap
+  // into prev_key_scratch_ in O(1) instead of copying.
+  std::swap(prev_key_scratch_, current_key_scratch_);
 
   // Move to the previous trie leaf.
   overflow_run_index_ = 0;
@@ -330,8 +330,9 @@ Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
+  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
+  Slice trie_key = iter_.Key();
+  current_key_scratch_.assign(trie_key.data(), trie_key.size());
   result->key = Slice(current_key_scratch_);
 
   // Set overflow state for the new leaf. Position at the LAST block in
@@ -386,9 +387,12 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   }
 
   // Set the result key (always a user key, no suffix stripping needed).
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
-  result->key = Slice(current_key_scratch_);
+  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
+  {
+    Slice trie_key = iter_.Key();
+    current_key_scratch_.assign(trie_key.data(), trie_key.size());
+    result->key = Slice(current_key_scratch_);
+  }
 
   // ---- Post-seek correction for seqno side-table ----
   //
@@ -446,9 +450,11 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
           return Status::OK();
         }
         // Update key and overflow state for the new leaf.
-        result->key = iter_.Key();
-        current_key_scratch_ = result->key.ToString();
-        result->key = Slice(current_key_scratch_);
+        {
+          Slice trie_key = iter_.Key();
+          current_key_scratch_.assign(trie_key.data(), trie_key.size());
+          result->key = Slice(current_key_scratch_);
+        }
         overflow_run_index_ = 0;
         overflow_run_size_ = 1;
         overflow_base_idx_ = 0;
@@ -476,18 +482,18 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
 }
 
 Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
-  // Save the current separator (user key) as "previous" before advancing.
-  prev_key_scratch_ = current_key_scratch_;
-
-  // If we're in an overflow run and haven't exhausted it, advance within
-  // the run (no trie traversal needed — just increment the overflow index).
+  // Overflow fast path: key doesn't change, must copy prev.
   if (overflow_run_index_ + 1 < overflow_run_size_) {
+    prev_key_scratch_ = current_key_scratch_;
     overflow_run_index_++;
-    // The key doesn't change (same separator for all blocks in the run).
     result->key = Slice(current_key_scratch_);
     result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
     return Status::OK();
   }
+
+  // Non-overflow: current_key_scratch_ is about to be overwritten, so swap
+  // into prev_key_scratch_ in O(1) instead of copying.
+  std::swap(prev_key_scratch_, current_key_scratch_);
 
   // Advance to the next trie leaf.
   overflow_run_index_ = 0;
@@ -495,18 +501,16 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   overflow_base_idx_ = 0;
 
   if (!iter_.Next()) {
-    // No more blocks: past the end of this SST.
-    // Return kUnknown — see comment in Seek path above.
     result->bound_check_result = IterBoundCheck::kUnknown;
     result->key = Slice();
     return Status::OK();
   }
 
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
+  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
+  Slice trie_key = iter_.Key();
+  current_key_scratch_.assign(trie_key.data(), trie_key.size());
   result->key = Slice(current_key_scratch_);
 
-  // Set overflow state for the new leaf.
   if (has_seqno_encoding_ && iter_.Valid()) {
     uint64_t leaf_idx = iter_.LeafIndex();
     overflow_run_size_ = trie_->GetLeafBlockCount(leaf_idx);

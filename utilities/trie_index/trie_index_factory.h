@@ -52,7 +52,7 @@ namespace trie_index {
 // The trie builder collects the separator keys from AddIndexEntry() and
 // builds a LOUDS-encoded trie during Finish().
 // ============================================================================
-class TrieIndexBuilder : public UserDefinedIndexBuilder {
+class TrieIndexBuilder final : public UserDefinedIndexBuilder {
  public:
   explicit TrieIndexBuilder(const Comparator* comparator);
   ~TrieIndexBuilder() override = default;
@@ -124,7 +124,7 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
 // Wraps LoudsTrieIterator and adapts it to the UDI iterator interface,
 // handling bounds checking against ScanOptions.
 // ============================================================================
-class TrieIndexIterator : public UserDefinedIndexIterator {
+class TrieIndexIterator final : public UserDefinedIndexIterator {
  public:
   // @param has_seqno_encoding: true if the trie was built with a seqno
   //   side-table (enabling post-seek correction for same-user-key boundaries).

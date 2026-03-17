@@ -330,11 +330,7 @@ class UserDefinedIndexIteratorWrapper
 
   Slice key() const override { return Slice(*ikey_.const_rep()); }
 
-  IndexValue value() const override {
-    auto handle = udi_iter_->value();
-    IndexValue val(BlockHandle(handle.offset, handle.size), Slice());
-    return val;
-  }
+  IndexValue value() const override { return cached_value_; }
 
   Status status() const override { return status_; }
 
@@ -359,11 +355,22 @@ class UserDefinedIndexIteratorWrapper
   // which is the correct upper-bound semantics for an index separator.
   void SetInternalKeyFromUDIResult() {
     ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+    CacheCurrentValue();
+  }
+
+  // Cache the IndexValue after each positioning operation so that repeated
+  // value() calls (5-10 per block in BlockBasedTableIterator) are a simple
+  // field return instead of a virtual dispatch through udi_iter_->value().
+  void CacheCurrentValue() {
+    auto handle = udi_iter_->value();
+    cached_value_ =
+        IndexValue(BlockHandle(handle.offset, handle.size), Slice());
   }
 
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;
   InternalKey ikey_;
+  IndexValue cached_value_;
   Status status_;
   bool valid_;
 };
