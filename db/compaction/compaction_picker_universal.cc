@@ -1724,15 +1724,15 @@ Compaction* UniversalCompactionBuilder::PickReadTriggeredCompaction() {
   int start_level = -1;
 
   for (const auto& level_file : vstorage_->ReadTriggeredCompactionFiles()) {
-    assert(!level_file.file->being_compacted);
-    start_level = level_file.level;
+    assert(!level_file.second->being_compacted);
+    start_level = level_file.first;
 
     if (start_level == 0 &&
         !picker_->level0_compactions_in_progress()->empty()) {
       continue;
     }
 
-    start_level_inputs.files = {level_file.file};
+    start_level_inputs.files = {level_file.second};
     start_level_inputs.level = start_level;
     if (picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                         &start_level_inputs)) {

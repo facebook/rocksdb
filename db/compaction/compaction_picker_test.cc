@@ -1023,8 +1023,8 @@ TEST_F(CompactionPickerTest, ReadTriggeredCompactionAboveThreshold) {
   const auto& marked = vstorage_->ReadTriggeredCompactionFiles();
   ASSERT_EQ(marked.size(), 2);
   // Sorted by reads_per_byte descending: file 3 (0.8) then file 1 (0.6)
-  ASSERT_EQ(marked[0].file->fd.GetNumber(), 3U);
-  ASSERT_EQ(marked[1].file->fd.GetNumber(), 1U);
+  ASSERT_EQ(marked[0].second->fd.GetNumber(), 3U);
+  ASSERT_EQ(marked[1].second->fd.GetNumber(), 1U);
 }
 
 TEST_F(CompactionPickerTest, NeedsCompactionReadTriggered) {

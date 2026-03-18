@@ -543,29 +543,17 @@ class VersionStorageInfo {
     return files_marked_for_forced_blob_gc_;
   }
 
-  struct ReadTriggeredFile {
-    int level;
-    FileMetaData* file;
-    double reads_per_byte;
-  };
-
   // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
-  const autovector<ReadTriggeredFile>& ReadTriggeredCompactionFiles() const {
+  const autovector<std::pair<int, FileMetaData*>>&
+  ReadTriggeredCompactionFiles() const {
     assert(finalized_);
     return read_triggered_compaction_files_;
   }
 
   void TEST_AddFileMarkedForReadTriggeredCompaction(int level,
                                                     FileMetaData* f) {
-    uint64_t file_size = f->fd.GetFileSize();
-    double rpb = file_size > 0
-                     ? static_cast<double>(
-                           f->stats.num_collapsible_entry_reads_sampled.load(
-                               std::memory_order_relaxed)) /
-                           static_cast<double>(file_size)
-                     : 0.0;
-    read_triggered_compaction_files_.push_back({level, f, rpb});
+    read_triggered_compaction_files_.emplace_back(level, f);
   }
 
   int base_level() const { return base_level_; }
@@ -776,7 +764,7 @@ class VersionStorageInfo {
 
   autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
 
-  autovector<ReadTriggeredFile> read_triggered_compaction_files_;
+  autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 
   // Threshold for needing to mark another bottommost file. Maintain it so we
   // can quickly check when releasing a snapshot whether more bottommost files

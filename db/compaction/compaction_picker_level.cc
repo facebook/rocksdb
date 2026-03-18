@@ -141,9 +141,6 @@ class LevelCompactionBuilder {
       const autovector<std::pair<int, FileMetaData*>>& level_files,
       CompactToNextLevel compact_to_next_level);
 
-  void PickFileToCompact(
-      const autovector<VersionStorageInfo::ReadTriggeredFile>& level_files,
-      CompactToNextLevel compact_to_next_level);
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
@@ -199,36 +196,6 @@ void LevelCompactionBuilder::PickFileToCompact(
       output_level_ = start_level_;
     }
     start_level_inputs_.files = {level_file.second};
-    start_level_inputs_.level = start_level_;
-    if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                   &start_level_inputs_)) {
-      return;
-    }
-  }
-  start_level_inputs_.files.clear();
-}
-
-void LevelCompactionBuilder::PickFileToCompact(
-    const autovector<VersionStorageInfo::ReadTriggeredFile>& level_files,
-    CompactToNextLevel compact_to_next_level) {
-  for (auto& level_file : level_files) {
-    assert(!level_file.file->being_compacted);
-    start_level_ = level_file.level;
-    if ((compact_to_next_level == CompactToNextLevel::kSkipLastLevel &&
-         start_level_ == vstorage_->num_non_empty_levels() - 1) ||
-        (start_level_ == 0 &&
-         !compaction_picker_->level0_compactions_in_progress()->empty())) {
-      continue;
-    }
-
-    if (compact_to_next_level != CompactToNextLevel::kNo &&
-        (start_level_ < vstorage_->num_non_empty_levels() - 1)) {
-      output_level_ =
-          (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
-    } else {
-      output_level_ = start_level_;
-    }
-    start_level_inputs_.files = {level_file.file};
     start_level_inputs_.level = start_level_;
     if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                                    &start_level_inputs_)) {

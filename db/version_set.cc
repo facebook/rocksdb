@@ -4236,17 +4236,26 @@ void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
               std::memory_order_relaxed)) /
           static_cast<double>(file_size);
       if (reads_per_byte > threshold) {
-        read_triggered_compaction_files_.push_back({level, f, reads_per_byte});
+        read_triggered_compaction_files_.emplace_back(level, f);
       }
     }
   }
 
   // Sort by reads_per_byte descending so the hottest files are picked first
-  std::sort(read_triggered_compaction_files_.begin(),
-            read_triggered_compaction_files_.end(),
-            [](const ReadTriggeredFile& a, const ReadTriggeredFile& b) {
-              return a.reads_per_byte > b.reads_per_byte;
-            });
+  std::sort(
+      read_triggered_compaction_files_.begin(),
+      read_triggered_compaction_files_.end(), [](const auto& a, const auto& b) {
+        auto reads_per_byte = [](const FileMetaData* f) {
+          uint64_t file_size = f->fd.GetFileSize();
+          return file_size > 0
+                     ? static_cast<double>(
+                           f->stats.num_collapsible_entry_reads_sampled.load(
+                               std::memory_order_relaxed)) /
+                           static_cast<double>(file_size)
+                     : 0.0;
+        };
+        return reads_per_byte(a.second) > reads_per_byte(b.second);
+      });
 }
 
 namespace {
