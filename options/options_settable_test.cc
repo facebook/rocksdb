@@ -476,7 +476,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "allow_data_in_errors=false;"
       "enforce_single_del_contracts=false;"
       "daily_offpeak_time_utc=08:30-19:00;"
-      "max_periodic_compaction_trigger_seconds=43200;"
+      "max_compaction_trigger_wakeup_seconds=43200;"
       "follower_refresh_catchup_period_ms=123;"
       "follower_catchup_retry_count=456;"
       "follower_catchup_retry_wait_ms=789;"

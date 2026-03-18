@@ -1712,6 +1712,19 @@ extern ROCKSDB_LIBRARY_API double rocksdb_options_get_blob_gc_force_threshold(
     rocksdb_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_read_triggered_compaction_threshold(rocksdb_options_t* opt,
+                                                        double val);
+extern ROCKSDB_LIBRARY_API double
+rocksdb_options_get_read_triggered_compaction_threshold(rocksdb_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_max_compaction_trigger_wakeup_seconds(
+    rocksdb_options_t* opt, uint64_t val);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_options_get_max_compaction_trigger_wakeup_seconds(
+    rocksdb_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
                                                    uint64_t val);
 extern ROCKSDB_LIBRARY_API uint64_t

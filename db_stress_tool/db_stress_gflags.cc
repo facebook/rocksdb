@@ -1303,9 +1303,9 @@ DEFINE_uint64(stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
 DEFINE_uint64(
-    max_periodic_compaction_trigger_seconds,
-    ROCKSDB_NAMESPACE::Options().max_periodic_compaction_trigger_seconds,
-    "Sets DB option max_periodic_compaction_trigger_seconds.");
+    max_compaction_trigger_wakeup_seconds,
+    ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
+    "Sets DB option max_compaction_trigger_wakeup_seconds.");
 
 DEFINE_bool(verification_only, false,
             "If true, tests will only execute verification step");

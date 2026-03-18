@@ -989,7 +989,7 @@ TEST_F(CompactionPickerTest, ReadTriggeredCompactionDisabled) {
   // threshold=0 means disabled, no files should be marked
   mutable_cf_options_.read_triggered_compaction_threshold = 0.0;
   Add(0, 1U, "100", "200", 1000U);
-  file_map_[1U].first->stats.num_reads_sampled.store(999999);
+  file_map_[1U].first->stats.num_collapsible_entry_reads_sampled.store(999999);
   UpdateVersionStorageInfo();
   ASSERT_TRUE(vstorage_->ReadTriggeredCompactionFiles().empty());
 }
@@ -999,7 +999,7 @@ TEST_F(CompactionPickerTest, ReadTriggeredCompactionBelowThreshold) {
   mutable_cf_options_.read_triggered_compaction_threshold = 1.0;
   // file_size=1000, reads=500 => reads_per_byte=0.5 < 1.0
   Add(0, 1U, "100", "200", 1000U);
-  file_map_[1U].first->stats.num_reads_sampled.store(500);
+  file_map_[1U].first->stats.num_collapsible_entry_reads_sampled.store(500);
   UpdateVersionStorageInfo();
   ASSERT_TRUE(vstorage_->ReadTriggeredCompactionFiles().empty());
 }
@@ -1009,13 +1009,13 @@ TEST_F(CompactionPickerTest, ReadTriggeredCompactionAboveThreshold) {
   mutable_cf_options_.read_triggered_compaction_threshold = 0.5;
   // file_size=1000, reads=600 => reads_per_byte=0.6 > 0.5
   Add(0, 1U, "100", "200", 1000U);
-  file_map_[1U].first->stats.num_reads_sampled.store(600);
+  file_map_[1U].first->stats.num_collapsible_entry_reads_sampled.store(600);
   // file_size=1000, reads=300 => reads_per_byte=0.3 < 0.5 (not marked)
   Add(1, 2U, "300", "400", 1000U);
-  file_map_[2U].first->stats.num_reads_sampled.store(300);
+  file_map_[2U].first->stats.num_collapsible_entry_reads_sampled.store(300);
   // file_size=1000, reads=800 => reads_per_byte=0.8 > 0.5 (hottest)
   Add(2, 3U, "500", "600", 1000U);
-  file_map_[3U].first->stats.num_reads_sampled.store(800);
+  file_map_[3U].first->stats.num_collapsible_entry_reads_sampled.store(800);
   // Add a file at the bottom so L2 is not the last non-empty level
   Add(4, 4U, "700", "800", 1000U);
   UpdateVersionStorageInfo();
@@ -1023,15 +1023,15 @@ TEST_F(CompactionPickerTest, ReadTriggeredCompactionAboveThreshold) {
   const auto& marked = vstorage_->ReadTriggeredCompactionFiles();
   ASSERT_EQ(marked.size(), 2);
   // Sorted by reads_per_byte descending: file 3 (0.8) then file 1 (0.6)
-  ASSERT_EQ(marked[0].second->fd.GetNumber(), 3U);
-  ASSERT_EQ(marked[1].second->fd.GetNumber(), 1U);
+  ASSERT_EQ(marked[0].file->fd.GetNumber(), 3U);
+  ASSERT_EQ(marked[1].file->fd.GetNumber(), 1U);
 }
 
 TEST_F(CompactionPickerTest, NeedsCompactionReadTriggered) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.read_triggered_compaction_threshold = 0.1;
   Add(1, 1U, "100", "200", 1000U);
-  file_map_[1U].first->stats.num_reads_sampled.store(500);
+  file_map_[1U].first->stats.num_collapsible_entry_reads_sampled.store(500);
   Add(3, 2U, "300", "400", 1000U);
   UpdateVersionStorageInfo();
 
@@ -1043,7 +1043,7 @@ TEST_F(CompactionPickerTest, ReadTriggeredPicksFile) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.read_triggered_compaction_threshold = 0.1;
   Add(1, 1U, "100", "200", 1000U);
-  file_map_[1U].first->stats.num_reads_sampled.store(500);
+  file_map_[1U].first->stats.num_collapsible_entry_reads_sampled.store(500);
   Add(3, 2U, "300", "400", 1000U);
   UpdateVersionStorageInfo();
 
@@ -1071,7 +1071,8 @@ TEST_F(CompactionPickerTest, UniversalReadTriggeredCompaction) {
   Add(4, 3U, "301", "400", kFileSize, 0, 101, 150);
 
   // Mark file 2 (L2) as having high reads
-  file_map_[2U].first->stats.num_reads_sampled.store(kFileSize);
+  file_map_[2U].first->stats.num_collapsible_entry_reads_sampled.store(
+      kFileSize);
   UpdateVersionStorageInfo();
 
   ASSERT_TRUE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
@@ -1103,7 +1104,8 @@ TEST_F(CompactionPickerTest, ReadTriggeredSkipsLastLevel) {
   // File 3 is at the last non-empty level — should NOT be marked for
   // read-triggered compaction. Bottommost file cleanup is handled
   // separately by ComputeBottommostFilesMarkedForCompaction().
-  file_map_[3U].first->stats.num_reads_sampled.store(kFileSize);
+  file_map_[3U].first->stats.num_collapsible_entry_reads_sampled.store(
+      kFileSize);
   UpdateVersionStorageInfo();
 
   ASSERT_TRUE(vstorage_->ReadTriggeredCompactionFiles().empty());
@@ -1143,7 +1145,8 @@ TEST_F(CompactionPickerTest, UniversalReadTriggeredIntraL0) {
   Add(0, 2U, "200", "400", kFileSize, 0, 400, 450);
 
   // Mark file 1 as hot
-  file_map_[1U].first->stats.num_reads_sampled.store(kFileSize);
+  file_map_[1U].first->stats.num_collapsible_entry_reads_sampled.store(
+      kFileSize);
   UpdateVersionStorageInfo();
 
   ASSERT_FALSE(vstorage_->ReadTriggeredCompactionFiles().empty());

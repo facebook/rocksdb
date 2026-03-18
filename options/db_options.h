@@ -149,7 +149,7 @@ struct MutableDBOptions {
   int max_manifest_space_amp_pct;
   size_t manifest_preallocation_size;
   std::string daily_offpeak_time_utc;
-  uint64_t max_periodic_compaction_trigger_seconds;
+  uint64_t max_compaction_trigger_wakeup_seconds;
 };
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

@@ -941,15 +941,30 @@ struct AdvancedColumnFamilyOptions {
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
   // When set to a positive value, enables read-triggered compaction. An SST
-  // file is marked for compaction when its read frequency (measured as
-  // num_reads_sampled / file_size) exceeds this threshold. This helps reduce
+  // file is marked for compaction when its sampled read frequency
+  // (sampled_reads / file_size) exceeds this threshold. This helps reduce
   // read amplification for hot keys by compacting frequently-read files.
   //
+  // Only "collapsible" reads are counted — lookups that return NotFound
+  // (bloom filter false positive), Delete/SingleDeletion (tombstone), or
+  // Merge (partial result). These are reads where the file contributed no
+  // final value and compaction would eliminate the wasted work.
+  //
+  // Choosing a value: the threshold balances read IO saved against the
+  // write amplification (WA) of an extra compaction. With typical settings
+  // (4 KB block size, level fanout ~10), the break-even point — where
+  // accumulated wasted read IO equals the compaction cost — is around
+  // 0.005 assuming no block cache. A higher block-cache hit rate lowers
+  // the effective read IO cost, pushing break-even higher. A recommended
+  // starting point is 0.01, which avoids triggering compactions that cost
+  // more IO than they save for most cache-friendly workloads, while still
+  // being responsive enough to compact files with significant wasted reads.
+  //
   // For this feature to take effect on a "quiet" DB (no writes), the DB-level
-  // option `max_periodic_compaction_trigger_seconds` must also be set to a
+  // option `max_compaction_trigger_wakeup_seconds` must also be set to a
   // non-zero value so the periodic background job can re-evaluate files.
   //
-  // Default: 0.0 (disabled)
+  // Valid range: >= 0.0 (must be finite). Use 0.0 to disable.
   //
   // Dynamically changeable through SetOptions() API
   double read_triggered_compaction_threshold = 0.0;

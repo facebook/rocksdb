@@ -1133,8 +1133,10 @@ DEFINE_double(read_triggered_compaction_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .read_triggered_compaction_threshold,
               "Threshold for read-triggered compaction. An SST file is marked "
-              "for compaction when num_reads_sampled / file_size exceeds this "
-              "value. 0 disables the feature.");
+              "for compaction when its sampled read frequency "
+              "(sampled_reads / file_size) exceeds this value. Collapsible "
+              "reads (NotFound, Merge, Delete results) are sampled. "
+              "0 disables the feature.");
 
 DEFINE_int32(
     blob_file_starting_level,
@@ -1773,8 +1775,8 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 DEFINE_uint64(
-    max_periodic_compaction_trigger_seconds,
-    ROCKSDB_NAMESPACE::Options().max_periodic_compaction_trigger_seconds,
+    max_compaction_trigger_wakeup_seconds,
+    ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Maximum interval in seconds between periodic compaction trigger checks.");
 DEFINE_uint64(stats_persist_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_persist_period_sec,
@@ -4422,8 +4424,8 @@ class Benchmark {
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
-    options.max_periodic_compaction_trigger_seconds =
-        FLAGS_max_periodic_compaction_trigger_seconds;
+    options.max_compaction_trigger_wakeup_seconds =
+        FLAGS_max_compaction_trigger_wakeup_seconds;
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;

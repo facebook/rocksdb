@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cmath>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -1561,6 +1562,14 @@ Status ColumnFamilyData::ValidateOptions(
           "The garbage ratio threshold for forcing blob garbage collection "
           "should be in the range [0.0, 1.0].");
     }
+  }
+
+  if (cf_options.read_triggered_compaction_threshold < 0.0 ||
+      std::isnan(cf_options.read_triggered_compaction_threshold) ||
+      std::isinf(cf_options.read_triggered_compaction_threshold)) {
+    return Status::InvalidArgument(
+        "read_triggered_compaction_threshold must be >= 0.0 and finite. "
+        "Use 0.0 to disable.");
   }
 
   if (cf_options.compaction_style == kCompactionStyleFIFO &&

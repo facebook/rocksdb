@@ -265,7 +265,7 @@ default_params = {
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
-    "max_periodic_compaction_trigger_seconds": lambda: random.choice([43200, 600, 30]),
+    "max_compaction_trigger_wakeup_seconds": lambda: random.choice([43200, 600, 30]),
     "read_triggered_compaction_threshold": lambda: random.choice([0, 0.001, 0.01, 0.1]),
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
@@ -1296,7 +1296,7 @@ def finalize_and_sanitize(src_params):
     # When read-triggered compaction is enabled, use a short periodic trigger
     # interval so that the feature gets exercised on a quiet DB.
     if dest_params.get("read_triggered_compaction_threshold", 0) > 0:
-        dest_params["max_periodic_compaction_trigger_seconds"] = 20
+        dest_params["max_compaction_trigger_wakeup_seconds"] = 20
 
     return dest_params
 

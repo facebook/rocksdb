@@ -3981,7 +3981,8 @@ void VersionStorageInfo::ComputeCompactionScore(
       mutable_cf_options.blob_garbage_collection_force_threshold,
       mutable_cf_options.enable_blob_garbage_collection);
   ComputeFilesMarkedForReadTriggeredCompaction(
-      mutable_cf_options.read_triggered_compaction_threshold);
+      mutable_cf_options.read_triggered_compaction_threshold,
+      immutable_options.compaction_style);
 
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -4206,9 +4207,9 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 }
 
 void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
-    double threshold) {
+    double threshold, CompactionStyle compaction_style) {
   read_triggered_compaction_files_.clear();
-  if (threshold <= 0.0) {
+  if (threshold <= 0.0 || compaction_style == kCompactionStyleFIFO) {
     return;
   }
 
@@ -4231,11 +4232,11 @@ void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
         continue;
       }
       double reads_per_byte =
-          static_cast<double>(
-              f->stats.num_reads_sampled.load(std::memory_order_relaxed)) /
+          static_cast<double>(f->stats.num_collapsible_entry_reads_sampled.load(
+              std::memory_order_relaxed)) /
           static_cast<double>(file_size);
       if (reads_per_byte > threshold) {
-        read_triggered_compaction_files_.emplace_back(level, f);
+        read_triggered_compaction_files_.push_back({level, f, reads_per_byte});
       }
     }
   }
@@ -4243,17 +4244,8 @@ void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
   // Sort by reads_per_byte descending so the hottest files are picked first
   std::sort(read_triggered_compaction_files_.begin(),
             read_triggered_compaction_files_.end(),
-            [](const std::pair<int, FileMetaData*>& a,
-               const std::pair<int, FileMetaData*>& b) {
-              double a_rpb =
-                  static_cast<double>(a.second->stats.num_reads_sampled.load(
-                      std::memory_order_relaxed)) /
-                  static_cast<double>(a.second->fd.GetFileSize());
-              double b_rpb =
-                  static_cast<double>(b.second->stats.num_reads_sampled.load(
-                      std::memory_order_relaxed)) /
-                  static_cast<double>(b.second->fd.GetFileSize());
-              return a_rpb > b_rpb;
+            [](const ReadTriggeredFile& a, const ReadTriggeredFile& b) {
+              return a.reads_per_byte > b.reads_per_byte;
             });
 }
 

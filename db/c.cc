@@ -4747,6 +4747,26 @@ double rocksdb_options_get_blob_gc_force_threshold(rocksdb_options_t* opt) {
   return opt->rep.blob_garbage_collection_force_threshold;
 }
 
+void rocksdb_options_set_read_triggered_compaction_threshold(
+    rocksdb_options_t* opt, double val) {
+  opt->rep.read_triggered_compaction_threshold = val;
+}
+
+double rocksdb_options_get_read_triggered_compaction_threshold(
+    rocksdb_options_t* opt) {
+  return opt->rep.read_triggered_compaction_threshold;
+}
+
+void rocksdb_options_set_max_compaction_trigger_wakeup_seconds(
+    rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.max_compaction_trigger_wakeup_seconds = val;
+}
+
+uint64_t rocksdb_options_get_max_compaction_trigger_wakeup_seconds(
+    rocksdb_options_t* opt) {
+  return opt->rep.max_compaction_trigger_wakeup_seconds;
+}
+
 void rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
                                                         uint64_t val) {
   opt->rep.blob_compaction_readahead_size = val;

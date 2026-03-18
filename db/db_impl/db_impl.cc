@@ -823,7 +823,7 @@ static uint64_t GetMinTimeBasedCompactionInterval(
 uint64_t DBImpl::ComputeTriggerCompactionPeriod() {
   // Start with the configured maximum, then reduce based on other options.
   uint64_t period_sec =
-      mutable_db_options_.max_periodic_compaction_trigger_seconds;
+      mutable_db_options_.max_compaction_trigger_wakeup_seconds;
 
   // Consider DB-level options that have the DB waking up periodically anyway.
   // Waking up to check for compactions at the same interval should be no

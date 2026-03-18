@@ -1716,10 +1716,13 @@ struct DBOptions {
   // which controls the *age threshold* at which SST files become eligible for
   // periodic compaction.
   //
+  // The minimum effective period is 1 second (values below 1 are clamped to 1).
+  // Setting this to 0 results in the most aggressive 1-second polling.
+  //
   // Default: 43200 (12 hours)
   //
   // Dynamically changeable through SetDBOptions() API.
-  uint64_t max_periodic_compaction_trigger_seconds = 43200;
+  uint64_t max_compaction_trigger_wakeup_seconds = 43200;
 
   // EXPERIMENTAL
 

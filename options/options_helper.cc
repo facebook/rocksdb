@@ -190,8 +190,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
-  options.max_periodic_compaction_trigger_seconds =
-      mutable_db_options.max_periodic_compaction_trigger_seconds;
+  options.max_compaction_trigger_wakeup_seconds =
+      mutable_db_options.max_compaction_trigger_wakeup_seconds;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
   options.follower_catchup_retry_count =

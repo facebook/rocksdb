@@ -11713,17 +11713,17 @@ TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
                     ->cfd();
     auto* vstorage = cfd->current()->storage_info();
     for (auto* f : vstorage->LevelFiles(1)) {
-      f->stats.num_reads_sampled.store(reads_needed);
+      f->stats.num_collapsible_entry_reads_sampled.store(reads_needed);
     }
   }
 
-  int read_triggered_compactions = 0;
+  std::atomic<int> read_triggered_compactions{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = static_cast<Compaction*>(arg);
         if (compaction->compaction_reason() ==
             CompactionReason::kReadTriggered) {
-          read_triggered_compactions++;
+          read_triggered_compactions.fetch_add(1, std::memory_order_relaxed);
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -11734,6 +11734,14 @@ TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
 
   ASSERT_GE(read_triggered_compactions, 1);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Verify the L1 file was compacted down (L1 should be empty now)
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+
+  // Verify data integrity: all keys are still readable
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+  }
 }
 
 // Regression test for a bug in SetupOtherFilesWithRoundRobinExpansion where
