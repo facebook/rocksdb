@@ -50,7 +50,7 @@ void PinnedTableReader::Pin(Cache::Handle* handle, TableReader* reader) {
 void PinnedTableReader::Release(Cache* cache) {
   (void)reader_.load(std::memory_order_acquire);
   if (handle_ != nullptr) {
-    cache->Release(handle_);
+    cache->Release(handle_, /*erase_if_last_ref=*/true);
     handle_ = nullptr;
     reader_.store(nullptr, std::memory_order_relaxed);
   }
