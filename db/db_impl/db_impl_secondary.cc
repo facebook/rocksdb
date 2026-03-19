@@ -43,7 +43,6 @@ Status DBImplSecondary::Recover(
     RecoveryContext* /*recovery_ctx*/, bool* /*can_retry*/) {
   mutex_.AssertHeld();
 
-  JobContext job_context(0);
   Status s;
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
@@ -61,26 +60,12 @@ Status DBImplSecondary::Recover(
     max_total_in_memory_state_ += mutable_cf_options.write_buffer_size *
                                   mutable_cf_options.max_write_buffer_number;
   }
-  if (s.ok()) {
-    default_cf_handle_ = new ColumnFamilyHandleImpl(
-        versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
-    default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
+  default_cf_handle_ = new ColumnFamilyHandleImpl(
+      versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
+  default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
 
-    if (!skip_wal_recovery_) {
-      std::unordered_set<ColumnFamilyData*> cfds_changed;
-      s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
-    }
-  }
-
-  if (s.IsPathNotFound()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Secondary tries to read WAL, but WAL file(s) have already "
-                   "been purged by primary.");
-    s = Status::OK();
-  }
   // TODO: update options_file_number_ needed?
 
-  job_context.Clean();
   return s;
 }
 
@@ -743,17 +728,39 @@ Status DB::OpenAsSecondary(
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
-  return DBImplSecondary::OpenAsSecondaryImpl(
-      db_options, dbname, secondary_path, column_families, handles, dbptr,
-      /*skip_wal_recovery=*/false);
+  Status s = DBImplSecondary::OpenAsSecondaryImpl(
+      db_options, dbname, secondary_path, column_families, handles, dbptr);
+  if (s.ok()) {
+    DBImplSecondary* impl =
+        static_cast_with_check<DBImplSecondary>(dbptr->get());
+    JobContext job_context(0);
+    std::unordered_set<ColumnFamilyData*> cfds_changed;
+    impl->mutex_.Lock();
+    s = impl->FindAndRecoverLogFiles(&cfds_changed, &job_context);
+    impl->mutex_.Unlock();
+    job_context.Clean();
+    if (s.IsPathNotFound()) {
+      ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                     "Secondary tries to read WAL, but WAL file(s) have "
+                     "already been purged by primary.");
+      s = Status::OK();
+    }
+    if (!s.ok()) {
+      for (auto h : *handles) {
+        delete h;
+      }
+      handles->clear();
+      dbptr->reset();
+    }
+  }
+  return s;
 }
 
 Status DBImplSecondary::OpenAsSecondaryImpl(
     const DBOptions& db_options, const std::string& dbname,
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
-    bool skip_wal_recovery) {
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -796,7 +803,6 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
-  impl->skip_wal_recovery_ = skip_wal_recovery;
 
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
@@ -1559,8 +1565,7 @@ Status DB::OpenAndCompact(
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
-                                           column_families, &handles, &db,
-                                           /*skip_wal_recovery=*/true);
+                                           column_families, &handles, &db);
   if (!s.ok()) {
     return s;
   }

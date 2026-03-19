@@ -78,8 +78,9 @@ class DBImplSecondary : public DBImpl {
                   std::string secondary_path);
   ~DBImplSecondary() override;
 
-  // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
-  // and log_readers_ to facilitate future operations.
+  // Recover by replaying MANIFEST only. Also initialize manifest_reader_
+  // to facilitate future operations. WAL recovery, if needed, is done
+  // separately after opening (see DB::OpenAsSecondary).
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
                  bool error_if_data_exists_in_wals, bool is_retry = false,
@@ -384,18 +385,14 @@ class DBImplSecondary : public DBImpl {
   uint64_t CalculateResumedCompactionBytes(
       const CompactionProgress& compaction_progress) const;
 
-  // When true, WAL replay is skipped during Recover(). Used internally by
-  // OpenAndCompact() which only needs LSM state from MANIFEST.
-  bool skip_wal_recovery_ = false;
-
-  // Internal helper for opening a secondary instance, with an option to skip
-  // WAL recovery. Used by DB::OpenAsSecondary() and DB::OpenAndCompact().
+  // Internal helper for opening a secondary instance with MANIFEST-only
+  // recovery (no WAL replay). Used by DB::OpenAsSecondary() and
+  // DB::OpenAndCompact().
   static Status OpenAsSecondaryImpl(
       const DBOptions& db_options, const std::string& dbname,
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
-      bool skip_wal_recovery);
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
 
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
