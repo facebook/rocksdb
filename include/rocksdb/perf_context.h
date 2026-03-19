@@ -290,6 +290,14 @@ struct PerfContextBase {
   uint64_t file_ingestion_nanos;
   // Time IngestExternalFile blocked live writes.
   uint64_t file_ingestion_blocking_live_writes_nanos;
+
+  // Bytes read from storage for each block category. These add up to
+  // block_read_byte.
+  uint64_t data_block_read_byte;
+  uint64_t index_block_read_byte;
+  uint64_t filter_block_read_byte;
+  uint64_t compression_dict_block_read_byte;
+  uint64_t metadata_block_read_byte;
 };
 
 struct PerfContext : public PerfContextBase {

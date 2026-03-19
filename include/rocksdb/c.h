@@ -2181,7 +2181,12 @@ enum {
   rocksdb_internal_range_del_reseek_count,
   rocksdb_block_read_cpu_time,
   rocksdb_internal_merge_point_lookup_count,
-  rocksdb_total_metric_count = 80
+  rocksdb_data_block_read_byte,
+  rocksdb_index_block_read_byte,
+  rocksdb_filter_block_read_byte,
+  rocksdb_compression_dict_block_read_byte,
+  rocksdb_metadata_block_read_byte,
+  rocksdb_total_metric_count = 85
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
