@@ -994,6 +994,13 @@ struct DBOptions {
   // manifest write (e.g. completed DB compaction or flush).
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
+  // If true, on DB close, read back the entire MANIFEST file and validate
+  // CRC checksums and logical record content. If corruption is detected,
+  // a fresh MANIFEST is written from in-memory state before closing.
+  //
+  // This option is mutable with SetDBOptions().
+  bool verify_manifest_content_on_close = false;
+
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
   // balance of manifest write amplification and space amplification. A new
   // manifest file is created with the "compacted" contents of the old one when
