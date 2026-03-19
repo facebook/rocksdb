@@ -897,8 +897,6 @@ def finalize_and_sanitize(src_params):
         dest_params["open_write_fault_one_in"] = 0
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
-    else:
-        dest_params["allow_resumption_one_in"] = 0
 
     # UDI now supports all operation types (Put, Delete, Merge, etc.).
     # Only parallel compression and mmap_read remain incompatible.
@@ -1047,7 +1045,6 @@ def finalize_and_sanitize(src_params):
         dest_params["commit_bypass_memtable_one_in"] = 0
         # not compatible with Remote Compaction yet
         dest_params["remote_compaction_worker_threads"] = 0
-        dest_params["allow_resumption_one_in"] = 0
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -1285,6 +1282,10 @@ def finalize_and_sanitize(src_params):
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+
+    # allow_resumption requires remote compaction
+    if dest_params.get("remote_compaction_worker_threads", 0) == 0:
+        dest_params["allow_resumption_one_in"] = 0
 
     return dest_params
 
