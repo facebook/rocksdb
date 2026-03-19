@@ -4331,14 +4331,26 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
+        const uint64_t total_classified_bytes =
+            get_perf_context()->data_block_read_byte +
+            get_perf_context()->index_block_read_byte +
+            get_perf_context()->filter_block_read_byte +
+            get_perf_context()->compression_dict_block_read_byte +
+            get_perf_context()->metadata_block_read_byte;
+        ASSERT_EQ(get_perf_context()->block_read_byte, total_classified_bytes);
         if (index_and_filter_in_cache) {
           // data, index and filter block
           ASSERT_EQ(get_perf_context()->block_read_count, 3);
           ASSERT_EQ(get_perf_context()->index_block_read_count, 1);
           ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
+          ASSERT_GT(get_perf_context()->data_block_read_byte, 0);
+          ASSERT_GT(get_perf_context()->index_block_read_byte, 0);
+          ASSERT_GT(get_perf_context()->filter_block_read_byte, 0);
         } else {
           // just the data block
           ASSERT_EQ(get_perf_context()->block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->block_read_byte,
+                    get_perf_context()->data_block_read_byte);
         }
         ASSERT_EQ(get_context.State(), GetContext::kFound);
         ASSERT_STREQ(value.data(), "hello");
@@ -4357,6 +4369,13 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
+        const uint64_t total_classified_bytes =
+            get_perf_context()->data_block_read_byte +
+            get_perf_context()->index_block_read_byte +
+            get_perf_context()->filter_block_read_byte +
+            get_perf_context()->compression_dict_block_read_byte +
+            get_perf_context()->metadata_block_read_byte;
+        ASSERT_EQ(get_perf_context()->block_read_byte, total_classified_bytes);
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);
       }
 
@@ -4370,6 +4389,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
           // with full-filter, we read filter first and then we stop
           ASSERT_EQ(get_perf_context()->block_read_count, 1);
           ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->block_read_byte,
+                    get_perf_context()->filter_block_read_byte);
         }
       } else {
         // filter is already in memory and it figures out that the key doesn't
@@ -5836,8 +5857,12 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     auto metaindex_handle = footer.metaindex_handle();
     BlockContents metaindex_contents;
 
+    get_perf_context()->Reset();
     BlockFetchHelper(metaindex_handle, BlockType::kMetaIndex,
                      &metaindex_contents);
+    ASSERT_GT(get_perf_context()->metadata_block_read_byte, 0);
+    ASSERT_EQ(get_perf_context()->block_read_byte,
+              get_perf_context()->metadata_block_read_byte);
     Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
@@ -5849,8 +5874,12 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
                                     &properties_handle));
     ASSERT_FALSE(properties_handle.IsNull());
     BlockContents properties_contents;
+    get_perf_context()->Reset();
     BlockFetchHelper(properties_handle, BlockType::kProperties,
                      &properties_contents);
+    ASSERT_GT(get_perf_context()->metadata_block_read_byte, 0);
+    ASSERT_EQ(get_perf_context()->block_read_byte,
+              get_perf_context()->metadata_block_read_byte);
     Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);

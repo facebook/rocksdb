@@ -155,7 +155,12 @@ struct PerfContextByLevelInt {
   defCmd(decrypt_data_nanos)                       \
   defCmd(number_async_seek)                        \
   defCmd(file_ingestion_nanos)                     \
-  defCmd(file_ingestion_blocking_live_writes_nanos)
+  defCmd(file_ingestion_blocking_live_writes_nanos)\
+  defCmd(data_block_read_byte)                     \
+  defCmd(index_block_read_byte)                    \
+  defCmd(filter_block_read_byte)                   \
+  defCmd(compression_dict_block_read_byte)         \
+  defCmd(metadata_block_read_byte)
 // clang-format on
 
 struct PerfContextInt {
