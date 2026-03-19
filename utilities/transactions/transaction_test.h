@@ -82,6 +82,12 @@ class TransactionTestBase : public ::testing::Test {
     txn_db_options.write_policy = write_policy;
     txn_db_options.rollback_merge_operands = true;
     txn_db_options.use_per_key_point_lock_mgr = use_per_key_point_lock_mgr;
+    // Reduce commit cache size from the default 2^23 (64MB) to 2^13 (64KB).
+    // The default is sized for production workloads but makes TSAN builds
+    // very slow because value-initializing 8M atomics triggers __tsan_memset,
+    // which updates shadow memory for every 8-byte cell.  Tests that need
+    // specific cache sizes (e.g., for wrapping/eviction) override this.
+    txn_db_options.wp_commit_cache_bits = 13;
     // This will stress write unprepared, by forcing write batch flush on every
     // write.
     txn_db_options.default_write_batch_flush_threshold = 1;
