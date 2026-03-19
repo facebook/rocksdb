@@ -538,6 +538,79 @@ TEST_F(InlineSkipTest, MultiGetRandomized) {
   }
 }
 
+// Reproduces a bug where duplicate keys in a MultiGet batch cause an assertion
+// failure when the callback walks forward (e.g., merge operands). After the
+// callback loop for key[i] advances finger.prev_[0] to an entry with the same
+// user key but a lower sequence number, the duplicate key[i+1] (which has
+// kMaxSequenceNumber and thus sorts BEFORE the advanced finger position in
+// internal key order) triggers the assertion:
+//   assert(before == head_ || KeyIsAfterNode(key, before))
+TEST_F(InlineSkipTest, MultiGetDuplicateKeysWithCallbackWalk) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // Insert keys: 10, 20, 30, 40, 50, 60
+  for (int i = 1; i <= 6; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Callback that walks forward through multiple entries before stopping.
+  // This simulates the Merge operand accumulation in SaveValue — the callback
+  // returns true for entries until it reaches one >= stop_at, simulating
+  // walking through merge chain entries.
+  struct WalkingCallbackArg {
+    Key stop_at;      // stop when we reach this key
+    Key first_key;    // first key seen
+    int num_visited;  // number of entries visited
+  };
+  auto walking_callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<WalkingCallbackArg*>(arg);
+    Key k = Decode(entry);
+    if (cb->num_visited == 0) {
+      cb->first_key = k;
+    }
+    cb->num_visited++;
+    // Walk forward until we reach stop_at (simulates merge accumulation)
+    return k < cb->stop_at;
+  };
+
+  // Query with duplicate keys: [20, 20, 50]
+  // The first query for 20 walks forward to 40 (stop_at=40), advancing
+  // finger.prev_[0] to 30. Then the second query for 20 must still work
+  // correctly despite finger.prev_[0] being past key 20.
+  const size_t num_queries = 3;
+  Key query_keys[num_queries] = {20, 20, 50};
+  const char* key_ptrs[num_queries];
+  void* cb_args[num_queries];
+  WalkingCallbackArg cb_data[num_queries];
+
+  for (size_t i = 0; i < num_queries; i++) {
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].stop_at = (i == 0) ? 40 : 0;  // first query walks to 40
+    cb_data[i].first_key = 0;
+    cb_data[i].num_visited = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  // This should not crash with the assertion failure
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, walking_callback));
+
+  // First query for 20: should find 20 and walk forward through 30 (stop at
+  // 40)
+  ASSERT_EQ(cb_data[0].first_key, 20);
+  ASSERT_GE(cb_data[0].num_visited, 2);
+
+  // Second query for 20: should also find 20 (duplicate key)
+  ASSERT_EQ(cb_data[1].first_key, 20);
+
+  // Third query for 50: should find 50
+  ASSERT_EQ(cb_data[2].first_key, 50);
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // We want to make sure that with a single writer and multiple
 // concurrent readers (with no synchronization other than when a
