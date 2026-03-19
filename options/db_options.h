@@ -148,6 +148,7 @@ struct MutableDBOptions {
   uint64_t max_manifest_file_size;
   int max_manifest_space_amp_pct;
   size_t manifest_preallocation_size;
+  bool verify_manifest_content_on_close;
   std::string daily_offpeak_time_utc;
 };
 

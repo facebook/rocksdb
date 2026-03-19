@@ -4495,6 +4495,8 @@ void InitializeOptionsFromFlags(
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+  options.verify_manifest_content_on_close =
+      FLAGS_verify_manifest_content_on_close;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;

@@ -1,0 +1,1 @@
+Added new mutable DB option `verify_manifest_content_on_close` (default: false). When enabled, on DB close the MANIFEST file is read back and all records are validated (CRC checksums and logical content). If corruption is detected, a fresh MANIFEST is written from in-memory state.
