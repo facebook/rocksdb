@@ -84,23 +84,24 @@ class InjectedErrorLog {
     e.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
                          now.time_since_epoch())
                          .count();
-    // Format into a local buffer first, then copy byte-by-byte into the
-    // shared entry. This avoids calling the TSAN-intercepted vsnprintf
-    // directly on shared memory. We use a byte-by-byte loop instead of
-    // memcpy because TSAN_SUPPRESSION (no_sanitize("thread")) only
-    // suppresses compiler-inserted instrumentation -- it does NOT suppress
-    // TSAN's runtime interceptors for libc functions like memcpy, vsnprintf,
-    // and snprintf. At -O0, memcpy is not inlined and goes through the
-    // interceptor, which would still report a race. Plain store instructions
-    // (e.context[i] = local_buf[i]) are always suppressed regardless of
-    // optimization level.
+    // Format into a local buffer first, then copy into the shared entry.
+    // This avoids calling the TSAN-intercepted vsnprintf directly on shared
+    // memory. We use a byte-by-byte loop instead of memcpy because
+    // TSAN_SUPPRESSION (no_sanitize("thread")) only suppresses
+    // compiler-inserted instrumentation -- it does NOT suppress TSAN's
+    // runtime interceptors for libc functions like memcpy, vsnprintf, and
+    // snprintf. Plain store instructions are always suppressed regardless
+    // of optimization level. The volatile source pointer prevents the
+    // compiler from recognizing this as a memcpy idiom and replacing it
+    // with a memcpy call.
     char local_buf[kMaxMessageLen];
     va_list args;
     va_start(args, fmt);
     vsnprintf(local_buf, kMaxMessageLen, fmt, args);
     va_end(args);
+    const volatile char* src = local_buf;
     for (size_t i = 0; i < kMaxMessageLen; i++) {
-      e.context[i] = local_buf[i];
+      e.context[i] = src[i];
     }
   }
 
@@ -166,16 +167,15 @@ class InjectedErrorLog {
     for (size_t i = 0; i < count; i++) {
       size_t idx = (start + i) % kMaxEntries;
       // Copy entry fields to locals to avoid passing shared memory through
-      // TSAN-intercepted snprintf. We use byte-by-byte copy instead of memcpy
-      // for the same reason as in Record() above: memcpy may go through
-      // TSAN's runtime interceptor at -O0, while plain loads are always
-      // suppressed by TSAN_SUPPRESSION.
+      // TSAN-intercepted snprintf. See comment in Record() for why we use a
+      // volatile pointer to prevent loop-to-memcpy optimization.
       const Entry& e = entries_[idx];
       uint64_t local_ts = e.timestamp_us;
       uint64_t local_tid = e.thread_id;
       char local_ctx[kMaxMessageLen];
+      const volatile char* ctx_src = e.context;
       for (size_t j = 0; j < kMaxMessageLen; j++) {
-        local_ctx[j] = e.context[j];
+        local_ctx[j] = ctx_src[j];
       }
       if (local_ts == 0) continue;
       uint64_t secs = local_ts / 1000000;

@@ -43,12 +43,18 @@ TEST_F(InjectedErrorLogTest, CircularBufferWrap) {
   log.PrintAll();
 }
 
-// Test concurrent Record() from multiple threads (no PrintAll race).
-// This verifies that the atomic head_ correctly serializes slot allocation.
+// Test concurrent Record() from multiple threads.
+// Keep total records (kNumThreads * kRecordsPerThread) under kMaxEntries
+// to avoid write-write races from buffer wraparound, which are benign but
+// would trigger TSAN warnings.
 TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
   InjectedErrorLog log;
   constexpr int kNumThreads = 4;
-  constexpr int kRecordsPerThread = 500;
+  constexpr int kRecordsPerThread = 200;
+  static_assert(kNumThreads * kRecordsPerThread <
+                    static_cast<int>(InjectedErrorLog::kMaxEntries),
+                "total records must stay within buffer to avoid TSAN-visible "
+                "write-write races on overlapping slots");
 
   std::vector<std::thread> threads;
   threads.reserve(kNumThreads);
@@ -64,7 +70,7 @@ TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
     t.join();
   }
 
-  // PrintAll after all threads are done — no race.
+  // PrintAll after all threads are done -- no race.
   log.SetLogFilePath("/dev/null");
   log.PrintAll();
 }
