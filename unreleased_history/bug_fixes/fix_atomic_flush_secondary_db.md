@@ -1,0 +1,1 @@
+Fix a bug where secondary/follower DB with `atomic_flush=true` could stop installing new versions, causing remote compaction to fail with "Cannot find matched SST files" errors and secondary DB to serve permanently stale data in release builds and crashing in debug builds.

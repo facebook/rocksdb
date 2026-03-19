@@ -118,6 +118,55 @@ void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
 class DBSecondaryTest : public DBSecondaryTestBase {
  public:
   explicit DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
+
+  // Verify cross-CF consistency via NewIterators(): all CFs return the same
+  // expected entries under a consistent snapshot.
+  void VerifySecondaryCrossCFConsistency(
+      const std::vector<std::pair<std::string, std::string>>& expected) {
+    ReadOptions ropts;
+    ropts.verify_checksums = true;
+    std::vector<Iterator*> iters;
+    ASSERT_OK(db_secondary_->NewIterators(
+        ropts, {handles_secondary_[0], handles_secondary_[1]}, &iters));
+    ASSERT_EQ(2u, iters.size());
+    for (int i = 0; i < 2; i++) {
+      iters[i]->SeekToFirst();
+      for (const auto& [key, value] : expected) {
+        ASSERT_TRUE(iters[i]->Valid());
+        ASSERT_EQ(key, iters[i]->key().ToString());
+        ASSERT_EQ(value, iters[i]->value().ToString());
+        iters[i]->Next();
+      }
+      ASSERT_FALSE(iters[i]->Valid());
+      ASSERT_OK(iters[i]->status());
+      delete iters[i];
+    }
+  }
+
+  // Count total SST files for a CF on the secondary via ColumnFamilyMetaData.
+  size_t SecondarySSTableCount(int cf_index) {
+    ColumnFamilyMetaData meta;
+    db_secondary_->GetColumnFamilyMetaData(handles_secondary_[cf_index], &meta);
+    size_t count = 0;
+    for (const auto& level : meta.levels) {
+      count += level.files.size();
+    }
+    return count;
+  }
+
+  // Pauses secondary manifest read; CompactRange(CF0) runs in between,
+  // deleting CF0's L0 SSTs, and causes incomplete atomic group on the
+  // secondary.
+  void SetupIncompleteAtomicGroupSyncPoints() {
+    SyncPoint::GetInstance()->SetCallBack(
+        "ReactiveVersionSet::Recover:AfterMaybeSwitchManifest",
+        [&](void* /*arg*/) {
+          CompactRangeOptions cro;
+          cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+          ASSERT_OK(db_->CompactRange(cro, handles_[0], nullptr, nullptr));
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+  }
 };
 
 TEST_F(DBSecondaryTest, FailOpenIfLoggerCreationFail) {
@@ -1825,6 +1874,119 @@ TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
   delete iters[0];
 
   Close();
+}
+
+// Multi-CF cross-CF consistency on secondary with atomic_flush and WAL
+// disabled.
+TEST_F(DBSecondaryTest, AtomicFlushSecondaryMultiCFConsistency) {
+  Options options;
+  options.env = env_;
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(db_->Put(wo, handles_[0], "key1", "val1"));
+  ASSERT_OK(db_->Put(wo, handles_[1], "key1", "val1"));
+  ASSERT_OK(dbfull()->Flush(FlushOptions(), handles_));
+
+  ASSERT_OK(db_->Put(wo, handles_[0], "key2", "val2"));
+  ASSERT_OK(db_->Put(wo, handles_[1], "key2", "val2"));
+  ASSERT_OK(dbfull()->Flush(FlushOptions(), handles_));
+
+  // Write to CF0 only, no flush. With WAL disabled, this should NOT be
+  // visible on the secondary — cross-CF consistency is based on flushed SSTs.
+  ASSERT_OK(db_->Put(wo, handles_[0], "key3", "val3"));
+
+  Options sec_options;
+  sec_options.env = env_;
+  sec_options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf_1"}, sec_options);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  // Secondary sees only the atomically flushed data, not the unflushed write.
+  VerifySecondaryCrossCFConsistency({{"key1", "val1"}, {"key2", "val2"}});
+}
+
+// CompactRange(CF0) races with secondary manifest read, creating an
+// incomplete atomic group whose versions are never installed. Without fix,
+// the secondary permanently serves stale data; in debug builds,
+// TryCatchUpWithPrimary crashes in ManifestTailer::OnColumnFamilyAdd
+// when it switches to the new manifest.
+TEST_F(DBSecondaryTest, AtomicFlushSecondaryIncompleteGroup) {
+  Options options;
+  options.env = env_;
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  options.max_manifest_file_size = 1;
+  options.num_levels = 2;
+  options.create_if_missing = true;
+  options.create_missing_column_families = true;
+
+  // Open fresh DB to keep tuned_max_manifest_file_size_ small, ensuring
+  // CompactRange triggers manifest rotation.
+  Close();
+  ASSERT_OK(DestroyDB(dbname_, options));
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back("cf_1", options);
+  ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles_, &db_));
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+
+  ASSERT_OK(db_->Put(wo, handles_[0], "key1", "val1"));
+  ASSERT_OK(db_->Put(wo, handles_[1], "key1", "val1"));
+  ASSERT_OK(dbfull()->Flush(FlushOptions(), handles_));
+
+  ASSERT_OK(db_->Put(wo, handles_[0], "key2", "val2"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(db_->Put(wo, handles_[1], "key2", "val2"));
+  ASSERT_OK(Flush(1));
+
+  SetupIncompleteAtomicGroupSyncPoints();
+
+  Options sec_options;
+  sec_options.env = env_;
+  sec_options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf_1"}, sec_options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Without fix: NewIterators returns empty (no SSTs installed).
+  // With fix: incomplete group is cleared, versions install. But CF0's
+  // atomic-flush SST was deleted by CompactRange (new manifest not read yet),
+  // creating temporary cross-CF inconsistency: CF1 has data, CF0 doesn't.
+  ASSERT_GT(SecondarySSTableCount(1), 0u);
+  ASSERT_EQ(SecondarySSTableCount(0), 0u);
+  {
+    std::string val;
+    ASSERT_TRUE(
+        db_secondary_->Get(ReadOptions(), handles_secondary_[0], "key1", &val)
+            .IsNotFound());
+    ASSERT_OK(
+        db_secondary_->Get(ReadOptions(), handles_secondary_[1], "key1", &val));
+    ASSERT_EQ(val, "val1");
+  }
+
+  // TryCatchUpWithPrimary reads the new manifest with CompactRange results,
+  // restoring cross-CF consistency.
+  // Without fix: crashes in ManifestTailer::OnColumnFamilyAdd.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  VerifySecondaryCrossCFConsistency({{"key1", "val1"}, {"key2", "val2"}});
+
+  // Verify secondary continues functioning after recovery.
+  ASSERT_OK(db_->Put(wo, handles_[0], "key3", "val3"));
+  ASSERT_OK(db_->Put(wo, handles_[1], "key3", "val3"));
+  ASSERT_OK(dbfull()->Flush(FlushOptions(), handles_));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  VerifySecondaryCrossCFConsistency(
+      {{"key1", "val1"}, {"key2", "val2"}, {"key3", "val3"}});
 }
 
 }  // namespace ROCKSDB_NAMESPACE

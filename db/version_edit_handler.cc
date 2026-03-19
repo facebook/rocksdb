@@ -1047,6 +1047,23 @@ Status ManifestTailer::Initialize() {
   return s;
 }
 
+Status ManifestTailer::OnAtomicGroupReplayEnd() {
+  Status s = VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd();
+  // When the atomic group is incomplete (missing files from primary
+  // compaction racing with manifest rotation), clear the stale staging map
+  // so subsequent version creation routes to versions_ directly.
+  // Safe: all entries are nullptr while in_atomic_group_ is true.
+  if (s.ok() && atomic_update_versions_missing_ > 0) {
+    for ([[maybe_unused]] const auto& [cfid, version] :
+         atomic_update_versions_) {
+      assert(version == nullptr);
+    }
+    atomic_update_versions_.clear();
+    atomic_update_versions_missing_ = 0;
+  }
+  return s;
+}
+
 Status ManifestTailer::ApplyVersionEdit(VersionEdit& edit,
                                         ColumnFamilyData** cfd) {
   Status s = VersionEditHandler::ApplyVersionEdit(edit, cfd);

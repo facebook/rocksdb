@@ -390,6 +390,8 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
+  Status OnAtomicGroupReplayEnd() override;
+
   enum Mode : uint8_t {
     kRecovery = 0,
     kCatchUp = 1,
