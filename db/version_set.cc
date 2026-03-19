@@ -3763,6 +3763,25 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
 }
 }  // anonymous namespace
 
+namespace {
+// Number of FileMetaData entries to prefetch ahead when iterating over
+// files_[level]. Each FileMetaData is heap-allocated separately, so
+// sequential iteration over the pointer vector causes cache misses on every
+// dereference. Prefetching several entries ahead hides memory latency.
+constexpr size_t kFileMetaPrefetchAhead = 16;
+
+// Prefetch the most frequently accessed fields of a FileMetaData entry.
+// The struct is large (~400 bytes, spanning ~6 cache lines), but the fields
+// touched by the Compute* functions (FileDescriptor, being_compacted,
+// marked_for_compaction, num_reads_sampled, oldest_ancester_time, etc.)
+// are concentrated in the first ~3 cache lines.
+inline void PrefetchFileMetaData(FileMetaData* f) {
+  PREFETCH(f, 0, 0);
+  PREFETCH(reinterpret_cast<const char*>(f) + CACHE_LINE_SIZE, 0, 0);
+  PREFETCH(reinterpret_cast<const char*>(f) + 2 * CACHE_LINE_SIZE, 0, 0);
+}
+}  // namespace
+
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options,
@@ -3796,11 +3815,18 @@ void VersionStorageInfo::ComputeCompactionScore(
       // overwrites/deletions).
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
-      for (auto* f : files_[level]) {
-        total_downcompact_bytes += static_cast<double>(f->fd.GetFileSize());
-        if (!f->being_compacted) {
-          total_size += f->compensated_file_size;
-          num_sorted_runs++;
+      {
+        const auto& level_files = files_[level];
+        for (size_t i = 0; i < level_files.size(); i++) {
+          if (i + kFileMetaPrefetchAhead < level_files.size()) {
+            PrefetchFileMetaData(level_files[i + kFileMetaPrefetchAhead]);
+          }
+          auto* f = level_files[i];
+          total_downcompact_bytes += static_cast<double>(f->fd.GetFileSize());
+          if (!f->being_compacted) {
+            total_size += f->compensated_file_size;
+            num_sorted_runs++;
+          }
         }
       }
       if (compaction_style_ == kCompactionStyleUniversal) {
@@ -3909,10 +3935,17 @@ void VersionStorageInfo::ComputeCompactionScore(
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       uint64_t level_total_bytes = 0;
-      for (auto f : files_[level]) {
-        level_total_bytes += f->fd.GetFileSize();
-        if (!f->being_compacted) {
-          level_bytes_no_compacting += f->compensated_file_size;
+      {
+        const auto& level_files = files_[level];
+        for (size_t i = 0; i < level_files.size(); i++) {
+          if (i + kFileMetaPrefetchAhead < level_files.size()) {
+            PrefetchFileMetaData(level_files[i + kFileMetaPrefetchAhead]);
+          }
+          auto* f = level_files[i];
+          level_total_bytes += f->fd.GetFileSize();
+          if (!f->being_compacted) {
+            level_bytes_no_compacting += f->compensated_file_size;
+          }
         }
       }
       if (!immutable_options.level_compaction_dynamic_level_bytes) {
@@ -4000,7 +4033,12 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
   }
 
   for (int level = 0; level <= last_qualify_level; level++) {
-    for (auto* f : files_[level]) {
+    const auto& level_files = files_[level];
+    for (size_t i = 0; i < level_files.size(); i++) {
+      if (i + kFileMetaPrefetchAhead < level_files.size()) {
+        PrefetchFileMetaData(level_files[i + kFileMetaPrefetchAhead]);
+      }
+      auto* f = level_files[i];
       if (!f->being_compacted && f->marked_for_compaction) {
         files_marked_for_compaction_.emplace_back(level, f);
         if (f->FileIsStandAloneRangeTombstone()) {
@@ -4028,7 +4066,12 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
   for (int level = 0; level < num_levels() - 1; level++) {
-    for (FileMetaData* f : files_[level]) {
+    const auto& level_files = files_[level];
+    for (size_t i = 0; i < level_files.size(); i++) {
+      if (i + kFileMetaPrefetchAhead < level_files.size()) {
+        PrefetchFileMetaData(level_files[i + kFileMetaPrefetchAhead]);
+      }
+      FileMetaData* f = level_files[i];
       if (!f->being_compacted) {
         uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
         if (oldest_ancester_time > 0 &&
@@ -4075,7 +4118,12 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
            : 0);
 
   for (int level = 0; level <= last_level; level++) {
-    for (auto f : files_[level]) {
+    const auto& level_files = files_[level];
+    for (size_t i = 0; i < level_files.size(); i++) {
+      if (i + kFileMetaPrefetchAhead < level_files.size()) {
+        PrefetchFileMetaData(level_files[i + kFileMetaPrefetchAhead]);
+      }
+      auto* f = level_files[i];
       if (!f->being_compacted) {
         // Compute a file's modification time in the following order:
         // 1. Use file_creation_time table property if it is > 0.
