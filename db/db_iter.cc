@@ -1078,10 +1078,6 @@ bool DBIter::FindValueForCurrentKey() {
     }
 
     if (timestamp_lb_ != nullptr) {
-      // Only needed when timestamp_lb_ is not null
-      [[maybe_unused]] const bool ret = ParseKey(&ikey_);
-      // Since the preceding ParseKey(&ikey) succeeds, so must this.
-      assert(ret);
       saved_key_.SetInternalKey(ikey);
     } else if (user_comparator_.Compare(ikey.user_key,
                                         saved_key_.GetUserKey()) < 0) {
@@ -1090,6 +1086,7 @@ bool DBIter::FindValueForCurrentKey() {
           !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
+    ikey_ = ikey;
     valid_entry_seen = true;
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
