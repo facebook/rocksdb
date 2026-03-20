@@ -3145,6 +3145,93 @@ DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
   return res;
 }
 
+BackgroundJobPressure DBImpl::CaptureBackgroundJobPressure() const {
+  mutex_.AssertHeld();
+
+  BackgroundJobPressure snapshot;
+
+  // Compaction: LOW + BOTTOM combined (matches RocksDB's scheduling check)
+  snapshot.compaction_scheduled =
+      bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_;
+  snapshot.compaction_running = num_running_compactions_;
+
+  // Per-priority breakdown for pool-specific expansion
+  assert(num_running_compactions_ >= num_running_bottom_compactions_);
+  snapshot.compaction_low_scheduled = bg_compaction_scheduled_;
+  snapshot.compaction_low_running =
+      std::max(0, num_running_compactions_ - num_running_bottom_compactions_);
+  snapshot.compaction_bottom_scheduled = bg_bottom_compaction_scheduled_;
+  snapshot.compaction_bottom_running = num_running_bottom_compactions_;
+
+  // Flush
+  snapshot.flush_scheduled = bg_flush_scheduled_;
+  snapshot.flush_running = num_running_flushes_;
+
+  snapshot.compaction_speedup_active =
+      write_controller_.NeedSpeedupCompaction();
+
+  // Compute write_stall_proximity_pct: max across all CFs.
+  // Uses the same inputs as RecalculateWriteStallConditions() in
+  // column_family.cc:
+  //   - l0_delay_trigger_count(): sorted run count used for write stall
+  //     decisions. Equals NumLevelFiles(0) for level compaction; for universal
+  //     compaction, also counts non-empty levels from L1+ as sorted runs.
+  //   - estimated_compaction_needed_bytes(): pending compaction bytes.
+  // Prefers slowdown/soft triggers (gradual); falls back to stop/hard triggers.
+  // level0_slowdown_writes_trigger is sanitized to always be > 0;
+  // soft_pending_compaction_bytes_limit can be 0 (disabled).
+  int max_proximity = 0;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    const auto* vstorage = cfd->current()->storage_info();
+    const auto& mutable_cf_options = cfd->GetCurrentMutableCFOptions();
+
+    int l0_proximity = 0;
+    int l0_trigger = mutable_cf_options.level0_slowdown_writes_trigger > 0
+                         ? mutable_cf_options.level0_slowdown_writes_trigger
+                         : mutable_cf_options.level0_stop_writes_trigger;
+    if (l0_trigger > 0) {
+      l0_proximity = static_cast<int>(
+          100.0 * vstorage->l0_delay_trigger_count() / l0_trigger);
+    }
+
+    int bytes_proximity = 0;
+    uint64_t bytes_limit =
+        mutable_cf_options.soft_pending_compaction_bytes_limit > 0
+            ? mutable_cf_options.soft_pending_compaction_bytes_limit
+            : mutable_cf_options.hard_pending_compaction_bytes_limit;
+    if (bytes_limit > 0) {
+      bytes_proximity = static_cast<int>(
+          100.0 *
+          static_cast<double>(vstorage->estimated_compaction_needed_bytes()) /
+          static_cast<double>(bytes_limit));
+    }
+
+    max_proximity =
+        std::max(max_proximity, std::max(l0_proximity, bytes_proximity));
+  }
+  snapshot.write_stall_proximity_pct = max_proximity;
+
+  return snapshot;
+}
+
+void DBImpl::NotifyOnBackgroundJobPressureChanged() {
+  mutex_.AssertHeld();
+  if (immutable_db_options_.listeners.empty()) {
+    return;
+  }
+  BackgroundJobPressure pressure = CaptureBackgroundJobPressure();
+  bg_pressure_callback_in_progress_++;
+  mutex_.Unlock();
+  for (const auto& listener : immutable_db_options_.listeners) {
+    listener->OnBackgroundJobPressureChanged(this, pressure);
+  }
+  mutex_.Lock();
+  bg_pressure_callback_in_progress_--;
+}
+
 void DBImpl::AddToCompactionQueue(ColumnFamilyData* cfd) {
   assert(!cfd->queued_for_compaction());
   cfd->Ref();
@@ -3580,6 +3667,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+
+    NotifyOnBackgroundJobPressureChanged();
+
     atomic_flush_install_cv_.SignalAll();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
@@ -3604,6 +3694,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
+    if (bg_thread_pri == Env::Priority::BOTTOM) {
+      num_running_bottom_compactions_++;
+    }
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -3686,10 +3779,14 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     } else {
       assert(bg_thread_pri == Env::Priority::BOTTOM);
       bg_bottom_compaction_scheduled_--;
+      assert(num_running_bottom_compactions_ > 0);
+      num_running_bottom_compactions_--;
     }
 
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+
+    NotifyOnBackgroundJobPressureChanged();
 
     if (prepicked_compaction != nullptr &&
         prepicked_compaction->task_token != nullptr) {
