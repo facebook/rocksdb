@@ -6017,9 +6017,9 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
 
     // Upper bound is padded with min timestamp to form a valid end key.
     ASSERT_GE(inserted_ranges_.size(), 1);
-    ASSERT_EQ(options.statistics->getTickerCount(
-                  READ_PATH_RANGE_TOMBSTONES_INSERTED),
-              1);
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        1);
   } else {
     // Delete a-d so tombstones are at the start.
     for (char c = 'a'; c <= 'd'; c++) {
