@@ -1827,6 +1827,60 @@ TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
   Close();
 }
 
+TEST_F(DBSecondaryTest, GetLiveFilesOnSecondary) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 4;
+  Reopen(options);
+
+  // Write some data and flush to create SST files on the primary.
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+
+  // Open secondary and verify GetLiveFiles works.
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  std::vector<std::string> live_files;
+  uint64_t manifest_size = 0;
+  ASSERT_OK(db_secondary_->GetLiveFiles(live_files, &manifest_size));
+  ASSERT_GT(live_files.size(), 0);
+  ASSERT_GT(manifest_size, 0);
+
+  // Should contain SST files, CURRENT, MANIFEST, and OPTIONS.
+  bool has_sst = false;
+  bool has_current = false;
+  bool has_manifest = false;
+  for (const auto& f : live_files) {
+    if (f.find(".sst") != std::string::npos) {
+      has_sst = true;
+    } else if (f.find("CURRENT") != std::string::npos) {
+      has_current = true;
+    } else if (f.find("MANIFEST") != std::string::npos) {
+      has_manifest = true;
+    }
+  }
+  ASSERT_TRUE(has_sst);
+  ASSERT_TRUE(has_current);
+  ASSERT_TRUE(has_manifest);
+
+  // Write more data on primary, catch up, and verify the file list updates.
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  std::vector<std::string> live_files_after;
+  uint64_t manifest_size_after = 0;
+  ASSERT_OK(
+      db_secondary_->GetLiveFiles(live_files_after, &manifest_size_after));
+  ASSERT_GT(live_files_after.size(), live_files.size());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
