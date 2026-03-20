@@ -106,9 +106,10 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double experimentalMempurgeThreshold();
 
   /**
-   * During forward iteration, when this many or more strictly contiguous
-   * point tombstones are encountered with no live keys between them,
-   * a range tombstone is inserted into the current mutable memtable.
+   * During forward or reverse iteration, when this many or more
+   * strictly contiguous point tombstones are encountered with no live
+   * keys between them, a range tombstone is inserted into the current
+   * mutable memtable.
    *
    * Set to 0 to disable.
    * Default: 0 (disabled)

@@ -4095,7 +4095,16 @@ TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     ASSERT_OK(ReOpenNoDelete());
 
-    // Write old keys that will be deleted — these get low sequence numbers.
+    std::vector<std::pair<std::string, std::string>> inserted_ranges;
+    SyncPoint::GetInstance()->SetCallBack(
+        "MemTable::AddLogicallyRedundantRangeTombstone:AddRange",
+        [&](void* arg) {
+          auto* range = static_cast<std::pair<Slice, Slice>*>(arg);
+          inserted_ranges.emplace_back(range->first.ToString(),
+                                       range->second.ToString());
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
     for (char c = 'a'; c <= 'j'; c++) {
       ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
     }
@@ -4132,7 +4141,12 @@ TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
         1u);
+    ASSERT_EQ(inserted_ranges.size(), 1);
+    ASSERT_EQ(inserted_ranges[0].first, "c");
+    ASSERT_EQ(inserted_ranges[0].second, "h");
 
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     ASSERT_OK(txn->Commit());
   }
 }

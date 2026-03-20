@@ -194,13 +194,6 @@ class WBWIMemTable final : public ReadOnlyMemTable {
     return kUnknownOldestAncesterTime;
   }
 
-  bool AddLogicallyRedundantRangeTombstone(SequenceNumber /*seq*/,
-                                           const Slice& /*start_key*/,
-                                           const Slice& /*end_key*/) override {
-    // No-op: WBWIMemTable does not support range deletions.
-    return false;
-  }
-
   bool IsFragmentedRangeTombstonesConstructed() const override {
     assert(!wbwi_->GetWriteBatch()->HasDeleteRange());
     return true;

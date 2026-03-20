@@ -844,7 +844,8 @@ class IterKey {
     bool other_buf_inline = (other.buf_ == other.space_);
     if (this_buf_inline && other_buf_inline) {
       char temp[kInlineBufferSize];
-      size_t max_sz = std::max(key_size_, other.key_size_);
+      size_t max_sz =
+          std::min(std::max(key_size_, other.key_size_), kInlineBufferSize);
       memcpy(temp, space_, max_sz);
       memcpy(space_, other.space_, max_sz);
       memcpy(other.space_, temp, max_sz);

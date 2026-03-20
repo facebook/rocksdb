@@ -20,6 +20,8 @@
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy_impl.h"
+#include "test_util/testutil.h"
+#include "util/coding.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -5393,8 +5395,11 @@ TEST_P(DBMultiScanIteratorTest, WastedBlocksTracking) {
   // The actual count depends on prefetch heuristics which may vary.
 }
 
-class ReadPathRangeTombstoneTest : public DBIteratorTest {
+class ReadPathRangeTombstoneTest : public DBIteratorBaseTest,
+                                   public ::testing::WithParamInterface<bool> {
  protected:
+  bool Forward() const { return GetParam(); }
+
   void SetUp() override {
     inserted_ranges_.clear();
     SyncPoint::GetInstance()->SetCallBack(
@@ -5412,8 +5417,6 @@ class ReadPathRangeTombstoneTest : public DBIteratorTest {
     SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
-  // Inserts keys [first_key, last_key] into SST, then adds point deletions
-  // split between a flushed SST and the memtable.
   void SetupTestData(char first_key, char last_key,
                      const std::vector<std::string>& flushed_point_dels,
                      const std::vector<std::string>& memtable_point_dels) {
@@ -5439,69 +5442,57 @@ class ReadPathRangeTombstoneTest : public DBIteratorTest {
     ASSERT_EQ(inserted_ranges_[idx].second, end);
   }
 
+  void VerifyIteration(const std::vector<std::string>& expected_keys,
+                       const ReadOptions& ro = ReadOptions()) {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    if (Forward()) {
+      iter->SeekToFirst();
+      for (const auto& key : expected_keys) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key().ToString());
+        iter->Next();
+      }
+    } else {
+      iter->SeekToLast();
+      for (auto it = expected_keys.rbegin(); it != expected_keys.rend(); ++it) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(*it, iter->key().ToString());
+        iter->Prev();
+      }
+    }
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
   std::vector<std::pair<std::string, std::string>> inserted_ranges_;
 };
 
-TEST_F(ReadPathRangeTombstoneTest, BasicInsertion) {
+INSTANTIATE_TEST_CASE_P(ReadPathRangeTombstoneTest, ReadPathRangeTombstoneTest,
+                        ::testing::Bool());
+
+TEST_P(ReadPathRangeTombstoneTest, BasicInsertion) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
 
-  for (bool forward : {true, false}) {
-    SCOPED_TRACE(forward ? "forward" : "reverse");
+  bool forward = Forward();
+  for (bool flush_before_read : {false, true}) {
+    SCOPED_TRACE(flush_before_read ? "flush before read"
+                                   : "no flush before read");
     options.statistics = CreateDBStatistics();
     DestroyAndReopen(options);
 
-    // Keys a-n: two tombstone runs separated by a live key (h).
-    // Delete b-f (5 tombstones), h is live, delete i-m (5 tombstones).
-    // Live keys visible: a, g, h, n
     SetupTestData(/*first_key=*/'a', /*last_key=*/'n',
                   /*flushed_point_dels=*/{"b", "c", "d", "e", "f"},
                   /*memtable_point_dels=*/{"i", "j", "k", "l", "m"});
 
-    inserted_ranges_.clear();
-
-    // Iterate — should detect two runs of 5 contiguous tombstones each
-    // and insert two range tombstones with correct, non-overlapping bounds.
-    {
-      ReadOptions ro;
-      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      if (forward) {
-        iter->SeekToFirst();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("a", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("g", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("n", iter->key().ToString());
-        iter->Next();
-        ASSERT_FALSE(iter->Valid());
-      } else {
-        iter->SeekToLast();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("n", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("g", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("a", iter->key().ToString());
-        iter->Prev();
-        ASSERT_FALSE(iter->Valid());
-      }
-      ASSERT_OK(iter->status());
+    if (flush_before_read) {
+      ASSERT_OK(Flush());
     }
 
-    // Two RTs inserted with correct non-overlapping bounds:
-    // Forward:  [b, g) then [i, n)
-    // Reverse:  [i, n) then [b, g)
+    inserted_ranges_.clear();
+
+    VerifyIteration({"a", "g", "h", "n"});
+
     ASSERT_EQ(inserted_ranges_.size(), 2);
     if (forward) {
       AssertRange(0, "b", "g");
@@ -5514,316 +5505,546 @@ TEST_F(ReadPathRangeTombstoneTest, BasicInsertion) {
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
         2);
 
-    // Second read: range tombstones are in the memtable, no new insertion.
     inserted_ranges_.clear();
-    {
-      ReadOptions ro;
-      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      if (forward) {
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        }
-      } else {
-        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-        }
-      }
-      ASSERT_OK(iter->status());
-    }
+    VerifyIteration({"a", "g", "h", "n"});
     ASSERT_EQ(inserted_ranges_.size(), 0);
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
         2);
 
-    // Write a new key within a deleted range — it should still be visible
-    // because its seqno is higher than the range tombstone's seqno.
     ASSERT_OK(Put("b", "b_new"));
     ASSERT_EQ(Get("b"), "b_new");
   }
 }
 
-TEST_F(ReadPathRangeTombstoneTest, NonContiguous) {
-  Options options = CurrentOptions();
-  options.min_tombstones_for_range_conversion = 4;
-
-  for (bool forward : {true, false}) {
-    SCOPED_TRACE(forward ? "forward" : "reverse");
-    options.statistics = CreateDBStatistics();
-    DestroyAndReopen(options);
-
-    // Point deletions with a live key in the middle: b, c (del) in SST,
-    // d (live), e, f (del) in memtable
-    SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
-                  /*flushed_point_dels=*/{"b", "c"},
-                  /*memtable_point_dels=*/{"e", "f"});
-
-    {
-      ReadOptions ro;
-      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      if (forward) {
-        iter->SeekToFirst();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("a", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("d", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("g", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
-        iter->Next();
-        ASSERT_FALSE(iter->Valid());
-      } else {
-        iter->SeekToLast();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("g", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("d", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("a", iter->key().ToString());
-        iter->Prev();
-        ASSERT_FALSE(iter->Valid());
-      }
-      ASSERT_OK(iter->status());
-    }
-
-    // No range tombstone should be inserted because contiguous runs are only 2
-    ASSERT_EQ(
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        0);
-  }
-}
-
-TEST_F(ReadPathRangeTombstoneTest, MemtableSwitch) {
-  Options options = CurrentOptions();
-  options.min_tombstones_for_range_conversion = 4;
-
-  for (bool forward : {true, false}) {
-    SCOPED_TRACE(forward ? "forward" : "reverse");
-    options.statistics = CreateDBStatistics();
-    DestroyAndReopen(options);
-
-    SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
-                  /*flushed_point_dels=*/{},
-                  /*memtable_point_dels=*/{"b", "c", "d", "e", "f"});
-
-    // Capture range and simulate memtable switch before insertion.
-    // Override the default capture callback to also simulate memtable switch.
-    inserted_ranges_.clear();
-    SyncPoint::GetInstance()->SetCallBack(
-        "MemTable::AddLogicallyRedundantRangeTombstone:AddRange",
-        [this](void* arg) {
-          auto* range = static_cast<std::pair<Slice, Slice>*>(arg);
-          inserted_ranges_.emplace_back(range->first.ToString(),
-                                        range->second.ToString());
-          auto* cfh =
-              static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
-          cfh->cfd()->mem()->MarkImmutable();
-        });
-    SyncPoint::GetInstance()->EnableProcessing();
-
-    {
-      ReadOptions ro;
-      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      if (forward) {
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        }
-      } else {
-        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-        }
-      }
-      ASSERT_OK(iter->status());
-    }
-
-    // Verify the range was attempted with correct bounds but discarded.
-    ASSERT_EQ(inserted_ranges_.size(), 1);
-    AssertRange(0, "b", "g");
-    ASSERT_EQ(options.statistics->getTickerCount(
-                  READ_PATH_RANGE_TOMBSTONES_DISCARDED),
-              1);
-
-    // Verify data correctness is preserved
-    ASSERT_EQ(Get("a"), "va");
-    ASSERT_EQ(Get("b"), "NOT_FOUND");
-    ASSERT_EQ(Get("d"), "NOT_FOUND");
-    ASSERT_EQ(Get("g"), "vg");
-  }
-}
-
-TEST_F(ReadPathRangeTombstoneTest, ReverseExhausted) {
+TEST_P(ReadPathRangeTombstoneTest, NonContiguous) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
   options.statistics = CreateDBStatistics();
   DestroyAndReopen(options);
 
   SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
-                /*flushed_point_dels=*/{"a", "b", "c"},
-                /*memtable_point_dels=*/{"d", "e"});
+                /*flushed_point_dels=*/{"b", "c"},
+                /*memtable_point_dels=*/{"e", "f"});
 
-  // Reverse iteration: h, g, f are live, then a-e are deleted (exhausts iter)
-  {
-    ReadOptions ro;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-    }
-    ASSERT_OK(iter->status());
-  }
+  VerifyIteration({"a", "d", "g", "h"});
 
-  // Range tombstone [a, f) should be inserted even though iterator exhausted.
-  ASSERT_EQ(inserted_ranges_.size(), 1);
-  AssertRange(0, "a", "f");
   ASSERT_EQ(
       options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+}
+
+TEST_P(ReadPathRangeTombstoneTest, MemtableSwitch) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
+                /*flushed_point_dels=*/{},
+                /*memtable_point_dels=*/{"b", "c", "d", "e", "f"});
+
+  inserted_ranges_.clear();
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::AddLogicallyRedundantRangeTombstone:AddRange",
+      [this](void* arg) {
+        auto* range = static_cast<std::pair<Slice, Slice>*>(arg);
+        inserted_ranges_.emplace_back(range->first.ToString(),
+                                      range->second.ToString());
+        auto* cfh =
+            static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+        cfh->cfd()->mem()->MarkImmutable();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  VerifyIteration({"a", "g", "h"});
+
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, "b", "g");
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_DISCARDED),
       1);
 
-  // Second read: the range tombstone covers the deleted keys, no new insertion
-  inserted_ranges_.clear();
-  {
-    ReadOptions ro;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-    }
-    ASSERT_OK(iter->status());
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
+  ASSERT_EQ(Get("g"), "vg");
+}
+
+TEST_P(ReadPathRangeTombstoneTest, ExhaustedIteratorWithBounds) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Keys a-j with tombstones at both ends: a-d deleted, g-j deleted.
+  // Live keys: e, f.
+  SetupTestData(/*first_key=*/'a', /*last_key=*/'j',
+                /*flushed_point_dels=*/{"a", "b", "c", "d"},
+                /*memtable_point_dels=*/{"g", "h", "i", "j"});
+
+  ReadOptions ro;
+  Slice lower("a");
+  Slice upper("z");
+  ro.iterate_lower_bound = &lower;
+  ro.iterate_upper_bound = &upper;
+
+  VerifyIteration({"e", "f"}, ro);
+
+  // Both directions encounter two tombstone runs (a-d and g-j).
+  ASSERT_EQ(inserted_ranges_.size(), 2);
+  if (Forward()) {
+    // Forward: sees a-d tombstones first → [a, e), then g-j → [g, z).
+    AssertRange(0, "a", "e");
+    AssertRange(1, "g", "z");
+  } else {
+    // Reverse: sees j-g tombstones first, then f,e live, then d-a → exhausts.
+    AssertRange(0, "g", "z");
+    AssertRange(1, "a", "e");
   }
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      2);
+  ASSERT_EQ(Get("e"), "ve");
+  ASSERT_EQ(Get("f"), "vf");
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
+  ASSERT_EQ(Get("g"), "NOT_FOUND");
+  ASSERT_EQ(Get("j"), "NOT_FOUND");
+
+  // Second read: range tombstones already in memtable, no new insertion.
+  inserted_ranges_.clear();
+  VerifyIteration({"e", "f"}, ro);
   ASSERT_EQ(inserted_ranges_.size(), 0);
   ASSERT_EQ(
       options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      2);
+}
+
+TEST_P(ReadPathRangeTombstoneTest, ExhaustedIteratorNoBounds) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Same data as ExhaustedIteratorWithBounds but no bounds set.
+  SetupTestData(/*first_key=*/'a', /*last_key=*/'j',
+                /*flushed_point_dels=*/{"a", "b", "c", "d"},
+                /*memtable_point_dels=*/{"g", "h", "i", "j"});
+
+  VerifyIteration({"e", "f"});
+
+  // Without bounds, only the a-d run (which has a live key boundary) gets
+  // inserted. The g-j run at the end has no upper bound → dropped.
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, "a", "e");
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
       1);
 }
 
-TEST_F(ReadPathRangeTombstoneTest, ForwardExhaustedWithUpperBound) {
+TEST_P(ReadPathRangeTombstoneTest, DirectionChange) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  bool forward_first = Forward();
+  SetupTestData(/*first_key=*/'a', /*last_key=*/'p',
+                /*flushed_point_dels=*/{"c", "d", "e"},
+                /*memtable_point_dels=*/{"f", "g", "j", "k", "l", "m", "n"});
+
+  inserted_ranges_.clear();
+
+  {
+    ReadOptions ro;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    if (forward_first) {
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("a", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("b", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("h", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("i", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("o", iter->key().ToString());
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("i", iter->key().ToString());
+    } else {
+      iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("p", iter->key().ToString());
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("o", iter->key().ToString());
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("i", iter->key().ToString());
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("h", iter->key().ToString());
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("b", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("h", iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  ASSERT_EQ(inserted_ranges_.size(), 2);
+  if (forward_first) {
+    AssertRange(0, "c", "h");
+    AssertRange(1, "j", "o");
+  } else {
+    AssertRange(0, "j", "o");
+    AssertRange(1, "c", "h");
+  }
+
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      2);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_DISCARDED),
+      1);
+}
+
+TEST_P(ReadPathRangeTombstoneTest, MixedDeleteAndSingleDelete) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
   options.statistics = CreateDBStatistics();
   DestroyAndReopen(options);
 
   SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
-                /*flushed_point_dels=*/{"e", "f", "g", "h"},
-                /*memtable_point_dels=*/{});
+                /*flushed_point_dels=*/{},
+                /*memtable_point_dels=*/{"b", "d", "f"});
 
-  // Forward iterate with upper bound "z" — tombstones e-h are at the end,
-  // so we exhaust iteration. The upper bound should be used as the end key.
-  {
-    ReadOptions ro;
-    Slice upper("z");
-    ro.iterate_upper_bound = &upper;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    iter->SeekToFirst();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("a", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("b", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("c", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("d", iter->key().ToString());
-    iter->Next();
-    ASSERT_FALSE(iter->Valid());
-    ASSERT_OK(iter->status());
-  }
+  ASSERT_OK(SingleDelete("c"));
+  ASSERT_OK(SingleDelete("e"));
+
+  inserted_ranges_.clear();
+
+  VerifyIteration({"a", "g", "h"});
 
   ASSERT_EQ(inserted_ranges_.size(), 1);
-  AssertRange(0, "e", "z");
+  AssertRange(0, "b", "g");
   ASSERT_EQ(
       options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
       1);
 
-  ASSERT_EQ(Get("d"), "vd");
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
   ASSERT_EQ(Get("e"), "NOT_FOUND");
-  ASSERT_EQ(Get("h"), "NOT_FOUND");
+  ASSERT_EQ(Get("f"), "NOT_FOUND");
+  ASSERT_EQ(Get("g"), "vg");
 }
 
-TEST_F(ReadPathRangeTombstoneTest, DirectionChange) {
+TEST_P(ReadPathRangeTombstoneTest, SingleDeleteOnlyRun) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
 
-  for (bool forward_first : {true, false}) {
-    SCOPED_TRACE(forward_first ? "forward then reverse"
-                               : "reverse then forward");
-    options.statistics = CreateDBStatistics();
-    DestroyAndReopen(options);
+  SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
+                /*flushed_point_dels=*/{}, /*memtable_point_dels=*/{});
 
-    // Two separate tombstone groups so each direction encounters fresh
-    // tombstones. Keys a-p: delete c-g (5) and j-n (5)
-    SetupTestData(/*first_key=*/'a', /*last_key=*/'p',
-                  /*flushed_point_dels=*/{"c", "d", "e"},
-                  /*memtable_point_dels=*/{"f", "g", "j", "k", "l", "m", "n"});
+  ASSERT_OK(SingleDelete("b"));
+  ASSERT_OK(SingleDelete("c"));
+  ASSERT_OK(SingleDelete("d"));
+  ASSERT_OK(SingleDelete("e"));
+  ASSERT_OK(SingleDelete("f"));
 
-    inserted_ranges_.clear();
+  inserted_ranges_.clear();
 
-    {
-      ReadOptions ro;
-      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      if (forward_first) {
-        iter->SeekToFirst();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("a", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("b", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("i", iter->key().ToString());
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("o", iter->key().ToString());
-        // Direction change: Prev re-encounters j-n in reverse
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("i", iter->key().ToString());
-      } else {
-        iter->SeekToLast();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("p", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("o", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("i", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
-        iter->Prev();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("b", iter->key().ToString());
-        // Direction change: Next re-encounters c-g in forward
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("h", iter->key().ToString());
+  VerifyIteration({"a", "g", "h"});
+
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, "b", "g");
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      1);
+}
+
+TEST_P(ReadPathRangeTombstoneTest, SnapshotPredatesMemtable) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  SetupTestData(/*first_key=*/'a', /*last_key=*/'h',
+                /*flushed_point_dels=*/{"b", "c", "d", "e", "f"},
+                /*memtable_point_dels=*/{});
+
+  const Snapshot* snap = db_->GetSnapshot();
+
+  ASSERT_OK(Put("x", "vx"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("y", "vy"));
+
+  inserted_ranges_.clear();
+
+  ReadOptions ro;
+  ro.snapshot = snap;
+  VerifyIteration({"a", "g", "h"}, ro);
+
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+  ASSERT_GT(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_DISCARDED),
+      0);
+
+  db_->ReleaseSnapshot(snap);
+}
+
+TEST_P(ReadPathRangeTombstoneTest, NoInsertionOnBlockCacheTierIncomplete) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  table_options.block_cache = NewLRUCache(1 << 20);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  if (Forward()) {
+    // Warm cache for a-g, leave h uncached.
+    for (char c = 'a'; c <= 'g'; c++) {
+      ASSERT_EQ(Get(std::string(1, c)), std::string("v") + c);
+    }
+    // Delete d-g (4 contiguous tombstones).
+    for (char c = 'd'; c <= 'g'; c++) {
+      ASSERT_OK(Delete(std::string(1, c)));
+    }
+  } else {
+    // Warm cache for b-h, leave a uncached.
+    for (char c = 'b'; c <= 'h'; c++) {
+      ASSERT_EQ(Get(std::string(1, c)), std::string("v") + c);
+    }
+    // Delete b-e (4 contiguous tombstones).
+    for (char c = 'b'; c <= 'e'; c++) {
+      ASSERT_OK(Delete(std::string(1, c)));
+    }
+  }
+
+  {
+    ReadOptions ro;
+    ro.read_tier = kBlockCacheTier;
+    Slice upper("z");
+    ro.iterate_upper_bound = &upper;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       }
-      ASSERT_OK(iter->status());
-    }
-
-    // Verify range boundaries.
-    ASSERT_EQ(inserted_ranges_.size(), 3);
-    if (forward_first) {
-      AssertRange(0, "c", "h");
-      AssertRange(1, "j", "o");
-      AssertRange(2, "j", "o");  // duplicate, rejected by memtable
     } else {
-      AssertRange(0, "j", "o");
-      AssertRange(1, "c", "h");
-      AssertRange(2, "c", "h");  // duplicate, rejected by memtable
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      }
+    }
+    ASSERT_TRUE(iter->status().IsIncomplete());
+  }
+
+  // No range tombstone should have been inserted despite meeting threshold,
+  // because the iterator terminated with Incomplete (cache miss).
+  ASSERT_EQ(inserted_ranges_.size(), 0);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+
+  // All keys must still be readable via normal Get.
+  if (Forward()) {
+    ASSERT_EQ(Get("h"), "vh");
+  } else {
+    ASSERT_EQ(Get("a"), "va");
+  }
+}
+
+TEST_P(ReadPathRangeTombstoneTest, SkipInsertionWhenCoveredByExistingRange) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "c", "h"));
+
+  for (char c = 'd'; c <= 'g'; c++) {
+    ASSERT_OK(Delete(std::string(1, c)));
+  }
+
+  inserted_ranges_.clear();
+  ReadOptions ro;
+  Slice upper("z");
+  ro.iterate_upper_bound = &upper;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  }
+  ASSERT_OK(iter->status());
+
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+  ASSERT_GT(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_DISCARDED),
+      0);
+}
+
+// Verifies that range tombstone insertion works correctly with user-defined
+// timestamps (UDT). With UDT, keys include an 8-byte timestamp suffix, so
+// the comparator, Put/Delete APIs, and ReadOptions all require timestamps.
+// This test ensures that contiguous point deletions are still detected and
+// converted to range tombstones when UDT is enabled.
+TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string ts1;
+  PutFixed64(&ts1, 1);
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(
+        db_->Put(WriteOptions(), std::string(1, c), ts1, std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  std::string ts2;
+  PutFixed64(&ts2, 2);
+  for (char c = 'b'; c <= 'f'; c++) {
+    ASSERT_OK(db_->Delete(WriteOptions(), std::string(1, c), ts2));
+  }
+
+  ReadOptions ro;
+  Slice read_ts(ts2);
+  ro.timestamp = &read_ts;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  std::vector<std::string> keys;
+  if (Forward()) {
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      keys.push_back(iter->key().ToString());
+    }
+  } else {
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      keys.push_back(iter->key().ToString());
+    }
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(keys.size(), 3);
+  if (Forward()) {
+    ASSERT_EQ(keys[0].substr(0, 1), "a");
+    ASSERT_EQ(keys[1].substr(0, 1), "g");
+    ASSERT_EQ(keys[2].substr(0, 1), "h");
+  } else {
+    ASSERT_EQ(keys[0].substr(0, 1), "h");
+    ASSERT_EQ(keys[1].substr(0, 1), "g");
+    ASSERT_EQ(keys[2].substr(0, 1), "a");
+  }
+
+  ASSERT_GE(inserted_ranges_.size(), 1);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      1);
+}
+
+// When UDT is enabled and forward iteration exhausts with tombstones at the
+// end, iterate_upper_bound cannot be used as the range end key because it
+// lacks the timestamp suffix that the UDT comparator requires. The insertion
+// should be skipped rather than creating a malformed range tombstone.
+// In reverse, tombstones at the start exhaust the iterator but the end key
+// comes from the next live key (which has a proper timestamp), so insertion
+// should succeed.
+TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 4;
+  options.statistics = CreateDBStatistics();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string ts1;
+  PutFixed64(&ts1, 1);
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(
+        db_->Put(WriteOptions(), std::string(1, c), ts1, std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  std::string ts2;
+  PutFixed64(&ts2, 2);
+
+  if (Forward()) {
+    // Delete e-h so tombstones are at the end.
+    for (char c = 'e'; c <= 'h'; c++) {
+      ASSERT_OK(db_->Delete(WriteOptions(), std::string(1, c), ts2));
     }
 
+    ReadOptions ro;
+    Slice read_ts(ts2);
+    ro.timestamp = &read_ts;
+    std::string upper_str = "z";
+    Slice upper(upper_str);
+    ro.iterate_upper_bound = &upper;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    std::vector<std::string> keys;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      keys.push_back(iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys.size(), 4);
+    ASSERT_EQ(keys[0].substr(0, 1), "a");
+
+    // Forward exhaustion skipped: upper bound lacks timestamp suffix.
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        2);
-    ASSERT_EQ(options.statistics->getTickerCount(
-                  READ_PATH_RANGE_TOMBSTONES_DISCARDED),
-              1);
+        0);
+  } else {
+    // Delete a-d so tombstones are at the start.
+    for (char c = 'a'; c <= 'd'; c++) {
+      ASSERT_OK(db_->Delete(WriteOptions(), std::string(1, c), ts2));
+    }
+
+    ReadOptions ro;
+    Slice read_ts(ts2);
+    ro.timestamp = &read_ts;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    std::vector<std::string> keys;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      keys.push_back(iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys.size(), 4);
+    ASSERT_EQ(keys[0].substr(0, 1), "h");
+
+    // Reverse exhaustion succeeds: end key comes from the next live key
+    // which has a proper timestamp suffix.
+    ASSERT_GE(inserted_ranges_.size(), 1);
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        1);
   }
 }
 

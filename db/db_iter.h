@@ -420,6 +420,15 @@ class DBIter final : public Iterator {
   }
   void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
 
+  void ResetSeekState() {
+    ReleaseTempPinnedData();
+    ResetBlobData();
+    ResetValueAndColumns();
+    ResetInternalKeysSkippedCounter();
+    ResetContiguousTombstoneTracking();
+    ResetRangeTombEndKey();
+  }
+
   void MarkMemtableForFlushForAvgTrigger() {
     if (avg_op_scan_flush_trigger_ &&
         mem_hidden_op_scanned_since_seek_ >= memtable_op_scan_flush_trigger_ &&

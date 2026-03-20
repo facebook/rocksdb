@@ -646,7 +646,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
   // If we accumulated tombstones and have an upper bound, use it as the
   // exclusive end key for the range tombstone.
-  if (contiguous_tombstone_count_ > 0 && iterate_upper_bound_ != nullptr) {
+  if (contiguous_tombstone_count_ > 0 && iterate_upper_bound_ != nullptr &&
+      timestamp_size_ == 0 && iter_.status().ok()) {
     MaybeInsertRangeTombstone(*iterate_upper_bound_);
   }
   ResetContiguousTombstoneTracking();
@@ -943,7 +944,8 @@ void DBIter::PrevInternal(const Slice* prefix) {
 
     // Track contiguous tombstones for reverse range tombstone conversion.
     if (min_tombstones_for_range_conversion_ > 0 &&
-        range_tomb_end_key_.GetUserKey().size() > 0) {
+        range_tomb_end_key_.GetUserKey().size() > 0 &&
+        timestamp_lb_ == nullptr) {
       if (!valid_) {
         // Key was deleted — track it as part of contiguous run.
         range_tomb_first_key_.SetUserKey(
@@ -1569,20 +1571,53 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   }
 
   assert(range_tomb_max_seq_ <= sequence_);
-  assert(active_mem_->GetEarliestSequenceNumber() <= range_tomb_max_seq_ ||
-         active_mem_->GetEarliestSequenceNumber() == kMaxSequenceNumber);
 
-  // With read_callback_, only insert if all prepared entries have seqno
-  // above the range tombstone's max seqno. This prevents covering invisible
-  // prepared entries that could later commit.
+  auto earliest_seq = active_mem_->GetEarliestSequenceNumber();
+  // Skip if the iterator's snapshot predates the memtable. Otherwise entries
+  // added with seqno between sequence_ and earliest_seq will be unintentionally
+  // covered.
+  if (sequence_ < earliest_seq) {
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+    return;
+  }
+
+  // Bump the insertion seq to preserve the memtable's earliest_seqno_
+  // invariant. Safe because the guard above guarantees sequence_ >=
+  // earliest_seq.
+  SequenceNumber insert_seq = std::max(range_tomb_max_seq_, earliest_seq);
+
+  // Skip if any tombstone in the run might be uncommitted. With transactions,
+  // uncommitted entries are only visible to the owning transaction's iterator.
+  // Converting them into a range tombstone would make them visible to all
+  // readers. Tombstones with seqno < min_uncommitted are committed and safe.
   if (read_callback_ != nullptr &&
       range_tomb_max_seq_ >= read_callback_->min_uncommitted()) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
     return;
   }
 
+  // Check if the memtable already has a range tombstone covering [start, end).
+  {
+    ReadOptions ro;
+    // Assumption is that this should be relatively cheap as other read requests
+    // should be building the cached core fragmented list.
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_iter(
+        active_mem_->NewRangeTombstoneIterator(ro, sequence_,
+                                               false /* immutable_memtable */));
+    if (range_iter) {
+      range_iter->Seek(range_tomb_first_key_.GetUserKey());
+      if (range_iter->Valid() &&
+          user_comparator_.Compare(range_iter->start_key(),
+                                   range_tomb_first_key_.GetUserKey()) <= 0 &&
+          user_comparator_.Compare(range_iter->end_key(), end_key) >= 0) {
+        RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+        return;
+      }
+    }
+  }
+
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
-          range_tomb_max_seq_, range_tomb_first_key_.GetUserKey(), end_key)) {
+          insert_seq, range_tomb_first_key_.GetUserKey(), end_key)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
   } else {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
@@ -1806,12 +1841,7 @@ void DBIter::Seek(const Slice& target) {
   }
 
   status_ = Status::OK();
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
-  ResetContiguousTombstoneTracking();
-  ResetRangeTombEndKey();
+  ResetSeekState();
 
   MarkMemtableForFlushForAvgTrigger();
 
@@ -1886,12 +1916,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   }
 
   status_ = Status::OK();
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
-  ResetContiguousTombstoneTracking();
-  ResetRangeTombEndKey();
+  ResetSeekState();
 
   MarkMemtableForFlushForAvgTrigger();
 
@@ -1956,12 +1981,7 @@ void DBIter::SeekToFirst() {
   // if iterator is empty, this status_ could be unchecked.
   status_.PermitUncheckedError();
   direction_ = kForward;
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
-  ResetContiguousTombstoneTracking();
-  ResetRangeTombEndKey();
+  ResetSeekState();
 
   MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
@@ -2023,12 +2043,7 @@ void DBIter::SeekToLast() {
   // if iterator is empty, this status_ could be unchecked.
   status_.PermitUncheckedError();
   direction_ = kReverse;
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
-  ResetContiguousTombstoneTracking();
-  ResetRangeTombEndKey();
+  ResetSeekState();
 
   MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();

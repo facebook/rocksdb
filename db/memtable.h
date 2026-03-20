@@ -326,9 +326,11 @@ class ReadOnlyMemTable {
   //
   // Returns true if the range tombstone was inserted, false if skipped
   // (e.g., because the memtable has been switched to immutable).
-  virtual bool AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
-                                                   const Slice& start_key,
-                                                   const Slice& end_key) = 0;
+  virtual bool AddLogicallyRedundantRangeTombstone(SequenceNumber /*seq*/,
+                                                   const Slice& /*start_key*/,
+                                                   const Slice& /*end_key*/) {
+    return false;
+  }
 
   // Returns whether a fragmented range tombstone list is already constructed
   // for this memtable. It should be constructed right before a memtable is
