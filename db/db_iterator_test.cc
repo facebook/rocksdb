@@ -5971,13 +5971,11 @@ TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
       1);
 }
 
-// When UDT is enabled and forward iteration exhausts with tombstones at the
-// end, iterate_upper_bound cannot be used as the range end key because it
-// lacks the timestamp suffix that the UDT comparator requires. The insertion
-// should be skipped rather than creating a malformed range tombstone.
-// In reverse, tombstones at the start exhaust the iterator but the end key
-// comes from the next live key (which has a proper timestamp), so insertion
-// should succeed.
+// When UDT is enabled and iteration exhausts with tombstones at the boundary,
+// range tombstone insertion should still work. For forward exhaustion, the
+// iterate_upper_bound is padded with the min timestamp to form a valid end key.
+// For reverse exhaustion, the end key comes from the next live key which
+// already has the timestamp suffix.
 TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
@@ -6017,10 +6015,11 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
     ASSERT_EQ(keys.size(), 4);
     ASSERT_EQ(keys[0].substr(0, 1), "a");
 
-    // Forward exhaustion skipped: upper bound lacks timestamp suffix.
-    ASSERT_EQ(
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        0);
+    // Upper bound is padded with min timestamp to form a valid end key.
+    ASSERT_GE(inserted_ranges_.size(), 1);
+    ASSERT_EQ(options.statistics->getTickerCount(
+                  READ_PATH_RANGE_TOMBSTONES_INSERTED),
+              1);
   } else {
     // Delete a-d so tombstones are at the start.
     for (char c = 'a'; c <= 'd'; c++) {

@@ -647,8 +647,18 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // If we accumulated tombstones and have an upper bound, use it as the
   // exclusive end key for the range tombstone.
   if (contiguous_tombstone_count_ > 0 && iterate_upper_bound_ != nullptr &&
-      timestamp_size_ == 0 && iter_.status().ok()) {
-    MaybeInsertRangeTombstone(*iterate_upper_bound_);
+      iter_.status().ok()) {
+    if (timestamp_size_ == 0) {
+      MaybeInsertRangeTombstone(*iterate_upper_bound_);
+    } else {
+      // iterate_upper_bound_ is a plain user key without a timestamp suffix.
+      // Pad with min timestamp so it sorts after all entries with this user
+      // key, preserving the exclusive bound semantics.
+      std::string end_key_with_ts;
+      AppendKeyWithMinTimestamp(&end_key_with_ts, *iterate_upper_bound_,
+                                timestamp_size_);
+      MaybeInsertRangeTombstone(end_key_with_ts);
+    }
   }
   ResetContiguousTombstoneTracking();
 
