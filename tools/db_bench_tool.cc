@@ -456,6 +456,10 @@ DEFINE_int32(max_manifest_space_amp_pct,
              ROCKSDB_NAMESPACE::Options().max_manifest_space_amp_pct,
              "Max manifest space amp percentage for auto-tuning");
 
+DEFINE_bool(verify_manifest_content_on_close,
+            ROCKSDB_NAMESPACE::Options().verify_manifest_content_on_close,
+            "If true, verify MANIFEST content (CRC + decode) on DB close");
+
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
 
@@ -808,6 +812,8 @@ DEFINE_bool(memtable_whole_key_filtering, false,
             "Try to use whole key bloom filter in memtables.");
 DEFINE_bool(memtable_use_huge_page, false,
             "Try to use huge page in memtables.");
+DEFINE_bool(memtable_batch_lookup_optimization, false,
+            "Use batch lookup optimization for memtable MultiGet.");
 
 DEFINE_bool(whole_key_filtering,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().whole_key_filtering,
@@ -4435,6 +4441,8 @@ class Benchmark {
     }
     options.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+    options.verify_manifest_content_on_close =
+        FLAGS_verify_manifest_content_on_close;
     options.arena_block_size = FLAGS_arena_block_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
@@ -4478,6 +4486,8 @@ class Benchmark {
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
     options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
+    options.memtable_batch_lookup_optimization =
+        FLAGS_memtable_batch_lookup_optimization;
     if (FLAGS_memtable_insert_with_hint_prefix_size > 0) {
       options.memtable_insert_with_hint_prefix_extractor.reset(
           NewCappedPrefixTransform(

@@ -1536,6 +1536,7 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/env_timed_test.cc
+        utilities/fault_injection_fs_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc
@@ -1553,10 +1554,11 @@ if(WITH_TESTS)
         utilities/transactions/lock/point/point_lock_manager_stress_test.cc
         utilities/transactions/write_committed_transaction_ts_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
-        utilities/transactions/write_prepared_transaction_test_seqno.cc
+        utilities/transactions/write_prepared_transaction_seqno_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc
         utilities/transactions/timestamped_snapshot_test.cc
+        utilities/trie_index/trie_index_db_test.cc
         utilities/trie_index/trie_index_test.cc
         utilities/ttl/ttl_test.cc
         utilities/types_util_test.cc

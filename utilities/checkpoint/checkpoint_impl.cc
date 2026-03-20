@@ -419,8 +419,8 @@ Status CheckpointImpl::ExportColumnFamily(
         live_file_metadata.largest = file_metadata.largest;
         result_metadata->files.push_back(live_file_metadata);
       }
-      *metadata = result_metadata;
     }
+    *metadata = result_metadata;
     ROCKS_LOG_INFO(db_options.info_log, "[%s] Export succeeded.",
                    cf_name.c_str());
   } else {

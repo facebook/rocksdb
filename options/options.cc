@@ -115,7 +115,9 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       persist_user_defined_timestamps(options.persist_user_defined_timestamps),
       memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
       memtable_avg_op_scan_flush_trigger(
-          options.memtable_avg_op_scan_flush_trigger) {
+          options.memtable_avg_op_scan_flush_trigger),
+      memtable_batch_lookup_optimization(
+          options.memtable_batch_lookup_optimization) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -468,6 +470,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    memtable_max_range_deletions);
   ROCKS_LOG_HEADER(log, "                 Options.cf_allow_ingest_behind: %s",
                    cf_allow_ingest_behind ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "  Options.memtable_batch_lookup_optimization: %s",
+                   memtable_batch_lookup_optimization ? "true" : "false");
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

@@ -994,6 +994,13 @@ struct DBOptions {
   // manifest write (e.g. completed DB compaction or flush).
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
+  // If true, on DB close, read back the entire MANIFEST file and validate
+  // CRC checksums and logical record content. If corruption is detected,
+  // a fresh MANIFEST is written from in-memory state before closing.
+  //
+  // This option is mutable with SetDBOptions().
+  bool verify_manifest_content_on_close = false;
+
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
   // balance of manifest write amplification and space amplification. A new
   // manifest file is created with the "compacted" contents of the old one when
@@ -2275,9 +2282,10 @@ struct ReadOptions {
   // block based table index. The table_factory used for the column family
   // must support building/reading this index.
   //
-  // Currently, only forward scans are supported. For forward scans, only Seek()
-  // is supported. SeekToFirst() is not supported. If the caller wishes to scan
-  // from start to end, the native index must be used.
+  // Forward scans (SeekToFirst, Seek, Next) and point lookups (Get) are
+  // supported. Reverse operations (SeekToLast, SeekForPrev, Prev) are not
+  // yet supported and will return NotSupported when this is set. Leave this
+  // null to use the native index for reverse operations.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***

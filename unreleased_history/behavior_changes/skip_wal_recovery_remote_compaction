@@ -1,0 +1,1 @@
+Remote compaction workers now skip WAL recovery when opening the secondary DB instance, since only the LSM state from MANIFEST is needed for compaction. This reduces I/O and speeds up remote compaction startup.

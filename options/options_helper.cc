@@ -189,6 +189,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
+  options.verify_manifest_content_on_close =
+      mutable_db_options.verify_manifest_content_on_close;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
@@ -349,6 +351,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;
   cf_opts->cf_allow_ingest_behind = ioptions.cf_allow_ingest_behind;
+  cf_opts->memtable_batch_lookup_optimization =
+      ioptions.memtable_batch_lookup_optimization;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size

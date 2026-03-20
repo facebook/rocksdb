@@ -1999,13 +1999,17 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    // UserDefinedIndexIterator only supports Seek(target) + Next() - it
-    // requires a target key for seeks. SeekToFirst/SeekToLast have no target
-    // key, and SeekForPrev/Prev are not supported. Check if UDI is being used
-    // either via ReadOptions or CF-level configuration.
+    // UserDefinedIndexIterator supports Seek(target), Next(), and
+    // SeekToFirst(). However, SeekToLast, SeekForPrev, and Prev are not
+    // supported. Check if UDI is being used either via ReadOptions or
+    // CF-level configuration.
     const bool using_udi =
         (ro.table_index_factory != nullptr) || (udi_factory_ != nullptr);
-    const bool support_seek_first_or_last =
+    // SeekToFirst is supported by UDI, so only total_order is required.
+    const bool support_seek_to_first =
+        expect_total_order && (FLAGS_test_backward_scan || using_udi);
+    // SeekToLast requires backward scan support which UDI does not provide.
+    const bool support_seek_to_last =
         expect_total_order && FLAGS_test_backward_scan && !using_udi;
     const bool support_seek_for_prev = FLAGS_test_backward_scan && !using_udi;
 
@@ -2022,12 +2026,12 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     }
 
     LastIterateOp last_op;
-    if (support_seek_first_or_last && thread->rand.OneIn(100)) {
+    if (support_seek_to_first && thread->rand.OneIn(100)) {
       iter->SeekToFirst();
       cmp_iter->SeekToFirst();
       last_op = kLastOpSeekToFirst;
       op_logs += "STF ";
-    } else if (support_seek_first_or_last && thread->rand.OneIn(100)) {
+    } else if (support_seek_to_last && thread->rand.OneIn(100)) {
       iter->SeekToLast();
       cmp_iter->SeekToLast();
       last_op = kLastOpSeekToLast;
@@ -3704,13 +3708,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
-    // TODO(jaykorean) Remove this after fix - remote worker shouldn't recover
-    // from WAL
-    if (!FLAGS_disable_wal) {
-      fprintf(stderr,
-              "WAL is not compatible with Remote Compaction in Stress Test\n");
-      exit(1);
-    }
     if ((options_.enable_blob_files ||
          options_.enable_blob_garbage_collection ||
          FLAGS_allow_setting_blob_options_dynamically)) {
@@ -4491,6 +4488,8 @@ void InitializeOptionsFromFlags(
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+  options.verify_manifest_content_on_close =
+      FLAGS_verify_manifest_content_on_close;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;
@@ -4532,9 +4531,13 @@ void InitializeOptionsFromFlags(
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;
+  options.verify_output_flags =
+      static_cast<VerifyOutputFlags>(FLAGS_verify_output_flags);
   options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   options.memtable_veirfy_per_key_checksum_on_seek =
       FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+  options.memtable_batch_lookup_optimization =
+      FLAGS_memtable_batch_lookup_optimization;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;

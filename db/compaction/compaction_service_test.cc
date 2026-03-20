@@ -409,6 +409,34 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(CompactionServiceTest, SkipWALRecoveryInOpenAndCompact) {
+  // Verify that OpenAndCompact skips WAL recovery when opening the secondary
+  // instance. WAL replay is unnecessary for remote compaction since it only
+  // needs the LSM state from MANIFEST.
+  Options options = CurrentOptions();
+  ReopenWithCompactionService(&options);
+
+  // Track whether FindAndRecoverLogFiles is called during compaction
+  std::atomic_bool wal_recovery_called{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::FindAndRecoverLogFiles:Begin",
+      [&](void* /* arg */) { wal_recovery_called.store(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Generate data and trigger compaction (which uses OpenAndCompact)
+  GenerateTestData();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // WAL recovery should NOT have been called during OpenAndCompact
+  ASSERT_FALSE(wal_recovery_called.load());
+
+  // Data should still be correct (compaction worked without WAL recovery)
+  VerifyTestData();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, ManualCompaction) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -1113,6 +1141,8 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
             VerifyOutputFlags::kVerifyBlockChecksum,
         VerifyOutputFlags::kEnableForRemoteCompaction |
             VerifyOutputFlags::kVerifyIteration,
+        VerifyOutputFlags::kEnableForRemoteCompaction |
+            VerifyOutputFlags::kVerifyFileChecksum,
         VerifyOutputFlags::kVerifyAll}) {
     SCOPED_TRACE(
         "verify_output_flags=" +
@@ -1124,6 +1154,7 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
     options.disable_auto_compactions = true;
     options.paranoid_file_checks = false;
     options.verify_output_flags = verify_output_flags;
+    options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
     ReopenWithCompactionService(&options);
     GenerateTestData();
 
@@ -1159,10 +1190,13 @@ TEST_F(CompactionServiceTest, CorruptedOutputVerifyOutputFlags) {
         !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
     const bool should_verify_iteration =
         !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+    const bool should_verify_file_checksum =
+        !!(verify_output_flags & VerifyOutputFlags::kVerifyFileChecksum);
 
     Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
     if (is_enabled_for_remote_compaction &&
-        (should_verify_block_checksum || should_verify_iteration)) {
+        (should_verify_block_checksum || should_verify_iteration ||
+         should_verify_file_checksum)) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsCorruption());
     } else {

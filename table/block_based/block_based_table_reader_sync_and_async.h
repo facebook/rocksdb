@@ -117,6 +117,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
     PERF_COUNTER_ADD(block_read_count, 1);
     PERF_COUNTER_ADD(block_read_byte, BlockSizeWithTrailer(handle));
+    PERF_COUNTER_ADD(data_block_read_byte, BlockSizeWithTrailer(handle));
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {

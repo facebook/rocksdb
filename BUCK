@@ -5142,6 +5142,12 @@ cpp_unittest_wrapper(name="faiss_ivf_index_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="fault_injection_fs_test",
+            srcs=["utilities/fault_injection_fs_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="fault_injection_test",
             srcs=["db/fault_injection_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5628,6 +5634,12 @@ cpp_unittest_wrapper(name="transaction_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="trie_index_db_test",
+            srcs=["utilities/trie_index/trie_index_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="trie_index_test",
             srcs=["utilities/trie_index/trie_index_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5736,14 +5748,14 @@ cpp_unittest_wrapper(name="write_controller_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="write_prepared_transaction_test",
-            srcs=["utilities/transactions/write_prepared_transaction_test.cc"],
+cpp_unittest_wrapper(name="write_prepared_transaction_seqno_test",
+            srcs=["utilities/transactions/write_prepared_transaction_seqno_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="write_prepared_transaction_test_seqno",
-            srcs=["utilities/transactions/write_prepared_transaction_test_seqno.cc"],
+cpp_unittest_wrapper(name="write_prepared_transaction_test",
+            srcs=["utilities/transactions/write_prepared_transaction_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

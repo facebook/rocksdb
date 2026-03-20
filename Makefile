@@ -1608,6 +1608,9 @@ object_registry_test: $(OBJ_DIR)/utilities/object_registry_test.o $(TEST_LIBRARY
 ttl_test: $(OBJ_DIR)/utilities/ttl/ttl_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+trie_index_db_test: $(OBJ_DIR)/utilities/trie_index/trie_index_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 trie_index_test: $(OBJ_DIR)/utilities/trie_index/trie_index_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1660,6 +1663,9 @@ io_posix_test: $(OBJ_DIR)/env/io_posix_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 fault_injection_test: $(OBJ_DIR)/db/fault_injection_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+fault_injection_fs_test: $(OBJ_DIR)/utilities/fault_injection_fs_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 rate_limiter_test: $(OBJ_DIR)/util/rate_limiter_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1860,7 +1866,7 @@ write_committed_transaction_ts_test: $(OBJ_DIR)/utilities/transactions/write_com
 write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-write_prepared_transaction_test_seqno: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test_seqno.o $(TEST_LIBRARY) $(LIBRARY)
+write_prepared_transaction_seqno_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_seqno_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unprepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
