@@ -1779,6 +1779,8 @@ class VersionSet {
   unsigned max_manifest_space_amp_pct_;
   // Saved copy from (Mutable)DBOptions
   size_t manifest_preallocation_size_;
+  // Saved copy from (Mutable)DBOptions
+  bool verify_manifest_content_on_close_;
 
   // Obsolete files, or during DB shutdown any files not referenced by what's
   // left of the in-memory LSM state.

@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "db/seqno_to_time_mapping.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/user_defined_index.h"
@@ -43,7 +44,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
                       const BlockHandle& block_handle,
                       std::string* separator_scratch,
                       bool skip_delta_encoding) override {
-    UserDefinedIndexBuilder::BlockHandle handle;
+    UserDefinedIndexBuilder::BlockHandle handle{};
     handle.offset = block_handle.offset();
     handle.size = block_handle.size();
     // Forward the call to both index builders.
@@ -80,7 +81,11 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
         separator_scratch, skip_delta_encoding);
   }
 
-  // Not supported with parallel compression
+  // Parallel compression splits AddIndexEntry() into PrepareIndexEntry() (emit
+  // thread) and FinishIndexEntry() (worker thread). This wrapper does not
+  // implement that split yet, so parallel compression is rejected at option
+  // validation time (see BlockBasedTableFactory::ValidateOptions and the Rep
+  // constructor). These stubs exist only to satisfy the interface.
   std::unique_ptr<PreparedIndexEntry> CreatePreparedIndexEntry() override {
     return nullptr;
   }
@@ -111,39 +116,35 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
     ParsedInternalKey pkey;
     if (status_.ok()) {
+      // Defensive: value should always be present since OnKeyAdded() is called
+      // on the main thread in Add() with the original value Slice. No current
+      // code path passes std::nullopt here.
       if (!value.has_value()) {
+        assert(false);
         status_ = Status::InvalidArgument(
-            "user_defined_index_factory not supported with parallel "
-            "compression");
+            "OnKeyAdded called without a value; UDI requires the value to "
+            "forward to the plugin builder");
       } else {
         status_ = ParseInternalKey(key, &pkey, /*log_err_key*/ false);
-        // UDI only supports kTypeValue (Put) entries. Non-Put types include:
-        // - kTypeDeletion, kTypeSingleDeletion, kTypeRangeDeletion (deletes)
-        // - kTypeMerge (merge operands)
-        // - kTypeWideColumnEntity (PutEntity)
-        // - kTypeBlobIndex (BlobDB stores values in blob files)
-        // This makes UDI incompatible with:
-        // - Delete/Merge/SingleDelete/DeleteRange operations
-        // - TransactionDB (ROLLBACK writes DELETE entries to undo changes)
-        // - BlobDB (writes kTypeBlobIndex entries during flush)
-        // See T257683723 for analysis of TransactionDB incompatibility.
-        // See T258398372 for analysis of BlobDB incompatibility.
-        if (status_.ok() && pkey.type != ValueType::kTypeValue) {
-          status_ = Status::InvalidArgument(
-              "user_defined_index_factory only supported with Puts");
-        }
       }
     }
     if (!status_.ok()) {
       return;
     }
 
-    // Pass the user key to the UDI. UDI is designed for ingest-only use cases
-    // where files contain only Put entries with unique keys. We don't expect
-    // multiple entries with different sequence numbers for the same key.
+    // Pass the user key to the UDI with the mapped value type. In SST files
+    // produced by flush or compaction, there may be multiple entries for the
+    // same user key with different sequence numbers (e.g., when snapshots are
+    // active). UDI builders that use OnKeyAdded() should handle this; builders
+    // that only use AddIndexEntry() separator keys (e.g., trie) are unaffected.
+    Slice udi_value = value.value();
+    if (pkey.type == kTypeValuePreferredSeqno) {
+      // Strip the packed preferred seqno suffix so the UDI plugin receives
+      // only the user value, consistent with the kValue contract.
+      udi_value = ParsePackedValueForValue(udi_value);
+    }
     user_defined_index_builder_->OnKeyAdded(
-        pkey.user_key, UserDefinedIndexBuilder::ValueType::kValue,
-        value.value());
+        pkey.user_key, MapToUDIValueType(pkey.type), udi_value);
   }
 
   Status Finish(IndexBlocks* index_blocks,
@@ -189,6 +190,30 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   }
 
  private:
+  static UserDefinedIndexBuilder::ValueType MapToUDIValueType(
+      ROCKSDB_NAMESPACE::ValueType t) {
+    switch (t) {
+      case kTypeValue:
+      case kTypeValuePreferredSeqno:
+        return UserDefinedIndexBuilder::kValue;
+      case kTypeDeletion:
+      case kTypeSingleDeletion:
+      case kTypeDeletionWithTimestamp:
+        return UserDefinedIndexBuilder::kDelete;
+      case kTypeMerge:
+        return UserDefinedIndexBuilder::kMerge;
+      case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
+        return UserDefinedIndexBuilder::kOther;
+      default:
+        // Any new type that reaches OnKeyAdded() should be explicitly mapped
+        // above. Falling through to kOther is a safe default but indicates a
+        // missing case that should be added.
+        assert(false);
+        return UserDefinedIndexBuilder::kOther;
+    }
+  }
+
   const std::string name_;
   std::unique_ptr<IndexBuilder> internal_index_builder_;
   std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder_;
@@ -208,8 +233,15 @@ class UserDefinedIndexIteratorWrapper
   bool Valid() const override { return valid_; }
 
   void SeekToFirst() override {
-    valid_ = false;
-    status_ = Status::NotSupported("SeekToFirst not supported");
+    status_ = udi_iter_->SeekToFirstAndGetResult(&result_);
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        SetInternalKeyFromUDIResult();
+      }
+    } else {
+      valid_ = false;
+    }
   }
 
   void SeekToLast() override {
@@ -233,12 +265,7 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        // Use seq=0 for the internal key because this is a separator key
-        // (upper bound on block contents), not a real data key. seq=0 makes
-        // the key compare as "greater" in internal key order (since lower
-        // seqno = greater internal key for the same user key), which is the
-        // correct behavior for a separator used as an index entry.
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
       }
     } else {
       valid_ = false;
@@ -250,7 +277,7 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
       }
     } else {
       valid_ = false;
@@ -262,9 +289,11 @@ class UserDefinedIndexIteratorWrapper
     if (status_.ok()) {
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+        SetInternalKeyFromUDIResult();
+        result->key = key();
       }
-      *result = result_;
+      result->bound_check_result = result_.bound_check_result;
+      result->value_prepared = result_.value_prepared;
     } else {
       valid_ = false;
     }
@@ -303,6 +332,17 @@ class UserDefinedIndexIteratorWrapper
   }
 
  private:
+  // Convert the UDI result's user key into an internal key for the index
+  // iterator contract. UDI separators are user keys, but
+  // InternalIteratorBase<IndexValue> must expose internal keys (user key +
+  // 8-byte trailer). We use seq=0 / kTypeValue so that the resulting
+  // internal key compares as "greater than or equal to" any real data key
+  // with the same user key (lower seqno = later in internal key order),
+  // which is the correct upper-bound semantics for an index separator.
+  void SetInternalKeyFromUDIResult() {
+    ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+  }
+
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;
   InternalKey ikey_;
@@ -320,7 +360,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
         reader_(std::move(reader)),
         udi_reader_(std::move(udi_reader)) {}
 
-  virtual InternalIteratorBase<IndexValue>* NewIterator(
+  InternalIteratorBase<IndexValue>* NewIterator(
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
@@ -337,17 +377,14 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
     std::unique_ptr<UserDefinedIndexIterator> udi_iter =
         udi_reader_->NewIterator(read_options);
     if (udi_iter) {
-      InternalIteratorBase<IndexValue>* wrap_iter =
-          new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
-      return wrap_iter;
+      return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
     }
     return NewErrorInternalIterator<IndexValue>(
         Status::NotFound("Could not create UDI iterator"));
   }
 
-  virtual Status CacheDependencies(
-      const ReadOptions& ro, bool pin,
-      FilePrefetchBuffer* tail_prefetch_buffer) override {
+  Status CacheDependencies(const ReadOptions& ro, bool pin,
+                           FilePrefetchBuffer* tail_prefetch_buffer) override {
     return reader_->CacheDependencies(ro, pin, tail_prefetch_buffer);
   }
 
@@ -356,7 +393,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
            udi_reader_->ApproximateMemoryUsage();
   }
 
-  virtual void EraseFromCacheBeforeDestruction(
+  void EraseFromCacheBeforeDestruction(
       uint32_t uncache_aggressiveness) override {
     reader_->EraseFromCacheBeforeDestruction(uncache_aggressiveness);
   }

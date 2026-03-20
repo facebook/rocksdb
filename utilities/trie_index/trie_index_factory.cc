@@ -77,20 +77,29 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
       }
     }
   } else {
-    // Last block: use a short successor of the last key.
-    *separator_scratch = last_key_in_current_block.ToString();
-    comparator_->FindShortSuccessor(separator_scratch);
-    separator = Slice(*separator_scratch);
+    // Last block: use the last key itself as the separator, NOT a shortened
+    // successor. This matches the standard ShortenedIndexBuilder behavior
+    // (see index_builder.h GetSeparatorWithSeq lines 278-286): it only calls
+    // FindShortInternalKeySuccessor when shortening_mode is
+    // kShortenSeparatorsAndSuccessor, which is not the default. With the
+    // default kShortenSeparators, the last block's separator is simply
+    // last_key_in_current_block.
+    //
+    // Why this matters: FindShortSuccessor can widen the key range. For
+    // example, if the actual last key is "9\xff\xff", FindShortSuccessor
+    // produces ":" (0x3A). The trie would then claim to cover keys up to
+    // ":", but the data block only contains keys up to "9\xff\xff". A seek
+    // targeting a key in that gap (e.g., "9\xff\xff\x01") would find a
+    // block via the trie that contains no matching data, causing iterator
+    // desynchronization — the trie index returns a valid block while the
+    // standard index correctly reports no match.
+    separator = last_key_in_current_block;
 
-    // Edge case: FindShortSuccessor may fail to shorten the key (e.g.,
-    // all-0xFF keys like "\xff\xff" — no byte can be incremented). When
-    // this happens AND the previous entry has the same separator, the last
-    // block is actually part of a same-user-key run. Without this check,
-    // the last block would get seqno=kMaxSequenceNumber (sentinel), but
-    // Finish() would group it into the run and hit the assert that overflow
-    // blocks must have real seqnos.
+    // Edge case: if this last block's separator matches the previous entry's
+    // separator, they share the same user key (same-user-key run boundary).
     if (!buffered_entries_.empty() &&
-        buffered_entries_.back().separator_key == *separator_scratch) {
+        comparator_->Compare(buffered_entries_.back().separator_key,
+                             separator) == 0) {
       same_user_key = true;
       if (!must_use_separator_with_seq_) {
         must_use_separator_with_seq_ = true;
@@ -172,8 +181,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
                                     seqno, block_count);
 
       // Add overflow blocks (2nd, 3rd, ... in the run).
-      // Overflow blocks only exist within same-key runs, which always
-      // receive real seqnos from AddIndexEntry, never kMaxSequenceNumber.
+      // Overflow blocks only exist within same-key runs, so their seqnos
+      // come from last_key_seq in AddIndexEntry (never kMaxSequenceNumber).
+      // The seqno may be 0 when bottommost compaction zeroes all sequence
+      // numbers — this is valid; see AddOverflowBlock comment.
       for (size_t j = run_start + 1; j < run_end; j++) {
         assert(buffered_entries_[j].seqno != kMaxSequenceNumber);
         trie_builder_.AddOverflowBlock(buffered_entries_[j].handle,
@@ -229,6 +240,37 @@ void TrieIndexIterator::Prepare(const ScanOptions scan_opts[],
   }
   current_scan_idx_ = 0;
   prepared_ = true;
+}
+
+Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
+  // Reset overflow state — SeekToFirst always lands on the primary block
+  // of the first trie leaf.
+  overflow_run_index_ = 0;
+  overflow_run_size_ = 1;
+  overflow_base_idx_ = 0;
+
+  if (!iter_.SeekToFirst()) {
+    result->bound_check_result = IterBoundCheck::kUnknown;
+    result->key = Slice();
+    return Status::OK();
+  }
+
+  result->key = iter_.Key();
+  current_key_scratch_ = result->key.ToString();
+  result->key = Slice(current_key_scratch_);
+
+  // Set up overflow state for the first leaf if seqno encoding is active.
+  if (has_seqno_encoding_) {
+    uint64_t leaf_idx = iter_.LeafIndex();
+    uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
+    overflow_run_size_ = block_count;
+    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
+  }
+
+  // The very first entry is always in bounds (no target to compare against
+  // the limit, and the first block cannot precede any scan range).
+  result->bound_check_result = IterBoundCheck::kInbound;
+  return Status::OK();
 }
 
 Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
@@ -506,13 +548,13 @@ Status TrieIndexFactory::NewBuilder(
 Status TrieIndexFactory::NewReader(
     const UserDefinedIndexOption& option, Slice& index_block,
     std::unique_ptr<UserDefinedIndexReader>& reader) const {
-  if (option.comparator != nullptr &&
-      option.comparator != BytewiseComparator()) {
+  const Comparator* cmp =
+      option.comparator ? option.comparator : BytewiseComparator();
+  if (cmp != BytewiseComparator()) {
     return Status::NotSupported(
-        "TrieIndexFactory requires BytewiseComparator; got: ",
-        option.comparator->Name());
+        "TrieIndexFactory requires BytewiseComparator; got: ", cmp->Name());
   }
-  auto trie_reader = std::make_unique<TrieIndexReader>(option.comparator);
+  auto trie_reader = std::make_unique<TrieIndexReader>(cmp);
   Status s = trie_reader->InitFromSlice(index_block);
   if (!s.ok()) {
     return s;

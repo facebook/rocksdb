@@ -242,8 +242,8 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    # use_trie_index must be the same across invocations because it restricts
-    # operations (no deletes/merges) and existing SSTs may contain non-Put types
+    # use_trie_index must be the same across invocations so that all SSTs
+    # in a DB are opened with matching table options
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
@@ -279,6 +279,7 @@ default_params = {
     "max_manifest_file_size": lambda: random.choice(
         [t * 2048 if t < 5 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
+    "verify_manifest_content_on_close": lambda: random.randint(0, 1),
     "max_manifest_space_amp_pct": lambda: random.choice([0, 10, 100, 1000]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
@@ -433,9 +434,7 @@ default_params = {
     # (block checksum, iteration, file checksum), bits 10-11 are when to
     # enable (local compaction, remote compaction). 0x407 = all types +
     # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
-    "verify_output_flags": lambda: random.choice(
-        [0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]
-    ),
+    "verify_output_flags": lambda: random.choice([0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
@@ -878,8 +877,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_files"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
-        # TODO Fix - Remote worker shouldn't recover from WAL
-        dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
@@ -901,47 +898,15 @@ def finalize_and_sanitize(src_params):
         dest_params["open_write_fault_one_in"] = 0
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
-    else:
-        dest_params["allow_resumption_one_in"] = 0
 
-    # Trie UDI only supports Put (kTypeValue). Disable incompatible operations.
+    # UDI now supports all operation types (Put, Delete, Merge, etc.).
+    # Only parallel compression and mmap_read remain incompatible.
     if dest_params.get("use_trie_index") == 1:
-        dest_params["use_merge"] = 0
-        dest_params["use_put_entity_one_in"] = 0
-        dest_params["use_timed_put_one_in"] = 0
-        dest_params["use_get_entity"] = 0
-        dest_params["use_multi_get_entity"] = 0
-        # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
-        # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
-        dest_params["use_txn"] = 0
-        dest_params["use_optimistic_txn"] = 0
-        dest_params["test_multi_ops_txns"] = 0
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
-        # Redistribute delete/delrange percents to write percent
-        dest_params["writepercent"] += dest_params["delpercent"]
-        dest_params["writepercent"] += dest_params["delrangepercent"]
-        dest_params["delpercent"] = 0
-        dest_params["delrangepercent"] = 0
-        # Ingestion with standalone range deletions is incompatible
-        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
-        # Trie UDI does not support SeekToFirst/SeekToLast. Prefix scanning
-        # calls SeekToFirst internally, so disable it. Additionally,
-        # LevelIterator::SkipEmptyFileForward() calls SeekToFirst() when
-        # Next() crosses file boundaries, so general iteration (iterpercent)
-        # also fails with trie UDI. Redistribute both to reads.
-        dest_params["readpercent"] += dest_params.get("prefixpercent", 0)
-        dest_params["prefixpercent"] = 0
-        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
-        dest_params["iterpercent"] = 0
-        # BlobDB writes kTypeBlobIndex entries in SSTs instead of kTypeValue,
-        # which violates UDI's Put-only restriction. Also disable dynamic
-        # blob options to prevent SetOptions from re-enabling blob files.
-        dest_params["enable_blob_files"] = 0
-        dest_params["allow_setting_blob_options_dynamically"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -1215,9 +1180,6 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-
-            # TODO Fix - Remote worker shouldn't recover from WAL
-            dest_params["remote_compaction_worker_threads"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
         if dest_params.get("block_align") == 1:
@@ -1321,6 +1283,10 @@ def finalize_and_sanitize(src_params):
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+
+    # allow_resumption requires remote compaction
+    if dest_params.get("remote_compaction_worker_threads", 0) == 0:
+        dest_params["allow_resumption_one_in"] = 0
 
     return dest_params
 
@@ -1437,7 +1403,13 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
             print("KILLED %d (SIGTERM did not work)\n" % child.pid)
             outs, errs = child.communicate()
 
-    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8"), pid
+    return (
+        hit_timeout,
+        child.returncode,
+        outs.decode("utf-8"),
+        errs.decode("utf-8"),
+        pid,
+    )
 
 
 def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):

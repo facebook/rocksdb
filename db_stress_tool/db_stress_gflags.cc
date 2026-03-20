@@ -627,11 +627,10 @@ DEFINE_double(uniform_cv_threshold,
               "CV threshold for marking index blocks as uniform. Set to -1 to "
               "disable. (see `uniform_cv_threshold` in table.h)");
 
-DEFINE_bool(
-    use_trie_index, false,
-    "Use trie-based user defined index (UDI) for SST files. "
-    "Only compatible with Put operations (no Merge/Delete/SingleDelete). "
-    "When enabled, incompatible flags are automatically adjusted.");
+DEFINE_bool(use_trie_index, false,
+            "Use trie-based user defined index (UDI) for SST files. "
+            "Compatible with all operation types (Put, Delete, Merge, etc.). "
+            "Backward scan is disabled when this is enabled.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests. "
@@ -1020,6 +1019,9 @@ DEFINE_uint64(max_manifest_file_size, 16384,
 
 DEFINE_int32(max_manifest_space_amp_pct, 500,
              "Max manifest space amp percentage for auto-tuning");
+
+DEFINE_bool(verify_manifest_content_on_close, false,
+            "If true, verify MANIFEST content (CRC + decode) on DB close");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 

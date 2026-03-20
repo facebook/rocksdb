@@ -38,6 +38,7 @@
 #endif
 
 #include "file/filename.h"
+#include "port/lang.h"
 #include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -71,7 +72,7 @@ class InjectedErrorLog {
     log_path_[len] = '\0';
   }
 
-  void Record(const char* fmt, ...)
+  TSAN_SUPPRESSION void Record(const char* fmt, ...)
 #if defined(__GNUC__) || defined(__clang__)
       __attribute__((format(printf, 2, 3)))
 #endif
@@ -83,10 +84,25 @@ class InjectedErrorLog {
     e.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
                          now.time_since_epoch())
                          .count();
+    // Format into a local buffer first, then copy into the shared entry.
+    // This avoids calling the TSAN-intercepted vsnprintf directly on shared
+    // memory. We use a byte-by-byte loop instead of memcpy because
+    // TSAN_SUPPRESSION (no_sanitize("thread")) only suppresses
+    // compiler-inserted instrumentation -- it does NOT suppress TSAN's
+    // runtime interceptors for libc functions like memcpy, vsnprintf, and
+    // snprintf. Plain store instructions are always suppressed regardless
+    // of optimization level. The volatile source pointer prevents the
+    // compiler from recognizing this as a memcpy idiom and replacing it
+    // with a memcpy call.
+    char local_buf[kMaxMessageLen];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(e.context, kMaxMessageLen, fmt, args);
+    vsnprintf(local_buf, kMaxMessageLen, fmt, args);
     va_end(args);
+    const volatile char* src = local_buf;
+    for (size_t i = 0; i < kMaxMessageLen; i++) {
+      e.context[i] = src[i];
+    }
   }
 
   // Format the first few bytes of a buffer as hex for logging.
@@ -113,7 +129,7 @@ class InjectedErrorLog {
   // This is a benign race -- at worst, one entry may appear garbled.
   // We accept this trade-off to keep PrintAll() free of locks and safe
   // for use in signal handlers.
-  void PrintAll() const {
+  TSAN_SUPPRESSION void PrintAll() const {
 #ifndef OS_WIN
     int fd = -1;
     if (log_path_[0] != '\0') {
@@ -150,13 +166,23 @@ class InjectedErrorLog {
     size_t start = (total >= kMaxEntries) ? (total % kMaxEntries) : 0;
     for (size_t i = 0; i < count; i++) {
       size_t idx = (start + i) % kMaxEntries;
+      // Copy entry fields to locals to avoid passing shared memory through
+      // TSAN-intercepted snprintf. See comment in Record() for why we use a
+      // volatile pointer to prevent loop-to-memcpy optimization.
       const Entry& e = entries_[idx];
-      if (e.timestamp_us == 0) continue;
-      uint64_t secs = e.timestamp_us / 1000000;
-      uint64_t usecs = e.timestamp_us % 1000000;
+      uint64_t local_ts = e.timestamp_us;
+      uint64_t local_tid = e.thread_id;
+      char local_ctx[kMaxMessageLen];
+      const volatile char* ctx_src = e.context;
+      for (size_t j = 0; j < kMaxMessageLen; j++) {
+        local_ctx[j] = ctx_src[j];
+      }
+      if (local_ts == 0) continue;
+      uint64_t secs = local_ts / 1000000;
+      uint64_t usecs = local_ts % 1000000;
       len = snprintf(buf, sizeof(buf), "[%llu.%06llu] thread=%llu: %s\n",
                      (unsigned long long)secs, (unsigned long long)usecs,
-                     (unsigned long long)e.thread_id, e.context);
+                     (unsigned long long)local_tid, local_ctx);
       write_str(buf, len);
     }
     len = snprintf(buf, sizeof(buf),

@@ -4331,14 +4331,26 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
+        const uint64_t total_classified_bytes =
+            get_perf_context()->data_block_read_byte +
+            get_perf_context()->index_block_read_byte +
+            get_perf_context()->filter_block_read_byte +
+            get_perf_context()->compression_dict_block_read_byte +
+            get_perf_context()->metadata_block_read_byte;
+        ASSERT_EQ(get_perf_context()->block_read_byte, total_classified_bytes);
         if (index_and_filter_in_cache) {
           // data, index and filter block
           ASSERT_EQ(get_perf_context()->block_read_count, 3);
           ASSERT_EQ(get_perf_context()->index_block_read_count, 1);
           ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
+          ASSERT_GT(get_perf_context()->data_block_read_byte, 0);
+          ASSERT_GT(get_perf_context()->index_block_read_byte, 0);
+          ASSERT_GT(get_perf_context()->filter_block_read_byte, 0);
         } else {
           // just the data block
           ASSERT_EQ(get_perf_context()->block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->block_read_byte,
+                    get_perf_context()->data_block_read_byte);
         }
         ASSERT_EQ(get_context.State(), GetContext::kFound);
         ASSERT_STREQ(value.data(), "hello");
@@ -4357,6 +4369,13 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
+        const uint64_t total_classified_bytes =
+            get_perf_context()->data_block_read_byte +
+            get_perf_context()->index_block_read_byte +
+            get_perf_context()->filter_block_read_byte +
+            get_perf_context()->compression_dict_block_read_byte +
+            get_perf_context()->metadata_block_read_byte;
+        ASSERT_EQ(get_perf_context()->block_read_byte, total_classified_bytes);
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);
       }
 
@@ -4370,6 +4389,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
           // with full-filter, we read filter first and then we stop
           ASSERT_EQ(get_perf_context()->block_read_count, 1);
           ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->block_read_byte,
+                    get_perf_context()->filter_block_read_byte);
         }
       } else {
         // filter is already in memory and it figures out that the key doesn't
@@ -5836,8 +5857,12 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     auto metaindex_handle = footer.metaindex_handle();
     BlockContents metaindex_contents;
 
+    get_perf_context()->Reset();
     BlockFetchHelper(metaindex_handle, BlockType::kMetaIndex,
                      &metaindex_contents);
+    ASSERT_GT(get_perf_context()->metadata_block_read_byte, 0);
+    ASSERT_EQ(get_perf_context()->block_read_byte,
+              get_perf_context()->metadata_block_read_byte);
     Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
@@ -5849,8 +5874,12 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
                                     &properties_handle));
     ASSERT_FALSE(properties_handle.IsNull());
     BlockContents properties_contents;
+    get_perf_context()->Reset();
     BlockFetchHelper(properties_handle, BlockType::kProperties,
                      &properties_contents);
+    ASSERT_GT(get_perf_context()->metadata_block_read_byte, 0);
+    ASSERT_EQ(get_perf_context()->block_read_byte,
+              get_perf_context()->metadata_block_read_byte);
     Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);
@@ -7617,9 +7646,22 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
     Status NewBuilder(
         const UserDefinedIndexOption& /*option*/,
         std::unique_ptr<UserDefinedIndexBuilder>& builder) const override {
-      builder = std::make_unique<TestUserDefinedIndexBuilder>();
+      auto b = std::make_unique<TestUserDefinedIndexBuilder>();
+      b->skip_key_size_check_ = skip_key_size_check_;
+      // Share the factory's key_type_log so tests can inspect after flush.
+      b->shared_key_type_log_ = &key_type_log_;
+      builder = std::move(b);
       return Status::OK();
     }
+
+    // When true, builders skip key-size assertions (for variable-length keys).
+    bool skip_key_size_check_ = false;
+
+    // Accumulated log of (key, ValueType) pairs from all builders created
+    // by this factory. Tests can inspect this after flush/compaction.
+    mutable std::vector<
+        std::pair<std::string, UserDefinedIndexBuilder::ValueType>>
+        key_type_log_;
 
     struct CustomizedMapComparator {
       CustomizedMapComparator(const Comparator* _comparator)
@@ -7662,9 +7704,11 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         if (keys_added_ == 0) {
           return last_key_in_current_block;
         }
-        EXPECT_EQ(last_key_in_current_block.size(), 5);
-        if (first_key_in_next_block) {
-          EXPECT_EQ(first_key_in_next_block->size(), 5);
+        if (!skip_key_size_check_) {
+          EXPECT_EQ(last_key_in_current_block.size(), 5);
+          if (first_key_in_next_block) {
+            EXPECT_EQ(first_key_in_next_block->size(), 5);
+          }
         }
         // Unused parameters
         (void)separator_scratch;
@@ -7681,18 +7725,27 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         return last_key_in_current_block;
       }
 
-      void OnKeyAdded(const Slice& key, ValueType /*value*/,
+      void OnKeyAdded(const Slice& key, ValueType type,
                       const Slice& /*value*/) override {
         if (key.starts_with("dummy")) {
           return;
         }
-        EXPECT_EQ(key.size(), 5);
-        // Track keys added to the index
+        if (!skip_key_size_check_) {
+          EXPECT_EQ(key.size(), 5);
+        }
+        // Record the ValueType for each key so tests can verify the mapping.
+        if (shared_key_type_log_) {
+          shared_key_type_log_->emplace_back(key.ToString(), type);
+        }
+        // Track keys added to the current block (used by AddIndexEntry).
         keys_added_++;
-        // Add dummy entry
-        PutFixed64(&index_data_[key.ToString()], 0);
-        PutFixed64(&index_data_[key.ToString()], 0);
-        PutFixed32(&index_data_[key.ToString()], 0);
+        if (!skip_key_size_check_) {
+          // For fixed-size key tests, add a dummy per-key entry that the
+          // TestUserDefinedIndexReader can parse alongside block-level entries.
+          PutFixed64(&index_data_[key.ToString()], 0);
+          PutFixed64(&index_data_[key.ToString()], 0);
+          PutFixed32(&index_data_[key.ToString()], 0);
+        }
       }
 
       Status Finish(Slice* index_contents) override {
@@ -7712,6 +7765,14 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
       }
 
       int GetEntriesAdded() const { return entries_added_; }
+
+      // When true, skip the EXPECT_EQ(key.size(), 5) checks, allowing
+      // variable-length keys (e.g., from DB flush/compaction).
+      bool skip_key_size_check_ = false;
+
+      // Points to the factory's shared log vector. Set by the factory.
+      mutable std::vector<std::pair<std::string, ValueType>>*
+          shared_key_type_log_ = nullptr;
 
      private:
       int entries_added_;
@@ -7799,11 +7860,16 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
           iter_ = index_.lower_bound(key.ToString());
           if ((iter_ != index_.end()) && IsInbound()) {
             AdvanceToNextIndexEntry();
-            result->bound_check_result = IterBoundCheck::kInbound;
-            result->key = Slice(iter_->first);
-            if (scan_opts_ && target_num_keys_ > 0 &&
-                comparator_->Compare(key, iter_->first) == 0) {
-              target_num_keys_--;
+            if (iter_ != index_.end()) {
+              result->bound_check_result = IterBoundCheck::kInbound;
+              result->key = Slice(iter_->first);
+              if (scan_opts_ && target_num_keys_ > 0 &&
+                  comparator_->Compare(key, iter_->first) == 0) {
+                target_num_keys_--;
+              }
+            } else {
+              result->bound_check_result = IterBoundCheck::kUnknown;
+              result->key = Slice();
             }
           } else {
             result->bound_check_result = IterBoundCheck::kOutOfBound;
@@ -7838,10 +7904,16 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
           iter_++;
           if ((iter_ != index_.end()) && IsInbound()) {
             AdvanceToNextIndexEntry();
-            result->bound_check_result = IterBoundCheck::kInbound;
-            result->key = Slice(iter_->first);
-            target_num_keys_ -=
-                std::min(target_num_keys_, iter_->second.second);
+            if (iter_ != index_.end()) {
+              result->bound_check_result = IterBoundCheck::kInbound;
+              result->key = Slice(iter_->first);
+              target_num_keys_ -=
+                  std::min(target_num_keys_, iter_->second.second);
+            } else {
+              // AdvanceToNextIndexEntry reached end of map.
+              result->bound_check_result = IterBoundCheck::kUnknown;
+              result->key = Slice();
+            }
           } else {
             // EOF
             result->bound_check_result = IterBoundCheck::kUnknown;
@@ -7851,7 +7923,7 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         }
 
         void AdvanceToNextIndexEntry() {
-          while (iter_->second.second == 0) {
+          while (iter_ != index_.end() && iter_->second.second == 0) {
             iter_++;
           }
         }
@@ -8071,7 +8143,8 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
       /* unique_id */ {}, /* largest_seqno */ 0,
       /* tail_size */ 0, ioptions.persist_user_defined_timestamps);
   // Verify that the user-defined index was created
-  std::string meta_block_name = kUserDefinedIndexPrefix + "test_index";
+  std::string meta_block_name =
+      std::string(kUserDefinedIndexPrefix) + "test_index";
   BlockHandle block_handle;
   uint64_t file_size = 0;
   std::unique_ptr<FSRandomAccessFile> file;
@@ -8220,31 +8293,273 @@ TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
   writer.reset();
 }
 
-TEST_P(UserDefinedIndexTest, InvalidArgumentTest2) {
+TEST_P(UserDefinedIndexTest, MergeWithUDI) {
+  // Verify that Merge operations work correctly with user-defined index.
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
   std::string ingest_file = dbname + "test.sst";
 
-  // Set up the user-defined index factory
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-
-  // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
 
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.merge_operator = MergeOperators::CreateStringAppendOperator();
 
   std::unique_ptr<SstFileWriter> writer;
   writer.reset(new SstFileWriter(EnvOptions(), options_));
   ASSERT_OK(writer->Open(ingest_file));
 
-  std::string key = "foo";
-  std::string value = "bar";
-  ASSERT_OK(writer->Merge(key, value));
-  ASSERT_EQ(writer->Finish(), Status::InvalidArgument());
+  // Use 5-byte keys to match TestUserDefinedIndexBuilder expectations.
+  ASSERT_OK(writer->Merge("key_a", "val_a"));
+  ASSERT_OK(writer->Finish());
   writer.reset();
+
+  // Read back and verify the merge entry is present in the SST.
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(ingest_file));
+  ReadOptions ro;
+  std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "key_a");
+  ASSERT_EQ(iter->value().ToString(), "val_a");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+TEST_P(UserDefinedIndexTest, DBFlushWithMixedOpsAndUDI) {
+  // Verify that Put, Delete, Merge, and SingleDelete all flow correctly
+  // through the UDI builder when flushed via DB::Flush.
+  std::string dbname = test::PerThreadDBPath("udi_db_flush_test");
+  ASSERT_OK(DestroyDB(dbname, options_));
+
+  BlockBasedTableOptions table_options;
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  user_defined_index_factory->skip_key_size_check_ = true;
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options_.create_if_missing = true;
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options_, dbname, &db));
+
+  // Write mixed operations.
+  ASSERT_OK(db->Put(WriteOptions(), "key_aa", "val_put"));
+  ASSERT_OK(db->Merge(WriteOptions(), "key_bb", "val_merge"));
+  ASSERT_OK(db->Delete(WriteOptions(), "key_cc"));
+  ASSERT_OK(db->Put(WriteOptions(), "key_dd", "val_put2"));
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "key_dd"));
+  ASSERT_OK(db->Put(WriteOptions(), "key_ee", "val_put3"));
+
+  // Flush to produce an SST with UDI.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Verify data is readable via the native index (which always works with
+  // SeekToFirst). key_aa (put), key_bb (merge), key_ee (put) should be
+  // visible. key_cc was deleted, key_dd was single-deleted.
+  {
+    ReadOptions ro;
+    std::unique_ptr<Iterator> iter(db->NewIterator(ro));
+    iter->SeekToFirst();
+    std::vector<std::string> visible;
+    for (; iter->Valid(); iter->Next()) {
+      visible.push_back(iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(visible.size(), 3u);
+    // With reverse comparator, keys are in reverse order.
+    if (is_reverse_comparator_) {
+      std::vector<std::string> expected = {"key_ee", "key_bb", "key_aa"};
+      ASSERT_EQ(visible, expected);
+    } else {
+      std::vector<std::string> expected = {"key_aa", "key_bb", "key_ee"};
+      ASSERT_EQ(visible, expected);
+    }
+  }
+
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+
+TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
+  // Verify that MapToUDIValueType correctly maps internal ValueTypes to UDI
+  // ValueTypes by writing various operation types via the DB API, flushing,
+  // and inspecting what the TestUserDefinedIndexBuilder received.
+  if (is_reverse_comparator_) {
+    // Skip for reverse comparator — the key ordering makes this test
+    // unnecessarily complex and the mapping logic is comparator-independent.
+    ROCKSDB_GTEST_SKIP("Skipped for reverse comparator");
+    return;
+  }
+  std::string dbname = test::PerThreadDBPath("udi_valuetype_mapping_test");
+  ASSERT_OK(DestroyDB(dbname, options_));
+
+  BlockBasedTableOptions table_options;
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  user_defined_index_factory->skip_key_size_check_ = true;
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options_.create_if_missing = true;
+  options_.disable_auto_compactions = true;
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options_, dbname, &db));
+
+  // Write one entry of each type that goes through the flush path.
+  // kTypeValue:
+  ASSERT_OK(db->Put(WriteOptions(), "key_01_put", "v1"));
+  // kTypeMerge:
+  ASSERT_OK(db->Merge(WriteOptions(), "key_02_merge", "m1"));
+  // kTypeDeletion:
+  ASSERT_OK(db->Delete(WriteOptions(), "key_03_del"));
+  // kTypeSingleDeletion:
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "key_04_sdel"));
+  // kTypeWideColumnEntity:
+  ASSERT_OK(db->PutEntity(WriteOptions(), db->DefaultColumnFamily(),
+                          "key_05_entity", WideColumns{{"col1", "val1"}}));
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // The builder recorded all (key, ValueType) pairs via the shared log.
+  const auto& log = user_defined_index_factory->key_type_log_;
+  ASSERT_FALSE(log.empty());
+
+  // Build a map from key to the ValueType received by OnKeyAdded.
+  std::map<std::string, UserDefinedIndexBuilder::ValueType> type_map;
+  for (const auto& entry : log) {
+    type_map[entry.first] = entry.second;
+  }
+
+  // Verify each mapping.
+  ASSERT_EQ(type_map.count("key_01_put"), 1u);
+  EXPECT_EQ(type_map["key_01_put"], UserDefinedIndexBuilder::kValue);
+
+  ASSERT_EQ(type_map.count("key_02_merge"), 1u);
+  EXPECT_EQ(type_map["key_02_merge"], UserDefinedIndexBuilder::kMerge);
+
+  ASSERT_EQ(type_map.count("key_03_del"), 1u);
+  EXPECT_EQ(type_map["key_03_del"], UserDefinedIndexBuilder::kDelete);
+
+  ASSERT_EQ(type_map.count("key_04_sdel"), 1u);
+  EXPECT_EQ(type_map["key_04_sdel"], UserDefinedIndexBuilder::kDelete);
+
+  ASSERT_EQ(type_map.count("key_05_entity"), 1u);
+  EXPECT_EQ(type_map["key_05_entity"], UserDefinedIndexBuilder::kOther);
+
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+
+TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
+  // Verify that compaction with snapshots (producing multiple versions of the
+  // same user key) works correctly with UDI.
+  if (is_reverse_comparator_) {
+    ROCKSDB_GTEST_SKIP("Skipped for reverse comparator");
+    return;
+  }
+  std::string dbname = test::PerThreadDBPath("udi_compaction_snapshot_test");
+  ASSERT_OK(DestroyDB(dbname, options_));
+
+  BlockBasedTableOptions table_options;
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  user_defined_index_factory->skip_key_size_check_ = true;
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.create_if_missing = true;
+  // Disable auto-compaction so we control when compaction runs.
+  options_.disable_auto_compactions = true;
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options_, dbname, &db));
+
+  // Write version 1 and flush.
+  ASSERT_OK(db->Put(WriteOptions(), "key_aa", "v1"));
+  ASSERT_OK(db->Put(WriteOptions(), "key_bb", "v1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Take a snapshot to force compaction to keep both versions.
+  const Snapshot* snap = db->GetSnapshot();
+
+  // Write version 2 and flush (creates a second L0 file).
+  ASSERT_OK(db->Put(WriteOptions(), "key_aa", "v2"));
+  ASSERT_OK(db->Delete(WriteOptions(), "key_bb"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Compact L0 → L1. With the snapshot held, both versions of key_aa
+  // and the delete tombstone for key_bb must be preserved in the compaction
+  // output. The UDI builder receives multiple entries for key_aa.
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify the UDI builder saw entries during compaction. The key_type_log
+  // accumulates from all builders (two flushes + one compaction). The
+  // compaction output must contain multiple versions of key_aa (v2 and v1,
+  // due to the snapshot) and both the delete tombstone and old value of key_bb.
+  const auto& log = user_defined_index_factory->key_type_log_;
+  ASSERT_FALSE(log.empty());
+
+  // Count total occurrences of key_aa across all builders — at least 4:
+  // flush1 (v1) + flush2 (v2) + compaction (v2, v1).
+  int key_aa_count = 0;
+  int key_bb_count = 0;
+  for (const auto& entry : log) {
+    if (entry.first == "key_aa") {
+      key_aa_count++;
+    } else if (entry.first == "key_bb") {
+      key_bb_count++;
+    }
+  }
+  // flush1 (1) + flush2 (1) + compaction (2 versions due to snapshot) = 4.
+  ASSERT_GE(key_aa_count, 4) << "Expected key_aa from flush1 + flush2 + "
+                                "compaction (2 versions due to snapshot)";
+  // flush1 (1) + flush2 (1) + compaction (tombstone + old value) = 4.
+  ASSERT_GE(key_bb_count, 4) << "Expected key_bb from flush1 + flush2 + "
+                                "compaction (tombstone + old value)";
+
+  // Verify current view via native index: key_aa=v2, key_bb deleted.
+  {
+    ReadOptions ro;
+    std::unique_ptr<Iterator> iter(db->NewIterator(ro));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key_aa");
+    ASSERT_EQ(iter->value().ToString(), "v2");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Verify snapshot view via native index: key_aa=v1, key_bb=v1.
+  {
+    ReadOptions ro;
+    ro.snapshot = snap;
+    std::unique_ptr<Iterator> iter(db->NewIterator(ro));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key_aa");
+    ASSERT_EQ(iter->value().ToString(), "v1");
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "key_bb");
+    ASSERT_EQ(iter->value().ToString(), "v1");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  db->ReleaseSnapshot(snap);
+  ASSERT_OK(db->Close());
+  ASSERT_OK(DestroyDB(dbname, options_));
 }
 
 TEST_P(UserDefinedIndexTest, IngestTest) {

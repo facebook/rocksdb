@@ -409,6 +409,34 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(CompactionServiceTest, SkipWALRecoveryInOpenAndCompact) {
+  // Verify that OpenAndCompact skips WAL recovery when opening the secondary
+  // instance. WAL replay is unnecessary for remote compaction since it only
+  // needs the LSM state from MANIFEST.
+  Options options = CurrentOptions();
+  ReopenWithCompactionService(&options);
+
+  // Track whether FindAndRecoverLogFiles is called during compaction
+  std::atomic_bool wal_recovery_called{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::FindAndRecoverLogFiles:Begin",
+      [&](void* /* arg */) { wal_recovery_called.store(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Generate data and trigger compaction (which uses OpenAndCompact)
+  GenerateTestData();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // WAL recovery should NOT have been called during OpenAndCompact
+  ASSERT_FALSE(wal_recovery_called.load());
+
+  // Data should still be correct (compaction worked without WAL recovery)
+  VerifyTestData();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, ManualCompaction) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;

@@ -229,65 +229,20 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_atomic_flush = true;
   }
 
-  // Trie UDI only supports Seek + Next. Disable backward scan testing so
-  // that other features lacking backward scan support can reuse this flag.
+  // Trie UDI supports Seek, Next, and SeekToFirst, but not SeekToLast,
+  // SeekForPrev, or Prev. Disable backward scan testing.
   if (FLAGS_use_trie_index) {
     FLAGS_test_backward_scan = false;
   }
 
-  // Trie UDI only supports kTypeValue (Put) entries. Reject incompatible
-  // operations that would produce non-Put types during flush/compaction.
-  if (FLAGS_use_trie_index) {
-    if (FLAGS_delpercent > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with delpercent > 0\n");
-      exit(1);
-    }
-    if (FLAGS_delrangepercent > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "delrangepercent > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_merge) {
-      fprintf(stderr, "Error: use_trie_index is incompatible with use_merge\n");
-      exit(1);
-    }
-    if (FLAGS_use_put_entity_one_in > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "use_put_entity_one_in > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_timed_put_one_in > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "use_timed_put_one_in > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_txn) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with use_txn. "
-              "TransactionDB rollback is executed as delete operation during "
-              "crash recovery, which are non-Put types, not supported by "
-              "user-defined index.\n");
-      exit(1);
-    }
-    if (FLAGS_mmap_read) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with mmap_read. "
-              "The trie index uses zero-copy pointers into block data "
-              "which is unsafe with mmap'd reads.\n");
-      exit(1);
-    }
-    if (FLAGS_enable_blob_files ||
-        FLAGS_allow_setting_blob_options_dynamically) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with BlobDB. "
-              "BlobDB writes kTypeBlobIndex entries in SSTs which are "
-              "non-Put types, not supported by user-defined index.\n");
-      exit(1);
-    }
+  // Trie UDI uses zero-copy pointers into block data, which is
+  // incompatible with mmap_read.
+  if (FLAGS_use_trie_index && FLAGS_mmap_read) {
+    fprintf(stderr,
+            "Error: use_trie_index is incompatible with mmap_read. "
+            "The trie index uses zero-copy pointers into block data "
+            "which is unsafe with mmap'd reads.\n");
+    exit(1);
   }
 
   if (FLAGS_read_only) {

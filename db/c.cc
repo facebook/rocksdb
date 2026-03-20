@@ -5812,6 +5812,16 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->internal_range_del_reseek_count;
     case rocksdb_block_read_cpu_time:
       return rep->block_read_cpu_time;
+    case rocksdb_data_block_read_byte:
+      return rep->data_block_read_byte;
+    case rocksdb_index_block_read_byte:
+      return rep->index_block_read_byte;
+    case rocksdb_filter_block_read_byte:
+      return rep->filter_block_read_byte;
+    case rocksdb_compression_dict_block_read_byte:
+      return rep->compression_dict_block_read_byte;
+    case rocksdb_metadata_block_read_byte:
+      return rep->metadata_block_read_byte;
     default:
       break;
   }
