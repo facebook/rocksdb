@@ -11735,6 +11735,71 @@ TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
     ASSERT_EQ(Get("key" + std::to_string(k)), "v4");
   }
 }
+
+// Regression test:
+// 1. Compaction succeeds at subcompaction level, VerifyOutputFiles adds cache
+//    entries for output files via table_cache()->NewIterator().
+// 2. A post-verification step fails (injected here via sync point), setting
+//    compact_->status to error while each subcompaction's status stays OK.
+// 3. SubcompactionState::Cleanup checks individual status (OK) and skips
+//    ReleaseObsolete — the cache entries leak.
+// 4. FaultInjectionTestFS injects metadata read errors, causing GetChildren
+//    to fail in FindObsoleteFiles.
+// 5. Close()'s FindObsoleteFiles also fails to find the orphan for the same
+//    reason. TEST_VerifyNoObsoleteFilesCached finds the leaked entry.
+TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.paranoid_file_checks = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // Write overlapping data to force a real (non-trivial) compaction.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+  ASSERT_OK(Put("z", std::string(1024, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", std::string(1024, 'y')));
+  ASSERT_OK(Put("z", std::string(1024, 'y')));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // After VerifyOutputFiles succeeds (cache entries created), inject error
+  // and deactivate the filesystem. The error makes the overall compaction
+  // fail while individual subcompaction statuses stay OK (so Cleanup skips
+  // ReleaseObsolete). The filesystem deactivation makes GetChildren fail
+  // in FindObsoleteFiles, preventing the backstop from evicting the leaked
+  // cache entries — matching the crash test's metadata read fault injection.
+  std::atomic<bool> inject_error{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():AfterVerifyOutputFiles", [&](void* arg) {
+        if (inject_error.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::Corruption("injected");
+          fault_fs->SetFilesystemActive(false,
+                                        IOStatus::IOError("injected fault"));
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction — fails after VerifyOutputFiles with FS deactivated.
+  Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Close() while FS is still inactive — FindObsoleteFiles calls GetChildren
+  // which fails, so the orphan file is missed. In ASAN builds,
+  // TEST_VerifyNoObsoleteFilesCached finds the leaked cache entry and asserts.
+  s = db_->Close();
+  db_ = nullptr;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

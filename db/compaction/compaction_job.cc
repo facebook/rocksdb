@@ -1092,6 +1092,9 @@ Status CompactionJob::Run() {
     status = VerifyOutputFiles();
   }
 
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():AfterVerifyOutputFiles",
+                           &status);
+
   if (status.ok()) {
     SetOutputTableProperties();
   }
@@ -2512,7 +2515,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
 
 void CompactionJob::CleanupCompaction() {
   for (SubcompactionState& sub_compact : compact_->sub_compact_states) {
-    sub_compact.Cleanup(table_cache_.get());
+    sub_compact.Cleanup(table_cache_.get(), compact_->status);
   }
   delete compact_;
   compact_ = nullptr;
