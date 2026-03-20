@@ -11781,24 +11781,32 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
       "CompactionJob::Run():AfterVerifyOutputFiles", [&](void* arg) {
         if (inject_error.exchange(false)) {
           *static_cast<Status*>(arg) = Status::Corruption("injected");
-          fault_fs->SetFilesystemActive(false,
-                                        IOStatus::IOError("injected fault"));
         }
+      });
+
+  // Deactivate FS after the compaction job finishes but before the
+  // post-compaction FindObsoleteFiles runs. This makes GetChildren fail,
+  // matching crash test's --open_metadata_read_fault_one_in=8.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:1", [&](void*) {
+        fault_fs->SetFilesystemActive(false,
+                                      IOStatus::IOError("injected fault"));
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Trigger compaction — fails after VerifyOutputFiles with FS deactivated.
+  // Trigger compaction — fails after VerifyOutputFiles.
   Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_NOK(s);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  // Close() while FS is still inactive — FindObsoleteFiles calls GetChildren
-  // which fails, so the orphan file is missed. In ASAN builds,
+  // Close() calls FindObsoleteFiles, but GetChildren fails (FS inactive),
+  // so the orphan file is missed. In ASAN builds,
   // TEST_VerifyNoObsoleteFilesCached finds the leaked cache entry and asserts.
   s = db_->Close();
+  // Release DB before fault_env goes out of scope to avoid use-after-free.
   db_ = nullptr;
 }
 
