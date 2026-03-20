@@ -324,8 +324,11 @@ class ReadOnlyMemTable {
   // best-effort optimization. It allows future reads to skip iterating over
   // continous single deletion tombstones.
   //
-  // Returns true if the range tombstone was inserted, false if skipped
-  // (e.g., because the memtable has been switched to immutable).
+  // Adding a range tombstone may fail if
+  // - memtable switches to immutable state
+  // - a range tombstone with the same key+seq already exists (duplicate insert)
+  //
+  // Returns true if the range tombstone was inserted, false if skipped.
   virtual bool AddLogicallyRedundantRangeTombstone(SequenceNumber /*seq*/,
                                                    const Slice& /*start_key*/,
                                                    const Slice& /*end_key*/) {

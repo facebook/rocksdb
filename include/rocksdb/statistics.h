@@ -586,8 +586,11 @@ enum Tickers : uint32_t {
   // # of range tombstones inserted by read-path conversion from contiguous
   // point tombstones
   READ_PATH_RANGE_TOMBSTONES_INSERTED,
-  // # of range tombstones not inserted because the memtable was already
-  // switched to immutable
+  // # of range tombstones not inserted. Reasons include:
+  // - iterator's snapshot predates the memtable
+  // - tombstones may be uncommitted (transactions)
+  // - memtable already has a covering range tombstone
+  // - memtable switched to immutable state
   READ_PATH_RANGE_TOMBSTONES_DISCARDED,
 
   TICKER_ENUM_MAX
