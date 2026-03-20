@@ -799,6 +799,13 @@ TEST_F(DBCompactionTest, CompactRangeBottomPri) {
   // and one compact to L2 in bottom pri pool.
   int low_pri_count = 0;
   int bottom_pri_count = 0;
+  bool bottom_running_seen = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:1", [&](void*) {
+        if (dbfull()->TEST_NumRunningBottomCompactions() > 0) {
+          bottom_running_seen = true;
+        }
+      });
   SyncPoint::GetInstance()->SetCallBack(
       "ThreadPoolImpl::Impl::BGThread:BeforeRun", [&](void* arg) {
         Env::Priority* pri = static_cast<Env::Priority*>(arg);
@@ -817,6 +824,7 @@ TEST_F(DBCompactionTest, CompactRangeBottomPri) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(1, low_pri_count);
   ASSERT_EQ(1, bottom_pri_count);
+  ASSERT_TRUE(bottom_running_seen);
   ASSERT_EQ("0,0,2", FilesPerLevel(0));
 
   // Recompact bottom most level uses bottom pool

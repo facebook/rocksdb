@@ -1248,6 +1248,7 @@ class DBImpl : public DB {
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
+  int TEST_NumRunningBottomCompactions() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
@@ -2431,6 +2432,9 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
 
+  BackgroundJobPressure CaptureBackgroundJobPressure() const;
+  void NotifyOnBackgroundJobPressureChanged();
+
   struct FlushRequest {
     FlushReason flush_reason;
     // A map from column family to flush to largest memtable id to persist for
@@ -3073,6 +3077,9 @@ class DBImpl : public DB {
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
 
+  // stores the number of BOTTOM-priority compactions currently running
+  int num_running_bottom_compactions_ = 0;
+
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
 
@@ -3081,6 +3088,9 @@ class DBImpl : public DB {
 
   // number of background obsolete file purge jobs, submitted to the HIGH pool
   int bg_purge_scheduled_ = 0;
+
+  // number of pressure callbacks currently in progress (for destructor safety)
+  int bg_pressure_callback_in_progress_ = 0;
 
   enum class AsyncFileOpenState : uint8_t {
     kNotScheduled = 0,  // Async file opening has not been scheduled.
