@@ -577,8 +577,6 @@ TEST_F(SstFileReaderTest, VerifyNumEntriesCorruption) {
       << " entries when excluding range deletions,"
       << " but scanning the table returned " << num_keys << " entries";
   ASSERT_TRUE(std::strstr(oss.str().c_str(), s.getState()));
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 class SstFileReaderTableIteratorTest : public DBTestBase {

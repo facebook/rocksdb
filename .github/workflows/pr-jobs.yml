@@ -96,12 +96,8 @@ jobs:
       with:
         cache-key-prefix: build-linux
     - run: make V=1 J=32 -j32 check
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -125,12 +121,8 @@ jobs:
         which java && java -version
         which javac && javac -version
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -154,12 +146,8 @@ jobs:
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
     - run: USE_FOLLY=1 LIB_MODE=static V=1 make -j64 check
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly-lite-no-test:
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -178,12 +166,8 @@ jobs:
       with:
         cache-key-prefix: make-folly-lite
     - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -207,12 +191,8 @@ jobs:
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -236,12 +216,8 @@ jobs:
       run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DPORTABLE=ON -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20
     - name: Test shard ${{ matrix.shard }} of 4
       run: cd build && ctest -j20 -I ${{ matrix.shard }},,4
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
@@ -261,12 +237,8 @@ jobs:
         cache-key-prefix: encrypted-env-no-compression
     - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
     - run: "./sst_dump --help | grep -E -q 'Supported built-in compression types: kNoCompression$' # Verify no compiled in compression\n"
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
@@ -298,12 +270,8 @@ jobs:
     - run: USE_RTTI=1 make V=1 -j32 release
     - run: ls librocksdb.a
     - run: if ./trace_analyzer --version; then false; else true; fi
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
     if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -324,12 +292,8 @@ jobs:
     - run: make clean
     # FIXME: get back to "release" target
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-clang-18-no_test_run:
     if: needs.config.outputs.only_job == 'build-linux-clang-18-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -348,12 +312,8 @@ jobs:
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-14-no_test_run:
     if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -370,12 +330,8 @@ jobs:
       with:
         cache-key-prefix: gcc-14
     - run: CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
 
   # ======================== Linux Other Checks ======================= #
@@ -397,12 +353,8 @@ jobs:
     - name: Unity build
       run: make V=1 -j8 unity_test
     - run: make V=1 -j8 -k check-headers
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
     if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -432,12 +384,8 @@ jobs:
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
       with:
         artifact-prefix: "${{ github.job }}-${{ matrix.crash_test_target }}"
@@ -462,47 +410,15 @@ jobs:
         cache-key-prefix: clang18-asan-ubsan
     - name: Compute test shard
       id: shard
-      run: |
-        # Get sorted test list matching Makefile order (db_test first, then alpha)
-        make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/sorted.txt
-        (echo db_test; grep -v '^db_test$' /tmp/sorted.txt) > /tmp/all_tests.txt
-        total=$(wc -l < /tmp/all_tests.txt)
-        shard=${{ matrix.shard }}
-        nshards=3
-        shard_size=$(( (total + nshards - 1) / nshards ))
-        start_idx=$(( shard * shard_size + 1 ))
-        end_idx=$(( (shard + 1) * shard_size ))
-        if [ $end_idx -gt $total ]; then end_idx=$total; fi
-        # Build EXCLUDE regex for tests NOT in this shard
-        # Must match both ./test_name and t/run-test_name-shard-N formats
-        (if [ $start_idx -gt 1 ]; then sed -n "1,$((start_idx - 1))p" /tmp/all_tests.txt; fi
-         if [ $end_idx -lt $total ]; then sed -n "$((end_idx + 1)),${total}p" /tmp/all_tests.txt; fi
-        ) > /tmp/exclude.txt
-        if [ -s /tmp/exclude.txt ]; then
-          # Use ^./ anchor for direct entries, /run- prefix for shard entries
-          regex=$(awk '{printf "^\\./%s$|/run-%s-|", $1, $1}' /tmp/exclude.txt | sed 's/|$//')
-          # Double $ signs so Make passes literal $ to shell (Make interprets $| as special)
-          regex_escaped=$(echo "$regex" | sed 's/\$/\$\$/g')
-          echo "exclude_regex=${regex_escaped}" >> "$GITHUB_OUTPUT"
-        else
-          echo 'exclude_regex=^NOTHING_TO_EXCLUDE$' >> "$GITHUB_OUTPUT"
-        fi
-        first=$(sed -n "${start_idx}p" /tmp/all_tests.txt)
-        last=$(sed -n "${end_idx}p" /tmp/all_tests.txt)
-        echo "Shard $shard/$nshards: $first .. $last (tests $start_idx-$end_idx of $total)"
-        echo "Excluding $(wc -l < /tmp/exclude.txt) tests"
+      run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
     - name: Monitor CPU utilization
       run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX='${{ steps.shard.outputs.exclude_regex }}' make V=1 -j40 check
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
@@ -526,47 +442,15 @@ jobs:
         cache-key-prefix: clang18-tsan
     - name: Compute test shard
       id: shard
-      run: |
-        # Get sorted test list matching Makefile order (db_test first, then alpha)
-        make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/sorted.txt
-        (echo db_test; grep -v '^db_test$' /tmp/sorted.txt) > /tmp/all_tests.txt
-        total=$(wc -l < /tmp/all_tests.txt)
-        shard=${{ matrix.shard }}
-        nshards=3
-        shard_size=$(( (total + nshards - 1) / nshards ))
-        start_idx=$(( shard * shard_size + 1 ))
-        end_idx=$(( (shard + 1) * shard_size ))
-        if [ $end_idx -gt $total ]; then end_idx=$total; fi
-        # Build EXCLUDE regex for tests NOT in this shard
-        # Must match both ./test_name and t/run-test_name-shard-N formats
-        (if [ $start_idx -gt 1 ]; then sed -n "1,$((start_idx - 1))p" /tmp/all_tests.txt; fi
-         if [ $end_idx -lt $total ]; then sed -n "$((end_idx + 1)),${total}p" /tmp/all_tests.txt; fi
-        ) > /tmp/exclude.txt
-        if [ -s /tmp/exclude.txt ]; then
-          # Use ^./ anchor for direct entries, /run- prefix for shard entries
-          regex=$(awk '{printf "^\\./%s$|/run-%s-|", $1, $1}' /tmp/exclude.txt | sed 's/|$//')
-          # Double $ signs so Make passes literal $ to shell (Make interprets $| as special)
-          regex_escaped=$(echo "$regex" | sed 's/\$/\$\$/g')
-          echo "exclude_regex=${regex_escaped}" >> "$GITHUB_OUTPUT"
-        else
-          echo 'exclude_regex=^NOTHING_TO_EXCLUDE$' >> "$GITHUB_OUTPUT"
-        fi
-        first=$(sed -n "${start_idx}p" /tmp/all_tests.txt)
-        last=$(sed -n "${end_idx}p" /tmp/all_tests.txt)
-        echo "Shard $shard/$nshards: $first .. $last (tests $start_idx-$end_idx of $total)"
-        echo "Excluding $(wc -l < /tmp/exclude.txt) tests"
+      run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
     - name: Monitor CPU utilization
       run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
     - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX='${{ steps.shard.outputs.exclude_regex }}' make V=1 -j32 check
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
@@ -585,12 +469,8 @@ jobs:
       with:
         cache-key-prefix: static-alt-namespace
     - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
   build-macos:
@@ -612,12 +492,8 @@ jobs:
     - uses: "./.github/actions/pre-steps-macos"
     - name: Build
       run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j8 all
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
@@ -654,12 +530,8 @@ jobs:
     - name: Run shard 3 out of 4 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 3,,4
       if: ${{ matrix.run_sharded_tests == 3 }}
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
@@ -711,12 +583,8 @@ jobs:
         which javac && javac -version
     - name: Test RocksDBJava
       run: make V=1 J=8 -j8 jtest
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
   build-linux-java-static:
     if: needs.config.outputs.only_job == 'build-linux-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
@@ -738,12 +606,8 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava Static Library
       run: make V=1 J=8 -j8 rocksdbjavastatic
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
   build-macos-java:
     if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
@@ -770,12 +634,8 @@ jobs:
         which javac && javac -version
     - name: Test RocksDBJava
       run: make V=1 J=16 -j16 jtest
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
     if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -802,12 +662,8 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava x86 and ARM Static Libraries
       run: make V=1 J=16 -j16 rocksdbjavastaticosx
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
     if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
@@ -834,12 +690,8 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava Universal Binary Static Library
       run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
-    - name: Trim and print ccache stats
-      run: |
-        .github/scripts/ccache-trim.sh || true  # Remove stale entries from previous commits
-        ccache -s
+    - uses: "./.github/actions/teardown-ccache"
       if: always()
-      shell: bash
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
     if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')

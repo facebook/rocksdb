@@ -3461,8 +3461,6 @@ TEST_P(WritePreparedTransactionTest, CommitAndSnapshotDuringCompaction) {
   VerifyKeys({{"key1", "value2"}});
   VerifyKeys({{"key1", "value1"}}, snapshot);
   db->ReleaseSnapshot(snapshot);
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(WritePreparedTransactionTest, Iterate) {
