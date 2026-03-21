@@ -378,12 +378,7 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: mini-crashtest
-    - name: Monitor CPU utilization
-      run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
     - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
-    - name: Print CPU utilization summary
-      run: tail -20 /tmp/cpu_monitor.log || true
-      if: always()
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -411,12 +406,7 @@ jobs:
     - name: Compute test shard
       id: shard
       run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
-    - name: Monitor CPU utilization
-      run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX='${{ steps.shard.outputs.exclude_regex }}' make V=1 -j40 check
-    - name: Print CPU utilization summary
-      run: tail -20 /tmp/cpu_monitor.log || true
-      if: always()
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -443,12 +433,7 @@ jobs:
     - name: Compute test shard
       id: shard
       run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
-    - name: Monitor CPU utilization
-      run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
     - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX='${{ steps.shard.outputs.exclude_regex }}' make V=1 -j32 check
-    - name: Print CPU utilization summary
-      run: tail -20 /tmp/cpu_monitor.log || true
-      if: always()
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
