@@ -882,24 +882,33 @@ coverage: clean
 
 parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 .PHONY: gen_parallel_tests $(parallel_tests)
+# Number of test cases per shard. Larger values reduce process spawn overhead
+# but decrease parallelism. With 192 cores, 50 cases/shard is a good balance.
+GTEST_SHARD_SIZE ?= 10
+
 $(parallel_tests):
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
-  TEST_NAMES=` \
-    (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
-    | awk '/^[^ ]/ { prefix = $$1 } /^[ ]/ { print prefix $$1 }'`; \
-	echo "  Generating parallel test scripts for $$TEST_BINARY"; \
-	for TEST_NAME in $$TEST_NAMES; do \
-		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
+  TEST_COUNT=` \
+    (./$$TEST_BINARY --gtest_list_tests 2>/dev/null || echo "  list_failure") \
+    | grep -c '^ '`; \
+	if [ "$$TEST_COUNT" -le 0 ]; then TEST_COUNT=1; fi; \
+	NUM_SHARDS=$$(( (TEST_COUNT + $(GTEST_SHARD_SIZE) - 1) / $(GTEST_SHARD_SIZE) )); \
+	if [ "$$NUM_SHARDS" -le 0 ]; then NUM_SHARDS=1; fi; \
+	echo "  Generating $$NUM_SHARDS shards for $$TEST_BINARY ($$TEST_COUNT tests)"; \
+	SHARD_IDX=0; \
+	while [ "$$SHARD_IDX" -lt "$$NUM_SHARDS" ]; do \
+		TEST_SCRIPT=t/run-$$TEST_BINARY-shard-$$SHARD_IDX; \
     printf '%s\n' \
       '#!/bin/sh' \
       "d=\$(TEST_TMPDIR)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
-      "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+      "TEST_TMPDIR=\$$d GTEST_TOTAL_SHARDS=$$NUM_SHARDS GTEST_SHARD_INDEX=$$SHARD_IDX $(DRIVER) ./$$TEST_BINARY" \
       'test_retcode=$$?' \
       '[ $$test_retcode -eq 0 ] && rm -rf $$d' \
       'exit $$test_retcode' \
 		> $$TEST_SCRIPT; \
 		chmod a=rx $$TEST_SCRIPT; \
+		SHARD_IDX=$$((SHARD_IDX + 1)); \
 	done
 
 gen_parallel_tests:
@@ -923,8 +932,10 @@ gen_parallel_tests:
 # 152.120 PASS t/DBTest.FileCreationRandomFailure
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
+# With sharded test execution, prioritize binaries known to be slow.
+# These generate many shards and should start early for good load balancing.
 slow_test_regexp = \
-	^.*MySQLStyleTransactionTest.*$$|^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*block_based_table_reader_test.*$$|^.*table_test.*$$|^.*block_test.*$$|^.*write_prepared_transaction_test.*$$|^.*transaction_test.*$$|^.*external_sst_file_test.*$$|^.*db_wal_test.*$$|^.*db_with_timestamp_basic_test.*$$|^.*db_test-.*$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
