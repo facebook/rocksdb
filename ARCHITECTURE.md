@@ -10,7 +10,7 @@ DBImpl
         +-- ColumnFamilyData (one per column family)
               +-- MemTable (active, mutable)
               +-- MemTableList (immutable memtables awaiting flush)
-              +-- SuperVersion = MemTable + MemTableList + Version
+              +-- SuperVersion = ReadOnlyMemTable* + MemTableListVersion* + Version*
               +-- Version (set of SST/blob files per level)
 
 VersionSet (one per DB)
@@ -91,7 +91,8 @@ See [docs/components/flush_and_read_path.md](docs/components/flush_and_read_path
 | `monitoring/` | Statistics, histograms, perf context, instrumented mutex |
 | `options/` | Internal option representations, parsing, serialization |
 | `port/` | Platform portability: mutexes, atomics, endianness |
-| `tools/` | CLI tools: `db_bench`, `ldb`, `sst_dump`, `db_stress` |
+| `tools/` | CLI tools: `db_bench`, `ldb`, `sst_dump` |
+| `db_stress_tool/` | Crash/stress testing framework |
 | `memory/` | Arena, ConcurrentArena, jemalloc allocator |
 
 ## Internal Key Format

@@ -74,7 +74,7 @@ Struct with function pointers for cache entry lifecycle:
 ### CacheEntryRole
 
 Classifies entries for monitoring and memory tracking:
-`kDataBlock`, `kFilterBlock`, `kFilterMetaBlock`, `kIndexBlock`, `kOtherBlock`, `kWriteBuffer`, `kFilterConstruction`, `kBlockBasedTableReader`, `kFileMetadata`, `kBlobValue`, `kBlobCache`, `kMisc`
+`kDataBlock`, `kFilterBlock`, `kFilterMetaBlock`, `kDeprecatedFilterBlock`, `kIndexBlock`, `kOtherBlock`, `kWriteBuffer`, `kCompressionDictionaryBuildingBuffer`, `kFilterConstruction`, `kBlockBasedTableReader`, `kFileMetadata`, `kBlobValue`, `kBlobCache`, `kMisc`
 
 ---
 

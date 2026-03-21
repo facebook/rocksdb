@@ -294,7 +294,9 @@ CRC is `crc32c(type_byte || payload_bytes)`. The log number in recyclable header
 | `kRecyclable{Full,First,Middle,Last}Type` | 5-8 | Same but for recycled files |
 | `kSetCompressionType` | 9 | Meta-record: compression algorithm announcement |
 | `kUserDefinedTimestampSizeType` | 10 | Meta-record: CF timestamp sizes |
+| `kRecyclableUserDefinedTimestampSizeType` | 11 | Recyclable variant of timestamp size record |
 | `kPredecessorWALInfoType` | 130 | Predecessor WAL chain verification |
+| `kRecyclePredecessorWALInfoType` | 131 | Recyclable variant of predecessor WAL info |
 
 Types >= 10 use bit 0 to distinguish recyclable (odd) from non-recyclable (even). Types with bit 7 set (`kRecordTypeSafeIgnoreMask = 0x80`) may be safely skipped by older readers.
 

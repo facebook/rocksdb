@@ -13,6 +13,7 @@
 | `db/db_impl/db_impl_compaction_flush.cc` | Background flush/compaction scheduling |
 | `db/db_impl/db_impl_files.cc` | File management, obsolete file purging |
 | `db/db_impl/db_impl_debug.cc` | Debug/test utilities |
+| `db/db_impl/db_impl_experimental.cc` | Experimental features |
 | `db/db_impl/db_impl_readonly.h` | Read-only mode |
 | `db/db_impl/db_impl_secondary.h` | Secondary instance (tailing primary) |
 | `db/db_impl/db_impl_follower.h` | Follower mode |
@@ -67,7 +68,9 @@ Return DB handle
 | `DB::Open()` | Standard read-write open |
 | `DB::OpenForReadOnly()` | Read-only mode (no background threads, no WAL replay) |
 | `DB::OpenAsSecondary()` | Secondary instance that tails the primary's MANIFEST |
+| `DB::OpenAsFollower()` | Follower instance with its own directory; auto-tails leader's MANIFEST |
 | `DB::OpenAndCompact()` | Open, compact, close (one-shot compaction) |
+| `DB::OpenAndTrimHistory()` | Open and remove data with timestamp above a cutoff |
 
 ---
 

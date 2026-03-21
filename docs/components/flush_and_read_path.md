@@ -47,7 +47,8 @@ PickMemTable()
     v
 Run()
     |
-    +-- MemPurge? (if threshold > 0 and reason == kWriteBufferFull)
+    +-- MemPurge? (if threshold > 0, reason == kWriteBufferFull,
+    |       |      !mems_.empty(), MemPurgeDecider approves, and !atomic_flush)
     |       |
     |     success? -> done
     |       |
@@ -78,7 +79,7 @@ Run()
 
 ### MemPurge
 
-Experimental in-memory GC. Iterates memtable with a compaction-like iterator, filters outdated entries, and inserts survivors into a new memtable. If the output fits in one memtable, it replaces the original on the immutable list without producing an SST file. Falls through to `WriteLevel0Table()` on failure.
+Experimental in-memory GC. Triggered when `mempurge_threshold > 0`, flush reason is `kWriteBufferFull`, `mems_` is non-empty, `MemPurgeDecider` heuristic approves (based on useful payload ratio vs. threshold), and atomic flush is disabled. Iterates memtable with a compaction-like iterator, filters outdated entries, and inserts survivors into a new memtable. If the output fits in one memtable, it replaces the original on the immutable list without producing an SST file. Falls through to `WriteLevel0Table()` on failure.
 
 ---
 

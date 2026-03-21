@@ -175,7 +175,7 @@ Version
   +-- uint64_t version_number_         (monotonically increasing)
 ```
 
-Versions for each column family form a **doubly-linked list** anchored by a dummy head (`ColumnFamilyData::dummy_versions_`). The newest Version is `ColumnFamilyData::current_`. Older Versions are kept alive only if referenced by iterators or snapshots.
+Versions for each column family form a **circular doubly-linked list** anchored by a dummy head (`ColumnFamilyData::dummy_versions_`). The newest Version is `ColumnFamilyData::current_` (i.e., `dummy_versions_->prev_`). Older Versions are kept alive only if referenced by iterators or snapshots.
 
 ### Key Methods
 
