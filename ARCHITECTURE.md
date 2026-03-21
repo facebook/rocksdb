@@ -101,17 +101,49 @@ Every key stored internally is an InternalKey: `user_key + sequence_number (7 by
 
 Defined in `db/dbformat.h`.
 
-## Component Documentation
+## Documentation
 
-Detailed documentation for each subsystem is in [docs/components/](docs/components/README.md):
+Detailed documentation is in [docs/components/](docs/components/README.md), organized in two layers:
 
-| Document | Components |
-|----------|-----------|
-| [write_path.md](docs/components/write_path.md) | WriteBatch, WriteThread, WAL, MemTable, WriteController |
-| [version_management.md](docs/components/version_management.md) | VersionEdit, VersionSet, Version, VersionBuilder, MANIFEST, ColumnFamily |
-| [sst_table_format.md](docs/components/sst_table_format.md) | BlockBasedTable, Block encoding, Filters, Index, TableCache |
-| [compaction.md](docs/components/compaction.md) | CompactionPicker, CompactionJob, CompactionIterator, MergingIterator |
-| [flush_and_read_path.md](docs/components/flush_and_read_path.md) | FlushJob, DBIter, Get/MultiGet, RangeDelAggregator |
-| [cache.md](docs/components/cache.md) | LRUCache, HyperClockCache, SecondaryCache, CacheReservation |
-| [file_io_and_blob.md](docs/components/file_io_and_blob.md) | Env, FileSystem, WritableFileWriter, RateLimiter, BlobDB |
-| [db_impl.md](docs/components/db_impl.md) | DBImpl, DB Open, Background ops, ErrorHandler, Snapshots |
+### End-to-End Flow Docs
+| Document | Coverage |
+|----------|----------|
+| [write_flow.md](docs/components/write_flow.md) | Put/Delete/Merge → WAL → MemTable → Flush → Compaction → Flow control |
+| [read_flow.md](docs/components/read_flow.md) | Get/MultiGet/Iterator → SuperVersion → MemTable → Cache → SST files |
+
+### Component Deep-Dives
+| Document | Coverage |
+|----------|----------|
+| [memtable.md](docs/components/memtable.md) | SkipList, concurrent insert, arena, flush triggers |
+| [wal.md](docs/components/wal.md) | WAL format, sync modes, recycling, lifecycle |
+| [flush.md](docs/components/flush.md) | FlushJob, atomic flush, pipelined flush |
+| [compaction.md](docs/components/compaction.md) | CompactionPicker, CompactionJob, CompactionIterator |
+| [sst_table_format.md](docs/components/sst_table_format.md) | BlockBasedTable, block encoding, filters, index |
+| [version_management.md](docs/components/version_management.md) | VersionSet, Version, MANIFEST, ColumnFamily |
+| [iterator.md](docs/components/iterator.md) | Block/Level/Merging/DB/Compaction iterators |
+| [file_io.md](docs/components/file_io.md) | Env, FileSystem, WritableFileWriter, RateLimiter |
+| [blob_db.md](docs/components/blob_db.md) | BlobDB, blob file format, blob GC |
+| [cache.md](docs/components/cache.md) | LRUCache, HyperClockCache, block cache |
+| [secondary_cache.md](docs/components/secondary_cache.md) | Secondary cache, row cache |
+| [compression.md](docs/components/compression.md) | Snappy/LZ4/ZSTD, dictionary compression |
+| [filter.md](docs/components/filter.md) | Bloom, Ribbon, partitioned filters |
+| [transaction.md](docs/components/transaction.md) | Pessimistic/Optimistic/WritePrepared, 2PC |
+| [wide_column.md](docs/components/wide_column.md) | WideColumn API, PutEntity/GetEntity |
+| [user_defined_timestamp.md](docs/components/user_defined_timestamp.md) | UDT encoding, timestamp-aware compaction |
+| [user_defined_index.md](docs/components/user_defined_index.md) | UDI interface, index-based lookups |
+| [snapshot.md](docs/components/snapshot.md) | Snapshot implementation, sequence numbers |
+| [db_impl.md](docs/components/db_impl.md) | DBImpl, Open/Close, background ops, ErrorHandler |
+| [threading_model.md](docs/components/threading_model.md) | Thread pools, WriteThread, mutex hierarchy |
+| [options.md](docs/components/options.md) | Options hierarchy, mutable/immutable, validation |
+| [crash_recovery.md](docs/components/crash_recovery.md) | MANIFEST recovery, WAL replay |
+| [data_integrity.md](docs/components/data_integrity.md) | Checksums, paranoid checks, handoff |
+| [monitoring.md](docs/components/monitoring.md) | Statistics, PerfContext, IOStatsContext |
+| [listener.md](docs/components/listener.md) | EventListener callbacks |
+| [tiered_storage.md](docs/components/tiered_storage.md) | Data temperature, tiered compaction |
+| [secondary_instance.md](docs/components/secondary_instance.md) | Secondary reader, remote compaction |
+| [checkpoint.md](docs/components/checkpoint.md) | Checkpoint, BackupEngine |
+| [public_api_read.md](docs/components/public_api_read.md) | Get, MultiGet, iterators, async I/O |
+| [public_api_write.md](docs/components/public_api_write.md) | Put, Delete, Merge, WriteBatch |
+| [debugging_tools.md](docs/components/debugging_tools.md) | ldb, sst_dump, RepairDB |
+| [stress_test.md](docs/components/stress_test.md) | db_stress, crash test, fault injection |
+| [db_bench.md](docs/components/db_bench.md) | Benchmarking tool, methodology |

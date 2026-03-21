@@ -318,17 +318,17 @@ The following patterns emerged as frequent sources of review feedback:
 
 **Start here for codebase understanding:** Read `ARCHITECTURE.md` at the repo root for a high-level map of the entire codebase — data flows, directory layout, key invariants, and internal key format.
 
-For deep dives into specific subsystems, see `docs/components/`:
-| Document | What It Covers |
-|----------|---------------|
-| `write_path.md` | WriteBatch, WriteThread, WAL, MemTable, WriteController |
-| `version_management.md` | VersionEdit, VersionSet, Version, VersionBuilder, MANIFEST, ColumnFamily |
-| `sst_table_format.md` | BlockBasedTable, Block encoding, Filters, Index, TableCache |
-| `compaction.md` | CompactionPicker, CompactionJob, CompactionIterator, MergingIterator |
-| `flush_and_read_path.md` | FlushJob, DBIter, Get/MultiGet, RangeDelAggregator |
-| `cache.md` | LRUCache, HyperClockCache, SecondaryCache, CacheReservation |
-| `file_io_and_blob.md` | Env, FileSystem, WritableFileWriter, RateLimiter, BlobDB |
-| `db_impl.md` | DBImpl, DB Open, Background ops, ErrorHandler, Snapshots |
+For the full index of 30+ component docs, see `docs/components/README.md`.
+
+Key docs by area:
+- **Flow docs**: `write_flow.md` (end-to-end write path), `read_flow.md` (end-to-end read path)
+- **Core**: `memtable.md`, `wal.md`, `flush.md`, `compaction.md`, `sst_table_format.md`, `version_management.md`, `iterator.md`
+- **Storage**: `file_io.md`, `blob_db.md`, `compression.md`, `tiered_storage.md`
+- **Cache**: `cache.md`, `secondary_cache.md`
+- **Features**: `transaction.md`, `wide_column.md`, `user_defined_timestamp.md`, `user_defined_index.md`, `snapshot.md`, `filter.md`
+- **API**: `public_api_read.md`, `public_api_write.md`
+- **Infra**: `db_impl.md`, `threading_model.md`, `options.md`, `crash_recovery.md`, `data_integrity.md`, `monitoring.md`, `listener.md`
+- **Tools**: `debugging_tools.md`, `stress_test.md`, `db_bench.md`, `checkpoint.md`, `secondary_instance.md`
 
 These docs describe encoding formats, invariants, threading rules, and component interactions — use them to understand what you're changing before modifying code.
 
