@@ -314,16 +314,30 @@ The following patterns emerged as frequent sources of review feedback:
 * After making change, use `make format-auto` to auto-apply formatting without
     interactive prompts (Claude Code friendly).
 
+## Architecture & Component Documentation
+
+**Start here for codebase understanding:** Read `ARCHITECTURE.md` at the repo root for a high-level map of the entire codebase — data flows, directory layout, key invariants, and internal key format.
+
+For deep dives into specific subsystems, see `docs/components/`:
+| Document | What It Covers |
+|----------|---------------|
+| `write_path.md` | WriteBatch, WriteThread, WAL, MemTable, WriteController |
+| `version_management.md` | VersionEdit, VersionSet, Version, VersionBuilder, MANIFEST, ColumnFamily |
+| `sst_table_format.md` | BlockBasedTable, Block encoding, Filters, Index, TableCache |
+| `compaction.md` | CompactionPicker, CompactionJob, CompactionIterator, MergingIterator |
+| `flush_and_read_path.md` | FlushJob, DBIter, Get/MultiGet, RangeDelAggregator |
+| `cache.md` | LRUCache, HyperClockCache, SecondaryCache, CacheReservation |
+| `file_io_and_blob.md` | Env, FileSystem, WritableFileWriter, RateLimiter, BlobDB |
+| `db_impl.md` | DBImpl, DB Open, Background ops, ErrorHandler, Snapshots |
+
+These docs describe encoding formats, invariants, threading rules, and component interactions — use them to understand what you're changing before modifying code.
+
 ## Documentation Maintenance
 
-When modifying any source file referenced in `docs/components/`, you MUST update the corresponding documentation. The CI job `doc-check` will fail if documentation is potentially stale.
-
-Documentation lives in:
-- `ARCHITECTURE.md` — high-level architecture overview
-- `docs/components/` — detailed component documentation
+When modifying any source file referenced in `docs/components/`, you MUST update the corresponding documentation. The CI job `doc-check` uses Claude AI to detect stale docs.
 
 When making changes:
 1. Check if your modified files are referenced in any doc: `grep -rl "your_file.h" docs/components/`
 2. If referenced, update the doc to reflect your changes
 3. If adding new components or major features, add them to the appropriate doc
-4. If adding a new subsystem, consider creating a new doc in docs/components/ and updating README.md
+4. If adding a new subsystem, consider creating a new doc in `docs/components/` and updating `docs/components/README.md` and `ARCHITECTURE.md`

@@ -3,187 +3,135 @@ name: Documentation Staleness Check
 on:
   pull_request:
     branches: [main]
-    paths:
-      - '**.cc'
-      - '**.h'
-      - '**.md'
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: 'Base SHA to diff against (default: origin/main)'
+        required: false
+        default: 'origin/main'
 
 jobs:
   doc-check:
     runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Check for potentially stale documentation
-        id: check-docs
+      - name: Generate PR diff
         run: |
-          #!/usr/bin/env python3
-          import json
-          import os
-          import subprocess
-          import sys
-
-          base_sha = "${{ github.event.pull_request.base.sha }}"
-          head_sha = "${{ github.event.pull_request.head.sha }}"
-
-          # Get changed files
-          result = subprocess.run(
-              ["git", "diff", "--name-only", base_sha, head_sha],
-              capture_output=True, text=True, check=True
-          )
-          changed_files = [f for f in result.stdout.strip().split("\n") if f]
-
-          # Classify files
-          changed_source = [f for f in changed_files if f.endswith((".cc", ".h"))]
-          changed_docs = {f for f in changed_files if f.startswith("docs/components/") and f.endswith(".md")}
-
-          if not changed_source:
-              print("No source files changed. Skipping doc check.")
-              sys.exit(0)
-
-          doc_dir = "docs/components"
-          if not os.path.isdir(doc_dir):
-              print("No docs/components/ directory found. Skipping.")
-              sys.exit(0)
-
-          # Find all doc files
-          all_docs = []
-          for root, dirs, files in os.walk(doc_dir):
-              for f in files:
-                  if f.endswith(".md"):
-                      all_docs.append(os.path.join(root, f))
-
-          stale = []
-
-          for src_file in changed_source:
-              src_basename = os.path.basename(src_file)
-
-              for doc_path in all_docs:
-                  # Skip docs that were modified in this PR (including newly added docs)
-                  if doc_path in changed_docs:
-                      continue
-
-                  # Check if this doc references the changed source file
-                  try:
-                      with open(doc_path, "r") as f:
-                          doc_content = f.read()
-                  except FileNotFoundError:
-                      continue
-
-                  if src_basename not in doc_content:
-                      continue
-
-                  # Extract identifiers from the diff for this source file
-                  diff_result = subprocess.run(
-                      ["git", "diff", base_sha, head_sha, "--", src_file],
-                      capture_output=True, text=True, check=True
-                  )
-                  diff_content = diff_result.stdout
-
-                  # Extract class/function/enum names from changed lines
-                  import re
-                  identifiers = set()
-                  for line in diff_content.split("\n"):
-                      if not line.startswith(("+", "-")):
-                          continue
-                      if line.startswith(("+++", "---")):
-                          continue
-                      # Match CamelCase identifiers and function names
-                      for m in re.finditer(r'\b[A-Z][A-Za-z0-9_]+\b', line):
-                          identifiers.add(m.group())
-                      for m in re.finditer(r'\b[a-z][A-Za-z0-9_]*\(', line):
-                          identifiers.add(m.group().rstrip("("))
-
-                  if not identifiers:
-                      continue
-
-                  # Check if any extracted identifiers appear in the doc
-                  matched = [ident for ident in identifiers if ident in doc_content]
-                  if matched:
-                      matched_str = ", ".join(sorted(matched))
-                      stale.append(f"  - {doc_path} references {src_file} (matched: {matched_str})")
-
-          if stale:
-              print()
-              print("=" * 50)
-              print("POTENTIALLY STALE DOCUMENTATION DETECTED")
-              print("=" * 50)
-              print()
-              print("The following docs may need updating because source files they")
-              print("reference were modified in this PR, but the docs were not updated:")
-              print()
-              for entry in stale:
-                  print(entry)
-              print()
-              print("Please review and update the listed docs, or confirm they are")
-              print("still accurate. If no doc update is needed, update the doc's")
-              print("content trivially (e.g., fix whitespace) to signal freshness.")
-              print()
-
-              # Write details for AI review step
-              with open("/tmp/stale_docs.json", "w") as f:
-                  json.dump({"stale": stale, "changed_source": changed_source}, f)
-
-              # Write prompt for AI review
-              prompt_lines = [
-                  "You are reviewing a RocksDB pull request for documentation staleness.",
-                  "",
-                  "The following source files were modified in the PR:",
-              ]
-              for src in changed_source:
-                  prompt_lines.append(f"  - {src}")
-              prompt_lines.append("")
-              prompt_lines.append("The following docs reference those source files but were NOT updated:")
-              for entry in stale:
-                  prompt_lines.append(entry)
-              prompt_lines.append("")
-              prompt_lines.append("For each flagged doc, read the doc and the relevant changed source files.")
-              prompt_lines.append("Determine if the changes to the source files actually affect the accuracy")
-              prompt_lines.append("of the documentation. Consider:")
-              prompt_lines.append("  1. Did the semantics/behavior described in the doc change?")
-              prompt_lines.append("  2. Were APIs, class names, or function signatures renamed or removed?")
-              prompt_lines.append("  3. Were new important features added that the doc should mention?")
-              prompt_lines.append("")
-              prompt_lines.append("Output your assessment as:")
-              prompt_lines.append("  NEEDS_UPDATE: <doc> - <reason>")
-              prompt_lines.append("  OK: <doc> - <reason it's fine>")
-              prompt_lines.append("")
-              prompt_lines.append("If any doc NEEDS_UPDATE, exit with a non-zero status.")
-
-              with open("/tmp/doc_review_prompt.txt", "w") as f:
-                  f.write("\n".join(prompt_lines))
-
-              # Set output for downstream steps
-              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                  f.write("has_stale=true\n")
-              sys.exit(1)
-          else:
-              print("Doc check passed: no potentially stale documentation found.")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                  f.write("has_stale=false\n")
-        shell: python3 {0}
-
-      - name: Check for AI review capability
-        if: failure() && steps.check-docs.outputs.has_stale == 'true'
-        id: check-ai
-        run: |
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            echo "HAS_ANTHROPIC_KEY=true" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BASE_SHA="${{ github.event.inputs.base_sha || 'origin/main' }}"
+            HEAD_SHA="HEAD"
           else
-            echo "HAS_ANTHROPIC_KEY=false" >> "$GITHUB_ENV"
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           fi
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          git diff "$BASE_SHA" "$HEAD_SHA" > /tmp/pr_diff.txt
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/changed_files.txt
+          echo "=== Changed files ==="
+          cat /tmp/changed_files.txt
 
-      - name: AI doc review
-        if: failure() && env.HAS_ANTHROPIC_KEY == 'true'
+      - name: Select model based on diff size
+        id: model-select
+        run: |
+          DIFF_LINES=$(wc -l < /tmp/pr_diff.txt)
+          DIFF_FILES=$(wc -l < /tmp/changed_files.txt)
+          echo "diff_lines=$DIFF_LINES"
+          echo "diff_files=$DIFF_FILES"
+
+          # Use Opus for complex changes (>300 lines or >10 files),
+          # Sonnet for smaller ones
+          if [ "$DIFF_LINES" -gt 300 ] || [ "$DIFF_FILES" -gt 10 ]; then
+            echo "model=claude-opus-4-20250514" >> "$GITHUB_OUTPUT"
+            echo "Selected: Opus (complex change: $DIFF_LINES lines, $DIFF_FILES files)"
+          else
+            echo "model=claude-sonnet-4-20250514" >> "$GITHUB_OUTPUT"
+            echo "Selected: Sonnet (standard change: $DIFF_LINES lines, $DIFF_FILES files)"
+          fi
+
+      - name: Build Claude prompt
+        run: |
+          # Start with the template prompt
+          cat docs/doc-check-prompt.md > /tmp/review_prompt.txt
+          # Append the actual diff
+          printf "\n" >> /tmp/review_prompt.txt
+          cat /tmp/pr_diff.txt >> /tmp/review_prompt.txt
+
+      - name: Run Claude AI doc review
+        if: env.HAS_KEY == 'true'
+        id: claude-review
         uses: anthropics/claude-code-base-action@e8132bc5e637a42c27763fc757faa37e1ee43b34
         with:
-          prompt_file: /tmp/doc_review_prompt.txt
-          claude_args: >-
-            --model claude-sonnet-4-6-20250514
-            --max-turns 10
-            --allowedTools View,GlobTool,GrepTool
+          prompt_file: /tmp/review_prompt.txt
+          model: ${{ steps.model-select.outputs.model }}
+          max_turns: "100"
+          allowed_tools: "View,GlobTool,GrepTool"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+        env:
+          DIFF_CONTENT: /tmp/pr_diff.txt
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Parse Claude result
+        if: env.HAS_KEY == 'true'
+        run: |
+          # Extract result from the execution log
+          LOG="/home/runner/work/_temp/claude-execution-output.json"
+          if [ ! -f "$LOG" ]; then
+            echo "::error::Claude execution log not found at $LOG"
+            exit 1
+          fi
+
+          # Extract result and check for errors
+          python3 << 'PYEOF'
+          import json, sys
+
+          with open("/home/runner/work/_temp/claude-execution-output.json") as f:
+              raw = json.load(f)
+
+          # Handle both single object and array of objects
+          if isinstance(raw, list):
+              data = None
+              for entry in raw:
+                  if isinstance(entry, dict) and entry.get("type") == "result":
+                      data = entry
+                      break
+              if data is None:
+                  data = raw[-1] if raw else {}
+          else:
+              data = raw
+
+          subtype = data.get("subtype", "")
+          result = data.get("result", "")
+          is_error = data.get("is_error", False)
+
+          print("=== Claude's Assessment ===")
+          print(result if result else "(no result text)")
+          print("===========================")
+          print(f"subtype={subtype}, is_error={is_error}, num_turns={data.get('num_turns', 'N/A')}")
+
+          if subtype == "error_max_turns":
+              print("::error::Claude ran out of turns before producing a verdict. Increase max_turns.")
+              sys.exit(1)
+          elif is_error:
+              print(f"::error::Claude returned an error: {subtype}")
+              sys.exit(1)
+          elif "RESULT: FAIL" in result:
+              print("Documentation updates are needed. See Claude's assessment above.")
+              sys.exit(1)
+          elif "RESULT: PASS" in result:
+              print("Documentation check passed.")
+              sys.exit(0)
+          else:
+              print("::error::Could not determine PASS/FAIL from Claude's response. Failing to be safe.")
+              sys.exit(1)
+          PYEOF
+
+      - name: Fail if no API key
+        if: env.HAS_KEY != 'true'
+        run: |
+          echo "::error::ANTHROPIC_API_KEY not configured. Add it to repository secrets to enable AI doc review."
+          exit 1
