@@ -151,12 +151,18 @@ PLATFORM_SHARED_VERSIONED=true
 # Prefer lld linker when available. lld is typically 5-10x faster than
 # the default ld.bfd for large C++ projects.
 # Set ROCKSDB_NO_FAST_LINKER=1 to disable this auto-detection.
+# We test with -L/usr/local/lib to ensure lld can find libraries installed
+# there (e.g. benchmark), since lld does not search /usr/local/lib by default.
 if [ -z "$ROCKSDB_NO_FAST_LINKER" ]; then
-    if $CXX -fuse-ld=lld -x c++ - -o /dev/null 2>/dev/null <<EOF
+    if $CXX -fuse-ld=lld -L/usr/local/lib -x c++ - -o /dev/null 2>/dev/null <<EOF
 int main() { return 0; }
 EOF
     then
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -fuse-ld=lld"
+        # Ensure lld can find libraries in /usr/local/lib
+        if [ -d /usr/local/lib ]; then
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -L/usr/local/lib"
+        fi
     fi
 fi
 
