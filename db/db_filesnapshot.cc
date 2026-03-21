@@ -28,9 +28,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status DBImpl::FlushForGetLiveFiles() {
-  return DBImpl::FlushAllColumnFamilies(FlushOptions(),
-                                        FlushReason::kGetLiveFiles);
+Status DBImpl::FlushForGetLiveFiles(bool force_atomic_flush) {
+  return DBImpl::FlushAllColumnFamilies(
+      FlushOptions(), FlushReason::kGetLiveFiles, force_atomic_flush);
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
@@ -248,7 +248,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Can't FlushForGetLiveFiles while WAL is locked");
     } else {
-      Status status = FlushForGetLiveFiles();
+      Status status = FlushForGetLiveFiles(opts.atomic_flush);
       if (!status.ok()) {
         mutex_.Unlock();
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,

@@ -2957,6 +2957,13 @@ struct LiveFilesStorageInfoOptions {
   // number (and DB is not read-only).
   // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
+  // If true, use atomic flush to flush all column families atomically,
+  // regardless of the DBOptions::atomic_flush setting. This ensures that the
+  // checkpoint captures a consistent view across all column families.
+  // Only takes effect when a flush is actually performed (i.e., not suppressed
+  // by wal_size_for_flush).
+  // Default: false (uses DBOptions::atomic_flush setting).
+  bool atomic_flush = false;
 };
 
 struct WaitForCompactOptions {
