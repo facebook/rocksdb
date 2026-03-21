@@ -148,11 +148,6 @@ PLATFORM_SHARED_LDFLAGS="-Wl,--no-as-needed -shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
 
-# Always compile with -fPIC on platforms that support it. This ensures
-# object files work for both static and shared library builds, and is
-# required by stricter linkers like lld. The performance impact is negligible.
-COMMON_FLAGS="$COMMON_FLAGS -fPIC"
-
 # Prefer faster linkers when available. lld is typically 5-10x faster than
 # the default ld.bfd for large C++ projects. Fall back to gold, then bfd.
 if [ -z "$ROCKSDB_NO_FAST_LINKER" ]; then
