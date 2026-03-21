@@ -7045,10 +7045,10 @@ class ExternalTableTest : public DBTestBase {
 
     Status Get(const ReadOptions& /*read_options*/, const Slice& key,
                const SliceTransform* /*prefix_extractor*/,
-               std::string* value) override {
+               PinnableSlice* value) override {
       auto iter = kv_map_.find(key.ToString());
       if (iter != kv_map_.end()) {
-        value->assign(iter->second);
+        value->PinSelf(iter->second);
         return Status::OK();
       }
       return Status::NotFound();
@@ -7057,7 +7057,7 @@ class ExternalTableTest : public DBTestBase {
     void MultiGet(const ReadOptions& read_options,
                   const std::vector<Slice>& keys,
                   const SliceTransform* prefix_extractor,
-                  std::vector<std::string>* values,
+                  std::vector<PinnableSlice>* values,
                   std::vector<Status>* statuses) override {
       values->resize(keys.size());
       statuses->resize(keys.size());
@@ -7089,6 +7089,38 @@ class ExternalTableTest : public DBTestBase {
     std::map<std::string, std::string> kv_map_;
     DummyExternalTableFile file_;
     bool support_property_block_;
+  };
+
+  // A reader that pins values from its internal buffer, exercising the
+  // zero-copy path in ExternalTableReaderAdapter::Get().
+  class PinnedDummyExternalTableReader : public DummyExternalTableReader {
+   public:
+    using DummyExternalTableReader::DummyExternalTableReader;
+
+    Status Get(const ReadOptions& /*read_options*/, const Slice& key,
+               const SliceTransform* /*prefix_extractor*/,
+               PinnableSlice* value) override {
+      auto it = pinned_data_.find(key.ToString());
+      if (it != pinned_data_.end()) {
+        Slice s(it->second);
+        value->PinSlice(s, &PinCleanup, &pin_cleanup_count_, nullptr);
+        return Status::OK();
+      }
+      return Status::NotFound();
+    }
+
+    void SetPinnedData(const std::map<std::string, std::string>& data) {
+      pinned_data_ = data;
+    }
+
+    int pin_cleanup_count() const { return pin_cleanup_count_; }
+
+   private:
+    static void PinCleanup(void* arg1, void* /*arg2*/) {
+      (*static_cast<int*>(arg1))++;
+    }
+    std::map<std::string, std::string> pinned_data_;
+    int pin_cleanup_count_ = 0;
   };
 
   class DummyExternalTableBuilder : public ExternalTableBuilder {
@@ -7163,6 +7195,39 @@ class ExternalTableTest : public DBTestBase {
    private:
     bool support_property_block_;
   };
+
+  class PinnedDummyExternalTableFactory : public ExternalTableFactory {
+   public:
+    const char* Name() const override {
+      return "PinnedDummyExternalTableFactory";
+    }
+
+    Status NewTableReader(
+        const ReadOptions& /*read_options*/, const std::string& file_path,
+        const ExternalTableOptions& /*topts*/,
+        std::unique_ptr<ExternalTableReader>* table_reader) const override {
+      auto* reader =
+          new PinnedDummyExternalTableReader(file_path,
+                                             /*support_property_block=*/true);
+      last_reader_ = reader;
+      table_reader->reset(reader);
+      return Status::OK();
+    }
+
+    ExternalTableBuilder* NewTableBuilder(
+        const ExternalTableBuilderOptions& /*opts*/,
+        const std::string& file_path, FSWritableFile* file) const override {
+      return new DummyExternalTableBuilder(file_path, file,
+                                           /*support_property_block=*/true);
+    }
+
+    PinnedDummyExternalTableReader* last_reader() const {
+      return last_reader_;
+    }
+
+   private:
+    mutable PinnedDummyExternalTableReader* last_reader_ = nullptr;
+  };
 };
 
 TEST_F(ExternalTableTest, BasicTest) {
@@ -7200,11 +7265,11 @@ TEST_F(ExternalTableTest, BasicTest) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
 
-  std::string val;
+  PinnableSlice val;
   ASSERT_OK(reader->Get({}, "foo", nullptr, &val));
   ASSERT_EQ(val, "bar");
 
-  std::vector<std::string> vals;
+  std::vector<PinnableSlice> vals;
   std::vector<Status> statuses;
   reader->MultiGet({}, {"foo", "bar"}, nullptr, &vals, &statuses);
   ASSERT_EQ(vals.size(), 2);
@@ -7248,6 +7313,176 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().ok());
+}
+
+TEST_F(ExternalTableTest, SstReaderGetTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_get_test");
+  std::string ingest_file = dbname + "test.immutabledb";
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/false);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("a", "val_a"));
+  ASSERT_OK(writer->Put("b", "val_b"));
+  ASSERT_OK(writer->Put("c", "val_c"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  std::vector<Slice> keys = {"a", "b", "missing", "c"};
+  std::vector<std::string> values;
+  std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(statuses.size(), keys.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "val_a");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], "val_b");
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3], "val_c");
+}
+
+TEST_F(ExternalTableTest, SstReaderPinnableMultiGetTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname =
+      test::PerThreadDBPath("external_table_pinnable_multiget_test");
+  std::string ingest_file = dbname + "test.immutabledb";
+
+  auto factory = std::make_shared<PinnedDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(factory);
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("a", "val_a"));
+  ASSERT_OK(writer->Put("b", "val_b"));
+  ASSERT_OK(writer->Put("c", "val_c"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+  ASSERT_OK(reader->Open(ingest_file));
+  ASSERT_NE(factory->last_reader(), nullptr);
+
+  factory->last_reader()->SetPinnedData(
+      {{"a", "pinned_a"}, {"b", "pinned_b"}, {"c", "pinned_c"}});
+
+  std::vector<Slice> keys = {"a", "b", "missing", "c"};
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(statuses.size(), keys.size());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "pinned_a");
+  ASSERT_TRUE(values[0].IsPinned());
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "pinned_b");
+  ASSERT_TRUE(values[1].IsPinned());
+
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3].ToString(), "pinned_c");
+  ASSERT_TRUE(values[3].IsPinned());
+
+  // Reset PinnableSlices to trigger cleanups
+  for (auto& v : values) {
+    v.Reset();
+  }
+  ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 3);
+}
+
+TEST_F(ExternalTableTest, PinnedGetTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  auto factory = std::make_shared<PinnedDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(factory);
+  Reopen(options);
+
+  std::string ingest_file = dbname_ + "/test.immutabledb";
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("key1", "val1"));
+  ASSERT_OK(writer->Put("key2", "val2"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile({ingest_file}, ifo));
+  ASSERT_NE(factory->last_reader(), nullptr);
+
+  factory->last_reader()->SetPinnedData(
+      {{"key1", "pinned_val1"}, {"key2", "pinned_val2"}});
+
+  PinnableSlice pinnable;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key1",
+                     &pinnable));
+  ASSERT_EQ(pinnable.ToString(), "pinned_val1");
+  ASSERT_TRUE(pinnable.IsPinned());
+  pinnable.Reset();
+
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key2",
+                     &pinnable));
+  ASSERT_EQ(pinnable.ToString(), "pinned_val2");
+  ASSERT_TRUE(pinnable.IsPinned());
+  pinnable.Reset();
+
+  // Verify cleanup ran for both Gets
+  ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 2);
+
+  // Verify NotFound still works
+  Status s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "missing",
+                      &pinnable);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Test MultiGet with PinnableSlice to exercise the batched pin path
+  const size_t num_keys = 3;
+  std::array<Slice, num_keys> mg_keys = {Slice("key1"), Slice("missing"),
+                                         Slice("key2")};
+  std::array<PinnableSlice, num_keys> mg_values;
+  std::array<Status, num_keys> mg_statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                mg_keys.data(), mg_values.data(), mg_statuses.data());
+
+  ASSERT_OK(mg_statuses[0]);
+  ASSERT_EQ(mg_values[0].ToString(), "pinned_val1");
+  ASSERT_TRUE(mg_values[0].IsPinned());
+
+  ASSERT_TRUE(mg_statuses[1].IsNotFound());
+
+  ASSERT_OK(mg_statuses[2]);
+  ASSERT_EQ(mg_values[2].ToString(), "pinned_val2");
+  ASSERT_TRUE(mg_values[2].IsPinned());
+
+  // Reset PinnableSlices to trigger cleanups
+  for (auto& v : mg_values) {
+    v.Reset();
+  }
+  ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 4);
 }
 
 TEST_F(ExternalTableTest, ExternalFileChecksumTest) {
