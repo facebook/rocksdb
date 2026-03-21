@@ -882,9 +882,12 @@ coverage: clean
 
 parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 .PHONY: gen_parallel_tests $(parallel_tests)
-# Number of test cases per shard. Larger values reduce process spawn overhead
-# but decrease parallelism. With 192 cores, 50 cases/shard is a good balance.
+# Shard size controls how many test cases run per process. The actual number
+# of shards per binary is: min(ceil(test_count / GTEST_SHARD_SIZE), NCORES * 8)
+# This adapts to machine size: many small shards on beefy machines, fewer
+# larger shards on CI (typically 2-4 cores).
 GTEST_SHARD_SIZE ?= 10
+NCORES ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 $(parallel_tests):
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
@@ -892,7 +895,9 @@ $(parallel_tests):
     (./$$TEST_BINARY --gtest_list_tests 2>/dev/null || echo "  list_failure") \
     | grep -c '^ '`; \
 	if [ "$$TEST_COUNT" -le 0 ]; then TEST_COUNT=1; fi; \
+	MAX_SHARDS=$$(( $(NCORES) * 8 )); \
 	NUM_SHARDS=$$(( (TEST_COUNT + $(GTEST_SHARD_SIZE) - 1) / $(GTEST_SHARD_SIZE) )); \
+	if [ "$$NUM_SHARDS" -gt "$$MAX_SHARDS" ]; then NUM_SHARDS=$$MAX_SHARDS; fi; \
 	if [ "$$NUM_SHARDS" -le 0 ]; then NUM_SHARDS=1; fi; \
 	echo "  Generating $$NUM_SHARDS shards for $$TEST_BINARY ($$TEST_COUNT tests)"; \
 	SHARD_IDX=0; \
