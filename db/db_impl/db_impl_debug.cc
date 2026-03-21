@@ -282,6 +282,11 @@ int DBImpl::TEST_BGFlushesAllowed() const {
   return GetBGJobLimits().max_flushes;
 }
 
+int DBImpl::TEST_NumRunningBottomCompactions() const {
+  mutex_.AssertHeld();
+  return num_running_bottom_compactions_;
+}
+
 SequenceNumber DBImpl::TEST_GetLastVisibleSequence() const {
   if (last_seq_same_as_publish_seq_) {
     return versions_->LastSequence();
