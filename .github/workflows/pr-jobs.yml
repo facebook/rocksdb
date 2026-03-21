@@ -667,12 +667,28 @@ jobs:
     if: needs.config.outputs.only_job == 'build-windows-vs2022' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: windows-8-core
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - test_shard: db_test
+          suite_run: db_test
+          run_java: "false"
+        - test_shard: other
+          suite_run: arena_test,db_basic_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
+          run_java: "false"
+        - test_shard: java
+          suite_run: ""
+          run_java: "true"
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
       CMAKE_PORTABLE: 1
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/windows-build-steps"
+      with:
+        suite-run: ${{ matrix.suite_run }}
+        run-java: ${{ matrix.run_java }}
   # ============================ Java Jobs ============================ #
   build-linux-java:
     if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
