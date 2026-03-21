@@ -1,0 +1,128 @@
+name: Documentation Staleness Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.cc'
+      - '**.h'
+      - '**.md'
+
+jobs:
+  doc-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for potentially stale documentation
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Get list of modified files in this PR
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          # Separate source files and doc files
+          CHANGED_SOURCE=()
+          CHANGED_DOCS=()
+          while IFS= read -r file; do
+            case "$file" in
+              *.cc|*.h)
+                CHANGED_SOURCE+=("$file")
+                ;;
+              docs/components/*.md)
+                CHANGED_DOCS+=("$file")
+                ;;
+            esac
+          done <<< "$CHANGED_FILES"
+
+          if [ ${#CHANGED_SOURCE[@]} -eq 0 ]; then
+            echo "No source files changed. Skipping doc check."
+            exit 0
+          fi
+
+          DOC_DIR="docs/components"
+          if [ ! -d "$DOC_DIR" ]; then
+            echo "No docs/components/ directory found. Skipping."
+            exit 0
+          fi
+
+          STALE=()
+
+          for src_file in "${CHANGED_SOURCE[@]}"; do
+            # Find which docs reference this source file (by basename or full path)
+            src_basename=$(basename "$src_file")
+            matching_docs=$(grep -rl "$src_basename" "$DOC_DIR" 2>/dev/null || true)
+
+            if [ -z "$matching_docs" ]; then
+              continue
+            fi
+
+            # Extract key identifiers from the diff for this file
+            diff_content=$(git diff "$BASE_SHA" "$HEAD_SHA" -- "$src_file")
+            # Extract class names, function names, enum values, constants from changed lines
+            identifiers=$(echo "$diff_content" | \
+              grep '^[+-]' | grep -v '^[+-][+-][+-]' | \
+              grep -oE '\b[A-Z][A-Za-z0-9_]+\b|\b[a-z][A-Za-z0-9_]*\(' | \
+              sed 's/($//' | sort -u)
+
+            if [ -z "$identifiers" ]; then
+              continue
+            fi
+
+            while IFS= read -r doc; do
+              # Skip docs that were updated in this PR
+              is_updated=false
+              for changed_doc in "${CHANGED_DOCS[@]+"${CHANGED_DOCS[@]}"}"; do
+                if [ "$doc" = "$changed_doc" ]; then
+                  is_updated=true
+                  break
+                fi
+              done
+              if $is_updated; then
+                continue
+              fi
+
+              # Check if any extracted identifiers appear in the doc
+              doc_content=$(cat "$doc")
+              matched_ids=()
+              while IFS= read -r id; do
+                if echo "$doc_content" | grep -qF "$id"; then
+                  matched_ids+=("$id")
+                fi
+              done <<< "$identifiers"
+
+              if [ ${#matched_ids[@]} -gt 0 ]; then
+                id_list=$(printf ", %s" "${matched_ids[@]}")
+                id_list="${id_list:2}"
+                STALE+=("  - $doc references $src_file (matched identifiers: $id_list)")
+              fi
+            done <<< "$matching_docs"
+          done
+
+          if [ ${#STALE[@]} -gt 0 ]; then
+            echo ""
+            echo "============================================"
+            echo "POTENTIALLY STALE DOCUMENTATION DETECTED"
+            echo "============================================"
+            echo ""
+            echo "The following docs may need updating because source files they"
+            echo "reference were modified in this PR, but the docs were not updated:"
+            echo ""
+            for entry in "${STALE[@]}"; do
+              echo "$entry"
+            done
+            echo ""
+            echo "Please review and update the listed docs, or confirm they are"
+            echo "still accurate. If no doc update is needed, update the doc's"
+            echo "content trivially (e.g., fix whitespace) to signal freshness."
+            echo ""
+            exit 1
+          fi
+
+          echo "Doc check passed: no potentially stale documentation found."

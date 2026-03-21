@@ -313,3 +313,17 @@ The following patterns emerged as frequent sources of review feedback:
 ### Formatting code
 * After making change, use `make format-auto` to auto-apply formatting without
     interactive prompts (Claude Code friendly).
+
+## Documentation Maintenance
+
+When modifying any source file referenced in `docs/components/`, you MUST update the corresponding documentation. The CI job `doc-check` will fail if documentation is potentially stale.
+
+Documentation lives in:
+- `ARCHITECTURE.md` — high-level architecture overview
+- `docs/components/` — detailed component documentation
+
+When making changes:
+1. Check if your modified files are referenced in any doc: `grep -rl "your_file.h" docs/components/`
+2. If referenced, update the doc to reflect your changes
+3. If adding new components or major features, add them to the appropriate doc
+4. If adding a new subsystem, consider creating a new doc in docs/components/ and updating README.md
