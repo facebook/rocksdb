@@ -11784,13 +11784,18 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
         }
       });
 
-  // Deactivate FS after the compaction job finishes but before the
-  // post-compaction FindObsoleteFiles runs. This makes GetChildren fail,
-  // matching crash test's --open_metadata_read_fault_one_in=8.
+  // Enable metadata read fault injection on the bg compaction thread after
+  // the compaction job finishes but before FindObsoleteFiles runs. This
+  // makes GetChildren fail (metadata read), matching crash test's
+  // --open_metadata_read_fault_one_in=8. Only metadata reads fail —
+  // logging and other IO operations continue normally.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:1", [&](void*) {
-        fault_fs->SetFilesystemActive(false,
-                                      IOStatus::IOError("injected fault"));
+        fault_fs->SetThreadLocalErrorContext(
+            FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+            /*retryable=*/false, /*has_data_loss=*/false);
+        fault_fs->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -11802,8 +11807,16 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  // Close() calls FindObsoleteFiles, but GetChildren fails (FS inactive),
-  // so the orphan file is missed. In ASAN builds,
+  // Enable metadata read fault injection on the main thread too, so
+  // Close()'s FindObsoleteFiles also fails to find the orphan file.
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  // Close() calls FindObsoleteFiles, but GetChildren fails (metadata read
+  // fault), so the orphan file is missed. In ASAN builds,
   // TEST_VerifyNoObsoleteFilesCached finds the leaked cache entry and asserts.
   s = db_->Close();
   // Release DB before fault_env goes out of scope to avoid use-after-free.
