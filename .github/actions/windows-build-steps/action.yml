@@ -8,6 +8,22 @@ inputs:
     description: Whether to run Java tests
     required: false
     default: "true"
+  target-platform:
+    description: Target platform passed to CMake and MSBuild
+    required: false
+    default: x64
+  java-distribution:
+    description: Java distribution installed for the Windows build
+    required: false
+    default: liberica
+  java-version:
+    description: Java major version installed for the Windows build
+    required: false
+    default: '8'
+  java-architecture:
+    description: Java package architecture installed for the Windows build
+    required: false
+    default: x64
 runs:
   using: composite
   steps:
@@ -26,21 +42,31 @@ runs:
       ccache --set-config=base_dir=C:\a\rocksdb\rocksdb
       ccache --set-config=hash_dir=false
       ccache --set-config=compiler_check=content
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: ${{ inputs.java-distribution }}
+      java-version: ${{ inputs.java-version }}
+      architecture: ${{ inputs.java-architecture }}
   - name: Custom steps
     env:
+      TARGET_PLATFORM: ${{ inputs.target-platform }}
       THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
       CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
-      JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
+      JAVA_DISTRIBUTION: ${{ inputs.java-distribution }}
+      JAVA_VERSION: ${{ inputs.java-version }}
+      JAVA_ARCHITECTURE: ${{ inputs.java-architecture }}
       SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.2.2
       SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.2.2;${{ github.workspace }}/thirdparty/snappy-1.2.2/build
       SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.2.2/build/Debug/snappy.lib
     run: |-
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
-      choco install liberica8jdk -y
-      if(!$?) { Exit $LASTEXITCODE }
+      echo "Using Java $Env:JAVA_VERSION ($Env:JAVA_DISTRIBUTION, $Env:JAVA_ARCHITECTURE)"
+      java -version
+      javac -version
       mkdir $Env:THIRDPARTY_HOME
       cd $Env:THIRDPARTY_HOME
       echo "Building Snappy dependency..."
@@ -51,21 +77,21 @@ runs:
       cd snappy-1.2.2
       mkdir build
       cd build
-      & cmake -G "$Env:CMAKE_GENERATOR" .. -DSNAPPY_BUILD_TESTS=OFF -DSNAPPY_BUILD_BENCHMARKS=OFF
+      & cmake -G "$Env:CMAKE_GENERATOR" -A "$Env:TARGET_PLATFORM" .. -DSNAPPY_BUILD_TESTS=OFF -DSNAPPY_BUILD_BENCHMARKS=OFF
       if(!$?) { Exit $LASTEXITCODE }
-      msbuild Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      msbuild Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=$Env:TARGET_PLATFORM
       if(!$?) { Exit $LASTEXITCODE }
       echo ======================== Build RocksDB =========================
       cd ${{ github.workspace }}
       $env:Path = $env:JAVA_HOME + ";" + $env:Path
       mkdir build
       cd build
-      & cmake -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DWIN_CI=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DXPRESS=1 -DJNI=1 ..
+      & cmake -G "$Env:CMAKE_GENERATOR" -A "$Env:TARGET_PLATFORM" -DCMAKE_BUILD_TYPE=Debug -DWIN_CI=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DXPRESS=1 -DJNI=1 ..
       if(!$?) { Exit $LASTEXITCODE }
       cd ..
-      echo "Building with VS version: $Env:CMAKE_GENERATOR"
+      echo "Building with VS version: $Env:CMAKE_GENERATOR targeting $Env:TARGET_PLATFORM"
       # use more parallel processes than the number of processes available, as most of the compile command would be cache hit
-      msbuild build/rocksdb.sln /m:32 /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
+      msbuild build/rocksdb.sln /m:32 /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=$Env:TARGET_PLATFORM
       if(!$?) { Exit $LASTEXITCODE }
       echo ========================= Test RocksDB =========================
       $suiteRun = "${{ inputs.suite-run }}"
