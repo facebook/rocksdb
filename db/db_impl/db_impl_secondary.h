@@ -259,7 +259,7 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
-  Status FlushForGetLiveFiles(bool /*force_atomic_flush*/ = false) override {
+  Status FlushForGetLiveFiles(bool /*force_atomic_flush*/) override {
     // No-op for read-only DB
     return Status::OK();
   }

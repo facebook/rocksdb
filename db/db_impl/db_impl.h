@@ -1530,9 +1530,9 @@ class DBImpl : public DB {
 
   Status FlushAllColumnFamilies(const FlushOptions& flush_options,
                                 FlushReason flush_reason,
-                                bool force_atomic_flush = false);
+                                bool force_atomic_flush);
 
-  virtual Status FlushForGetLiveFiles(bool force_atomic_flush = false);
+  virtual Status FlushForGetLiveFiles(bool force_atomic_flush);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 
@@ -1916,7 +1916,7 @@ class DBImpl : public DB {
           flush_reason_(FlushReason::kOthers) {}
     BGFlushArg(ColumnFamilyData* cfd, uint64_t max_memtable_id,
                SuperVersionContext* superversion_context,
-               FlushReason flush_reason, bool atomic_flush = false)
+               FlushReason flush_reason, bool atomic_flush)
         : cfd_(cfd),
           max_memtable_id_(max_memtable_id),
           superversion_context_(superversion_context),

@@ -1138,6 +1138,7 @@ TEST_F(CheckpointTest, CheckpointCFAtomicFlushOverride) {
   std::vector<std::string> cfs = {kDefaultColumnFamilyName, "one", "two",
                                   "three"};
   std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(cfs.size());
   for (const auto& cf : cfs) {
     column_families.emplace_back(cf, options);
   }

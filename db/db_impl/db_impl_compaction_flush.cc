@@ -5027,15 +5027,16 @@ Status DBImpl::WaitForCompact(
   InstrumentedMutexLock l(&mutex_);
   if (wait_for_compact_options.flush) {
     Status s = DBImpl::FlushAllColumnFamilies(FlushOptions(),
-                                              FlushReason::kManualFlush);
+                                              FlushReason::kManualFlush,
+                                              false /* force_atomic_flush */);
     if (!s.ok()) {
       return s;
     }
   } else if (wait_for_compact_options.close_db &&
              has_unpersisted_data_.load(std::memory_order_relaxed) &&
              !mutable_db_options_.avoid_flush_during_shutdown) {
-    Status s =
-        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    Status s = DBImpl::FlushAllColumnFamilies(
+        FlushOptions(), FlushReason::kShutDown, false /* force_atomic_flush */);
     if (!s.ok()) {
       return s;
     }

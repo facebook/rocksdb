@@ -40,7 +40,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   mutex_.Lock();
 
   if (flush_memtable) {
-    Status status = FlushForGetLiveFiles();
+    Status status = FlushForGetLiveFiles(false /* force_atomic_flush */);
     if (!status.ok()) {
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
