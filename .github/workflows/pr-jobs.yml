@@ -429,34 +429,38 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang18-asan-ubsan
-    - name: Compute test shard boundaries
+    - name: Compute test shard
       id: shard
       run: |
-        # Get sorted test list (db_test first, then alphabetical - matches Makefile order)
-        make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/all_tests_sorted.txt
-        # Makefile puts db_test first, then sorts the rest
-        (echo db_test; grep -v '^db_test$' /tmp/all_tests_sorted.txt) > /tmp/all_tests.txt
+        # Get sorted test list matching Makefile order (db_test first, then alpha)
+        make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/sorted.txt
+        (echo db_test; grep -v '^db_test$' /tmp/sorted.txt) > /tmp/all_tests.txt
         total=$(wc -l < /tmp/all_tests.txt)
         shard=${{ matrix.shard }}
         nshards=3
         shard_size=$(( (total + nshards - 1) / nshards ))
         start_idx=$(( shard * shard_size + 1 ))
-        end_idx=$(( (shard + 1) * shard_size + 1 ))
-        if [ $end_idx -gt $total ]; then end_idx=$(( total + 1 )); fi
-        start_test=$(sed -n "${start_idx}p" /tmp/all_tests.txt)
-        end_test=$(sed -n "${end_idx}p" /tmp/all_tests.txt)
-        # Set ROCKSDBTESTS_START and ROCKSDBTESTS_END for this shard
-        if [ $shard -eq 0 ]; then
-          echo "make_args=ROCKSDBTESTS_END=${end_test}" >> "$GITHUB_OUTPUT"
-        elif [ -z "$end_test" ]; then
-          echo "make_args=ROCKSDBTESTS_START=${start_test}" >> "$GITHUB_OUTPUT"
+        end_idx=$(( (shard + 1) * shard_size ))
+        if [ $end_idx -gt $total ]; then end_idx=$total; fi
+        # Build EXCLUDE regex for tests NOT in this shard
+        # Must match both ./test_name and t/run-test_name-shard-N formats
+        (if [ $start_idx -gt 1 ]; then sed -n "1,$((start_idx - 1))p" /tmp/all_tests.txt; fi
+         if [ $end_idx -lt $total ]; then sed -n "$((end_idx + 1)),${total}p" /tmp/all_tests.txt; fi
+        ) > /tmp/exclude.txt
+        if [ -s /tmp/exclude.txt ]; then
+          # Use ^./ anchor for direct entries, /run- prefix for shard entries
+          regex=$(awk '{printf "^\\./%s$|/run-%s-|", $1, $1}' /tmp/exclude.txt | sed 's/|$//')
+          echo "exclude_regex=${regex}" >> "$GITHUB_OUTPUT"
         else
-          echo "make_args=ROCKSDBTESTS_START=${start_test} ROCKSDBTESTS_END=${end_test}" >> "$GITHUB_OUTPUT"
+          echo 'exclude_regex=^NOTHING_TO_EXCLUDE$' >> "$GITHUB_OUTPUT"
         fi
-        echo "Shard $shard/$nshards: ${start_test} .. (end_test=${end_test:-END}) [$shard_size tests]"
+        first=$(sed -n "${start_idx}p" /tmp/all_tests.txt)
+        last=$(sed -n "${end_idx}p" /tmp/all_tests.txt)
+        echo "Shard $shard/$nshards: $first .. $last (tests $start_idx-$end_idx of $total)"
+        echo "Excluding $(wc -l < /tmp/exclude.txt) tests"
     - name: Monitor CPU utilization
       run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
-    - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 ${{ steps.shard.outputs.make_args }} check
+    - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX='${{ steps.shard.outputs.exclude_regex }}' make V=1 -j40 check
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
@@ -483,34 +487,38 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang18-tsan
-    - name: Compute test shard boundaries
+    - name: Compute test shard
       id: shard
       run: |
-        # Get sorted test list (db_test first, then alphabetical - matches Makefile order)
-        make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/all_tests_sorted.txt
-        # Makefile puts db_test first, then sorts the rest
-        (echo db_test; grep -v '^db_test$' /tmp/all_tests_sorted.txt) > /tmp/all_tests.txt
+        # Get sorted test list matching Makefile order (db_test first, then alpha)
+        make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/sorted.txt
+        (echo db_test; grep -v '^db_test$' /tmp/sorted.txt) > /tmp/all_tests.txt
         total=$(wc -l < /tmp/all_tests.txt)
         shard=${{ matrix.shard }}
         nshards=3
         shard_size=$(( (total + nshards - 1) / nshards ))
         start_idx=$(( shard * shard_size + 1 ))
-        end_idx=$(( (shard + 1) * shard_size + 1 ))
-        if [ $end_idx -gt $total ]; then end_idx=$(( total + 1 )); fi
-        start_test=$(sed -n "${start_idx}p" /tmp/all_tests.txt)
-        end_test=$(sed -n "${end_idx}p" /tmp/all_tests.txt)
-        # Set ROCKSDBTESTS_START and ROCKSDBTESTS_END for this shard
-        if [ $shard -eq 0 ]; then
-          echo "make_args=ROCKSDBTESTS_END=${end_test}" >> "$GITHUB_OUTPUT"
-        elif [ -z "$end_test" ]; then
-          echo "make_args=ROCKSDBTESTS_START=${start_test}" >> "$GITHUB_OUTPUT"
+        end_idx=$(( (shard + 1) * shard_size ))
+        if [ $end_idx -gt $total ]; then end_idx=$total; fi
+        # Build EXCLUDE regex for tests NOT in this shard
+        # Must match both ./test_name and t/run-test_name-shard-N formats
+        (if [ $start_idx -gt 1 ]; then sed -n "1,$((start_idx - 1))p" /tmp/all_tests.txt; fi
+         if [ $end_idx -lt $total ]; then sed -n "$((end_idx + 1)),${total}p" /tmp/all_tests.txt; fi
+        ) > /tmp/exclude.txt
+        if [ -s /tmp/exclude.txt ]; then
+          # Use ^./ anchor for direct entries, /run- prefix for shard entries
+          regex=$(awk '{printf "^\\./%s$|/run-%s-|", $1, $1}' /tmp/exclude.txt | sed 's/|$//')
+          echo "exclude_regex=${regex}" >> "$GITHUB_OUTPUT"
         else
-          echo "make_args=ROCKSDBTESTS_START=${start_test} ROCKSDBTESTS_END=${end_test}" >> "$GITHUB_OUTPUT"
+          echo 'exclude_regex=^NOTHING_TO_EXCLUDE$' >> "$GITHUB_OUTPUT"
         fi
-        echo "Shard $shard/$nshards: ${start_test} .. (end_test=${end_test:-END}) [$shard_size tests]"
+        first=$(sed -n "${start_idx}p" /tmp/all_tests.txt)
+        last=$(sed -n "${end_idx}p" /tmp/all_tests.txt)
+        echo "Shard $shard/$nshards: $first .. $last (tests $start_idx-$end_idx of $total)"
+        echo "Excluding $(wc -l < /tmp/exclude.txt) tests"
     - name: Monitor CPU utilization
       run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
-    - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ${{ steps.shard.outputs.make_args }} check
+    - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX='${{ steps.shard.outputs.exclude_regex }}' make V=1 -j32 check
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
