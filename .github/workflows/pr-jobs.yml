@@ -96,8 +96,10 @@ jobs:
       with:
         cache-key-prefix: build-linux
     - run: make V=1 J=32 -j32 check
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -123,8 +125,10 @@ jobs:
         which java && java -version
         which javac && javac -version
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -150,8 +154,10 @@ jobs:
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
     - run: USE_FOLLY=1 LIB_MODE=static V=1 make -j64 check
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -172,8 +178,10 @@ jobs:
       with:
         cache-key-prefix: make-folly-lite
     - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -199,8 +207,10 @@ jobs:
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -226,8 +236,10 @@ jobs:
       run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DPORTABLE=ON -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20
     - name: Test shard ${{ matrix.shard }} of 4
       run: cd build && ctest -j20 -I ${{ matrix.shard }},,4
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -249,8 +261,10 @@ jobs:
         cache-key-prefix: encrypted-env-no-compression
     - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
     - run: "./sst_dump --help | grep -E -q 'Supported built-in compression types: kNoCompression$' # Verify no compiled in compression\n"
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -284,8 +298,10 @@ jobs:
     - run: USE_RTTI=1 make V=1 -j32 release
     - run: ls librocksdb.a
     - run: if ./trace_analyzer --version; then false; else true; fi
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -308,8 +324,10 @@ jobs:
     - run: make clean
     # FIXME: get back to "release" target
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -330,8 +348,10 @@ jobs:
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -350,8 +370,10 @@ jobs:
       with:
         cache-key-prefix: gcc-14
     - run: CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -375,8 +397,10 @@ jobs:
     - name: Unity build
       run: make V=1 -j8 unity_test
     - run: make V=1 -j8 -k check-headers
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -408,8 +432,10 @@ jobs:
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -471,8 +497,10 @@ jobs:
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -533,8 +561,10 @@ jobs:
     - name: Print CPU utilization summary
       run: tail -20 /tmp/cpu_monitor.log || true
       if: always()
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -555,8 +585,10 @@ jobs:
       with:
         cache-key-prefix: static-alt-namespace
     - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -580,8 +612,10 @@ jobs:
     - uses: "./.github/actions/pre-steps-macos"
     - name: Build
       run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j8 all
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -620,8 +654,10 @@ jobs:
     - name: Run shard 3 out of 4 test shards
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 3,,4
       if: ${{ matrix.run_sharded_tests == 3 }}
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -659,8 +695,10 @@ jobs:
         which javac && javac -version
     - name: Test RocksDBJava
       run: make V=1 J=8 -j8 jtest
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
   build-linux-java-static:
@@ -684,8 +722,10 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava Static Library
       run: make V=1 J=8 -j8 rocksdbjavastatic
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
   build-macos-java:
@@ -714,8 +754,10 @@ jobs:
         which javac && javac -version
     - name: Test RocksDBJava
       run: make V=1 J=16 -j16 jtest
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -744,8 +786,10 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava x86 and ARM Static Libraries
       run: make V=1 J=16 -j16 rocksdbjavastaticosx
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
@@ -774,8 +818,10 @@ jobs:
         which javac && javac -version
     - name: Build RocksDBJava Universal Binary Static Library
       run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
-    - name: Print ccache stats
-      run: ccache -s
+    - name: Cleanup and print ccache stats
+      run: |
+        ccache -c  # Trim to CCACHE_MAXSIZE, evict stale entries
+        ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"

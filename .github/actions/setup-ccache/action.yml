@@ -18,6 +18,7 @@ runs:
         echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
         echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
         echo "CCACHE_SLOPPINESS=clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros" >> $GITHUB_ENV
+        echo "CCACHE_MAXSIZE=1G" >> $GITHUB_ENV
         if [ "${{ inputs.portable }}" = "true" ]; then
           echo "PORTABLE=1" >> $GITHUB_ENV
         fi
