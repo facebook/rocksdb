@@ -82,10 +82,15 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 message(STATUS "CMAKE_BUILD_TYPE is set to ${CMAKE_BUILD_TYPE}")
 
+# Use ccache for compilation if available. Use CMAKE_C/CXX_COMPILER_LAUNCHER
+# instead of RULE_LAUNCH_COMPILE to avoid double-wrapping when ccache is also
+# injected via PATH (e.g., /usr/lib/ccache or brew --prefix ccache/libexec).
+# Note: we intentionally do NOT set RULE_LAUNCH_LINK because ccache cannot
+# cache link operations -- it only adds overhead.
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+  set(CMAKE_C_COMPILER_LAUNCHER ccache)
+  set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
 endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
