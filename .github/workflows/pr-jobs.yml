@@ -209,6 +209,10 @@ jobs:
     needs: config
     runs-on:
       labels: 16-core-ubuntu
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
@@ -218,20 +222,17 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: cmake-benchmark
-    - name: Monitor CPU utilization
-      run: mpstat 30 > /tmp/cpu_monitor.log 2>&1 &
     - name: Build
       run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DPORTABLE=ON -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20
-    - name: Test
-      run: cd build && ctest -j20
-    - name: Print CPU utilization summary
-      run: tail -20 /tmp/cpu_monitor.log || true
-      if: always()
+    - name: Test shard ${{ matrix.shard }} of 4
+      run: cd build && ctest -j20 -I ${{ matrix.shard }},,4
     - name: Print ccache stats
       run: ccache -s
       if: always()
       shell: bash
     - uses: "./.github/actions/post-steps"
+      with:
+        artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-encrypted_env-no_compression:
     if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
