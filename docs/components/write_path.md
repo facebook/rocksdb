@@ -16,12 +16,15 @@ WriteBatch (serialize operations into binary format)
 DBImpl::WriteImpl (entry point, validation, mode selection)
     |
     v
+WriteThread::JoinBatchGroup (enqueue writer, elect leader)
+    |
+    +---> Leader elected
+    |
+    v
 PreprocessWrite (check errors, flush triggers, stall/delay)
     |
     v
-WriteThread::JoinBatchGroup (group multiple writers)
-    |
-    +---> Leader elected
+EnterAsBatchGroupLeader (form write group from pending writers)
     |
     v
 WriteGroupToWAL (leader writes all batches to WAL)
