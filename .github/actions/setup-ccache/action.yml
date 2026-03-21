@@ -47,6 +47,8 @@ runs:
           echo "/usr/lib/ccache" >> $GITHUB_PATH
         fi
       shell: bash
-    - name: Zero ccache stats
-      run: ccache -z
+    - name: Zero ccache stats and set build marker
+      run: |
+        ccache -z
+        touch "$CCACHE_DIR/.build_marker"
       shell: bash
