@@ -66,7 +66,8 @@ runs:
       echo ========================= Test RocksDB =========================
       $suiteRun = "${{ inputs.suite-run }}"
       if ($suiteRun -ne "") {
-        build_tools\run_ci_db_test.ps1 -SuiteRun $suiteRun -Concurrency 16
+        $suiteArray = $suiteRun -split ','
+        build_tools\run_ci_db_test.ps1 -SuiteRun $suiteArray -Concurrency 16
         if(!$?) { Exit $LASTEXITCODE }
       } else {
         echo "Skipping C++ tests (suite-run is empty)"
