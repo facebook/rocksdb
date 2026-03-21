@@ -11823,10 +11823,9 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   fault_fs->EnableThreadLocalErrorInjection(
       FaultInjectionIOType::kMetadataRead);
 
-  // Close() calls FindObsoleteFiles, but GetChildren fails (metadata read
-  // fault), so the orphan file is missed. In ASAN builds,
-  // TEST_VerifyNoObsoleteFilesCached finds the leaked cache entry and asserts.
+  // TEST_VerifyNoObsoleteFilesCached asserted within Close on ASAN builds
   s = db_->Close();
+  ASSERT_OK(s);
   // Release DB before fault_env goes out of scope to avoid use-after-free.
   db_ = nullptr;
 }
