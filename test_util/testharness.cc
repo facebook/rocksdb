@@ -35,7 +35,7 @@ static int RegisterSyncPointCleanup() {
   listeners.Append(new SyncPointCleanupListener());
   return 0;
 }
-static int sync_point_cleanup_registered_ __attribute__((unused)) =
+[[maybe_unused]] static int sync_point_cleanup_registered_ =
     RegisterSyncPointCleanup();
 }  // namespace
 
