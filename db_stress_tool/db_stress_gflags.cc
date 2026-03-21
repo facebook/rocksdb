@@ -323,6 +323,13 @@ DEFINE_int32(
     "OK or violate any internal assertion. If N == 0, do not call the "
     "interface.");
 
+DEFINE_bool(
+    checkpoint_atomic_flush, false,
+    "If true, when calling GetLiveFilesStorageInfo (e.g., during checkpoint), "
+    "use LiveFilesStorageInfoOptions::atomic_flush=true to force atomic flush "
+    "of all column families regardless of the DBOptions::atomic_flush setting. "
+    "This exercises the per-request atomic flush override code path.");
+
 DEFINE_int32(
     get_all_column_family_metadata_one_in, 1000000,
     "With a chance of 1/N, call GetAllColumnFamilyMetaData to verify if it "
