@@ -104,6 +104,11 @@ class TransactionTestBase : public ::testing::Test {
   }
 
   ~TransactionTestBase() {
+    // Clean up any SyncPoint callbacks that tests may have set.
+    // Without this, stale callbacks with captured local variables persist
+    // across tests in the same process (sharded execution), causing segfaults.
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     delete db;
     db = nullptr;
     // This is to skip the assert statement in FaultInjectionTestEnv. There
