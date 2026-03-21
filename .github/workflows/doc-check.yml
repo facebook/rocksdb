@@ -17,112 +17,173 @@ jobs:
           fetch-depth: 0
 
       - name: Check for potentially stale documentation
+        id: check-docs
         run: |
-          #!/bin/bash
-          set -euo pipefail
+          #!/usr/bin/env python3
+          import json
+          import os
+          import subprocess
+          import sys
 
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          base_sha = "${{ github.event.pull_request.base.sha }}"
+          head_sha = "${{ github.event.pull_request.head.sha }}"
 
-          # Get list of modified files in this PR
-          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          # Get changed files
+          result = subprocess.run(
+              ["git", "diff", "--name-only", base_sha, head_sha],
+              capture_output=True, text=True, check=True
+          )
+          changed_files = [f for f in result.stdout.strip().split("\n") if f]
 
-          # Separate source files and doc files
-          CHANGED_SOURCE=()
-          CHANGED_DOCS=()
-          while IFS= read -r file; do
-            case "$file" in
-              *.cc|*.h)
-                CHANGED_SOURCE+=("$file")
-                ;;
-              docs/components/*.md)
-                CHANGED_DOCS+=("$file")
-                ;;
-            esac
-          done <<< "$CHANGED_FILES"
+          # Classify files
+          changed_source = [f for f in changed_files if f.endswith((".cc", ".h"))]
+          changed_docs = {f for f in changed_files if f.startswith("docs/components/") and f.endswith(".md")}
 
-          if [ ${#CHANGED_SOURCE[@]} -eq 0 ]; then
-            echo "No source files changed. Skipping doc check."
-            exit 0
+          if not changed_source:
+              print("No source files changed. Skipping doc check.")
+              sys.exit(0)
+
+          doc_dir = "docs/components"
+          if not os.path.isdir(doc_dir):
+              print("No docs/components/ directory found. Skipping.")
+              sys.exit(0)
+
+          # Find all doc files
+          all_docs = []
+          for root, dirs, files in os.walk(doc_dir):
+              for f in files:
+                  if f.endswith(".md"):
+                      all_docs.append(os.path.join(root, f))
+
+          stale = []
+
+          for src_file in changed_source:
+              src_basename = os.path.basename(src_file)
+
+              for doc_path in all_docs:
+                  # Skip docs that were modified in this PR (including newly added docs)
+                  if doc_path in changed_docs:
+                      continue
+
+                  # Check if this doc references the changed source file
+                  try:
+                      with open(doc_path, "r") as f:
+                          doc_content = f.read()
+                  except FileNotFoundError:
+                      continue
+
+                  if src_basename not in doc_content:
+                      continue
+
+                  # Extract identifiers from the diff for this source file
+                  diff_result = subprocess.run(
+                      ["git", "diff", base_sha, head_sha, "--", src_file],
+                      capture_output=True, text=True, check=True
+                  )
+                  diff_content = diff_result.stdout
+
+                  # Extract class/function/enum names from changed lines
+                  import re
+                  identifiers = set()
+                  for line in diff_content.split("\n"):
+                      if not line.startswith(("+", "-")):
+                          continue
+                      if line.startswith(("+++", "---")):
+                          continue
+                      # Match CamelCase identifiers and function names
+                      for m in re.finditer(r'\b[A-Z][A-Za-z0-9_]+\b', line):
+                          identifiers.add(m.group())
+                      for m in re.finditer(r'\b[a-z][A-Za-z0-9_]*\(', line):
+                          identifiers.add(m.group().rstrip("("))
+
+                  if not identifiers:
+                      continue
+
+                  # Check if any extracted identifiers appear in the doc
+                  matched = [ident for ident in identifiers if ident in doc_content]
+                  if matched:
+                      matched_str = ", ".join(sorted(matched))
+                      stale.append(f"  - {doc_path} references {src_file} (matched: {matched_str})")
+
+          if stale:
+              print()
+              print("=" * 50)
+              print("POTENTIALLY STALE DOCUMENTATION DETECTED")
+              print("=" * 50)
+              print()
+              print("The following docs may need updating because source files they")
+              print("reference were modified in this PR, but the docs were not updated:")
+              print()
+              for entry in stale:
+                  print(entry)
+              print()
+              print("Please review and update the listed docs, or confirm they are")
+              print("still accurate. If no doc update is needed, update the doc's")
+              print("content trivially (e.g., fix whitespace) to signal freshness.")
+              print()
+
+              # Write details for AI review step
+              with open("/tmp/stale_docs.json", "w") as f:
+                  json.dump({"stale": stale, "changed_source": changed_source}, f)
+
+              # Write prompt for AI review
+              prompt_lines = [
+                  "You are reviewing a RocksDB pull request for documentation staleness.",
+                  "",
+                  "The following source files were modified in the PR:",
+              ]
+              for src in changed_source:
+                  prompt_lines.append(f"  - {src}")
+              prompt_lines.append("")
+              prompt_lines.append("The following docs reference those source files but were NOT updated:")
+              for entry in stale:
+                  prompt_lines.append(entry)
+              prompt_lines.append("")
+              prompt_lines.append("For each flagged doc, read the doc and the relevant changed source files.")
+              prompt_lines.append("Determine if the changes to the source files actually affect the accuracy")
+              prompt_lines.append("of the documentation. Consider:")
+              prompt_lines.append("  1. Did the semantics/behavior described in the doc change?")
+              prompt_lines.append("  2. Were APIs, class names, or function signatures renamed or removed?")
+              prompt_lines.append("  3. Were new important features added that the doc should mention?")
+              prompt_lines.append("")
+              prompt_lines.append("Output your assessment as:")
+              prompt_lines.append("  NEEDS_UPDATE: <doc> - <reason>")
+              prompt_lines.append("  OK: <doc> - <reason it's fine>")
+              prompt_lines.append("")
+              prompt_lines.append("If any doc NEEDS_UPDATE, exit with a non-zero status.")
+
+              with open("/tmp/doc_review_prompt.txt", "w") as f:
+                  f.write("\n".join(prompt_lines))
+
+              # Set output for downstream steps
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("has_stale=true\n")
+              sys.exit(1)
+          else:
+              print("Doc check passed: no potentially stale documentation found.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("has_stale=false\n")
+        shell: python3 {0}
+
+      - name: Check for AI review capability
+        if: failure() && steps.check-docs.outputs.has_stale == 'true'
+        id: check-ai
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "HAS_ANTHROPIC_KEY=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_ANTHROPIC_KEY=false" >> "$GITHUB_ENV"
           fi
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-          DOC_DIR="docs/components"
-          if [ ! -d "$DOC_DIR" ]; then
-            echo "No docs/components/ directory found. Skipping."
-            exit 0
-          fi
-
-          STALE=()
-
-          for src_file in "${CHANGED_SOURCE[@]}"; do
-            # Find which docs reference this source file (by basename or full path)
-            src_basename=$(basename "$src_file")
-            matching_docs=$(grep -rl "$src_basename" "$DOC_DIR" 2>/dev/null || true)
-
-            if [ -z "$matching_docs" ]; then
-              continue
-            fi
-
-            # Extract key identifiers from the diff for this file
-            diff_content=$(git diff "$BASE_SHA" "$HEAD_SHA" -- "$src_file")
-            # Extract class names, function names, enum values, constants from changed lines
-            identifiers=$(echo "$diff_content" | \
-              grep '^[+-]' | grep -v '^[+-][+-][+-]' | \
-              grep -oE '\b[A-Z][A-Za-z0-9_]+\b|\b[a-z][A-Za-z0-9_]*\(' | \
-              sed 's/($//' | sort -u)
-
-            if [ -z "$identifiers" ]; then
-              continue
-            fi
-
-            while IFS= read -r doc; do
-              # Skip docs that were updated in this PR
-              is_updated=false
-              for changed_doc in "${CHANGED_DOCS[@]+"${CHANGED_DOCS[@]}"}"; do
-                if [ "$doc" = "$changed_doc" ]; then
-                  is_updated=true
-                  break
-                fi
-              done
-              if $is_updated; then
-                continue
-              fi
-
-              # Check if any extracted identifiers appear in the doc
-              doc_content=$(cat "$doc")
-              matched_ids=()
-              while IFS= read -r id; do
-                if echo "$doc_content" | grep -qF "$id"; then
-                  matched_ids+=("$id")
-                fi
-              done <<< "$identifiers"
-
-              if [ ${#matched_ids[@]} -gt 0 ]; then
-                id_list=$(printf ", %s" "${matched_ids[@]}")
-                id_list="${id_list:2}"
-                STALE+=("  - $doc references $src_file (matched identifiers: $id_list)")
-              fi
-            done <<< "$matching_docs"
-          done
-
-          if [ ${#STALE[@]} -gt 0 ]; then
-            echo ""
-            echo "============================================"
-            echo "POTENTIALLY STALE DOCUMENTATION DETECTED"
-            echo "============================================"
-            echo ""
-            echo "The following docs may need updating because source files they"
-            echo "reference were modified in this PR, but the docs were not updated:"
-            echo ""
-            for entry in "${STALE[@]}"; do
-              echo "$entry"
-            done
-            echo ""
-            echo "Please review and update the listed docs, or confirm they are"
-            echo "still accurate. If no doc update is needed, update the doc's"
-            echo "content trivially (e.g., fix whitespace) to signal freshness."
-            echo ""
-            exit 1
-          fi
-
-          echo "Doc check passed: no potentially stale documentation found."
+      - name: AI doc review
+        if: failure() && env.HAS_ANTHROPIC_KEY == 'true'
+        uses: anthropics/claude-code-base-action@e8132bc5e637a42c27763fc757faa37e1ee43b34
+        with:
+          prompt_file: /tmp/doc_review_prompt.txt
+          claude_args: >-
+            --model claude-sonnet-4-6-20250514
+            --max-turns 10
+            --allowedTools View,GlobTool,GrepTool
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
