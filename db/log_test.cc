@@ -845,7 +845,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   std::unique_ptr<FragmentBufferedReader> log_reader_;
 
  public:
-  ~RetriableLogTest() {
+  ~RetriableLogTest() override {
     // Clean up SyncPoint state to avoid leaking callbacks with captured
     // locals across tests in sharded execution.
     SyncPoint::GetInstance()->DisableProcessing();

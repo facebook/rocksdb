@@ -29,12 +29,13 @@ class SyncPointCleanupListener : public ::testing::EmptyTestEventListener {
 
 // Auto-register the listener via static initialization.
 // This runs before main() and before any test fixtures are constructed.
-static int RegisterSyncPointCleanup() {
+static int RegisterSyncPointCleanup() noexcept {
   ::testing::TestEventListeners& listeners =
       ::testing::UnitTest::GetInstance()->listeners();
   listeners.Append(new SyncPointCleanupListener());
   return 0;
 }
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 [[maybe_unused]] static int sync_point_cleanup_registered_ =
     RegisterSyncPointCleanup();
 }  // namespace
