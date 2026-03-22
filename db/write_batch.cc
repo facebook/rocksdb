@@ -2162,6 +2162,12 @@ class MemTableInserter : public WriteBatch::Handler {
                                     : nullptr);
     pending_batch_entries_.clear();
     batch_add_mem_ = nullptr;
+    if (s.ok()) {
+      // Schedule flush if memtable is full. Without this, deferred batch
+      // inserts could push a memtable past write_buffer_size without
+      // triggering flush scheduling until the next non-batched operation.
+      CheckMemtableFull();
+    }
     return s;
   }
 
