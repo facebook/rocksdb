@@ -858,7 +858,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, &trim_history_scheduler_,
             write_options.ignore_missing_column_families,
-            0 /*recovery_log_number*/, this, seq_per_batch_, batch_per_txn_);
+            0 /*recovery_log_number*/, this, seq_per_batch_, batch_per_txn_,
+            write_options.use_batch_add);
       } else {
         write_group.last_sequence = last_sequence;
         write_thread_.LaunchParallelMemTableWriters(&write_group);
@@ -1117,7 +1118,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           memtable_write_group, w.sequence, column_family_memtables_.get(),
           &flush_scheduler_, &trim_history_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          seq_per_batch_, batch_per_txn_);
+          seq_per_batch_, batch_per_txn_, write_options.use_batch_add);
       if (memtable_write_group.status
               .ok()) {  // Don't publish a partial batch write
         versions_->SetLastSequence(memtable_write_group.last_sequence);

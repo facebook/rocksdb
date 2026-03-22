@@ -191,7 +191,8 @@ class WriteBatchInternal {
       ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
       TrimHistoryScheduler* trim_history_scheduler,
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
-      DB* db = nullptr, bool seq_per_batch = false, bool batch_per_txn = true);
+      DB* db = nullptr, bool seq_per_batch = false, bool batch_per_txn = true,
+      bool use_batch_add = false);
 
   // Convenience form of InsertInto when you have only one batch
   // next_seq returns the seq after last sequence number used in MemTable insert

@@ -2478,6 +2478,12 @@ class MemTableInserter : public WriteBatch::Handler {
                              nullptr /* kv_prot_info */);
     }
 
+    // packed_value points to stack-local value_buf. If batch add deferred the
+    // entry, we must flush now before value_buf goes out of scope.
+    if (ret_status.ok() && use_batch_add_ && !pending_batch_entries_.empty()) {
+      ret_status = FlushPendingBatch();
+    }
+
     // TODO: this assumes that if TryAgain status is returned to the caller,
     // The operation is actually tried again. The proper way to do this is to
     // pass a `try_again` parameter to the operation itself and decrement
@@ -3277,12 +3283,13 @@ Status WriteBatchInternal::InsertInto(
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool seq_per_batch, bool batch_per_txn) {
+    bool seq_per_batch, bool batch_per_txn, bool use_batch_add) {
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, trim_history_scheduler,
       ignore_missing_column_families, recovery_log_number, db,
       /*concurrent_memtable_writes=*/false, nullptr /* prot_info */,
-      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
+      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn,
+      /*hint_per_batch=*/false, use_batch_add);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {
       continue;
@@ -3299,6 +3306,14 @@ Status WriteBatchInternal::InsertInto(
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {
       return w->status;
+    }
+    // Flush pending batch entries between writers to avoid cross-writer
+    // batching issues (different batches may target different memtables).
+    if (use_batch_add) {
+      w->status = inserter.FlushPendingBatch();
+      if (!w->status.ok()) {
+        return w->status;
+      }
     }
     assert(!seq_per_batch || w->batch_cnt != 0);
     assert(!seq_per_batch || inserter.sequence() - w->sequence == w->batch_cnt);
