@@ -502,7 +502,7 @@ while (curr_index_in_curr_level_ < curr_file_level_->num_files) {
 
 ⚠️ **INVARIANT:** L0 files checked in epoch_number order (newest→oldest) to find most recent value first.
 
-### L1+ Search Strategy (Binary Search, One File Per Level)
+### L1+ Search Strategy (Binary Search to First Candidate File)
 
 **Location:** `version_set.cc:310-334`
 
@@ -533,7 +533,7 @@ int FindFileInRange(..., uint32_t left, uint32_t right) {
 }
 ```
 
-⚠️ **INVARIANT:** L1+ files have non-overlapping key ranges. At most one file per level contains the key.
+⚠️ **INVARIANT:** L1+ files are sorted and non-overlapping in internal-key order, so RocksDB can binary-search to the first candidate file. However, adjacent L1+ files may share the same user key at file boundaries (e.g., due to merge operands or snapshots preventing compaction from combining them), so a point lookup may need to check subsequent files in the same level.
 
 ### TableCache::Get() - Bloom Filter + Block Read
 
@@ -1166,7 +1166,7 @@ Only yields keys with `seq <= sequence_` (snapshot seqno)
 | **Snapshot visibility** | `seq <= snapshot_seq` | Ensures consistent reads across all layers |
 | **Lookup order: mem → imm → SST** | Enforced in GetImpl/MultiGetImpl | Newest data found first |
 | **L0 epoch ordering** | Newest first by epoch_number | Correct read ordering despite overlapping ranges |
-| **L1+ non-overlapping** | Compaction maintains disjoint ranges | Binary search works, at most one file per level |
+| **L1+ non-overlapping** | Compaction maintains disjoint internal-key ranges | Binary search works; adjacent files may share a user key at boundaries |
 | **InternalKey ordering** | user_key ASC, sequence DESC, type DESC | Newest version found first during iteration |
 | **Range tombstone truncation** | Clamp to `[smallest, largest)` | Prevents deletion leakage across files |
 | **Merge operand order** | Collected newest→oldest | Correct merge operator semantics |
