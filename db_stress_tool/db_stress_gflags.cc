@@ -1399,6 +1399,9 @@ DEFINE_bool(memtable_insert_hint_per_batch,
             ROCKSDB_NAMESPACE::WriteOptions().memtable_insert_hint_per_batch,
             "WriteOptions.memtable_insert_hint_per_batch");
 
+DEFINE_bool(use_batch_add, ROCKSDB_NAMESPACE::WriteOptions().use_batch_add,
+            "WriteOptions.use_batch_add");
+
 DEFINE_bool(dump_malloc_stats, ROCKSDB_NAMESPACE::Options().dump_malloc_stats,
             "Options.dump_malloc_stats");
 

@@ -1012,6 +1012,7 @@ void StressTest::OperateDb(ThreadState* thread) {
   }
   write_opts.memtable_insert_hint_per_batch =
       FLAGS_memtable_insert_hint_per_batch;
+  write_opts.use_batch_add = FLAGS_use_batch_add;
   auto shared = thread->shared;
   char value[100];
   std::string from_db;

@@ -392,6 +392,7 @@ default_params = {
     "fill_cache": lambda: random.choice([0, 1]),
     "optimize_multiget_for_io": lambda: random.choice([0, 1]),
     "memtable_insert_hint_per_batch": lambda: random.choice([0, 1]),
+    "use_batch_add": lambda: random.choice([0, 1]),
     "dump_malloc_stats": lambda: random.choice([0, 1]),
     "stats_history_buffer_size": lambda: random.choice([0, 1024 * 1024]),
     "skip_stats_update_on_db_open": lambda: random.choice([0, 1]),

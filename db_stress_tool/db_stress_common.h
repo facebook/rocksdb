@@ -399,6 +399,7 @@ DECLARE_bool(avoid_flush_during_shutdown);
 DECLARE_bool(fill_cache);
 DECLARE_bool(optimize_multiget_for_io);
 DECLARE_bool(memtable_insert_hint_per_batch);
+DECLARE_bool(use_batch_add);
 DECLARE_bool(dump_malloc_stats);
 DECLARE_uint64(stats_history_buffer_size);
 DECLARE_bool(skip_stats_update_on_db_open);
