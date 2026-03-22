@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -81,10 +86,9 @@ void RunSingleInsertBench(size_t num_keys, size_t key_size, bool random_keys,
   }
   auto end = std::chrono::high_resolution_clock::now();
 
-  double ms =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
-          .count() /
-      1000.0;
+  double ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+                  .count() /
+              1000.0;
   result->name = random_keys ? "Single (random)" : "Single (sequential)";
   result->num_keys = num_keys;
   result->batch_size = 1;
@@ -125,10 +129,9 @@ void RunBatchInsertBench(size_t num_keys, size_t key_size, size_t batch_size,
   }
   auto end = std::chrono::high_resolution_clock::now();
 
-  double ms =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
-          .count() /
-      1000.0;
+  double ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+                  .count() /
+              1000.0;
   result->name = random_keys ? "Batch (random)" : "Batch (sequential)";
   result->num_keys = num_keys;
   result->batch_size = batch_size;
@@ -136,10 +139,9 @@ void RunBatchInsertBench(size_t num_keys, size_t key_size, size_t batch_size,
   result->throughput_mops = num_keys / ms / 1000.0;
 }
 
-void PrintResults(const std::vector<BenchResult>& results,
-                  double baseline_ms) {
-  printf("%-25s %8s %10s %12s %10s\n", "Method", "Batch", "Time(ms)",
-         "Mops/s", "Speedup");
+void PrintResults(const std::vector<BenchResult>& results, double baseline_ms) {
+  printf("%-25s %8s %10s %12s %10s\n", "Method", "Batch", "Time(ms)", "Mops/s",
+         "Speedup");
   printf("%-25s %8s %10s %12s %10s\n", "-------------------------", "--------",
          "----------", "------------", "----------");
   for (const auto& r : results) {

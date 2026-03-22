@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -124,10 +129,9 @@ TEST_F(MemTableBatchTest, BatchVsSingleInsert) {
 
   // Use single Add
   for (int i = 0; i < kNumEntries; i++) {
-    ASSERT_OK(memtable_->Add(i + 1000, kTypeValue,
-                             Slice("single_key" + std::to_string(i)),
-                             Slice("single_value" + std::to_string(i)),
-                             nullptr));
+    ASSERT_OK(memtable_->Add(
+        i + 1000, kTypeValue, Slice("single_key" + std::to_string(i)),
+        Slice("single_value" + std::to_string(i)), nullptr));
   }
 
   ASSERT_EQ(memtable_->NumEntries(), kNumEntries * 2);
