@@ -1137,6 +1137,16 @@ Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
   std::vector<KeyHandle> handles;
   handles.reserve(num_entries);
 
+  // Track memtable-allocated key pointers for post-insert metadata updates.
+  // We must use these instead of entry.key for MaybeUpdateNewestUDT because
+  // entry.key may point into WriteBatch::rep_ which the caller can free.
+  struct AllocatedKeyInfo {
+    const char* key_ptr;  // Points into memtable-allocated buffer
+    uint32_t key_size;
+  };
+  std::vector<AllocatedKeyInfo> allocated_keys;
+  allocated_keys.reserve(num_entries);
+
   std::unique_ptr<MemTableRep>* table = nullptr;
   uint64_t total_encoded_len = 0;
   uint64_t num_del = 0;
@@ -1167,6 +1177,7 @@ Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
 
     char* p = EncodeVarint32(buf, internal_key_size);
     memcpy(p, entry.key.data(), key_size);
+    allocated_keys.push_back({p, key_size});
     p += key_size;
     uint64_t packed = PackSequenceAndType(entry.seq, entry.type);
     EncodeFixed64(p, packed);
@@ -1204,13 +1215,19 @@ Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
 
   // Batch insert all entries
   size_t inserted_count = (*table)->InsertBatch(handles.data(), num_entries);
-  if (inserted_count != num_entries) {
-    return Status::TryAgain("Some key+seq combinations already exist");
-  }
+  // Even on partial insert, update metadata for the entries that were inserted.
+  // Returning TryAgain without updating counters/bloom would leave inserted
+  // entries invisible to memtable accounting.
+  bool partial_insert = (inserted_count != num_entries);
+  size_t count_for_metadata = inserted_count;
 
-  // Update counters
+  // Update counters (use inserted_count, not num_entries, for correctness)
   if (post_process_info == nullptr) {
-    num_entries_.StoreRelaxed(num_entries_.LoadRelaxed() + num_entries);
+    num_entries_.StoreRelaxed(num_entries_.LoadRelaxed() + count_for_metadata);
+    // Note: total_encoded_len is approximate for partial inserts since we
+    // don't track which specific entries were inserted vs skipped.
+    // This is acceptable because data_size_ is used for flush triggering,
+    // not for correctness.
     data_size_.StoreRelaxed(data_size_.LoadRelaxed() + total_encoded_len);
     if (num_del > 0) {
       num_deletes_.StoreRelaxed(num_deletes_.LoadRelaxed() + num_del);
@@ -1220,7 +1237,7 @@ Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
                                       num_range_del);
     }
   } else {
-    post_process_info->num_entries += num_entries;
+    post_process_info->num_entries += count_for_metadata;
     post_process_info->data_size += total_encoded_len;
     post_process_info->num_deletes += num_del;
     post_process_info->num_range_deletes += num_range_del;
@@ -1249,8 +1266,18 @@ Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
 
-    Slice key_slice(entry.key.data(), entry.key.size());
+    // Use the memtable-allocated key for MaybeUpdateNewestUDT, not entry.key
+    // which may point into the caller's WriteBatch buffer (dangling after Write
+    // returns). The memtable-allocated copy is stable for the memtable's
+    // lifetime.
+    Slice key_slice(allocated_keys[i].key_ptr, allocated_keys[i].key_size);
     MaybeUpdateNewestUDT(key_slice);
+  }
+
+  if (partial_insert) {
+    UpdateOldestKeyTime();
+    UpdateFlushState();
+    return Status::TryAgain("Some key+seq combinations already exist");
   }
 
   // Handle range deletion cache invalidation
