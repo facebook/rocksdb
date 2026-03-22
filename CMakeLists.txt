@@ -1421,6 +1421,7 @@ if(WITH_TESTS)
         db/db_kv_checksum_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
+        db/memtable_batch_test.cc
         db/db_merge_operator_test.cc
         db/db_merge_operand_test.cc
         db/db_options_test.cc

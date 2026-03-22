@@ -9,6 +9,7 @@
 
 #include "memtable/inlineskiplist.h"
 
+#include <chrono>
 #include <set>
 #include <unordered_set>
 
@@ -1143,6 +1144,349 @@ TEST_F(InlineSkipTest, ConcurrentMultiGet) {
       << "Concurrent MultiGet read-after-write consistency check failed";
   ASSERT_EQ(batches_done.load(), kTotalKeys)
       << "Not all insert+query iterations completed";
+}
+
+// Batch Insert Tests
+TEST_F(InlineSkipTest, BatchInsertEmpty) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  const char* keys[10];
+  size_t inserted = list.InsertBatch(keys, 0);
+  ASSERT_EQ(0u, inserted);
+}
+
+TEST_F(InlineSkipTest, BatchInsertSingle) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  Key key = 100;
+  char* buf = list.AllocateKey(sizeof(Key));
+  memcpy(buf, &key, sizeof(Key));
+  const char* keys[1] = {buf};
+
+  size_t inserted = list.InsertBatch(keys, 1);
+  ASSERT_EQ(1u, inserted);
+  ASSERT_TRUE(list.Contains(Encode(&key)));
+}
+
+TEST_F(InlineSkipTest, BatchInsertSequential) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  const int N = 10000;
+  std::vector<const char*> keys;
+  for (int i = 0; i < N; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys.push_back(buf);
+  }
+
+  size_t inserted = list.InsertBatch(keys.data(), N);
+  ASSERT_EQ(static_cast<size_t>(N), inserted);
+
+  for (int i = 0; i < N; i++) {
+    Key key = i * 10;
+    ASSERT_TRUE(list.Contains(Encode(&key)));
+  }
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < N; i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(i * 10, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(InlineSkipTest, BatchInsertRandom) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  uint32_t seed = static_cast<uint32_t>(
+      std::chrono::system_clock::now().time_since_epoch().count());
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  Random rnd(seed);
+
+  const int N = 10000;
+  std::vector<const char*> keys;
+  std::set<Key> key_set;
+
+  for (int i = 0; i < N; i++) {
+    Key key = rnd.Next() % 10000;
+    if (key_set.insert(key).second) {
+      char* buf = list.AllocateKey(sizeof(Key));
+      memcpy(buf, &key, sizeof(Key));
+      keys.push_back(buf);
+    }
+  }
+
+  size_t inserted = list.InsertBatch(keys.data(), keys.size());
+  ASSERT_EQ(keys.size(), inserted);
+
+  for (Key key : key_set) {
+    ASSERT_TRUE(list.Contains(Encode(&key)));
+  }
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (Key key : key_set) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(key, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(InlineSkipTest, BatchInsertWithDuplicates) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  const int N = 20;
+  std::vector<const char*> keys;
+
+  for (int i = 0; i < N; i++) {
+    Key key = (i / 2) * 10;  // 0, 0, 10, 10, 20, 20, ...
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys.push_back(buf);
+  }
+
+  size_t inserted = list.InsertBatch(keys.data(), N);
+  ASSERT_EQ(10u, inserted);
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < 10; i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(i * 10, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(InlineSkipTest, BatchInsertWithExistingKeys) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // Insert some keys using regular insert
+  for (int i = 0; i < 10; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Batch insert with some existing and some new keys
+  const int N = 15;
+  std::vector<const char*> keys;
+  for (int i = 5; i < 20; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys.push_back(buf);
+  }
+
+  size_t inserted = list.InsertBatch(keys.data(), N);
+  ASSERT_EQ(10u, inserted);
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < 20; i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(i * 10, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(InlineSkipTest, BatchInsertLarge) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  const int N = 10000;
+  std::vector<const char*> keys;
+  for (int i = 0; i < N; i++) {
+    Key key = i;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys.push_back(buf);
+  }
+
+  size_t inserted = list.InsertBatch(keys.data(), N);
+  ASSERT_EQ(static_cast<size_t>(N), inserted);
+
+  for (int i = 0; i < N; i++) {
+    Key key = i;
+    ASSERT_TRUE(list.Contains(Encode(&key)));
+  }
+
+  list.TEST_Validate();
+}
+
+TEST_F(InlineSkipTest, BatchInsertMultipleBatches) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  const int BATCH_SIZE = 20;
+  const int NUM_BATCHES = 10;
+
+  for (int batch = 0; batch < NUM_BATCHES; batch++) {
+    std::vector<const char*> keys;
+    for (int i = 0; i < BATCH_SIZE; i++) {
+      Key key = batch * BATCH_SIZE + i;
+      char* buf = list.AllocateKey(sizeof(Key));
+      memcpy(buf, &key, sizeof(Key));
+      keys.push_back(buf);
+    }
+    size_t inserted = list.InsertBatch(keys.data(), BATCH_SIZE);
+    ASSERT_EQ(static_cast<size_t>(BATCH_SIZE), inserted);
+  }
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < BATCH_SIZE * NUM_BATCHES; i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(i, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(InlineSkipTest, BatchInsertReversed) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  const int N = 100;
+  std::vector<const char*> keys;
+
+  for (int i = N - 1; i >= 0; i--) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys.push_back(buf);
+  }
+
+  size_t inserted = list.InsertBatch(keys.data(), N);
+  ASSERT_EQ(static_cast<size_t>(N), inserted);
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < N; i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(i * 10, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+
+  list.TEST_Validate();
+}
+
+TEST_F(InlineSkipTest, BatchInsertInterleaved) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // First batch: even numbers
+  const int N = 50;
+  std::vector<const char*> keys1;
+  for (int i = 0; i < N; i++) {
+    Key key = i * 2;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys1.push_back(buf);
+  }
+  ASSERT_EQ(static_cast<size_t>(N), list.InsertBatch(keys1.data(), N));
+
+  // Second batch: odd numbers
+  std::vector<const char*> keys2;
+  for (int i = 0; i < N; i++) {
+    Key key = i * 2 + 1;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys2.push_back(buf);
+  }
+  ASSERT_EQ(static_cast<size_t>(N), list.InsertBatch(keys2.data(), N));
+
+  InlineSkipList<TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < 2 * N; i++) {
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(i, Decode(iter.key()));
+    iter.Next();
+  }
+  ASSERT_FALSE(iter.Valid());
+
+  list.TEST_Validate();
+}
+
+TEST_F(InlineSkipTest, BatchInsertShapeComparison) {
+  const int N = 10000;
+
+  Arena arena1, arena2;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list1(cmp, &arena1);
+  InlineSkipList<TestComparator> list2(cmp, &arena2);
+
+  uint32_t seed = static_cast<uint32_t>(
+      std::chrono::system_clock::now().time_since_epoch().count());
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  Random rnd(seed);
+
+  std::vector<Key> test_keys;
+  for (int i = 0; i < N; i++) {
+    test_keys.push_back(rnd.Next() % 50000);
+  }
+
+  // Sequential insert
+  for (Key key : test_keys) {
+    char* buf = list1.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list1.Insert(buf);
+  }
+
+  // Batch insert
+  std::vector<const char*> keys;
+  for (Key key : test_keys) {
+    char* buf = list2.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    keys.push_back(buf);
+  }
+  list2.InsertBatch(keys.data(), keys.size());
+
+  // Both should contain the same keys
+  std::vector<int> counts1 = list1.TEST_GetLevelNodeCounts();
+  std::vector<int> counts2 = list2.TEST_GetLevelNodeCounts();
+
+  // Level 0 should have the same number of nodes
+  ASSERT_EQ(counts1[0], counts2[0]);
+
+  // Both iterators should produce the same sequence
+  InlineSkipList<TestComparator>::Iterator iter1(&list1);
+  InlineSkipList<TestComparator>::Iterator iter2(&list2);
+  iter1.SeekToFirst();
+  iter2.SeekToFirst();
+  while (iter1.Valid() && iter2.Valid()) {
+    ASSERT_EQ(Decode(iter1.key()), Decode(iter2.key()));
+    iter1.Next();
+    iter2.Next();
+  }
+  ASSERT_FALSE(iter1.Valid());
+  ASSERT_FALSE(iter2.Valid());
+
+  list1.TEST_Validate();
+  list2.TEST_Validate();
 }
 
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)

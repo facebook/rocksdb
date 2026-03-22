@@ -656,6 +656,100 @@ TEST_F(DBMemTableTest, VectorConcurrentInsert) {
   ASSERT_OK(Flush(0));
   ASSERT_OK(Flush(1));
 }
+
+TEST_F(DBMemTableTest, WriteBatchWithBatchAdd) {
+  // Test end-to-end: WriteOptions{.use_batch_add = true} -> WriteBatch ->
+  // MemTable -> Get/Iterator
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+
+  // Write a batch of entries
+  const int kNumEntries = 200;
+  {
+    WriteBatch batch;
+    for (int i = 0; i < kNumEntries; i++) {
+      ASSERT_OK(
+          batch.Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Verify all entries via Get
+  for (int i = 0; i < kNumEntries; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+
+  // Verify via iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    int count = 0;
+    while (iter->Valid()) {
+      count++;
+      iter->Next();
+    }
+    ASSERT_EQ(count, kNumEntries);
+  }
+
+  // Test with deletes
+  {
+    WriteBatch batch;
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(batch.Delete("key" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Verify deletes
+  for (int i = 0; i < 50; i++) {
+    std::string value;
+    Status s = db_->Get(ReadOptions(), "key" + std::to_string(i), &value);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+
+  // Verify remaining entries still exist
+  for (int i = 50; i < kNumEntries; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+}
+
+TEST_F(DBMemTableTest, WriteBatchWithBatchAddMultipleBatches) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+
+  // Write multiple batches
+  for (int b = 0; b < 10; b++) {
+    WriteBatch batch;
+    for (int i = 0; i < 100; i++) {
+      int key_id = b * 100 + i;
+      ASSERT_OK(batch.Put("key" + std::to_string(key_id),
+                          "value" + std::to_string(key_id)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Verify all 1000 entries
+  for (int i = 0; i < 1000; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
