@@ -2524,6 +2524,15 @@ class MemTableInserter : public WriteBatch::Handler {
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
                     const Slice& value, ValueType delete_type,
                     const ProtectionInfoKVOS64* kv_prot_info) {
+    // Flush any pending batch entries before inserting a delete directly,
+    // because pending entries may have lower sequence numbers and BatchAdd
+    // asserts that entry.seq >= first_seqno_.
+    if (use_batch_add_ && !pending_batch_entries_.empty()) {
+      Status flush_status = FlushPendingBatch();
+      if (!flush_status.ok()) {
+        return flush_status;
+      }
+    }
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     ret_status =
@@ -2784,6 +2793,16 @@ class MemTableInserter : public WriteBatch::Handler {
       return ret_status;
     }
     assert(ret_status.ok());
+
+    // Flush any pending batch entries before inserting a merge directly,
+    // because pending entries may have lower sequence numbers and BatchAdd
+    // asserts that entry.seq >= first_seqno_.
+    if (use_batch_add_ && !pending_batch_entries_.empty()) {
+      ret_status = FlushPendingBatch();
+      if (!ret_status.ok()) {
+        return ret_status;
+      }
+    }
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();

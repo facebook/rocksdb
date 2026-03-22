@@ -2426,6 +2426,11 @@ struct WriteOptions {
   // write performance by reducing CPU cache misses through prefetching
   // during skiplist insertion.
   //
+  // NOTE: Not compatible with concurrent memtable writes
+  // (allow_concurrent_memtable_write = true). When concurrent memtable writes
+  // are enabled, this option is silently ignored and individual Add calls are
+  // used instead.
+  //
   // Default: false
   bool use_batch_add = false;
 

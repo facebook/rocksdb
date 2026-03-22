@@ -73,7 +73,9 @@ class SkipListRep : public MemTableRep {
   }
 
   size_t InsertBatch(KeyHandle* handles, size_t batch_size) override {
-    std::vector<const char*> keys(batch_size);
+    // Use thread-local buffer to avoid repeated heap allocations.
+    static thread_local std::vector<const char*> keys;
+    keys.resize(batch_size);
     for (size_t i = 0; i < batch_size; ++i) {
       keys[i] = static_cast<const char*>(handles[i]);
     }

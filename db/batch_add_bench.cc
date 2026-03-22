@@ -6,13 +6,13 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
-#include <random>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "util/coding.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -87,7 +87,7 @@ class BatchAddBenchmark {
     keys.reserve(num_entries_);
     values.reserve(num_entries_);
 
-    std::mt19937_64 rng(12345);
+    Random rnd(12345);
     std::string value(value_size_, 'x');
 
     for (int i = 0; i < num_entries_; ++i) {
@@ -96,30 +96,18 @@ class BatchAddBenchmark {
       keys.emplace_back(key_buf);
 
       for (int j = 0; j < value_size_; ++j) {
-        value[j] = static_cast<char>('a' + (rng() % 26));
+        value[j] = static_cast<char>('a' + (rnd.Next() % 26));
       }
       values.emplace_back(value);
     }
 
     if (random_order) {
-      std::vector<int> indices(num_entries_);
-      for (int i = 0; i < num_entries_; ++i) {
-        indices[i] = i;
+      // Fisher-Yates shuffle using RocksDB Random
+      for (int i = num_entries_ - 1; i > 0; --i) {
+        int j = static_cast<int>(rnd.Next() % (i + 1));
+        std::swap(keys[i], keys[j]);
+        std::swap(values[i], values[j]);
       }
-      std::shuffle(indices.begin(), indices.end(), rng);
-
-      std::vector<std::string> shuffled_keys;
-      std::vector<std::string> shuffled_values;
-      shuffled_keys.reserve(num_entries_);
-      shuffled_values.reserve(num_entries_);
-
-      for (int idx : indices) {
-        shuffled_keys.emplace_back(std::move(keys[idx]));
-        shuffled_values.emplace_back(std::move(values[idx]));
-      }
-
-      keys = std::move(shuffled_keys);
-      values = std::move(shuffled_values);
     }
 
     WriteOptions write_options;
